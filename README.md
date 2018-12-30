@@ -1,34 +1,12 @@
-model module
-- models the elements of a document
-cursor module
-- tracks cursors
-- uses raw numerical positions
-state module
-- depends on model module
-- depends on cursor module
-- tracks the state of the document and cursors
-- provides utility for resolving positions
-- defines state transformations
-view module
-- depends on state module
-- renders state (document and cursors) to DOM
-- uses caching to optimize performance
-- listens to DOM events and translates them to transformations for the state module to apply
-- translates document state to lines and tokens, with dimensional properties
-- builds all tokens and passes them to view components to render
-- on state change, rebuild all tokens (optimize for performance) and rerender (optimize for performance)
+# TaleWeaver
 
-model
-  Document
-  Paragraph
-  Text
-cursor
-  Cursor
-state
-view
-  TextStyle
-  Document
-  Paragraph
-  LineGroup
-  tokens
-    TextToken
+This is a work-in-progress WYSIWYG editor aiming to become the word processor for the 2Tale platform. The goal is to develop an editor that is fully aware of where things are rendered, and completely avoid the use of contenteditable.
+
+The project is broken up into various modules:
+
+- Model
+- Cursor
+- State
+- View
+
+See README of each module for further detail.
