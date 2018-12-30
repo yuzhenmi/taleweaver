@@ -38,7 +38,6 @@ export default class Document extends Component<DocumentProps> {
     let tokenBlock: TokenBlock = { lines: [], height: 0 };
     const pushBlockToPage = () => {
       tokenPage.blocks.push(tokenBlock);
-      cumulatedHeight += tokenBlock.height;
       tokenBlock = { lines: [], height: 0 };
     }
     document.getChildren().forEach(blockElement => {
@@ -53,6 +52,7 @@ export default class Document extends Component<DocumentProps> {
         tokenBlock.lines.push(tokenLine);
         tokenBlock.height += tokenLine.height;
         cumulatedWidth = 0;
+        cumulatedHeight += tokenLine.height;
         tokenLine = { tokens: [], height: 0 };
       }
       flatTokens.forEach(token => {
