@@ -33,7 +33,7 @@ type Measurement = {
   height: number;
 };
 
-export default class TextMeasurer {
+export class TextMeasurer {
   private lruCache: LRUCache;
   private $iframe: HTMLIFrameElement;
   private $textContainers: Map<string, HTMLSpanElement>;
@@ -88,6 +88,6 @@ export default class TextMeasurer {
 
 const textMeasurer = new TextMeasurer();
 
-export function measureText(text: string, textStyle: TextStyle): Measurement {
+export default function measureText(text: string, textStyle: TextStyle): Measurement {
   return textMeasurer.measure(text, textStyle);
 }

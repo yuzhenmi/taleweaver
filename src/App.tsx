@@ -1,9 +1,9 @@
-import React, { Component, Children } from 'react';
+import React, { Component } from 'react';
 import './App.css';
-import JSONParser from './editor/model/util/JSONParser';
+import JSONParser from './editor/element/util/JSONParser';
 import EditorState from './editor/state/State';
-import Document from './editor/view/Document';
 import Cursor from './editor/cursor/Cursor';
+import Document from './editor/view/Document';
 
 const jsonParser = new JSONParser();
 const documentJson = {
@@ -17,7 +17,7 @@ const documentJson = {
 };
 const document = jsonParser.parse(documentJson);
 const cursor = new Cursor(0, 0);
-const initialEditorState = new EditorState(document, [cursor]);
+const initialEditorState = new EditorState(document, [cursor], []);
 
 class App extends Component {
   state = {
@@ -28,9 +28,7 @@ class App extends Component {
     const {editorState} = this.state;
     return (
       <div className="App">
-        <Document
-          state={editorState}
-        />
+        <Document state={editorState} />
       </div>
     );
   }

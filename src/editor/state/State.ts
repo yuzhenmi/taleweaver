@@ -1,4 +1,4 @@
-import Document from '../model/Document';
+import Document from '../element/Document';
 import Cursor from '../cursor/Cursor';
 
 export default class State {
@@ -6,18 +6,10 @@ export default class State {
   private editingCursors: Cursor[];
   private observingCursors: Cursor[];
 
-  constructor(document: Document, editingCursors?: Cursor[], observingCursors?: Cursor[]) {
+  constructor(document: Document, editingCursors: Cursor[] = [], observingCursors: Cursor[] = []) {
     this.document = document;
-    if (editingCursors) {
-      this.editingCursors = editingCursors;
-    } else {
-      this.editingCursors = [];
-    }
-    if (observingCursors) {
-      this.observingCursors = observingCursors;
-    } else {
-      this.observingCursors = [];
-    }
+    this.editingCursors = editingCursors;
+    this.observingCursors = observingCursors;
   }
 
   getDocument(): Document {
@@ -26,5 +18,9 @@ export default class State {
 
   getEditingCursors(): Cursor[] {
     return this.editingCursors;
+  }
+
+  getObservingCursors(): Cursor[] {
+    return this.observingCursors;
   }
 }

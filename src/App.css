@@ -13,3 +13,9 @@ body {
   margin: 18px auto;
   cursor: text;
 }
+
+.tw--editing-cursor {
+  width: 2px;
+  height: 12px;
+  background: black;
+}

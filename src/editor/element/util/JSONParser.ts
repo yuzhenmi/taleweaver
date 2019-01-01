@@ -1,8 +1,8 @@
-import BlockElement from '../../model/BlockElement';
-import InlineElement from '../../model/InlineElement';
-import Document from '../../model/Document';
-import Paragraph from '../../model/Paragraph';
-import Text from '../../model/Text';
+import BlockElement from '../BlockElement';
+import InlineElement from '../InlineElement';
+import Document from '../Document';
+import Paragraph from '../Paragraph';
+import Text from '../Text';
 
 type BlockElementClass = new (...args: any[]) => BlockElement;
 type InlineElementClass = new (...args: any[]) => InlineElement;
@@ -56,11 +56,11 @@ export default class JSONParser {
     json.children.map(blockJSON => {
       const blockElementClass = this.getBlockElement(blockJSON.type);
       const blockElement = new blockElementClass(document);
-      document.appendChild(blockElement);
+      document.appendBlockElement(blockElement);
       blockJSON.children.map(inlineJSON => {
         const inlineElementClass = this.getInlineElement(inlineJSON.type);
         const inlineElement = new inlineElementClass(blockElement, inlineJSON.content);
-        blockElement.appendChild(inlineElement);
+        blockElement.appendInlineElement(inlineElement);
       });
     });
     return document;
