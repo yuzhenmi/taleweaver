@@ -1,14 +1,14 @@
 import DocumentPosition from './DocumentPosition';
-import BlockElement from '../element/BlockElement';
+import Block from '../element/block/Block';
 
 export default class BlockPosition {
   private documentPosition: DocumentPosition;
-  private blockElement: BlockElement;
+  private block: Block;
   private position: number;
 
-  constructor(documentPosition: DocumentPosition, blockElement: BlockElement, position: number) {
+  constructor(documentPosition: DocumentPosition, block: Block, position: number) {
     this.documentPosition = documentPosition;
-    this.blockElement = blockElement;
+    this.block = block;
     this.position = position;
   }
 
@@ -16,8 +16,8 @@ export default class BlockPosition {
     return this.documentPosition;
   }
 
-  getBlockElement(): BlockElement {
-    return this.blockElement;
+  getBlock(): Block {
+    return this.block;
   }
 
   getPosition(): number {

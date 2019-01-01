@@ -1,44 +1,48 @@
 import Element from './Element';
-import BlockElement from './BlockElement';
-import Page from '../layout/Page';
-import buildPagesFromBlocks from '../layout/util/buildPagesFromBlocks';
+import Block from './block/Block';
+import PageLayout from '../layout/Page';
+import buildPageLayoutsFromBlockLayouts from '../layout/util/buildPagesFromBlocks';
 
 export default class Document implements Element {
-  private blockElements: BlockElement[];
+  private blocks: Block[];
+  private size: number;
+  private pageLayouts: PageLayout[];
 
-  constructor() {
-    this.blockElements = [];
+  constructor(onCreateBlocks: (document: Document) => Block[]) {
+    // Create blocks
+    this.blocks = onCreateBlocks(this);
+
+    // Determine size
+    this.size = 0;
+    this.blocks.forEach(block => {
+      this.size += block.getSize();
+    });
+
+    // Build page layouts
+    const blockLayouts = this.blocks.map(block => block.getBlockLayout());
+    this.pageLayouts = buildPageLayoutsFromBlockLayouts(600, 776, blockLayouts);
+  }
+
+  getBlocks(): Block[] {
+    return this.blocks;
   }
 
   getSize(): number {
-    let size = 0;
-    this.blockElements.forEach(blockElement => {
-      size += blockElement.getSize();
-    });
-    return size;
+    return this.size;
   }
 
-  getBlockElements(): BlockElement[] {
-    return this.blockElements;
+  getPageLayouts(): PageLayout[] {
+    return this.pageLayouts;
   }
 
-  appendBlockElement(blockElement: BlockElement) {
-    this.blockElements.push(blockElement);
-  }
-
-  getBlockElementAt(position: number): BlockElement | null {
+  getBlockAt(position: number): Block | null {
     let cumulatedSize = 0;
-    for (let n = 0, nn = this.blockElements.length; n < nn; n++) {
-      cumulatedSize += this.blockElements[n].getSize();
+    for (let n = 0, nn = this.blocks.length; n < nn; n++) {
+      cumulatedSize += this.blocks[n].getSize();
       if (cumulatedSize > position) {
-        return this.blockElements[n];
+        return this.blocks[n];
       }
     }
     return null;
-  }
-
-  getPages(): Page[] {
-    const blocks = this.blockElements.map(blockElement => blockElement.getBlock());
-    return buildPagesFromBlocks(600, 776, blocks);
   }
 }

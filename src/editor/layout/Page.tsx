@@ -36,6 +36,14 @@ export default class Page {
     this.blocks = blocks;
   }
 
+  getSize(): number {
+    let size = 0;
+    this.blocks.forEach(block => {
+      size += block.getSize();
+    });
+    return size;
+  }
+
   getWidth(): number {
     return this.width;
   }

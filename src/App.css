@@ -7,11 +7,17 @@ body {
   box-sizing: border-box;
 }
 
+.tw--pages {
+  padding: 36px;
+}
 .tw--page {
   background: white;
   box-shadow: 0 3px 18px rgba(0, 0, 0, 0.09);
-  margin: 18px auto;
+  margin: 0 auto 24px;
   cursor: text;
+}
+.tw--page:last-child {
+  margin-bottom: 0;
 }
 
 .tw--editing-cursor {

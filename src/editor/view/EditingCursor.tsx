@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import State from '../state/State';
 import Cursor from '../cursor/Cursor';
-import resolvePosition from '../position/util/resolvePosition';
+import resolveElementPosition from '../position/util/resolveElementPosition';
 import projectResolvedPosition from '../position/util/projectResolvedPosition';
 
 type EditingCursorProps = {
@@ -14,12 +14,13 @@ export default class EditingCursor extends Component<EditingCursorProps> {
       state,
       cursor,
     } = this.props;
-    const resolvedAnchor = resolvePosition(state.getDocument(), cursor.getAnchor());
-    const resolvedHead = resolvePosition(state.getDocument(), cursor.getHead());
+    const resolvedAnchor = resolveElementPosition(state.getDocument(), cursor.getAnchor());
+    const resolvedHead = resolveElementPosition(state.getDocument(), cursor.getHead());
     if (!resolvedAnchor || !resolvedHead) {
       return null;
     }
     const anchorCoordinates = projectResolvedPosition(resolvedAnchor);
+    const headCoordinates = projectResolvedPosition(resolvedHead);
     return (
       <div
         className="tw--editing-cursor"

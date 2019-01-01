@@ -1,14 +1,14 @@
 import BlockPosition from './BlockPosition';
-import InlineElement from '../element/InlineElement';
+import Inline from '../element/inline/Inline';
 
 export default class InlinePosition {
   private blockPosition: BlockPosition;
-  private inlineElement: InlineElement;
+  private inline: Inline;
   private position: number;
 
-  constructor(blockPosition: BlockPosition, inlineElement: InlineElement, position: number) {
+  constructor(blockPosition: BlockPosition, inline: Inline, position: number) {
     this.blockPosition = blockPosition;
-    this.inlineElement = inlineElement;
+    this.inline = inline;
     this.position = position;
   }
 
@@ -16,8 +16,8 @@ export default class InlinePosition {
     return this.blockPosition;
   }
 
-  getInlineElement(): InlineElement {
-    return this.inlineElement;
+  getInline(): Inline {
+    return this.inline;
   }
 
   getPosition(): number {

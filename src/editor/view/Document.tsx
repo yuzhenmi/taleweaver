@@ -17,7 +17,7 @@ export default class Document extends Component<DocumentProps> {
     return (
       <div className="tw--document">
         <div className="tw--pages">
-          {document.getPages().map(page => page.render())}
+          {document.getPageLayouts().map(page => page.render())}
         </div>
         <div className="tw--editing-cursors">
           {editingCursors.map((cursor, cursorIndex) => (

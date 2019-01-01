@@ -10,6 +10,14 @@ export default class Line {
     this.boxes = boxes;
   }
 
+  getSize(): number {
+    let size = 0;
+    this.boxes.forEach(box => {
+      size += box.getSize();
+    });
+    return size;
+  }
+
   getWidth(): number {
     return this.width;
   }

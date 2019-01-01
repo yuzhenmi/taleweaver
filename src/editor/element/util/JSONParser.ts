@@ -1,11 +1,11 @@
-import BlockElement from '../BlockElement';
-import InlineElement from '../InlineElement';
+import Block from '../block/Block';
+import Inline from '../inline/Inline';
 import Document from '../Document';
-import Paragraph from '../Paragraph';
-import Text from '../Text';
+import Paragraph from '../block/Paragraph';
+import Text from '../inline/Text';
 
-type BlockElementClass = new (...args: any[]) => BlockElement;
-type InlineElementClass = new (...args: any[]) => InlineElement;
+type BlockClass = new (document: Document, onCreateInlines: (paragraph: Paragraph) => Inline[]) => Block;
+type InlineClass = new (block: Block, content: string) => Inline;
 type InlineJSON = {
   type: string;
   content: string;
@@ -19,50 +19,46 @@ type DocumentJSON = {
 };
 
 export default class JSONParser {
-  private registeredBlockElements: Map<string, BlockElementClass>;
-  private registeredInlineElements: Map<string, InlineElementClass>;
+  private registeredBlocks: Map<string, BlockClass>;
+  private registeredInlines: Map<string, InlineClass>;
 
   constructor() {
-    this.registeredBlockElements = new Map<string, BlockElementClass>();
-    this.registeredBlockElements.set('Paragraph', Paragraph);
-    this.registeredInlineElements = new Map<string, InlineElementClass>();
-    this.registeredInlineElements.set('Text', Text);
+    this.registeredBlocks = new Map<string, BlockClass>();
+    this.registeredBlocks.set('Paragraph', Paragraph);
+    this.registeredInlines = new Map<string, InlineClass>();
+    this.registeredInlines.set('Text', Text);
   }
 
-  registerBlockElement(type: string, ElementClass: BlockElementClass) {
-    this.registeredBlockElements.set(type, ElementClass);
+  registerBlock(type: string, ElementClass: BlockClass) {
+    this.registeredBlocks.set(type, ElementClass);
   }
 
-  getBlockElement(type: string): BlockElementClass {
-    if (!this.registeredBlockElements.has(type)) {
+  getBlock(type: string): BlockClass {
+    if (!this.registeredBlocks.has(type)) {
       throw new Error(`Unregistered block element type: ${type}`);
     }
-    return this.registeredBlockElements.get(type)!;
+    return this.registeredBlocks.get(type)!;
   }
 
-  registerInlineElement(type: string, ElementClass: InlineElementClass) {
-    this.registeredInlineElements.set(type, ElementClass);
+  registerInline(type: string, ElementClass: InlineClass) {
+    this.registeredInlines.set(type, ElementClass);
   }
 
-  getInlineElement(type: string): InlineElementClass {
-    if (!this.registeredInlineElements.has(type)) {
+  getInline(type: string): InlineClass {
+    if (!this.registeredInlines.has(type)) {
       throw new Error(`Unregistered inline element type: ${type}`);
     }
-    return this.registeredInlineElements.get(type)!;
+    return this.registeredInlines.get(type)!;
   }
 
   parse(json: DocumentJSON): Document {
-    const document = new Document();
-    json.children.map(blockJSON => {
-      const blockElementClass = this.getBlockElement(blockJSON.type);
-      const blockElement = new blockElementClass(document);
-      document.appendBlockElement(blockElement);
-      blockJSON.children.map(inlineJSON => {
-        const inlineElementClass = this.getInlineElement(inlineJSON.type);
-        const inlineElement = new inlineElementClass(blockElement, inlineJSON.content);
-        blockElement.appendInlineElement(inlineElement);
-      });
-    });
-    return document;
+    return new Document(document => json.children.map(blockJSON => {
+        const blockClass = this.getBlock(blockJSON.type);
+        return new blockClass(document, block => blockJSON.children.map(inlineJSON => {
+          const inlineClass = this.getInline(inlineJSON.type);
+          return new inlineClass(block, inlineJSON.content);
+        }));
+      })
+    );
   }
 }

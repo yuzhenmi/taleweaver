@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import State from '../state/State';
 import Cursor from '../cursor/Cursor';
-import resolvePosition from '../position/util/resolvePosition';
+import resolveElementPosition from '../position/util/resolveElementPosition';
 
 type ObservingCursorProps = {
   state: State
@@ -13,8 +13,8 @@ export default class ObservingCursor extends Component<ObservingCursorProps> {
       state,
       cursor,
     } = this.props;
-    const resolvedAnchor = resolvePosition(state.getDocument(), cursor.getAnchor());
-    const resolvedHead = resolvePosition(state.getDocument(), cursor.getHead());
+    const resolvedAnchor = resolveElementPosition(state.getDocument(), cursor.getAnchor());
+    const resolvedHead = resolveElementPosition(state.getDocument(), cursor.getHead());
     return (
       <div style={{width: '2px', height: '12px', background: 'black'}}>
       </div>
