@@ -1,11 +1,10 @@
-import React, { ReactNode } from 'react';
-import Box from './Box';
+import BoxLayout from './BoxLayout';
 
-export default class Line {
+export default class LineLayout {
   private width: number;
-  private boxes: Box[];
+  private boxes: BoxLayout[];
 
-  constructor(width: number, boxes: Box[]) {
+  constructor(width: number, boxes: BoxLayout[]) {
     this.width = width;
     this.boxes = boxes;
   }
@@ -26,15 +25,7 @@ export default class Line {
     return Math.max(...this.boxes.map(box => box.getHeight()));
   }
 
-  getBoxes(): Box[] {
+  getBoxes(): BoxLayout[] {
     return this.boxes;
-  }
-
-  render(): ReactNode {
-    return (
-      <div className="tw--line">
-        {this.boxes.map(box => box.render())}
-      </div>
-    );
   }
 }

@@ -3,7 +3,7 @@ import './App.css';
 import JSONParser from './editor/element/util/JSONParser';
 import EditorState from './editor/state/State';
 import Cursor from './editor/cursor/Cursor';
-import Document from './editor/view/Document';
+import DocumentView from './editor/view/DocumentView';
 
 const jsonParser = new JSONParser();
 const documentJson = {
@@ -43,7 +43,7 @@ class App extends Component {
     const {editorState} = this.state;
     return (
       <div className="App">
-        <Document state={editorState} />
+        <DocumentView state={editorState} />
       </div>
     );
   }

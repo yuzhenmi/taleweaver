@@ -1,11 +1,9 @@
-import Block from '../block/Block';
-import Inline from '../inline/Inline';
+import { BlockClass } from '../block/Block';
+import { InlineClass } from '../inline/Inline';
 import Document from '../Document';
 import Paragraph from '../block/Paragraph';
 import Text from '../inline/Text';
 
-type BlockClass = new (document: Document, onCreateInlines: (paragraph: Paragraph) => Inline[]) => Block;
-type InlineClass = new (block: Block, content: string) => Inline;
 type InlineJSON = {
   type: string;
   content: string;
@@ -35,7 +33,7 @@ export default class JSONParser {
 
   getBlock(type: string): BlockClass {
     if (!this.registeredBlocks.has(type)) {
-      throw new Error(`Unregistered block element type: ${type}`);
+      throw new Error(`Unregistered block type: ${type}`);
     }
     return this.registeredBlocks.get(type)!;
   }
@@ -46,7 +44,7 @@ export default class JSONParser {
 
   getInline(type: string): InlineClass {
     if (!this.registeredInlines.has(type)) {
-      throw new Error(`Unregistered inline element type: ${type}`);
+      throw new Error(`Unregistered inline type: ${type}`);
     }
     return this.registeredInlines.get(type)!;
   }

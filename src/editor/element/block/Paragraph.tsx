@@ -1,53 +1,13 @@
-import React, { ReactNode } from 'react';
+import React from 'react';
 import Document from '../Document';
 import Block from './Block';
 import Inline from '../inline/Inline';
-import BlockLayout from '../../layout/Block';
-import LineLayout from '../../layout/Line';
-import BoxLayout from '../../layout/Box';
+import BlockLayout from '../../layout/BlockLayout';
+import LineLayout from '../../layout/LineLayout';
+import BoxLayout from '../../layout/BoxLayout';
 import buildLinesFromBoxes from '../../layout/util/buildLinesFromBoxes';
-
-class ParagraphLayout implements BlockLayout {
-  private width: number;
-  private lines: LineLayout[];
-
-  constructor(width: number, boxes: BoxLayout[]) {
-    this.width = width;
-    this.lines = buildLinesFromBoxes(width, boxes);
-  }
-
-  getSize(): number {
-    let size = 0;
-    this.lines.forEach(line => {
-      size += line.getSize();
-    });
-    return size;
-  }
-
-  getWidth(): number {
-    return this.width;
-  }
-
-  getHeight(): number {
-    let height = 0;
-    this.lines.forEach(line => {
-      height += line.getHeight();
-    });
-    return height;
-  }
-
-  getLines(): LineLayout[] {
-    return this.lines;
-  }
-
-  render(): ReactNode {
-    return (
-      <div className="tw--paragraph">
-        {this.lines.map(line => line.render())}
-      </div>
-    );
-  }
-}
+import LineView from '../../view/LineView';
+import viewRegistry from '../../view/util/viewRegistry';
 
 export default class Paragraph implements Block {
   private document: Document;
@@ -70,9 +30,13 @@ export default class Paragraph implements Block {
     // Build block layout
     const boxLayouts: BoxLayout[] = [];
     this.inlines.forEach(inline => {
-      boxLayouts.push(...inline.getBoxLayouts(600));
+      boxLayouts.push(...inline.getBoxLayouts());
     });
     this.blockLayout = new ParagraphLayout(600, boxLayouts);
+  }
+
+  getType(): string {
+    return 'Paragraph';
   }
 
   getDocument(): Document {
@@ -114,3 +78,58 @@ export default class Paragraph implements Block {
     return null;
   }
 }
+
+export class ParagraphLayout implements BlockLayout {
+  private width: number;
+  private lines: LineLayout[];
+
+  constructor(width: number, boxes: BoxLayout[]) {
+    this.width = width;
+    this.lines = buildLinesFromBoxes(width, boxes);
+  }
+
+  getType(): string {
+    return 'Paragraph';
+  }
+
+  getSize(): number {
+    let size = 0;
+    this.lines.forEach(line => {
+      size += line.getSize();
+    });
+    return size;
+  }
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    let height = 0;
+    this.lines.forEach(line => {
+      height += line.getHeight();
+    });
+    return height;
+  }
+
+  getLines(): LineLayout[] {
+    return this.lines;
+  }
+}
+
+type ParagraphViewProps = {
+  blockLayout: ParagraphLayout;
+};
+export class ParagraphView extends React.Component<ParagraphViewProps> {
+  render() {
+    const { blockLayout } = this.props;
+    return (
+      <div className="tw--paragraph" data-tw-role="paragraph">
+        {blockLayout.getLines().map((lineLayout, lineLayoutIndex) => (
+          <LineView key={lineLayoutIndex} lineLayout={lineLayout} />
+        ))}
+      </div>
+    );
+  }
+}
+viewRegistry.registerBlockView('Paragraph', ParagraphView);

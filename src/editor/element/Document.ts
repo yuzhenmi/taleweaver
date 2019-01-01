@@ -1,6 +1,6 @@
 import Element from './Element';
 import Block from './block/Block';
-import PageLayout from '../layout/Page';
+import PageLayout from '../layout/PageLayout';
 import buildPageLayoutsFromBlockLayouts from '../layout/util/buildPagesFromBlocks';
 
 export default class Document implements Element {

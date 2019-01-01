@@ -1,5 +1,5 @@
-import Box from '../Box';
-import Line from '../Line';
+import Box from '../BoxLayout';
+import Line from '../LineLayout';
 
 export default function buildLinesFromBoxes(lineWidth: number, boxes: Box[]): Line[] {
   const lines: Line[] = [];

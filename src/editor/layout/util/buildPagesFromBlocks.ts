@@ -1,5 +1,5 @@
-import Block from '../Block';
-import Page from '../Page';
+import Block from '../BlockLayout';
+import Page from '../PageLayout';
 
 export default function buildPagesFromBlocks(pageWidth: number, pageHeight: number, blocks: Block[]): Page[] {
   const pages: Page[] = [];

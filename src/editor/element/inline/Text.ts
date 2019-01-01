@@ -1,9 +1,10 @@
-import { ReactNode } from 'react';
+import React from 'react';
 import Inline from './Inline';
 import Block from '../block/Block';
-import BoxLayout from '../../layout/Box';
+import BoxLayout from '../../layout/BoxLayout';
 import TextStyle from '../../layout/TextStyle';
 import measureText from '../../layout/util/measureText';
+import viewRegistry from '../../view/util/viewRegistry';
 
 const textStyle = new TextStyle('sans-serif', 16, 400);
 
@@ -12,35 +13,6 @@ const BREAKABLE_CHARS = [
   '\t',
   '-',
 ];
-
-class TextLayout implements BoxLayout {
-  private content: string;
-  private textElement: Text;
-  private width: number;
-  private height: number;
-
-  constructor(content: string, textElement: Text) {
-    this.content = content;
-    this.textElement = textElement;
-    ({ width: this.width, height: this.height} = measureText(content, textStyle));
-  }
-
-  getSize(): number {
-    return this.content.length;
-  }
-
-  getWidth(): number {
-    return this.width;
-  }
-
-  getHeight(): number {
-    return this.height;
-  }
-
-  render(): ReactNode {
-    return this.content;
-  }
-}
 
 export default class Text implements Inline {
   private block: Block;
@@ -77,6 +49,10 @@ export default class Text implements Inline {
     }
   }
 
+  getType(): string {
+    return 'Text';
+  }
+
   getSize(): number {
     return this.size;
   }
@@ -101,3 +77,51 @@ export default class Text implements Inline {
     return -1;
   }
 }
+
+export class TextLayout implements BoxLayout {
+  private content: string;
+  private textElement: Text;
+  private width: number;
+  private height: number;
+
+  constructor(content: string, textElement: Text) {
+    this.content = content;
+    this.textElement = textElement;
+    ({ width: this.width, height: this.height} = measureText(content, textStyle));
+  }
+
+  getType(): string {
+    return 'Text';
+  }
+
+  getSize(): number {
+    return this.content.length;
+  }
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    return this.height;
+  }
+
+  getWidthBetween(from: number, to: number): number {
+    return measureText(this.content.substring(from, to), textStyle).width;
+  }
+
+  getContent(): string {
+    return this.content;
+  }
+}
+
+type TextViewProps = {
+  boxLayout: TextLayout;
+};
+export class TextView extends React.Component<TextViewProps> {
+  render() {
+    const { boxLayout } = this.props;
+    return boxLayout.getContent();
+  }
+}
+viewRegistry.registerBoxView('Text', TextView);
