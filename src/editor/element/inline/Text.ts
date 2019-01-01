@@ -64,18 +64,6 @@ export default class Text implements Inline {
   getBoxLayouts(): BoxLayout[] {
     return this.boxLayouts;
   }
-
-  getPositionInBlock(): number {
-    const inlines = this.block.getInlines();
-    let cumulatedSize = 0;
-    for (let n = 0, nn = inlines.length; n < nn; n++) {
-      if (inlines[n] === this) {
-        return cumulatedSize;
-      }
-      cumulatedSize += inlines[n].getSize();
-    }
-    return -1;
-  }
 }
 
 export class TextLayout implements BoxLayout {

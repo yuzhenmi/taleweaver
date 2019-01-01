@@ -20,13 +20,13 @@ export default class PageView extends React.Component<PageViewProps> {
           height: '776px',
         }}
       >
-        {pageLayout.getBlocks().map(blockLayout => {
+        {pageLayout.getBlockLayouts().map((blockLayout, blockLayoutIndex) => {
           const BlockView = viewRegistry.getBlockView(blockLayout.getType());
           if (!BlockView) {
             return null;
           }
           return (
-            <BlockView blockLayout={blockLayout} />
+            <BlockView key={blockLayoutIndex} blockLayout={blockLayout} />
           );
         })}
       </div>

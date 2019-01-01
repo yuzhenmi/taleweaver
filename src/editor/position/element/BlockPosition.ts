@@ -1,5 +1,5 @@
-import DocumentPosition from './DocumentPosition';
-import Block from '../element/block/Block';
+import DocumentPosition from '../DocumentPosition';
+import Block from '../../element/block/Block';
 
 export default class BlockPosition {
   private documentPosition: DocumentPosition;

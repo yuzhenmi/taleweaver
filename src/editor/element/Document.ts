@@ -1,7 +1,7 @@
 import Element from './Element';
 import Block from './block/Block';
 import PageLayout from '../layout/PageLayout';
-import buildPageLayoutsFromBlockLayouts from '../layout/util/buildPagesFromBlocks';
+import buildPageLayoutsFromBlockLayouts from '../layout/util/buildPageLayouts';
 
 export default class Document implements Element {
   private blocks: Block[];
@@ -41,6 +41,17 @@ export default class Document implements Element {
       cumulatedSize += this.blocks[n].getSize();
       if (cumulatedSize > position) {
         return this.blocks[n];
+      }
+    }
+    return null;
+  }
+
+  getPageLayoutAt(position: number): PageLayout | null {
+    let cumulatedSize = 0;
+    for (let n = 0, nn = this.pageLayouts.length; n < nn; n++) {
+      cumulatedSize += this.pageLayouts[n].getSize();
+      if (cumulatedSize > position) {
+        return this.pageLayouts[n];
       }
     }
     return null;

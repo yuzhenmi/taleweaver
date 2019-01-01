@@ -1,5 +1,5 @@
 import BlockPosition from './BlockPosition';
-import Inline from '../element/inline/Inline';
+import Inline from '../../element/inline/Inline';
 
 export default class InlinePosition {
   private blockPosition: BlockPosition;

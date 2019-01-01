@@ -5,7 +5,7 @@ import Inline from '../inline/Inline';
 import BlockLayout from '../../layout/BlockLayout';
 import LineLayout from '../../layout/LineLayout';
 import BoxLayout from '../../layout/BoxLayout';
-import buildLinesFromBoxes from '../../layout/util/buildLinesFromBoxes';
+import buildLineLayouts from '../../layout/util/buildLineLayouts';
 import LineView from '../../view/LineView';
 import viewRegistry from '../../view/util/viewRegistry';
 
@@ -55,18 +55,6 @@ export default class Paragraph implements Block {
     return this.blockLayout;
   }
 
-  getPositionInDocument(): number {
-    const blocks = this.document.getBlocks();
-    let cumulatedSize = 0;
-    for (let n = 0, nn = blocks.length; n < nn; n++) {
-      if (blocks[n] === this) {
-        return cumulatedSize;
-      }
-      cumulatedSize += blocks[n].getSize();
-    }
-    return -1;
-  }
-
   getInlineAt(position: number): Inline | null {
     let cumulatedSize = 0;
     for (let n = 0, nn = this.inlines.length; n < nn; n++) {
@@ -81,11 +69,11 @@ export default class Paragraph implements Block {
 
 export class ParagraphLayout implements BlockLayout {
   private width: number;
-  private lines: LineLayout[];
+  private lineLayouts: LineLayout[];
 
   constructor(width: number, boxes: BoxLayout[]) {
     this.width = width;
-    this.lines = buildLinesFromBoxes(width, boxes);
+    this.lineLayouts = buildLineLayouts(width, boxes);
   }
 
   getType(): string {
@@ -94,7 +82,7 @@ export class ParagraphLayout implements BlockLayout {
 
   getSize(): number {
     let size = 0;
-    this.lines.forEach(line => {
+    this.lineLayouts.forEach(line => {
       size += line.getSize();
     });
     return size;
@@ -106,14 +94,25 @@ export class ParagraphLayout implements BlockLayout {
 
   getHeight(): number {
     let height = 0;
-    this.lines.forEach(line => {
+    this.lineLayouts.forEach(line => {
       height += line.getHeight();
     });
     return height;
   }
 
-  getLines(): LineLayout[] {
-    return this.lines;
+  getLineLayouts(): LineLayout[] {
+    return this.lineLayouts;
+  }
+
+  getLineLayoutAt(position: number): LineLayout | null {
+    let cumulatedSize = 0;
+    for (let n = 0, nn = this.lineLayouts.length; n < nn; n++) {
+      cumulatedSize += this.lineLayouts[n].getSize();
+      if (cumulatedSize > position) {
+        return this.lineLayouts[n];
+      }
+    }
+    return null;
   }
 }
 
@@ -125,7 +124,7 @@ export class ParagraphView extends React.Component<ParagraphViewProps> {
     const { blockLayout } = this.props;
     return (
       <div className="tw--paragraph" data-tw-role="paragraph">
-        {blockLayout.getLines().map((lineLayout, lineLayoutIndex) => (
+        {blockLayout.getLineLayouts().map((lineLayout, lineLayoutIndex) => (
           <LineView key={lineLayoutIndex} lineLayout={lineLayout} />
         ))}
       </div>

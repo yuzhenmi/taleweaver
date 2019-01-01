@@ -2,19 +2,22 @@ import BoxLayout from './BoxLayout';
 
 export default class LineLayout {
   private width: number;
-  private boxes: BoxLayout[];
+  private boxLayouts: BoxLayout[];
+  private size: number;
 
-  constructor(width: number, boxes: BoxLayout[]) {
+  constructor(width: number, boxLayouts: BoxLayout[]) {
     this.width = width;
-    this.boxes = boxes;
+    this.boxLayouts = boxLayouts;
+
+    // Determine size
+    this.size = 0;
+    this.boxLayouts.forEach(boxLayout => {
+      this.size += boxLayout.getSize();
+    });
   }
 
   getSize(): number {
-    let size = 0;
-    this.boxes.forEach(box => {
-      size += box.getSize();
-    });
-    return size;
+    return this.size;
   }
 
   getWidth(): number {
@@ -22,10 +25,21 @@ export default class LineLayout {
   }
 
   getHeight(): number {
-    return Math.max(...this.boxes.map(box => box.getHeight()));
+    return Math.max(...this.boxLayouts.map(boxLayout => boxLayout.getHeight()));
   }
 
-  getBoxes(): BoxLayout[] {
-    return this.boxes;
+  getBoxLayouts(): BoxLayout[] {
+    return this.boxLayouts;
+  }
+
+  getBoxLayoutAt(position: number): BoxLayout | null {
+    let cumulatedSize = 0;
+    for (let n = 0, nn = this.boxLayouts.length; n < nn; n++) {
+      cumulatedSize += this.boxLayouts[n].getSize();
+      if (cumulatedSize > position) {
+        return this.boxLayouts[n];
+      }
+    }
+    return null;
   }
 }

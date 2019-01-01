@@ -1,7 +1,7 @@
 import Box from '../BoxLayout';
 import Line from '../LineLayout';
 
-export default function buildLinesFromBoxes(lineWidth: number, boxes: Box[]): Line[] {
+export default function buildLineLayouts(lineWidth: number, boxes: Box[]): Line[] {
   const lines: Line[] = [];
   let cumulatedWidth = 0;
   let cumulatedBoxes: Box[] = [];

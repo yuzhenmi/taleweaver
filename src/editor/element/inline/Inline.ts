@@ -6,7 +6,6 @@ export default interface Inline extends Element {
   getType(): string;
   getBlock(): Block;
   getBoxLayouts(): BoxLayout[];
-  getPositionInBlock(): number;
 }
 
 export type InlineClass = new (block: Block, content: string) => Inline;

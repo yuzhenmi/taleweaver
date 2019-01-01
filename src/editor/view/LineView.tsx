@@ -12,7 +12,7 @@ export default class LineView extends React.Component<LineViewProps> {
     } = this.props;
     return (
       <div className="tw--line" data-tw-role="line">
-        {lineLayout.getBoxes().map((boxLayout, boxLayoutIndex) => {
+        {lineLayout.getBoxLayouts().map((boxLayout, boxLayoutIndex) => {
           const BoxView = viewRegistry.getBoxView(boxLayout.getType());
           if (!BoxView) {
             return null;
