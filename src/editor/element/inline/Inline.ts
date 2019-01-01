@@ -4,6 +4,6 @@ import BoxLayout from '../../layout/Box';
 
 export default interface Inline extends Element {
   getBlock(): Block;
+  getBoxLayouts(): BoxLayout[];
   getPositionInBlock(): number;
-  getBoxLayouts(lineWidth: number): BoxLayout[];
 }
