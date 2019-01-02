@@ -3,6 +3,7 @@ import { InlineClass } from '../inline/Inline';
 import Document from '../Document';
 import Paragraph from '../block/Paragraph';
 import Text from '../inline/Text';
+import LineBreak from '../inline/LineBreak';
 
 type InlineJSON = {
   type: string;
@@ -25,6 +26,7 @@ export default class JSONParser {
     this.registeredBlocks.set('Paragraph', Paragraph);
     this.registeredInlines = new Map<string, InlineClass>();
     this.registeredInlines.set('Text', Text);
+    this.registeredInlines.set('LineBreak', LineBreak);
   }
 
   registerBlock(type: string, ElementClass: BlockClass) {

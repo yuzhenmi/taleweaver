@@ -1,22 +1,39 @@
 import React, { Component } from 'react';
-import State from '../state/State';
+import Document from '../element/Document';
+import PageLayout from '../layout/PageLayout';
 import Cursor from '../cursor/Cursor';
-import resolveElementPosition from '../position/util/resolveElementPosition';
+import resolveLayoutPosition from '../position/util/resolveLayoutPosition';
+import projectLayoutPositionToPage from '../position/util/projectLayoutPositionToPage';
 
 type ObservingCursorProps = {
-  state: State
+  document: Document;
+  pageLayout: PageLayout;
   cursor: Cursor;
 };
 export default class ObservingCursor extends Component<ObservingCursorProps> {
   render() {
     const {
-      state,
+      document,
+      pageLayout,
       cursor,
     } = this.props;
-    const resolvedAnchor = resolveElementPosition(state.getDocument(), cursor.getAnchor());
-    const resolvedHead = resolveElementPosition(state.getDocument(), cursor.getHead());
+    const resolvedAnchor = resolveLayoutPosition(document, cursor.getAnchor());
+    const resolvedHead = resolveLayoutPosition(document, cursor.getHead());
+    if (!resolvedAnchor || !resolvedHead) {
+      return null;
+    }
+    const anchorPagePosition = projectLayoutPositionToPage(resolvedAnchor);
+    const headPagePosition = projectLayoutPositionToPage(resolvedHead);
     return (
-      <div style={{width: '2px', height: '12px', background: 'black'}}>
+      <div
+        className="tw--editing-cursor"
+        style={{
+          position: 'absolute',
+          left: anchorPagePosition.x,
+          top: anchorPagePosition.y,
+          height: anchorPagePosition.height,
+        }}
+      >
       </div>
     );
   }

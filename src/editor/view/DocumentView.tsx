@@ -17,21 +17,15 @@ export default class DocumentView extends Component<DocumentViewProps> {
     const observingCursors = editorState.getObservingCursors();
     return (
       <div className="tw--document" data-tw-role="document">
-        <div className="tw--pages" data-tw-role="pages">
-          {document.getPageLayouts().map((pageLayout, pageLayoutIndex) => (
-            <PageView key={pageLayoutIndex} pageLayout={pageLayout} />
-          ))}
-        </div>
-        <div className="tw--editing-cursors" data-tw-role="editing-cursors">
-          {editingCursors.map((cursor, cursorIndex) => (
-            <EditingCursor key={cursorIndex} state={editorState} cursor={cursor} />
-          ))}
-        </div>
-        <div className="tw--observing-cursors" data-tw-role="observing-cursors">
-          {observingCursors.map((cursor, cursorIndex) => (
-            <ObservingCursor key={cursorIndex} state={editorState} cursor={cursor} />
-          ))}
-        </div>
+        {document.getPageLayouts().map((pageLayout, pageLayoutIndex) => (
+          <PageView
+            key={pageLayoutIndex}
+            document={document}
+            pageLayout={pageLayout}
+            editingCursors={editingCursors}
+            observingCursors={observingCursors}
+          />
+        ))}
       </div>
     );
   }

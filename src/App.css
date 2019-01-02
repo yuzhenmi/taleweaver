@@ -10,18 +10,31 @@ body {
 .tw--pages {
   padding: 36px;
 }
+
 .tw--page {
   background: white;
   box-shadow: 0 3px 18px rgba(0, 0, 0, 0.09);
   margin: 0 auto 24px;
   cursor: text;
 }
+
 .tw--page:last-child {
   margin-bottom: 0;
 }
 
-.tw--editing-cursor {
+.tw--editing-cursor-selection {
+  background: #B4D5FE;
+}
+
+@keyframes blink-animation {
+  to {
+    visibility: hidden;
+  }
+}
+.tw--editing-cursor-head {
+  z-index: 10;
   width: 2px;
-  height: 12px;
-  background: black;
+  background: rgba(0, 0, 0, 0.85);
+  margin-left: -1px;
+  animation: blink-animation 1s steps(2, start) infinite;
 }

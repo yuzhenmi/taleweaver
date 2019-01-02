@@ -9,7 +9,7 @@ import BlockLayout from '../../layout/BlockLayout';
 import LineLayout from '../../layout/LineLayout';
 import BoxLayout from '../../layout/BoxLayout';
 
-function getPageLayoutPositionInDocument(document: Document, pageLayout: PageLayout): number {
+export function getPageLayoutPositionInDocument(document: Document, pageLayout: PageLayout): number {
   const pageLayouts = document.getPageLayouts();
   let cumulatedSize = 0;
   for (let n = 0, nn = pageLayouts.length; n < nn; n++) {
@@ -21,7 +21,7 @@ function getPageLayoutPositionInDocument(document: Document, pageLayout: PageLay
   return -1;
 }
 
-function getBlockLayoutPositionInPageLayout(pageLayout: PageLayout, blockLayout: BlockLayout): number {
+export function getBlockLayoutPositionInPageLayout(pageLayout: PageLayout, blockLayout: BlockLayout): number {
   const blockLayouts = pageLayout.getBlockLayouts();
   let cumulatedSize = 0;
   for (let n = 0, nn = blockLayouts.length; n < nn; n++) {
@@ -33,7 +33,7 @@ function getBlockLayoutPositionInPageLayout(pageLayout: PageLayout, blockLayout:
   return -1;
 }
 
-function getLineLayoutPositionInBlockLayout(blockLayout: BlockLayout, lineLayout: LineLayout): number {
+export function getLineLayoutPositionInBlockLayout(blockLayout: BlockLayout, lineLayout: LineLayout): number {
   const lineLayouts = blockLayout.getLineLayouts();
   let cumulatedSize = 0;
   for (let n = 0, nn = lineLayouts.length; n < nn; n++) {
@@ -45,7 +45,7 @@ function getLineLayoutPositionInBlockLayout(blockLayout: BlockLayout, lineLayout
   return -1;
 }
 
-function getBoxLayoutPositionInLineLayout(lineLayout: LineLayout, boxLayout: BoxLayout): number {
+export function getBoxLayoutPositionInLineLayout(lineLayout: LineLayout, boxLayout: BoxLayout): number {
   const boxLayouts = lineLayout.getBoxLayouts();
   let cumulatedSize = 0;
   for (let n = 0, nn = boxLayouts.length; n < nn; n++) {
