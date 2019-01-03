@@ -4,6 +4,7 @@ import PageLayout from '../layout/PageLayout';
 import Cursor from '../cursor/Cursor';
 import resolveLayoutPosition from '../position/util/resolveLayoutPosition';
 import projectLayoutPositionToPage from '../position/util/projectLayoutPositionToPage';
+import projectLayoutPositionRangeToPage from '../position/util/projectLayoutPositionRangeToPage';
 
 type SelectionBox = {
   x: number;
@@ -32,71 +33,13 @@ export default class EditingCursor extends Component<EditingCursorProps> {
       return null;
     }
 
-    // Determine whether anchor and head are in page before, in this page, or in page after
-    const pageLayouts = document.getPageLayouts();
-    const thisPageLayoutIndex = pageLayouts.indexOf(pageLayout);
-    if (thisPageLayoutIndex < 0) {
-      return null;
-    }
-    const anchorPageLayoutIndex = pageLayouts.indexOf(
-      anchorLayoutPosition
-        .getLineLayoutPosition()
-        .getBlockLayoutPosition()
-        .getPageLayoutPosition()
-        .getPageLayout()
-    );
-    if (anchorPageLayoutIndex < 0) {
-      return null;
-    }
-    const headPageLayoutIndex = pageLayouts.indexOf(
-      headLayoutPosition
-        .getLineLayoutPosition()
-        .getBlockLayoutPosition()
-        .getPageLayoutPosition()
-        .getPageLayout()
-    );
-    if (headPageLayoutIndex < 0) {
-      return null;
-    }
-    const anchorPageLayoutIndexDelta = anchorPageLayoutIndex - thisPageLayoutIndex;
-    const headPageLayoutIndexDelta = headPageLayoutIndex - thisPageLayoutIndex;
+    // Project to page
+    const headPagePosition = projectLayoutPositionToPage(headLayoutPosition, pageLayout);
+    const selectionBoxes = projectLayoutPositionRangeToPage(anchorLayoutPosition, headLayoutPosition, pageLayout);
 
-    // Do not render if cursor does not intersect page
-    if (anchorPageLayoutIndexDelta * headPageLayoutIndexDelta > 0) {
+    // Don't render if nothing on page
+    if (!headPagePosition && selectionBoxes.length === 0) {
       return null;
-    }
-
-    // Project anchor and head to page
-    const anchorPagePosition = anchorPageLayoutIndexDelta === 0 ? projectLayoutPositionToPage(anchorLayoutPosition) : null;
-    const headPagePosition = headPageLayoutIndexDelta === 0 ? projectLayoutPositionToPage(headLayoutPosition) : null;
-
-    // Determine selection boxes
-    const selectionBoxes: SelectionBox[] = [];
-    if (anchorPageLayoutIndexDelta !== 0 && headPageLayoutIndexDelta !== 0) {
-      // Whole page is selected
-      let cumulatedHeight = 0;
-      pageLayout.getBlockLayouts().forEach(blockLayout => {
-        blockLayout.getLineLayouts().forEach(lineLayout => {
-          const boxLayouts = lineLayout.getBoxLayouts();
-          if (boxLayouts.length === 0) {
-            return;
-          }
-          let cumulatedWidth = 0;
-          boxLayouts.forEach(boxLayout => {
-            cumulatedWidth += boxLayout.getWidth();
-          });
-          selectionBoxes.push({
-            x: 0,
-            y: cumulatedHeight,
-            width: cumulatedWidth,
-            height: lineLayout.getHeight(),
-          });
-          cumulatedHeight += lineLayout.getHeight();
-        });
-      });
-    } else if (anchorPageLayoutIndexDelta === 0 && headPageLayoutIndexDelta === 0) {
-      // All of selection is within this page
-      // TODO
     }
 
     return (

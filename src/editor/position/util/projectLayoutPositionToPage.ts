@@ -1,4 +1,5 @@
 import BoxLayoutPosition from '../layout/BoxLayoutPosition';
+import PageLayout from '../../layout/PageLayout';
 
 type PagePosition = {
   x: number;
@@ -6,20 +7,25 @@ type PagePosition = {
   height: number;
 };
 
-export default function projectLayoutPositionToPage(boxLayoutPosition: BoxLayoutPosition): PagePosition {
-  const pageLayout = boxLayoutPosition
+export default function projectLayoutPositionToPage(position: BoxLayoutPosition, targetPageLayout: PageLayout): PagePosition | null {
+  const pageLayout = position
     .getLineLayoutPosition()
     .getBlockLayoutPosition()
     .getPageLayoutPosition()
     .getPageLayout();
-  const blockLayout = boxLayoutPosition
+  const blockLayout = position
     .getLineLayoutPosition()
     .getBlockLayoutPosition()
     .getBlockLayout();
-  const lineLayout = boxLayoutPosition
+  const lineLayout = position
     .getLineLayoutPosition()
     .getLineLayout();
-  const boxLayout = boxLayoutPosition.getBoxLayout();
+  const boxLayout = position.getBoxLayout();
+
+  // Return null if the layout position is not on the target page
+  if (pageLayout !== targetPageLayout) {
+    return null;
+  }
 
   // Determine y coordinate
   let cumulatedHeight = 0;

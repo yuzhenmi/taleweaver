@@ -1,7 +1,7 @@
 import Element from './Element';
 import Block from './block/Block';
 import PageLayout from '../layout/PageLayout';
-import buildPageLayoutsFromBlockLayouts from '../layout/util/buildPageLayouts';
+import BlockLayout from '../layout/BlockLayout';
 
 export default class Document implements Element {
   private blocks: Block[];
@@ -19,8 +19,26 @@ export default class Document implements Element {
     });
 
     // Build page layouts
-    const blockLayouts = this.blocks.map(block => block.getBlockLayout());
-    this.pageLayouts = buildPageLayoutsFromBlockLayouts(600, 776, blockLayouts);
+    this.pageLayouts = [];
+    const pageWidth = 600;
+    const pageHeight = 776;
+    let blockIndex = 0;
+    while (blockIndex < this.blocks.length) {
+      const pageLayout = new PageLayout(this, (pageLayout, availableHeight) => {
+        if (blockIndex === this.blocks.length) {
+          return null;
+        }
+        const blockLayout = this.blocks[blockIndex].buildBlockLayout(pageLayout);
+        if (blockLayout.getHeight() > availableHeight) {
+          return null;
+        }
+        blockIndex++;
+        return blockLayout;
+      });
+      if (pageLayout.getBlockLayouts().length > 0) {
+        this.pageLayouts.push(pageLayout);
+      }
+    }
   }
 
   getBlocks(): Block[] {

@@ -5,6 +5,7 @@ import BoxLayout from '../../layout/BoxLayout';
 import TextStyle from '../../layout/TextStyle';
 import measureText from '../../layout/util/measureText';
 import viewRegistry from '../../view/util/viewRegistry';
+import LineLayout from '../../layout/LineLayout';
 
 const textStyle = new TextStyle('sans-serif', 16, 400);
 
@@ -18,7 +19,6 @@ export default class Text implements Inline {
   private block: Block;
   private content: string;
   private size: number;
-  private boxLayouts: BoxLayout[];
 
   constructor(block: Block, content: string) {
     this.block = block;
@@ -26,27 +26,6 @@ export default class Text implements Inline {
 
     // Determine size
     this.size = this.content.length;
-
-    // Build box layouts
-    this.boxLayouts = [];
-    let startIndex = 0;
-    let n = 0;
-    for (let nn = this.content.length; n < nn; n++) {
-      const char = this.content[n];
-      if (BREAKABLE_CHARS.indexOf(char) >= 0) {
-        this.boxLayouts.push(new TextLayout(
-          this.content.substring(startIndex, n + 1),
-          this,
-        ));
-        startIndex = n + 1;
-      }
-    }
-    if (startIndex < n) {
-      this.boxLayouts.push(new TextLayout(
-        this.content.substring(startIndex, n),
-        this,
-      ));
-    }
   }
 
   getType(): string {
@@ -61,18 +40,41 @@ export default class Text implements Inline {
     return this.block;
   }
 
-  getBoxLayouts(): BoxLayout[] {
-    return this.boxLayouts;
+  buildBoxLayouts(lineLayout: LineLayout): BoxLayout[] {
+    const boxLayouts: BoxLayout[] = [];
+    let startIndex = 0;
+    let n = 0;
+    for (let nn = this.content.length; n < nn; n++) {
+      const char = this.content[n];
+      if (BREAKABLE_CHARS.indexOf(char) >= 0) {
+        boxLayouts.push(new TextLayout(
+          lineLayout,
+          this.content.substring(startIndex, n + 1),
+          this,
+        ));
+        startIndex = n + 1;
+      }
+    }
+    if (startIndex < n) {
+      boxLayouts.push(new TextLayout(
+        lineLayout,
+        this.content.substring(startIndex, n),
+        this,
+      ));
+    }
+    return boxLayouts;
   }
 }
 
 export class TextLayout implements BoxLayout {
+  private lineLayout: LineLayout;
   private content: string;
   private textElement: Text;
   private width: number;
   private height: number;
 
-  constructor(content: string, textElement: Text) {
+  constructor(lineLayout: LineLayout, content: string, textElement: Text) {
+    this.lineLayout = lineLayout;
     this.content = content;
     this.textElement = textElement;
     ({ width: this.width, height: this.height} = measureText(content, textStyle));
@@ -84,6 +86,10 @@ export class TextLayout implements BoxLayout {
 
   getSize(): number {
     return this.content.length;
+  }
+
+  getLineLayout(): LineLayout {
+    return this.lineLayout;
   }
 
   getWidth(): number {

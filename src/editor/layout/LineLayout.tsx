@@ -1,13 +1,33 @@
 import BoxLayout from './BoxLayout';
+import BlockLayout from './BlockLayout';
 
 export default class LineLayout {
+  private blockLayout: BlockLayout;
   private width: number;
   private boxLayouts: BoxLayout[];
   private size: number;
 
-  constructor(width: number, boxLayouts: BoxLayout[]) {
-    this.width = width;
-    this.boxLayouts = boxLayouts;
+  constructor(blockLayout: BlockLayout, buildBoxLayouts: (lineLayout: LineLayout, availableWidth: number) => BoxLayout[]) {
+    this.blockLayout = blockLayout;
+    this.width = blockLayout.getWidth();
+    
+    // Build box layouts
+    this.boxLayouts = [];
+    let availableWidth = this.width;
+    while (availableWidth > 0) {
+      const boxLayouts = buildBoxLayouts(this, availableWidth);
+      if (boxLayouts.length === 0) {
+        break;
+      }
+      for (let n = 0, nn = boxLayouts.length; n < nn; n++) {
+        const boxLayout = boxLayouts[n];
+        availableWidth -= boxLayout.getWidth();
+        if (availableWidth < 0) {
+          break;
+        }
+        this.boxLayouts.push(boxLayout);
+      }
+    }
 
     // Determine size
     this.size = 0;
@@ -18,6 +38,10 @@ export default class LineLayout {
 
   getSize(): number {
     return this.size;
+  }
+
+  getBlockLayout(): BlockLayout {
+    return this.blockLayout;
   }
 
   getWidth(): number {

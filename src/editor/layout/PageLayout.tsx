@@ -1,15 +1,31 @@
 import BlockLayout from './BlockLayout';
+import Document from '../element/Document';
 
 export default class PageLayout {
+  private document: Document;
   private width: number;
   private height: number;
   private blockLayouts: BlockLayout[];
   private size: number;
 
-  constructor(width: number, height: number, blockLayouts: BlockLayout[]) {
-    this.width = width;
-    this.height = height;
-    this.blockLayouts = blockLayouts;
+  constructor(document: Document, buildBlockLayout: (pageLayout: PageLayout, availableHeight: number) => BlockLayout | null) {
+    this.document = document;
+    this.width = 600;
+    this.height = 776;
+
+    // Build block layouts
+    this.blockLayouts = [];
+    let availableHeight = this.height;
+    while (availableHeight > 0) {
+      const blockLayout = buildBlockLayout(this, availableHeight);
+      if (!blockLayout) {
+        break;
+      }
+      availableHeight -= blockLayout.getHeight();
+      if (availableHeight >= 0) {
+        this.blockLayouts.push(blockLayout);
+      }
+    }
 
     // Determine size
     this.size = 0;
@@ -18,8 +34,8 @@ export default class PageLayout {
     });
   }
 
-  getSize(): number {
-    return this.size;
+  getDocument(): Document {
+    return this.document;
   }
 
   getWidth(): number {
@@ -28,6 +44,10 @@ export default class PageLayout {
 
   getHeight(): number {
     return this.height;
+  }
+
+  getSize(): number {
+    return this.size;
   }
 
   getBlockLayouts(): BlockLayout[] {

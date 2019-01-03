@@ -5,23 +5,19 @@ import measureText from '../../layout/util/measureText';
 import viewRegistry from '../../view/util/viewRegistry';
 import Block from '../block/Block';
 import Inline from './Inline';
+import LineLayout from '../../layout/LineLayout';
 
 const textStyle = new TextStyle('sans-serif', 16, 400);
 
 export default class LineBreak implements Inline {
   private block: Block;
-  private boxLayouts: BoxLayout[];
 
   constructor(block: Block) {
     this.block = block;
-
-    // Build box layouts
-    this.boxLayouts = [];
-    this.boxLayouts.push(new LineBreakLayout());
   }
 
   getType(): string {
-    return 'Text';
+    return 'LineBreak';
   }
 
   getSize(): number {
@@ -32,16 +28,18 @@ export default class LineBreak implements Inline {
     return this.block;
   }
 
-  getBoxLayouts(): BoxLayout[] {
-    return this.boxLayouts;
+  buildBoxLayouts(lineLayout: LineLayout): BoxLayout[] {
+    return [new LineBreakLayout(lineLayout)];
   }
 }
 
 export class LineBreakLayout implements BoxLayout {
+  private lineLayout: LineLayout;
   private width: number;
   private height: number;
 
-  constructor() {
+  constructor(lineLayout: LineLayout) {
+    this.lineLayout = lineLayout;
     ({ width: this.width, height: this.height} = measureText(' ', textStyle));
   }
 
@@ -51,6 +49,10 @@ export class LineBreakLayout implements BoxLayout {
 
   getSize(): number {
     return 1;
+  }
+
+  getLineLayout(): LineLayout {
+    return this.lineLayout;
   }
 
   getWidth(): number {

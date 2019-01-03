@@ -1,11 +1,12 @@
-import Line from './LineLayout';
+import PageLayout from './PageLayout';
 import LineLayout from './LineLayout';
 
 export default interface BlockLayout {
   getType(): string;
   getSize(): number;
+  getPageLayout(): PageLayout;
   getWidth(): number;
   getHeight(): number;
-  getLineLayouts(): Line[];
+  getLineLayouts(): LineLayout[];
   getLineLayoutAt(position: number): LineLayout | null;
 }

@@ -17,22 +17,9 @@ export default class ObservingCursor extends Component<ObservingCursorProps> {
       pageLayout,
       cursor,
     } = this.props;
-    const resolvedAnchor = resolveLayoutPosition(document, cursor.getAnchor());
-    const resolvedHead = resolveLayoutPosition(document, cursor.getHead());
-    if (!resolvedAnchor || !resolvedHead) {
-      return null;
-    }
-    const anchorPagePosition = projectLayoutPositionToPage(resolvedAnchor);
-    const headPagePosition = projectLayoutPositionToPage(resolvedHead);
     return (
       <div
-        className="tw--editing-cursor"
-        style={{
-          position: 'absolute',
-          left: anchorPagePosition.x,
-          top: anchorPagePosition.y,
-          height: anchorPagePosition.height,
-        }}
+        className="tw--observing-cursor"
       >
       </div>
     );
