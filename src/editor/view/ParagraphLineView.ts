@@ -1,14 +1,14 @@
-import BlockView from './BlockView';
+import LineView from './LineView';
 
-export default class ParagraphView extends BlockView {
+export default class ParagraphLineView extends LineView {
   addToDOM() {
     if (this.domElement) {
       return;
     }
     this.domElement = document.createElement('div');
-    this.domElement.className = 'tw--paragraph';
+    this.domElement.className = 'tw--paragraph-line';
     const parentDOMElement = this.getPageView().getDOMElement();
-    this.lineViews.forEach(lineView => lineView.addToDOM());
+    this.boxViews.forEach(boxView => boxView.addToDOM());
     parentDOMElement.appendChild(this.domElement);
   }
 }

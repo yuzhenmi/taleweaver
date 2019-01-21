@@ -1,17 +1,17 @@
-import BlockView from './BlockView';
+import PageView from './PageView';
 import BoxView from './BoxView';
 
-export default class ParagraphView {
-  private blockView?: BlockView;
-  private boxViews: BoxView[];
-  private domElement?: HTMLElement;
+export default abstract class LineView {
+  protected pageView?: PageView;
+  protected boxViews: BoxView[];
+  protected domElement?: HTMLElement;
 
   constructor() {
     this.boxViews = [];
   }
 
-  setBlockView(blockView: BlockView) {
-    this.blockView = blockView;
+  setPageView(pageView: PageView) {
+    this.pageView = pageView;
   }
 
   appendBoxView(boxView: BoxView) {
@@ -26,19 +26,10 @@ export default class ParagraphView {
     this.boxViews.splice(index, 1);
   }
 
-  addToDOM() {
-    if (this.domElement) {
-      return;
-    }
-    this.domElement = document.createElement('div');
-    this.domElement.className = 'tw--line';
-    const parentDOMElement = this.getBlockView().getDOMElement();
-    this.boxViews.forEach(boxView => boxView.addToDOM());
-    parentDOMElement.appendChild(this.domElement);
-  }
+  abstract addToDOM(): void;
 
-  getBlockView(): BlockView {
-    return this.blockView!;
+  getPageView(): PageView {
+    return this.pageView!;
   }
 
   getDOMElement(): HTMLElement {

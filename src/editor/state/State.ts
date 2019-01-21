@@ -13,6 +13,7 @@ export default class State {
 
   setDocumentElement(documentElement: DocumentElement) {
     this.documentElement = documentElement;
+    documentElement.setState(this);
   }
 
   appendEditorCursor(cursor: Cursor) {

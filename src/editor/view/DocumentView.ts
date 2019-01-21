@@ -39,6 +39,7 @@ export default class DocumentView {
     }
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--document';
+    // TODO: Build page views
     this.pageViews.forEach(pageView => pageView.addToDOM());
     containerDOMElement.appendChild(this.domElement);
   }

@@ -1,30 +1,30 @@
 import DocumentView from './DocumentView';
-import BlockView from './BlockView';
+import LineView from './LineView';
 
 export default class PageView {
   private documentView?: DocumentView;
-  private blockViews: BlockView[];
+  private lineViews: LineView[];
   private domElement?: HTMLElement;
 
   constructor() {
-    this.blockViews = [];
+    this.lineViews = [];
   }
 
   setDocumentView(documentView: DocumentView) {
     this.documentView = documentView;
   }
 
-  appendBlockView(blockView: BlockView) {
-    this.blockViews.push(blockView);
-    blockView.setPageView(this);
+  appendLineView(lineView: LineView) {
+    this.lineViews.push(lineView);
+    lineView.setPageView(this);
   }
 
-  removeBlockView(blockView: BlockView) {
-    const index = this.blockViews.indexOf(blockView);
+  removeLineView(lineView: LineView) {
+    const index = this.lineViews.indexOf(lineView);
     if (index < 0) {
       return;
     }
-    this.blockViews.splice(index, 1);
+    this.lineViews.splice(index, 1);
   }
 
   addToDOM() {
@@ -34,7 +34,7 @@ export default class PageView {
     const parentDOMElement = this.getDocumentView().getDOMElement();
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--page';
-    this.blockViews.forEach(blockView => blockView.addToDOM());
+    this.lineViews.forEach(lineView => lineView.addToDOM());
     parentDOMElement.appendChild(this.domElement);
   }
 
