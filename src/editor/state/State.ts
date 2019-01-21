@@ -1,26 +1,53 @@
-import Document from '../element/Document';
+import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
 
 export default class State {
-  private document: Document;
-  private editingCursors: Cursor[];
-  private observingCursors: Cursor[];
+  private documentElement?: DocumentElement;
+  private editorCursors: Cursor[];
+  private observerCursors: Cursor[];
 
-  constructor(document: Document, editingCursors: Cursor[] = [], observingCursors: Cursor[] = []) {
-    this.document = document;
-    this.editingCursors = editingCursors;
-    this.observingCursors = observingCursors;
+  constructor() {
+    this.editorCursors = [];
+    this.observerCursors = [];
   }
 
-  getDocument(): Document {
-    return this.document;
+  setDocumentElement(documentElement: DocumentElement) {
+    this.documentElement = documentElement;
   }
 
-  getEditingCursors(): Cursor[] {
-    return this.editingCursors;
+  appendEditorCursor(cursor: Cursor) {
+    this.editorCursors.push(cursor);
   }
 
-  getObservingCursors(): Cursor[] {
-    return this.observingCursors;
+  appendObserverCursor(cursor: Cursor) {
+    this.observerCursors.push(cursor);
+  }
+
+  removeEditorCursor(cursor: Cursor) {
+    const index = this.editorCursors.indexOf(cursor);
+    if (index < 0) {
+      return;
+    }
+    this.editorCursors.splice(index, 1);
+  }
+
+  removeObserverCursor(cursor: Cursor) {
+    const index = this.observerCursors.indexOf(cursor);
+    if (index < 0) {
+      return;
+    }
+    this.observerCursors.splice(index, 1);
+  }
+
+  getDocumentElement(): DocumentElement {
+    return this.documentElement!;
+  }
+
+  getEditorCursors(): Cursor[] {
+    return this.editorCursors;
+  }
+
+  getObserverCursors(): Cursor[] {
+    return this.observerCursors;
   }
 }

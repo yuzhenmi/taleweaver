@@ -7,19 +7,19 @@ export default class Cursor {
     this.head = head;
   }
 
-  getAnchor(): number {
-    return this.anchor;
-  }
-
   setAnchor(anchor: number) {
     this.anchor = anchor;
   }
 
-  getHead(): number {
-    return this.head;
-  }
-
   setHead(head: number) {
     this.head = head;
+  }
+
+  getAnchor(): number {
+    return this.anchor;
+  }
+
+  getHead(): number {
+    return this.head;
   }
 }
