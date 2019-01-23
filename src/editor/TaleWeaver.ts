@@ -9,6 +9,8 @@ import PageView from './view/PageView';
 import LineView from './view/LineView';
 import BoxView from './view/BoxView';
 import ParagraphLineView from './view/ParagraphLineView';
+import TextView from './view/TextView';
+import LineBreakView from './view/LineBreakView';
 import State from './state/State';
 
 type DocumentElementType = new (...args: any[]) => DocumentElement;
@@ -19,7 +21,17 @@ type PageViewType = new (...args: any[]) => PageView;
 type LineViewType = new (...args: any[]) => LineView;
 type BoxViewType = new (...args: any[]) => BoxView;
 
+type TaleWeaverConfig = {
+  pageWidth: number;
+  pageHeight: number;
+  pagePaddingTop: number;
+  pagePaddingBottom: number;
+  pagePaddingLeft: number;
+  pagePaddingRight: number;
+}
+
 export default class TaleWeaver {
+  private config: TaleWeaverConfig;
   private documentElementType: DocumentElementType;
   private blockElementTypes: Map<string, BlockElementType>;
   private inlineElementTypes: Map<string, InlineElementType>;
@@ -30,7 +42,8 @@ export default class TaleWeaver {
   private state?: State;
   private documentView?: DocumentView;
 
-  constructor() {
+  constructor(config: TaleWeaverConfig) {
+    this.config = config;
     this.documentElementType = DocumentElement;
     this.blockElementTypes = new Map<string, BlockElementType>();
     this.inlineElementTypes = new Map<string, InlineElementType>();
@@ -42,6 +55,8 @@ export default class TaleWeaver {
     this.registerInlineElementType('Text', TextElement);
     this.registerInlineElementType('LineBreak', LineBreakElement);
     this.registerLineViewType('Paragraph', ParagraphLineView);
+    this.registerBoxViewType('Text', TextView);
+    this.registerBoxViewType('LineBreak', LineBreakView);
   }
 
   registerDocumentElementType(documentElementType: DocumentElementType) {
@@ -78,6 +93,10 @@ export default class TaleWeaver {
 
   setDocumentView(documentView: DocumentView) {
     this.documentView = documentView;
+  }
+
+  getConfig(): TaleWeaverConfig {
+    return this.config;
   }
 
   getDocumentElementType(): DocumentElementType {
@@ -118,9 +137,16 @@ export default class TaleWeaver {
 
   attach(containerDOMElement: HTMLElement) {
     const DocumentView = this.getDocumentViewType();
-    const documentView = new DocumentView();
-    documentView.setDocumentElement(this.getState().getDocumentElement());
+    const documentView = new DocumentView({
+      pageWidth: this.config.pageWidth,
+      pageHeight: this.config.pageHeight,
+      pagePaddingTop: this.config.pagePaddingTop,
+      pagePaddingBottom: this.config.pagePaddingBottom,
+      pagePaddingLeft: this.config.pagePaddingLeft,
+      pagePaddingRight: this.config.pagePaddingRight,
+    });
     documentView.setTaleWeaver(this);
+    documentView.setDocumentElement(this.getState().getDocumentElement());
     this.setDocumentView(documentView);
     this.getDocumentView().addToDOM(containerDOMElement);
   }

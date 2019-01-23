@@ -1,12 +1,18 @@
 import PageView from './PageView';
 import BoxView from './BoxView';
 
+type LineViewConfig = {
+  width: number;
+}
+
 export default abstract class LineView {
+  protected config: LineViewConfig;
   protected pageView?: PageView;
   protected boxViews: BoxView[];
   protected domElement?: HTMLElement;
 
-  constructor() {
+  constructor(config: LineViewConfig) {
+    this.config = config;
     this.boxViews = [];
   }
 
@@ -28,11 +34,19 @@ export default abstract class LineView {
 
   abstract addToDOM(): void;
 
+  getConfig(): LineViewConfig {
+    return this.config;
+  }
+
   getPageView(): PageView {
     return this.pageView!;
   }
 
   getDOMElement(): HTMLElement {
     return this.domElement!;
+  }
+
+  getHeight(): number {
+    return Math.max(...this.boxViews.map(boxView => boxView.getHeight()));
   }
 }

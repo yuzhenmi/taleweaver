@@ -1,23 +1,35 @@
 import LineView from './LineView';
-import InlineElement from '../element/InlineElement';
+import { Atom } from '../element/InlineElement';
+
+type BoxViewConfig = {
+}
 
 export default abstract class BoxView {
-  protected inlineElement?: InlineElement;
+  protected config: BoxViewConfig;
+  protected atom?: Atom;
   protected lineView?: LineView;
   protected domElement?: HTMLElement | Text;
 
-  setInlineElement(inlineElement: InlineElement) {
-    this.inlineElement = inlineElement;
+  constructor(config: BoxViewConfig) {
+    this.config = config;
   }
 
   setLineView(lineView: LineView) {
     this.lineView = lineView;
   }
 
+  setAtom(atom: Atom) {
+    this.atom = atom;
+  }
+
   abstract addToDOM(): void;
 
-  getInlineElement(): InlineElement {
-    return this.inlineElement!;
+  getConfig(): BoxViewConfig {
+    return this.config;
+  }
+
+  getAtom(): Atom {
+    return this.atom!;
   }
 
   getLineView(): LineView {
@@ -27,4 +39,8 @@ export default abstract class BoxView {
   getDOMElement(): HTMLElement | Text {
     return this.domElement!;
   }
+
+  abstract getWidth(): number;
+
+  abstract getHeight(): number;
 }

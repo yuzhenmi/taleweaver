@@ -1,12 +1,23 @@
 import DocumentView from './DocumentView';
 import LineView from './LineView';
 
+type PageViewConfig = {
+  width: number;
+  height: number;
+  paddingTop: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  paddingRight: number;
+}
+
 export default class PageView {
+  private config: PageViewConfig;
   private documentView?: DocumentView;
   private lineViews: LineView[];
   private domElement?: HTMLElement;
 
-  constructor() {
+  constructor(config: PageViewConfig) {
+    this.config = config;
     this.lineViews = [];
   }
 
@@ -34,8 +45,15 @@ export default class PageView {
     const parentDOMElement = this.getDocumentView().getDOMElement();
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--page';
+    this.domElement.style.width = `${this.config.width}px`;
+    this.domElement.style.height = `${this.config.height}px`;
+    this.domElement.style.padding = `${this.config.paddingTop}px ${this.config.paddingRight}px ${this.config.paddingBottom}px ${this.config.paddingLeft}px`;
     this.lineViews.forEach(lineView => lineView.addToDOM());
     parentDOMElement.appendChild(this.domElement);
+  }
+
+  getConfig(): PageViewConfig {
+    return this.config;
   }
 
   getDocumentView(): DocumentView {

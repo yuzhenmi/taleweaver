@@ -64,7 +64,14 @@ class TaleWeaverComponent extends React.Component<TaleWeaverComponentProps, Tale
   constructor(props: any) {
     super(props);
     this.domRef = React.createRef();
-    const taleWeaver = new TaleWeaver();
+    const taleWeaver = new TaleWeaver({
+      pageWidth: 800,
+      pageHeight: 1000,
+      pagePaddingTop: 60,
+      pagePaddingBottom: 60,
+      pagePaddingLeft: 60,
+      pagePaddingRight: 60,
+    });
     taleWeaver.setState(parseStateJSON(taleWeaver, props.initialStateJSON));
     this.state = { taleWeaver };
   }
