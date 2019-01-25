@@ -1,13 +1,14 @@
 body {
   background: #F7F8F9;
   min-height: 100vh;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
-.tw--pages {
+.tw--document {
   padding: 36px;
 }
 
@@ -16,6 +17,9 @@ body {
   box-shadow: 0 3px 18px rgba(0, 0, 0, 0.09);
   margin: 0 auto 24px;
   cursor: text;
+
+  font-size: 18px;
+  line-height: 36px;
 }
 
 .tw--page:last-child {

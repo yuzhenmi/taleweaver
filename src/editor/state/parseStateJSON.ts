@@ -1,5 +1,6 @@
 import TaleWeaver from '../TaleWeaver';
 import State from './State';
+import Cursor from '../cursor/Cursor';
 
 type InlineElementJSON = {
   type: string;
@@ -44,5 +45,17 @@ export default function parseStateJSON(taleWeaver: TaleWeaver, stateJSON: StateJ
     documentElement.appendChild(blockElement);
   });
   state.setDocumentElement(documentElement);
+  stateJSON.editorCursors.forEach(editorCursorJSON => {
+    const editorCursor = new Cursor();
+    editorCursor.setAnchor(editorCursorJSON.anchor);
+    editorCursor.setHead(editorCursorJSON.head);
+    state.appendEditorCursor(editorCursor);
+  });
+  stateJSON.observerCursors.forEach(observerCursorJSON => {
+    const observerCursor = new Cursor();
+    observerCursor.setAnchor(observerCursorJSON.anchor);
+    observerCursor.setHead(observerCursorJSON.head);
+    state.appendObserverCursor(observerCursor);
+  });
   return state;
 }

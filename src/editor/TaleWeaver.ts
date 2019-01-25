@@ -3,14 +3,12 @@ import BlockElement from './element/BlockElement';
 import InlineElement from './element/InlineElement';
 import ParagraphElement from './element/ParagraphElement';
 import TextElement from './element/TextElement';
-import LineBreakElement from './element/LineBreakElement';
 import DocumentView from './view/DocumentView';
 import PageView from './view/PageView';
 import LineView from './view/LineView';
 import BoxView from './view/BoxView';
 import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
-import LineBreakView from './view/LineBreakView';
 import State from './state/State';
 
 type DocumentElementType = new (...args: any[]) => DocumentElement;
@@ -53,10 +51,8 @@ export default class TaleWeaver {
     this.boxViewTypes = new Map<string, BoxViewType>();
     this.registerBlockElementType('Paragraph', ParagraphElement);
     this.registerInlineElementType('Text', TextElement);
-    this.registerInlineElementType('LineBreak', LineBreakElement);
     this.registerLineViewType('Paragraph', ParagraphLineView);
     this.registerBoxViewType('Text', TextView);
-    this.registerBoxViewType('LineBreak', LineBreakView);
   }
 
   registerDocumentElementType(documentElementType: DocumentElementType) {

@@ -1,9 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
 import DocumentElement from '../element/DocumentElement';
 import BlockElement from '../element/BlockElement';
-import PageView from './PageView';
+import PageView, { PageViewScreenPositions } from './PageView';
 import BoxView from './BoxView';
 import LineView from './LineView';
+import EditorCursorView from './EditorCursorView';
+import ObserverCursorView from './ObserverCursorView';
 
 type BoxViewBlock = {
   blockElement: BlockElement;
@@ -19,6 +21,11 @@ type DocumentViewConfig = {
   pagePaddingRight: number;
 }
 
+export type DocumentViewScreenPositions = {
+  pageView: PageView;
+  pageViewScreenPositions: PageViewScreenPositions;
+}[]
+
 export default class DocumentView {
   private config: DocumentViewConfig;
   private documentElement?: DocumentElement;
@@ -26,6 +33,8 @@ export default class DocumentView {
   private pageViews: PageView[];
   private boxViewBlocks: BoxViewBlock[];
   private lineViews: LineView[];
+  private editorCursorViews: EditorCursorView[];
+  private observerCursorViews: ObserverCursorView[];
   private domElement?: HTMLElement;
 
   constructor(config: DocumentViewConfig) {
@@ -33,6 +42,8 @@ export default class DocumentView {
     this.boxViewBlocks = [];
     this.lineViews = [];
     this.pageViews = [];
+    this.editorCursorViews = [];
+    this.observerCursorViews = [];
   }
 
   private buildBoxViewBlocks() {
@@ -110,11 +121,31 @@ export default class DocumentView {
     });
   }
 
+  buildEditorCursorViews() {
+    this.getDocumentElement().getState().getEditorCursors().forEach(editorCursor => {
+      const editorCursorView = new EditorCursorView();
+      editorCursorView.setEditorCursor(editorCursor);
+      editorCursorView.setDocumentView(this);
+      this.editorCursorViews.push(editorCursorView);
+    });
+  }
+
+  buildObserverCursorViews() {
+    this.getDocumentElement().getState().getObserverCursors().forEach(observerCursor => {
+      const observerCursorView = new ObserverCursorView();
+      observerCursorView.setObserverCursor(observerCursor);
+      observerCursorView.setDocumentView(this);
+      this.observerCursorViews.push(observerCursorView);
+    });
+  }
+
   setDocumentElement(documentElement: DocumentElement) {
     this.documentElement = documentElement;
     this.buildBoxViewBlocks();
     this.buildLineViews();
     this.buildPageViews();
+    this.buildEditorCursorViews();
+    this.buildObserverCursorViews();
   }
 
   setTaleWeaver(taleWeaver: TaleWeaver) {
@@ -141,6 +172,8 @@ export default class DocumentView {
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--document';
     this.pageViews.forEach(pageView => pageView.addToDOM());
+    this.editorCursorViews.forEach(editorCursorView => editorCursorView.addToDOM());
+    this.observerCursorViews.forEach(observerCursorView => observerCursorView.addToDOM());
     containerDOMElement.appendChild(this.domElement);
   }
 
@@ -158,5 +191,25 @@ export default class DocumentView {
 
   getDOMElement(): HTMLElement {
     return this.domElement!;
+  }
+
+  getScreenPositions(from: number, to: number): DocumentViewScreenPositions {
+    let cumulatedSize = 0;
+    const documentScreenPositions: DocumentViewScreenPositions = [];
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      const pageViewSize = pageView.getSize();
+      if (from - cumulatedSize < pageViewSize) {
+        documentScreenPositions.push({
+          pageView,
+          pageViewScreenPositions: pageView.getScreenPositions(from - cumulatedSize, Math.min(to - cumulatedSize, pageViewSize)),
+        });
+      }
+      cumulatedSize += pageViewSize;
+      if (to <= cumulatedSize) {
+        return documentScreenPositions;
+      }
+    }
+    throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
   }
 }

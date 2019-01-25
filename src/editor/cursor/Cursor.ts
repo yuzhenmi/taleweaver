@@ -1,11 +1,6 @@
 export default class Cursor {
-  private anchor: number;
-  private head: number;
-
-  constructor(anchor: number, head: number) {
-    this.anchor = anchor;
-    this.head = head;
-  }
+  private anchor?: number;
+  private head?: number;
 
   setAnchor(anchor: number) {
     this.anchor = anchor;
@@ -16,10 +11,10 @@ export default class Cursor {
   }
 
   getAnchor(): number {
-    return this.anchor;
+    return this.anchor!;
   }
 
   getHead(): number {
-    return this.head;
+    return this.head!;
   }
 }

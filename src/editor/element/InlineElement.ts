@@ -12,6 +12,8 @@ export abstract class Atom {
   getInlineElement(): InlineElement {
     return this.inlineElement!;
   }
+
+  abstract getSize(): number;
 }
 
 export abstract class TextAtom extends Atom {
@@ -21,6 +23,10 @@ export abstract class TextAtom extends Atom {
 export abstract class ObjectAtom extends Atom {
   abstract getWidth(): number;
   abstract getHeight(): number;
+
+  getSize(): number {
+    return 1;
+  }
 }
 
 export default abstract class InlineElement {

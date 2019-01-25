@@ -4,6 +4,12 @@ import { Atom } from '../element/InlineElement';
 type BoxViewConfig = {
 }
 
+export type BoxViewScreenPosition = {
+  left: number;
+  right: number;
+  height: number;
+}
+
 export default abstract class BoxView {
   protected config: BoxViewConfig;
   protected atom?: Atom;
@@ -41,6 +47,11 @@ export default abstract class BoxView {
   }
 
   abstract getWidth(): number;
-
   abstract getHeight(): number;
+
+  getSize(): number {
+    return this.getAtom().getSize();
+  }
+
+  abstract getScreenPosition(from: number, to: number): BoxViewScreenPosition;
 }
