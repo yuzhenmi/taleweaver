@@ -6,7 +6,7 @@ type BoxViewConfig = {
 
 export type BoxViewScreenPosition = {
   left: number;
-  right: number;
+  width: number;
   height: number;
 }
 

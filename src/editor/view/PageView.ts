@@ -12,7 +12,7 @@ type PageViewConfig = {
 
 export type PageViewScreenPositions = {
   left: number;
-  right: number;
+  width: number;
   top: number;
   height: number;
 }[]
@@ -89,7 +89,7 @@ export default class PageView {
         const lineViewScreenPosition = lineView.getScreenPosition(from - cumulatedSize, Math.min(to - cumulatedSize, lineViewSize));
         screenPositions.push({
           left: lineViewScreenPosition.left,
-          right: lineViewScreenPosition.right,
+          width: lineViewScreenPosition.width,
           top: cumulatedHeight,
           height: lineViewScreenPosition.height,
         });

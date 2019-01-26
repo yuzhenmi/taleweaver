@@ -50,7 +50,7 @@ export default class TextView extends BoxView {
     }
     return {
       left,
-      right,
+      width: right - left,
       height: this.getHeight(),
     };
   }

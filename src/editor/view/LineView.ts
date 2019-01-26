@@ -7,7 +7,7 @@ type LineViewConfig = {
 
 export type LineViewScreenPosition = {
   left: number;
-  right: number;
+  width: number;
   height: number;
 }
 
@@ -65,28 +65,29 @@ export default abstract class LineView {
   getScreenPosition(from: number, to: number): LineViewScreenPosition {
     let cumulatedSize = 0;
     let cumulatedWidth = 0;
-    let leftScreenPosition: BoxViewScreenPosition | null = null;
+    let left: number | null = null;
     for (let n = 0, nn = this.boxViews.length; n < nn; n++) {
       const boxView = this.boxViews[n];
       const boxViewSize = boxView.getSize();
-      if (!leftScreenPosition) {
+      if (left === null) {
         if (from - cumulatedSize < boxViewSize) {
           if (to - cumulatedSize < boxViewSize) {
             const boxViewScreenPosition = boxView.getScreenPosition(from - cumulatedSize, to - cumulatedSize);
             return {
               left: cumulatedWidth + boxViewScreenPosition.left,
-              right: cumulatedWidth + boxViewScreenPosition.right,
+              width: boxViewScreenPosition.width,
               height: boxViewScreenPosition.height,
             };
           }
-          leftScreenPosition = boxView.getScreenPosition(from - cumulatedSize, boxViewSize);
+          left = cumulatedWidth + boxView.getScreenPosition(from - cumulatedSize, boxViewSize).left;
         }
       } else {
         if (to - cumulatedSize < boxViewSize) {
-          const rightScreenPosition = boxView.getScreenPosition(to - cumulatedSize, boxViewSize);
+          const rightScreenPosition = boxView.getScreenPosition(0, to - cumulatedSize);
+          const right = cumulatedWidth + rightScreenPosition.left + rightScreenPosition.width;
           return {
-            left: cumulatedWidth + leftScreenPosition.left,
-            right: cumulatedWidth + rightScreenPosition.right,
+            left,
+            width: right - left,
             height: this.getHeight(),
           };
         }

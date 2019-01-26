@@ -48,7 +48,7 @@ const initialStateJSON = {
       { type: 'Paragraph', children: [ { type: 'Text', text: 'In cursus et arcu eget blandit. Vestibulum volutpat mauris eu est tempus, a ultrices justo vulputate. Suspendisse potenti. Maecenas at molestie tellus. Nulla facilisi. Etiam ac justo quis lectus blandit lacinia. Pellentesque nisl sapien, malesuada eu risus nec, malesuada posuere nisl.' } ] },
     ],
   },
-  editorCursors: [ { anchor: 13, head: 13 } ],
+  editorCursors: [ { anchor: 0, head: 13 }, { anchor: 60, head: 50 } ],
   observerCursors: [],
 };
 
