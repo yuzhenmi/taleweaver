@@ -6,11 +6,12 @@ import BoxView from './BoxView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
+import Event from './helpers/Event';
 
 type BoxViewBlock = {
   blockElement: BlockElement;
   boxViews: BoxView[];
-}
+};
 
 type DocumentViewConfig = {
   pageWidth: number;
@@ -19,12 +20,12 @@ type DocumentViewConfig = {
   pagePaddingBottom: number;
   pagePaddingLeft: number;
   pagePaddingRight: number;
-}
+};
 
 export type DocumentViewScreenPositions = {
   pageView: PageView;
   pageViewScreenPositions: PageViewScreenPositions;
-}[]
+}[];
 
 export default class DocumentView {
   private config: DocumentViewConfig;
@@ -36,6 +37,8 @@ export default class DocumentView {
   private editorCursorViews: EditorCursorView[];
   private observerCursorViews: ObserverCursorView[];
   private domElement?: HTMLElement;
+  private cursorBlinkState: boolean;
+  private cursorBlinkInterval?: NodeJS.Timeout;
 
   constructor(config: DocumentViewConfig) {
     this.config = config;
@@ -44,6 +47,7 @@ export default class DocumentView {
     this.pageViews = [];
     this.editorCursorViews = [];
     this.observerCursorViews = [];
+    this.cursorBlinkState = false;
   }
 
   private buildBoxViewBlocks() {
@@ -89,7 +93,10 @@ export default class DocumentView {
 
   private buildPageViews() {
     this.pageViews.length = 0;
-    let pageView = new PageView({
+    let pageView = new PageView(this, {
+      onPointerDown: this.handlePointerDownOnPage,
+      onPointerUp: this.handlePointerUpOnPage,
+    }, {
       width: this.config.pageWidth,
       height: this.config.pageHeight,
       paddingTop: this.config.pagePaddingTop,
@@ -97,13 +104,15 @@ export default class DocumentView {
       paddingLeft: this.config.pagePaddingLeft,
       paddingRight: this.config.pagePaddingRight,
     });
-    pageView.setDocumentView(this);
     this.pageViews.push(pageView);
     let cumulatedHeight = 0;
     const maxHeight = this.config.pageHeight - this.config.pagePaddingTop - this.config.pagePaddingBottom;
     this.lineViews.forEach(lineView => {
       if (cumulatedHeight + lineView.getHeight() > maxHeight) {
-        pageView = new PageView({
+        pageView = new PageView(this, {
+          onPointerDown: this.handlePointerDownOnPage,
+          onPointerUp: this.handlePointerUpOnPage,
+        }, {
           width: this.config.pageWidth,
           height: this.config.pageHeight,
           paddingTop: this.config.pagePaddingTop,
@@ -111,7 +120,6 @@ export default class DocumentView {
           paddingLeft: this.config.pagePaddingLeft,
           paddingRight: this.config.pagePaddingRight,
         });
-        pageView.setDocumentView(this);
         this.pageViews.push(pageView);
         cumulatedHeight = 0;
       }
@@ -119,6 +127,26 @@ export default class DocumentView {
       pageView.appendLineView(lineView);
       cumulatedHeight += lineView.getHeight();
     });
+  }
+
+  private handlePointerDownOnPage = (event: Event) => {
+    const pageView: PageView = event.pageView;
+    const pageViewPosition: number = event.pageViewPosition;
+    let cumulatedSize = 0;
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const loopPageView = this.pageViews[n];
+      if (loopPageView === pageView) {
+        break;
+      }
+      cumulatedSize += loopPageView.getSize();
+    }
+    const position = cumulatedSize + pageViewPosition;
+    // TODO: Notify editor cursor state changed
+  }
+
+  private handlePointerUpOnPage = (event: Event) => {
+    const pageView: PageView = event.pageView;
+    const pageViewPosition: number = event.pageViewPosition;
   }
 
   buildEditorCursorViews() {
@@ -152,11 +180,6 @@ export default class DocumentView {
     this.taleWeaver = taleWeaver;
   }
 
-  appendPageView(pageView: PageView) {
-    this.pageViews.push(pageView);
-    pageView.setDocumentView(this);
-  }
-
   removePageView(pageView: PageView) {
     const index = this.pageViews.indexOf(pageView);
     if (index < 0) {
@@ -175,6 +198,14 @@ export default class DocumentView {
     this.editorCursorViews.forEach(editorCursorView => editorCursorView.addToDOM());
     this.observerCursorViews.forEach(observerCursorView => observerCursorView.addToDOM());
     containerDOMElement.appendChild(this.domElement);
+    this.cursorBlinkInterval = setInterval(() => {
+      if (this.cursorBlinkState) {
+        this.editorCursorViews.forEach(editorCursorView => editorCursorView.hideHead());
+      } else {
+        this.editorCursorViews.forEach(editorCursorView => editorCursorView.showHead());
+      }
+      this.cursorBlinkState = !this.cursorBlinkState;
+    }, 500);
   }
 
   getConfig(): DocumentViewConfig {

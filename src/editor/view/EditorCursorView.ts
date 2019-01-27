@@ -4,10 +4,8 @@ import DocumentView from './DocumentView';
 export default class EditorCursorView {
   private editorCursor?: Cursor;
   private documentView?: DocumentView;
-  private containerDOMElement?: HTMLElement;
   private headDOMElement?: HTMLElement;
   private selectionDOMElements: HTMLElement[];
-  private blinkInterval?: NodeJS.Timeout;
 
   constructor() {
     this.selectionDOMElements = [];
@@ -28,12 +26,11 @@ export default class EditorCursorView {
     headDOMElement.style.top = `${pageViewScreenPositions[0].top + pageView.getConfig().paddingTop}px`;
     headDOMElement.style.height = `${pageViewScreenPositions[0].height}px`;
     const pageViewDOMElement = pageView.getDOMElement();
-    const containerDOMElement = this.containerDOMElement!;
-    if (containerDOMElement.parentElement && containerDOMElement.parentElement !== pageViewDOMElement) {
-      containerDOMElement.parentElement!.removeChild(containerDOMElement);
+    if (headDOMElement.parentElement && headDOMElement.parentElement !== pageViewDOMElement) {
+      headDOMElement.parentElement!.removeChild(headDOMElement);
     }
-    if (!containerDOMElement.parentElement) {
-      pageViewDOMElement.appendChild(containerDOMElement);
+    if (!headDOMElement.parentElement) {
+      pageViewDOMElement.appendChild(headDOMElement);
     }
   }
 
@@ -55,7 +52,7 @@ export default class EditorCursorView {
       const selectionDOMElement = document.createElement('div');
       selectionDOMElement.className = 'tw--editor-cursor-selection';
       selectionDOMElement.style.position = 'absolute';
-      selectionDOMElement.style.background = 'rgba(0, 0, 0, 0.25)';
+      selectionDOMElement.style.background = 'hsla(217, 100%, 65%, 0.25)';
       this.selectionDOMElements.push(selectionDOMElement);
     }
     let selectionIndex = 0;
@@ -67,6 +64,7 @@ export default class EditorCursorView {
         selectionDOMElement.style.width = `${pageViewScreenPosition.width}px`;
         selectionDOMElement.style.top = `${pageViewScreenPosition.top + pageView.getConfig().paddingTop}px`;
         selectionDOMElement.style.height = `${pageViewScreenPosition.height}px`;
+        selectionDOMElement.style.pointerEvents = 'none';
         if (selectionDOMElement.parentElement && selectionDOMElement.parentElement !== pageViewDOMElement) {
           selectionDOMElement.parentElement!.removeChild(selectionDOMElement);
         }
@@ -87,28 +85,14 @@ export default class EditorCursorView {
   }
 
   addToDOM() {
-    if (!this.containerDOMElement) {
-      this.containerDOMElement = document.createElement('div');
-      this.containerDOMElement.className = 'tw--editor-cursor';
-    }
     if (!this.headDOMElement) {
       this.headDOMElement = document.createElement('div');
       this.headDOMElement.className = 'tw--editor-cursor-head';
       this.headDOMElement.style.position = 'absolute';
       this.headDOMElement.style.width = '2px';
       this.headDOMElement.style.marginLeft = '-1px';
-      this.headDOMElement.style.background = 'rgba(0, 0, 0, 0.85)';
+      this.headDOMElement.style.background = 'hsla(217, 100%, 65%, 1)';
       this.headDOMElement.style.visibility = 'hidden';
-      this.containerDOMElement.appendChild(this.headDOMElement);
-    }
-    if (!this.blinkInterval) {
-      this.blinkInterval = setInterval(() => {
-        if (this.headDOMElement!.style.visibility === 'visible') {
-          this.headDOMElement!.style.visibility = 'hidden';
-        } else {
-          this.headDOMElement!.style.visibility = 'visible';
-        }
-      }, 500);
     }
     this.render();
   }
@@ -119,5 +103,13 @@ export default class EditorCursorView {
 
   getDocumentView(): DocumentView {
     return this.documentView!;
+  }
+
+  showHead() {
+    this.headDOMElement!.style.visibility = 'visible';
+  }
+
+  hideHead() {
+    this.headDOMElement!.style.visibility = 'hidden';
   }
 }

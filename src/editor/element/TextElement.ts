@@ -39,7 +39,8 @@ export default class TextElement extends InlineElement {
     const atoms: TextAtom[] = [];
     const text = this.getText();
     let startIndex = 0;
-    for (let n = 0, nn = text.length; n < nn; n++) {
+    let n = 0;
+    for (let nn = text.length; n < nn; n++) {
       const char = text[n];
       if (BREAKABLE_CHARS.indexOf(char) >= 0) {
         const atom = new TextAtom();
@@ -47,6 +48,11 @@ export default class TextElement extends InlineElement {
         atoms.push(atom);
         startIndex = n + 1;
       }
+    }
+    if (startIndex !== n) {
+      const atom = new TextAtom();
+      atom.setText(text.substring(startIndex, n + 1));
+      atoms.push(atom);
     }
     return atoms;
   }

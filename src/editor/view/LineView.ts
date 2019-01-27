@@ -26,6 +26,10 @@ export default abstract class LineView {
     this.pageView = pageView;
   }
 
+  getBoxViews(): BoxView[] {
+    return this.boxViews;
+  }
+
   appendBoxView(boxView: BoxView) {
     this.boxViews.push(boxView);
   }
@@ -71,7 +75,7 @@ export default abstract class LineView {
       const boxViewSize = boxView.getSize();
       if (left === null) {
         if (from - cumulatedSize < boxViewSize) {
-          if (to - cumulatedSize < boxViewSize) {
+          if (to - cumulatedSize <= boxViewSize) {
             const boxViewScreenPosition = boxView.getScreenPosition(from - cumulatedSize, to - cumulatedSize);
             return {
               left: cumulatedWidth + boxViewScreenPosition.left,
@@ -82,7 +86,7 @@ export default abstract class LineView {
           left = cumulatedWidth + boxView.getScreenPosition(from - cumulatedSize, boxViewSize).left;
         }
       } else {
-        if (to - cumulatedSize < boxViewSize) {
+        if (to - cumulatedSize <= boxViewSize) {
           const rightScreenPosition = boxView.getScreenPosition(0, to - cumulatedSize);
           const right = cumulatedWidth + rightScreenPosition.left + rightScreenPosition.width;
           return {
