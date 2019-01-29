@@ -25,7 +25,6 @@ export default class EditorCursorView {
   private render() {
     this.renderHead();
     this.renderSelections();
-    this.startBlinking();
   }
 
   private renderHead() {
@@ -104,9 +103,13 @@ export default class EditorCursorView {
       this.headDOMElement.style.visibility = 'hidden';
     }
     this.render();
+    this.startBlinking();
     this.editorCursor.observe(() => {
-      this.stopBlinking();
       this.render();
+      if (this.blinkInterval !== null) {
+        this.stopBlinking();
+        this.startBlinking();
+      }
     });
   }
 
