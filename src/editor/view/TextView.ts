@@ -1,5 +1,5 @@
 import BoxView, { BoxViewScreenPosition } from './BoxView';
-import { TextAtom } from '../element/TextElement';
+import { TextAtom } from '../element/inline/TextElement';
 import measureText from './helpers/measureText';
 
 const placeholderTextStyle = {
@@ -53,5 +53,24 @@ export default class TextView extends BoxView {
       width: right - left,
       height: this.getHeight(),
     };
+  }
+
+  getDocumentPosition(screenPosition: number): number {
+    // Step through each character until we reach
+    // the screen position
+    const textAtom = <TextAtom> this.getAtom();
+    const text = textAtom.getText();
+    let lastWidth = 0;
+    for (let n = 1, nn = text.length; n < nn; n++) {
+      const width = measureText(text.substring(0, n), placeholderTextStyle).width;
+      if (width > screenPosition) {
+        if (screenPosition - lastWidth > width - screenPosition) {
+          return n;
+        }
+        return n - 1;
+      }
+      lastWidth = width;
+    }
+    return text.length;
   }
 }

@@ -1,8 +1,8 @@
 import DocumentElement from './element/DocumentElement';
 import BlockElement from './element/BlockElement';
 import InlineElement from './element/InlineElement';
-import ParagraphElement from './element/ParagraphElement';
-import TextElement from './element/TextElement';
+import ParagraphElement from './element/block/ParagraphElement';
+import TextElement from './element/inline/TextElement';
 import DocumentView from './view/DocumentView';
 import PageView from './view/PageView';
 import LineView from './view/LineView';
@@ -133,7 +133,7 @@ export default class TaleWeaver {
 
   attach(containerDOMElement: HTMLElement) {
     const DocumentView = this.getDocumentViewType();
-    const documentView = new DocumentView({
+    const documentView = new DocumentView(this, {
       pageWidth: this.config.pageWidth,
       pageHeight: this.config.pageHeight,
       pagePaddingTop: this.config.pagePaddingTop,
@@ -141,7 +141,6 @@ export default class TaleWeaver {
       pagePaddingLeft: this.config.pagePaddingLeft,
       pagePaddingRight: this.config.pagePaddingRight,
     });
-    documentView.setTaleWeaver(this);
     documentView.setDocumentElement(this.getState().getDocumentElement());
     this.setDocumentView(documentView);
     this.getDocumentView().addToDOM(containerDOMElement);

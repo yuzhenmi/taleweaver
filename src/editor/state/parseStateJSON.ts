@@ -19,12 +19,15 @@ type CursorJSON = {
 }
 type StateJSON = {
   document: DocumentElementJSON;
-  editorCursors: CursorJSON[];
+  editorCursor: CursorJSON | null;
   observerCursors: CursorJSON[];
 }
 
 export default function parseStateJSON(taleWeaver: TaleWeaver, stateJSON: StateJSON): State {
+  // Create state
   const state = new State();
+
+  // Parse document state
   const DocumentElement = taleWeaver.getDocumentElementType();
   const documentElement = new DocumentElement();
   stateJSON.document.children.forEach(blockElementJSON => {
@@ -45,17 +48,18 @@ export default function parseStateJSON(taleWeaver: TaleWeaver, stateJSON: StateJ
     documentElement.appendChild(blockElement);
   });
   state.setDocumentElement(documentElement);
-  stateJSON.editorCursors.forEach(editorCursorJSON => {
-    const editorCursor = new Cursor();
-    editorCursor.setAnchor(editorCursorJSON.anchor);
-    editorCursor.setHead(editorCursorJSON.head);
-    state.appendEditorCursor(editorCursor);
-  });
+
+  // Parse editor cursor state
+  if (stateJSON.editorCursor) {
+    const editorCursor = new Cursor(stateJSON.editorCursor.anchor, stateJSON.editorCursor.head);
+    state.setEditorCursor(editorCursor);
+  }
+
+  // Parse observer cursors states
   stateJSON.observerCursors.forEach(observerCursorJSON => {
-    const observerCursor = new Cursor();
-    observerCursor.setAnchor(observerCursorJSON.anchor);
-    observerCursor.setHead(observerCursorJSON.head);
+    const observerCursor = new Cursor(observerCursorJSON.anchor, observerCursorJSON.head);
     state.appendObserverCursor(observerCursor);
   });
+
   return state;
 }

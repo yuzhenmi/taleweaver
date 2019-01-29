@@ -1,5 +1,5 @@
 import LineView from './LineView';
-import { Atom } from '../element/InlineElement';
+import Atom from '../element/Atom';
 
 type BoxViewConfig = {
 }
@@ -54,4 +54,5 @@ export default abstract class BoxView {
   }
 
   abstract getScreenPosition(from: number, to: number): BoxViewScreenPosition;
+  abstract getDocumentPosition(screenPosition: number): number;
 }

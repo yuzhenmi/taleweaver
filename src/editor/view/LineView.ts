@@ -1,5 +1,5 @@
 import PageView from './PageView';
-import BoxView, { BoxViewScreenPosition } from './BoxView';
+import BoxView from './BoxView';
 
 type LineViewConfig = {
   width: number;
@@ -74,8 +74,18 @@ export default abstract class LineView {
       const boxView = this.boxViews[n];
       const boxViewSize = boxView.getSize();
       if (left === null) {
-        if (from - cumulatedSize < boxViewSize) {
-          if (to - cumulatedSize <= boxViewSize) {
+        // Left-bound has not been determined yet,
+        // so we need to determine left bound,
+        // and if the box at the left bound covers
+        // the whole range then we return the screen
+        // position of that box
+        if (cumulatedSize + boxViewSize >= from) {
+          // End of box is to the right of the beginning
+          // of the range
+          if (cumulatedSize + boxViewSize >= to) {
+            // End of box is at or to the right of the end
+            // of the range, this means the box fully covers
+            // the range
             const boxViewScreenPosition = boxView.getScreenPosition(from - cumulatedSize, to - cumulatedSize);
             return {
               left: cumulatedWidth + boxViewScreenPosition.left,
@@ -86,7 +96,7 @@ export default abstract class LineView {
           left = cumulatedWidth + boxView.getScreenPosition(from - cumulatedSize, boxViewSize).left;
         }
       } else {
-        if (to - cumulatedSize <= boxViewSize) {
+        if (cumulatedSize + boxViewSize >= to) {
           const rightScreenPosition = boxView.getScreenPosition(0, to - cumulatedSize);
           const right = cumulatedWidth + rightScreenPosition.left + rightScreenPosition.width;
           return {

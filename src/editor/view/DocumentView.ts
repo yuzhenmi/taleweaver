@@ -1,12 +1,12 @@
 import TaleWeaver from '../TaleWeaver';
 import DocumentElement from '../element/DocumentElement';
 import BlockElement from '../element/BlockElement';
-import PageView, { PageViewScreenPositions } from './PageView';
+import PageView, { PageViewScreenPositions, PageViewPointerEvent } from './PageView';
 import BoxView from './BoxView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
-import Event from './helpers/Event';
+import { translateCursor } from '../state/helpers/cursorStateTransformations';
 
 type BoxViewBlock = {
   blockElement: BlockElement;
@@ -28,26 +28,24 @@ export type DocumentViewScreenPositions = {
 }[];
 
 export default class DocumentView {
+  private taleWeaver?: TaleWeaver;
   private config: DocumentViewConfig;
   private documentElement?: DocumentElement;
-  private taleWeaver?: TaleWeaver;
   private pageViews: PageView[];
   private boxViewBlocks: BoxViewBlock[];
   private lineViews: LineView[];
-  private editorCursorViews: EditorCursorView[];
+  private editorCursorView: EditorCursorView | null;
   private observerCursorViews: ObserverCursorView[];
   private domElement?: HTMLElement;
-  private cursorBlinkState: boolean;
-  private cursorBlinkInterval?: NodeJS.Timeout;
 
-  constructor(config: DocumentViewConfig) {
+  constructor(taleWeaver: TaleWeaver, config: DocumentViewConfig) {
+    this.taleWeaver = taleWeaver;
     this.config = config;
     this.boxViewBlocks = [];
     this.lineViews = [];
     this.pageViews = [];
-    this.editorCursorViews = [];
+    this.editorCursorView = null;
     this.observerCursorViews = [];
-    this.cursorBlinkState = false;
   }
 
   private buildBoxViewBlocks() {
@@ -75,12 +73,16 @@ export default class DocumentView {
     const maxWidth = this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight;
     this.boxViewBlocks.forEach(boxViewBlock => {
       const LineView = this.getTaleWeaver().getLineViewType(boxViewBlock.blockElement.getType())!;
-      let lineView = new LineView();
+      let lineView = new LineView({
+        width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
+      });
       this.lineViews.push(lineView);
       let cumulatedWidth = 0;
       boxViewBlock.boxViews.forEach(boxView => {
         if (cumulatedWidth + boxView.getWidth() > maxWidth) {
-          lineView = new LineView();
+          lineView = new LineView({
+            width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
+          });
           this.lineViews.push(lineView);
           cumulatedWidth = 0;
         }
@@ -95,6 +97,7 @@ export default class DocumentView {
     this.pageViews.length = 0;
     let pageView = new PageView(this, {
       onPointerDown: this.handlePointerDownOnPage,
+      onPointerMove: this.handlePointerMoveOnPage,
       onPointerUp: this.handlePointerUpOnPage,
     }, {
       width: this.config.pageWidth,
@@ -111,6 +114,7 @@ export default class DocumentView {
       if (cumulatedHeight + lineView.getHeight() > maxHeight) {
         pageView = new PageView(this, {
           onPointerDown: this.handlePointerDownOnPage,
+          onPointerMove: this.handlePointerMoveOnPage,
           onPointerUp: this.handlePointerUpOnPage,
         }, {
           width: this.config.pageWidth,
@@ -129,9 +133,7 @@ export default class DocumentView {
     });
   }
 
-  private handlePointerDownOnPage = (event: Event) => {
-    const pageView: PageView = event.pageView;
-    const pageViewPosition: number = event.pageViewPosition;
+  private resolvePageViewPosition = (pageViewPosition: number, pageView: PageView): number => {
     let cumulatedSize = 0;
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const loopPageView = this.pageViews[n];
@@ -140,22 +142,53 @@ export default class DocumentView {
       }
       cumulatedSize += loopPageView.getSize();
     }
-    const position = cumulatedSize + pageViewPosition;
-    // TODO: Notify editor cursor state changed
+    return cumulatedSize + pageViewPosition;
   }
 
-  private handlePointerUpOnPage = (event: Event) => {
-    const pageView: PageView = event.pageView;
-    const pageViewPosition: number = event.pageViewPosition;
+  private handlePointerDownOnPage = (event: PageViewPointerEvent) => {
+    if (!this.editorCursorView) {
+      return;
+    }
+    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
+    this.editorCursorView.beginSelect(position);
   }
 
-  buildEditorCursorViews() {
-    this.getDocumentElement().getState().getEditorCursors().forEach(editorCursor => {
-      const editorCursorView = new EditorCursorView();
-      editorCursorView.setEditorCursor(editorCursor);
-      editorCursorView.setDocumentView(this);
-      this.editorCursorViews.push(editorCursorView);
-    });
+  private handlePointerMoveOnPage = (event: PageViewPointerEvent) => {
+    if (!this.editorCursorView) {
+      return;
+    }
+    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
+    this.editorCursorView.moveSelect(position);
+  }
+
+  private handlePointerUpOnPage = (event: PageViewPointerEvent) => {
+    if (!this.editorCursorView) {
+      return;
+    }
+    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
+    this.editorCursorView.endSelect(position);
+  }
+
+  private handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowLeft') {
+      this.taleWeaver!.getState().transformCursorState(translateCursor(-1));
+    } else if (event.key === 'ArrowRight') {
+      this.taleWeaver!.getState().transformCursorState(translateCursor(1));
+    } else if (event.key === 'ArrowUp') {
+    } else if (event.key === 'ArrowDown') {
+    } else {
+      return;
+    }
+    event.preventDefault();
+  }
+
+  buildEditorCursorView() {
+    const editorCursor = this.getDocumentElement().getState().getEditorCursor();
+    if (!editorCursor) {
+      return;
+    }
+    this.editorCursorView = new EditorCursorView(this.taleWeaver!, editorCursor);
+    this.editorCursorView.setDocumentView(this);
   }
 
   buildObserverCursorViews() {
@@ -172,12 +205,8 @@ export default class DocumentView {
     this.buildBoxViewBlocks();
     this.buildLineViews();
     this.buildPageViews();
-    this.buildEditorCursorViews();
+    this.buildEditorCursorView();
     this.buildObserverCursorViews();
-  }
-
-  setTaleWeaver(taleWeaver: TaleWeaver) {
-    this.taleWeaver = taleWeaver;
   }
 
   removePageView(pageView: PageView) {
@@ -195,17 +224,12 @@ export default class DocumentView {
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--document';
     this.pageViews.forEach(pageView => pageView.addToDOM());
-    this.editorCursorViews.forEach(editorCursorView => editorCursorView.addToDOM());
-    this.observerCursorViews.forEach(observerCursorView => observerCursorView.addToDOM());
-    containerDOMElement.appendChild(this.domElement);
-    this.cursorBlinkInterval = setInterval(() => {
-      if (this.cursorBlinkState) {
-        this.editorCursorViews.forEach(editorCursorView => editorCursorView.hideHead());
-      } else {
-        this.editorCursorViews.forEach(editorCursorView => editorCursorView.showHead());
-      }
-      this.cursorBlinkState = !this.cursorBlinkState;
-    }, 500);
+    if (this.editorCursorView) {
+      this.editorCursorView.addToDOM();
+      this.observerCursorViews.forEach(observerCursorView => observerCursorView.addToDOM());
+      containerDOMElement.appendChild(this.domElement);
+    }
+    window.addEventListener('keydown', this.handleKeyDown);
   }
 
   getConfig(): DocumentViewConfig {
@@ -230,7 +254,7 @@ export default class DocumentView {
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const pageView = this.pageViews[n];
       const pageViewSize = pageView.getSize();
-      if (from - cumulatedSize < pageViewSize) {
+      if (cumulatedSize + pageViewSize >= from) {
         documentScreenPositions.push({
           pageView,
           pageViewScreenPositions: pageView.getScreenPositions(from - cumulatedSize, Math.min(to - cumulatedSize, pageViewSize)),

@@ -1,23 +1,35 @@
+import TaleWeaver from '../TaleWeaver';
 import Cursor from '../cursor/Cursor';
 import DocumentView from './DocumentView';
+import { translateCursor, translateCursorHead } from '../state/helpers/cursorStateTransformations';
 
 export default class EditorCursorView {
-  private editorCursor?: Cursor;
+  private taleWeaver: TaleWeaver;
+  private editorCursor: Cursor;
   private documentView?: DocumentView;
   private headDOMElement?: HTMLElement;
   private selectionDOMElements: HTMLElement[];
+  private selecting: boolean;
+  private blinkState: boolean;
+  private blinkInterval: NodeJS.Timeout | null;
 
-  constructor() {
+  constructor(taleWeaver: TaleWeaver, editorCursor: Cursor) {
+    this.taleWeaver = taleWeaver;
+    this.editorCursor = editorCursor;
     this.selectionDOMElements = [];
+    this.selecting = false;
+    this.blinkState = false;
+    this.blinkInterval = null;
   }
 
   private render() {
     this.renderHead();
     this.renderSelections();
+    this.startBlinking();
   }
 
   private renderHead() {
-    const editorCursor = this.editorCursor!;
+    const editorCursor = this.editorCursor;
     const head = editorCursor.getHead();
     const documentScreenPositions = this.documentView!.getScreenPositions(head, head);
     const { pageView, pageViewScreenPositions } = documentScreenPositions[0];
@@ -35,7 +47,7 @@ export default class EditorCursorView {
   }
 
   private renderSelections() {
-    const editorCursor = this.editorCursor!;
+    const editorCursor = this.editorCursor;
     const anchor = editorCursor.getAnchor();
     const head = editorCursor.getHead();
     const from = Math.min(anchor, head);
@@ -46,7 +58,8 @@ export default class EditorCursorView {
       selectionsCount += pageViewScreenPositions.length;
     });
     while (this.selectionDOMElements.length > selectionsCount) {
-      this.selectionDOMElements.pop();
+      const selectionDOMElement = this.selectionDOMElements.pop()!;
+      selectionDOMElement.parentElement!.removeChild(selectionDOMElement);
     }
     while (this.selectionDOMElements.length < selectionsCount) {
       const selectionDOMElement = document.createElement('div');
@@ -76,10 +89,6 @@ export default class EditorCursorView {
     });
   }
 
-  setEditorCursor(editorCursor: Cursor) {
-    this.editorCursor = editorCursor;
-  }
-
   setDocumentView(documentView: DocumentView) {
     this.documentView = documentView;
   }
@@ -95,21 +104,62 @@ export default class EditorCursorView {
       this.headDOMElement.style.visibility = 'hidden';
     }
     this.render();
+    this.editorCursor.observe(() => {
+      this.stopBlinking();
+      this.render();
+    });
   }
 
   getEditorCursor(): Cursor {
-    return this.editorCursor!;
+    return this.editorCursor;
   }
 
   getDocumentView(): DocumentView {
     return this.documentView!;
   }
 
-  showHead() {
-    this.headDOMElement!.style.visibility = 'visible';
+  startBlinking() {
+    if (this.blinkInterval !== null) {
+      return;
+    }
+    this.blinkInterval = setInterval(() => {
+      if (this.blinkState) {
+        this.headDOMElement!.style.visibility = 'hidden';
+      } else {
+        this.headDOMElement!.style.visibility = 'visible';
+      }
+      this.blinkState = !this.blinkState;
+    }, 500);
   }
 
-  hideHead() {
-    this.headDOMElement!.style.visibility = 'hidden';
+  stopBlinking() {
+    if (this.blinkInterval === null) {
+      return;
+    }
+    this.blinkState = true;
+    this.headDOMElement!.style.visibility = 'visible';
+    clearInterval(this.blinkInterval);
+    this.blinkInterval = null;
+  }
+
+  beginSelect(position: number) {
+    const transformation = translateCursor(position - this.editorCursor.getHead());
+    this.taleWeaver.getState().transformCursorState(transformation);
+    this.selecting = true;
+    this.stopBlinking();
+  }
+
+  moveSelect(position: number) {
+    if (this.selecting) {
+      const transformation = translateCursorHead(position - this.editorCursor.getHead());
+      this.taleWeaver.getState().transformCursorState(transformation);
+    }
+  }
+
+  endSelect(position: number) {
+    const transformation = translateCursorHead(position - this.editorCursor.getHead());
+    this.taleWeaver.getState().transformCursorState(transformation);
+    this.selecting = false;
+    this.startBlinking();
   }
 }

@@ -1,4 +1,5 @@
-import InlineElement, { TextAtom as AbstractTextAtom } from './InlineElement';
+import InlineElement from '../InlineElement';
+import Atom from '../Atom';
 
 const BREAKABLE_CHARS = [
   ' ',
@@ -6,23 +7,9 @@ const BREAKABLE_CHARS = [
   '-',
 ];
 
-export class TextAtom extends AbstractTextAtom {
-  private text?: string;
-
+export class TextAtom extends Atom {
   getType(): string {
     return 'Text';
-  }
-
-  setText(text: string) {
-    this.text = text;
-  }
-
-  getText(): string {
-    return this.text!;
-  }
-
-  getSize(): number {
-    return this.text!.length;
   }
 }
 
@@ -32,7 +19,7 @@ export default class TextElement extends InlineElement {
   }
 
   getSize(): number {
-    return 1;
+    return this.text!.length;
   }
 
   getAtoms(): TextAtom[] {

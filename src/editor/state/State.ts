@@ -1,13 +1,17 @@
 import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
+import CursorStateTransformation from '../state/CursorStateTransformation';
+import CursorStateTransformer from './CursorStateTransformer';
 
 export default class State {
   private documentElement?: DocumentElement;
-  private editorCursors: Cursor[];
+  private editorCursor: Cursor | null;
+  private cursorStateTransformer: CursorStateTransformer | null;
   private observerCursors: Cursor[];
 
   constructor() {
-    this.editorCursors = [];
+    this.editorCursor = null;
+    this.cursorStateTransformer = null;
     this.observerCursors = [];
   }
 
@@ -16,20 +20,13 @@ export default class State {
     documentElement.setState(this);
   }
 
-  appendEditorCursor(cursor: Cursor) {
-    this.editorCursors.push(cursor);
+  setEditorCursor(cursor: Cursor) {
+    this.editorCursor = cursor;
+    this.cursorStateTransformer = new CursorStateTransformer(cursor);
   }
 
   appendObserverCursor(cursor: Cursor) {
     this.observerCursors.push(cursor);
-  }
-
-  removeEditorCursor(cursor: Cursor) {
-    const index = this.editorCursors.indexOf(cursor);
-    if (index < 0) {
-      return;
-    }
-    this.editorCursors.splice(index, 1);
   }
 
   removeObserverCursor(cursor: Cursor) {
@@ -44,11 +41,21 @@ export default class State {
     return this.documentElement!;
   }
 
-  getEditorCursors(): Cursor[] {
-    return this.editorCursors;
+  getEditorCursor(): Cursor | null {
+    return this.editorCursor;
   }
 
   getObserverCursors(): Cursor[] {
     return this.observerCursors;
+  }
+
+  transformCursorState(transformation: CursorStateTransformation) {
+    // Do not do anything if there is no transformer
+    if (!this.cursorStateTransformer) {
+      return;
+    }
+
+    // Apply transformation
+    this.cursorStateTransformer.apply(transformation);
   }
 }
