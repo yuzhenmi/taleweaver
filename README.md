@@ -1,3 +1,3 @@
 # TaleWeaver
 
-This is a work-in-progress WYSIWYG editor aiming to become the word processor for the 2Tale platform. The goal is to develop an editor that is fully aware of where things are rendered, and completely avoid the use of contenteditable.
+This is a work-in-progress web-based word processor for the 2Tale Writer's Portal. The goal is to develop a layout-aware WYSIWYG editor that does not rely on the browser for line breaking, cursor placement and input event capturing. Most existing open-source editors use contenteditable to delegate these responsibilities to the browser, as a result, it is difficult to implement features on top of them that require layout information. Such features include multiple cursor placement for collaborative editing, word processor style fixed-sized pages, and complex UI overlays on top of the document such as commenting and highlighting.
