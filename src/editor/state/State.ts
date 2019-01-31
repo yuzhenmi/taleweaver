@@ -1,6 +1,6 @@
 import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
-import { CursorTransformation } from './CursorTransformer';
+import CursorTransformation from './CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
 
 /**

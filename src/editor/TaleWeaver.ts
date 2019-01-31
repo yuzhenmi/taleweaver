@@ -325,15 +325,18 @@ export default class TaleWeaver {
    */
   attach(containerDOMElement: HTMLElement) {
     const DocumentView = this.registry.getDocumentViewClass();
-    const documentView = new DocumentView(this, {
-      pageWidth: this.config.pageWidth,
-      pageHeight: this.config.pageHeight,
-      pagePaddingTop: this.config.pagePaddingTop,
-      pagePaddingBottom: this.config.pagePaddingBottom,
-      pagePaddingLeft: this.config.pagePaddingLeft,
-      pagePaddingRight: this.config.pagePaddingRight,
-    });
-    documentView.setDocumentElement(this.getState().getDocumentElement());
+    const documentView = new DocumentView(
+      this,
+      this.getState().getDocumentElement(),
+      {
+        pageWidth: this.config.pageWidth,
+        pageHeight: this.config.pageHeight,
+        pagePaddingTop: this.config.pagePaddingTop,
+        pagePaddingBottom: this.config.pagePaddingBottom,
+        pagePaddingLeft: this.config.pagePaddingLeft,
+        pagePaddingRight: this.config.pagePaddingRight,
+      },
+    );
     this.setDocumentView(documentView);
     this.getDocumentView().bindToDOM(containerDOMElement);
   }

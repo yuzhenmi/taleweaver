@@ -12,5 +12,5 @@ export type EventHandlerOutcome = {
 }
 
 export default interface EventHandler {
-  handle(event: Event, state: State): void;
+  handle(event: Event, state: State): EventHandlerOutcome;
 }

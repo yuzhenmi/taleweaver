@@ -1,4 +1,6 @@
-import { CursorTransformation, TranslateCursor, TranslateCursorHead } from '../CursorTransformer';
+import CursorTransformation from '../CursorTransformation';
+import TranslateCursor from '../cursortransformationsteps/TranslateCursor';
+import TranslateCursorHead from '../cursortransformationsteps/TranslateCursorHead';
 
 export function translateCursor(displacement: number): CursorTransformation {
   const transformation = new CursorTransformation();

@@ -256,9 +256,9 @@ export default class DocumentView {
 
   private handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'ArrowLeft') {
-      this.taleWeaver!.getState().transformCursor(translateCursor(-1));
+      this.taleWeaver.getState().transformEditorCursor(translateCursor(-1));
     } else if (event.key === 'ArrowRight') {
-      this.taleWeaver!.getState().transformCursor(translateCursor(1));
+      this.taleWeaver.getState().transformEditorCursor(translateCursor(1));
     } else if (event.key === 'ArrowUp') {
     } else if (event.key === 'ArrowDown') {
     } else {
