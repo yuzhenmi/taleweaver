@@ -1,7 +1,7 @@
 import React from 'react';
 import './App.css';
 import TaleWeaver from './editor/TaleWeaver';
-import parseStateJSON from './editor/state/parseStateJSON';
+import parseStateJSON from './editor/state/helpers/parseStateJSON';
 
 const initialStateJSON = {
   document: {

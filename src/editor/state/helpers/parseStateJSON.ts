@@ -1,6 +1,6 @@
-import TaleWeaver from '../TaleWeaver';
-import State from './State';
-import Cursor from '../cursor/Cursor';
+import TaleWeaver from '../../TaleWeaver';
+import State from '../State';
+import Cursor from '../../cursor/Cursor';
 
 type InlineElementJSON = {
   type: string;
@@ -23,24 +23,24 @@ type StateJSON = {
   observerCursors: CursorJSON[];
 }
 
+/**
+ * Parses a JSON-serialized state.
+ * @param taleWeaver - TaleWeaver instance.
+ * @param stateJSON - JSON-serialized state to parse.
+ */
 export default function parseStateJSON(taleWeaver: TaleWeaver, stateJSON: StateJSON): State {
   // Create state
-  const state = new State();
+  const state = new State(taleWeaver);
 
   // Parse document state
-  const DocumentElement = taleWeaver.getDocumentElementType();
+  const registry = taleWeaver.getRegistry();
+  const DocumentElement = registry.getDocumentElementClass();
   const documentElement = new DocumentElement();
   stateJSON.document.children.forEach(blockElementJSON => {
-    const BlockElement = taleWeaver.getBlockElementType(blockElementJSON.type);
-    if (!BlockElement) {
-      throw new Error(`Unregistered block element type: ${blockElementJSON.type}.`);
-    }
+    const BlockElement = registry.getBlockElementClass(blockElementJSON.type);
     const blockElement = new BlockElement();
     blockElementJSON.children.forEach(inlineElementJSON => {
-      const InlineElement = taleWeaver.getInlineElementType(inlineElementJSON.type);
-      if (!InlineElement) {
-        throw new Error(`Unregistered inline element type: ${blockElementJSON.type}.`);
-      }
+      const InlineElement = registry.getInlineElementClass(inlineElementJSON.type);
       const inlineElement = new InlineElement();
       inlineElement.setText(inlineElementJSON.text);
       blockElement.appendChild(inlineElement);

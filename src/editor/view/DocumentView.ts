@@ -6,7 +6,7 @@ import BoxView from './BoxView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
-import { translateCursor } from '../state/helpers/cursorStateTransformations';
+import { translateCursor } from '../state/helpers/cursorTransformations';
 
 type BoxViewBlock = {
   blockElement: BlockElement;
@@ -58,7 +58,7 @@ export default class DocumentView {
       blockElement.getChildren().forEach(inlineElement => {
         const atoms = inlineElement.getAtoms();
         atoms.forEach(atom => {
-          const BoxView = this.getTaleWeaver().getBoxViewType(atom.getType())!;
+          const BoxView = this.getTaleWeaver().getBoxViewClass(atom.getType())!;
           const boxView = new BoxView();
           boxView.setAtom(atom);
           boxViewBlock.boxViews.push(boxView);
@@ -71,8 +71,9 @@ export default class DocumentView {
   private buildLineViews() {
     this.lineViews.length = 0;
     const maxWidth = this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight;
+    const registry = this.getTaleWeaver().getRegistry();
     this.boxViewBlocks.forEach(boxViewBlock => {
-      const LineView = this.getTaleWeaver().getLineViewType(boxViewBlock.blockElement.getType())!;
+      const LineView = registry.getLineViewClass(boxViewBlock.blockElement.getType())!;
       let lineView = new LineView({
         width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
       });
@@ -171,9 +172,9 @@ export default class DocumentView {
 
   private handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'ArrowLeft') {
-      this.taleWeaver!.getState().transformCursorState(translateCursor(-1));
+      this.taleWeaver!.getState().transformCursor(translateCursor(-1));
     } else if (event.key === 'ArrowRight') {
-      this.taleWeaver!.getState().transformCursorState(translateCursor(1));
+      this.taleWeaver!.getState().transformCursor(translateCursor(1));
     } else if (event.key === 'ArrowUp') {
     } else if (event.key === 'ArrowDown') {
     } else {

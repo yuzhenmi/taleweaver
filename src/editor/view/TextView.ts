@@ -11,6 +11,16 @@ const placeholderTextStyle = {
 };
 
 export default class TextView extends BoxView {
+  private width?: number;
+  private height?: number;
+
+  private measure() {
+    const textAtom = <TextAtom> this.getAtom();
+    const measurement = measureText(textAtom.getText(), placeholderTextStyle);
+    this.width = measurement.width;
+    this.height = measurement.height;
+  }
+
   addToDOM() {
     if (this.domElement) {
       return;
@@ -22,13 +32,17 @@ export default class TextView extends BoxView {
   }
 
   getWidth(): number {
-    const textAtom = <TextAtom> this.getAtom();
-    return measureText(textAtom.getText(), placeholderTextStyle).width;
+    if (this.width === undefined) {
+      this.measure();
+    }
+    return this.width!;
   }
 
   getHeight(): number {
-    const textAtom = <TextAtom> this.getAtom();
-    return measureText(textAtom.getText(), placeholderTextStyle).height;
+    if (this.height === undefined) {
+      this.measure();
+    }
+    return this.height!;
   }
 
   getScreenPosition(from: number, to: number): BoxViewScreenPosition {
