@@ -28,7 +28,7 @@ export default abstract class BoxView {
     this.atom = atom;
   }
 
-  abstract addToDOM(): void;
+  abstract bindToDOM(): void;
 
   getConfig(): BoxViewConfig {
     return this.config;

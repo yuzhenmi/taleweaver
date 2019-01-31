@@ -84,7 +84,7 @@ export default class ObserverCursorView {
     this.documentView = documentView;
   }
 
-  addToDOM() {
+  bindToDOM() {
     if (!this.headDOMElement) {
       this.headDOMElement = document.createElement('div');
       this.headDOMElement.className = 'tw--observer-cursor-head';

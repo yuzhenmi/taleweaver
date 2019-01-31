@@ -42,7 +42,7 @@ export default abstract class LineView {
     this.boxViews.splice(index, 1);
   }
 
-  abstract addToDOM(): void;
+  abstract bindToDOM(): void;
 
   getConfig(): LineViewConfig {
     return this.config;

@@ -21,7 +21,7 @@ export default class TextView extends BoxView {
     this.height = measurement.height;
   }
 
-  addToDOM() {
+  bindToDOM() {
     if (this.domElement) {
       return;
     }

@@ -198,7 +198,7 @@ export default class PageView {
    * Initializes the page DOM element by creating it and appending
    * it to the document. No-op if DOM element is already initialized.
    */
-  addToDOM() {
+  bindToDOM() {
     if (this.domElement) {
       return;
     }
@@ -214,7 +214,7 @@ export default class PageView {
     this.domElement.addEventListener('mousedown', this.handleMouseDown);
     this.domElement.addEventListener('mousemove', this.handleMouseMove);
     this.domElement.addEventListener('mouseup', this.handleMouseUp);
-    this.lineViews.forEach(lineView => lineView.addToDOM());
+    this.lineViews.forEach(lineView => lineView.bindToDOM());
     parentDOMElement.appendChild(this.domElement);
   }
 

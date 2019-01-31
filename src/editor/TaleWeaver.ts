@@ -11,6 +11,7 @@ import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
 import State from './state/State';
 import CursorTransformer from './state/CursorTransformer';
+import EventHandler from './eventhandlers/EventHandler';
 
 type DocumentElementClass = new (...args: any[]) => DocumentElement;
 type BlockElementClass = new (...args: any[]) => BlockElement;
@@ -59,6 +60,8 @@ class TaleWeaverRegistry {
   private boxViewClasses: Map<string, BoxViewClass>;
   /** Registered cursor transformer. */
   private cursorTransformer?: CursorTransformer;
+  /** Registered event handlers. */
+  private eventHandlers: EventHandler[];
 
   /**
    * Creates a new TaleWeaver registry instance.
@@ -69,6 +72,7 @@ class TaleWeaverRegistry {
     this.inlineElementClasses = new Map<string, InlineElementClass>();
     this.lineViewClasses = new Map<string, LineViewClass>();
     this.boxViewClasses = new Map<string, BoxViewClass>();
+    this.eventHandlers = [];
 
     // Register defaults
     this.registerDocumentElementClass(DocumentElement);
@@ -236,6 +240,21 @@ class TaleWeaverRegistry {
     }
     return this.cursorTransformer;
   }
+
+  /**
+   * Registers an event handler.
+   * @param eventHandler - Event handler to register.
+   */
+  registerEventHandler(eventHandler: EventHandler) {
+    this.eventHandlers.push(eventHandler)
+  }
+
+  /**
+   * Gets all registered event handlers.
+   */
+  getEventHandlers(): EventHandler[] {
+    return this.eventHandlers;
+  }
 }
 
 /**
@@ -316,6 +335,6 @@ export default class TaleWeaver {
     });
     documentView.setDocumentElement(this.getState().getDocumentElement());
     this.setDocumentView(documentView);
-    this.getDocumentView().addToDOM(containerDOMElement);
+    this.getDocumentView().bindToDOM(containerDOMElement);
   }
 }

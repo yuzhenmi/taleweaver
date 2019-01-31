@@ -92,7 +92,7 @@ export default class EditorCursorView {
     this.documentView = documentView;
   }
 
-  addToDOM() {
+  bindToDOM() {
     if (!this.headDOMElement) {
       this.headDOMElement = document.createElement('div');
       this.headDOMElement.className = 'tw--editor-cursor-head';
