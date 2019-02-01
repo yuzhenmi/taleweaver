@@ -7,6 +7,7 @@ import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
 import { translateCursor } from '../state/helpers/cursorTransformations';
+import { KeyPressEvent } from '../event/Event';
 
 /**
  * Box views of a block element, useful
@@ -255,15 +256,7 @@ export default class DocumentView {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'ArrowLeft') {
-      this.taleWeaver.getState().transformEditorCursor(translateCursor(-1));
-    } else if (event.key === 'ArrowRight') {
-      this.taleWeaver.getState().transformEditorCursor(translateCursor(1));
-    } else if (event.key === 'ArrowUp') {
-    } else if (event.key === 'ArrowDown') {
-    } else {
-      return;
-    }
+    this.taleWeaver.getState().dispatchEvent(new KeyPressEvent(event.key));
     event.preventDefault();
   }
 

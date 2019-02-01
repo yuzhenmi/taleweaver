@@ -2,6 +2,7 @@ import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
 import CursorTransformation from './CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
+import Event from '../event/Event';
 
 /**
  * State container for TaleWeaver.
@@ -83,6 +84,34 @@ export default class State {
       return;
     }
     this.observerCursors.splice(index, 1);
+  }
+
+  /**
+   * Dispatches an event to the event handlers.
+   * @param event - Event to dispatch.
+   */
+  dispatchEvent(event: Event) {
+    const cursorTransformer = this.taleWeaver.getRegistry().getCursorTransformer();
+    const documentTransformer = this.taleWeaver.getRegistry().getDocumentTransformer();
+    const eventHandlers = this.taleWeaver.getRegistry().getEventHandlers();
+    eventHandlers.forEach(eventHandler => {
+      const {
+        cursorTransformations,
+        documentTransformations,
+      } = eventHandler.handle(event, this);
+      if (this.editorCursor) {
+        const editorCursor = this.editorCursor;
+        cursorTransformations.forEach(transformation => {
+          cursorTransformer.apply(editorCursor, transformation);
+        });
+      }
+      if (this.documentElement) {
+        const documentElement = this.documentElement;
+        documentTransformations.forEach(transformation => {
+          documentTransformer.apply(documentElement, transformation);
+        });
+      }
+    });
   }
 
   /**

@@ -11,7 +11,9 @@ import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
 import State from './state/State';
 import CursorTransformer from './state/CursorTransformer';
-import EventHandler from './eventhandlers/EventHandler';
+import DocumentTransformer from './state/DocumentTransformer';
+import EventHandler from './event/EventHandler';
+import CursorNavigationEventHandler from './event/CursorNavigationEventHandler';
 
 type DocumentElementClass = new (...args: any[]) => DocumentElement;
 type BlockElementClass = new (...args: any[]) => BlockElement;
@@ -60,6 +62,8 @@ class TaleWeaverRegistry {
   private boxViewClasses: Map<string, BoxViewClass>;
   /** Registered cursor transformer. */
   private cursorTransformer?: CursorTransformer;
+  /** Registered document transformer. */
+  private documentTransformer?: DocumentTransformer;
   /** Registered event handlers. */
   private eventHandlers: EventHandler[];
 
@@ -83,6 +87,8 @@ class TaleWeaverRegistry {
     this.registerLineViewClass('Paragraph', ParagraphLineView);
     this.registerBoxViewClass('Text', TextView);
     this.registerCursorTransformer(new CursorTransformer());
+    this.registerDocumentTransformer(new DocumentTransformer());
+    this.registerEventHandler(new CursorNavigationEventHandler());
   }
 
   /**
@@ -239,6 +245,24 @@ class TaleWeaverRegistry {
       throw new Error('No cursor transformer registered.');
     }
     return this.cursorTransformer;
+  }
+
+  /**
+   * Registers the document transformer.
+   * @param documentTransformer - Document transformer to register.
+   */
+  registerDocumentTransformer(documentTransformer: DocumentTransformer) {
+    this.documentTransformer = documentTransformer;
+  }
+
+  /**
+   * Gets the registered document transformer.
+   */
+  getDocumentTransformer(): DocumentTransformer {
+    if (!this.documentTransformer) {
+      throw new Error('No document transformer registered.');
+    }
+    return this.documentTransformer;
   }
 
   /**
