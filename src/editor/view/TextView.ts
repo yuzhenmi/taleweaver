@@ -1,5 +1,5 @@
 import BoxView, { BoxViewScreenPosition } from './BoxView';
-import { TextAtom } from '../element/inline/TextElement';
+import TextWord from '../element/word/TextWord';
 import measureText from './helpers/measureText';
 
 const placeholderTextStyle = {
@@ -15,8 +15,8 @@ export default class TextView extends BoxView {
   private height?: number;
 
   private measure() {
-    const textAtom = <TextAtom> this.getAtom();
-    const measurement = measureText(textAtom.getText(), placeholderTextStyle);
+    const textWord = <TextWord> this.getWord();
+    const measurement = measureText(textWord.getText(), placeholderTextStyle);
     this.width = measurement.width;
     this.height = measurement.height;
   }
@@ -26,8 +26,8 @@ export default class TextView extends BoxView {
       return;
     }
     const parentDOMElement = this.getLineView().getDOMElement();
-    const textAtom = <TextAtom> this.getAtom();
-    this.domElement = document.createTextNode(textAtom.getText());
+    const textWord = <TextWord> this.getWord();
+    this.domElement = document.createTextNode(textWord.getText());
     parentDOMElement.appendChild(this.domElement);
   }
 
@@ -46,8 +46,8 @@ export default class TextView extends BoxView {
   }
 
   getScreenPosition(from: number, to: number): BoxViewScreenPosition {
-    const textAtom = <TextAtom> this.getAtom();
-    const text = textAtom.getText();
+    const textWord = <TextWord> this.getWord();
+    const text = textWord.getText();
     let left: number;
     if (from === 0) {
       left = 0;
@@ -72,8 +72,8 @@ export default class TextView extends BoxView {
   getDocumentPosition(screenPosition: number): number {
     // Step through each character until we reach
     // the screen position
-    const textAtom = <TextAtom> this.getAtom();
-    const text = textAtom.getText();
+    const textWord = <TextWord> this.getWord();
+    const text = textWord.getText();
     let lastWidth = 0;
     for (let n = 1, nn = text.length; n < nn; n++) {
       const width = measureText(text.substring(0, n), placeholderTextStyle).width;

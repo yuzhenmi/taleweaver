@@ -1,5 +1,5 @@
 import InlineElement from '../InlineElement';
-import Atom from '../Atom';
+import TextWord from '../word/TextWord';
 
 /**
  * We can break the inline element at the
@@ -10,15 +10,6 @@ const BREAKABLE_CHARS = [
   '\t',
   '-',
 ];
-
-/**
- * Atom for text elements.
- */
-export class TextAtom extends Atom {
-  getType(): string {
-    return 'Text';
-  }
-}
 
 /**
  * Text inline element.
@@ -32,25 +23,25 @@ export default class TextElement extends InlineElement {
     return this.text!.length;
   }
 
-  getAtoms(): TextAtom[] {
-    const atoms: TextAtom[] = [];
+  getWords(): TextWord[] {
+    const words: TextWord[] = [];
     const text = this.getText();
-    let atomFromIndex = 0;
+    let wordFromIndex = 0;
     let textIndex = 0;
     for (let textLength = text.length; textIndex < textLength; textIndex++) {
       const char = text[textIndex];
       if (BREAKABLE_CHARS.indexOf(char) >= 0) {
-        const atom = new TextAtom(this);
-        atom.setText(text.substring(atomFromIndex, textIndex + 1));
-        atoms.push(atom);
-        atomFromIndex = textIndex + 1;
+        const word = new TextWord(this);
+        word.setText(text.substring(wordFromIndex, textIndex + 1));
+        words.push(word);
+        wordFromIndex = textIndex + 1;
       }
     }
-    if (atomFromIndex !== textIndex) {
-      const atom = new TextAtom(this);
-      atom.setText(text.substring(atomFromIndex, textIndex + 1));
-      atoms.push(atom);
+    if (wordFromIndex !== textIndex) {
+      const word = new TextWord(this);
+      word.setText(text.substring(wordFromIndex, textIndex + 1));
+      words.push(word);
     }
-    return atoms;
+    return words;
   }
 }

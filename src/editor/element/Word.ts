@@ -6,27 +6,27 @@ import InlineElement from './InlineElement';
  * the basic building block of a document's
  * layout.
  */
-export default abstract class Atom {
-  /** Inline element this atom belongs to. */
+export default abstract class Word {
+  /** Inline element this word belongs to. */
   protected inlineElement: InlineElement;
   /** Text content. */
   protected text?: string;
 
   /**
-   * Creates a new atom instance.
-   * @param inlineElement - Inline element this atom belongs to.
+   * Creates a new word instance.
+   * @param inlineElement - Inline element this word belongs to.
    */
   constructor(inlineElement: InlineElement) {
     this.inlineElement = inlineElement;
   }
 
   /**
-   * Gets the type of atom.
+   * Gets the type of word.
    */
   abstract getType(): string;
 
   /**
-   * Gets the inline element this atom belongs to.
+   * Gets the inline element this word belongs to.
    */
   getInlineElement(): InlineElement {
     return this.inlineElement;
@@ -48,7 +48,7 @@ export default abstract class Atom {
   };
 
   /**
-   * Gets the size of the atom.
+   * Gets the size of the word.
    */
   getSize(): number {
     return this.text!.length;

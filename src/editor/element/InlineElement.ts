@@ -1,5 +1,5 @@
 import BlockElement from './BlockElement';
-import Atom from './Atom';
+import Word from './Word';
 
 /**
  * Models an inline element in a document.
@@ -53,7 +53,7 @@ export default abstract class InlineElement {
   abstract getSize(): number;
 
   /**
-   * Gets atoms by breaking down the inline element.
+   * Breaks down the inline element into words.
    */
-  abstract getAtoms(): Atom[];
+  abstract getWords(): Word[];
 }

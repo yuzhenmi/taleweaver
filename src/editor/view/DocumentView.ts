@@ -95,13 +95,13 @@ export default class DocumentView {
       };
       // Loop through inline elements in the block element
       blockElement.getChildren().forEach(inlineElement => {
-        const atoms = inlineElement.getAtoms();
-        // Loop through atoms in the inline element
-        atoms.forEach(atom => {
-          // Build box view from atom
-          const BoxView = registry.getBoxViewClass(atom.getType())!;
+        const words = inlineElement.getWords();
+        // Loop through words in the inline element
+        words.forEach(word => {
+          // Build box view from word
+          const BoxView = registry.getBoxViewClass(word.getType())!;
           const boxView = new BoxView();
-          boxView.setAtom(atom);
+          boxView.setWord(word);
           boxViewBlock.boxViews.push(boxView);
         });
       });

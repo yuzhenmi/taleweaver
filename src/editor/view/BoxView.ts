@@ -1,5 +1,5 @@
 import LineView from './LineView';
-import Atom from '../element/Atom';
+import Word from '../element/Word';
 
 type BoxViewConfig = {
 }
@@ -12,7 +12,7 @@ export type BoxViewScreenPosition = {
 
 export default abstract class BoxView {
   protected config: BoxViewConfig;
-  protected atom?: Atom;
+  protected word?: Word;
   protected lineView?: LineView;
   protected domElement?: HTMLElement | Text;
 
@@ -24,8 +24,8 @@ export default abstract class BoxView {
     this.lineView = lineView;
   }
 
-  setAtom(atom: Atom) {
-    this.atom = atom;
+  setWord(word: Word) {
+    this.word = word;
   }
 
   abstract bindToDOM(): void;
@@ -34,8 +34,8 @@ export default abstract class BoxView {
     return this.config;
   }
 
-  getAtom(): Atom {
-    return this.atom!;
+  getWord(): Word {
+    return this.word!;
   }
 
   getLineView(): LineView {
@@ -50,7 +50,7 @@ export default abstract class BoxView {
   abstract getHeight(): number;
 
   getSize(): number {
-    return this.getAtom().getSize();
+    return this.getWord().getSize();
   }
 
   abstract getScreenPosition(from: number, to: number): BoxViewScreenPosition;
