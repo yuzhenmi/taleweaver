@@ -6,7 +6,6 @@ import BoxView from './BoxView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
-import { translateCursor } from '../state/helpers/cursorTransformations';
 import { KeyPressEvent } from '../event/Event';
 
 /**
@@ -256,8 +255,11 @@ export default class DocumentView {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    this.taleWeaver.getState().dispatchEvent(new KeyPressEvent(event.key));
+    this.taleWeaver.getState().dispatchEvent(new KeyPressEvent(event.key, event.shiftKey, event.metaKey, event.altKey));
     event.preventDefault();
+  }
+
+  private handleKeyUp = (event: KeyboardEvent) => {
   }
 
   /**
@@ -277,6 +279,7 @@ export default class DocumentView {
       containerDOMElement.appendChild(this.domElement);
     }
     window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
   }
 
   /**
@@ -287,22 +290,78 @@ export default class DocumentView {
   }
 
   getScreenPositions(from: number, to: number): DocumentViewScreenPositions {
-    let cumulatedSize = 0;
-    const documentScreenPositions: DocumentViewScreenPositions = [];
-    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+    let currentPosition = this.documentElement.getSize();
+    if (from >= currentPosition || to >= currentPosition) {
+      throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
+    }
+    const screenPositions: DocumentViewScreenPositions = [];
+    for (let n = this.pageViews.length - 1; n >= 0; n--) {
       const pageView = this.pageViews[n];
-      const pageViewSize = pageView.getSize();
-      if (cumulatedSize + pageViewSize >= from) {
-        documentScreenPositions.push({
+      currentPosition -= pageView.getSize();
+      if (currentPosition <= to) {
+        screenPositions.push({
           pageView,
-          pageViewScreenPositions: pageView.getScreenPositions(from - cumulatedSize, Math.min(to - cumulatedSize, pageViewSize)),
+          pageViewScreenPositions: pageView.getScreenPositions(Math.max(from - currentPosition, 0), Math.min(to - currentPosition, pageView.getSize() - 1)),
         });
       }
-      cumulatedSize += pageViewSize;
-      if (to <= cumulatedSize) {
-        return documentScreenPositions;
+      if (currentPosition <= from) {
+        return screenPositions;
       }
     }
     throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
+  }
+
+  /**
+   * Gets the position at the start of the line that
+   * the given position is on.
+   * @param position - Position for determining the line.
+   */
+  getLineStartPosition(position: number) {
+    // Search page
+    let currentPosition = 0;
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      if (currentPosition + pageView.getSize() <= position) {
+        currentPosition += pageView.getSize();
+        continue;
+      }
+      const lineViews = pageView.getLineViews();
+      for (let m = 0, mm = lineViews.length; m < mm; m++) {
+        const lineView = lineViews[m];
+        if (currentPosition + lineView.getSize() <= position) {
+          currentPosition += lineView.getSize();
+          continue;
+        }
+        return currentPosition;
+      }
+    }
+    throw new Error(`Position ${position} is not in the document.`);
+  }
+
+  /**
+   * Gets the position at the end of the line that
+   * the given position is on.
+   * @param position - Position for determining the line.
+   */
+  getLineEndPosition(position: number) {
+    // Search page
+    let currentPosition = this.documentElement.getSize() - 1;
+    for (let n = this.pageViews.length - 1; n >= 0; n--) {
+      const pageView = this.pageViews[n];
+      if (currentPosition - pageView.getSize() >= position) {
+        currentPosition -= pageView.getSize();
+        continue;
+      }
+      const lineViews = pageView.getLineViews();
+      for (let m = lineViews.length - 1; m >= 0; m--) {
+        const lineView = lineViews[m];
+        if (currentPosition - lineView.getSize() >= position) {
+          currentPosition -= lineView.getSize();
+          continue;
+        }
+        return currentPosition;
+      }
+    }
+    throw new Error(`Position ${position} is not in the document.`);
   }
 }

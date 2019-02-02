@@ -48,8 +48,8 @@ const initialStateJSON = {
       { type: 'Paragraph', children: [ { type: 'Text', text: 'In cursus et arcu eget blandit. Vestibulum volutpat mauris eu est tempus, a ultrices justo vulputate. Suspendisse potenti. Maecenas at molestie tellus. Nulla facilisi. Etiam ac justo quis lectus blandit lacinia. Pellentesque nisl sapien, malesuada eu risus nec, malesuada posuere nisl.' } ] },
     ],
   },
-  editorCursor: { anchor: 1930, head: 1850 },
-  observerCursors: [ { anchor: 30, head: 50 } ],
+  editorCursor: { anchor: 0, head: 20 },
+  observerCursors: [],
 };
 
 type TaleWeaverComponentProps = {

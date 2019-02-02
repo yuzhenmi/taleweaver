@@ -186,6 +186,13 @@ export default class PageView {
   }
 
   /**
+   * Gets line views in the page.
+   */
+  getLineViews(): LineView[] {
+    return this.lineViews;
+  }
+
+  /**
    * Gets the document size covered by this page.
    */
   getSize(): number {
@@ -229,24 +236,24 @@ export default class PageView {
    * Gets page screen positions for a slice of the document.
    */
   getScreenPositions(from: number, to: number): PageViewScreenPositions {
-    let cumulatedSize = 0;
-    let cumulatedHeight = 0;
+    let currentPosition = this.getSize();
+    if (from >= currentPosition || to >= currentPosition) {
+      throw new Error(`Page screen positions cannot be determined for range from ${from} to ${to}.`);
+    }
     const screenPositions: PageViewScreenPositions = [];
-    for (let n = 0, nn = this.lineViews.length; n < nn; n++) {
+    for (let n = this.lineViews.length - 1; n >= 0; n--) {
       const lineView = this.lineViews[n];
-      const lineViewSize = lineView.getSize();
-      if (cumulatedSize + lineViewSize >= from) {
-        const lineViewScreenPosition = lineView.getScreenPosition(from - cumulatedSize, Math.min(to - cumulatedSize, lineViewSize));
+      currentPosition -= lineView.getSize();
+      if (currentPosition <= to) {
+        const lineViewScreenPosition = lineView.getScreenPosition(Math.max(from - currentPosition, 0), Math.min(to - currentPosition, lineView.getSize() - 1));
         screenPositions.push({
           left: lineViewScreenPosition.left,
           width: lineViewScreenPosition.width,
-          top: cumulatedHeight,
+          top: this.lineViews.slice(0, n).reduce((height, line) => height + line.getHeight(), 0),
           height: lineViewScreenPosition.height,
         });
       }
-      cumulatedSize += lineViewSize;
-      cumulatedHeight += lineView.getHeight();
-      if (cumulatedSize >= to) {
+      if (currentPosition <= from) {
         return screenPositions;
       }
     }

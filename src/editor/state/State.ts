@@ -87,30 +87,13 @@ export default class State {
   }
 
   /**
-   * Dispatches an event to the event handlers.
+   * Dispatches an event to the event observers.
    * @param event - Event to dispatch.
    */
   dispatchEvent(event: Event) {
-    const cursorTransformer = this.taleWeaver.getRegistry().getCursorTransformer();
-    const documentTransformer = this.taleWeaver.getRegistry().getDocumentTransformer();
-    const eventHandlers = this.taleWeaver.getRegistry().getEventHandlers();
-    eventHandlers.forEach(eventHandler => {
-      const {
-        cursorTransformations,
-        documentTransformations,
-      } = eventHandler.handle(event, this);
-      if (this.editorCursor) {
-        const editorCursor = this.editorCursor;
-        cursorTransformations.forEach(transformation => {
-          cursorTransformer.apply(editorCursor, transformation);
-        });
-      }
-      if (this.documentElement) {
-        const documentElement = this.documentElement;
-        documentTransformations.forEach(transformation => {
-          documentTransformer.apply(documentElement, transformation);
-        });
-      }
+    const eventObservers = this.taleWeaver.getRegistry().getEventObservers();
+    eventObservers.forEach(eventObserver => {
+      eventObserver.notify(event, this.taleWeaver);
     });
   }
 

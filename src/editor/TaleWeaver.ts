@@ -12,8 +12,8 @@ import TextView from './view/TextView';
 import State from './state/State';
 import CursorTransformer from './state/CursorTransformer';
 import DocumentTransformer from './state/DocumentTransformer';
-import EventHandler from './event/EventHandler';
-import CursorNavigationEventHandler from './event/CursorNavigationEventHandler';
+import EventObserver from './event/EventObserver';
+import EditorCursorEventObserver from './event/EditorCursorEventObserver';
 
 type DocumentElementClass = new (...args: any[]) => DocumentElement;
 type BlockElementClass = new (...args: any[]) => BlockElement;
@@ -46,6 +46,8 @@ type TaleWeaverConfig = {
  * Useful for customizing and extending TaleWeaver.
  */
 class TaleWeaverRegistry {
+  /** TaleWeaver instance. */
+  private taleWeaver: TaleWeaver;
   /** Registered document element class. */
   private documentElementClass?: DocumentElementClass;
   /** Registered block element classes. */
@@ -65,18 +67,20 @@ class TaleWeaverRegistry {
   /** Registered document transformer. */
   private documentTransformer?: DocumentTransformer;
   /** Registered event handlers. */
-  private eventHandlers: EventHandler[];
+  private eventObservers: EventObserver[];
 
   /**
    * Creates a new TaleWeaver registry instance.
    */
-  constructor() {
+  constructor(taleWeaver: TaleWeaver) {
+    this.taleWeaver = taleWeaver;
+
     // Init registry maps
     this.blockElementClasses = new Map<string, BlockElementClass>();
     this.inlineElementClasses = new Map<string, InlineElementClass>();
     this.lineViewClasses = new Map<string, LineViewClass>();
     this.boxViewClasses = new Map<string, BoxViewClass>();
-    this.eventHandlers = [];
+    this.eventObservers = [];
 
     // Register defaults
     this.registerDocumentElementClass(DocumentElement);
@@ -88,7 +92,7 @@ class TaleWeaverRegistry {
     this.registerBoxViewClass('Text', TextView);
     this.registerCursorTransformer(new CursorTransformer());
     this.registerDocumentTransformer(new DocumentTransformer());
-    this.registerEventHandler(new CursorNavigationEventHandler());
+    this.registerEventObserver(new EditorCursorEventObserver(this.taleWeaver));
   }
 
   /**
@@ -267,17 +271,17 @@ class TaleWeaverRegistry {
 
   /**
    * Registers an event handler.
-   * @param eventHandler - Event handler to register.
+   * @param eventObserver - Event handler to register.
    */
-  registerEventHandler(eventHandler: EventHandler) {
-    this.eventHandlers.push(eventHandler)
+  registerEventObserver(eventObserver: EventObserver) {
+    this.eventObservers.push(eventObserver)
   }
 
   /**
    * Gets all registered event handlers.
    */
-  getEventHandlers(): EventHandler[] {
-    return this.eventHandlers;
+  getEventObservers(): EventObserver[] {
+    return this.eventObservers;
   }
 }
 
@@ -296,7 +300,7 @@ export default class TaleWeaver {
    */
   constructor(config: TaleWeaverConfig) {
     this.config = config;
-    this.registry = new TaleWeaverRegistry();
+    this.registry = new TaleWeaverRegistry(this);
   }
 
   /**
