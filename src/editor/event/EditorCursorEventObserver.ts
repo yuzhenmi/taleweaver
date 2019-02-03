@@ -15,7 +15,9 @@ export default class EditorCursorEventObserver extends EventObserver {
     if (anchor !== head) {
       state.transformEditorCursor(collapseBackward());
     } else {
-      state.transformEditorCursor(translate(-1));
+      if (head > 0) {
+        state.transformEditorCursor(translate(-1));
+      }
     }
   }
 
@@ -52,7 +54,10 @@ export default class EditorCursorEventObserver extends EventObserver {
     if (!editorCursor) {
       return;
     }
-    state.transformEditorCursor(translateHead(-1));
+    const head = editorCursor.getHead();
+    if (head > 0) {
+      state.transformEditorCursor(translateHead(-1));
+    }
   }
 
   private handleKeyPressShiftAltArrowLeft() {
@@ -93,7 +98,9 @@ export default class EditorCursorEventObserver extends EventObserver {
     if (anchor !== head) {
       state.transformEditorCursor(collapseForward());
     } else {
-      state.transformEditorCursor(translate(1));
+      if (head < state.getDocumentElement().getSize()) {
+        state.transformEditorCursor(translate(1));
+      }
     }
   }
 
@@ -130,7 +137,10 @@ export default class EditorCursorEventObserver extends EventObserver {
     if (!editorCursor) {
       return;
     }
-    state.transformEditorCursor(translateHead(1));
+    const head = editorCursor.getHead();
+    if (head < state.getDocumentElement().getSize()) {
+      state.transformEditorCursor(translateHead(1));
+    }
   }
 
   private handleKeyPressShiftAltArrowRight() {
