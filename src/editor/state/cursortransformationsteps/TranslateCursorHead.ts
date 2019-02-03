@@ -8,7 +8,7 @@ export default class TranslateCursorHead implements CursorTransformationStep {
   private displacement: number;
 
   /**
-   * Create a new translate cursor head transformation step.
+   * Create a new move cursor head transformation step.
    * @param displacement - Vector to displace the cursor head by.
    */
   constructor(displacement: number) {

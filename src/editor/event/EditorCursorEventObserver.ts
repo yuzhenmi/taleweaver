@@ -1,314 +1,119 @@
 import EventObserver from '../event/EventObserver';
 import Event, { KeyPressEvent } from '../event/Event';
-import { translate, translateHead, collapseBackward, collapseForward } from '../state/helpers/editorCursorTransformations';
+import {
+  moveLeft,
+  moveHeadLeft,
+  moveRight,
+  moveHeadRight,
+  moveLeftByWord,
+  moveHeadLeftByWord,
+  moveRightByWord,
+  moveHeadRightByWord,
+  moveLeftByLine,
+  moveHeadLeftByLine,
+  moveRightByLine,
+  moveHeadRightByLine,
+  moveToDocumentStart,
+  moveHeadToDocumentStart,
+  moveToDocumentEnd,
+  moveHeadToDocumentEnd,
+} from '../state/helpers/editorCursorTransformations';
 
 export default class EditorCursorEventObserver extends EventObserver {
   private handleKeyPressArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const anchor = editorCursor.getAnchor();
-    const head = editorCursor.getHead();
-    if (anchor !== head) {
-      state.transformEditorCursor(collapseBackward());
-    } else {
-      if (head > 0) {
-        state.transformEditorCursor(translate(-1));
-      }
-    }
+    this.taleWeaver.getState().transformEditorCursor(moveLeft());
   }
 
   private handleKeyPressAltArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const wordStart = documentView.getWordStartPosition(head);
-    state.transformEditorCursor(translate(wordStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveLeftByWord());
   }
 
   private handleKeyPressMetaArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    state.transformEditorCursor(translate(lineStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveLeftByLine());
   }
 
   private handleKeyPressShiftArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    if (head > 0) {
-      state.transformEditorCursor(translateHead(-1));
-    }
+    this.taleWeaver.getState().transformEditorCursor(moveHeadLeft());
   }
 
   private handleKeyPressShiftAltArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const wordStart = documentView.getWordStartPosition(head);
-    state.transformEditorCursor(translateHead(wordStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByWord());
   }
 
   private handleKeyPressShiftMetaArrowLeft() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    state.transformEditorCursor(translateHead(lineStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByLine());
   }
 
   private handleKeyPressArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const anchor = editorCursor.getAnchor();
-    const head = editorCursor.getHead();
-    if (anchor !== head) {
-      state.transformEditorCursor(collapseForward());
-    } else {
-      if (head < state.getDocumentElement().getSize()) {
-        state.transformEditorCursor(translate(1));
-      }
-    }
+    this.taleWeaver.getState().transformEditorCursor(moveRight());
   }
 
   private handleKeyPressAltArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const wordEnd = documentView.getWordEndPosition(head);
-    state.transformEditorCursor(translate(wordEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveRightByWord());
   }
 
   private handleKeyPressMetaArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    state.transformEditorCursor(translate(lineEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveRightByLine());
   }
 
   private handleKeyPressShiftArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    if (head < state.getDocumentElement().getSize()) {
-      state.transformEditorCursor(translateHead(1));
-    }
+    this.taleWeaver.getState().transformEditorCursor(moveHeadRight());
   }
 
   private handleKeyPressShiftAltArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const wordEnd = documentView.getWordEndPosition(head);
-    state.transformEditorCursor(translateHead(wordEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByWord());
   }
 
   private handleKeyPressShiftMetaArrowRight() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    state.transformEditorCursor(translateHead(lineEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByLine());
   }
 
   private handleKeyPressArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
     // TODO
   }
 
   private handleKeyPressAltArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    state.transformEditorCursor(translate(lineStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveLeftByLine());
   }
 
   private handleKeyPressMetaArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentStart = 0;
-    state.transformEditorCursor(translate(documentStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveToDocumentStart());
   }
 
   private handleKeyPressShiftArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
     // TODO
   }
 
   private handleKeyPressShiftAltArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    state.transformEditorCursor(translateHead(lineStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByLine());
   }
 
   private handleKeyPressShiftMetaArrowUp() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentStart = 0;
-    state.transformEditorCursor(translateHead(documentStart - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadToDocumentStart());
   }
 
   private handleKeyPressArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
     // TODO
   }
 
   private handleKeyPressAltArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    state.transformEditorCursor(translate(lineEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveRightByLine());
   }
 
   private handleKeyPressMetaArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const documentEnd = documentView.getSize();
-    state.transformEditorCursor(translate(documentEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveToDocumentEnd());
   }
 
   private handleKeyPressShiftArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
     // TODO
   }
 
   private handleKeyPressShiftAltArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    state.transformEditorCursor(translateHead(lineEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByLine());
   }
 
   private handleKeyPressShiftMetaArrowDown() {
-    const taleWeaver = this.taleWeaver;
-    const state = taleWeaver.getState();
-    const editorCursor = state.getEditorCursor();
-    if (!editorCursor) {
-      return;
-    }
-    const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const documentEnd = documentView.getSize();
-    state.transformEditorCursor(translateHead(documentEnd - head));
+    this.taleWeaver.getState().transformEditorCursor(moveHeadToDocumentEnd());
   }
 
   onEvent(event: Event) {

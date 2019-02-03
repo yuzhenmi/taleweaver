@@ -9,7 +9,7 @@ export default class TranslateCursor implements CursorTransformationStep {
   private displacement: number;
 
   /**
-   * Create a new translate cursor anchor transformation step.
+   * Create a new move cursor anchor transformation step.
    * @param displacement - Vector to displace the cursor anchor by.
    */
   constructor(displacement: number) {
