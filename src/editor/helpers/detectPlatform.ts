@@ -8,7 +8,7 @@ enum Platform {
  * Mac or PC (not Mac).
  */
 export default function detectPlatform(): Platform {
-  if (['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'].includes(navigator.platform)) {
+  if (['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'].indexOf(navigator.platform) >= 0) {
     return Platform.Mac;
   }
   return Platform.PC;

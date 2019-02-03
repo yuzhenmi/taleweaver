@@ -29,5 +29,3 @@ export default class CursorTransformation {
     return this.steps;
   }
 }
-
-export type CursorTransformationFactory = (taleWeaver: TaleWeaver) => CursorTransformation;

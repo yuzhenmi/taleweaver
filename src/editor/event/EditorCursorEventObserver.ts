@@ -1,194 +1,98 @@
 import EventObserver from '../event/EventObserver';
 import Event, { KeyPressEvent } from '../event/Event';
 import {
-  moveLeft,
-  moveHeadLeft,
-  moveRight,
-  moveHeadRight,
-  moveLeftByWord,
-  moveHeadLeftByWord,
-  moveRightByWord,
-  moveHeadRightByWord,
-  moveLeftByLine,
-  moveHeadLeftByLine,
-  moveRightByLine,
-  moveHeadRightByLine,
+  moveBackwardByChar,
+  moveForwardByChar,
+  moveBackwardByWord,
+  moveForwardByWord,
+  moveBackwardByLine,
+  moveForwardByLine,
   moveToDocumentStart,
-  moveHeadToDocumentStart,
   moveToDocumentEnd,
+  moveHeadBackwardByChar,
+  moveHeadForwardByChar,
+  moveHeadBackwardByWord,
+  moveHeadForwardByWord,
+  moveHeadBackwardByLine,
+  moveHeadForwardByLine,
+  moveHeadToDocumentStart,
   moveHeadToDocumentEnd,
-} from '../state/helpers/editorCursorTransformations';
+} from '../command/cursor';
 
 export default class EditorCursorEventObserver extends EventObserver {
-  private handleKeyPressArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveLeft());
-  }
-
-  private handleKeyPressAltArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveLeftByWord());
-  }
-
-  private handleKeyPressMetaArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveLeftByLine());
-  }
-
-  private handleKeyPressShiftArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadLeft());
-  }
-
-  private handleKeyPressShiftAltArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByWord());
-  }
-
-  private handleKeyPressShiftMetaArrowLeft() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByLine());
-  }
-
-  private handleKeyPressArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveRight());
-  }
-
-  private handleKeyPressAltArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveRightByWord());
-  }
-
-  private handleKeyPressMetaArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveRightByLine());
-  }
-
-  private handleKeyPressShiftArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadRight());
-  }
-
-  private handleKeyPressShiftAltArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByWord());
-  }
-
-  private handleKeyPressShiftMetaArrowRight() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByLine());
-  }
-
-  private handleKeyPressArrowUp() {
-    // TODO
-  }
-
-  private handleKeyPressAltArrowUp() {
-    this.taleWeaver.getState().transformEditorCursor(moveLeftByLine());
-  }
-
-  private handleKeyPressMetaArrowUp() {
-    this.taleWeaver.getState().transformEditorCursor(moveToDocumentStart());
-  }
-
-  private handleKeyPressShiftArrowUp() {
-    // TODO
-  }
-
-  private handleKeyPressShiftAltArrowUp() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadLeftByLine());
-  }
-
-  private handleKeyPressShiftMetaArrowUp() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadToDocumentStart());
-  }
-
-  private handleKeyPressArrowDown() {
-    // TODO
-  }
-
-  private handleKeyPressAltArrowDown() {
-    this.taleWeaver.getState().transformEditorCursor(moveRightByLine());
-  }
-
-  private handleKeyPressMetaArrowDown() {
-    this.taleWeaver.getState().transformEditorCursor(moveToDocumentEnd());
-  }
-
-  private handleKeyPressShiftArrowDown() {
-    // TODO
-  }
-
-  private handleKeyPressShiftAltArrowDown() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadRightByLine());
-  }
-
-  private handleKeyPressShiftMetaArrowDown() {
-    this.taleWeaver.getState().transformEditorCursor(moveHeadToDocumentEnd());
-  }
-
   onEvent(event: Event) {
     if (event instanceof KeyPressEvent) {
       const keyPressEvent = <KeyPressEvent> event;
       if (keyPressEvent.key === 'ArrowLeft') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.handleKeyPressShiftAltArrowLeft();
+            this.dispatchCursorCommand(moveHeadBackwardByWord());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressShiftMetaArrowLeft();
+            this.dispatchCursorCommand(moveHeadBackwardByLine());
           } else {
-            this.handleKeyPressShiftArrowLeft();
+            this.dispatchCursorCommand(moveHeadBackwardByChar());
           }
         } else {
           if (keyPressEvent.alt) {
-            this.handleKeyPressAltArrowLeft();
+            this.dispatchCursorCommand(moveBackwardByWord());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressMetaArrowLeft();
+            this.dispatchCursorCommand(moveBackwardByLine());
           } else {
-            this.handleKeyPressArrowLeft();
+            this.dispatchCursorCommand(moveBackwardByChar());
           }
         }
       } else if (keyPressEvent.key === 'ArrowRight') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.handleKeyPressShiftAltArrowRight();
+            this.dispatchCursorCommand(moveHeadForwardByWord());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressShiftMetaArrowRight();
+            this.dispatchCursorCommand(moveHeadForwardByLine());
           } else {
-            this.handleKeyPressShiftArrowRight();
+            this.dispatchCursorCommand(moveHeadForwardByChar());
           }
         } else {
           if (keyPressEvent.alt) {
-            this.handleKeyPressAltArrowRight();
+            this.dispatchCursorCommand(moveForwardByWord());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressMetaArrowRight();
+            this.dispatchCursorCommand(moveForwardByLine());
           } else {
-            this.handleKeyPressArrowRight();
+            this.dispatchCursorCommand(moveForwardByChar());
           }
         }
       } else if (keyPressEvent.key === 'ArrowUp') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.handleKeyPressShiftAltArrowUp();
+            this.dispatchCursorCommand(moveHeadBackwardByLine());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressShiftMetaArrowUp();
+            this.dispatchCursorCommand(moveHeadToDocumentStart());
           } else {
-            this.handleKeyPressShiftArrowUp();
+            // TODO: Move cursor head to previous line but preserve horizontal position
           }
         } else {
           if (keyPressEvent.alt) {
-            this.handleKeyPressAltArrowUp();
+            this.dispatchCursorCommand(moveBackwardByLine());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressMetaArrowUp();
+            this.dispatchCursorCommand(moveToDocumentStart());
           } else {
-            this.handleKeyPressArrowUp();
+            // TODO: Move cursor to previous line but preserve horizontal position
           }
         }
       } else if (keyPressEvent.key === 'ArrowDown') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.handleKeyPressShiftAltArrowDown();
+            this.dispatchCursorCommand(moveHeadForwardByLine());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressShiftMetaArrowDown();
+            this.dispatchCursorCommand(moveHeadToDocumentEnd());
           } else {
-            this.handleKeyPressShiftArrowDown();
+            // TODO: Move cursor head to next line but preserve horizontal position
           }
         } else {
           if (keyPressEvent.alt) {
-            this.handleKeyPressAltArrowDown();
+            this.dispatchCursorCommand(moveForwardByLine());
           } else if (keyPressEvent.meta) {
-            this.handleKeyPressMetaArrowDown();
+            this.dispatchCursorCommand(moveToDocumentEnd());
           } else {
-            this.handleKeyPressArrowDown();
+            // TODO: Move cursor to next line but preserve horizontal position
           }
         }
       }

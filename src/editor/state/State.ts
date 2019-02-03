@@ -1,6 +1,6 @@
 import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
-import CursorTransformation, { CursorTransformationFactory } from './CursorTransformation';
+import CursorTransformation from './CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
 import Event from '../event/Event';
 
@@ -99,13 +99,12 @@ export default class State {
 
   /**
    * Applies a transformation on the editor cursor.
-   * @param transformationFactory - Factory that accepts a TaleWeaver instance and builds the transformation to apply.
+   * @param transformation - Cursor transformation to apply.
    */
-  transformEditorCursor(transformationFactory: CursorTransformationFactory) {
+  applyEditorCursorTransformation(transformation: CursorTransformation) {
     if (!this.editorCursor) {
       throw new Error('No editor cursor available to apply transformation.');
     }
-    const transformation = transformationFactory(this.taleWeaver);
     const transformer = this.taleWeaver.getRegistry().getCursorTransformer();
     transformer.apply(this.editorCursor, transformation);
   }
