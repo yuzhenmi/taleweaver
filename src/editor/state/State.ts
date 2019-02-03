@@ -1,6 +1,6 @@
 import DocumentElement from '../element/DocumentElement';
 import Cursor from '../cursor/Cursor';
-import CursorTransformation from './CursorTransformation';
+import CursorTransformation, { CursorTransformationFactory } from './CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
 import Event from '../event/Event';
 
@@ -93,33 +93,20 @@ export default class State {
   dispatchEvent(event: Event) {
     const eventObservers = this.taleWeaver.getRegistry().getEventObservers();
     eventObservers.forEach(eventObserver => {
-      eventObserver.notify(event, this.taleWeaver);
+      eventObserver.onEvent(event);
     });
   }
 
   /**
    * Applies a transformation on the editor cursor.
-   * @param transformation - Transformation to apply.
+   * @param transformationFactory - Factory that accepts a TaleWeaver instance and builds the transformation to apply.
    */
-  transformEditorCursor(transformation: CursorTransformation) {
+  transformEditorCursor(transformationFactory: CursorTransformationFactory) {
     if (!this.editorCursor) {
       throw new Error('No editor cursor available to apply transformation.');
     }
+    const transformation = transformationFactory(this.taleWeaver);
     const transformer = this.taleWeaver.getRegistry().getCursorTransformer();
     transformer.apply(this.editorCursor, transformation);
-  }
-
-  /**
-   * Applies a transformation on an observer cursor.
-   * @param cursorID - ID of the observer cursor to transform.
-   * @param transformation - Transformation to apply.
-   */
-  transformObserverCursor(cursorID: string, transformation: CursorTransformation) {
-    const cursor = this.observerCursors.find(c => c.getID() === cursorID);
-    if (!cursor) {
-      throw new Error(`No observer cursor with ID ${cursorID}.`);
-    }
-    const transformer = this.taleWeaver.getRegistry().getCursorTransformer();
-    transformer.apply(cursor, transformation);
   }
 }

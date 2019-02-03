@@ -1,4 +1,5 @@
 import CursorTransformationStep from './CursorTransformationStep';
+import TaleWeaver from '../TaleWeaver';
 
 /**
  * Describes a cursor transformation as a series
@@ -28,3 +29,5 @@ export default class CursorTransformation {
     return this.steps;
   }
 }
+
+export type CursorTransformationFactory = (taleWeaver: TaleWeaver) => CursorTransformation;

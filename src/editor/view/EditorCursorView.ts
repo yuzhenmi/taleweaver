@@ -1,7 +1,7 @@
 import TaleWeaver from '../TaleWeaver';
 import Cursor from '../cursor/Cursor';
 import DocumentView from './DocumentView';
-import { translate, translateHead } from '../state/helpers/editorCursorTransformations';
+import { translateTo, translateHeadTo } from '../state/helpers/editorCursorTransformations';
 
 export default class EditorCursorView {
   private taleWeaver: TaleWeaver;
@@ -146,22 +146,19 @@ export default class EditorCursorView {
   }
 
   beginSelect(position: number) {
-    const transformation = translate(position - this.editorCursor.getHead(), this.taleWeaver);
-    this.taleWeaver.getState().transformEditorCursor(transformation);
+    this.taleWeaver.getState().transformEditorCursor(translateTo(position));
     this.selecting = true;
     this.stopBlinking();
   }
 
   moveSelect(position: number) {
     if (this.selecting) {
-      const transformation = translateHead(position - this.editorCursor.getHead(), this.taleWeaver);
-      this.taleWeaver.getState().transformEditorCursor(transformation);
+      this.taleWeaver.getState().transformEditorCursor(translateHeadTo(position));
     }
   }
 
   endSelect(position: number) {
-    const transformation = translateHead(position - this.editorCursor.getHead(), this.taleWeaver);
-    this.taleWeaver.getState().transformEditorCursor(transformation);
+    this.taleWeaver.getState().transformEditorCursor(translateHeadTo(position));
     this.selecting = false;
     this.startBlinking();
   }

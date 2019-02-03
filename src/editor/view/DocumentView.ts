@@ -312,11 +312,18 @@ export default class DocumentView {
   }
 
   /**
+   * Gets the size of the document.
+   */
+  getSize(): number {
+    return this.documentElement.getSize();
+  }
+
+  /**
    * Gets the position at the start of the line that
    * the given position is on.
    * @param position - Position for determining the line.
    */
-  getLineStartPosition(position: number) {
+  getLineStartPosition(position: number): number {
     // Search page
     let currentPosition = 0;
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
@@ -326,6 +333,7 @@ export default class DocumentView {
         continue;
       }
       const lineViews = pageView.getLineViews();
+      // Search line
       for (let m = 0, mm = lineViews.length; m < mm; m++) {
         const lineView = lineViews[m];
         if (currentPosition + lineView.getSize() <= position) {
@@ -343,7 +351,7 @@ export default class DocumentView {
    * the given position is on.
    * @param position - Position for determining the line.
    */
-  getLineEndPosition(position: number) {
+  getLineEndPosition(position: number): number {
     // Search page
     let currentPosition = this.documentElement.getSize() - 1;
     for (let n = this.pageViews.length - 1; n >= 0; n--) {
@@ -353,6 +361,7 @@ export default class DocumentView {
         continue;
       }
       const lineViews = pageView.getLineViews();
+      // Search line
       for (let m = lineViews.length - 1; m >= 0; m--) {
         const lineView = lineViews[m];
         if (currentPosition - lineView.getSize() >= position) {
@@ -360,6 +369,136 @@ export default class DocumentView {
           continue;
         }
         return currentPosition;
+      }
+    }
+    throw new Error(`Position ${position} is not in the document.`);
+  }
+
+  /**
+   * Gets the position at the start of the word that
+   * the given position is on.
+   * @param position - Position for determining the word.
+   */
+  getWordStartPosition(position: number): number {
+    // Search page
+    let currentPosition = 0;
+    const pageViews = this.pageViews;
+    for (let n = 0, nn = pageViews.length; n < nn; n++) {
+      const pageView = pageViews[n];
+      if (currentPosition + pageView.getSize() <= position) {
+        currentPosition += pageView.getSize();
+        continue;
+      }
+      const lineViews = pageView.getLineViews();
+      // Search line
+      for (let m = 0, mm = lineViews.length; m < mm; m++) {
+        const lineView = lineViews[m];
+        if (currentPosition + lineView.getSize() <= position) {
+          currentPosition += lineView.getSize();
+          continue;
+        }
+        const wordViews = lineView.getBoxViews();
+        // Search word
+        for (let o = 0, oo = wordViews.length; o < oo; o++) {
+          const wordView = wordViews[o];
+          if (currentPosition + wordView.getSize() <= position) {
+            currentPosition += wordView.getSize();
+            continue;
+          }
+          if (position === currentPosition) {
+            // Try to go to previous word
+            if (o > 0) {
+              const previousWordView = wordViews[o - 1];
+              currentPosition -= previousWordView.getSize();
+            } else if (m > 0) {
+              // Try previous line
+              const previousLineView = lineViews[m - 1];
+              const previousLineViewWordViews = previousLineView.getBoxViews();
+              if (previousLineViewWordViews.length > 0) {
+                const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
+                currentPosition -= previousWordView.getSize();
+              }
+            } else if (n > 0) {
+              // Try previous page
+              const previousPageView = pageViews[n - 1];
+              const previousPageViewLineViews = previousPageView.getLineViews();
+              if (previousPageViewLineViews.length > 0) {
+                const previousLineView = previousPageViewLineViews[previousPageViewLineViews.length - 1];
+                const previousLineViewWordViews = previousLineView.getBoxViews();
+                if (previousLineViewWordViews.length > 0) {
+                  const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
+                  currentPosition -= previousWordView.getSize();
+                }
+              }
+            }
+          }
+          return currentPosition;
+        }
+      }
+    }
+    throw new Error(`Position ${position} is not in the document.`);
+  }
+
+  /**
+   * Gets the position at the end of the word that
+   * the given position is on.
+   * @param position - Position for determining the word.
+   */
+  getWordEndPosition(position: number): number {
+    // Search page
+    let currentPosition = this.documentElement.getSize() - 1;
+    const pageViews = this.pageViews;
+    for (let n = pageViews.length - 1; n >= 0; n--) {
+      const pageView = pageViews[n];
+      if (currentPosition - pageView.getSize() >= position) {
+        currentPosition -= pageView.getSize();
+        continue;
+      }
+      const lineViews = pageView.getLineViews();
+      // Search line
+      for (let m = lineViews.length - 1; m >= 0; m--) {
+        const lineView = lineViews[m];
+        if (currentPosition - lineView.getSize() >= position) {
+          currentPosition -= lineView.getSize();
+          continue;
+        }
+        const wordViews = lineView.getBoxViews();
+        // Search word
+        for (let o = wordViews.length - 1; o >= 0; o--) {
+          const wordView = wordViews[o];
+          if (currentPosition - wordView.getSize() >= position) {
+            currentPosition -= wordView.getSize();
+            continue;
+          }
+          if (position === currentPosition) {
+            // Try to go to next word
+            if (o < wordViews.length - 1) {
+              const nextWordView = wordViews[o + 1];
+              currentPosition += nextWordView.getSize();
+            } else if (m < lineViews.length - 1) {
+              // Try next line
+              const nextLineView = lineViews[m + 1];
+              const nextLineViewWordViews = nextLineView.getBoxViews();
+              if (nextLineViewWordViews.length > 0) {
+                const nextWordView = nextLineViewWordViews[0];
+                currentPosition += nextWordView.getSize();
+              }
+            } else if (n < pageViews.length - 1) {
+              // Try next page
+              const nextPageView = pageViews[n + 1];
+              const nextPageViewLineViews = nextPageView.getLineViews();
+              if (nextPageViewLineViews.length > 0) {
+                const nextLineView = nextPageViewLineViews[0];
+                const nextLineViewWordViews = nextLineView.getBoxViews();
+                if (nextLineViewWordViews.length > 0) {
+                  const nextWordView = nextLineViewWordViews[0];
+                  currentPosition += nextWordView.getSize();
+                }
+              }
+            }
+          }
+          return currentPosition;
+        }
       }
     }
     throw new Error(`Position ${position} is not in the document.`);
