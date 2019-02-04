@@ -1,7 +1,7 @@
 import throttle from '../helpers/throttle';
 import DocumentView from './DocumentView';
 import LineView from './LineView';
-import BoxView from './BoxView';
+import WordView from './WordView';
 
 export type PageViewConfig = {
   width: number;
@@ -23,11 +23,11 @@ export type EventHandlers = {
   onPointerUp: PageViewPointerEventHandler,
 };
 
-export type PageViewScreenPositions = {
-  left: number;
-  width: number;
-  top: number;
-  height: number;
+export type PageViewScreenSelection = {
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
 }[];
 
 export default class PageView {
@@ -81,20 +81,20 @@ export default class PageView {
     // Step through box views of the line view until
     // we reach the box view that contains the screen
     // position
-    const boxViews = lineView!.getBoxViews();
+    const wordViews = lineView!.getWordViews();
     let cumulatedWidth = 0;
-    let boxView: BoxView;
+    let wordView: WordView;
     let n = 0;
-    for (let nn = boxViews.length; n < nn; n++) {
-      boxView = boxViews[n];
-      const boxViewWidth = boxView.getWidth();
-      if (cumulatedWidth + boxViewWidth >= left) {
+    for (let nn = wordViews.length; n < nn; n++) {
+      wordView = wordViews[n];
+      const wordViewWidth = wordView.getWidth();
+      if (cumulatedWidth + wordViewWidth >= left) {
         break;
       }
-      cumulatedWidth += boxViewWidth;
-      cumulatedSize += boxView.getSize();
+      cumulatedWidth += wordViewWidth;
+      cumulatedSize += wordView.getSize();
     }
-    if (n  === boxViews.length) {
+    if (n  === wordViews.length) {
       // If all boxes were stepped through, i.e. end
       // of line is reached, return cumulated size
       if (cumulatedWidth > 0) {
@@ -106,7 +106,7 @@ export default class PageView {
     // Step through the box view's content until
     // we reach the document position that corresponds
     // to the screen position
-    cumulatedSize += boxView!.getDocumentPosition(left - cumulatedWidth);
+    cumulatedSize += wordView!.getDocumentPosition(left - cumulatedWidth);
 
     return cumulatedSize;
   }
@@ -233,28 +233,42 @@ export default class PageView {
   }
 
   /**
-   * Gets page screen positions for a slice of the document.
+   * Gets the screen selection by document position range.
+   * @param from - From document position.
+   * @param to - To document position.
    */
-  getScreenPositions(from: number, to: number): PageViewScreenPositions {
+  getScreenSelection(from: number, to: number): PageViewScreenSelection {
+    if (from < 0 || from > this.getSize()) {
+      throw new Error(`Page position out of bound: ${from}.`);
+    }
+    if (to < 0 || to > this.getSize()) {
+      throw new Error(`Page position out of bound: ${to}.`);
+    }
+    if (from > to) {
+      throw new Error('Page from position cannot be greater than to position.');
+    }
     let currentPosition = this.getSize();
     if (from >= currentPosition || to >= currentPosition) {
       throw new Error(`Page screen positions cannot be determined for range from ${from} to ${to}.`);
     }
-    const screenPositions: PageViewScreenPositions = [];
+    const screenSelection: PageViewScreenSelection = [];
     for (let n = this.lineViews.length - 1; n >= 0; n--) {
       const lineView = this.lineViews[n];
       currentPosition -= lineView.getSize();
       if (currentPosition <= to) {
-        const lineViewScreenPosition = lineView.getScreenPosition(Math.max(from - currentPosition, 0), Math.min(to - currentPosition, lineView.getSize() - 1));
-        screenPositions.push({
-          left: lineViewScreenPosition.left,
-          width: lineViewScreenPosition.width,
-          top: this.lineViews.slice(0, n).reduce((height, line) => height + line.getHeight(), 0),
-          height: lineViewScreenPosition.height,
+        const lineFrom = Math.max(from - currentPosition, 0);
+        const lineTo = Math.min(to - currentPosition, lineView.getSize() - 1);
+        const lineViewScreenSelection = lineView.getScreenSelection(lineFrom, lineTo);
+        const y1 = this.lineViews.slice(0, n).reduce((height, line) => height + line.getHeight(), 0);
+        screenSelection.push({
+          x1: lineViewScreenSelection.x1,
+          x2: lineViewScreenSelection.x2,
+          y1,
+          y2: y1 + lineViewScreenSelection.height,
         });
       }
       if (currentPosition <= from) {
-        return screenPositions;
+        return screenSelection;
       }
     }
     throw new Error(`Page screen positions cannot be determined for range from ${from} to ${to}.`);

@@ -1,4 +1,4 @@
-import BoxView, { BoxViewScreenPosition } from './BoxView';
+import WordView, { WordViewScreenSelection } from './WordView';
 import TextWord from '../element/word/TextWord';
 import measureText from './helpers/measureText';
 
@@ -10,15 +10,36 @@ const placeholderTextStyle = {
   letterSpacing: 0,
 };
 
-export default class TextView extends BoxView {
+/**
+ * View for a text word.
+ */
+export default class TextView extends WordView {
+  /** Cached width of the rendered text word */
   private width?: number;
+  /** Cached height of the rendered text word */
   private height?: number;
 
+  /**
+   * Measures the dimensions of the rendered text word.
+   */
   private measure() {
     const textWord = <TextWord> this.getWord();
     const measurement = measureText(textWord.getText(), placeholderTextStyle);
     this.width = measurement.width;
     this.height = measurement.height;
+  }
+
+  /**
+   * Gets screen x coordinate by document position.
+   * @param at - Document position within the text word.
+   */
+  private getScreenX(at: number): number {
+    const textWord = <TextWord> this.getWord();
+    const text = textWord.getText();
+    if (at === 0) {
+      return 0;
+    }
+    return measureText(text.substring(0, at), placeholderTextStyle).width;
   }
 
   bindToDOM() {
@@ -45,40 +66,31 @@ export default class TextView extends BoxView {
     return this.height!;
   }
 
-  getScreenPosition(from: number, to: number): BoxViewScreenPosition {
-    const textWord = <TextWord> this.getWord();
-    const text = textWord.getText();
-    let left: number;
-    if (from === 0) {
-      left = 0;
-    } else {
-      left = measureText(text.substring(0, from), placeholderTextStyle).width;
+  getScreenSelection(from: number, to: number): WordViewScreenSelection {
+    if (from < 0 || from > this.getSize()) {
+      throw new Error(`Text word position out of bound: ${from}.`);
     }
-    let right: number;
-    if (to === 0) {
-      right = 0;
-    } else if (to === from) {
-      right = left;
-    } else {
-      right = measureText(text.substring(0, to), placeholderTextStyle).width;
+    if (to < 0 || to > this.getSize()) {
+      throw new Error(`Text word position out of bound: ${to}.`);
+    }
+    if (from > to) {
+      throw new Error('Text word from position cannot be greater than to position.');
     }
     return {
-      left,
-      width: right - left,
+      x1: this.getScreenX(from),
+      x2: this.getScreenX(to),
       height: this.getHeight(),
     };
   }
 
-  getDocumentPosition(screenPosition: number): number {
-    // Step through each character until we reach
-    // the screen position
+  getDocumentPosition(screenX: number): number {
     const textWord = <TextWord> this.getWord();
     const text = textWord.getText();
     let lastWidth = 0;
     for (let n = 1, nn = text.length; n < nn; n++) {
       const width = measureText(text.substring(0, n), placeholderTextStyle).width;
-      if (width > screenPosition) {
-        if (screenPosition - lastWidth > width - screenPosition) {
+      if (width > screenX) {
+        if (screenX - lastWidth > width - screenX) {
           return n;
         }
         return n - 1;

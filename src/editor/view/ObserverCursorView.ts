@@ -19,12 +19,12 @@ export default class ObserverCursorView {
   private renderHead() {
     const observerCursor = this.observerCursor!;
     const head = observerCursor.getHead();
-    const documentScreenPositions = this.documentView!.getScreenPositions(head, head);
-    const { pageView, pageViewScreenPositions } = documentScreenPositions[0];
+    const documentScreenPositions = this.documentView!.getScreenSelection(head, head);
+    const { pageView, pageViewScreenSelection } = documentScreenPositions[0];
     const headDOMElement = this.headDOMElement!;
-    headDOMElement.style.left = `${pageViewScreenPositions[0].left + pageView.getConfig().paddingLeft}px`;
-    headDOMElement.style.top = `${pageViewScreenPositions[0].top + pageView.getConfig().paddingTop}px`;
-    headDOMElement.style.height = `${pageViewScreenPositions[0].height}px`;
+    headDOMElement.style.left = `${pageViewScreenSelection[0].x1 + pageView.getConfig().paddingLeft}px`;
+    headDOMElement.style.top = `${pageViewScreenSelection[0].y1 + pageView.getConfig().paddingTop}px`;
+    headDOMElement.style.height = `${pageViewScreenSelection[0].y2 - pageViewScreenSelection[0].y1}px`;
     const pageViewDOMElement = pageView.getDOMElement();
     if (headDOMElement.parentElement && headDOMElement.parentElement !== pageViewDOMElement) {
       headDOMElement.parentElement!.removeChild(headDOMElement);
@@ -40,10 +40,10 @@ export default class ObserverCursorView {
     const head = observerCursor.getHead();
     const from = Math.min(anchor, head);
     const to = Math.max(anchor, head);
-    const documentScreenPositions = this.documentView!.getScreenPositions(from, to);
+    const documentScreenPositions = this.documentView!.getScreenSelection(from, to);
     let selectionsCount = 0;
-    documentScreenPositions.forEach(({ pageViewScreenPositions }) => {
-      selectionsCount += pageViewScreenPositions.length;
+    documentScreenPositions.forEach(({ pageViewScreenSelection }) => {
+      selectionsCount += pageViewScreenSelection.length;
     });
     while (this.selectionDOMElements.length > selectionsCount) {
       this.selectionDOMElements.pop();
@@ -56,14 +56,14 @@ export default class ObserverCursorView {
       this.selectionDOMElements.push(selectionDOMElement);
     }
     let selectionIndex = 0;
-    documentScreenPositions.forEach(({ pageView, pageViewScreenPositions }) => {
+    documentScreenPositions.forEach(({ pageView, pageViewScreenSelection }) => {
       const pageViewDOMElement = pageView.getDOMElement();
-      pageViewScreenPositions.forEach(pageViewScreenPosition => {
+      pageViewScreenSelection.forEach(pageViewScreenPosition => {
         const selectionDOMElement = this.selectionDOMElements[selectionIndex]!;
-        selectionDOMElement.style.left = `${pageViewScreenPosition.left + pageView.getConfig().paddingLeft}px`;
-        selectionDOMElement.style.width = `${pageViewScreenPosition.width}px`;
-        selectionDOMElement.style.top = `${pageViewScreenPosition.top + pageView.getConfig().paddingTop}px`;
-        selectionDOMElement.style.height = `${pageViewScreenPosition.height}px`;
+        selectionDOMElement.style.left = `${pageViewScreenPosition.x1 + pageView.getConfig().paddingLeft}px`;
+        selectionDOMElement.style.width = `${pageViewScreenPosition.x2 - pageViewScreenPosition.x1}px`;
+        selectionDOMElement.style.top = `${pageViewScreenPosition.y1 + pageView.getConfig().paddingTop}px`;
+        selectionDOMElement.style.height = `${pageViewScreenPosition.y2 - pageViewScreenPosition.y1}px`;
         selectionDOMElement.style.pointerEvents = 'none';
         if (selectionDOMElement.parentElement && selectionDOMElement.parentElement !== pageViewDOMElement) {
           selectionDOMElement.parentElement!.removeChild(selectionDOMElement);

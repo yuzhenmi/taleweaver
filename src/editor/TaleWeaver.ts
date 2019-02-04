@@ -6,7 +6,7 @@ import TextElement from './element/inline/TextElement';
 import DocumentView from './view/DocumentView';
 import PageView from './view/PageView';
 import LineView from './view/LineView';
-import BoxView from './view/BoxView';
+import WordView from './view/WordView';
 import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
 import State from './state/State';
@@ -21,7 +21,7 @@ type InlineElementClass = new (...args: any[]) => InlineElement;
 type DocumentViewClass = new (...args: any[]) => DocumentView;
 type PageViewClass = new (...args: any[]) => PageView;
 type LineViewClass = new (...args: any[]) => LineView;
-type BoxViewClass = new (...args: any[]) => BoxView;
+type WordViewClass = new (...args: any[]) => WordView;
 
 /**
  * Configs for TaleWeaver.
@@ -61,7 +61,7 @@ class TaleWeaverRegistry {
   /** Registered line view classes. */
   private lineViewClasses: Map<string, LineViewClass>;
   /** Registered box view classes. */
-  private boxViewClasses: Map<string, BoxViewClass>;
+  private wordViewClasses: Map<string, WordViewClass>;
   /** Registered cursor transformer. */
   private cursorTransformer?: CursorTransformer;
   /** Registered document transformer. */
@@ -79,7 +79,7 @@ class TaleWeaverRegistry {
     this.blockElementClasses = new Map<string, BlockElementClass>();
     this.inlineElementClasses = new Map<string, InlineElementClass>();
     this.lineViewClasses = new Map<string, LineViewClass>();
-    this.boxViewClasses = new Map<string, BoxViewClass>();
+    this.wordViewClasses = new Map<string, WordViewClass>();
     this.eventObservers = [];
 
     // Register defaults
@@ -89,7 +89,7 @@ class TaleWeaverRegistry {
     this.registerDocumentViewClass(DocumentView);
     this.registerPageViewClass(PageView);
     this.registerLineViewClass('Paragraph', ParagraphLineView);
-    this.registerBoxViewClass('Text', TextView);
+    this.registerWordViewClass('Text', TextView);
     this.registerCursorTransformer(new CursorTransformer());
     this.registerDocumentTransformer(new DocumentTransformer());
     this.registerEventObserver(new EditorCursorEventObserver(this.taleWeaver));
@@ -215,22 +215,22 @@ class TaleWeaverRegistry {
   /**
    * Registers a box view class by type.
    * @param type - Type of the box view class.
-   * @param boxViewType - Box view class to register.
+   * @param wordViewType - Box view class to register.
    */
-  registerBoxViewClass(type: string, boxViewClass: BoxViewClass) {
-    this.boxViewClasses.set(type, boxViewClass);
+  registerWordViewClass(type: string, wordViewClass: WordViewClass) {
+    this.wordViewClasses.set(type, wordViewClass);
   }
 
   /**
    * Gets a registered box view class by type.
    * @param type - Type of the box view class.
    */
-  getBoxViewClass(type: string): BoxViewClass {
-    const boxViewClass = this.boxViewClasses.get(type);
-    if (!boxViewClass) {
+  getWordViewClass(type: string): WordViewClass {
+    const wordViewClass = this.wordViewClasses.get(type);
+    if (!wordViewClass) {
       throw new Error(`Unregistered box view class: ${type}.`);
     }
-    return boxViewClass;
+    return wordViewClass;
   }
 
   /**

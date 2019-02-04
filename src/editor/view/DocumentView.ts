@@ -1,8 +1,8 @@
 import TaleWeaver from '../TaleWeaver';
 import DocumentElement from '../element/DocumentElement';
 import BlockElement from '../element/BlockElement';
-import PageView, { PageViewScreenPositions, PageViewPointerEvent } from './PageView';
-import BoxView from './BoxView';
+import PageView, { PageViewScreenSelection, PageViewPointerEvent } from './PageView';
+import WordView from './WordView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
@@ -14,9 +14,9 @@ import { KeyPressEvent } from '../event/Event';
  * where the box views can be further
  * broken down into line views.
  */
-type BoxViewBlock = {
+type WordViewBlock = {
   blockElement: BlockElement;
-  boxViews: BoxView[];
+  wordViews: WordView[];
 };
 
 /**
@@ -37,9 +37,9 @@ type DocumentViewConfig = {
   pagePaddingRight: number;
 };
 
-export type DocumentViewScreenPositions = {
+export type DocumentViewScreenSelection = {
   pageView: PageView;
-  pageViewScreenPositions: PageViewScreenPositions;
+  pageViewScreenSelection: PageViewScreenSelection;
 }[];
 
 /**
@@ -50,7 +50,7 @@ export default class DocumentView {
   private documentElement: DocumentElement;
   private config: DocumentViewConfig;
   private pageViews: PageView[];
-  private boxViewBlocks: BoxViewBlock[];
+  private wordViewBlocks: WordViewBlock[];
   private lineViews: LineView[];
   private editorCursorView: EditorCursorView | null;
   private observerCursorViews: ObserverCursorView[];
@@ -65,14 +65,14 @@ export default class DocumentView {
     this.taleWeaver = taleWeaver;
     this.documentElement = documentElement;
     this.config = config;
-    this.boxViewBlocks = [];
+    this.wordViewBlocks = [];
     this.lineViews = [];
     this.pageViews = [];
     this.editorCursorView = null;
     this.observerCursorViews = [];
     
     // Build child views
-    this.buildBoxViewBlocks();
+    this.buildWordViewBlocks();
     this.buildLineViews();
     this.buildPageViews();
     this.buildEditorCursorView();
@@ -83,15 +83,15 @@ export default class DocumentView {
    * Builds box views for each block element in
    * the document.
    */
-  private buildBoxViewBlocks() {
+  private buildWordViewBlocks() {
     const registry = this.taleWeaver.getRegistry();
-    // Reset boxViewBlocks
-    this.boxViewBlocks.length = 0;
+    // Reset wordViewBlocks
+    this.wordViewBlocks.length = 0;
     // Loop through block elements in the document
     this.documentElement.getChildren().forEach(blockElement => {
-      const boxViewBlock: BoxViewBlock = {
+      const wordViewBlock: WordViewBlock = {
         blockElement,
-        boxViews: [],
+        wordViews: [],
       };
       // Loop through inline elements in the block element
       blockElement.getChildren().forEach(inlineElement => {
@@ -99,19 +99,19 @@ export default class DocumentView {
         // Loop through words in the inline element
         words.forEach(word => {
           // Build box view from word
-          const BoxView = registry.getBoxViewClass(word.getType())!;
-          const boxView = new BoxView();
-          boxView.setWord(word);
-          boxViewBlock.boxViews.push(boxView);
+          const WordView = registry.getWordViewClass(word.getType())!;
+          const wordView = new WordView();
+          wordView.setWord(word);
+          wordViewBlock.wordViews.push(wordView);
         });
       });
-      this.boxViewBlocks.push(boxViewBlock);
+      this.wordViewBlocks.push(wordViewBlock);
     });
   }
 
   /**
    * Builds line views from box views, should not
-   * be called unless buildBoxViewBlocks was called.
+   * be called unless buildWordViewBlocks was called.
    */
   private buildLineViews() {
     // Reset lineViews
@@ -120,18 +120,18 @@ export default class DocumentView {
     // Determine page content width as width minus paddings
     const pageContentWidth = this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight;
     // Loop through blocks of box views
-    this.boxViewBlocks.forEach(boxViewBlock => {
+    this.wordViewBlocks.forEach(wordViewBlock => {
       // Build line views for block
-      const LineView = registry.getLineViewClass(boxViewBlock.blockElement.getType())!;
+      const LineView = registry.getLineViewClass(wordViewBlock.blockElement.getType())!;
       let lineView = new LineView({
         width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
       });
       this.lineViews.push(lineView);
       let cumulatedWidth = 0;
       // Loop through box views in block
-      boxViewBlock.boxViews.forEach(boxView => {
+      wordViewBlock.wordViews.forEach(wordView => {
         // Start new line if current line i is full
-        if (cumulatedWidth + boxView.getWidth() > pageContentWidth) {
+        if (cumulatedWidth + wordView.getWidth() > pageContentWidth) {
           lineView = new LineView({
             width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
           });
@@ -139,9 +139,9 @@ export default class DocumentView {
           cumulatedWidth = 0;
         }
         // Append box view to current line view
-        boxView.setLineView(lineView);
-        lineView.appendBoxView(boxView);
-        cumulatedWidth += boxView.getWidth();
+        wordView.setLineView(lineView);
+        lineView.appendWordView(wordView);
+        cumulatedWidth += wordView.getWidth();
       });
     });
   }
@@ -289,23 +289,36 @@ export default class DocumentView {
     return this.domElement!;
   }
 
-  getScreenPositions(from: number, to: number): DocumentViewScreenPositions {
-    let currentPosition = this.documentElement.getSize();
-    if (from >= currentPosition || to >= currentPosition) {
-      throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
+  /**
+   * Gets the screen selection by document position range.
+   * @param from - From document position.
+   * @param to - To document position.
+   */
+  getScreenSelection(from: number, to: number): DocumentViewScreenSelection {
+    if (from < 0 || from > this.getSize()) {
+      throw new Error(`Document position out of bound: ${from}.`);
     }
-    const screenPositions: DocumentViewScreenPositions = [];
+    if (to < 0 || to > this.getSize()) {
+      throw new Error(`Document position out of bound: ${to}.`);
+    }
+    if (from > to) {
+      throw new Error('Document from position cannot be greater than to position.');
+    }
+    let currentPosition = this.documentElement.getSize();
+    const screenSelection: DocumentViewScreenSelection = [];
     for (let n = this.pageViews.length - 1; n >= 0; n--) {
       const pageView = this.pageViews[n];
       currentPosition -= pageView.getSize();
       if (currentPosition <= to) {
-        screenPositions.push({
+        const pageFrom = Math.max(from - currentPosition, 0);
+        const pageTo = Math.min(to - currentPosition, pageView.getSize() - 1);
+        screenSelection.push({
           pageView,
-          pageViewScreenPositions: pageView.getScreenPositions(Math.max(from - currentPosition, 0), Math.min(to - currentPosition, pageView.getSize() - 1)),
+          pageViewScreenSelection: pageView.getScreenSelection(pageFrom, pageTo),
         });
       }
       if (currentPosition <= from) {
-        return screenPositions;
+        return screenSelection;
       }
     }
     throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
@@ -397,7 +410,7 @@ export default class DocumentView {
           currentPosition += lineView.getSize();
           continue;
         }
-        const wordViews = lineView.getBoxViews();
+        const wordViews = lineView.getWordViews();
         // Search word
         for (let o = 0, oo = wordViews.length; o < oo; o++) {
           const wordView = wordViews[o];
@@ -413,7 +426,7 @@ export default class DocumentView {
             } else if (m > 0) {
               // Try previous line
               const previousLineView = lineViews[m - 1];
-              const previousLineViewWordViews = previousLineView.getBoxViews();
+              const previousLineViewWordViews = previousLineView.getWordViews();
               if (previousLineViewWordViews.length > 0) {
                 const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
                 currentPosition -= previousWordView.getSize();
@@ -424,7 +437,7 @@ export default class DocumentView {
               const previousPageViewLineViews = previousPageView.getLineViews();
               if (previousPageViewLineViews.length > 0) {
                 const previousLineView = previousPageViewLineViews[previousPageViewLineViews.length - 1];
-                const previousLineViewWordViews = previousLineView.getBoxViews();
+                const previousLineViewWordViews = previousLineView.getWordViews();
                 if (previousLineViewWordViews.length > 0) {
                   const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
                   currentPosition -= previousWordView.getSize();
@@ -462,7 +475,7 @@ export default class DocumentView {
           currentPosition -= lineView.getSize();
           continue;
         }
-        const wordViews = lineView.getBoxViews();
+        const wordViews = lineView.getWordViews();
         // Search word
         for (let o = wordViews.length - 1; o >= 0; o--) {
           const wordView = wordViews[o];
@@ -478,7 +491,7 @@ export default class DocumentView {
             } else if (m < lineViews.length - 1) {
               // Try next line
               const nextLineView = lineViews[m + 1];
-              const nextLineViewWordViews = nextLineView.getBoxViews();
+              const nextLineViewWordViews = nextLineView.getWordViews();
               if (nextLineViewWordViews.length > 0) {
                 const nextWordView = nextLineViewWordViews[0];
                 currentPosition += nextWordView.getSize();
@@ -489,7 +502,7 @@ export default class DocumentView {
               const nextPageViewLineViews = nextPageView.getLineViews();
               if (nextPageViewLineViews.length > 0) {
                 const nextLineView = nextPageViewLineViews[0];
-                const nextLineViewWordViews = nextLineView.getBoxViews();
+                const nextLineViewWordViews = nextLineView.getWordViews();
                 if (nextLineViewWordViews.length > 0) {
                   const nextWordView = nextLineViewWordViews[0];
                   currentPosition += nextWordView.getSize();

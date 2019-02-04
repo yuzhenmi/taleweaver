@@ -8,7 +8,7 @@ export default class ParagraphLineView extends LineView {
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--paragraph-line';
     const parentDOMElement = this.getPageView().getDOMElement();
-    this.boxViews.forEach(boxView => boxView.bindToDOM());
+    this.wordViews.forEach(wordView => wordView.bindToDOM());
     parentDOMElement.appendChild(this.domElement);
   }
 }
