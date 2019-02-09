@@ -263,8 +263,18 @@ export default class DocumentView {
   private handleKeyUp = (event: KeyboardEvent) => {
   }
 
+  /**
+   * Gets the editor cursor view.
+   */
   getEditorCursorView(): EditorCursorView | null {
     return this.editorCursorView;
+  }
+
+  /**
+   * Gets the child page views.
+   */
+  getPageViews(): PageView[] {
+    return this.pageViews;
   }
 
   /**

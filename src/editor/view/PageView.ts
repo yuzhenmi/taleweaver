@@ -161,6 +161,36 @@ export default class PageView {
   }
 
   /**
+   * Gets the previous page view in the parent document view.
+   */
+  getPreviousPageView(): PageView | null {
+    const pageViews = this.documentView!.getPageViews();
+    const index = pageViews.indexOf(this);
+    if (index < 0) {
+      return null;
+    }
+    if (index === 0) {
+      return null;
+    }
+    return pageViews[index - 1];
+  }
+
+  /**
+   * Gets the next page view in the parent document view.
+   */
+  getNextPageView(): PageView | null {
+    const pageViews = this.documentView!.getPageViews();
+    const index = pageViews.indexOf(this);
+    if (index < 0) {
+      return null;
+    }
+    if (index === pageViews.length - 1) {
+      return null;
+    }
+    return pageViews[index + 1];
+  }
+
+  /**
    * Gets config of the page view.
    */
   getConfig(): PageViewConfig {

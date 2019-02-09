@@ -187,11 +187,22 @@ export default abstract class LineView {
   getPreviousLineView(): LineView | null {
     const lineViews = this.pageView!.getLineViews();
     const index = lineViews.indexOf(this);
+
+    // Short circuit if line view is not found in the parent
+    // page view
     if (index < 0) {
       return null;
     }
+
+    // If this is the first line of the page, try to move
+    // to last line of previous page
     if (index === 0) {
-      return null;
+      const previousPageView = this.pageView!.getPreviousPageView();
+      if (!previousPageView) {
+        return null;
+      }
+      const previousPageLineViews = previousPageView.getLineViews();
+      return previousPageLineViews[previousPageLineViews.length - 1];
     }
     return lineViews[index - 1];
   }
@@ -202,11 +213,22 @@ export default abstract class LineView {
   getNextLineView(): LineView | null {
     const lineViews = this.pageView!.getLineViews();
     const index = lineViews.indexOf(this);
+
+    // Short circuit if line view is not found in the parent
+    // page view
     if (index < 0) {
       return null;
     }
+
+    // If this is the last line of the page, try to move
+    // to first line of next page
     if (index === lineViews.length - 1) {
-      return null;
+      const nextPageView = this.pageView!.getNextPageView();
+      if (!nextPageView) {
+        return null;
+      }
+      const nextPageLineViews = nextPageView.getLineViews();
+      return nextPageLineViews[0];
     }
     return lineViews[index + 1];
   }
