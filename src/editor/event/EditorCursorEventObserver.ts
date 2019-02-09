@@ -19,6 +19,8 @@ import {
   moveHeadToDocumentEnd,
   moveToPreviousLine,
   moveToNextLine,
+  moveHeadToPreviousLine,
+  moveHeadToNextLine,
 } from '../command/cursor';
 
 export default class EditorCursorEventObserver extends EventObserver {
@@ -68,7 +70,7 @@ export default class EditorCursorEventObserver extends EventObserver {
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveHeadToDocumentStart());
           } else {
-            // TODO: Move cursor head to previous line but preserve horizontal position
+            this.dispatchCursorCommand(moveHeadToPreviousLine());
           }
         } else {
           if (keyPressEvent.alt) {
@@ -86,7 +88,7 @@ export default class EditorCursorEventObserver extends EventObserver {
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveHeadToDocumentEnd());
           } else {
-            // TODO: Move cursor head to next line but preserve horizontal position
+            this.dispatchCursorCommand(moveHeadToNextLine())
           }
         } else {
           if (keyPressEvent.alt) {

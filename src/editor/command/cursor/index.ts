@@ -18,3 +18,5 @@ export { default as moveHeadToDocumentStart } from './moveHeadToDocumentStart';
 export { default as moveHeadToDocumentEnd } from './moveHeadToDocumentEnd';
 export { default as moveToPreviousLine } from './moveToPreviousLine';
 export { default as moveToNextLine } from './moveToNextLine';
+export { default as moveHeadToPreviousLine } from './moveHeadToPreviousLine';
+export { default as moveHeadToNextLine } from './moveHeadToNextLine';
