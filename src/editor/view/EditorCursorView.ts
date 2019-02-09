@@ -1,7 +1,8 @@
 import TaleWeaver from '../TaleWeaver';
-import Cursor, { CursorTransformationExtraArgs } from '../cursor/Cursor';
+import Cursor from '../cursor/Cursor';
 import DocumentView from './DocumentView';
 import { moveTo, moveHeadTo } from '../command/cursor';
+import isElementInViewport from '../helpers/isElementInViewport';
 
 export default class EditorCursorView {
   private taleWeaver: TaleWeaver;
@@ -55,6 +56,11 @@ export default class EditorCursorView {
       this.lineViewX = null;
     }
     this.lastLineViewX = pageViewScreenSelection[0].x1;
+
+    // Scroll view port to head if head is out of view port
+    if (!isElementInViewport(headDOMElement)) {
+      headDOMElement.scrollIntoView();
+    }
   }
 
   private renderSelections() {

@@ -2,7 +2,7 @@ import TaleWeaver from '../../TaleWeaver';
 import CursorCommand from '../CursorCommand';
 import CursorTransformation from '../../state/CursorTransformation';
 import TranslateCursorHead from '../../state/cursortransformationsteps/TranslateCursorHead';
-import moveToLineStart from './moveToLineStart';
+import moveHeadToLineStart from './moveHeadToLineStart';
 
 export default function moveHeadToPreviousLine(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
@@ -17,7 +17,7 @@ export default function moveHeadToPreviousLine(): CursorCommand {
     const lineView = resolvedPosition.lineView;
     const previousLineView = lineView.getPreviousLineView();
     if (!previousLineView) {
-      return moveToLineStart()(taleWeaver);
+      return moveHeadToLineStart()(taleWeaver);
     }
     const editorCursorView = documentView.getEditorCursorView();
     if (!editorCursorView) {
