@@ -36,6 +36,7 @@ export default class PageView {
   private config: PageViewConfig;
   private lineViews: LineView[];
   private domElement?: HTMLElement;
+  private contentDOMElement?: HTMLElement;
 
   constructor(documentView: DocumentView, eventHandlers: EventHandlers, config: PageViewConfig) {
     this.documentView = documentView;
@@ -206,23 +207,36 @@ export default class PageView {
    * it to the document. No-op if DOM element is already initialized.
    */
   bindToDOM() {
+    // Skip if already bound to DOM
     if (this.domElement) {
       return;
     }
-    const parentDOMElement = this.getDocumentView().getDOMElement();
+
+    // Build wrapper element
     this.domElement = document.createElement('div');
     this.domElement.className = 'tw--page';
-    this.domElement.style.position = 'relative';
     this.domElement.style.width = `${this.config.width}px`;
     this.domElement.style.height = `${this.config.height}px`;
     this.domElement.style.padding = `${this.config.paddingTop}px ${this.config.paddingRight}px ${this.config.paddingBottom}px ${this.config.paddingLeft}px`;
     this.domElement.style.userSelect = 'none';
+    const parentDOMElement = this.getDocumentView().getDOMElement();
+    parentDOMElement.appendChild(this.domElement);
+
+    // Build content element
+    this.contentDOMElement = document.createElement('div');
+    this.contentDOMElement.className = 'tw--page-content';
+    this.contentDOMElement.style.position = 'relative';
+    this.contentDOMElement.style.height = '100%';
+    this.domElement.appendChild(this.contentDOMElement);
+
+    // Attach event listeners
     this.domElement.addEventListener('selectstart', this.handleSelectStart);
     this.domElement.addEventListener('mousedown', this.handleMouseDown);
     this.domElement.addEventListener('mousemove', this.handleMouseMove);
     this.domElement.addEventListener('mouseup', this.handleMouseUp);
+
+    // Render line views
     this.lineViews.forEach(lineView => lineView.bindToDOM());
-    parentDOMElement.appendChild(this.domElement);
   }
 
   /**
@@ -230,6 +244,13 @@ export default class PageView {
    */
   getDOMElement(): HTMLElement {
     return this.domElement!;
+  }
+
+  /**
+   * Gets the page content DOM element.
+   */
+  getContentDOMElement(): HTMLElement {
+    return this.contentDOMElement!;
   }
 
   /**

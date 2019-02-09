@@ -1,5 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Cursor from '../cursor/Cursor';
+import Cursor, { CursorTransformationExtraArgs } from '../cursor/Cursor';
 import DocumentView from './DocumentView';
 import { moveTo, moveHeadTo } from '../command/cursor';
 
@@ -12,6 +12,8 @@ export default class EditorCursorView {
   private selecting: boolean;
   private blinkState: boolean;
   private blinkInterval: NodeJS.Timeout | null;
+  private lineViewX: number | null;
+  private lastLineViewX: number;
 
   constructor(taleWeaver: TaleWeaver, editorCursor: Cursor) {
     this.taleWeaver = taleWeaver;
@@ -20,29 +22,39 @@ export default class EditorCursorView {
     this.selecting = false;
     this.blinkState = false;
     this.blinkInterval = null;
+    this.lineViewX = null;
+    this.lastLineViewX = 0;
   }
 
-  private render() {
-    this.renderHead();
+  private render(preserveLineViewPosition: boolean = false) {
+    this.renderHead(preserveLineViewPosition);
     this.renderSelections();
   }
 
-  private renderHead() {
+  private renderHead(preserveLineViewPosition: boolean) {
     const editorCursor = this.editorCursor;
     const head = editorCursor.getHead();
     const documentScreenSelection = this.documentView!.getScreenSelection(head, head);
     const { pageView, pageViewScreenSelection } = documentScreenSelection[0];
     const headDOMElement = this.headDOMElement!;
-    headDOMElement.style.left = `${pageViewScreenSelection[0].x1 + pageView.getConfig().paddingLeft}px`;
-    headDOMElement.style.top = `${pageViewScreenSelection[0].y1 + pageView.getConfig().paddingTop}px`;
+    headDOMElement.style.left = `${pageViewScreenSelection[0].x1}px`;
+    headDOMElement.style.top = `${pageViewScreenSelection[0].y1}px`;
     headDOMElement.style.height = `${pageViewScreenSelection[0].y2 - pageViewScreenSelection[0].y1}px`;
-    const pageViewDOMElement = pageView.getDOMElement();
+    const pageViewDOMElement = pageView.getContentDOMElement();
     if (headDOMElement.parentElement && headDOMElement.parentElement !== pageViewDOMElement) {
       headDOMElement.parentElement!.removeChild(headDOMElement);
     }
     if (!headDOMElement.parentElement) {
       pageViewDOMElement.appendChild(headDOMElement);
     }
+    if (preserveLineViewPosition) {
+      if (this.lineViewX === null) {
+        this.lineViewX = this.lastLineViewX;
+      }
+    } else {
+      this.lineViewX = null;
+    }
+    this.lastLineViewX = pageViewScreenSelection[0].x1;
   }
 
   private renderSelections() {
@@ -69,12 +81,12 @@ export default class EditorCursorView {
     }
     let selectionIndex = 0;
     documentScreenSelection.forEach(({ pageView, pageViewScreenSelection }) => {
-      const pageViewDOMElement = pageView.getDOMElement();
+      const pageViewDOMElement = pageView.getContentDOMElement();
       pageViewScreenSelection.forEach(pageViewScreenPosition => {
         const selectionDOMElement = this.selectionDOMElements[selectionIndex]!;
-        selectionDOMElement.style.left = `${pageViewScreenPosition.x1 + pageView.getConfig().paddingLeft}px`;
+        selectionDOMElement.style.left = `${pageViewScreenPosition.x1}px`;
         selectionDOMElement.style.width = `${pageViewScreenPosition.x2 - pageViewScreenPosition.x1}px`;
-        selectionDOMElement.style.top = `${pageViewScreenPosition.y1 + pageView.getConfig().paddingTop}px`;
+        selectionDOMElement.style.top = `${pageViewScreenPosition.y1}px`;
         selectionDOMElement.style.height = `${pageViewScreenPosition.y2 - pageViewScreenPosition.y1}px`;
         selectionDOMElement.style.pointerEvents = 'none';
         if (selectionDOMElement.parentElement && selectionDOMElement.parentElement !== pageViewDOMElement) {
@@ -86,6 +98,10 @@ export default class EditorCursorView {
         selectionIndex++;
       });
     });
+  }
+
+  getLineViewX(): number | null {
+    return this.lineViewX;
   }
 
   setDocumentView(documentView: DocumentView) {
@@ -104,8 +120,8 @@ export default class EditorCursorView {
     }
     this.render();
     this.startBlinking();
-    this.editorCursor.observe(() => {
-      this.render();
+    this.editorCursor.observe((editorCursor, extraArgs) => {
+      this.render(extraArgs.preserveLineViewPosition);
       if (this.blinkInterval !== null) {
         this.stopBlinking();
         this.startBlinking();

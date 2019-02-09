@@ -1,22 +1,24 @@
 import EventObserver from '../event/EventObserver';
 import Event, { KeyPressEvent } from '../event/Event';
 import {
-  moveBackwardByChar,
-  moveForwardByChar,
+  moveBackward,
+  moveForward,
   moveBackwardByWord,
   moveForwardByWord,
-  moveBackwardByLine,
-  moveForwardByLine,
+  moveToLineStart,
+  moveToLineEnd,
   moveToDocumentStart,
   moveToDocumentEnd,
-  moveHeadBackwardByChar,
-  moveHeadForwardByChar,
+  moveHeadBackward,
+  moveHeadForward,
   moveHeadBackwardByWord,
   moveHeadForwardByWord,
-  moveHeadBackwardByLine,
-  moveHeadForwardByLine,
+  moveHeadToLineStart,
+  moveHeadToLineEnd,
   moveHeadToDocumentStart,
   moveHeadToDocumentEnd,
+  moveToPreviousLine,
+  moveToNextLine,
 } from '../command/cursor';
 
 export default class EditorCursorEventObserver extends EventObserver {
@@ -28,17 +30,17 @@ export default class EditorCursorEventObserver extends EventObserver {
           if (keyPressEvent.alt) {
             this.dispatchCursorCommand(moveHeadBackwardByWord());
           } else if (keyPressEvent.meta) {
-            this.dispatchCursorCommand(moveHeadBackwardByLine());
+            this.dispatchCursorCommand(moveHeadToLineStart());
           } else {
-            this.dispatchCursorCommand(moveHeadBackwardByChar());
+            this.dispatchCursorCommand(moveHeadBackward());
           }
         } else {
           if (keyPressEvent.alt) {
             this.dispatchCursorCommand(moveBackwardByWord());
           } else if (keyPressEvent.meta) {
-            this.dispatchCursorCommand(moveBackwardByLine());
+            this.dispatchCursorCommand(moveToLineStart());
           } else {
-            this.dispatchCursorCommand(moveBackwardByChar());
+            this.dispatchCursorCommand(moveBackward());
           }
         }
       } else if (keyPressEvent.key === 'ArrowRight') {
@@ -46,23 +48,23 @@ export default class EditorCursorEventObserver extends EventObserver {
           if (keyPressEvent.alt) {
             this.dispatchCursorCommand(moveHeadForwardByWord());
           } else if (keyPressEvent.meta) {
-            this.dispatchCursorCommand(moveHeadForwardByLine());
+            this.dispatchCursorCommand(moveHeadToLineEnd());
           } else {
-            this.dispatchCursorCommand(moveHeadForwardByChar());
+            this.dispatchCursorCommand(moveHeadForward());
           }
         } else {
           if (keyPressEvent.alt) {
             this.dispatchCursorCommand(moveForwardByWord());
           } else if (keyPressEvent.meta) {
-            this.dispatchCursorCommand(moveForwardByLine());
+            this.dispatchCursorCommand(moveToLineEnd());
           } else {
-            this.dispatchCursorCommand(moveForwardByChar());
+            this.dispatchCursorCommand(moveForward());
           }
         }
       } else if (keyPressEvent.key === 'ArrowUp') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.dispatchCursorCommand(moveHeadBackwardByLine());
+            this.dispatchCursorCommand(moveHeadToLineStart());
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveHeadToDocumentStart());
           } else {
@@ -70,17 +72,17 @@ export default class EditorCursorEventObserver extends EventObserver {
           }
         } else {
           if (keyPressEvent.alt) {
-            this.dispatchCursorCommand(moveBackwardByLine());
+            this.dispatchCursorCommand(moveToLineStart());
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveToDocumentStart());
           } else {
-            // TODO: Move cursor to previous line but preserve horizontal position
+            this.dispatchCursorCommand(moveToPreviousLine());
           }
         }
       } else if (keyPressEvent.key === 'ArrowDown') {
         if (keyPressEvent.shift) {
           if (keyPressEvent.alt) {
-            this.dispatchCursorCommand(moveHeadForwardByLine());
+            this.dispatchCursorCommand(moveHeadToLineEnd());
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveHeadToDocumentEnd());
           } else {
@@ -88,11 +90,11 @@ export default class EditorCursorEventObserver extends EventObserver {
           }
         } else {
           if (keyPressEvent.alt) {
-            this.dispatchCursorCommand(moveForwardByLine());
+            this.dispatchCursorCommand(moveToLineEnd());
           } else if (keyPressEvent.meta) {
             this.dispatchCursorCommand(moveToDocumentEnd());
           } else {
-            // TODO: Move cursor to next line but preserve horizontal position
+            this.dispatchCursorCommand(moveToNextLine())
           }
         }
       }

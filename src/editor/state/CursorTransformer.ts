@@ -17,9 +17,9 @@ export default class CursorTransformer {
     const steps = transformation.getSteps();
     steps.forEach(step => {
       if (step instanceof TranslateCursor) {
-        cursor.moveTo(cursor.getHead() + step.getDisplacement());
+        cursor.moveTo(cursor.getHead() + step.getDisplacement(), step.getExtraArgs());
       } else if (step instanceof TranslateCursorHead) {
-        cursor.moveHeadTo(cursor.getHead() + step.getDisplacement());
+        cursor.moveHeadTo(cursor.getHead() + step.getDisplacement(), step.getExtraArgs());
       } else {
         throw new Error(`Unrecognized cursor transformation step: ${step.getType()}`);
       }

@@ -1,5 +1,13 @@
+/**
+ * Interface for extra observer args, which is just
+ * an arbitrary key-value map.
+ */
+export interface CursorTransformationExtraArgs {
+  preserveLineViewPosition: boolean;
+}
+
 /** Observer to cursor state change. */
-type CursorObserver = (cursor: Cursor) => void;
+type CursorObserver = (cursor: Cursor, extraArgs: CursorTransformationExtraArgs) => void;
 
 /**
  * Generates a unique cursor ID.
@@ -38,9 +46,9 @@ export default class Cursor {
   /**
    * Notifies observers of state change.
    */
-  private notifyObservers() {
+  private notifyObservers(extraArgs: CursorTransformationExtraArgs) {
     this.observers.forEach(observer => {
-      observer(this);
+      observer(this, extraArgs);
     });
   }
 
@@ -63,10 +71,10 @@ export default class Cursor {
    * Moves the cursor to a certain position.
    * @param position - Position to move cursor to.
    */
-  moveTo(position: number) {
+  moveTo(position: number, extraArgs: CursorTransformationExtraArgs) {
     this.anchor = position;
     this.head = position;
-    this.notifyObservers();
+    this.notifyObservers(extraArgs);
   }
 
   /**
@@ -74,9 +82,9 @@ export default class Cursor {
    * The anchor is not moved.
    * @param position - Position to move cursor head to.
    */
-  moveHeadTo(position: number) {
+  moveHeadTo(position: number, extraArgs: CursorTransformationExtraArgs) {
     this.head = position;
-    this.notifyObservers();
+    this.notifyObservers(extraArgs);
   }
 
   /**

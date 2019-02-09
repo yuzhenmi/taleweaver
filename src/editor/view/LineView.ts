@@ -167,7 +167,47 @@ export default abstract class LineView {
    * @param screenX - Screen x coordinate.
    */
   getDocumentPosition(screenX: number): number {
-    // TODO
-    return 0;
+    let currentWidth = 0;
+    let currentPosition = 0;
+    for (let n = 0, nn = this.wordViews.length; n < nn; n++) {
+      const wordView = this.wordViews[n];
+      const wordViewWidth = wordView.getWidth();
+      if (currentWidth + wordViewWidth >= screenX) {
+        return currentPosition + wordView.getDocumentPosition(screenX - currentWidth);
+      }
+      currentWidth += wordViewWidth;
+      currentPosition += wordView.getSize();
+    }
+    return currentPosition - 1;
+  }
+
+  /**
+   * Gets the previous line view in the parent page view.
+   */
+  getPreviousLineView(): LineView | null {
+    const lineViews = this.pageView!.getLineViews();
+    const index = lineViews.indexOf(this);
+    if (index < 0) {
+      return null;
+    }
+    if (index === 0) {
+      return null;
+    }
+    return lineViews[index - 1];
+  }
+
+  /**
+   * Gets the next line view in the parent page view.
+   */
+  getNextLineView(): LineView | null {
+    const lineViews = this.pageView!.getLineViews();
+    const index = lineViews.indexOf(this);
+    if (index < 0) {
+      return null;
+    }
+    if (index === lineViews.length - 1) {
+      return null;
+    }
+    return lineViews[index + 1];
   }
 }

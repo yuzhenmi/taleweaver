@@ -3,7 +3,7 @@ import CursorCommand from '../CursorCommand';
 import CursorTransformation from '../../state/CursorTransformation';
 import TranslateCursor from '../../state/cursortransformationsteps/TranslateCursor';
 
-export default function moveForwardByChar(): CursorCommand {
+export default function moveForward(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
     const editorCursor = taleWeaver.getState().getEditorCursor();

@@ -1,5 +1,4 @@
 import CursorTransformationStep from './CursorTransformationStep';
-import TaleWeaver from '../TaleWeaver';
 
 /**
  * Describes a cursor transformation as a series

@@ -12,7 +12,7 @@ export default function moveToDocumentEnd(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentSize = taleWeaver.getState().getDocumentElement().getSize();
-    transformation.addStep(new TranslateCursor(documentSize - head));
+    transformation.addStep(new TranslateCursor(documentSize - 1- head));
     return transformation;
   };
 }

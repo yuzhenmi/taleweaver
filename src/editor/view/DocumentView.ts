@@ -7,6 +7,7 @@ import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
 import ObserverCursorView from './ObserverCursorView';
 import { KeyPressEvent } from '../event/Event';
+import ViewPosition from './ViewPosition';
 
 /**
  * Box views of a block element, useful
@@ -262,6 +263,10 @@ export default class DocumentView {
   private handleKeyUp = (event: KeyboardEvent) => {
   }
 
+  getEditorCursorView(): EditorCursorView | null {
+    return this.editorCursorView;
+  }
+
   /**
    * Binds the document view to the DOM.
    * @param containerDOMElement - Container DOM element for the document.
@@ -329,6 +334,50 @@ export default class DocumentView {
    */
   getSize(): number {
     return this.documentElement.getSize();
+  }
+
+  resolvePosition(position: number): ViewPosition {
+    let currentPosition = 0;
+    // Search page
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      if (currentPosition + pageView.getSize() <= position) {
+        currentPosition += pageView.getSize();
+        continue;
+      }
+      const pageViewPosition = position - currentPosition;
+      const lineViews = pageView.getLineViews();
+      // Search line
+      for (let m = 0, mm = lineViews.length; m < mm; m++) {
+        const lineView = lineViews[m];
+        if (currentPosition + lineView.getSize() <= position) {
+          currentPosition += lineView.getSize();
+          continue;
+        }
+        const lineViewPosition = position - currentPosition;
+        const wordViews = lineView.getWordViews();
+        // Search word
+        for (let o = 0, oo = wordViews.length; o < oo; o++) {
+          const wordView = wordViews[o];
+          if (currentPosition + wordView.getSize() <= position) {
+            currentPosition += wordView.getSize();
+            continue
+          }
+          const wordViewPosition = position - currentPosition;
+          return {
+            documentView: this,
+            documentViewPosition: position,
+            pageView,
+            pageViewPosition,
+            lineView,
+            lineViewPosition,
+            wordView,
+            wordViewPosition,
+          };
+        }
+      }
+    }
+    throw new Error(`Cannot resolve position ${position} in document.`);
   }
 
   /**

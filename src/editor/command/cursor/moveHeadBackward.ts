@@ -3,16 +3,17 @@ import CursorCommand from '../CursorCommand';
 import CursorTransformation from '../../state/CursorTransformation';
 import TranslateCursorHead from '../../state/cursortransformationsteps/TranslateCursorHead';
 
-export default function moveHeadToDocumentEnd(): CursorCommand {
+export default function moveHeadBackward(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
     const editorCursor = taleWeaver.getState().getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }
-    const head = editorCursor.getHead();
-    const documentSize = taleWeaver.getState().getDocumentElement().getSize();
-    transformation.addStep(new TranslateCursorHead(documentSize - 1 - head));
+    if (editorCursor.getHead() < 1) {
+      return transformation;
+    }
+    transformation.addStep(new TranslateCursorHead(-1));
     return transformation;
   };
 }

@@ -1,9 +1,9 @@
 import TaleWeaver from '../../TaleWeaver';
 import CursorCommand from '../CursorCommand';
 import CursorTransformation from '../../state/CursorTransformation';
-import TranslateCursorHead from '../../state/cursortransformationsteps/TranslateCursorHead';
+import TranslateCursor from '../../state/cursortransformationsteps/TranslateCursor';
 
-export default function moveHeadBackwardByLine(): CursorCommand {
+export default function moveToLineEnd(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
     const editorCursor = taleWeaver.getState().getEditorCursor();
@@ -12,8 +12,8 @@ export default function moveHeadBackwardByLine(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    transformation.addStep(new TranslateCursorHead(lineStart - head));
+    const lineEnd = documentView.getLineEndPosition(head);
+    transformation.addStep(new TranslateCursor(lineEnd - head));
     return transformation;
   };
 }

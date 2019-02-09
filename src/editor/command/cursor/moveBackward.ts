@@ -3,17 +3,27 @@ import CursorCommand from '../CursorCommand';
 import CursorTransformation from '../../state/CursorTransformation';
 import TranslateCursor from '../../state/cursortransformationsteps/TranslateCursor';
 
-export default function moveBackwardByLine(): CursorCommand {
+export default function moveBackward(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
     const editorCursor = taleWeaver.getState().getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }
+    const anchor = editorCursor.getAnchor();
     const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    transformation.addStep(new TranslateCursor(lineStart - head));
+    if (anchor === head) {
+      if (head < 1) {
+        return transformation;
+      }
+      transformation.addStep(new TranslateCursor(-1));
+    } else {
+      if (anchor < head) {
+        transformation.addStep(new TranslateCursor(anchor - head));
+      } else if (anchor > head) {
+        transformation.addStep(new TranslateCursor(0));
+      }
+    }
     return transformation;
   };
 }
