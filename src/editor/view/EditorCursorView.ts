@@ -59,7 +59,7 @@ export default class EditorCursorView {
 
     // Scroll view port to head if head is out of view port
     if (!isElementInViewport(headDOMElement)) {
-      headDOMElement.scrollIntoView();
+      headDOMElement.scrollIntoView({ block: 'nearest' });
     }
   }
 
