@@ -14,7 +14,6 @@ export default function moveToNextLine(): CursorCommand {
     const position = Math.max(editorCursor.getHead(), editorCursor.getAnchor());
     const documentView = taleWeaver.getDocumentView();
     const viewAwarePosition = documentView.resolveModelPosition(position);
-    console.log(viewAwarePosition);
     const nextLineView = viewAwarePosition.lineView.getNextLineView();
     if (!nextLineView) {
       return moveToLineEnd()(taleWeaver);
