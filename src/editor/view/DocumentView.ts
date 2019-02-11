@@ -1,21 +1,20 @@
 import TaleWeaver from '../TaleWeaver';
-import DocumentElement from '../element/DocumentElement';
-import BlockElement from '../element/BlockElement';
-import PageView, { PageViewScreenSelection, PageViewPointerEvent } from './PageView';
+import DocumentElement from '../model/DocumentElement';
+import BlockElement from '../model/BlockElement';
+import throttle from '../helpers/throttle';
+import PageView, { PageViewPositionBox, PageViewAwarePosition } from './PageView';
 import WordView from './WordView';
 import LineView from './LineView';
 import EditorCursorView from './EditorCursorView';
-import ObserverCursorView from './ObserverCursorView';
 import { KeyPressEvent } from '../event/Event';
-import ViewPosition from './ViewPosition';
 
 /**
  * Box views of a block element, useful
  * as an intermediate data structure
- * where the box views can be further
+ * where the word views can be further
  * broken down into line views.
  */
-type WordViewBlock = {
+interface WordViewBlock {
   blockElement: BlockElement;
   wordViews: WordView[];
 };
@@ -23,7 +22,7 @@ type WordViewBlock = {
 /**
  * Document view configs.
  */
-type DocumentViewConfig = {
+interface DocumentViewConfig {
   /** Width of a page in the document. */
   pageWidth: number;
   /** Height of a page in the document. */
@@ -38,10 +37,20 @@ type DocumentViewConfig = {
   pagePaddingRight: number;
 };
 
-export type DocumentViewScreenSelection = {
+export interface DocumentViewDOMElements {
+  domDocument: HTMLDivElement;
+  domDocumentContent: HTMLDivElement;
+}
+
+export interface DocumentViewPositionBox {
   pageView: PageView;
-  pageViewScreenSelection: PageViewScreenSelection;
-}[];
+  pageViewPositionBox: PageViewPositionBox;
+};
+
+export interface DocumentViewAwarePosition extends PageViewAwarePosition {
+  documentView: DocumentView;
+  documentViewPosition: number;
+};
 
 /**
  * View of a document.
@@ -50,12 +59,15 @@ export default class DocumentView {
   private taleWeaver: TaleWeaver;
   private documentElement: DocumentElement;
   private config: DocumentViewConfig;
-  private pageViews: PageView[];
+
   private wordViewBlocks: WordViewBlock[];
   private lineViews: LineView[];
+  private pageViews: PageView[];
   private editorCursorView: EditorCursorView | null;
-  private observerCursorViews: ObserverCursorView[];
-  private domElement?: HTMLElement;
+
+  private mounted: boolean;
+  private domDocument?: HTMLDivElement;
+  private domDocumentContent?: HTMLDivElement;
 
   /**
    * Creates a new document view instance.
@@ -66,22 +78,172 @@ export default class DocumentView {
     this.taleWeaver = taleWeaver;
     this.documentElement = documentElement;
     this.config = config;
+
     this.wordViewBlocks = [];
     this.lineViews = [];
     this.pageViews = [];
     this.editorCursorView = null;
-    this.observerCursorViews = [];
+
+    this.mounted = false;
     
     // Build child views
     this.buildWordViewBlocks();
     this.buildLineViews();
     this.buildPageViews();
     this.buildEditorCursorView();
-    this.buildObserverCursorViews();
   }
 
   /**
-   * Builds box views for each block element in
+   * Gets the model size of the document.
+   */
+  getSize(): number {
+    return this.documentElement.getSize();
+  }
+
+  /**
+   * Gets the child page views.
+   */
+  getPageViews(): PageView[] {
+    return this.pageViews;
+  }
+
+  /**
+   * Gets the child editor cursor view.
+   */
+  getEditorCursorView(): EditorCursorView | null {
+    return this.editorCursorView;
+  }
+
+  /**
+   * Mounts the view to DOM.
+   * @param domWrapper - DOM wrapper for the document view.
+   */
+  mount(domWrapper: HTMLElement) {
+    // Do not mount if already mounted
+    if (this.mounted) {
+      return;
+    }
+
+    // Build document element
+    this.domDocument = document.createElement('div');
+    this.domDocument.className = 'tw--document';
+    domWrapper.appendChild(this.domDocument);
+
+    // Build document content element
+    this.domDocumentContent = document.createElement('div');
+    this.domDocumentContent.className = 'tw--document-content';
+    this.domDocument.appendChild(this.domDocumentContent);
+
+    // Mount page views
+    this.pageViews.forEach(pageView => pageView.mount());
+
+    // Attach event listeners
+    this.domDocument.addEventListener('selectstart', this.handleSelectStart);
+    window.addEventListener('mousedown', this.handleMouseDown);
+    window.addEventListener('mousemove', this.handleMouseMove);
+    window.addEventListener('mouseup', this.handleMouseUp);
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
+  }
+
+  /**
+   * Gets DOM elements mounted by the view.
+   */
+  getDOM(): DocumentViewDOMElements {
+    return {
+      domDocument: this.domDocument!,
+      domDocumentContent: this.domDocumentContent!,
+    };
+  }
+
+  /**
+   * Maps a model position range to view position boxes.
+   * @param from - Left-bound of the model position range.
+   * @param to - Right-bound of the model position range.
+   */
+  mapModelPositionRangeToViewPositionBoxes(from: number, to: number): DocumentViewPositionBox[] {
+    // Iterate through pages to break up model position range
+    const viewPositionBoxes: DocumentViewPositionBox[] = [];
+    let offset = 0;
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      // If overlap between position range and page
+      if (from <= offset + pageView.getSize() && to > offset) {
+        // Get page view position boxes
+        const pageViewPositionBoxes = pageView.mapModelPositionRangeToViewPositionBoxes(
+          Math.max(0, from - offset),
+          Math.min(pageView.getSize(), to - offset),
+        );
+        // Map page view position boxes to document view position boxes
+        pageViewPositionBoxes.forEach(pageViewPositionBox => {
+          viewPositionBoxes.push({
+            pageView,
+            pageViewPositionBox,
+          });
+        });
+      }
+      offset += pageView.getSize();
+    }
+    return viewPositionBoxes;
+  }
+
+  /**
+   * Maps a view position to model position.
+   * @param x - X-coordinate of the view position.
+   * @param y - Y-coordinate of the view position.
+   */
+  mapViewPositionToModelPosition(x: number, y: number): number {
+    // Iterate through pages until the page that contains the view position
+    // is found
+    let offset = 0;
+    let cumulatedHeight = 0;
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      // If posterior of page is past Y-coordinate
+      if (cumulatedHeight + pageView.getHeight() >= y) {
+        // Get model position in page
+        const pageModelPosition = pageView.mapViewPositionToModelPosition(
+          x,
+          y - cumulatedHeight,
+        );
+        // Map page model position to document model position
+        return offset + pageModelPosition;
+      }
+      offset += pageView.getSize();
+      cumulatedHeight += pageView.getHeight();
+    }
+    throw new Error(`Cannot map document view position ${x}, ${y} to model position.`);
+  }
+
+  /**
+   * Resolves a flat model position to a view-aware position
+   * object.
+   * @param position - Flat model position to resolve.
+   */
+  resolveModelPosition(position: number): DocumentViewAwarePosition {
+    // Iterate through pages until the page that contains the view position
+    // is found
+    let offset = 0;
+    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
+      const pageView = this.pageViews[n];
+      // If posterior of page is past position
+      if (offset + pageView.getSize() >= position) {
+        // Resolve model position in page
+        const pageViewAwarePosition = pageView.resolveModelPosition(position - offset);
+        // Map page view aware position to document view aware position
+        return {
+          ...pageViewAwarePosition,
+          documentView: this,
+          documentViewPosition: position,
+        };
+      }
+      offset += pageView.getSize();
+    }
+    throw new Error(`Cannot resolve document model position ${position}.`);
+  }
+
+  /**
+   * Builds word views for each block element in
    * the document.
    */
   private buildWordViewBlocks() {
@@ -99,10 +261,9 @@ export default class DocumentView {
         const words = inlineElement.getWords();
         // Loop through words in the inline element
         words.forEach(word => {
-          // Build box view from word
+          // Build word view from word
           const WordView = registry.getWordViewClass(word.getType())!;
-          const wordView = new WordView();
-          wordView.setWord(word);
+          const wordView = new WordView(word, {});
           wordViewBlock.wordViews.push(wordView);
         });
       });
@@ -111,7 +272,7 @@ export default class DocumentView {
   }
 
   /**
-   * Builds line views from box views, should not
+   * Builds line views from word views, should not
    * be called unless buildWordViewBlocks was called.
    */
   private buildLineViews() {
@@ -120,7 +281,7 @@ export default class DocumentView {
     const registry = this.taleWeaver.getRegistry();
     // Determine page content width as width minus paddings
     const pageContentWidth = this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight;
-    // Loop through blocks of box views
+    // Loop through blocks of word views
     this.wordViewBlocks.forEach(wordViewBlock => {
       // Build line views for block
       const LineView = registry.getLineViewClass(wordViewBlock.blockElement.getType())!;
@@ -129,7 +290,7 @@ export default class DocumentView {
       });
       this.lineViews.push(lineView);
       let cumulatedWidth = 0;
-      // Loop through box views in block
+      // Loop through word views in block
       wordViewBlock.wordViews.forEach(wordView => {
         // Start new line if current line i is full
         if (cumulatedWidth + wordView.getWidth() > pageContentWidth) {
@@ -139,7 +300,7 @@ export default class DocumentView {
           this.lineViews.push(lineView);
           cumulatedWidth = 0;
         }
-        // Append box view to current line view
+        // Append word view to current line view
         wordView.setLineView(lineView);
         lineView.appendWordView(wordView);
         cumulatedWidth += wordView.getWidth();
@@ -163,11 +324,7 @@ export default class DocumentView {
       paddingLeft: this.config.pagePaddingLeft,
       paddingRight: this.config.pagePaddingRight,
     };
-    let pageView = new PageView(this, {
-      onPointerDown: this.handlePointerDownOnPage,
-      onPointerMove: this.handlePointerMoveOnPage,
-      onPointerUp: this.handlePointerUpOnPage,
-    }, pageViewConigs);
+    let pageView = new PageView(this, pageViewConigs);
     this.pageViews.push(pageView);
     let cumulatedHeight = 0;
     // Determine page content height as height minus paddings
@@ -176,11 +333,7 @@ export default class DocumentView {
     this.lineViews.forEach(lineView => {
       // Start new page if current page is full
       if (cumulatedHeight + lineView.getHeight() > pageContentHeight) {
-        pageView = new PageView(this, {
-          onPointerDown: this.handlePointerDownOnPage,
-          onPointerMove: this.handlePointerMoveOnPage,
-          onPointerUp: this.handlePointerUpOnPage,
-        }, pageViewConigs);
+        pageView = new PageView(this, pageViewConigs);
         this.pageViews.push(pageView);
         cumulatedHeight = 0;
       }
@@ -189,22 +342,6 @@ export default class DocumentView {
       pageView.appendLineView(lineView);
       cumulatedHeight += lineView.getHeight();
     });
-  }
-
-  /**
-   * Resolves a position in a page view to a position
-   * in the document view.
-   */
-  private resolvePageViewPosition = (pageViewPosition: number, pageView: PageView): number => {
-    let cumulatedSize = 0;
-    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
-      const loopPageView = this.pageViews[n];
-      if (loopPageView === pageView) {
-        break;
-      }
-      cumulatedSize += loopPageView.getSize();
-    }
-    return cumulatedSize + pageViewPosition;
   }
 
   /**
@@ -220,359 +357,60 @@ export default class DocumentView {
   }
 
   /**
-   * Builds observer cursor views.
+   * Handles selectstart DOM event.
    */
-  private buildObserverCursorViews() {
-    this.taleWeaver.getState().getObserverCursors().forEach(observerCursor => {
-      const observerCursorView = new ObserverCursorView();
-      observerCursorView.setObserverCursor(observerCursor);
-      observerCursorView.setDocumentView(this);
-      this.observerCursorViews.push(observerCursorView);
-    });
+  private handleSelectStart = (event: Event) => {
+    // Disable browser select functionality
+    event.preventDefault();
   }
 
-  private handlePointerDownOnPage = (event: PageViewPointerEvent) => {
+  /**
+   * Handles mouse down DOM event.
+   */
+  private handleMouseDown = (event: MouseEvent) => {
+    // No need to handle mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
+    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
     this.editorCursorView.beginSelect(position);
   }
 
-  private handlePointerMoveOnPage = (event: PageViewPointerEvent) => {
+  /**
+   * Handles mouse move DOM event.
+   */
+  private handleMouseMove = throttle((event: MouseEvent) => {
+    // No need to handle mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
-    this.editorCursorView.moveSelect(position);
-  }
+    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
+    this.editorCursorView.endSelect(position);
+  }, 5)
 
-  private handlePointerUpOnPage = (event: PageViewPointerEvent) => {
+  /**
+   * Handles mouse up DOM event.
+   */
+  private handleMouseUp = (event: MouseEvent) => {
+    // No need to handle mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.resolvePageViewPosition(event.pageViewPosition, event.pageView);
+    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
     this.editorCursorView.endSelect(position);
   }
 
+  /**
+   * Handles key down DOM event.
+   */
   private handleKeyDown = (event: KeyboardEvent) => {
     this.taleWeaver.getState().dispatchEvent(new KeyPressEvent(event.key, event.shiftKey, event.metaKey, event.altKey));
     event.preventDefault();
   }
 
+  /**
+   * Handles key up DOM event.
+   */
   private handleKeyUp = (event: KeyboardEvent) => {
-  }
-
-  /**
-   * Gets the editor cursor view.
-   */
-  getEditorCursorView(): EditorCursorView | null {
-    return this.editorCursorView;
-  }
-
-  /**
-   * Gets the child page views.
-   */
-  getPageViews(): PageView[] {
-    return this.pageViews;
-  }
-
-  /**
-   * Binds the document view to the DOM.
-   * @param containerDOMElement - Container DOM element for the document.
-   */
-  bindToDOM(containerDOMElement: HTMLElement) {
-    if (this.domElement) {
-      return;
-    }
-    this.domElement = document.createElement('div');
-    this.domElement.className = 'tw--document';
-    this.pageViews.forEach(pageView => pageView.bindToDOM());
-    if (this.editorCursorView) {
-      this.editorCursorView.bindToDOM();
-      this.observerCursorViews.forEach(observerCursorView => observerCursorView.bindToDOM());
-      containerDOMElement.appendChild(this.domElement);
-    }
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
-  }
-
-  /**
-   * Gets the bound DOM element.
-   */
-  getDOMElement(): HTMLElement {
-    return this.domElement!;
-  }
-
-  /**
-   * Gets the screen selection by document position range.
-   * @param from - From document position.
-   * @param to - To document position.
-   */
-  getScreenSelection(from: number, to: number): DocumentViewScreenSelection {
-    if (from < 0 || from > this.getSize()) {
-      throw new Error(`Document position out of bound: ${from}.`);
-    }
-    if (to < 0 || to > this.getSize()) {
-      throw new Error(`Document position out of bound: ${to}.`);
-    }
-    if (from > to) {
-      throw new Error('Document from position cannot be greater than to position.');
-    }
-    let currentPosition = this.documentElement.getSize();
-    const screenSelection: DocumentViewScreenSelection = [];
-    for (let n = this.pageViews.length - 1; n >= 0; n--) {
-      const pageView = this.pageViews[n];
-      currentPosition -= pageView.getSize();
-      if (currentPosition <= to) {
-        const pageFrom = Math.max(from - currentPosition, 0);
-        const pageTo = Math.min(to - currentPosition, pageView.getSize() - 1);
-        screenSelection.push({
-          pageView,
-          pageViewScreenSelection: pageView.getScreenSelection(pageFrom, pageTo),
-        });
-      }
-      if (currentPosition <= from) {
-        return screenSelection;
-      }
-    }
-    throw new Error(`Document screen positions cannot be determined for range from ${from} to ${to}.`);
-  }
-
-  /**
-   * Gets the size of the document.
-   */
-  getSize(): number {
-    return this.documentElement.getSize();
-  }
-
-  resolvePosition(position: number): ViewPosition {
-    let currentPosition = 0;
-    // Search page
-    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
-      const pageView = this.pageViews[n];
-      if (currentPosition + pageView.getSize() <= position) {
-        currentPosition += pageView.getSize();
-        continue;
-      }
-      const pageViewPosition = position - currentPosition;
-      const lineViews = pageView.getLineViews();
-      // Search line
-      for (let m = 0, mm = lineViews.length; m < mm; m++) {
-        const lineView = lineViews[m];
-        if (currentPosition + lineView.getSize() <= position) {
-          currentPosition += lineView.getSize();
-          continue;
-        }
-        const lineViewPosition = position - currentPosition;
-        const wordViews = lineView.getWordViews();
-        // Search word
-        for (let o = 0, oo = wordViews.length; o < oo; o++) {
-          const wordView = wordViews[o];
-          if (currentPosition + wordView.getSize() <= position) {
-            currentPosition += wordView.getSize();
-            continue
-          }
-          const wordViewPosition = position - currentPosition;
-          return {
-            documentView: this,
-            documentViewPosition: position,
-            pageView,
-            pageViewPosition,
-            lineView,
-            lineViewPosition,
-            wordView,
-            wordViewPosition,
-          };
-        }
-      }
-    }
-    throw new Error(`Cannot resolve position ${position} in document.`);
-  }
-
-  /**
-   * Gets the position at the start of the line that
-   * the given position is on.
-   * @param position - Position for determining the line.
-   */
-  getLineStartPosition(position: number): number {
-    // Search page
-    let currentPosition = 0;
-    for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
-      const pageView = this.pageViews[n];
-      if (currentPosition + pageView.getSize() <= position) {
-        currentPosition += pageView.getSize();
-        continue;
-      }
-      const lineViews = pageView.getLineViews();
-      // Search line
-      for (let m = 0, mm = lineViews.length; m < mm; m++) {
-        const lineView = lineViews[m];
-        if (currentPosition + lineView.getSize() <= position) {
-          currentPosition += lineView.getSize();
-          continue;
-        }
-        return currentPosition;
-      }
-    }
-    throw new Error(`Position ${position} is not in the document.`);
-  }
-
-  /**
-   * Gets the position at the end of the line that
-   * the given position is on.
-   * @param position - Position for determining the line.
-   */
-  getLineEndPosition(position: number): number {
-    // Search page
-    let currentPosition = this.documentElement.getSize() - 1;
-    for (let n = this.pageViews.length - 1; n >= 0; n--) {
-      const pageView = this.pageViews[n];
-      if (currentPosition - pageView.getSize() >= position) {
-        currentPosition -= pageView.getSize();
-        continue;
-      }
-      const lineViews = pageView.getLineViews();
-      // Search line
-      for (let m = lineViews.length - 1; m >= 0; m--) {
-        const lineView = lineViews[m];
-        if (currentPosition - lineView.getSize() >= position) {
-          currentPosition -= lineView.getSize();
-          continue;
-        }
-        return currentPosition;
-      }
-    }
-    throw new Error(`Position ${position} is not in the document.`);
-  }
-
-  /**
-   * Gets the position at the start of the word that
-   * the given position is on.
-   * @param position - Position for determining the word.
-   */
-  getWordStartPosition(position: number): number {
-    // Search page
-    let currentPosition = 0;
-    const pageViews = this.pageViews;
-    for (let n = 0, nn = pageViews.length; n < nn; n++) {
-      const pageView = pageViews[n];
-      if (currentPosition + pageView.getSize() <= position) {
-        currentPosition += pageView.getSize();
-        continue;
-      }
-      const lineViews = pageView.getLineViews();
-      // Search line
-      for (let m = 0, mm = lineViews.length; m < mm; m++) {
-        const lineView = lineViews[m];
-        if (currentPosition + lineView.getSize() <= position) {
-          currentPosition += lineView.getSize();
-          continue;
-        }
-        const wordViews = lineView.getWordViews();
-        // Search word
-        for (let o = 0, oo = wordViews.length; o < oo; o++) {
-          const wordView = wordViews[o];
-          if (currentPosition + wordView.getSize() <= position) {
-            currentPosition += wordView.getSize();
-            continue;
-          }
-          if (position === currentPosition) {
-            // Try to go to previous word
-            if (o > 0) {
-              const previousWordView = wordViews[o - 1];
-              currentPosition -= previousWordView.getSize();
-            } else if (m > 0) {
-              // Try previous line
-              const previousLineView = lineViews[m - 1];
-              const previousLineViewWordViews = previousLineView.getWordViews();
-              if (previousLineViewWordViews.length > 0) {
-                const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
-                currentPosition -= previousWordView.getSize();
-              }
-            } else if (n > 0) {
-              // Try previous page
-              const previousPageView = pageViews[n - 1];
-              const previousPageViewLineViews = previousPageView.getLineViews();
-              if (previousPageViewLineViews.length > 0) {
-                const previousLineView = previousPageViewLineViews[previousPageViewLineViews.length - 1];
-                const previousLineViewWordViews = previousLineView.getWordViews();
-                if (previousLineViewWordViews.length > 0) {
-                  const previousWordView = previousLineViewWordViews[previousLineViewWordViews.length - 1];
-                  currentPosition -= previousWordView.getSize();
-                }
-              }
-            }
-          }
-          return currentPosition;
-        }
-      }
-    }
-    throw new Error(`Position ${position} is not in the document.`);
-  }
-
-  /**
-   * Gets the position at the end of the word that
-   * the given position is on.
-   * @param position - Position for determining the word.
-   */
-  getWordEndPosition(position: number): number {
-    // Search page
-    let currentPosition = this.documentElement.getSize() - 1;
-    const pageViews = this.pageViews;
-    for (let n = pageViews.length - 1; n >= 0; n--) {
-      const pageView = pageViews[n];
-      if (currentPosition - pageView.getSize() >= position) {
-        currentPosition -= pageView.getSize();
-        continue;
-      }
-      const lineViews = pageView.getLineViews();
-      // Search line
-      for (let m = lineViews.length - 1; m >= 0; m--) {
-        const lineView = lineViews[m];
-        if (currentPosition - lineView.getSize() >= position) {
-          currentPosition -= lineView.getSize();
-          continue;
-        }
-        const wordViews = lineView.getWordViews();
-        // Search word
-        for (let o = wordViews.length - 1; o >= 0; o--) {
-          const wordView = wordViews[o];
-          if (currentPosition - wordView.getSize() >= position) {
-            currentPosition -= wordView.getSize();
-            continue;
-          }
-          if (position === currentPosition) {
-            // Try to go to next word
-            if (o < wordViews.length - 1) {
-              const nextWordView = wordViews[o + 1];
-              currentPosition += nextWordView.getSize();
-            } else if (m < lineViews.length - 1) {
-              // Try next line
-              const nextLineView = lineViews[m + 1];
-              const nextLineViewWordViews = nextLineView.getWordViews();
-              if (nextLineViewWordViews.length > 0) {
-                const nextWordView = nextLineViewWordViews[0];
-                currentPosition += nextWordView.getSize();
-              }
-            } else if (n < pageViews.length - 1) {
-              // Try next page
-              const nextPageView = pageViews[n + 1];
-              const nextPageViewLineViews = nextPageView.getLineViews();
-              if (nextPageViewLineViews.length > 0) {
-                const nextLineView = nextPageViewLineViews[0];
-                const nextLineViewWordViews = nextLineView.getWordViews();
-                if (nextLineViewWordViews.length > 0) {
-                  const nextWordView = nextLineViewWordViews[0];
-                  currentPosition += nextWordView.getSize();
-                }
-              }
-            }
-          }
-          return currentPosition;
-        }
-      }
-    }
-    throw new Error(`Position ${position} is not in the document.`);
   }
 }

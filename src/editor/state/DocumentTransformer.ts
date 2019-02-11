@@ -1,4 +1,4 @@
-import DocumentElement from '../element/DocumentElement';
+import DocumentElement from '../model/DocumentElement';
 import DocumentTransformation from './DocumentTransformation';
 
 /**

@@ -1,8 +1,8 @@
-import DocumentElement from './element/DocumentElement';
-import BlockElement from './element/BlockElement';
-import InlineElement from './element/InlineElement';
-import ParagraphElement from './element/block/ParagraphElement';
-import TextElement from './element/inline/TextElement';
+import DocumentElement from './model/DocumentElement';
+import BlockElement from './model/BlockElement';
+import InlineElement from './model/InlineElement';
+import ParagraphElement from './model/block/ParagraphElement';
+import TextElement from './model/inline/TextElement';
 import DocumentView from './view/DocumentView';
 import PageView from './view/PageView';
 import LineView from './view/LineView';
@@ -349,9 +349,9 @@ export default class TaleWeaver {
 
   /**
    * Attaches TaleWeaver to the DOM.
-   * @param containerDOMElement - Container DOM element to attach TaleWeaver to.
+   * @param domWrapper - Wrapper DOM element for TaleWeaver.
    */
-  attach(containerDOMElement: HTMLElement) {
+  attach(domWrapper: HTMLElement) {
     const DocumentView = this.registry.getDocumentViewClass();
     const documentView = new DocumentView(
       this,
@@ -366,6 +366,6 @@ export default class TaleWeaver {
       },
     );
     this.setDocumentView(documentView);
-    this.getDocumentView().bindToDOM(containerDOMElement);
+    this.getDocumentView().mount(domWrapper);
   }
 }

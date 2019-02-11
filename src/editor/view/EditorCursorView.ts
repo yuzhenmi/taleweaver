@@ -8,8 +8,8 @@ export default class EditorCursorView {
   private taleWeaver: TaleWeaver;
   private editorCursor: Cursor;
   private documentView?: DocumentView;
-  private headDOMElement?: HTMLElement;
-  private selectionDOMElements: HTMLElement[];
+  private domHead?: HTMLElement;
+  private domSelections: HTMLElement[];
   private selecting: boolean;
   private blinkState: boolean;
   private blinkInterval: NodeJS.Timeout | null;
@@ -19,7 +19,7 @@ export default class EditorCursorView {
   constructor(taleWeaver: TaleWeaver, editorCursor: Cursor) {
     this.taleWeaver = taleWeaver;
     this.editorCursor = editorCursor;
-    this.selectionDOMElements = [];
+    this.domSelections = [];
     this.selecting = false;
     this.blinkState = false;
     this.blinkInterval = null;
@@ -35,18 +35,18 @@ export default class EditorCursorView {
   private renderHead(preserveLineViewPosition: boolean) {
     const editorCursor = this.editorCursor;
     const head = editorCursor.getHead();
-    const documentScreenSelection = this.documentView!.getScreenSelection(head, head);
-    const { pageView, pageViewScreenSelection } = documentScreenSelection[0];
-    const headDOMElement = this.headDOMElement!;
-    headDOMElement.style.left = `${pageViewScreenSelection[0].x1}px`;
-    headDOMElement.style.top = `${pageViewScreenSelection[0].y1}px`;
-    headDOMElement.style.height = `${pageViewScreenSelection[0].y2 - pageViewScreenSelection[0].y1}px`;
-    const pageViewDOMElement = pageView.getContentDOMElement();
-    if (headDOMElement.parentElement && headDOMElement.parentElement !== pageViewDOMElement) {
-      headDOMElement.parentElement!.removeChild(headDOMElement);
+    const viewPositionBoxes = this.documentView!.mapModelPositionRangeToViewPositionBoxes(head, head);
+    const { pageView, pageViewPositionBox } = viewPositionBoxes[0];
+    const domHead = this.domHead!;
+    domHead.style.left = `${pageViewPositionBox.x1}px`;
+    domHead.style.top = `${pageViewPositionBox.y1}px`;
+    domHead.style.height = `${pageViewPositionBox.y2 - pageViewPositionBox.y1}px`;
+    const { domPageContent } = pageView.getDOM();
+    if (domHead.parentElement && domHead.parentElement !== domPageContent) {
+      domHead.parentElement!.removeChild(domHead);
     }
-    if (!headDOMElement.parentElement) {
-      pageViewDOMElement.appendChild(headDOMElement);
+    if (!domHead.parentElement) {
+      domPageContent.appendChild(domHead);
     }
     if (preserveLineViewPosition) {
       if (this.lineViewX === null) {
@@ -55,11 +55,11 @@ export default class EditorCursorView {
     } else {
       this.lineViewX = null;
     }
-    this.lastLineViewX = pageViewScreenSelection[0].x1;
+    this.lastLineViewX = pageViewPositionBox.x1;
 
     // Scroll view port to head if head is out of view port
-    if (!isElementInViewport(headDOMElement)) {
-      headDOMElement.scrollIntoView({ block: 'nearest' });
+    if (!isElementInViewport(domHead)) {
+      domHead.scrollIntoView({ block: 'nearest' });
     }
   }
 
@@ -69,40 +69,35 @@ export default class EditorCursorView {
     const head = editorCursor.getHead();
     const from = Math.min(anchor, head);
     const to = Math.max(anchor, head);
-    const documentScreenSelection = this.documentView!.getScreenSelection(from, to);
-    let selectionsCount = 0;
-    documentScreenSelection.forEach(({ pageViewScreenSelection }) => {
-      selectionsCount += pageViewScreenSelection.length;
-    });
-    while (this.selectionDOMElements.length > selectionsCount) {
-      const selectionDOMElement = this.selectionDOMElements.pop()!;
-      selectionDOMElement.parentElement!.removeChild(selectionDOMElement);
+    const viewPositionBoxes = this.documentView!.mapModelPositionRangeToViewPositionBoxes(from, to);
+    let selectionsCount = viewPositionBoxes.length;
+    while (this.domSelections.length > selectionsCount) {
+      const domSelection = this.domSelections.pop()!;
+      domSelection.parentElement!.removeChild(domSelection);
     }
-    while (this.selectionDOMElements.length < selectionsCount) {
-      const selectionDOMElement = document.createElement('div');
-      selectionDOMElement.className = 'tw--editor-cursor-selection';
-      selectionDOMElement.style.position = 'absolute';
-      selectionDOMElement.style.background = 'hsla(217, 100%, 65%, 0.25)';
-      this.selectionDOMElements.push(selectionDOMElement);
+    while (this.domSelections.length < selectionsCount) {
+      const domSelection = document.createElement('div');
+      domSelection.className = 'tw--editor-cursor-selection';
+      domSelection.style.position = 'absolute';
+      domSelection.style.background = 'hsla(217, 100%, 65%, 0.25)';
+      this.domSelections.push(domSelection);
     }
     let selectionIndex = 0;
-    documentScreenSelection.forEach(({ pageView, pageViewScreenSelection }) => {
-      const pageViewDOMElement = pageView.getContentDOMElement();
-      pageViewScreenSelection.forEach(pageViewScreenPosition => {
-        const selectionDOMElement = this.selectionDOMElements[selectionIndex]!;
-        selectionDOMElement.style.left = `${pageViewScreenPosition.x1}px`;
-        selectionDOMElement.style.width = `${pageViewScreenPosition.x2 - pageViewScreenPosition.x1}px`;
-        selectionDOMElement.style.top = `${pageViewScreenPosition.y1}px`;
-        selectionDOMElement.style.height = `${pageViewScreenPosition.y2 - pageViewScreenPosition.y1}px`;
-        selectionDOMElement.style.pointerEvents = 'none';
-        if (selectionDOMElement.parentElement && selectionDOMElement.parentElement !== pageViewDOMElement) {
-          selectionDOMElement.parentElement!.removeChild(selectionDOMElement);
-        }
-        if (!selectionDOMElement.parentElement) {
-          pageViewDOMElement.appendChild(selectionDOMElement);
-        }
-        selectionIndex++;
-      });
+    viewPositionBoxes.forEach(({ pageView, pageViewPositionBox }) => {
+      const { domPageContent } = pageView.getDOM();
+      const domSelection = this.domSelections[selectionIndex]!;
+      domSelection.style.left = `${pageViewPositionBox.x1}px`;
+      domSelection.style.width = `${pageViewPositionBox.x2 - pageViewPositionBox.x1}px`;
+      domSelection.style.top = `${pageViewPositionBox.y1}px`;
+      domSelection.style.height = `${pageViewPositionBox.y2 - pageViewPositionBox.y1}px`;
+      domSelection.style.pointerEvents = 'none';
+      if (domSelection.parentElement && domSelection.parentElement !== domPageContent) {
+        domSelection.parentElement!.removeChild(domSelection);
+      }
+      if (!domSelection.parentElement) {
+        domPageContent.appendChild(domSelection);
+      }
+      selectionIndex++;
     });
   }
 
@@ -115,14 +110,14 @@ export default class EditorCursorView {
   }
 
   bindToDOM() {
-    if (!this.headDOMElement) {
-      this.headDOMElement = document.createElement('div');
-      this.headDOMElement.className = 'tw--editor-cursor-head';
-      this.headDOMElement.style.position = 'absolute';
-      this.headDOMElement.style.width = '2px';
-      this.headDOMElement.style.marginLeft = '-1px';
-      this.headDOMElement.style.background = 'hsla(217, 100%, 65%, 1)';
-      this.headDOMElement.style.visibility = 'hidden';
+    if (!this.domHead) {
+      this.domHead = document.createElement('div');
+      this.domHead.className = 'tw--editor-cursor-head';
+      this.domHead.style.position = 'absolute';
+      this.domHead.style.width = '2px';
+      this.domHead.style.marginLeft = '-1px';
+      this.domHead.style.background = 'hsla(217, 100%, 65%, 1)';
+      this.domHead.style.visibility = 'hidden';
     }
     this.render();
     this.startBlinking();
@@ -149,9 +144,9 @@ export default class EditorCursorView {
     }
     this.blinkInterval = setInterval(() => {
       if (this.blinkState) {
-        this.headDOMElement!.style.visibility = 'hidden';
+        this.domHead!.style.visibility = 'hidden';
       } else {
-        this.headDOMElement!.style.visibility = 'visible';
+        this.domHead!.style.visibility = 'visible';
       }
       this.blinkState = !this.blinkState;
     }, 500);
@@ -162,7 +157,7 @@ export default class EditorCursorView {
       return;
     }
     this.blinkState = true;
-    this.headDOMElement!.style.visibility = 'visible';
+    this.domHead!.style.visibility = 'visible';
     clearInterval(this.blinkInterval);
     this.blinkInterval = null;
   }

@@ -3,7 +3,7 @@ import PageView from './PageView';
 import LineView from './LineView';
 import WordView from './WordView';
 
-interface ViewPosition {
+interface ViewAwarePosition {
   documentView: DocumentView;
   documentViewPosition: number;
   pageView: PageView;
@@ -14,4 +14,4 @@ interface ViewPosition {
   wordViewPosition: number;
 }
 
-export default ViewPosition;
+export default ViewAwarePosition;

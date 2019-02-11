@@ -1,5 +1,6 @@
-import WordView, { WordViewScreenSelection } from './WordView';
-import TextWord from '../element/word/TextWord';
+import WordView, { WordViewConfig, WordViewPositionBox, WordViewDOMElements } from './WordView';
+import Word from '../model/Word';
+import TextWord from '../model/word/TextWord';
 import measureText from './helpers/measureText';
 
 const placeholderTextStyle = {
@@ -18,38 +19,31 @@ export default class TextView extends WordView {
   private width?: number;
   /** Cached height of the rendered text word */
   private height?: number;
+  /** Whether the view is mounted to DOM. */
+  private mounted: boolean;
+  /** DOM text node. */
+  private domTextWord?: Text;
 
-  /**
-   * Measures the dimensions of the rendered text word.
-   */
-  private measure() {
-    const textWord = <TextWord> this.getWord();
-    const measurement = measureText(textWord.getText(), placeholderTextStyle);
-    this.width = measurement.width;
-    this.height = measurement.height;
+  constructor(word: Word, config: WordViewConfig) {
+    super(word, config);
+    this.mounted = false;
   }
 
-  /**
-   * Gets screen x coordinate by document position.
-   * @param at - Document position within the text word.
-   */
-  private getScreenX(at: number): number {
-    const textWord = <TextWord> this.getWord();
-    const text = textWord.getText();
-    if (at === 0) {
-      return 0;
-    }
-    return measureText(text.substring(0, at), placeholderTextStyle).width;
-  }
-
-  bindToDOM() {
-    if (this.domElement) {
+  mount() {
+    if (this.mounted) {
       return;
     }
-    const parentDOMElement = this.getLineView().getDOMElement();
-    const textWord = <TextWord> this.getWord();
-    this.domElement = document.createTextNode(textWord.getText());
-    parentDOMElement.appendChild(this.domElement);
+    const { domLineContent } = this.getLineView().getDOM();
+    const textWord = <TextWord> this.word;
+    this.domTextWord = document.createTextNode(textWord.getText());
+    domLineContent.appendChild(this.domTextWord);
+  }
+
+  getDOM(): WordViewDOMElements {
+    return {
+      domWord: this.domTextWord!,
+      domWordContent: this.domTextWord!,
+    };
   }
 
   getWidth(): number {
@@ -66,16 +60,7 @@ export default class TextView extends WordView {
     return this.height!;
   }
 
-  getScreenSelection(from: number, to: number): WordViewScreenSelection {
-    if (from < 0 || from > this.getSize()) {
-      throw new Error(`Text word position out of bound: ${from}.`);
-    }
-    if (to < 0 || to > this.getSize()) {
-      throw new Error(`Text word position out of bound: ${to}.`);
-    }
-    if (from > to) {
-      throw new Error('Text word from position cannot be greater than to position.');
-    }
+  mapModelPositionRangeToViewPositionBox(from: number, to: number): WordViewPositionBox {
     return {
       x1: this.getScreenX(from),
       x2: this.getScreenX(to),
@@ -83,14 +68,14 @@ export default class TextView extends WordView {
     };
   }
 
-  getDocumentPosition(screenX: number): number {
-    const textWord = <TextWord> this.getWord();
+  mapViewPositionToModelPosition(x: number): number {
+    const textWord = <TextWord> this.word;
     const text = textWord.getText();
     let lastWidth = 0;
     for (let n = 1, nn = text.length; n < nn; n++) {
       const width = measureText(text.substring(0, n), placeholderTextStyle).width;
-      if (width > screenX) {
-        if (screenX - lastWidth > width - screenX) {
+      if (width > x) {
+        if (x - lastWidth > width - x) {
           return n;
         }
         return n - 1;
@@ -98,5 +83,28 @@ export default class TextView extends WordView {
       lastWidth = width;
     }
     return text.length;
+  }
+
+  /**
+   * Measures the dimensions of the rendered text word.
+   */
+  private measure() {
+    const textWord = <TextWord> this.word;
+    const measurement = measureText(textWord.getText(), placeholderTextStyle);
+    this.width = measurement.width;
+    this.height = measurement.height;
+  }
+
+  /**
+   * Gets screen x coordinate by document position.
+   * @param at - Document position within the text word.
+   */
+  private getScreenX(at: number): number {
+    const textWord = <TextWord> this.word;
+    const text = textWord.getText();
+    if (at === 0) {
+      return 0;
+    }
+    return measureText(text.substring(0, at), placeholderTextStyle).width;
   }
 }
