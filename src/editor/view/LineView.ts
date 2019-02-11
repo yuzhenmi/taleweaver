@@ -184,7 +184,7 @@ export default abstract class LineView {
     for (let n = 0, nn = this.wordViews.length; n < nn; n++) {
       const wordView = this.wordViews[n];
       // If overlap between position range and word
-      if (from <= offset + wordView.getSize() && to > offset) {
+      if (to >= offset && from < offset + wordView.getSize()) {
         const wordViewPositionBox = wordView.mapModelPositionRangeToViewPositionBox(
           Math.max(0, from - offset),
           Math.min(wordView.getSize(), to - offset),
@@ -217,7 +217,7 @@ export default abstract class LineView {
     for (let n = 0, nn = this.wordViews.length; n < nn; n++) {
       const wordView = this.wordViews[n];
       // If posterior of word is past Y-coordinate
-      if (cumulatedWidth + wordView.getWidth() < x) {
+      if (cumulatedWidth + wordView.getWidth() >= x) {
         // Get model position in word
         const wordModelPosition = wordView.mapViewPositionToModelPosition(cumulatedWidth + x);
         // Map word model position to line model position
@@ -226,7 +226,7 @@ export default abstract class LineView {
       offset += wordView.getSize();
       cumulatedWidth += wordView.getWidth();
     }
-    throw new Error(`Cannot map line view position ${x} to model position.`);
+    return offset - 1;
   }
 
   /**

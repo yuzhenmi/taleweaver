@@ -183,7 +183,7 @@ export default class PageView {
     for (let n = 0, nn = this.lineViews.length; n < nn; n++) {
       const lineView = this.lineViews[n];
       // If overlap between position range and line
-      if (from <= offset + lineView.getSize() && to > offset) {
+      if (to >= offset && from < offset + lineView.getSize()) {
         // Get line view position boxes
         const lineViewPositionBox = lineView.mapModelPositionRangeToViewPositionBox(
           Math.max(0, from - offset),
@@ -225,7 +225,7 @@ export default class PageView {
       offset += lineView.getSize();
       cumulatedHeight += lineView.getHeight();
     }
-    throw new Error(`Cannot map page view position ${x}, ${y} to model position.`);
+    return offset - 1;
   }
 
   /**
@@ -240,7 +240,7 @@ export default class PageView {
     for (let n = 0, nn = this.lineViews.length; n < nn; n++) {
       const lineView = this.lineViews[n];
       // If posterior of line is past position
-      if (offset + lineView.getSize() >= position) {
+      if (offset + lineView.getSize() > position) {
         // Resolve model position in line
         const lineViewAwarePosition = lineView.resolveModelPosition(position - offset);
         // Map line view aware position to page view aware position

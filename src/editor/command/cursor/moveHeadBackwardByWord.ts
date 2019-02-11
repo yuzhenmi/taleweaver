@@ -12,8 +12,15 @@ export default function moveHeadBackwardByWord(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const wordStart = documentView.getWordStartPosition(head);
-    transformation.addStep(new TranslateCursorHead(wordStart - head));
+    const viewAwarePosition = documentView.resolveModelPosition(head);
+    if (viewAwarePosition.wordViewPosition > 0) {
+      transformation.addStep(new TranslateCursorHead(0 - viewAwarePosition.wordViewPosition));
+    } else {
+      const previousWordView = viewAwarePosition.wordView.getPreviousWordView();
+      if (previousWordView) {
+        transformation.addStep(new TranslateCursorHead(0 - previousWordView.getSize()));
+      }
+    }
     return transformation;
   };
 }

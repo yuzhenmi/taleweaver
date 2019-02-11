@@ -12,8 +12,10 @@ export default function moveToLineEnd(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    transformation.addStep(new TranslateCursor(lineEnd - head));
+    const viewAwarePosition = documentView.resolveModelPosition(head);
+    if (viewAwarePosition.lineViewPosition < viewAwarePosition.lineView.getSize() - 1) {
+      transformation.addStep(new TranslateCursor(viewAwarePosition.lineView.getSize() - 1 - viewAwarePosition.lineViewPosition));
+    }
     return transformation;
   };
 }

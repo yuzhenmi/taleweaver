@@ -11,11 +11,10 @@ export default function moveHeadToPreviousLine(): CursorCommand {
     if (!editorCursor) {
       return transformation;
     }
+    const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const position = editorCursor.getHead();
-    const resolvedPosition = documentView.resolvePosition(position);
-    const lineView = resolvedPosition.lineView;
-    const previousLineView = lineView.getPreviousLineView();
+    const viewAwarePosition = documentView.resolveModelPosition(head);
+    const previousLineView = viewAwarePosition.lineView.getPreviousLineView();
     if (!previousLineView) {
       return moveHeadToLineStart()(taleWeaver);
     }
@@ -27,11 +26,13 @@ export default function moveHeadToPreviousLine(): CursorCommand {
     if (editorCursorView.getLineViewX() !== null) {
       lineViewX = editorCursorView.getLineViewX()!;
     } else {
-      lineViewX = lineView.getScreenSelection(resolvedPosition.lineViewPosition, resolvedPosition.lineViewPosition).x1;
+      lineViewX = viewAwarePosition.lineView.mapModelPositionRangeToViewPositionBox(
+        viewAwarePosition.lineViewPosition,
+        viewAwarePosition.lineViewPosition,
+      ).x1;
     }
-    const previousLineViewPosition = previousLineView.getDocumentPosition(lineViewX);
-    const newPosition = position - resolvedPosition.lineViewPosition - previousLineView.getSize() + previousLineViewPosition;
-    transformation.addStep(new TranslateCursorHead(newPosition - editorCursor.getHead(), true));
+    const previousLinePosition = previousLineView.mapViewPositionToModelPosition(lineViewX);
+    transformation.addStep(new TranslateCursorHead(0 - viewAwarePosition.lineViewPosition - previousLineView.getSize() + previousLinePosition, true));
     return transformation;
   };
 }

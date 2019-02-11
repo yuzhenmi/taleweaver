@@ -12,8 +12,10 @@ export default function moveToLineStart(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const lineStart = documentView.getLineStartPosition(head);
-    transformation.addStep(new TranslateCursor(lineStart - head));
+    const viewAwarePosition = documentView.resolveModelPosition(head);
+    if (viewAwarePosition.lineViewPosition > 0) {
+      transformation.addStep(new TranslateCursor(0 - viewAwarePosition.lineViewPosition));
+    }
     return transformation;
   };
 }

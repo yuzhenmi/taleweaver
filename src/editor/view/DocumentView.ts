@@ -137,6 +137,9 @@ export default class DocumentView {
     // Mount page views
     this.pageViews.forEach(pageView => pageView.mount());
 
+    // Mount editor cursor view
+    this.editorCursorView!.mount();
+
     // Attach event listeners
     this.domDocument.addEventListener('selectstart', this.handleSelectStart);
     window.addEventListener('mousedown', this.handleMouseDown);
@@ -168,7 +171,7 @@ export default class DocumentView {
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const pageView = this.pageViews[n];
       // If overlap between position range and page
-      if (from <= offset + pageView.getSize() && to > offset) {
+      if (to >= offset && from < offset + pageView.getSize()) {
         // Get page view position boxes
         const pageViewPositionBoxes = pageView.mapModelPositionRangeToViewPositionBoxes(
           Math.max(0, from - offset),
@@ -212,7 +215,7 @@ export default class DocumentView {
       offset += pageView.getSize();
       cumulatedHeight += pageView.getHeight();
     }
-    throw new Error(`Cannot map document view position ${x}, ${y} to model position.`);
+    return offset - 1;
   }
 
   /**
@@ -227,7 +230,7 @@ export default class DocumentView {
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const pageView = this.pageViews[n];
       // If posterior of page is past position
-      if (offset + pageView.getSize() >= position) {
+      if (offset + pageView.getSize() > position) {
         // Resolve model position in page
         const pageViewAwarePosition = pageView.resolveModelPosition(position - offset);
         // Map page view aware position to document view aware position
@@ -385,7 +388,7 @@ export default class DocumentView {
       return;
     }
     const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
-    this.editorCursorView.endSelect(position);
+    this.editorCursorView.moveSelect(position);
   }, 5)
 
   /**

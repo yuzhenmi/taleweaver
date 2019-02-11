@@ -12,8 +12,10 @@ export default function moveHeadRightByLine(): CursorCommand {
     }
     const head = editorCursor.getHead();
     const documentView = taleWeaver.getDocumentView();
-    const lineEnd = documentView.getLineEndPosition(head);
-    transformation.addStep(new TranslateCursorHead(lineEnd - head));
+    const viewAwarePosition = documentView.resolveModelPosition(head);
+    if (viewAwarePosition.lineViewPosition < viewAwarePosition.lineView.getSize() - 1) {
+      transformation.addStep(new TranslateCursorHead(viewAwarePosition.lineView.getSize() - 1 - viewAwarePosition.lineViewPosition));
+    }
     return transformation;
   };
 }

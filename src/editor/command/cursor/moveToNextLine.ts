@@ -11,11 +11,11 @@ export default function moveToNextLine(): CursorCommand {
     if (!editorCursor) {
       return transformation;
     }
-    const documentView = taleWeaver.getDocumentView();
     const position = Math.max(editorCursor.getHead(), editorCursor.getAnchor());
-    const resolvedPosition = documentView.resolvePosition(position);
-    const lineView = resolvedPosition.lineView;
-    const nextLineView = lineView.getNextLineView();
+    const documentView = taleWeaver.getDocumentView();
+    const viewAwarePosition = documentView.resolveModelPosition(position);
+    console.log(viewAwarePosition);
+    const nextLineView = viewAwarePosition.lineView.getNextLineView();
     if (!nextLineView) {
       return moveToLineEnd()(taleWeaver);
     }
@@ -27,11 +27,13 @@ export default function moveToNextLine(): CursorCommand {
     if (editorCursorView.getLineViewX() !== null) {
       lineViewX = editorCursorView.getLineViewX()!;
     } else {
-      lineViewX = lineView.getScreenSelection(resolvedPosition.lineViewPosition, resolvedPosition.lineViewPosition).x1;
+      lineViewX = viewAwarePosition.lineView.mapModelPositionRangeToViewPositionBox(
+        viewAwarePosition.lineViewPosition,
+        viewAwarePosition.lineViewPosition,
+      ).x1;
     }
-    const nextLineViewPosition = nextLineView.getDocumentPosition(lineViewX);
-    const newPosition = position - resolvedPosition.lineViewPosition + lineView.getSize() + nextLineViewPosition;
-    transformation.addStep(new TranslateCursor(newPosition - editorCursor.getHead(), true));
+    const nextLinePosition = nextLineView.mapViewPositionToModelPosition(lineViewX);
+    transformation.addStep(new TranslateCursor(viewAwarePosition.lineView.getSize() - viewAwarePosition.lineViewPosition + nextLinePosition, true));
     return transformation;
   };
 }
