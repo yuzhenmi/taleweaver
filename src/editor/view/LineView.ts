@@ -216,7 +216,7 @@ export default abstract class LineView {
     let cumulatedWidth = 0;
     for (let n = 0, nn = this.wordViews.length; n < nn; n++) {
       const wordView = this.wordViews[n];
-      // If posterior of word is past Y-coordinate
+      // If posterior of word is past X-coordinate
       if (cumulatedWidth + wordView.getWidth() >= x) {
         // Get model position in word
         const wordModelPosition = wordView.mapViewPositionToModelPosition(x - cumulatedWidth);

@@ -82,6 +82,9 @@ export default class TextView extends WordView {
       }
       lastWidth = width;
     }
+    if (x === lastWidth) {
+      return text.length - 1;
+    }
     return text.length;
   }
 
