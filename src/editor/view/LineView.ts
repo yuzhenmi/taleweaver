@@ -192,7 +192,7 @@ export default abstract class LineView {
         if (offset <= from && offset + wordView.getSize() > from) {
           viewPositionBox.x1 = cumulatedWidth + wordViewPositionBox.x1;
         }
-        if (offset <= to && offset + wordView.getSize() > to) {
+        if (offset <= to && offset + wordView.getSize() >= to) {
           viewPositionBox.x2 = cumulatedWidth + wordViewPositionBox.x2;
         }
         if (viewPositionBox.height < wordViewPositionBox.height) {
@@ -219,7 +219,7 @@ export default abstract class LineView {
       // If posterior of word is past Y-coordinate
       if (cumulatedWidth + wordView.getWidth() >= x) {
         // Get model position in word
-        const wordModelPosition = wordView.mapViewPositionToModelPosition(cumulatedWidth + x);
+        const wordModelPosition = wordView.mapViewPositionToModelPosition(x - cumulatedWidth);
         // Map word model position to line model position
         return offset + wordModelPosition;
       }

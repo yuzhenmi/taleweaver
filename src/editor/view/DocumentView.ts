@@ -142,9 +142,9 @@ export default class DocumentView {
 
     // Attach event listeners
     this.domDocument.addEventListener('selectstart', this.handleSelectStart);
-    window.addEventListener('mousedown', this.handleMouseDown);
-    window.addEventListener('mousemove', this.handleMouseMove);
-    window.addEventListener('mouseup', this.handleMouseUp);
+    this.domDocument.addEventListener('mousedown', this.handleMouseDown);
+    this.domDocument.addEventListener('mousemove', this.handleMouseMove);
+    this.domDocument.addEventListener('mouseup', this.handleMouseUp);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
   }
@@ -199,23 +199,31 @@ export default class DocumentView {
     // Iterate through pages until the page that contains the view position
     // is found
     let offset = 0;
-    let cumulatedHeight = 0;
+    const clientRects: ClientRect[] = [];
+    const offsets: number[] = [];
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const pageView = this.pageViews[n];
-      // If posterior of page is past Y-coordinate
-      if (cumulatedHeight + pageView.getHeight() >= y) {
-        // Get model position in page
-        const pageModelPosition = pageView.mapViewPositionToModelPosition(
-          x,
-          y - cumulatedHeight,
-        );
-        // Map page model position to document model position
-        return offset + pageModelPosition;
-      }
+      // Get page bounding client rect
+      const { domPageContent } = pageView.getDOM();
+      clientRects.push(domPageContent.getBoundingClientRect());
+      offsets.push(offset);
       offset += pageView.getSize();
-      cumulatedHeight += pageView.getHeight();
     }
-    return offset - 1;
+    // Find page view closest to the view position
+    const sqDistances = clientRects.map(clientRect => {
+      const xDistance = Math.max(Math.max(clientRect.left - x, 0), Math.max(x - (clientRect.left + clientRect.width), 0));
+      const yDistance = Math.max(Math.max(clientRect.top - y, 0), Math.max(y - (clientRect.top + clientRect.height), 0));
+      return xDistance * xDistance + yDistance * yDistance;
+    });
+    const index = sqDistances.indexOf(Math.min(...sqDistances));
+    // Map position on closest page
+    const pageView = this.pageViews[index];
+    const clientRect = clientRects[index];
+    const pageModelPosition = pageView.mapViewPositionToModelPosition(
+      Math.min(Math.max(x - clientRect.left, 0), clientRect.width),
+      Math.min(Math.max(y - clientRect.top, 0), clientRect.height),
+    );
+    return offsets[index] + pageModelPosition;
   }
 
   /**
@@ -375,7 +383,7 @@ export default class DocumentView {
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
+    const position = this.mapViewPositionToModelPosition(event.clientX, event.clientY);
     this.editorCursorView.beginSelect(position);
   }
 
@@ -387,7 +395,7 @@ export default class DocumentView {
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
+    const position = this.mapViewPositionToModelPosition(event.clientX, event.clientY);
     this.editorCursorView.moveSelect(position);
   }, 5)
 
@@ -399,7 +407,7 @@ export default class DocumentView {
     if (!this.editorCursorView) {
       return;
     }
-    const position = this.mapViewPositionToModelPosition(event.pageX, event.pageY);
+    const position = this.mapViewPositionToModelPosition(event.clientX, event.clientY);
     this.editorCursorView.endSelect(position);
   }
 

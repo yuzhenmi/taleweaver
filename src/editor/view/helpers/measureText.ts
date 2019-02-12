@@ -14,11 +14,11 @@ export class TextMeasurer {
   private $textContainers: Map<string, HTMLSpanElement>;
 
   constructor() {
-    this.$iframe = document.createElement("iframe");
-    this.$iframe.src = "about:blank";
-    this.$iframe.style.width = "0";
-    this.$iframe.style.height = "0";
-    this.$iframe.style.border = "none";
+    this.$iframe = document.createElement('iframe');
+    this.$iframe.src = 'about:blank';
+    this.$iframe.style.width = '0';
+    this.$iframe.style.height = '0';
+    this.$iframe.style.border = 'none';
     document.body.appendChild(this.$iframe);
     this.$textContainers = new Map<string, HTMLSpanElement>();
   }
@@ -42,9 +42,11 @@ export class TextMeasurer {
   }
 
   measure(text: string, textStyle: TextStyle) {
+    // Substitute trailing new line with space
+    const adjustedText = text.replace(/\n$/, ' ');
     const $textContainer = this.getTextContainerElement(textStyle);
-    if ($textContainer.innerHTML !== text) {
-      $textContainer.innerHTML = text;
+    if ($textContainer.innerHTML !== adjustedText) {
+      $textContainer.innerHTML = adjustedText;
     }
     const boundingClientRect = $textContainer.getBoundingClientRect();
     return {
