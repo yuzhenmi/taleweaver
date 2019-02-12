@@ -39,6 +39,7 @@ export default class PageView {
   private mounted: boolean;
   private domPage?: HTMLDivElement;
   private domPageContent?: HTMLDivElement;
+  private domInputOverlay?: HTMLInputElement;
 
   constructor(documentView: DocumentView, config: PageViewConfig) {
     this.documentView = documentView;
@@ -140,6 +141,7 @@ export default class PageView {
     this.domPage.style.height = `${this.config.height}px`;
     this.domPage.style.padding = `${this.config.paddingTop}px ${this.config.paddingRight}px ${this.config.paddingBottom}px ${this.config.paddingLeft}px`;
     this.domPage.style.userSelect = 'none';
+    this.domPage.style.position = 'relative';
     domDocumentContent.appendChild(this.domPage);
 
     // Build page content element
@@ -148,6 +150,19 @@ export default class PageView {
     this.domPageContent.style.position = 'relative';
     this.domPageContent.style.height = '100%';
     this.domPage.appendChild(this.domPageContent);
+
+    // Build input overlay for capturing mobile input
+    this.domInputOverlay = document.createElement('input');
+    this.domInputOverlay.className = 'tw--page-input-overlay';
+    this.domInputOverlay.style.position = 'absolute';
+    this.domInputOverlay.style.top = '0';
+    this.domInputOverlay.style.bottom = '0';
+    this.domInputOverlay.style.left = '0';
+    this.domInputOverlay.style.width = '100%';
+    this.domInputOverlay.style.right = '0';
+    this.domInputOverlay.style.opacity = '0';
+    this.domInputOverlay.style.zIndex = '5';
+    this.domPage.appendChild(this.domInputOverlay);
 
     // Mount line views
     this.lineViews.forEach(lineView => lineView.mount());
