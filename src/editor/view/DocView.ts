@@ -1,6 +1,6 @@
 import TaleWeaver from '../TaleWeaver';
-import DocumentElement from '../model/DocumentElement';
-import BlockElement from '../model/BlockElement';
+import Doc from '../model/Doc';
+import Block from '../model/block/Block';
 import throttle from '../helpers/throttle';
 import PageView, { PageViewPositionBox, PageViewAwarePosition } from './PageView';
 import WordView from './WordView';
@@ -15,14 +15,14 @@ import { KeyPressEvent } from '../event/Event';
  * broken down into line views.
  */
 interface WordViewBlock {
-  blockElement: BlockElement;
+  block: Block;
   wordViews: WordView[];
 };
 
 /**
  * Document view configs.
  */
-interface DocumentViewConfig {
+interface DocViewConfig {
   /** Width of a page in the document. */
   pageWidth: number;
   /** Height of a page in the document. */
@@ -37,28 +37,28 @@ interface DocumentViewConfig {
   pagePaddingRight: number;
 };
 
-export interface DocumentViewDOMElements {
+export interface DocViewDOMElements {
   domDocument: HTMLDivElement;
   domDocumentContent: HTMLDivElement;
 }
 
-export interface DocumentViewPositionBox {
+export interface DocViewPositionBox {
   pageView: PageView;
   pageViewPositionBox: PageViewPositionBox;
 };
 
-export interface DocumentViewAwarePosition extends PageViewAwarePosition {
-  documentView: DocumentView;
-  documentViewPosition: number;
+export interface DocViewAwarePosition extends PageViewAwarePosition {
+  docView: DocView;
+  docViewPosition: number;
 };
 
 /**
  * View of a document.
  */
-export default class DocumentView {
+export default class DocView {
   private taleWeaver: TaleWeaver;
-  private documentElement: DocumentElement;
-  private config: DocumentViewConfig;
+  private doc: Doc;
+  private config: DocViewConfig;
 
   private wordViewBlocks: WordViewBlock[];
   private lineViews: LineView[];
@@ -74,9 +74,9 @@ export default class DocumentView {
    * @param taleWeaver - A TaleWeaver instance.
    * @param config - Configs for the document view.
    */
-  constructor(taleWeaver: TaleWeaver, documentElement: DocumentElement, config: DocumentViewConfig) {
+  constructor(taleWeaver: TaleWeaver, doc: Doc, config: DocViewConfig) {
     this.taleWeaver = taleWeaver;
-    this.documentElement = documentElement;
+    this.doc = doc;
     this.config = config;
 
     this.wordViewBlocks = [];
@@ -97,7 +97,7 @@ export default class DocumentView {
    * Gets the model size of the document.
    */
   getSize(): number {
-    return this.documentElement.getSize();
+    return this.doc.getSize();
   }
 
   /**
@@ -127,6 +127,11 @@ export default class DocumentView {
     // Build document element
     this.domDocument = document.createElement('div');
     this.domDocument.className = 'tw--document';
+    this.domDocument.contentEditable = 'true';
+    this.domDocument.spellcheck = false;
+    this.domDocument.style.outline = 'none';
+    // @ts-ignore: caret-color is a valid CSS property
+    // this.domDocumentContent.style.caretColor = 'transparent';
     domWrapper.appendChild(this.domDocument);
 
     // Build document content element
@@ -141,7 +146,7 @@ export default class DocumentView {
     this.editorCursorView!.mount();
 
     // Attach event listeners
-    this.domDocument.addEventListener('selectstart', this.handleSelectStart);
+    this.domDocument.addEventListener('contextmenu', this.handleContextMenu);
     this.domDocument.addEventListener('mousedown', this.handleMouseDown);
     this.domDocument.addEventListener('mousemove', this.handleMouseMove);
     this.domDocument.addEventListener('mouseup', this.handleMouseUp);
@@ -152,7 +157,7 @@ export default class DocumentView {
   /**
    * Gets DOM elements mounted by the view.
    */
-  getDOM(): DocumentViewDOMElements {
+  getDOM(): DocViewDOMElements {
     return {
       domDocument: this.domDocument!,
       domDocumentContent: this.domDocumentContent!,
@@ -164,9 +169,9 @@ export default class DocumentView {
    * @param from - Left-bound of the model position range.
    * @param to - Right-bound of the model position range.
    */
-  mapModelPositionRangeToViewPositionBoxes(from: number, to: number): DocumentViewPositionBox[] {
+  mapModelPositionRangeToViewPositionBoxes(from: number, to: number): DocViewPositionBox[] {
     // Iterate through pages to break up model position range
-    const viewPositionBoxes: DocumentViewPositionBox[] = [];
+    const viewPositionBoxes: DocViewPositionBox[] = [];
     let offset = 0;
     for (let n = 0, nn = this.pageViews.length; n < nn; n++) {
       const pageView = this.pageViews[n];
@@ -231,7 +236,7 @@ export default class DocumentView {
    * object.
    * @param position - Flat model position to resolve.
    */
-  resolveModelPosition(position: number): DocumentViewAwarePosition {
+  resolveModelPosition(position: number): DocViewAwarePosition {
     // Iterate through pages until the page that contains the view position
     // is found
     let offset = 0;
@@ -244,8 +249,8 @@ export default class DocumentView {
         // Map page view aware position to document view aware position
         return {
           ...pageViewAwarePosition,
-          documentView: this,
-          documentViewPosition: position,
+          docView: this,
+          docViewPosition: position,
         };
       }
       offset += pageView.getSize();
@@ -262,21 +267,17 @@ export default class DocumentView {
     // Reset wordViewBlocks
     this.wordViewBlocks.length = 0;
     // Loop through block elements in the document
-    this.documentElement.getChildren().forEach(blockElement => {
+    this.doc.getChildren().forEach(block => {
       const wordViewBlock: WordViewBlock = {
-        blockElement,
+        block,
         wordViews: [],
       };
       // Loop through inline elements in the block element
-      blockElement.getChildren().forEach(inlineElement => {
-        const words = inlineElement.getWords();
-        // Loop through words in the inline element
-        words.forEach(word => {
-          // Build word view from word
-          const WordView = registry.getWordViewClass(word.getType())!;
-          const wordView = new WordView(word, {});
-          wordViewBlock.wordViews.push(wordView);
-        });
+      block.getChildren().forEach(word => {
+        // Build word view from word
+        const WordView = registry.getWordViewClass(word.getType())!;
+        const wordView = new WordView(word, {});
+        wordViewBlock.wordViews.push(wordView);
       });
       this.wordViewBlocks.push(wordViewBlock);
     });
@@ -295,7 +296,7 @@ export default class DocumentView {
     // Loop through blocks of word views
     this.wordViewBlocks.forEach(wordViewBlock => {
       // Build line views for block
-      const LineView = registry.getLineViewClass(wordViewBlock.blockElement.getType())!;
+      const LineView = registry.getLineViewClass(wordViewBlock.block.getType())!;
       let lineView = new LineView({
         width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
       });
@@ -364,14 +365,11 @@ export default class DocumentView {
       return;
     }
     this.editorCursorView = new EditorCursorView(this.taleWeaver!, editorCursor);
-    this.editorCursorView.setDocumentView(this);
+    this.editorCursorView.setDocView(this);
   }
 
-  /**
-   * Handles selectstart DOM event.
-   */
-  private handleSelectStart = (event: Event) => {
-    // Disable browser select functionality
+  private handleContextMenu = (event: Event) => {
+    // Disable browser context menu functionality
     event.preventDefault();
   }
 
@@ -379,6 +377,7 @@ export default class DocumentView {
    * Handles mouse down DOM event.
    */
   private handleMouseDown = (event: MouseEvent) => {
+    event.preventDefault();
     // No need to handle mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;

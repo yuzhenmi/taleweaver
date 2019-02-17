@@ -1,4 +1,4 @@
-import DocumentView from './DocumentView';
+import DocView from './DocView';
 import LineView, { LineViewAwarePosition } from './LineView';
 
 /**
@@ -31,7 +31,7 @@ export interface PageViewAwarePosition extends LineViewAwarePosition {
 };
 
 export default class PageView {
-  private documentView: DocumentView;
+  private docView: DocView;
   private config: PageViewConfig;
 
   private lineViews: LineView[];
@@ -39,10 +39,9 @@ export default class PageView {
   private mounted: boolean;
   private domPage?: HTMLDivElement;
   private domPageContent?: HTMLDivElement;
-  private domInputOverlay?: HTMLInputElement;
 
-  constructor(documentView: DocumentView, config: PageViewConfig) {
-    this.documentView = documentView;
+  constructor(docView: DocView, config: PageViewConfig) {
+    this.docView = docView;
     this.config = config;
 
     this.lineViews = [];
@@ -62,15 +61,15 @@ export default class PageView {
   /**
    * Gets the parent document view.
    */
-  getDocumentView(): DocumentView {
-    return this.documentView!;
+  getDocView(): DocView {
+    return this.docView!;
   }
 
   /**
    * Gets the previous page view in the parent document view.
    */
   getPreviousPageView(): PageView | null {
-    const pageViews = this.documentView!.getPageViews();
+    const pageViews = this.docView!.getPageViews();
     const index = pageViews.indexOf(this);
     if (index < 0) {
       return null;
@@ -85,7 +84,7 @@ export default class PageView {
    * Gets the next page view in the parent document view.
    */
   getNextPageView(): PageView | null {
-    const pageViews = this.documentView!.getPageViews();
+    const pageViews = this.docView!.getPageViews();
     const index = pageViews.indexOf(this);
     if (index < 0) {
       return null;
@@ -132,7 +131,7 @@ export default class PageView {
     }
 
     // Get wrapper element
-    const { domDocumentContent } = this.documentView.getDOM();
+    const { domDocumentContent } = this.docView.getDOM();
 
     // Build page element
     this.domPage = document.createElement('div');
@@ -150,19 +149,6 @@ export default class PageView {
     this.domPageContent.style.position = 'relative';
     this.domPageContent.style.height = '100%';
     this.domPage.appendChild(this.domPageContent);
-
-    // Build input overlay for capturing mobile input
-    this.domInputOverlay = document.createElement('input');
-    this.domInputOverlay.className = 'tw--page-input-overlay';
-    this.domInputOverlay.style.position = 'absolute';
-    this.domInputOverlay.style.top = '0';
-    this.domInputOverlay.style.bottom = '0';
-    this.domInputOverlay.style.left = '0';
-    this.domInputOverlay.style.width = '100%';
-    this.domInputOverlay.style.right = '0';
-    this.domInputOverlay.style.opacity = '0';
-    this.domInputOverlay.style.zIndex = '5';
-    this.domPage.appendChild(this.domInputOverlay);
 
     // Mount line views
     this.lineViews.forEach(lineView => lineView.mount());

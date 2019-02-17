@@ -12,13 +12,13 @@ export default function moveHeadToNextLine(): CursorCommand {
       return transformation;
     }
     const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const viewAwarePosition = documentView.resolveModelPosition(head);
+    const docView = taleWeaver.getDocView();
+    const viewAwarePosition = docView.resolveModelPosition(head);
     const nextLineView = viewAwarePosition.lineView.getNextLineView();
     if (!nextLineView) {
       return moveHeadToLineEnd()(taleWeaver);
     }
-    const editorCursorView = documentView.getEditorCursorView();
+    const editorCursorView = docView.getEditorCursorView();
     if (!editorCursorView) {
       return transformation;
     }

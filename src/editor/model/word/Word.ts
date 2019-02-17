@@ -1,4 +1,4 @@
-import InlineElement from './InlineElement';
+import Block from '../block/Block';
 
 /**
  * Models a segment of the document that
@@ -7,17 +7,17 @@ import InlineElement from './InlineElement';
  * layout.
  */
 export default abstract class Word {
-  /** Inline element this word belongs to. */
-  protected inlineElement: InlineElement;
+  /** Block this word belongs to. */
+  protected block: Block;
   /** Text content. */
   protected text?: string;
 
   /**
    * Creates a new word instance.
-   * @param inlineElement - Inline element this word belongs to.
+   * @param block - Block this word belongs to.
    */
-  constructor(inlineElement: InlineElement) {
-    this.inlineElement = inlineElement;
+  constructor(block: Block) {
+    this.block = block;
   }
 
   /**
@@ -26,10 +26,10 @@ export default abstract class Word {
   abstract getType(): string;
 
   /**
-   * Gets the inline element this word belongs to.
+   * Gets the block this word belongs to.
    */
-  getInlineElement(): InlineElement {
-    return this.inlineElement;
+  getBlock(): Block {
+    return this.block;
   }
 
   /**

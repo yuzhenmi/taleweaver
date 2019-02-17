@@ -1,8 +1,9 @@
-import DocumentElement from '../model/DocumentElement';
+import Doc from '../model/Doc';
 import Cursor from '../cursor/Cursor';
 import CursorTransformation from './CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
 import Event from '../event/Event';
+import DocumentTransformation from './DocumentTransformation';
 
 /**
  * State container for TaleWeaver.
@@ -13,7 +14,7 @@ export default class State {
   /** TaleWeaver instance. */
   private taleWeaver: TaleWeaver;
   /** Document element. */
-  private documentElement?: DocumentElement;
+  private doc?: Doc;
   /** Editor cursor. */
   private editorCursor: Cursor | null;
   /** Observer cursors. */
@@ -31,17 +32,17 @@ export default class State {
 
   /**
    * Sets the document element.
-   * @param documentElement - Document element to set.
+   * @param doc - Document element to set.
    */
-  setDocumentElement(documentElement: DocumentElement) {
-    this.documentElement = documentElement;
+  setDoc(doc: Doc) {
+    this.doc = doc;
   }
 
   /**
    * Gets the document element.
    */
-  getDocumentElement(): DocumentElement {
-    return this.documentElement!;
+  getDoc(): Doc {
+    return this.doc!;
   }
 
   /**
@@ -107,5 +108,14 @@ export default class State {
     }
     const transformer = this.taleWeaver.getRegistry().getCursorTransformer();
     transformer.apply(this.editorCursor, transformation);
+    const { domDocumentContent } = this.taleWeaver.getDocView().getDOM();
+  }
+
+  applyDocumentTransformation(transformation: DocumentTransformation) {
+    if (!this.doc) {
+      throw new Error('No document available to apply transformation.');
+    }
+    const transformer = this.taleWeaver.getRegistry().getDocumentTransformer();
+    transformer.apply(this.doc, transformation);
   }
 }

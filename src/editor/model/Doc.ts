@@ -1,12 +1,12 @@
-import BlockElement from './BlockElement';
+import Block from './block/Block';
 
 /**
  * Models a document. This is the root of the
  * element tree.
  */
-export default class DocumentElement {
+export default class Doc {
   /** Child elements. */
-  protected children: BlockElement[];
+  protected children: Block[];
 
   /**
    * Creates a new document element instance.
@@ -19,7 +19,7 @@ export default class DocumentElement {
    * Appends a child element.
    * @param child - Child element to append.
    */
-  appendChild(child: BlockElement) {
+  appendChild(child: Block) {
     this.children.push(child);
   }
 
@@ -27,7 +27,7 @@ export default class DocumentElement {
    * Removes a child element;
    * @param child - Child element to remove.
    */
-  removeChild(child: BlockElement) {
+  removeChild(child: Block) {
     const index = this.children.indexOf(child);
     if (index < 0) {
       return;
@@ -38,23 +38,8 @@ export default class DocumentElement {
   /**
    * Gets all child elements.
    */
-  getChildren(): BlockElement[] {
+  getChildren(): Block[] {
     return this.children;
-  }
-
-  /**
-   * Gets a child element at a certain position in the document.
-   * @param position - Position in the document.
-   */
-  getChildAt(position: number): BlockElement | null {
-    let cumulatedSize = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      cumulatedSize += this.children[n].getSize();
-      if (cumulatedSize > position) {
-        return this.children[n];
-      }
-    }
-    return null;
   }
 
   /**

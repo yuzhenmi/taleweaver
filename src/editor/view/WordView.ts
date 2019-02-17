@@ -1,5 +1,5 @@
 import LineView from './LineView';
-import Word from '../model/Word';
+import Word from '../model/word/Word';
 
 /**
  * Word view config.

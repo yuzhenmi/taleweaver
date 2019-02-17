@@ -11,7 +11,7 @@ export default function moveToDocumentEnd(): CursorCommand {
       return transformation;
     }
     const head = editorCursor.getHead();
-    const documentSize = taleWeaver.getState().getDocumentElement().getSize();
+    const documentSize = taleWeaver.getState().getDoc().getSize();
     transformation.addStep(new TranslateCursor(documentSize - 1- head));
     return transformation;
   };

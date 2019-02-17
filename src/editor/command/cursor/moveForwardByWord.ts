@@ -11,8 +11,8 @@ export default function moveForwardByWord(): CursorCommand {
       return transformation;
     }
     const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const viewAwarePosition = documentView.resolveModelPosition(head);
+    const docView = taleWeaver.getDocView();
+    const viewAwarePosition = docView.resolveModelPosition(head);
     if (viewAwarePosition.wordViewPosition < viewAwarePosition.wordView.getSize()) {
       transformation.addStep(new TranslateCursor(viewAwarePosition.wordView.getSize() - viewAwarePosition.wordViewPosition));
     } else {

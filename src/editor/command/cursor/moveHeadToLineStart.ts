@@ -11,8 +11,8 @@ export default function moveHeadToLineStart(): CursorCommand {
       return transformation;
     }
     const head = editorCursor.getHead();
-    const documentView = taleWeaver.getDocumentView();
-    const viewAwarePosition = documentView.resolveModelPosition(head);
+    const docView = taleWeaver.getDocView();
+    const viewAwarePosition = docView.resolveModelPosition(head);
     if (viewAwarePosition.lineViewPosition > 0) {
       transformation.addStep(new TranslateCursorHead(0 - viewAwarePosition.lineViewPosition));
     }

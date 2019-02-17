@@ -1,5 +1,5 @@
-import EventObserver from '../event/EventObserver';
-import Event, { KeyPressEvent } from '../event/Event';
+import EventObserver from './EventObserver';
+import Event, { KeyPressEvent } from './Event';
 import {
   moveBackward,
   moveForward,

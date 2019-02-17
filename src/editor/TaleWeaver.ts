@@ -1,9 +1,9 @@
-import DocumentElement from './model/DocumentElement';
-import BlockElement from './model/BlockElement';
-import InlineElement from './model/InlineElement';
-import ParagraphElement from './model/block/ParagraphElement';
-import TextElement from './model/inline/TextElement';
-import DocumentView from './view/DocumentView';
+import Doc from './model/Doc';
+import Block from './model/block/Block';
+import Word from './model/word/Word';
+import Paragraph from './model/block/Paragraph';
+import TextWord from './model/word/TextWord';
+import DocView from './view/DocView';
 import PageView from './view/PageView';
 import LineView from './view/LineView';
 import WordView from './view/WordView';
@@ -14,11 +14,12 @@ import CursorTransformer from './state/CursorTransformer';
 import DocumentTransformer from './state/DocumentTransformer';
 import EventObserver from './event/EventObserver';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
+import DocumentEventObserver from './event/DocumentEventObserver';
 
-type DocumentElementClass = new (...args: any[]) => DocumentElement;
-type BlockElementClass = new (...args: any[]) => BlockElement;
-type InlineElementClass = new (...args: any[]) => InlineElement;
-type DocumentViewClass = new (...args: any[]) => DocumentView;
+type DocClass = new (...args: any[]) => Doc;
+type BlockClass = new (...args: any[]) => Block;
+type WordClass = new (...args: any[]) => Word;
+type DocViewClass = new (...args: any[]) => DocView;
 type PageViewClass = new (...args: any[]) => PageView;
 type LineViewClass = new (...args: any[]) => LineView;
 type WordViewClass = new (...args: any[]) => WordView;
@@ -49,13 +50,13 @@ class TaleWeaverRegistry {
   /** TaleWeaver instance. */
   private taleWeaver: TaleWeaver;
   /** Registered document element class. */
-  private documentElementClass?: DocumentElementClass;
+  private docClass?: DocClass;
   /** Registered block element classes. */
-  private blockElementClasses: Map<string, BlockElementClass>;
+  private blockClasses: Map<string, BlockClass>;
   /** Registered inline element classes. */
-  private inlineElementClasses: Map<string, InlineElementClass>;
+  private wordClasses: Map<string, WordClass>;
   /** Registered document view class. */
-  private documentViewClass?: DocumentViewClass;
+  private docViewClass?: DocViewClass;
   /** Registered page view class. */
   private pageViewClass?: PageViewClass;
   /** Registered line view classes. */
@@ -76,101 +77,102 @@ class TaleWeaverRegistry {
     this.taleWeaver = taleWeaver;
 
     // Init registry maps
-    this.blockElementClasses = new Map<string, BlockElementClass>();
-    this.inlineElementClasses = new Map<string, InlineElementClass>();
+    this.blockClasses = new Map<string, BlockClass>();
+    this.wordClasses = new Map<string, WordClass>();
     this.lineViewClasses = new Map<string, LineViewClass>();
     this.wordViewClasses = new Map<string, WordViewClass>();
     this.eventObservers = [];
 
     // Register defaults
-    this.registerDocumentElementClass(DocumentElement);
-    this.registerBlockElementClass('Paragraph', ParagraphElement);
-    this.registerInlineElementClass('Text', TextElement);
-    this.registerDocumentViewClass(DocumentView);
+    this.registerDocClass(Doc);
+    this.registerBlockClass('Paragraph', Paragraph);
+    this.registerWordClass('Text', TextWord);
+    this.registerDocViewClass(DocView);
     this.registerPageViewClass(PageView);
     this.registerLineViewClass('Paragraph', ParagraphLineView);
     this.registerWordViewClass('Text', TextView);
     this.registerCursorTransformer(new CursorTransformer());
     this.registerDocumentTransformer(new DocumentTransformer());
     this.registerEventObserver(new EditorCursorEventObserver(this.taleWeaver));
+    this.registerEventObserver(new DocumentEventObserver(this.taleWeaver));
   }
 
   /**
    * Registers the document element class.
-   * @param documentElementClass - Document element class to register.
+   * @param docClass - Document element class to register.
    */
-  registerDocumentElementClass(documentElementClass: DocumentElementClass) {
-    this.documentElementClass = documentElementClass;
+  registerDocClass(docClass: DocClass) {
+    this.docClass = docClass;
   }
 
   /**
    * Gets the registered document element class.
    */
-  getDocumentElementClass(): DocumentElementClass {
-    if (!this.documentElementClass) {
+  getDocClass(): DocClass {
+    if (!this.docClass) {
       throw new Error('No document element class registered.');
     }
-    return this.documentElementClass;
+    return this.docClass;
   }
 
   /**
    * Registers a block element class by type.
    * @param type - Type of the block element class.
-   * @param blockElementClass - Block element class to register.
+   * @param blockClass - Block element class to register.
    */
-  registerBlockElementClass(type: string, blockElementClass: BlockElementClass) {
-    this.blockElementClasses.set(type, blockElementClass);
+  registerBlockClass(type: string, blockClass: BlockClass) {
+    this.blockClasses.set(type, blockClass);
   }
 
   /**
    * Gets a registered block element class by type.
    * @param type - Type of the block element class.
    */
-  getBlockElementClass(type: string): BlockElementClass {
-    const blockElementClass = this.blockElementClasses.get(type);
-    if (!blockElementClass) {
+  getBlockClass(type: string): BlockClass {
+    const blockClass = this.blockClasses.get(type);
+    if (!blockClass) {
       throw new Error(`Unregistered block element class type: ${type}.`);
     }
-    return blockElementClass;
+    return blockClass;
   }
 
   /**
    * Registers an inline element class by type.
    * @param type - Type of the inline element class.
-   * @param inlineElementClass - Inline element class to register.
+   * @param wordClass - Word class to register.
    */
-  registerInlineElementClass(type: string, inlineElementClass: InlineElementClass) {
-    this.inlineElementClasses.set(type, inlineElementClass);
+  registerWordClass(type: string, wordClass: WordClass) {
+    this.wordClasses.set(type, wordClass);
   }
 
   /**
    * Gets a registered inline element class by type.
    * @param type - Type of the inline element class.
    */
-  getInlineElementClass(type: string): InlineElementClass {
-    const inlineElementClass = this.inlineElementClasses.get(type);
-    if (!inlineElementClass) {
+  getWordClass(type: string): WordClass {
+    const wordClass = this.wordClasses.get(type);
+    if (!wordClass) {
       throw new Error(`Unregistered inline element class type: ${type}.`);
     }
-    return inlineElementClass;
+    return wordClass;
   }
 
   /**
    * Registers the document view class.
-   * @param documentViewClass - Document view class to register.
+   * @param docViewClass - Document view class to register.
    */
-  registerDocumentViewClass(documentViewClass: DocumentViewClass) {
-    this.documentViewClass = documentViewClass;
+  registerDocViewClass(docViewClass: DocViewClass) {
+    this.docViewClass = docViewClass;
   }
 
   /**
    * Gets the registered document view class.
    */
-  getDocumentViewClass(): DocumentViewClass {
-    if (!this.documentViewClass) {
+  getDocViewClass(): DocViewClass {
+    if (!this.docViewClass) {
       throw new Error('No document view class registered.');
     }
-    return this.documentViewClass;
+    return this.docViewClass;
   }
 
   /**
@@ -292,7 +294,7 @@ export default class TaleWeaver {
   private config: TaleWeaverConfig;
   private registry: TaleWeaverRegistry;
   private state?: State;
-  private documentView?: DocumentView;
+  private docView?: DocView;
 
   /**
    * Creates a new TaleWeaver instance.
@@ -334,17 +336,17 @@ export default class TaleWeaver {
 
   /**
    * Sets the document view.
-   * @param documentView - The document view to set.
+   * @param docView - The document view to set.
    */
-  setDocumentView(documentView: DocumentView) {
-    this.documentView = documentView;
+  setDocView(docView: DocView) {
+    this.docView = docView;
   }
 
   /**
    * Gets the document view.
    */
-  getDocumentView(): DocumentView {
-    return this.documentView!;
+  getDocView(): DocView {
+    return this.docView!;
   }
 
   /**
@@ -352,10 +354,10 @@ export default class TaleWeaver {
    * @param domWrapper - Wrapper DOM element for TaleWeaver.
    */
   attach(domWrapper: HTMLElement) {
-    const DocumentView = this.registry.getDocumentViewClass();
-    const documentView = new DocumentView(
+    const DocView = this.registry.getDocViewClass();
+    const docView = new DocView(
       this,
-      this.getState().getDocumentElement(),
+      this.getState().getDoc(),
       {
         pageWidth: this.config.pageWidth,
         pageHeight: this.config.pageHeight,
@@ -365,7 +367,7 @@ export default class TaleWeaver {
         pagePaddingRight: this.config.pagePaddingRight,
       },
     );
-    this.setDocumentView(documentView);
-    this.getDocumentView().mount(domWrapper);
+    this.setDocView(docView);
+    this.getDocView().mount(domWrapper);
   }
 }

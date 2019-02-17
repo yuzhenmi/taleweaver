@@ -2,23 +2,23 @@ import TaleWeaver from '../../TaleWeaver';
 import State from '../State';
 import Cursor from '../../cursor/Cursor';
 
-type InlineElementJSON = {
+type WordJSON = {
   type: string;
   text: string;
 }
-type BlockElementJSON = {
+type BlockJSON = {
   type: string;
-  children: InlineElementJSON[];
+  children: WordJSON[];
 }
-type DocumentElementJSON = {
-  children: BlockElementJSON[];
+type DocJSON = {
+  children: BlockJSON[];
 }
 type CursorJSON = {
   anchor: number;
   head: number;
 }
 type StateJSON = {
-  document: DocumentElementJSON;
+  document: DocJSON;
   editorCursor: CursorJSON | null;
   observerCursors: CursorJSON[];
 }
@@ -34,20 +34,20 @@ export default function parseStateJSON(taleWeaver: TaleWeaver, stateJSON: StateJ
 
   // Parse document state
   const registry = taleWeaver.getRegistry();
-  const DocumentElement = registry.getDocumentElementClass();
-  const documentElement = new DocumentElement();
-  stateJSON.document.children.forEach(blockElementJSON => {
-    const BlockElement = registry.getBlockElementClass(blockElementJSON.type);
-    const blockElement = new BlockElement();
-    blockElementJSON.children.forEach(inlineElementJSON => {
-      const InlineElement = registry.getInlineElementClass(inlineElementJSON.type);
-      const inlineElement = new InlineElement();
-      inlineElement.setText(inlineElementJSON.text);
-      blockElement.appendChild(inlineElement);
+  const Doc = registry.getDocClass();
+  const doc = new Doc();
+  stateJSON.document.children.forEach(blockJSON => {
+    const Block = registry.getBlockClass(blockJSON.type);
+    const block = new Block();
+    blockJSON.children.forEach(wordJSON => {
+      const Word = registry.getWordClass(wordJSON.type);
+      const word = new Word();
+      word.setText(wordJSON.text);
+      block.appendChild(word);
     });
-    documentElement.appendChild(blockElement);
+    doc.appendChild(block);
   });
-  state.setDocumentElement(documentElement);
+  state.setDoc(doc);
 
   // Parse editor cursor state
   if (stateJSON.editorCursor) {

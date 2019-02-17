@@ -1,13 +1,13 @@
 import TaleWeaver from '../TaleWeaver';
 import Cursor from '../cursor/Cursor';
-import DocumentView from './DocumentView';
+import DocView from './DocView';
 import { moveTo, moveHeadTo } from '../command/cursor';
 import isElementInViewport from '../helpers/isElementInViewport';
 
 export default class EditorCursorView {
   private taleWeaver: TaleWeaver;
   private editorCursor: Cursor;
-  private documentView?: DocumentView;
+  private docView?: DocView;
   private domHead?: HTMLElement;
   private domSelections: HTMLElement[];
   private selecting: boolean;
@@ -30,12 +30,13 @@ export default class EditorCursorView {
   private render(preserveLineViewPosition: boolean = false) {
     this.renderHead(preserveLineViewPosition);
     this.renderSelections();
+    this.updateNativeCursor();
   }
 
   private renderHead(preserveLineViewPosition: boolean) {
     const editorCursor = this.editorCursor;
     const head = editorCursor.getHead();
-    const viewPositionBoxes = this.documentView!.mapModelPositionRangeToViewPositionBoxes(head, head);
+    const viewPositionBoxes = this.docView!.mapModelPositionRangeToViewPositionBoxes(head, head);
     const { pageView, pageViewPositionBox } = viewPositionBoxes[0];
     const domHead = this.domHead!;
     domHead.style.left = `${pageViewPositionBox.x1}px`;
@@ -69,7 +70,7 @@ export default class EditorCursorView {
     const head = editorCursor.getHead();
     const from = Math.min(anchor, head);
     const to = Math.max(anchor, head);
-    const viewPositionBoxes = this.documentView!.mapModelPositionRangeToViewPositionBoxes(from, to);
+    const viewPositionBoxes = this.docView!.mapModelPositionRangeToViewPositionBoxes(from, to);
     let selectionsCount = viewPositionBoxes.length;
     while (this.domSelections.length > selectionsCount) {
       const domSelection = this.domSelections.pop()!;
@@ -101,12 +102,25 @@ export default class EditorCursorView {
     });
   }
 
+  private updateNativeCursor() {
+    const docView = this.taleWeaver.getDocView();
+    const anchor = this.editorCursor.getAnchor();
+    const head = this.editorCursor.getHead();
+    const viewAwarePosition = docView.resolveModelPosition(anchor);
+    const { domWordContent } = viewAwarePosition.wordView.getDOM();
+    const selection = getSelection();
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.selectNode(domWordContent);
+    selection.addRange(range);
+  }
+
   getLineViewX(): number | null {
     return this.lineViewX;
   }
 
-  setDocumentView(documentView: DocumentView) {
-    this.documentView = documentView;
+  setDocView(docView: DocView) {
+    this.docView = docView;
   }
 
   mount() {
@@ -134,8 +148,8 @@ export default class EditorCursorView {
     return this.editorCursor;
   }
 
-  getDocumentView(): DocumentView {
-    return this.documentView!;
+  getDocView(): DocView {
+    return this.docView!;
   }
 
   startBlinking() {

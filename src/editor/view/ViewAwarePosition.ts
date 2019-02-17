@@ -1,11 +1,11 @@
-import DocumentView from './DocumentView';
+import DocView from './DocView';
 import PageView from './PageView';
 import LineView from './LineView';
 import WordView from './WordView';
 
 interface ViewAwarePosition {
-  documentView: DocumentView;
-  documentViewPosition: number;
+  docView: DocView;
+  docViewPosition: number;
   pageView: PageView;
   pageViewPosition: number;
   lineView: LineView;

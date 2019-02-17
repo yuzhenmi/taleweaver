@@ -1,5 +1,5 @@
 import WordView, { WordViewConfig, WordViewPositionBox, WordViewDOMElements } from './WordView';
-import Word from '../model/Word';
+import Word from '../model/word/Word';
 import TextWord from '../model/word/TextWord';
 import measureText from './helpers/measureText';
 

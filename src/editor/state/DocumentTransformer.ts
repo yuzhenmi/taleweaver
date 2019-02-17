@@ -1,26 +1,25 @@
-import DocumentElement from '../model/DocumentElement';
+import Doc from '../model/Doc';
 import DocumentTransformation from './DocumentTransformation';
+import Assign from './documenttransformationsteps/Assign';
 
 /**
  * Transformer for applying transformations
- * on cursors.
+ * on the document.
  */
 export default class DocumentTransformer {
   /**
    * Applies a transformation on a document element.
-   * @param document - Document to apply transformation on.
+   * @param doc - Document element to apply transformation on.
    * @param transformation - Transformation to apply.
    */
-  apply(documentElement: DocumentElement, transformation: DocumentTransformation) {
+  apply(doc: Doc, transformation: DocumentTransformation) {
     const steps = transformation.getSteps();
     steps.forEach(step => {
-      // if (step instanceof TranslateCursor) {
-      //   cursor.moveTo(cursor.getHead() + step.getDisplacement());
-      // } else if (step instanceof TranslateCursorHead) {
-      //   cursor.moveHeadTo(cursor.getHead() + step.getDisplacement());
-      // } else {
-      //   throw new Error(`Unrecognized cursor transformation step: ${step.getType()}`);
-      // }
+      if (step instanceof Assign) {
+        doc.getChildren()[0].getChildren()[0].setText(step.getText());
+      } else {
+        throw new Error(`Unrecognized document transformation step: ${step.getType()}`);
+      }
     });
   }
 }

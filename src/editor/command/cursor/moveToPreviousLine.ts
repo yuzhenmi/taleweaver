@@ -12,13 +12,13 @@ export default function moveToPreviousLine(): CursorCommand {
       return transformation;
     }
     const position = Math.min(editorCursor.getHead(), editorCursor.getAnchor());
-    const documentView = taleWeaver.getDocumentView();
-    const viewAwarePosition = documentView.resolveModelPosition(position);
+    const docView = taleWeaver.getDocView();
+    const viewAwarePosition = docView.resolveModelPosition(position);
     const previousLineView = viewAwarePosition.lineView.getPreviousLineView();
     if (!previousLineView) {
       return moveToLineStart()(taleWeaver);
     }
-    const editorCursorView = documentView.getEditorCursorView();
+    const editorCursorView = docView.getEditorCursorView();
     if (!editorCursorView) {
       return transformation;
     }

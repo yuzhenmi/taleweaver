@@ -1,5 +1,5 @@
-import DocumentElement from './DocumentElement';
-import InlineElement from './InlineElement';
+import Doc from '../Doc';
+import Word from '../word/Word';
 
 /**
  * Models a block element in a document.
@@ -7,11 +7,11 @@ import InlineElement from './InlineElement';
  * document element and may contain inline
  * elements as children.
  */
-export default abstract class BlockElement {
+export default abstract class Block {
   /** Parent element. */
-  protected parent?: DocumentElement;
+  protected parent?: Doc;
   /** Child elements. */
-  protected children: InlineElement[];
+  protected children: Word[];
 
   /** Creates a new block element instance. */
   constructor() {
@@ -27,14 +27,14 @@ export default abstract class BlockElement {
    * Sets the parent element.
    * @param parent - Parent element to set.
    */
-  setParent(parent: DocumentElement) {
+  setParent(parent: Doc) {
     this.parent = parent;
   }
 
   /**
    * Gets a parent element.
    */
-  getParent(): DocumentElement {
+  getParent(): Doc {
     return this.parent!;
   }
 
@@ -42,7 +42,7 @@ export default abstract class BlockElement {
    * Appends a child element.
    * @param child - Child element to append.
    */
-  appendChild(child: InlineElement) {
+  appendChild(child: Word) {
     this.children.push(child);
   }
 
@@ -50,7 +50,7 @@ export default abstract class BlockElement {
    * Removes a child element.
    * @param child - Child element to remove.
    */
-  removeChild(child: InlineElement) {
+  removeChild(child: Word) {
     const index = this.children.indexOf(child);
     if (index < 0) {
       return;
@@ -61,23 +61,8 @@ export default abstract class BlockElement {
   /**
    * Gets all child elements.
    */
-  getChildren(): InlineElement[] {
+  getChildren(): Word[] {
     return this.children;
-  }
-
-  /**
-   * Gets a child element at a certain position in the block element.
-   * @param position - Position in the block element.
-   */
-  getChildAt(position: number): InlineElement | null {
-    let cumulatedSize = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      cumulatedSize += this.children[n].getSize();
-      if (cumulatedSize > position) {
-        return this.children[n];
-      }
-    }
-    return null;
   }
 
   /**
