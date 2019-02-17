@@ -149,7 +149,7 @@ export default class DocView {
     this.domDocument.addEventListener('contextmenu', this.handleContextMenu);
     this.domDocument.addEventListener('mousedown', this.handleMouseDown);
     this.domDocument.addEventListener('mousemove', this.handleMouseMove);
-    this.domDocument.addEventListener('mouseup', this.handleMouseUp);
+    window.addEventListener('mouseup', this.handleMouseUp);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
   }
