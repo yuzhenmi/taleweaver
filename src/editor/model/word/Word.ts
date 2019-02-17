@@ -1,5 +1,8 @@
 import Block from '../block/Block';
 
+/** Observer to word state change. */
+type WordObserver = (word: Word) => void;
+
 /**
  * Models a segment of the document that
  * cannot be split when rendered. This is
@@ -11,6 +14,8 @@ export default abstract class Word {
   protected block: Block;
   /** Text content. */
   protected text?: string;
+  /** Observers registered with the word. */
+  private observers: WordObserver[];
 
   /**
    * Creates a new word instance.
@@ -18,12 +23,30 @@ export default abstract class Word {
    */
   constructor(block: Block) {
     this.block = block;
+    this.observers = [];
   }
 
   /**
    * Gets the type of word.
    */
   abstract getType(): string;
+
+  /**
+   * Notifies observers of state change.
+   */
+  private notifyObservers() {
+    this.observers.forEach(observer => {
+      observer(this);
+    });
+  }
+
+  /**
+   * Registers an observer.
+   * @param observer - Observer to register.
+   */
+  observe(observer: WordObserver) {
+    this.observers.push(observer);
+  }
 
   /**
    * Gets the block this word belongs to.
@@ -38,6 +61,7 @@ export default abstract class Word {
    */
   setText(text: string) {
     this.text = text;
+    this.notifyObservers();
   }
 
   /**

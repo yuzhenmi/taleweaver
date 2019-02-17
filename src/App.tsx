@@ -2,6 +2,11 @@ import React from 'react';
 import './App.css';
 import TaleWeaver from './editor/TaleWeaver';
 import parseStateJSON from './editor/state/helpers/parseStateJSON';
+import Serializer from './editor/flatmodel/helpers/Serializer';
+import Doc from './editor/treemodel/Doc';
+import Config from './editor/Config';
+import DocViewModel from './editor/viewmodel/DocViewModel';
+import State from './editor/state/State';
 
 const docText = `
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec luctus commodo magna eu gravida. Quisque et neque ornare nunc maximus faucibus. Ut molestie diam non interdum fringilla. In hac habitasse platea dictumst. Proin dignissim id diam a pharetra. Praesent nec arcu felis. Nam et cursus mi. Duis facilisis ex vel leo vulputate laoreet. Pellentesque turpis quam, sollicitudin at lobortis non, rhoncus eu neque. Quisque egestas, ex vitae porta accumsan, justo dui elementum nisi, et bibendum lectus diam ut mauris. Proin imperdiet vulputate congue. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse nec tristique odio. Nulla eget tortor eu felis mattis mattis. Duis in nulla ultricies, egestas nunc ac, tempor tellus.
@@ -10,6 +15,43 @@ Maecenas id efficitur nulla, ornare posuere felis. Nulla lobortis tortor vel mas
 Suspendisse egestas vulputate arcu, ut laoreet felis feugiat sed. Donec dui sem, aliquet euismod sollicitudin sed, cursus non urna. Ut blandit enim diam, vitae rhoncus nisl accumsan non. Nulla facilisi. Vestibulum nec scelerisque augue, sed volutpat est. Integer augue turpis, varius ac velit non, ornare venenatis lectus. Nullam porta neque vel risus semper ornare id a enim. Cras tristique non quam quis commodo.
 Fusce condimentum arcu et diam faucibus, sit amet mattis velit pharetra. Praesent sagittis rhoncus libero, placerat ornare dui varius eget. Fusce consequat metus ut dignissim luctus. In congue lectus ut magna varius, at aliquam mi rutrum. Nam eu nunc eu ipsum varius pulvinar ac ut nulla. Nullam non elit neque. Vestibulum quis molestie dolor, eu vehicula risus. Sed luctus velit sem, id vestibulum orci blandit at. In aliquam gravida aliquam. Vivamus semper vulputate purus eu vehicula. Ut condimentum quis velit et feugiat. Curabitur eget ex eget mi interdum condimentum eget sit amet purus. Aliquam et libero erat. Aliquam erat volutpat.
 `;
+
+const serialized = `
+<Doc {}>
+<Block.Paragraph {}>
+<Inline.Text {"bold":true}>
+H
+e
+l
+l
+o
+</Inline>
+<Inline.Text {"italic":true}>
+ 
+a
+l
+l
+ 
+i
+n
+ 
+w
+o
+r
+l
+d
+!
+</Inline>
+</Block>
+</Doc>
+`.trim();
+const serializer = new Serializer();
+const flatModel = serializer.parse(serialized);
+const config = new Config();
+const taleWeaver = new TaleWeaver(config);
+const doc = new Doc(taleWeaver, flatModel.getTokens());
+const docViewModel = new DocViewModel(taleWeaver, doc);
+console.log(docViewModel);
 
 const initialStateJSON = {
   document: {
@@ -51,15 +93,8 @@ class TaleWeaverComponent extends React.Component<TaleWeaverComponentProps, Tale
   constructor(props: any) {
     super(props);
     this.domRef = React.createRef();
-    const taleWeaver = new TaleWeaver({
-      pageWidth: 800,
-      pageHeight: 1000,
-      pagePaddingTop: 60,
-      pagePaddingBottom: 60,
-      pagePaddingLeft: 60,
-      pagePaddingRight: 60,
-    });
-    taleWeaver.setState(parseStateJSON(taleWeaver, props.initialStateJSON));
+    const taleWeaver = new TaleWeaver(config);
+    taleWeaver.setState(new State(taleWeaver, flatModel));
     this.state = { taleWeaver };
   }
 

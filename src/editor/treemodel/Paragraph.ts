@@ -1,9 +1,6 @@
 import Block from './Block';
 
-/**
- * Paragraph block.
- */
-export default class Paragraph extends Block {
+class Paragraph extends Block {
   static getType(): string {
     return 'Paragraph';
   }
@@ -12,3 +9,5 @@ export default class Paragraph extends Block {
     return Paragraph.getType();
   }
 }
+
+export default Paragraph;

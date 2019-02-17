@@ -1,3 +1,4 @@
+import Config from './Config'
 import Doc from './model/Doc';
 import Block from './model/block/Block';
 import Word from './model/word/Word';
@@ -73,7 +74,7 @@ class TaleWeaverRegistry {
   /**
    * Creates a new TaleWeaver registry instance.
    */
-  constructor(taleWeaver: TaleWeaver) {
+  constructor(taleWeaver: TaleWeaver, config: Config) {
     this.taleWeaver = taleWeaver;
 
     // Init registry maps
@@ -287,35 +288,16 @@ class TaleWeaverRegistry {
   }
 }
 
-/**
- * Root of TaleWeaver, holds things together.
- */
 export default class TaleWeaver {
-  private config: TaleWeaverConfig;
-  private registry: TaleWeaverRegistry;
+  private config: Config;
   private state?: State;
   private docView?: DocView;
 
-  /**
-   * Creates a new TaleWeaver instance.
-   * @param config - Configs for TaleWeaver.
-   */
-  constructor(config: TaleWeaverConfig) {
+  constructor(config: Config) {
     this.config = config;
-    this.registry = new TaleWeaverRegistry(this);
   }
 
-  /**
-   * Gets the registry.
-   */
-  getRegistry(): TaleWeaverRegistry {
-    return this.registry;
-  }
-
-  /**
-   * Gets the configs.
-   */
-  getConfig(): TaleWeaverConfig {
+  getConfig(): Config {
     return this.config;
   }
 
@@ -354,7 +336,6 @@ export default class TaleWeaver {
    * @param domWrapper - Wrapper DOM element for TaleWeaver.
    */
   attach(domWrapper: HTMLElement) {
-    const DocView = this.registry.getDocViewClass();
     const docView = new DocView(
       this,
       this.getState().getDoc(),

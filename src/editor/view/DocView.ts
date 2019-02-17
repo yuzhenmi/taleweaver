@@ -1,6 +1,6 @@
 import TaleWeaver from '../TaleWeaver';
-import Doc from '../model/Doc';
-import Block from '../model/block/Block';
+import DocViewModel from '../viewmodel/DocViewModel';
+import BlockViewModel from '../viewmodel/BlockViewModel';
 import throttle from '../helpers/throttle';
 import PageView, { PageViewPositionBox, PageViewAwarePosition } from './PageView';
 import WordView from './WordView';
@@ -15,7 +15,7 @@ import { KeyPressEvent } from '../event/Event';
  * broken down into line views.
  */
 interface WordViewBlock {
-  block: Block;
+  blockViewModel: BlockViewModel;
   wordViews: WordView[];
 };
 
@@ -57,7 +57,7 @@ export interface DocViewAwarePosition extends PageViewAwarePosition {
  */
 export default class DocView {
   private taleWeaver: TaleWeaver;
-  private doc: Doc;
+  private docViewModel: DocViewModel;
   private config: DocViewConfig;
 
   private wordViewBlocks: WordViewBlock[];
@@ -74,9 +74,9 @@ export default class DocView {
    * @param taleWeaver - A TaleWeaver instance.
    * @param config - Configs for the document view.
    */
-  constructor(taleWeaver: TaleWeaver, doc: Doc, config: DocViewConfig) {
+  constructor(taleWeaver: TaleWeaver, docViewModel: DocViewModel, config: DocViewConfig) {
     this.taleWeaver = taleWeaver;
-    this.doc = doc;
+    this.docViewModel = docViewModel;
     this.config = config;
 
     this.wordViewBlocks = [];
@@ -97,7 +97,7 @@ export default class DocView {
    * Gets the model size of the document.
    */
   getSize(): number {
-    return this.doc.getSize();
+    return this.docViewModel.getSize();
   }
 
   /**
@@ -263,20 +263,20 @@ export default class DocView {
    * the document.
    */
   private buildWordViewBlocks() {
-    const registry = this.taleWeaver.getRegistry();
+    const config = this.taleWeaver.getConfig();
     // Reset wordViewBlocks
     this.wordViewBlocks.length = 0;
     // Loop through block elements in the document
-    this.doc.getChildren().forEach(block => {
+    this.docViewModel.getChildren().forEach(blockViewModel => {
       const wordViewBlock: WordViewBlock = {
-        block,
+        blockViewModel,
         wordViews: [],
       };
       // Loop through inline elements in the block element
-      block.getChildren().forEach(word => {
+      blockViewModel.getChildren().forEach(wordViewModel => {
         // Build word view from word
-        const WordView = registry.getWordViewClass(word.getType())!;
-        const wordView = new WordView(word, {});
+        const WordView = config.getWordViewClass(wordViewModel.getType())!;
+        const wordView = new WordView(wordViewModel, {});
         wordViewBlock.wordViews.push(wordView);
       });
       this.wordViewBlocks.push(wordViewBlock);
@@ -290,13 +290,13 @@ export default class DocView {
   private buildLineViews() {
     // Reset lineViews
     this.lineViews.length = 0;
-    const registry = this.taleWeaver.getRegistry();
+    const config = this.taleWeaver.getConfig();
     // Determine page content width as width minus paddings
     const pageContentWidth = this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight;
     // Loop through blocks of word views
     this.wordViewBlocks.forEach(wordViewBlock => {
       // Build line views for block
-      const LineView = registry.getLineViewClass(wordViewBlock.block.getType())!;
+      const LineView = config.getLineViewClass(wordViewBlock.blockViewModel.getType())!;
       let lineView = new LineView({
         width: this.config.pageWidth - this.config.pagePaddingLeft - this.config.pagePaddingRight,
       });
@@ -368,6 +368,9 @@ export default class DocView {
     this.editorCursorView.setDocView(this);
   }
 
+  /**
+   * Handles contextmenu DOM event.
+   */
   private handleContextMenu = (event: Event) => {
     // Disable browser context menu functionality
     event.preventDefault();

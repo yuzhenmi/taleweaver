@@ -106,8 +106,9 @@ export default class EditorCursorView {
     const docView = this.taleWeaver.getDocView();
     const anchor = this.editorCursor.getAnchor();
     const head = this.editorCursor.getHead();
-    const viewAwarePosition = docView.resolveModelPosition(anchor);
-    const { domWordContent } = viewAwarePosition.wordView.getDOM();
+    const viewAwareAnchorPosition = docView.resolveModelPosition(anchor);
+    const viewAwareHeadPosition = docView.resolveModelPosition(head);
+    const { domWordContent } = viewAwareAnchorPosition.wordView.getDOM();
     const selection = getSelection();
     selection.removeAllRanges();
     const range = document.createRange();

@@ -37,6 +37,9 @@ export default class TextView extends WordView {
     const textWord = <TextWord> this.word;
     this.domTextWord = document.createTextNode(textWord.getText());
     domLineContent.appendChild(this.domTextWord);
+    textWord.observe(() => {
+      this.domTextWord!.replaceWith(textWord.getText());
+    });
   }
 
   getDOM(): WordViewDOMElements {
