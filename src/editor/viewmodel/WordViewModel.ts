@@ -1,5 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Inline from '../treemodel/Inline';
+import Inline from '../model/Inline';
 import BlockViewModel from './BlockViewModel';
 
 export interface Segment {

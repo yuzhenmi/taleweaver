@@ -1,7 +1,7 @@
 import TaleWeaver from '../../TaleWeaver';
 import CursorCommand from '../CursorCommand';
-import CursorTransformation from '../../state/CursorTransformation';
-import TranslateCursorHead from '../../state/cursortransformationsteps/TranslateCursorHead';
+import CursorTransformation from '../../transform/CursorTransformation';
+import TranslateCursorHead from '../../transform/cursortransformationsteps/TranslateCursorHead';
 import moveHeadToLineStart from './moveHeadToLineStart';
 
 export default function moveHeadToPreviousLine(): CursorCommand {

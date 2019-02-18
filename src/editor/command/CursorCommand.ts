@@ -1,4 +1,4 @@
-import CursorTransformation from '../state/CursorTransformation';
+import CursorTransformation from '../transform/CursorTransformation';
 import TaleWeaver from '../TaleWeaver';
 
 type CursorCommand = (taleWeaver: TaleWeaver) => CursorTransformation;

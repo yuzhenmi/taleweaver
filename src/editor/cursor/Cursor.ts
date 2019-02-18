@@ -50,6 +50,7 @@ export default class Cursor {
     this.observers.forEach(observer => {
       observer(this, extraArgs);
     });
+    document.getElementById('status')!.innerText = `${this.anchor}, ${this.head}`;
   }
 
   /**

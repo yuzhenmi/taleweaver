@@ -1,4 +1,4 @@
-import Token from '../Token';
+import State from '../State';
 import DocStartToken from '../DocStartToken';
 import DocEndToken from '../DocEndToken';
 import BlockStartToken from '../BlockStartToken';
@@ -7,7 +7,8 @@ import InlineStartToken from '../InlineStartToken';
 import InlineEndToken from '../InlineEndToken';
 
 class Serializer {
-  serialize(tokens: Token[]): string {
+  serialize(state: State): string {
+    const tokens = state.getTokens();
     return tokens.map(token => {
       if (typeof token === 'string') {
         return token;
@@ -36,7 +37,7 @@ class Serializer {
     }).join('\n');
   }
 
-  parse(serializedTokens: string): Token[] {
+  parse(serializedTokens: string): State {
     const tokens = serializedTokens.split('\n').map(serializedToken => {
       if (serializedToken.length === 1) {
         return serializedToken;
@@ -72,7 +73,8 @@ class Serializer {
       }
       throw new Error(`Cannot parse serialized token: ${serializedToken}`);
     });
-    return tokens;
+    const state = new State(tokens);
+    return state;
   }
 }
 

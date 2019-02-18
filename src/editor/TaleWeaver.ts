@@ -1,19 +1,19 @@
 import Config from './Config'
-import Token from './flatmodel/Token';
-import Doc from './treemodel/Doc';
+import State from './state/State';
+import Doc from './model/Doc';
 import DocViewModel from './viewmodel/DocViewModel';
 import DocView from './view/DocView';
 import Cursor from './cursor/Cursor';
-import CursorTransformation from './state/CursorTransformation';
-import DocumentTransformation from './state/DocumentTransformation';
+import CursorTransformation from './transform/CursorTransformation';
+import DocumentTransformation from './transform/DocumentTransformation';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
-import CursorTransformer from './state/CursorTransformer';
-import DocumentTransformer from './state/DocumentTransformer';
+import CursorTransformer from './transform/CursorTransformer';
+import DocumentTransformer from './transform/DocumentTransformer';
 
 export default class TaleWeaver {
   protected config: Config;
-  protected tokens: Token[];
+  protected state: State;
   protected editorCursor: Cursor | null;
   protected doc: Doc;
   protected docViewModel: DocViewModel;
@@ -22,11 +22,11 @@ export default class TaleWeaver {
   protected docTransformer: DocumentTransformer;
   protected eventObservers: EventObserver[];
 
-  constructor(config: Config, tokens: Token[], editorCursor: Cursor | null) {
+  constructor(config: Config, state: State, editorCursor: Cursor | null) {
     this.config = config;
-    this.tokens = tokens;
+    this.state = state;
     this.editorCursor = editorCursor;
-    this.doc = new Doc(this, this.tokens);
+    this.doc = new Doc(this, this.state.getTokens());
     this.docViewModel = new DocViewModel(this, this.doc);
     this.docView = new DocView(
       this,
@@ -49,6 +49,10 @@ export default class TaleWeaver {
 
   getConfig(): Config {
     return this.config;
+  }
+
+  getState(): State {
+    return this.state;
   }
 
   getDoc(): Doc {

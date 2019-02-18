@@ -1,7 +1,7 @@
 import TaleWeaver from '../../TaleWeaver';
 import DocumentCommand from '../DocumentCommand';
-import DocumentTransformation from '../../state/DocumentTransformation';
-import Assign from '../../state/documenttransformationsteps/Assign';
+import DocumentTransformation from '../../transform/DocumentTransformation';
+import Assign from '../../transform/documenttransformationsteps/Assign';
 
 export default function insertText(text: string): DocumentCommand {
   return (taleWeaver: TaleWeaver): DocumentTransformation => {

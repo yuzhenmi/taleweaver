@@ -2,6 +2,7 @@ import TaleWeaver from '../TaleWeaver';
 import DocViewModel from '../viewmodel/DocViewModel';
 import BlockViewModel from '../viewmodel/BlockViewModel';
 import throttle from '../helpers/throttle';
+import View, { ViewDOMElements } from './View';
 import PageView, { PageViewPositionBox, PageViewAwarePosition } from './PageView';
 import WordView from './WordView';
 import LineView from './LineView';
@@ -37,7 +38,7 @@ interface DocViewConfig {
   pagePaddingRight: number;
 };
 
-export interface DocViewDOMElements {
+export interface DocViewDOMElements extends ViewDOMElements {
   domDocument: HTMLDivElement;
   domDocumentContent: HTMLDivElement;
 }
@@ -55,7 +56,7 @@ export interface DocViewAwarePosition extends PageViewAwarePosition {
 /**
  * View of a document.
  */
-export default class DocView {
+export default class DocView extends View {
   private taleWeaver: TaleWeaver;
   private docViewModel: DocViewModel;
   private config: DocViewConfig;
@@ -69,12 +70,8 @@ export default class DocView {
   private domDocument?: HTMLDivElement;
   private domDocumentContent?: HTMLDivElement;
 
-  /**
-   * Creates a new document view instance.
-   * @param taleWeaver - A TaleWeaver instance.
-   * @param config - Configs for the document view.
-   */
   constructor(taleWeaver: TaleWeaver, docViewModel: DocViewModel, config: DocViewConfig) {
+    super();
     this.taleWeaver = taleWeaver;
     this.docViewModel = docViewModel;
     this.config = config;
@@ -93,31 +90,10 @@ export default class DocView {
     this.buildEditorCursorView();
   }
 
-  /**
-   * Gets the model size of the document.
-   */
   getSize(): number {
     return this.docViewModel.getSize();
   }
 
-  /**
-   * Gets the child page views.
-   */
-  getPageViews(): PageView[] {
-    return this.pageViews;
-  }
-
-  /**
-   * Gets the child editor cursor view.
-   */
-  getEditorCursorView(): EditorCursorView | null {
-    return this.editorCursorView;
-  }
-
-  /**
-   * Mounts the view to DOM.
-   * @param domWrapper - DOM wrapper for the document view.
-   */
   mount(domWrapper: HTMLElement) {
     // Do not mount if already mounted
     if (this.mounted) {
@@ -154,14 +130,25 @@ export default class DocView {
     window.addEventListener('keyup', this.handleKeyUp);
   }
 
-  /**
-   * Gets DOM elements mounted by the view.
-   */
   getDOM(): DocViewDOMElements {
     return {
       domDocument: this.domDocument!,
       domDocumentContent: this.domDocumentContent!,
     };
+  }
+
+  /**
+   * Gets the child page views.
+   */
+  getPageViews(): PageView[] {
+    return this.pageViews;
+  }
+
+  /**
+   * Gets the child editor cursor view.
+   */
+  getEditorCursorView(): EditorCursorView | null {
+    return this.editorCursorView;
   }
 
   /**

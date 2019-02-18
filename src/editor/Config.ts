@@ -1,7 +1,7 @@
-import Block from './treemodel/Block';
-import Inline from './treemodel/Inline';
-import Paragraph from './treemodel/Paragraph';
-import Text from './treemodel/Text';
+import Block from './model/Block';
+import Inline from './model/Inline';
+import Paragraph from './model/Paragraph';
+import Text from './model/Text';
 import WordViewModel from './viewmodel/WordViewModel';
 import TextViewModel from './viewmodel/TextViewModel';
 import LineView from './view/LineView';
@@ -9,8 +9,8 @@ import WordView from './view/WordView';
 import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
 import EventObserver from './event/EventObserver';
-import CursorTransformer from './state/CursorTransformer';
-import DocTransformer from './state/DocumentTransformer';
+import CursorTransformer from './transform/CursorTransformer';
+import DocTransformer from './transform/DocumentTransformer';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
 import DocumentEventObserver from './event/DocumentEventObserver';
 

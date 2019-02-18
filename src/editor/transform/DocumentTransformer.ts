@@ -1,4 +1,4 @@
-import Doc from '../treemodel/Doc';
+import Doc from '../model/Doc';
 import DocumentTransformation from './DocumentTransformation';
 import Assign from './documenttransformationsteps/Assign';
 

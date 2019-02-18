@@ -241,7 +241,7 @@ export default class PageView {
     for (let n = 0, nn = this.lineViews.length; n < nn; n++) {
       const lineView = this.lineViews[n];
       // If posterior of line is past position
-      if (offset + lineView.getSize() > position) {
+      if (offset + lineView.getSize() >= position) {
         // Resolve model position in line
         const lineViewAwarePosition = lineView.resolveModelPosition(position - offset);
         // Map line view aware position to page view aware position

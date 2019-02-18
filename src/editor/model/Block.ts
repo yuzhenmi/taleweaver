@@ -1,11 +1,13 @@
 import TaleWeaver from '../TaleWeaver';
-import Token from '../flatmodel/Token';
-import BlockStartToken from '../flatmodel/BlockStartToken';
-import BlockEndToken from '../flatmodel/BlockEndToken';
-import InlineStartToken from '../flatmodel/InlineStartToken';
-import InlineEndToken from '../flatmodel/InlineEndToken';
+import Token from '../state/Token';
+import BlockStartToken from '../state/BlockStartToken';
+import BlockEndToken from '../state/BlockEndToken';
+import InlineStartToken from '../state/InlineStartToken';
+import InlineEndToken from '../state/InlineEndToken';
+import BranchNode from './BranchNode';
 import Doc from './Doc';
 import Inline from './Inline';
+import ResolvedPosition from './ResolvedPosition';
 
 type Parent = Doc;
 type Child = Inline;
@@ -14,13 +16,14 @@ interface Attributes {
   [key: string]: any;
 }
 
-export default abstract class Block {
+export default abstract class Block extends BranchNode {
   protected taleWeaver: TaleWeaver;
   protected parent: Parent;
   protected children: Child[];
   protected attributes: Attributes;
 
   constructor(taleWeaver: TaleWeaver, parent: Parent, tokens: Token[]) {
+    super();
     this.taleWeaver = taleWeaver;
     this.parent = parent;
     this.children = [];
@@ -54,7 +57,18 @@ export default abstract class Block {
     }
   }
 
-  abstract getType(): string;
+  getSize(): number {
+    let size = 1;
+    this.children.forEach(child => {
+      size += child.getSize();
+    });
+    size += 1;
+    return size;
+  }
+
+  getParent(): Parent {
+    return this.parent;
+  }
   
   appendChild(child: Child) {
     this.children.push(child);
@@ -72,11 +86,39 @@ export default abstract class Block {
     return this.children;
   }
 
-  getSize(): number {
-    let size = 2;
-    this.children.forEach(child => {
-      size += child.getSize();
-    });
-    return size;
+  parentAt(offset: number): ResolvedPosition {
+    if (offset < 0) {
+      throw new Error(`Block offset out of range: ${offset}.`);
+    }
+    if (offset > this.getSize() - 1) {
+      throw new Error(`Block offset out of range: ${offset}.`);
+    }
+    const parent = this.parent;
+    const siblings = parent.getChildren();
+    let cumulatedParentOffset = 0;
+    for (let n = 0, nn = siblings.length; n < nn; n++) {
+      const sibling = siblings[n];
+      if (sibling === this) {
+        return new ResolvedPosition(parent, cumulatedParentOffset + offset);
+      }
+      cumulatedParentOffset += sibling.getSize();
+    }
+    throw new Error(`Tree model is corrupted, block not found in parent.`);
+  }
+
+  childAt(offset: number): ResolvedPosition {
+    if (offset < 0) {
+      throw new Error(`Block offset out of range: ${offset}.`);
+    }
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      if (offset < cumulatedOffset + childSize) {
+        return new ResolvedPosition(child, offset - cumulatedOffset);
+      }
+      cumulatedOffset += childSize;
+    }
+    throw new Error(`Block offset out of range: ${offset}.`);
   }
 }

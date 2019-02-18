@@ -1,7 +1,7 @@
 import TaleWeaver from '../../TaleWeaver';
 import CursorCommand from '../CursorCommand';
-import CursorTransformation from '../../state/CursorTransformation';
-import TranslateCursorHead from '../../state/cursortransformationsteps/TranslateCursorHead';
+import CursorTransformation from '../../transform/CursorTransformation';
+import TranslateCursorHead from '../../transform/cursortransformationsteps/TranslateCursorHead';
 
 export default function moveHeadForward(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {

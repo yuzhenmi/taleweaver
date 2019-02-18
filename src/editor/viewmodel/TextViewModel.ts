@@ -1,5 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Text from '../treemodel/Text';
+import Text from '../model/Text';
 import BlockViewModel from './BlockViewModel';
 import WordViewModel, { Segment } from './WordViewModel';
 
@@ -17,7 +17,7 @@ class TextViewModel extends WordViewModel {
   static fromInline(taleWeaver: TaleWeaver, blockViewModel: BlockViewModel, inline: Text): TextViewModel[] {
     const content = inline.getContent();
     let wordStartOffset = 0;
-    let offset = 0;
+    let offset = 1;
     const textViewModels: TextViewModel[] = [];
     for (let contentLength = content.length; offset < contentLength; offset++) {
       const char = content[offset];
@@ -37,7 +37,7 @@ class TextViewModel extends WordViewModel {
         {
           inline,
           from: wordStartOffset,
-          to: offset - 1,
+          to: offset,
         },
       ]));
     }
@@ -82,7 +82,7 @@ class TextViewModel extends WordViewModel {
   }
 
   getSize(): number {
-    let size = 2;
+    let size = 0;
     this.segments.forEach(segment => {
       size += segment.to - segment.from + 1;
     });

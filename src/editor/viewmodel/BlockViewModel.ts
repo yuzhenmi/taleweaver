@@ -1,5 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Block from '../treemodel/Block';
+import Block from '../model/Block';
 import DocViewModel from './DocViewModel';
 import WordViewModel from './WordViewModel';
 

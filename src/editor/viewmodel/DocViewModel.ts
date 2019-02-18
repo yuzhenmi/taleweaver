@@ -1,5 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Doc from '../treemodel/Doc';
+import Doc from '../model/Doc';
 import BlockViewModel from './BlockViewModel';
 
 type Child = BlockViewModel;
