@@ -1,7 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
-import Node from '../tree/Node';
 import LeafNode from '../tree/LeafNode';
-import TreePosition from '../tree/TreePosition';
 import Token from '../state/Token';
 import InlineStartToken from '../state/InlineStartToken';
 import InlineEndToken from '../state/InlineEndToken';
@@ -53,50 +51,6 @@ export default abstract class Inline extends LeafNode {
 
   getParent(): Parent {
     return this.parent;
-  }
-
-  getPreviousSibling(): Node | null {
-    const siblings = this.parent.getChildren();
-    let index = siblings.indexOf(this);
-    if (index < 0) {
-      throw new Error(`Model is corrupted, block not found in parent.`);
-    }
-    if (index === 0) {
-      return null;
-    }
-    return siblings[index - 1];
-  }
-
-  getNextSibling(): Node | null {
-    const siblings = this.parent.getChildren();
-    let index = siblings.indexOf(this);
-    if (index < 0) {
-      throw new Error(`Model is corrupted, block not found in parent.`);
-    }
-    if (index === siblings.length - 1) {
-      return null;
-    }
-    return siblings[index + 1];
-  }
-
-  parentAt(offset: number): TreePosition {
-    if (offset < 0) {
-      throw new Error(`Inline offset out of range: ${offset}.`);
-    }
-    if (offset > this.getSize() - 1) {
-      throw new Error(`Inline offset out of range: ${offset}.`);
-    }
-    const parent = this.parent;
-    const siblings = parent.getChildren();
-    let cumulatedParentOffset = 1;
-    for (let n = 0, nn = siblings.length; n < nn; n++) {
-      const sibling = siblings[n];
-      if (sibling === this) {
-        return new TreePosition(parent, cumulatedParentOffset + offset);
-      }
-      cumulatedParentOffset += sibling.getSize();
-    }
-    throw new Error(`Model is corrupted, inline not found in parent.`);
   }
 
   setContent(content: string) {

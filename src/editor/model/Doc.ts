@@ -1,6 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
 import RootNode from '../tree/RootNode';
-import TreePosition from '../tree/TreePosition';
 import Token from '../state/Token';
 import DocStartToken from '../state/DocStartToken';
 import DocEndToken from '../state/DocEndToken';
@@ -83,21 +82,5 @@ export default class Doc extends RootNode {
 
   getChildren(): Child[] {
     return this.children;
-  }
-
-  childAt(offset: number): TreePosition {
-    if (offset < 0) {
-      throw new Error(`Doc offset out of range: ${offset}`);
-    }
-    let cumulatedOffset = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childSize = child.getSize();
-      if (offset < cumulatedOffset + childSize) {
-        return new TreePosition(child, offset - cumulatedOffset);
-      }
-      cumulatedOffset += childSize;
-    }
-    throw new Error(`Doc offset out of range: ${offset}`);
   }
 }
