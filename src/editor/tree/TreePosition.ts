@@ -1,9 +1,9 @@
 import Node from './Node';
+import RootNode from './RootNode';
 import BranchNode from './BranchNode';
 import LeafNode from './LeafNode';
-import RootNode from './RootNode';
 
-class ResolvedPosition {
+class TreePosition {
   private node: Node;
   private offset: number;
 
@@ -20,7 +20,7 @@ class ResolvedPosition {
     return this.offset;
   }
 
-  getParent(): ResolvedPosition | null {
+  toParent(): TreePosition | null {
     if (this.node instanceof BranchNode) {
       return this.node.parentAt(this.offset);
     }
@@ -30,7 +30,7 @@ class ResolvedPosition {
     return null;
   }
 
-  getChild(): ResolvedPosition | null {
+  toChild(): TreePosition | null {
     if (this.node instanceof RootNode) {
       return this.node.childAt(this.offset);
     }
@@ -41,4 +41,4 @@ class ResolvedPosition {
   }
 }
 
-export default ResolvedPosition;
+export default TreePosition;

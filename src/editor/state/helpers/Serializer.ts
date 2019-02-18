@@ -10,9 +10,6 @@ class Serializer {
   serialize(state: State): string {
     const tokens = state.getTokens();
     return tokens.map(token => {
-      if (typeof token === 'string') {
-        return token;
-      }
       if (token instanceof DocStartToken) {
         const docStartToken = token as DocStartToken;
         return `<Doc ${JSON.stringify(docStartToken.getAttributes())}>`;
@@ -34,14 +31,15 @@ class Serializer {
       if (token instanceof InlineEndToken) {
         return '</Inline>';
       }
+      if (token === '\n') {
+        return '\\n';
+      }
+      return token;
     }).join('\n');
   }
 
   parse(serializedTokens: string): State {
     const tokens = serializedTokens.split('\n').map(serializedToken => {
-      if (serializedToken.length === 1) {
-        return serializedToken;
-      }
       const docStartTokenRegex = /^<Doc\s(.+)>/;
       if (docStartTokenRegex.test(serializedToken)) {
         const result = serializedToken.match(docStartTokenRegex)!;
@@ -70,6 +68,12 @@ class Serializer {
       }
       if (serializedToken === '</Inline>') {
         return new InlineEndToken();
+      }
+      if (serializedToken.length === 1) {
+        return serializedToken;
+      }
+      if (serializedToken === '\\n') {
+        return '\n';
       }
       throw new Error(`Cannot parse serialized token: ${serializedToken}`);
     });

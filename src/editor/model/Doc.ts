@@ -1,12 +1,12 @@
 import TaleWeaver from '../TaleWeaver';
+import RootNode from '../tree/RootNode';
+import TreePosition from '../tree/TreePosition';
 import Token from '../state/Token';
 import DocStartToken from '../state/DocStartToken';
 import DocEndToken from '../state/DocEndToken';
 import BlockStartToken from '../state/BlockStartToken';
 import BlockEndToken from '../state/BlockEndToken';
-import RootNode from './RootNode';
 import Block from './Block';
-import ResolvedPosition from './ResolvedPosition';
 
 type Child = Block;
 
@@ -62,11 +62,10 @@ export default class Doc extends RootNode {
   }
 
   getSize(): number {
-    let size = 1;
+    let size = 0;
     this.children.forEach(child => {
       size += child.getSize();
     });
-    size += 1;
     return size;
   }
 
@@ -86,7 +85,7 @@ export default class Doc extends RootNode {
     return this.children;
   }
 
-  childAt(offset: number): ResolvedPosition {
+  childAt(offset: number): TreePosition {
     if (offset < 0) {
       throw new Error(`Doc offset out of range: ${offset}`);
     }
@@ -95,7 +94,7 @@ export default class Doc extends RootNode {
       const child = this.children[n];
       const childSize = child.getSize();
       if (offset < cumulatedOffset + childSize) {
-        return new ResolvedPosition(child, offset - cumulatedOffset);
+        return new TreePosition(child, offset - cumulatedOffset);
       }
       cumulatedOffset += childSize;
     }

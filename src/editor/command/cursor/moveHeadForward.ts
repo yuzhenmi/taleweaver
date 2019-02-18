@@ -10,7 +10,7 @@ export default function moveHeadForward(): CursorCommand {
     if (!editorCursor) {
       return transformation;
     }
-    if (editorCursor.getHead() > taleWeaver.getDoc().getSize() - 1) {
+    if (editorCursor.getHead() >= taleWeaver.getDoc().getSize() - 1) {
       return transformation;
     }
     transformation.addStep(new TranslateCursorHead(1));

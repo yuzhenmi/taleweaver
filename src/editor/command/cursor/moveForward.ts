@@ -14,7 +14,7 @@ export default function moveForward(): CursorCommand {
     const head = editorCursor.getHead();
     if (anchor === head) {
       const documentSize = taleWeaver.getDoc().getSize();
-      if (head > documentSize - 1) {
+      if (head >= documentSize - 1) {
         return transformation;
       }
       transformation.addStep(new TranslateCursor(1));

@@ -1,13 +1,14 @@
 import TaleWeaver from '../TaleWeaver';
+import Node from '../tree/Node';
+import BranchNode from '../tree/BranchNode';
+import TreePosition from '../tree/TreePosition';
 import Token from '../state/Token';
 import BlockStartToken from '../state/BlockStartToken';
 import BlockEndToken from '../state/BlockEndToken';
 import InlineStartToken from '../state/InlineStartToken';
 import InlineEndToken from '../state/InlineEndToken';
-import BranchNode from './BranchNode';
 import Doc from './Doc';
 import Inline from './Inline';
-import ResolvedPosition from './ResolvedPosition';
 
 type Parent = Doc;
 type Child = Inline;
@@ -58,16 +59,39 @@ export default abstract class Block extends BranchNode {
   }
 
   getSize(): number {
-    let size = 1;
+    let size = 0;
     this.children.forEach(child => {
       size += child.getSize();
     });
-    size += 1;
     return size;
   }
 
   getParent(): Parent {
     return this.parent;
+  }
+
+  getPreviousSibling(): Node | null {
+    const siblings = this.parent.getChildren();
+    let index = siblings.indexOf(this);
+    if (index < 0) {
+      throw new Error(`Model is corrupted, block not found in parent.`);
+    }
+    if (index === 0) {
+      return null;
+    }
+    return siblings[index - 1];
+  }
+
+  getNextSibling(): Node | null {
+    const siblings = this.parent.getChildren();
+    let index = siblings.indexOf(this);
+    if (index < 0) {
+      throw new Error(`Model is corrupted, block not found in parent.`);
+    }
+    if (index === siblings.length - 1) {
+      return null;
+    }
+    return siblings[index + 1];
   }
   
   appendChild(child: Child) {
@@ -86,7 +110,7 @@ export default abstract class Block extends BranchNode {
     return this.children;
   }
 
-  parentAt(offset: number): ResolvedPosition {
+  parentAt(offset: number): TreePosition {
     if (offset < 0) {
       throw new Error(`Block offset out of range: ${offset}.`);
     }
@@ -95,18 +119,18 @@ export default abstract class Block extends BranchNode {
     }
     const parent = this.parent;
     const siblings = parent.getChildren();
-    let cumulatedParentOffset = 0;
+    let cumulatedParentOffset = 1;
     for (let n = 0, nn = siblings.length; n < nn; n++) {
       const sibling = siblings[n];
       if (sibling === this) {
-        return new ResolvedPosition(parent, cumulatedParentOffset + offset);
+        return new TreePosition(parent, cumulatedParentOffset + offset);
       }
       cumulatedParentOffset += sibling.getSize();
     }
-    throw new Error(`Tree model is corrupted, block not found in parent.`);
+    throw new Error(`Model is corrupted, block not found in parent.`);
   }
 
-  childAt(offset: number): ResolvedPosition {
+  childAt(offset: number): TreePosition {
     if (offset < 0) {
       throw new Error(`Block offset out of range: ${offset}.`);
     }
@@ -115,7 +139,7 @@ export default abstract class Block extends BranchNode {
       const child = this.children[n];
       const childSize = child.getSize();
       if (offset < cumulatedOffset + childSize) {
-        return new ResolvedPosition(child, offset - cumulatedOffset);
+        return new TreePosition(child, offset - cumulatedOffset);
       }
       cumulatedOffset += childSize;
     }

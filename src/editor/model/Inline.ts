@@ -1,10 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
+import Node from '../tree/Node';
+import LeafNode from '../tree/LeafNode';
+import TreePosition from '../tree/TreePosition';
 import Token from '../state/Token';
 import InlineStartToken from '../state/InlineStartToken';
 import InlineEndToken from '../state/InlineEndToken';
-import LeafNode from './LeafNode';
 import Block from './Block';
-import ResolvedPosition from './ResolvedPosition';
 
 type Parent = Block;
 
@@ -47,14 +48,38 @@ export default abstract class Inline extends LeafNode {
   }
 
   getSize(): number {
-    return 1 + this.content.length + 1;
+    return this.content.length;
   }
 
   getParent(): Parent {
     return this.parent;
   }
 
-  parentAt(offset: number): ResolvedPosition {
+  getPreviousSibling(): Node | null {
+    const siblings = this.parent.getChildren();
+    let index = siblings.indexOf(this);
+    if (index < 0) {
+      throw new Error(`Model is corrupted, block not found in parent.`);
+    }
+    if (index === 0) {
+      return null;
+    }
+    return siblings[index - 1];
+  }
+
+  getNextSibling(): Node | null {
+    const siblings = this.parent.getChildren();
+    let index = siblings.indexOf(this);
+    if (index < 0) {
+      throw new Error(`Model is corrupted, block not found in parent.`);
+    }
+    if (index === siblings.length - 1) {
+      return null;
+    }
+    return siblings[index + 1];
+  }
+
+  parentAt(offset: number): TreePosition {
     if (offset < 0) {
       throw new Error(`Inline offset out of range: ${offset}.`);
     }
@@ -63,15 +88,15 @@ export default abstract class Inline extends LeafNode {
     }
     const parent = this.parent;
     const siblings = parent.getChildren();
-    let cumulatedParentOffset = 0;
+    let cumulatedParentOffset = 1;
     for (let n = 0, nn = siblings.length; n < nn; n++) {
       const sibling = siblings[n];
       if (sibling === this) {
-        return new ResolvedPosition(parent, cumulatedParentOffset + offset);
+        return new TreePosition(parent, cumulatedParentOffset + offset);
       }
       cumulatedParentOffset += sibling.getSize();
     }
-    throw new Error(`Tree model is corrupted, inline not found in parent.`);
+    throw new Error(`Model is corrupted, inline not found in parent.`);
   }
 
   setContent(content: string) {

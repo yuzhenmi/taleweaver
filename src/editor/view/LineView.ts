@@ -221,12 +221,16 @@ export default abstract class LineView {
         // Get model position in word
         const wordModelPosition = wordView.mapViewPositionToModelPosition(x - cumulatedWidth);
         // Map word model position to line model position
-        return offset + wordModelPosition;
+        offset += wordModelPosition;
+        break;
       }
       offset += wordView.getSize();
       cumulatedWidth += wordView.getWidth();
     }
-    return offset - 1;
+    if (offset >= this.getSize()) {
+      offset -= 1;
+    }
+    return offset;
   }
 
   /**
