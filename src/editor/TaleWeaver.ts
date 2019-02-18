@@ -14,21 +14,18 @@ import DocumentTransformer from './state/DocumentTransformer';
 export default class TaleWeaver {
   protected config: Config;
   protected tokens: Token[];
+  protected editorCursor: Cursor | null;
   protected doc: Doc;
   protected docViewModel: DocViewModel;
   protected docView: DocView;
-  protected editorCursor: Cursor | null;
   protected cursorTransformer: CursorTransformer;
   protected docTransformer: DocumentTransformer;
   protected eventObservers: EventObserver[];
 
-  constructor(
-    config: Config,
-    tokens: Token[],
-    editorCursor: Cursor | null,
-  ) {
+  constructor(config: Config, tokens: Token[], editorCursor: Cursor | null) {
     this.config = config;
     this.tokens = tokens;
+    this.editorCursor = editorCursor;
     this.doc = new Doc(this, this.tokens);
     this.docViewModel = new DocViewModel(this, this.doc);
     this.docView = new DocView(
@@ -43,7 +40,6 @@ export default class TaleWeaver {
         pagePaddingRight: 60,
       },
     );
-    this.editorCursor = editorCursor;
     this.cursorTransformer = new CursorTransformer();
     this.docTransformer = new DocumentTransformer();
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {

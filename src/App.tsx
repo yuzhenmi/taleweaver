@@ -3,6 +3,7 @@ import './App.css';
 import TaleWeaver from './editor/TaleWeaver';
 import Serializer from './editor/flatmodel/helpers/Serializer';
 import Config from './editor/Config';
+import Cursor from './editor/cursor/Cursor';
 
 const docText = `
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec luctus commodo magna eu gravida. Quisque et neque ornare nunc maximus faucibus. Ut molestie diam non interdum fringilla. In hac habitasse platea dictumst. Proin dignissim id diam a pharetra. Praesent nec arcu felis. Nam et cursus mi. Duis facilisis ex vel leo vulputate laoreet. Pellentesque turpis quam, sollicitudin at lobortis non, rhoncus eu neque. Quisque egestas, ex vitae porta accumsan, justo dui elementum nisi, et bibendum lectus diam ut mauris. Proin imperdiet vulputate congue. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse nec tristique odio. Nulla eget tortor eu felis mattis mattis. Duis in nulla ultricies, egestas nunc ac, tempor tellus.
@@ -67,7 +68,8 @@ class TaleWeaverComponent extends React.Component<TaleWeaverComponentProps, Tale
     const config = new Config();
     const serializer = new Serializer();
     const tokens = serializer.parse(serialized);
-    const taleWeaver = new TaleWeaver(config, tokens, null);
+    const editorCursor = new Cursor(0, 30);
+    const taleWeaver = new TaleWeaver(config, tokens, editorCursor);
     this.state = { taleWeaver };
   }
 
