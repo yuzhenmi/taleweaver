@@ -64,12 +64,10 @@ class TaleWeaverComponent extends React.Component<TaleWeaverComponentProps, Tale
   constructor(props: any) {
     super(props);
     this.domRef = React.createRef();
+    const config = new Config();
     const serializer = new Serializer();
     const tokens = serializer.parse(serialized);
-    const taleWeaver = new TaleWeaver(taleWeaver => {
-      const config = new Config(taleWeaver);
-      return config;
-    }, tokens, null);
+    const taleWeaver = new TaleWeaver(config, tokens, null);
     this.state = { taleWeaver };
   }
 

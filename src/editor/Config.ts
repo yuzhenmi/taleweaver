@@ -1,4 +1,3 @@
-import TaleWeaver from './TaleWeaver';
 import Block from './treemodel/Block';
 import Inline from './treemodel/Inline';
 import Paragraph from './treemodel/Paragraph';
@@ -20,32 +19,27 @@ type InlineClass = new (...args: any[]) => Inline;
 type WordViewModelClass = new (...args: any[]) => WordViewModel;
 type LineViewClass = new (...args: any[]) => LineView;
 type WordViewClass = new (...args: any[]) => WordView;
+type EventObserverClass = new (...args: any[]) => EventObserver;
 
 class Config {
-  protected taleWeaver: TaleWeaver;
   protected blockClasses: { [key: string]: BlockClass };
   protected inlineClasses: { [key: string]: InlineClass };
   protected wordViewModelClasses: { [key: string]: WordViewModelClass };
   protected lineViewClasses: { [key: string]: LineViewClass };
   protected wordViewClasses: { [key: string]: WordViewClass };
-  protected cursorTransformer: CursorTransformer;
-  protected docTransformer: DocTransformer;
-  protected eventObservers: EventObserver[];
+  protected eventObserverClasses: EventObserverClass[];
 
-  constructor(taleWeaver: TaleWeaver) {
-    this.taleWeaver = taleWeaver;
+  constructor() {
     this.blockClasses = {};
     this.inlineClasses = {};
     this.wordViewModelClasses = {};
     this.lineViewClasses = {};
     this.wordViewClasses = {};
-    this.eventObservers = [];
+    this.eventObserverClasses = [];
     this.registerBlockType('Paragraph', Paragraph, ParagraphLineView);
     this.registerInlineType('Text', Text, TextViewModel, TextView);
-    this.cursorTransformer = new CursorTransformer();
-    this.docTransformer = new DocTransformer();
-    this.registerEventObserver(new EditorCursorEventObserver(taleWeaver));
-    this.registerEventObserver(new DocumentEventObserver(taleWeaver));
+    this.registerEventObserverClass(EditorCursorEventObserver);
+    this.registerEventObserverClass(DocumentEventObserver);
   }
 
   registerBlockType(type: string, blockClass: BlockClass, lineViewClass: LineViewClass) {
@@ -99,20 +93,12 @@ class Config {
     return wordViewClass;
   }
 
-  getCursorTransformer(): CursorTransformer {
-    return this.cursorTransformer;
+  registerEventObserverClass(eventObserverClass: EventObserverClass) {
+    this.eventObserverClasses.push(eventObserverClass)
   }
 
-  getDocTransformer(): DocTransformer {
-    return this.docTransformer;
-  }
-
-  registerEventObserver(eventObserver: EventObserver) {
-    this.eventObservers.push(eventObserver)
-  }
-
-  getEventObservers(): EventObserver[] {
-    return this.eventObservers;
+  getEventObserverClasses(): EventObserverClass[] {
+    return this.eventObserverClasses;
   }
 }
 

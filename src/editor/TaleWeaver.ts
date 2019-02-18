@@ -7,6 +7,9 @@ import Cursor from './cursor/Cursor';
 import CursorTransformation from './state/CursorTransformation';
 import DocumentTransformation from './state/DocumentTransformation';
 import Event from './event/Event';
+import EventObserver from './event/EventObserver';
+import CursorTransformer from './state/CursorTransformer';
+import DocumentTransformer from './state/DocumentTransformer';
 
 export default class TaleWeaver {
   protected config: Config;
@@ -15,13 +18,16 @@ export default class TaleWeaver {
   protected docViewModel: DocViewModel;
   protected docView: DocView;
   protected editorCursor: Cursor | null;
+  protected cursorTransformer: CursorTransformer;
+  protected docTransformer: DocumentTransformer;
+  protected eventObservers: EventObserver[];
 
   constructor(
-    buildConfig: (taleWeaver: TaleWeaver) => Config,
+    config: Config,
     tokens: Token[],
     editorCursor: Cursor | null,
   ) {
-    this.config = buildConfig(this);
+    this.config = config;
     this.tokens = tokens;
     this.doc = new Doc(this, this.tokens);
     this.docViewModel = new DocViewModel(this, this.doc);
@@ -38,6 +44,11 @@ export default class TaleWeaver {
       },
     );
     this.editorCursor = editorCursor;
+    this.cursorTransformer = new CursorTransformer();
+    this.docTransformer = new DocumentTransformer();
+    this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
+      return new SomeEventObserver(this);
+    });
   }
 
   getConfig(): Config {
@@ -65,8 +76,7 @@ export default class TaleWeaver {
    * @param event - Event to dispatch.
    */
   dispatchEvent(event: Event) {
-    const eventObservers = this.config.getEventObservers();
-    eventObservers.forEach(eventObserver => {
+    this.eventObservers.forEach(eventObserver => {
       eventObserver.onEvent(event);
     });
   }
@@ -79,8 +89,7 @@ export default class TaleWeaver {
     if (!this.editorCursor) {
       throw new Error('No editor cursor available to apply transformation.');
     }
-    const transformer = this.config.getCursorTransformer();
-    transformer.apply(this.editorCursor, transformation);
+    this.cursorTransformer.apply(this.editorCursor, transformation);
     const { domDocumentContent } = this.docView.getDOM();
   }
 
@@ -88,7 +97,6 @@ export default class TaleWeaver {
     if (!this.doc) {
       throw new Error('No document available to apply transformation.');
     }
-    const transformer = this.config.getDocTransformer();
-    transformer.apply(this.doc, transformation);
+    this.docTransformer.apply(this.doc, transformation);
   }
 }
