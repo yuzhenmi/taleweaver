@@ -8,10 +8,6 @@ class Text extends Inline {
   getType(): string {
     return Text.getType();
   }
-
-  getSize(): number {
-    return this.content.length + 2;
-  }
 }
 
 export default Text;

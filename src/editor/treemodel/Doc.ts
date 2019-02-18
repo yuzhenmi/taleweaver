@@ -67,7 +67,7 @@ export default class Doc {
   }
 
   getSize(): number {
-    let size = 0;
+    let size = 2;
     this.children.forEach(child => {
       size += child.getSize();
     });

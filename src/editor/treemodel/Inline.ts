@@ -53,5 +53,7 @@ export default abstract class Inline {
 
   abstract getType(): string;
 
-  abstract getSize(): number;
+  getSize(): number {
+    return this.content.length + 2;
+  }
 }
