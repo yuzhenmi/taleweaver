@@ -6,12 +6,12 @@ import TranslateCursor from '../../state/cursortransformationsteps/TranslateCurs
 export default function moveToDocumentEnd(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
-    const editorCursor = taleWeaver.getState().getEditorCursor();
+    const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }
     const head = editorCursor.getHead();
-    const documentSize = taleWeaver.getState().getDoc().getSize();
+    const documentSize = taleWeaver.getDoc().getSize();
     transformation.addStep(new TranslateCursor(documentSize - 1- head));
     return transformation;
   };

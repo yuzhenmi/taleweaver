@@ -43,6 +43,10 @@ export default abstract class Inline {
     this.content = tokens.slice(1, tokens.length - 1).join('');
   }
 
+  setContent(content: string) {
+    this.content = content;
+  }
+
   getContent(): string {
     return this.content;
   }

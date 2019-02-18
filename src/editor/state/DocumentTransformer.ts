@@ -1,4 +1,4 @@
-import Doc from '../model/Doc';
+import Doc from '../treemodel/Doc';
 import DocumentTransformation from './DocumentTransformation';
 import Assign from './documenttransformationsteps/Assign';
 
@@ -16,7 +16,7 @@ export default class DocumentTransformer {
     const steps = transformation.getSteps();
     steps.forEach(step => {
       if (step instanceof Assign) {
-        doc.getChildren()[0].getChildren()[0].setText(step.getText());
+        doc.getChildren()[0].getChildren()[0].setContent(step.getText());
       } else {
         throw new Error(`Unrecognized document transformation step: ${step.getType()}`);
       }

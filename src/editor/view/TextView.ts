@@ -1,7 +1,7 @@
 import WordView, { WordViewConfig, WordViewPositionBox, WordViewDOMElements } from './WordView';
-import Word from '../model/word/Word';
-import TextWord from '../model/word/TextWord';
 import measureText from './helpers/measureText';
+import WordViewModel from '../viewmodel/WordViewModel';
+import TextViewModel from '../viewmodel/TextViewModel';
 
 const placeholderTextStyle = {
   fontFamily: 'Arial',
@@ -24,8 +24,8 @@ export default class TextView extends WordView {
   /** DOM text node. */
   private domTextWord?: Text;
 
-  constructor(word: Word, config: WordViewConfig) {
-    super(word, config);
+  constructor(wordViewModel: WordViewModel, config: WordViewConfig) {
+    super(wordViewModel, config);
     this.mounted = false;
   }
 
@@ -34,12 +34,13 @@ export default class TextView extends WordView {
       return;
     }
     const { domLineContent } = this.getLineView().getDOM();
-    const textWord = <TextWord> this.word;
-    this.domTextWord = document.createTextNode(textWord.getText());
-    domLineContent.appendChild(this.domTextWord);
-    textWord.observe(() => {
-      this.domTextWord!.replaceWith(textWord.getText());
+    const textViewModel = <TextViewModel> this.wordViewModel;
+    let text = '';
+    textViewModel.getSegments().forEach(segment => {
+      text += segment.inline.getContent().substring(segment.from, segment.to + 1);
     });
+    this.domTextWord = document.createTextNode(text);
+    domLineContent.appendChild(this.domTextWord);
   }
 
   getDOM(): WordViewDOMElements {
@@ -72,8 +73,11 @@ export default class TextView extends WordView {
   }
 
   mapViewPositionToModelPosition(x: number): number {
-    const textWord = <TextWord> this.word;
-    const text = textWord.getText();
+    const textViewModel = <TextViewModel> this.wordViewModel;
+    let text = '';
+    textViewModel.getSegments().forEach(segment => {
+      text += segment.inline.getContent().substring(segment.from, segment.to + 1);
+    });
     let lastWidth = 0;
     for (let n = 1, nn = text.length; n < nn; n++) {
       const width = measureText(text.substring(0, n), placeholderTextStyle).width;
@@ -95,8 +99,12 @@ export default class TextView extends WordView {
    * Measures the dimensions of the rendered text word.
    */
   private measure() {
-    const textWord = <TextWord> this.word;
-    const measurement = measureText(textWord.getText(), placeholderTextStyle);
+    const textViewModel = <TextViewModel> this.wordViewModel;
+    let text = '';
+    textViewModel.getSegments().forEach(segment => {
+      text += segment.inline.getContent().substring(segment.from, segment.to + 1);
+    });
+    const measurement = measureText(text, placeholderTextStyle);
     this.width = measurement.width;
     this.height = measurement.height;
   }
@@ -106,8 +114,11 @@ export default class TextView extends WordView {
    * @param at - Document position within the text word.
    */
   private getScreenX(at: number): number {
-    const textWord = <TextWord> this.word;
-    const text = textWord.getText();
+    const textViewModel = <TextViewModel> this.wordViewModel;
+    let text = '';
+    textViewModel.getSegments().forEach(segment => {
+      text += segment.inline.getContent().substring(segment.from, segment.to + 1);
+    });
     if (at === 0) {
       return 0;
     }

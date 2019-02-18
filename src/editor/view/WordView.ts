@@ -1,5 +1,5 @@
 import LineView from './LineView';
-import Word from '../model/word/Word';
+import WordViewModel from '../viewmodel/WordViewModel';
 
 /**
  * Word view config.
@@ -32,8 +32,8 @@ export interface WordViewAwarePosition {
 export default abstract class WordView {
   /** Config for the word view. */
   protected config: WordViewConfig;
-  /** Word model. */
-  protected word: Word;
+  /** Word view model. */
+  protected wordViewModel: WordViewModel;
   /** Parent line view. */
   protected lineView?: LineView;
   /** Rendered DOM element. */
@@ -41,10 +41,11 @@ export default abstract class WordView {
 
   /**
    * Creates a new work view instance.
+   * @param wordViewModel - Word view model.
    * @param config - Config for the word view.
    */
-  constructor(word: Word, config: WordViewConfig) {
-    this.word = word;
+  constructor(wordViewModel: WordViewModel, config: WordViewConfig) {
+    this.wordViewModel = wordViewModel;
     this.config = config;
   }
 
@@ -52,7 +53,7 @@ export default abstract class WordView {
    * Gets the size of the word in the document.
    */
   getSize(): number {
-    return this.word.getSize();
+    return this.wordViewModel.getSize();
   }
 
   /**

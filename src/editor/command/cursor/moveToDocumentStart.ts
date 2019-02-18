@@ -6,7 +6,7 @@ import TranslateCursor from '../../state/cursortransformationsteps/TranslateCurs
 export default function moveToDocumentStart(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
-    const editorCursor = taleWeaver.getState().getEditorCursor();
+    const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }

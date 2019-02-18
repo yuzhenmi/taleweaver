@@ -80,6 +80,14 @@ class TextViewModel extends WordViewModel {
   getType(): string {
     return TextViewModel.getType();
   }
+
+  getSize(): number {
+    let size = 2;
+    this.segments.forEach(segment => {
+      size += segment.to - segment.from + 1;
+    });
+    return size;
+  }
 }
 
 export default TextViewModel;

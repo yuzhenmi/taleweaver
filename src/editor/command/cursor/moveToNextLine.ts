@@ -7,7 +7,7 @@ import moveToLineEnd from './moveToLineEnd';
 export default function moveToNextLine(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
-    const editorCursor = taleWeaver.getState().getEditorCursor();
+    const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }

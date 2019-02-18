@@ -130,8 +130,6 @@ export default class DocView {
     this.domDocument.contentEditable = 'true';
     this.domDocument.spellcheck = false;
     this.domDocument.style.outline = 'none';
-    // @ts-ignore: caret-color is a valid CSS property
-    // this.domDocumentContent.style.caretColor = 'transparent';
     domWrapper.appendChild(this.domDocument);
 
     // Build document content element
@@ -142,8 +140,10 @@ export default class DocView {
     // Mount page views
     this.pageViews.forEach(pageView => pageView.mount());
 
-    // Mount editor cursor view
-    this.editorCursorView!.mount();
+    // Mount editor cursor view, if available
+    if (this.editorCursorView) {
+      this.editorCursorView.mount();
+    }
 
     // Attach event listeners
     this.domDocument.addEventListener('contextmenu', this.handleContextMenu);
@@ -360,7 +360,7 @@ export default class DocView {
    * Builds editor cursor views.
    */
   private buildEditorCursorView() {
-    const editorCursor = this.taleWeaver.getState().getEditorCursor();
+    const editorCursor = this.taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return;
     }
@@ -417,7 +417,7 @@ export default class DocView {
    * Handles key down DOM event.
    */
   private handleKeyDown = (event: KeyboardEvent) => {
-    this.taleWeaver.getState().dispatchEvent(new KeyPressEvent(event.key, event.shiftKey, event.metaKey, event.altKey));
+    this.taleWeaver.dispatchEvent(new KeyPressEvent(event.key, event.shiftKey, event.metaKey, event.altKey));
     event.preventDefault();
   }
 

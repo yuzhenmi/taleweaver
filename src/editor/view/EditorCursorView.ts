@@ -178,19 +178,19 @@ export default class EditorCursorView {
   }
 
   beginSelect(position: number) {
-    this.taleWeaver.getState().applyEditorCursorTransformation(moveTo(position)(this.taleWeaver));
+    this.taleWeaver.applyEditorCursorTransformation(moveTo(position)(this.taleWeaver));
     this.selecting = true;
     this.stopBlinking();
   }
 
   moveSelect(position: number) {
     if (this.selecting) {
-      this.taleWeaver.getState().applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
+      this.taleWeaver.applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
     }
   }
 
   endSelect(position: number) {
-    this.taleWeaver.getState().applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
+    this.taleWeaver.applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
     this.selecting = false;
     this.startBlinking();
   }

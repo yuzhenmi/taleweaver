@@ -21,6 +21,8 @@ abstract class WordViewModel {
 
   abstract getType(): string;
 
+  abstract getSize(): number;
+
   getSegments(): Segment[] {
     return this.segments;
   }

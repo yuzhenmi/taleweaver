@@ -6,14 +6,14 @@ import TranslateCursor from '../../state/cursortransformationsteps/TranslateCurs
 export default function moveForward(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
-    const editorCursor = taleWeaver.getState().getEditorCursor();
+    const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }
     const anchor = editorCursor.getAnchor();
     const head = editorCursor.getHead();
     if (anchor === head) {
-      const documentSize = taleWeaver.getState().getDoc().getSize();
+      const documentSize = taleWeaver.getDoc().getSize();
       if (head > documentSize - 1) {
         return transformation;
       }

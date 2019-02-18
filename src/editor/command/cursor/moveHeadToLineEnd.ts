@@ -6,7 +6,7 @@ import TranslateCursorHead from '../../state/cursortransformationsteps/Translate
 export default function moveHeadRightByLine(): CursorCommand {
   return (taleWeaver: TaleWeaver): CursorTransformation => {
     const transformation = new CursorTransformation();
-    const editorCursor = taleWeaver.getState().getEditorCursor();
+    const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }

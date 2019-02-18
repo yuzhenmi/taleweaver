@@ -1,4 +1,4 @@
-import FlatModel from '../FlatModel';
+import Token from '../Token';
 import DocStartToken from '../DocStartToken';
 import DocEndToken from '../DocEndToken';
 import BlockStartToken from '../BlockStartToken';
@@ -7,8 +7,7 @@ import InlineStartToken from '../InlineStartToken';
 import InlineEndToken from '../InlineEndToken';
 
 class Serializer {
-  serialize(flatModel: FlatModel): string {
-    const tokens = flatModel.getTokens();
+  serialize(tokens: Token[]): string {
     return tokens.map(token => {
       if (typeof token === 'string') {
         return token;
@@ -37,8 +36,8 @@ class Serializer {
     }).join('\n');
   }
 
-  parse(serializedFlatModel: string): FlatModel {
-    const tokens = serializedFlatModel.split('\n').map(serializedToken => {
+  parse(serializedTokens: string): Token[] {
+    const tokens = serializedTokens.split('\n').map(serializedToken => {
       if (serializedToken.length === 1) {
         return serializedToken;
       }
@@ -73,7 +72,7 @@ class Serializer {
       }
       throw new Error(`Cannot parse serialized token: ${serializedToken}`);
     });
-    return new FlatModel(tokens);
+    return tokens;
   }
 }
 
