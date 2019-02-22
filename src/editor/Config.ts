@@ -9,10 +9,8 @@ import WordView from './view/WordView';
 import ParagraphLineView from './view/ParagraphLineView';
 import TextView from './view/TextView';
 import EventObserver from './event/EventObserver';
-import CursorTransformer from './transform/CursorTransformer';
-import DocTransformer from './transform/DocumentTransformer';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
-import DocumentEventObserver from './event/DocumentEventObserver';
+import StateEventObserver from './event/StateEventObserver';
 
 type BlockClass = new (...args: any[]) => Block;
 type InlineClass = new (...args: any[]) => Inline;
@@ -39,7 +37,7 @@ class Config {
     this.registerBlockType('Paragraph', Paragraph, ParagraphLineView);
     this.registerInlineType('Text', Text, TextViewModel, TextView);
     this.registerEventObserverClass(EditorCursorEventObserver);
-    this.registerEventObserverClass(DocumentEventObserver);
+    this.registerEventObserverClass(StateEventObserver);
   }
 
   registerBlockType(type: string, blockClass: BlockClass, lineViewClass: LineViewClass) {

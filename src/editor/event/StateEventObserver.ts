@@ -1,0 +1,16 @@
+import EventObserver from './EventObserver';
+import Event, { KeyPressEvent } from './Event';
+import {
+  insertText,
+} from '../statecommand';
+
+export default class StateEventObserver extends EventObserver {
+  onEvent(event: Event) {
+    if (event instanceof KeyPressEvent) {
+      const keyPressEvent = <KeyPressEvent> event;
+      if (keyPressEvent.key === 'a') {
+        this.dispatchStateCommand(insertText('a'));
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import TaleWeaver from '../TaleWeaver';
 import Event from './Event';
-import CursorCommand from '../command/CursorCommand';
-import DocumentCommand from '../command/DocumentCommand';
+import CursorCommand from '../cursorcommand/CursorCommand';
+import StateCommand from '../statecommand/StateCommand';
 
 export default abstract class EventObserver {
   protected taleWeaver: TaleWeaver;
@@ -15,9 +15,9 @@ export default abstract class EventObserver {
     this.taleWeaver.applyEditorCursorTransformation(cursorTransformation);
   }
 
-  dispatchDocumentCommand(documentCommand: DocumentCommand) {
-    const documentTransformation = documentCommand(this.taleWeaver);
-    this.taleWeaver.applyDocumentTransformation(documentTransformation);
+  dispatchStateCommand(stateCommand: StateCommand) {
+    const stateTransformation = stateCommand(this.taleWeaver);
+    this.taleWeaver.applyStateTransformation(stateTransformation);
   }
 
   abstract onEvent(event: Event): void;

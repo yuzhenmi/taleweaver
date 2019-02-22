@@ -4,12 +4,12 @@ import Doc from './model/Doc';
 import DocViewModel from './viewmodel/DocViewModel';
 import DocView from './view/DocView';
 import Cursor from './cursor/Cursor';
-import CursorTransformation from './transform/CursorTransformation';
-import DocumentTransformation from './transform/DocumentTransformation';
+import CursorTransformation from './cursortransformer/CursorTransformation';
+import StateTransformation from './statetransformer/StateTransformation';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
-import CursorTransformer from './transform/CursorTransformer';
-import DocumentTransformer from './transform/DocumentTransformer';
+import CursorTransformer from './cursortransformer/CursorTransformer';
+import StateTransformer from './statetransformer/StateTransformer';
 
 export default class TaleWeaver {
   protected config: Config;
@@ -19,7 +19,7 @@ export default class TaleWeaver {
   protected docViewModel: DocViewModel;
   protected docView: DocView;
   protected cursorTransformer: CursorTransformer;
-  protected docTransformer: DocumentTransformer;
+  protected stateTransformer: StateTransformer;
   protected eventObservers: EventObserver[];
 
   constructor(config: Config, state: State, editorCursor: Cursor | null) {
@@ -41,7 +41,7 @@ export default class TaleWeaver {
       },
     );
     this.cursorTransformer = new CursorTransformer();
-    this.docTransformer = new DocumentTransformer();
+    this.stateTransformer = new StateTransformer();
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
       return new SomeEventObserver(this);
     });
@@ -93,10 +93,10 @@ export default class TaleWeaver {
     const { domDocumentContent } = this.docView.getDOM();
   }
 
-  applyDocumentTransformation(transformation: DocumentTransformation) {
+  applyStateTransformation(transformation: StateTransformation) {
     if (!this.doc) {
       throw new Error('No document available to apply transformation.');
     }
-    this.docTransformer.apply(this.doc, transformation);
+    this.stateTransformer.apply(this.state, transformation);
   }
 }
