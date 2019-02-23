@@ -9,7 +9,7 @@ export default class StateEventObserver extends EventObserver {
     if (event instanceof KeyPressEvent) {
       const keyPressEvent = <KeyPressEvent> event;
       if (keyPressEvent.key === 'a') {
-        this.dispatchStateCommand(insertText('a'));
+        this.dispatchStateCommand(insertText(5, 'a'));
       }
     }
   }

@@ -1,18 +1,18 @@
 import TaleWeaver from '../TaleWeaver';
 import CursorCommand from './CursorCommand';
-import CursorTransformation from '../cursortransformer/CursorTransformation';
-import TranslateCursor from '../cursortransformer/steps/TranslateCursor';
+import Transformation from '../cursor/Transformation';
+import Translate from '../cursor/transformationsteps/Translate';
 
 export default function moveToDocumentEnd(): CursorCommand {
-  return (taleWeaver: TaleWeaver): CursorTransformation => {
-    const transformation = new CursorTransformation();
+  return (taleWeaver: TaleWeaver): Transformation => {
+    const transformation = new Transformation();
     const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
     }
     const head = editorCursor.getHead();
     const documentSize = taleWeaver.getDoc().getSize();
-    transformation.addStep(new TranslateCursor(documentSize - 1- head));
+    transformation.addStep(new Translate(documentSize - 1- head));
     return transformation;
   };
 }

@@ -1,11 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
 import CursorCommand from './CursorCommand';
-import CursorTransformation from '../cursortransformer/CursorTransformation';
-import TranslateCursorHead from '../cursortransformer/steps/TranslateCursorHead';
+import Transformation from '../cursor/Transformation';
+import TranslateHead from '../cursor/transformationsteps/TranslateHead';
 
 export default function moveHeadToLineStart(): CursorCommand {
-  return (taleWeaver: TaleWeaver): CursorTransformation => {
-    const transformation = new CursorTransformation();
+  return (taleWeaver: TaleWeaver): Transformation => {
+    const transformation = new Transformation();
     const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
@@ -14,7 +14,7 @@ export default function moveHeadToLineStart(): CursorCommand {
     const docView = taleWeaver.getDocView();
     const viewAwarePosition = docView.resolveModelPosition(head);
     if (viewAwarePosition.lineViewPosition > 0) {
-      transformation.addStep(new TranslateCursorHead(0 - viewAwarePosition.lineViewPosition));
+      transformation.addStep(new TranslateHead(0 - viewAwarePosition.lineViewPosition));
     }
     return transformation;
   };

@@ -11,13 +11,17 @@ export default abstract class EventObserver {
   }
 
   dispatchCursorCommand(cursorCommand: CursorCommand) {
+    const editorCursor = this.taleWeaver.getEditorCursor();
+    if (!editorCursor) {
+      return;
+    }
     const cursorTransformation = cursorCommand(this.taleWeaver);
-    this.taleWeaver.applyEditorCursorTransformation(cursorTransformation);
+    editorCursor.transform(cursorTransformation);
   }
 
   dispatchStateCommand(stateCommand: StateCommand) {
     const stateTransformation = stateCommand(this.taleWeaver);
-    this.taleWeaver.applyStateTransformation(stateTransformation);
+    this.taleWeaver.getState().transform(stateTransformation);
   }
 
   abstract onEvent(event: Event): void;

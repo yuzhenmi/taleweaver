@@ -1,11 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
 import CursorCommand from './CursorCommand';
-import CursorTransformation from '../cursortransformer/CursorTransformation';
-import TranslateCursor from '../cursortransformer/steps/TranslateCursor';
+import Transformation from '../cursor/Transformation';
+import Translate from '../cursor/transformationsteps/Translate';
 
 export default function moveForwardByWord(): CursorCommand {
-  return (taleWeaver: TaleWeaver): CursorTransformation => {
-    const transformation = new CursorTransformation();
+  return (taleWeaver: TaleWeaver): Transformation => {
+    const transformation = new Transformation();
     const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
@@ -14,11 +14,11 @@ export default function moveForwardByWord(): CursorCommand {
     const docView = taleWeaver.getDocView();
     const viewAwarePosition = docView.resolveModelPosition(head);
     if (viewAwarePosition.wordViewPosition < viewAwarePosition.wordView.getSize()) {
-      transformation.addStep(new TranslateCursor(viewAwarePosition.wordView.getSize() - viewAwarePosition.wordViewPosition));
+      transformation.addStep(new Translate(viewAwarePosition.wordView.getSize() - viewAwarePosition.wordViewPosition));
     } else {
       const nextWordView = viewAwarePosition.wordView.getNextWordView();
       if (nextWordView) {
-        transformation.addStep(new TranslateCursor(nextWordView.getSize()));
+        transformation.addStep(new Translate(nextWordView.getSize()));
       }
     }
     return transformation;

@@ -1,6 +1,5 @@
 import TaleWeaver from '../TaleWeaver';
 import Text from '../model/Text';
-import BlockViewModel from './BlockViewModel';
 import WordViewModel, { Parent, Segment } from './WordViewModel';
 
 const WORD_DELIMITERS = [

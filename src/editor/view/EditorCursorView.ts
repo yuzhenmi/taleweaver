@@ -27,13 +27,13 @@ export default class EditorCursorView {
     this.lastLineViewX = 0;
   }
 
-  private render(preserveLineViewPosition: boolean = false) {
-    this.renderHead(preserveLineViewPosition);
+  private render(keepX: boolean = false) {
+    this.renderHead(keepX);
     this.renderSelections();
     this.updateNativeCursor();
   }
 
-  private renderHead(preserveLineViewPosition: boolean) {
+  private renderHead(keepX: boolean) {
     const editorCursor = this.editorCursor;
     const head = editorCursor.getHead();
     const viewPositionBoxes = this.docView!.mapModelPositionRangeToViewPositionBoxes(head, head);
@@ -49,7 +49,7 @@ export default class EditorCursorView {
     if (!domHead.parentElement) {
       domPageContent.appendChild(domHead);
     }
-    if (preserveLineViewPosition) {
+    if (keepX) {
       if (this.lineViewX === null) {
         this.lineViewX = this.lastLineViewX;
       }
@@ -136,8 +136,8 @@ export default class EditorCursorView {
     }
     this.render();
     this.startBlinking();
-    this.editorCursor.observe((editorCursor, extraArgs) => {
-      this.render(extraArgs.preserveLineViewPosition);
+    this.editorCursor.observe((editorCursor, keepX) => {
+      this.render(keepX);
       if (this.blinkInterval !== null) {
         this.stopBlinking();
         this.startBlinking();
@@ -178,19 +178,19 @@ export default class EditorCursorView {
   }
 
   beginSelect(position: number) {
-    this.taleWeaver.applyEditorCursorTransformation(moveTo(position)(this.taleWeaver));
+    this.editorCursor.transform(moveTo(position)(this.taleWeaver));
     this.selecting = true;
     this.stopBlinking();
   }
 
   moveSelect(position: number) {
     if (this.selecting) {
-      this.taleWeaver.applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
+      this.editorCursor.transform(moveHeadTo(position)(this.taleWeaver));
     }
   }
 
   endSelect(position: number) {
-    this.taleWeaver.applyEditorCursorTransformation(moveHeadTo(position)(this.taleWeaver));
+    this.editorCursor.transform(moveHeadTo(position)(this.taleWeaver));
     this.selecting = false;
     this.startBlinking();
   }

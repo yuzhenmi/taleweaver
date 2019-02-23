@@ -4,12 +4,8 @@ import Doc from './model/Doc';
 import DocViewModel from './viewmodel/DocViewModel';
 import DocView from './view/DocView';
 import Cursor from './cursor/Cursor';
-import CursorTransformation from './cursortransformer/CursorTransformation';
-import StateTransformation from './statetransformer/StateTransformation';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
-import CursorTransformer from './cursortransformer/CursorTransformer';
-import StateTransformer from './statetransformer/StateTransformer';
 
 export default class TaleWeaver {
   protected config: Config;
@@ -18,15 +14,14 @@ export default class TaleWeaver {
   protected doc: Doc;
   protected docViewModel: DocViewModel;
   protected docView: DocView;
-  protected cursorTransformer: CursorTransformer;
-  protected stateTransformer: StateTransformer;
   protected eventObservers: EventObserver[];
+  protected domWrapper?: HTMLElement;
 
   constructor(config: Config, state: State, editorCursor: Cursor | null) {
     this.config = config;
     this.state = state;
     this.editorCursor = editorCursor;
-    this.doc = new Doc(this, this.state.getTokens());
+    this.doc = new Doc(this, this.state);
     this.docViewModel = new DocViewModel(this, this.doc);
     this.docView = new DocView(
       this,
@@ -40,11 +35,30 @@ export default class TaleWeaver {
         pagePaddingRight: 60,
       },
     );
-    this.cursorTransformer = new CursorTransformer();
-    this.stateTransformer = new StateTransformer();
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
       return new SomeEventObserver(this);
     });
+  }
+
+  foo() {
+    this.domWrapper!.innerHTML = '';
+    this.docViewModel = new DocViewModel(this, this.doc);
+    this.docView = new DocView(
+      this,
+      this.docViewModel,
+      {
+        pageWidth: 800,
+        pageHeight: 1200,
+        pagePaddingTop: 60,
+        pagePaddingBottom: 60,
+        pagePaddingLeft: 60,
+        pagePaddingRight: 60,
+      },
+    );
+    this.eventObservers = this.config.getEventObserverClasses().map(SomeEventObserver => {
+      return new SomeEventObserver(this);
+    });
+    this.mount(this.domWrapper!);
   }
 
   getConfig(): Config {
@@ -68,6 +82,7 @@ export default class TaleWeaver {
   }
 
   mount(domWrapper: HTMLElement) {
+    this.domWrapper = domWrapper;
     this.docView.mount(domWrapper);
   }
 
@@ -79,24 +94,5 @@ export default class TaleWeaver {
     this.eventObservers.forEach(eventObserver => {
       eventObserver.onEvent(event);
     });
-  }
-
-  /**
-   * Applies a transformation on the editor cursor.
-   * @param transformation - Cursor transformation to apply.
-   */
-  applyEditorCursorTransformation(transformation: CursorTransformation) {
-    if (!this.editorCursor) {
-      throw new Error('No editor cursor available to apply transformation.');
-    }
-    this.cursorTransformer.apply(this.editorCursor, transformation);
-    const { domDocumentContent } = this.docView.getDOM();
-  }
-
-  applyStateTransformation(transformation: StateTransformation) {
-    if (!this.doc) {
-      throw new Error('No document available to apply transformation.');
-    }
-    this.stateTransformer.apply(this.state, transformation);
   }
 }

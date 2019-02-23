@@ -1,12 +1,12 @@
 import TaleWeaver from '../TaleWeaver';
 import CursorCommand from './CursorCommand';
-import CursorTransformation from '../cursortransformer/CursorTransformation';
-import TranslateCursor from '../cursortransformer/steps/TranslateCursor';
+import Transformation from '../cursor/Transformation';
+import Translate from '../cursor/transformationsteps/Translate';
 import moveToLineEnd from './moveToLineEnd';
 
 export default function moveToNextLine(): CursorCommand {
-  return (taleWeaver: TaleWeaver): CursorTransformation => {
-    const transformation = new CursorTransformation();
+  return (taleWeaver: TaleWeaver): Transformation => {
+    const transformation = new Transformation(true);
     const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
@@ -32,7 +32,7 @@ export default function moveToNextLine(): CursorCommand {
       ).x1;
     }
     const nextLinePosition = nextLineView.mapViewPositionToModelPosition(lineViewX);
-    transformation.addStep(new TranslateCursor(viewAwarePosition.lineView.getSize() - viewAwarePosition.lineViewPosition + nextLinePosition, true));
+    transformation.addStep(new Translate(viewAwarePosition.lineView.getSize() - viewAwarePosition.lineViewPosition + nextLinePosition));
     return transformation;
   };
 }

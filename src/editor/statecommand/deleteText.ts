@@ -1,13 +1,12 @@
 import TaleWeaver from '../TaleWeaver';
 import StateCommand from './StateCommand';
 import Transformation from '../state/Transformation';
-import Insert from '../state/transformationsteps/Insert';
+import Delete from '../state/transformationsteps/Delete';
 
-export default function insertText(position: number, text: string): StateCommand {
+export default function deleteText(positionFrom: number, positionTo: number): StateCommand {
   return (taleWeaver: TaleWeaver): Transformation => {
     const transformation = new Transformation();
-    const tokens = text.split('');
-    transformation.addStep(new Insert(position, tokens));
+    transformation.addStep(new Delete(positionFrom, positionTo));
     return transformation;
   };
 }

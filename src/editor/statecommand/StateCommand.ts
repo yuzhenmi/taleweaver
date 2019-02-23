@@ -1,6 +1,6 @@
-import StateTransformation from '../statetransformer/StateTransformation';
 import TaleWeaver from '../TaleWeaver';
+import Transformation from '../state/Transformation';
 
-type StateCommand = (taleWeaver: TaleWeaver) => StateTransformation;
+type StateCommand = (taleWeaver: TaleWeaver) => Transformation;
 
 export default StateCommand;

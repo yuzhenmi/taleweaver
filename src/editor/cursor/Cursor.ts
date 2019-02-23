@@ -1,13 +1,9 @@
-/**
- * Interface for extra observer args, which is just
- * an arbitrary key-value map.
- */
-export interface CursorTransformationExtraArgs {
-  preserveLineViewPosition: boolean;
-}
+import Transformation from './Transformation';
+import Translate from './transformationsteps/Translate';
+import TranslateHead from './transformationsteps/TranslateHead';
 
 /** Observer to cursor state change. */
-type CursorObserver = (cursor: Cursor, extraArgs: CursorTransformationExtraArgs) => void;
+type CursorObserver = (cursor: Cursor, keepX: boolean) => void;
 
 /**
  * Generates a unique cursor ID.
@@ -44,16 +40,6 @@ export default class Cursor {
   }
 
   /**
-   * Notifies observers of state change.
-   */
-  private notifyObservers(extraArgs: CursorTransformationExtraArgs) {
-    this.observers.forEach(observer => {
-      observer(this, extraArgs);
-    });
-    document.getElementById('status')!.innerText = `${this.anchor}, ${this.head}`;
-  }
-
-  /**
    * Gets the ID of the cursor.
    */
   getID() {
@@ -69,26 +55,6 @@ export default class Cursor {
   }
 
   /**
-   * Moves the cursor to a certain position.
-   * @param position - Position to move cursor to.
-   */
-  moveTo(position: number, extraArgs: CursorTransformationExtraArgs) {
-    this.anchor = position;
-    this.head = position;
-    this.notifyObservers(extraArgs);
-  }
-
-  /**
-   * Moves the cursor head to a certain position.
-   * The anchor is not moved.
-   * @param position - Position to move cursor head to.
-   */
-  moveHeadTo(position: number, extraArgs: CursorTransformationExtraArgs) {
-    this.head = position;
-    this.notifyObservers(extraArgs);
-  }
-
-  /**
    * Gets the anchor position.
    */
   getAnchor(): number {
@@ -100,5 +66,23 @@ export default class Cursor {
    */
   getHead(): number {
     return this.head!;
+  }
+
+  transform(transformation: Transformation) {
+    const steps = transformation.getSteps();
+    steps.forEach(step => {
+      if (step instanceof Translate) {
+        this.head = this.head += step.getDisplacement();
+        this.anchor = this.head;
+      } else if (step instanceof TranslateHead) {
+        this.head = this.head += step.getDisplacement();
+      } else {
+        throw new Error('Unrecognized transformation step.');
+      }
+    });
+    this.observers.forEach(observer => {
+      observer(this, transformation.getKeepX());
+    });
+    document.getElementById('status')!.innerText = `${this.anchor}, ${this.head}`;
   }
 }

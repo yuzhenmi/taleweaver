@@ -1,11 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
 import CursorCommand from './CursorCommand';
-import CursorTransformation from '../cursortransformer/CursorTransformation';
-import TranslateCursor from '../cursortransformer/steps/TranslateCursor';
+import Transformation from '../cursor/Transformation';
+import Translate from '../cursor/transformationsteps/Translate';
 
 export default function moveBackward(): CursorCommand {
-  return (taleWeaver: TaleWeaver): CursorTransformation => {
-    const transformation = new CursorTransformation();
+  return (taleWeaver: TaleWeaver): Transformation => {
+    const transformation = new Transformation();
     const editorCursor = taleWeaver.getEditorCursor();
     if (!editorCursor) {
       return transformation;
@@ -16,12 +16,12 @@ export default function moveBackward(): CursorCommand {
       if (head < 1) {
         return transformation;
       }
-      transformation.addStep(new TranslateCursor(-1));
+      transformation.addStep(new Translate(-1));
     } else {
       if (anchor < head) {
-        transformation.addStep(new TranslateCursor(anchor - head));
+        transformation.addStep(new Translate(anchor - head));
       } else if (anchor > head) {
-        transformation.addStep(new TranslateCursor(0));
+        transformation.addStep(new Translate(0));
       }
     }
     return transformation;
