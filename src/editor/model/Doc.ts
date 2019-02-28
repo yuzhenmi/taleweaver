@@ -1,17 +1,14 @@
 import TaleWeaver from '../TaleWeaver';
-import RootNode from '../tree/RootNode';
-import State, { StateChangedOffsetRange } from '../state/State';
+import State from '../state/State';
+import Token from '../state/Token';
 import DocStartToken from '../state/DocStartToken';
 import DocEndToken from '../state/DocEndToken';
-import BlockStartToken from '../state/BlockStartToken';
-import BlockEndToken from '../state/BlockEndToken';
+import RootNode from './RootNode';
 import Block from './Block';
+import StartToken from '../state/StartToken';
+import EndToken from '../state/EndToken';
 
 type Child = Block;
-
-interface Attributes {
-  [key: string]: any;
-}
 
 export default class Doc extends RootNode {
   static getType(): string {
@@ -19,29 +16,45 @@ export default class Doc extends RootNode {
   }
 
   protected taleWeaver: TaleWeaver;
-  protected state: State;
+  protected tokens: Token[];
+  protected id: string;
   protected children: Child[];
-  protected attributes: Attributes;
 
   constructor(taleWeaver: TaleWeaver, state: State) {
     super();
     this.taleWeaver = taleWeaver;
-    this.state = state;
     this.children = [];
-    const startToken = state.getTokens()[0] as DocStartToken;
-    this.attributes = startToken.getAttributes();
-    state.subscribe(this.handleStateChange);
-    this.buildFromState();
+    const tokens = state.getTokens();
+    this.validateTokens(tokens);
+    this.tokens = [tokens[0], tokens[tokens.length - 1]];
+    const startToken = tokens[0] as DocStartToken;
+    const { id } = startToken.getAttributes();
+    this.id = id;
+    state.subscribe(this.onStateUpdated);
+    this.updateFromTokens(tokens);
+    this.tokens = tokens;
   }
 
   getType(): string {
     return Doc.getType();
   }
 
+  getID(): string {
+    return this.id;
+  }
+
   getSize(): number {
-    let size = 0;
+    let size = 2;
     this.children.forEach(child => {
       size += child.getSize();
+    });
+    return size;
+  }
+
+  getSelectableSize(): number {
+    let size = 0;
+    this.children.forEach(child => {
+      size += child.getSelectableSize();
     });
     return size;
   }
@@ -62,42 +75,96 @@ export default class Doc extends RootNode {
     return this.children;
   }
 
-  private buildFromState() {
-    this.partialBuildFromState(0, this.state.getTokens().length - 1);
-  }
-
-  private partialBuildFromState(offsetFrom: number, offsetTo: number) {
-    const tokens = this.state.getTokens();
-    if (!(tokens[0] instanceof DocStartToken)) {
-      throw new Error(`Error building doc from tokens, expecting first token to be DocStartToken.`);
+  updateFromTokens(tokens: Token[]) {
+    // Break up tokens by children
+    interface TokenChild {
+      id: string;
+      type: string;
+      tokens: Token[];
     }
-    if (!(tokens[tokens.length - 1] instanceof DocEndToken)) {
-      throw new Error(`Error building doc from tokens, expecting last token to be DocEndToken.`);
-    }
-    let childStartOffset = 1;
+    const tokenChildren: TokenChild[] = [];
     let depth = 0;
+    let startToken: StartToken;
+    let startOffset = 1;
     for (let n = 1, nn = tokens.length - 1; n < nn; n++) {
       const token = tokens[n];
-      if (token instanceof BlockStartToken) {
+      if (token instanceof StartToken) {
         if (depth === 0) {
-          childStartOffset = n;
+          startToken = token;
+          startOffset = n;
         }
-        depth += 1;
-      } else if (token instanceof BlockEndToken) {
-        depth -= 1;
+        depth++;
+      } else if (token instanceof EndToken) {
+        depth--;
+        if (depth === 0) {
+          tokenChildren.push({
+            id: startToken!.getAttributes().id,
+            type: startToken!.getType(),
+            tokens: tokens.slice(startOffset, n + 1),
+          });
+        }
       }
-      if (depth === 0) {
-        const childTokens = tokens.slice(childStartOffset, n + 1);
-        const blockStartToken = tokens[childStartOffset] as BlockStartToken;
-        const BlockClass = this.taleWeaver.getConfig().getBlockClass(blockStartToken.getType());
-        const block = new BlockClass(this.taleWeaver, this, childTokens);
-        this.appendChild(block);
+    }
+
+    // Compare token children with current children and add/update/delete
+    // children as needed
+    const config = this.taleWeaver.getConfig();
+    const children = this.children.slice();
+    const invertedTokenChildren: {
+      [key: string]: number;
+    } = {};
+    tokenChildren.forEach((tokenChild, offset) => {
+      invertedTokenChildren[tokenChild.id] = offset;
+    });
+    const invertedChildren: {
+      [key: string]: number;
+    } = {};
+    children.forEach((child, offset) => {
+      invertedChildren[child.getID()] = offset;
+    });
+    const tokenChildrenSize = tokenChildren.length;
+    const childrenSize = this.children.length;
+    let tokenChildOffset = 0;
+    let childOffset = 0;
+    let operationOffset = 0;
+    while (tokenChildOffset < tokenChildrenSize || childOffset < childrenSize) {
+      if (!(tokenChildren[tokenChildOffset].id in invertedChildren) || childOffset === childrenSize) {
+        // Insert child
+        const tokenChild = tokenChildren[tokenChildOffset];
+        const ChildClass = config.getBlockClass(tokenChild.type);
+        const child = new ChildClass(this.taleWeaver, this, tokenChild.tokens);
+        this.children.splice(operationOffset, 0, child);
+        operationOffset++;
+        tokenChildOffset++;
+      } else if (!(children[childOffset].getID() in invertedTokenChildren) || tokenChildOffset === tokenChildrenSize) {
+        // Delete child
+        this.children.splice(operationOffset, 1);
+        childOffset++;
+      } else {
+        // Update child
+        const tokenChild = tokenChildren[tokenChildOffset];
+        const child = children[childOffset];
+        child.updateFromTokens(tokenChild.tokens);
+        operationOffset++;
+        tokenChildOffset++;
+        childOffset++;
       }
     }
   }
 
-  private handleStateChange = (state: State, changedOffsetRanges: StateChangedOffsetRange[]) => {
-    // Partially rebuild doc based on changed offset ranges
-    // TODO
+  protected validateTokens(tokens: Token[]) {
+    const startToken = tokens[0];
+    if (!(startToken instanceof DocStartToken)) {
+      throw new Error('Invalid doc tokens, first token is not a DocStartToken.');
+    }
+    const endToken = tokens[tokens.length - 1];
+    if (!(endToken instanceof DocEndToken)) {
+      throw new Error('Invalid doc tokens, last token is not a DocEndToken.');
+    }
+  }
+
+  protected onStateUpdated = (state: State) => {
+    const tokens = state.getTokens();
+    this.updateFromTokens(tokens);
   }
 }

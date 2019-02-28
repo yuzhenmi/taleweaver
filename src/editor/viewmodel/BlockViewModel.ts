@@ -1,5 +1,4 @@
 import TaleWeaver from '../TaleWeaver';
-import BranchNode from '../tree/BranchNode';
 import Block from '../model/Block';
 import DocViewModel from './DocViewModel';
 import WordViewModel from './WordViewModel';
@@ -7,14 +6,13 @@ import WordViewModel from './WordViewModel';
 type Parent = DocViewModel;
 type Child = WordViewModel;
 
-class BlockViewModel extends BranchNode {
+class BlockViewModel {
   protected taleWeaver: TaleWeaver;
   protected block: Block;
   protected parent: Parent;
   protected children: Child[];
 
   constructor(taleWeaver: TaleWeaver, block: Block, parent: Parent) {
-    super();
     this.taleWeaver = taleWeaver;
     this.block = block;
     this.parent = parent;

@@ -1,15 +1,11 @@
 import TaleWeaver from '../TaleWeaver';
-import LeafNode from '../tree/LeafNode';
 import Token from '../state/Token';
 import InlineStartToken from '../state/InlineStartToken';
 import InlineEndToken from '../state/InlineEndToken';
+import LeafNode from './LeafNode';
 import Block from './Block';
 
 type Parent = Block;
-
-interface Attributes {
-  [key: string]: any;
-}
 
 export default abstract class Inline extends LeafNode {
   static fromTokens(taleWeaver: TaleWeaver, block: Block, tokens: Token[]): Inline {
@@ -27,26 +23,31 @@ export default abstract class Inline extends LeafNode {
 
   protected taleWeaver: TaleWeaver;
   protected parent: Parent;
-  protected attributes: Attributes;
+  protected id: string;
   protected content: string;
 
   constructor(taleWeaver: TaleWeaver, parent: Parent, tokens: Token[]) {
     super();
     this.taleWeaver = taleWeaver;
     this.parent = parent;
-    if (!(tokens[0] instanceof InlineStartToken)) {
-      throw new Error(`Error building inline from tokens, expecting first token to be InlineStartToken.`);
-    }
-    if (!(tokens[tokens.length - 1] instanceof InlineEndToken)) {
-      throw new Error(`Error building inline from tokens, expecting last token to be InlineEndToken.`);
-    }
+    this.validateTokens(tokens);
     const startToken = tokens[0] as InlineStartToken;
-    this.attributes = startToken.getAttributes();
-    this.content = tokens.slice(1, tokens.length - 1).join('');
+    const { id } = startToken.getAttributes();
+    this.id = id;
+    this.content = '';
+    this.updateFromTokens(tokens);
+  }
+
+  getID(): string {
+    return this.id;
   }
 
   getSize(): number {
-    return this.content.length;
+    return this.content.length + 2;
+  }
+
+  getSelectableSize(): number {
+    return Math.max(this.content.length, 1);
   }
 
   getParent(): Parent {
@@ -59,5 +60,20 @@ export default abstract class Inline extends LeafNode {
 
   getContent(): string {
     return this.content;
+  }
+
+  updateFromTokens(tokens: Token[]) {
+    this.content = tokens.slice(1, tokens.length - 1).join('');
+  }
+
+  protected validateTokens(tokens: Token[]) {
+    const startToken = tokens[0];
+    if (!(startToken instanceof InlineStartToken)) {
+      throw new Error('Invalid inline tokens, first token is not a InlineStartToken.');
+    }
+    const endToken = tokens[tokens.length - 1];
+    if (!(endToken instanceof InlineEndToken)) {
+      throw new Error('Invalid inline tokens, last token is not a InlineEndToken.');
+    }
   }
 }

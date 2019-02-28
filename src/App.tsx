@@ -1,4 +1,5 @@
 import React from 'react';
+import uuid from 'uuid';
 import './App.css';
 import TaleWeaver from './editor/TaleWeaver';
 import Serializer from './editor/state/helpers/Serializer';
@@ -13,10 +14,10 @@ Suspendisse egestas vulputate arcu, ut laoreet felis feugiat sed. Donec dui sem,
 Fusce condimentum arcu et diam faucibus, sit amet mattis velit pharetra. Praesent sagittis rhoncus libero, placerat ornare dui varius eget. Fusce consequat metus ut dignissim luctus. In congue lectus ut magna varius, at aliquam mi rutrum. Nam eu nunc eu ipsum varius pulvinar ac ut nulla. Nullam non elit neque. Vestibulum quis molestie dolor, eu vehicula risus. Sed luctus velit sem, id vestibulum orci blandit at. In aliquam gravida aliquam. Vivamus semper vulputate purus eu vehicula. Ut condimentum quis velit et feugiat. Curabitur eget ex eget mi interdum condimentum eget sit amet purus. Aliquam et libero erat. Aliquam erat volutpat.
 `.trim();
 
-let serialized = '<Doc {}>\n';
+let serialized = `<Doc ${JSON.stringify({id: uuid.v4()})}>\n`;
 docText.split('\n').forEach(docLineText => {
-  serialized += `<Block.Paragraph {}>\n`;
-  serialized += `<Inline.Text {}>\n`;
+  serialized += `<Block.Paragraph ${JSON.stringify({id: uuid.v4()})}>\n`;
+  serialized += `<Inline.Text ${JSON.stringify({id: uuid.v4()})}>\n`;
   docLineText.split('').forEach(char => {
     serialized += `${char}\n`;
   });

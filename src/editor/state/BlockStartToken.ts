@@ -1,23 +1,5 @@
-interface Attributes {
-  [key: string]: any;
-}
+import StartToken from './StartToken';
 
-class BlockStartToken {
-  private type: string;
-  private attributes: Attributes;
-
-  constructor(type: string, attributes: Attributes) {
-    this.type = type;
-    this.attributes = attributes;
-  }
-
-  getType(): string {
-    return this.type;
-  }
-
-  getAttributes(): Attributes {
-    return this.attributes;
-  }
-}
+class BlockStartToken extends StartToken {}
 
 export default BlockStartToken;

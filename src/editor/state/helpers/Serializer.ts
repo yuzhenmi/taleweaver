@@ -44,7 +44,7 @@ class Serializer {
       if (docStartTokenRegex.test(serializedToken)) {
         const result = serializedToken.match(docStartTokenRegex)!;
         const attributes = JSON.parse(result[1]);
-        return new DocStartToken(attributes);
+        return new DocStartToken('Doc', attributes);
       }
       if (serializedToken === '</Doc>') {
         return new DocEndToken();

@@ -122,12 +122,12 @@ export default class DocView extends View {
     }
 
     // Attach event listeners
-    this.domDocument.addEventListener('contextmenu', this.handleContextMenu);
-    this.domDocument.addEventListener('mousedown', this.handleMouseDown);
-    this.domDocument.addEventListener('mousemove', this.handleMouseMove);
-    window.addEventListener('mouseup', this.handleMouseUp);
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
+    this.domDocument.addEventListener('contextmenu', this.onContextMenu);
+    this.domDocument.addEventListener('mousedown', this.onMouseDown);
+    this.domDocument.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('mouseup', this.onMouseUp);
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
   }
 
   getDOM(): DocViewDOMElements {
@@ -358,7 +358,7 @@ export default class DocView extends View {
   /**
    * Handles contextmenu DOM event.
    */
-  private handleContextMenu = (event: Event) => {
+  private onContextMenu = (event: Event) => {
     // Disable browser context menu functionality
     event.preventDefault();
   }
@@ -366,9 +366,9 @@ export default class DocView extends View {
   /**
    * Handles mouse down DOM event.
    */
-  private handleMouseDown = (event: MouseEvent) => {
+  private onMouseDown = (event: MouseEvent) => {
     event.preventDefault();
-    // No need to handle mouse down if no editor cursor
+    // No need to on mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
@@ -379,8 +379,8 @@ export default class DocView extends View {
   /**
    * Handles mouse move DOM event.
    */
-  private handleMouseMove = throttle((event: MouseEvent) => {
-    // No need to handle mouse down if no editor cursor
+  private onMouseMove = throttle((event: MouseEvent) => {
+    // No need to on mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
@@ -391,8 +391,8 @@ export default class DocView extends View {
   /**
    * Handles mouse up DOM event.
    */
-  private handleMouseUp = (event: MouseEvent) => {
-    // No need to handle mouse down if no editor cursor
+  private onMouseUp = (event: MouseEvent) => {
+    // No need to on mouse down if no editor cursor
     if (!this.editorCursorView) {
       return;
     }
@@ -403,7 +403,7 @@ export default class DocView extends View {
   /**
    * Handles key down DOM event.
    */
-  private handleKeyDown = (event: KeyboardEvent) => {
+  private onKeyDown = (event: KeyboardEvent) => {
     this.taleWeaver.dispatchEvent(new KeyPressEvent(event.key, event.shiftKey, event.metaKey, event.altKey));
     event.preventDefault();
   }
@@ -411,6 +411,6 @@ export default class DocView extends View {
   /**
    * Handles key up DOM event.
    */
-  private handleKeyUp = (event: KeyboardEvent) => {
+  private onKeyUp = (event: KeyboardEvent) => {
   }
 }

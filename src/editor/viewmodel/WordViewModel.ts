@@ -1,5 +1,4 @@
 import TaleWeaver from '../TaleWeaver';
-import LeafNode from '../tree/LeafNode';
 import Inline from '../model/Inline';
 import BlockViewModel from './BlockViewModel';
 
@@ -11,13 +10,12 @@ export interface Segment {
   to: number;
 }
 
-abstract class WordViewModel extends LeafNode {
+abstract class WordViewModel {
   protected taleWeaver: TaleWeaver;
   protected segments: Segment[];
   protected parent: Parent;
 
   constructor(taleWeaver: TaleWeaver, segments: Segment[], parent: Parent) {
-    super();
     this.taleWeaver = taleWeaver;
     this.segments = segments;
     this.parent = parent;
