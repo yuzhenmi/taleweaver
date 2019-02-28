@@ -5,8 +5,7 @@ import DocStartToken from '../state/DocStartToken';
 import DocEndToken from '../state/DocEndToken';
 import RootNode from './RootNode';
 import Block from './Block';
-import StartToken from '../state/StartToken';
-import EndToken from '../state/EndToken';
+import splitTokens from './helpers/splitTokens';
 
 type Child = Block;
 
@@ -76,35 +75,8 @@ export default class Doc extends RootNode {
   }
 
   updateFromTokens(tokens: Token[]) {
-    // Break up tokens by children
-    interface TokenChild {
-      id: string;
-      type: string;
-      tokens: Token[];
-    }
-    const tokenChildren: TokenChild[] = [];
-    let depth = 0;
-    let startToken: StartToken;
-    let startOffset = 1;
-    for (let n = 1, nn = tokens.length - 1; n < nn; n++) {
-      const token = tokens[n];
-      if (token instanceof StartToken) {
-        if (depth === 0) {
-          startToken = token;
-          startOffset = n;
-        }
-        depth++;
-      } else if (token instanceof EndToken) {
-        depth--;
-        if (depth === 0) {
-          tokenChildren.push({
-            id: startToken!.getAttributes().id,
-            type: startToken!.getType(),
-            tokens: tokens.slice(startOffset, n + 1),
-          });
-        }
-      }
-    }
+    // Break up tokens into children
+    const tokenChildren = splitTokens(tokens);
 
     // Compare token children with current children and add/update/delete
     // children as needed
