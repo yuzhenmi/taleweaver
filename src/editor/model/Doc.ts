@@ -15,7 +15,6 @@ export default class Doc extends RootNode {
   }
 
   protected taleWeaver: TaleWeaver;
-  protected tokens: Token[];
   protected id: string;
   protected children: Child[];
 
@@ -25,13 +24,11 @@ export default class Doc extends RootNode {
     this.children = [];
     const tokens = state.getTokens();
     this.validateTokens(tokens);
-    this.tokens = [tokens[0], tokens[tokens.length - 1]];
     const startToken = tokens[0] as DocStartToken;
     const { id } = startToken.getAttributes();
     this.id = id;
     state.subscribe(this.onStateUpdated);
     this.updateFromTokens(tokens);
-    this.tokens = tokens;
   }
 
   getType(): string {

@@ -12,7 +12,6 @@ type Child = Inline;
 
 export default abstract class Block extends BranchNode {
   protected taleWeaver: TaleWeaver;
-  protected tokens: Token[];
   protected id: string;
   protected parent: Parent;
   protected children: Child[];
@@ -20,7 +19,6 @@ export default abstract class Block extends BranchNode {
   constructor(taleWeaver: TaleWeaver, parent: Parent, tokens: Token[]) {
     super();
     this.taleWeaver = taleWeaver;
-    this.tokens = tokens;
     this.parent = parent;
     this.children = [];
     this.validateTokens(tokens);
