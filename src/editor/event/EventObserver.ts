@@ -1,7 +1,7 @@
 import TaleWeaver from '../TaleWeaver';
 import Event from './Event';
-import CursorCommand from '../cursorcommand/CursorCommand';
-import StateCommand from '../statecommand/StateCommand';
+import CursorCommand from '../cursor/commands/Command';
+import StateCommand from '../state/commands/Command';
 
 export default abstract class EventObserver {
   protected taleWeaver: TaleWeaver;

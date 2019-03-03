@@ -1,6 +1,6 @@
 import TaleWeaver from '../TaleWeaver';
-import DocViewModel from '../viewmodel/DocViewModel';
-import BlockViewModel from '../viewmodel/BlockViewModel';
+import DocViewModel from '../layout/DocViewModel';
+import BlockViewModel from '../layout/BlockViewModel';
 import throttle from '../helpers/throttle';
 import View, { ViewDOMElements } from './View';
 import PageView, { PageViewPositionBox, PageViewAwarePosition } from './PageView';

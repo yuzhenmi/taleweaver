@@ -1,10 +1,6 @@
-import DocStartToken from './DocStartToken';
-import DocEndToken from './DocEndToken';
-import BlockStartToken from './BlockStartToken';
-import BlockEndToken from './BlockEndToken';
-import InlineStartToken from './InlineStartToken';
-import InlineEndToken from './InlineEndToken';
+import OpenTagToken from './OpenTagToken';
+import CloseTagToken from './CloseTagToken';
 
-type Token = DocStartToken | DocEndToken | BlockStartToken | BlockEndToken | InlineStartToken | InlineEndToken | string;
+type Token = OpenTagToken | CloseTagToken | string;
 
 export default Token;

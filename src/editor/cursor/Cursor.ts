@@ -1,6 +1,6 @@
 import Transformation from './Transformation';
-import Translate from './transformationsteps/Translate';
-import TranslateHead from './transformationsteps/TranslateHead';
+import Translate from './operations/Translate';
+import TranslateHead from './operations/TranslateHead';
 
 /** Observer to cursor state change. */
 type CursorObserver = (cursor: Cursor, keepX: boolean) => void;
@@ -69,15 +69,15 @@ export default class Cursor {
   }
 
   transform(transformation: Transformation) {
-    const steps = transformation.getSteps();
-    steps.forEach(step => {
-      if (step instanceof Translate) {
-        this.head = this.head += step.getDisplacement();
+    const operations = transformation.getOperations();
+    operations.forEach(operation => {
+      if (operation instanceof Translate) {
+        this.head = this.head += operation.getDisplacement();
         this.anchor = this.head;
-      } else if (step instanceof TranslateHead) {
-        this.head = this.head += step.getDisplacement();
+      } else if (operation instanceof TranslateHead) {
+        this.head = this.head += operation.getDisplacement();
       } else {
-        throw new Error('Unrecognized transformation step.');
+        throw new Error('Unrecognized transformation operation.');
       }
     });
     this.observers.forEach(observer => {

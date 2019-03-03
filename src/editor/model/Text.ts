@@ -1,12 +1,9 @@
-import Inline from './Inline';
+import LeafNode from './LeafNode';
 
-class Text extends Inline {
-  static getType(): string {
-    return 'Text';
-  }
+class Text extends LeafNode {
 
   getType(): string {
-    return Text.getType();
+    return 'Text';
   }
 }
 

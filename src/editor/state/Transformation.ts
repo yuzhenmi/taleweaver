@@ -1,20 +1,17 @@
-export interface TransformationStep {
-
-  getType(): string;
-}
+import Operation from './operations/Operation';
 
 export default class Transformation {
-  private steps: TransformationStep[] = [];
+  private operations: Operation[] = [];
 
   constructor() {
-    this.steps = [];
+    this.operations = [];
   }
 
-  addStep(step: TransformationStep) {
-    this.steps.push(step);
+  addOperation(operation: Operation) {
+    this.operations.push(operation);
   }
 
-  getSteps(): TransformationStep[] {
-    return this.steps;
+  getOperations(): Operation[] {
+    return this.operations;
   }
 }

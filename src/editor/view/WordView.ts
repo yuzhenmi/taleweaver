@@ -1,5 +1,5 @@
 import LineView from './LineView';
-import WordViewModel from '../viewmodel/WordViewModel';
+import WordViewModel from '../layout/WordViewModel';
 
 /**
  * Word view config.

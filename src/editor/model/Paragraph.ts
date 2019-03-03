@@ -1,12 +1,9 @@
-import Block from './Block';
+import BranchNode from './BranchNode';
 
-class Paragraph extends Block {
-  static getType(): string {
-    return 'Paragraph';
-  }
+class Paragraph extends BranchNode {
 
   getType(): string {
-    return Paragraph.getType();
+    return 'Paragraph';
   }
 }
 

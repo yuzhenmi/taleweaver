@@ -1,20 +1,20 @@
-export interface TransformationStep {}
+import Operation from './operations/Operation';
 
 export default class Transformation {
-  private steps: TransformationStep[] = [];
+  private operations: Operation[] = [];
   private keepX: boolean;
 
   constructor(keepX: boolean = false) {
-    this.steps = [];
+    this.operations = [];
     this.keepX = keepX;
   }
 
-  addStep(step: TransformationStep) {
-    this.steps.push(step);
+  addOperation(operation: Operation) {
+    this.operations.push(operation);
   }
 
-  getSteps(): TransformationStep[] {
-    return this.steps;
+  getOperations(): Operation[] {
+    return this.operations;
   }
 
   getKeepX(): boolean {

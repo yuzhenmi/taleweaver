@@ -1,7 +1,7 @@
 import WordView, { WordViewConfig, WordViewPositionBox, WordViewDOMElements } from './WordView';
 import measureText from './helpers/measureText';
-import WordViewModel from '../viewmodel/WordViewModel';
-import TextViewModel from '../viewmodel/TextViewModel';
+import WordViewModel from '../layout/WordViewModel';
+import TextViewModel from '../layout/TextViewModel';
 
 const placeholderTextStyle = {
   fontFamily: 'Arial',

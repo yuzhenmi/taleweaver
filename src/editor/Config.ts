@@ -1,70 +1,49 @@
-import Block from './model/Block';
-import Inline from './model/Inline';
+import Node from './model/Node';
 import Paragraph from './model/Paragraph';
 import Text from './model/Text';
-import WordViewModel from './viewmodel/WordViewModel';
-import TextViewModel from './viewmodel/TextViewModel';
+import WordViewModel from './layout/WordViewModel';
 import LineView from './view/LineView';
 import WordView from './view/WordView';
-import ParagraphLineView from './view/ParagraphLineView';
-import TextView from './view/TextView';
 import EventObserver from './event/EventObserver';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
 import StateEventObserver from './event/StateEventObserver';
+import Doc from './model/Doc';
 
-type BlockClass = new (...args: any[]) => Block;
-type InlineClass = new (...args: any[]) => Inline;
+type NodeClass = new (...args: any[]) => Node;
 type WordViewModelClass = new (...args: any[]) => WordViewModel;
 type LineViewClass = new (...args: any[]) => LineView;
 type WordViewClass = new (...args: any[]) => WordView;
 type EventObserverClass = new (...args: any[]) => EventObserver;
 
 class Config {
-  protected blockClasses: { [key: string]: BlockClass };
-  protected inlineClasses: { [key: string]: InlineClass };
+  protected nodeClasses: Map<string, NodeClass>;
   protected wordViewModelClasses: { [key: string]: WordViewModelClass };
   protected lineViewClasses: { [key: string]: LineViewClass };
   protected wordViewClasses: { [key: string]: WordViewClass };
   protected eventObserverClasses: EventObserverClass[];
 
   constructor() {
-    this.blockClasses = {};
-    this.inlineClasses = {};
+    this.nodeClasses = new Map();
     this.wordViewModelClasses = {};
     this.lineViewClasses = {};
     this.wordViewClasses = {};
     this.eventObserverClasses = [];
-    this.registerBlockType('Paragraph', Paragraph, ParagraphLineView);
-    this.registerInlineType('Text', Text, TextViewModel, TextView);
+    this.registerNodeType('Doc', Doc);
+    this.registerNodeType('Paragraph', Paragraph);
+    this.registerNodeType('Text', Text);
     this.registerEventObserverClass(EditorCursorEventObserver);
     this.registerEventObserverClass(StateEventObserver);
   }
 
-  registerBlockType(type: string, blockClass: BlockClass, lineViewClass: LineViewClass) {
-    this.blockClasses[type] = blockClass;
-    this.lineViewClasses[type] = lineViewClass;
+  registerNodeType(type: string, nodeClass: NodeClass) {
+    this.nodeClasses.set(type, nodeClass);
   }
 
-  registerInlineType(type: string, inlineClass: InlineClass, wordViewModelClass: WordViewModelClass, wordViewClass: WordViewClass) {
-    this.inlineClasses[type] = inlineClass;
-    this.wordViewModelClasses[type] = wordViewModelClass;
-    this.wordViewClasses[type] = wordViewClass;
-  }
-
-  getBlockClass(type: string): BlockClass {
-    const blockClass = this.blockClasses[type];
-    if (!blockClass) {
-      throw new Error(`Block type ${type} is not registered.`);
+  getNodeClass(type: string): NodeClass {
+    if (!this.nodeClasses.has(type)) {
+      throw new Error(`Node type ${type} is not registered.`);
     }
-    return blockClass
-  }
-
-  getInlineClass(type: string): InlineClass {
-    const inlineClass = this.inlineClasses[type];
-    if (!inlineClass) {
-      throw new Error(`Inline type ${type} is not regsitered.`);
-    }
-    return inlineClass;
+    return this.nodeClasses.get(type)!;
   }
 
   getWordViewModelClass(type: string): WordViewModelClass {

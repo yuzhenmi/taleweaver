@@ -2,7 +2,7 @@ import EventObserver from './EventObserver';
 import Event, { KeyPressEvent } from './Event';
 import {
   insertText,
-} from '../statecommand';
+} from '../state/commands';
 
 export default class StateEventObserver extends EventObserver {
   onEvent(event: Event) {

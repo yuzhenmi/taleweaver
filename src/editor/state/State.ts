@@ -1,17 +1,24 @@
 import Token from './Token';
 import Transformation from './Transformation';
-import Insert from './transformationsteps/Insert';
-import Delete from './transformationsteps/Delete';
+import Insert from './operations/Insert';
+import Delete from './operations/Delete';
 
-type StateSubscriber = (state: State) => void;
+type StateSubscriber = (tokens: Token[]) => void;
 
 class State {
   protected tokens: Token[];
   protected subscribers: StateSubscriber[];
 
-  constructor(tokens: Token[]) {
-    this.tokens = tokens;
+  constructor() {
+    this.tokens = [];
     this.subscribers = [];
+  }
+
+  setTokens(tokens: Token[]) {
+    this.tokens = tokens;
+    this.subscribers.forEach(subscriber => {
+      subscriber(this.tokens);
+    });
   }
 
   getTokens(): Token[] {
@@ -23,18 +30,18 @@ class State {
   }
 
   transform(transformation: Transformation) {
-    const steps = transformation.getSteps();
-    steps.forEach(step => {
-      if (step instanceof Insert) {
-        this.tokens.splice(step.getOffset(), 0, ...step.getTokens());
-      } else if (step instanceof Delete) {
-        this.tokens.splice(step.getOffsetFrom(), step.getOffsetTo() - step.getOffsetFrom() + 1);
+    const operations = transformation.getOperations();
+    operations.forEach(operation => {
+      if (operation instanceof Insert) {
+        this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());
+      } else if (operation instanceof Delete) {
+        this.tokens.splice(operation.getFrom(), operation.getTo() - operation.getFrom() + 1);
       } else {
-        throw new Error('Unrecognized transformation step.');
+        throw new Error('Unknown state transformation operation encountered.');
       }
     });
     this.subscribers.forEach(subscriber => {
-      subscriber(this);
+      subscriber(this.tokens);
     });
   }
 }

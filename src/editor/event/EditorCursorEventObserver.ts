@@ -21,7 +21,7 @@ import {
   moveToNextLine,
   moveHeadToPreviousLine,
   moveHeadToNextLine,
-} from '../cursorcommand';
+} from '../cursor/commands';
 
 export default class EditorCursorEventObserver extends EventObserver {
   onEvent(event: Event) {

@@ -1,7 +1,7 @@
 import TaleWeaver from '../TaleWeaver';
 import Cursor from '../cursor/Cursor';
 import DocView from './DocView';
-import { moveTo, moveHeadTo } from '../cursorcommand';
+import { moveTo, moveHeadTo } from '../cursor/commands';
 import isElementInViewport from '../helpers/isElementInViewport';
 
 export default class EditorCursorView {
