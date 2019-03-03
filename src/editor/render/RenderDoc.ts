@@ -1,22 +1,14 @@
-import Node from './Node';
-import RootNode from './RootNode';
-import LeafNode from './LeafNode';
+import Node from './RenderNode';
+import RenderBlock from './RenderBlock';
 
-export type Parent = RootNode | BranchNode;
-export type Child = BranchNode | LeafNode;
+export type Child = RenderBlock;
 
-export default abstract class BranchNode extends Node {
-  private parent: Parent;
+export default class RenderDoc extends Node {
   private children: Child[];
 
-  constructor(parent: Parent) {
-    super();
-    this.parent = parent;
+  constructor(id: string) {
+    super(id);
     this.children = [];
-  }
-
-  getParent(): Parent {
-    return this.parent;
   }
 
   getChildren(): Child[] {
@@ -34,4 +26,4 @@ export default abstract class BranchNode extends Node {
     }
     this.children.splice(childOffset, 1);
   }
-};
+}

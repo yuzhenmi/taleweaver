@@ -2,7 +2,7 @@ import Node from './Node';
 import BranchNode from './BranchNode';
 import LeafNode from './LeafNode';
 
-type Child = BranchNode | LeafNode;
+export type Child = BranchNode | LeafNode;
 
 export default abstract class RootNode extends Node {
   private children: Child[];

@@ -1,15 +1,20 @@
 import Node from './model/Node';
+import Doc from './model/Doc';
 import Paragraph from './model/Paragraph';
 import Text from './model/Text';
+import RenderNode from './render/RenderNode';
+import RenderDoc from './render/RenderDoc';
+import RenderParagraph from './render/RenderParagraph';
+import RenderText from './render/RenderText';
 import WordViewModel from './layout/WordViewModel';
 import LineView from './view/LineView';
 import WordView from './view/WordView';
 import EventObserver from './event/EventObserver';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
 import StateEventObserver from './event/StateEventObserver';
-import Doc from './model/Doc';
 
 type NodeClass = new (...args: any[]) => Node;
+type RenderNodeClass = new (...args: any[]) => RenderNode;
 type WordViewModelClass = new (...args: any[]) => WordViewModel;
 type LineViewClass = new (...args: any[]) => LineView;
 type WordViewClass = new (...args: any[]) => WordView;
@@ -17,6 +22,7 @@ type EventObserverClass = new (...args: any[]) => EventObserver;
 
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
+  protected renderNodeClasses: Map<string, RenderNodeClass>;
   protected wordViewModelClasses: { [key: string]: WordViewModelClass };
   protected lineViewClasses: { [key: string]: LineViewClass };
   protected wordViewClasses: { [key: string]: WordViewClass };
@@ -24,18 +30,22 @@ class Config {
 
   constructor() {
     this.nodeClasses = new Map();
+    this.renderNodeClasses = new Map();
     this.wordViewModelClasses = {};
     this.lineViewClasses = {};
     this.wordViewClasses = {};
     this.eventObserverClasses = [];
-    this.registerNodeType('Doc', Doc);
-    this.registerNodeType('Paragraph', Paragraph);
-    this.registerNodeType('Text', Text);
+    this.registerNodeClass('Doc', Doc);
+    this.registerNodeClass('Paragraph', Paragraph);
+    this.registerNodeClass('Text', Text);
+    this.registerRenderNodeClass('Doc', RenderDoc);
+    this.registerRenderNodeClass('Paragraph', RenderParagraph);
+    this.registerRenderNodeClass('Text', RenderText);
     this.registerEventObserverClass(EditorCursorEventObserver);
     this.registerEventObserverClass(StateEventObserver);
   }
 
-  registerNodeType(type: string, nodeClass: NodeClass) {
+  registerNodeClass(type: string, nodeClass: NodeClass) {
     this.nodeClasses.set(type, nodeClass);
   }
 
@@ -44,6 +54,17 @@ class Config {
       throw new Error(`Node type ${type} is not registered.`);
     }
     return this.nodeClasses.get(type)!;
+  }
+
+  registerRenderNodeClass(type: string, renderNodeClass: RenderNodeClass) {
+    this.renderNodeClasses.set(type, renderNodeClass);
+  }
+
+  getRenderNodeClass(type: string): RenderNodeClass {
+    if (!this.renderNodeClasses.has(type)) {
+      throw new Error(`Render node type ${type} is not registered.`);
+    }
+    return this.renderNodeClasses.get(type)!;
   }
 
   getWordViewModelClass(type: string): WordViewModelClass {

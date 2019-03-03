@@ -1,7 +1,7 @@
 import Node from './Node';
 import BranchNode from './BranchNode';
 
-type Parent = BranchNode;
+export type Parent = BranchNode;
 
 export default abstract class LeafNode extends Node {
   private parent: Parent;
