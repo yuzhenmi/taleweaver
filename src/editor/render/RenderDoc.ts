@@ -6,8 +6,8 @@ export type Child = RenderBlock;
 export default class RenderDoc extends Node {
   private children: Child[];
 
-  constructor(id: string) {
-    super(id);
+  constructor(id: string, size: number, selectableSize: number) {
+    super(id, size, selectableSize);
     this.children = [];
   }
 

@@ -5,7 +5,7 @@ export default class RenderText extends RenderInline {
   protected node: Text;
 
   constructor(parent: Parent, node: Text) {
-    super(parent, node.getID());
+    super(parent, node.getID(), node.getSize(), node.getSelectableSize());
     this.node = node;
   }
 }

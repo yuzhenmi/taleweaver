@@ -5,7 +5,7 @@ export default class RenderParagraph extends RenderBlock {
   protected node: Paragraph;
 
   constructor(parent: Parent, node: Paragraph) {
-    super(parent, node.getID());
+    super(parent, node.getID(), node.getSize(), node.getSelectableSize());
     this.node = node;
   }
 }

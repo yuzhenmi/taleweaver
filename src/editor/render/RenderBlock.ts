@@ -9,8 +9,8 @@ export default class RenderBlock extends Node {
   private parent: Parent;
   private children: Child[];
 
-  constructor(parent: Parent, id: string) {
-    super(id);
+  constructor(parent: Parent, id: string, size: number, selectableSize: number) {
+    super(id, size, selectableSize);
     this.parent = parent;
     this.children = [];
   }
