@@ -8,4 +8,16 @@ export default class RenderNode {
     this.size = size;
     this.selectableSize = selectableSize;
   }
+
+  getID(): string {
+    return this.id
+  }
+
+  getSize(): number {
+    return this.size;
+  }
+
+  getSelectableSize(): number {
+    return this.selectableSize;
+  }
 }

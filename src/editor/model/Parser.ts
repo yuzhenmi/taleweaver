@@ -26,7 +26,7 @@ interface NodeInfo {
 }
 
 class NodeStack {
-  private values: NodeInfo[];
+  protected values: NodeInfo[];
 
   constructor() {
     this.values = [];
@@ -57,15 +57,15 @@ function buildChildrenMap(children: (BranchNode | LeafNode)[]): ChildrenMap {
 }
 
 class Parser {
-  private config: Config;
-  private tokens: Token[];
-  private rootNode: RootNode;
-  private offset: number;
-  private state: State;
-  private nodeStack: NodeStack;
-  private leafNode?: LeafNode;
-  private childOffset: number;
-  private leafContentBuffer: string[];
+  protected config: Config;
+  protected tokens: Token[];
+  protected rootNode: RootNode;
+  protected offset: number;
+  protected state: State;
+  protected nodeStack: NodeStack;
+  protected leafNode?: LeafNode;
+  protected childOffset: number;
+  protected leafContentBuffer: string[];
 
   constructor(config: Config, rootNode: RootNode) {
     this.config = config;
@@ -86,7 +86,7 @@ class Parser {
     }
   }
 
-  private step() {
+  protected step() {
     const token = this.tokens[this.offset];
     switch (this.state) {
       case State.ReadyForDocOpenTag: {
@@ -118,8 +118,7 @@ class Parser {
           const { child: _node, offset: nodeOffset } = siblingsMap.get(id)!;
           node = _node;
           while (this.childOffset < nodeOffset) {
-            const siblings = parent.getChildren();
-            const siblingToDelete = siblings[this.childOffset];
+            const siblingToDelete = parent.getChildren()[this.childOffset];
             parent.deleteChild(siblingToDelete);
             this.childOffset += 1;
           }
