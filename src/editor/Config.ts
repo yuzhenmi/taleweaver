@@ -6,7 +6,6 @@ import RenderNode from './render/RenderNode';
 import RenderDoc from './render/RenderDoc';
 import RenderParagraph from './render/RenderParagraph';
 import RenderText from './render/RenderText';
-import WordViewModel from './layout/WordViewModel';
 import LineView from './view/LineView';
 import WordView from './view/WordView';
 import EventObserver from './event/EventObserver';
@@ -15,7 +14,6 @@ import StateEventObserver from './event/StateEventObserver';
 
 type NodeClass = new (...args: any[]) => Node;
 type RenderNodeClass = new (...args: any[]) => RenderNode;
-type WordViewModelClass = new (...args: any[]) => WordViewModel;
 type LineViewClass = new (...args: any[]) => LineView;
 type WordViewClass = new (...args: any[]) => WordView;
 type EventObserverClass = new (...args: any[]) => EventObserver;
@@ -23,7 +21,6 @@ type EventObserverClass = new (...args: any[]) => EventObserver;
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
   protected renderNodeClasses: Map<string, RenderNodeClass>;
-  protected wordViewModelClasses: { [key: string]: WordViewModelClass };
   protected lineViewClasses: { [key: string]: LineViewClass };
   protected wordViewClasses: { [key: string]: WordViewClass };
   protected eventObserverClasses: EventObserverClass[];
@@ -31,7 +28,6 @@ class Config {
   constructor() {
     this.nodeClasses = new Map();
     this.renderNodeClasses = new Map();
-    this.wordViewModelClasses = {};
     this.lineViewClasses = {};
     this.wordViewClasses = {};
     this.eventObserverClasses = [];
@@ -65,14 +61,6 @@ class Config {
       throw new Error(`Render node type ${type} is not registered.`);
     }
     return this.renderNodeClasses.get(type)!;
-  }
-
-  getWordViewModelClass(type: string): WordViewModelClass {
-    const wordViewModelClass = this.wordViewModelClasses[type];
-    if (!wordViewModelClass) {
-      throw new Error(`Inline type ${type} is not regsitered.`);
-    }
-    return wordViewModelClass;
   }
 
   getLineViewClass(type: string): LineViewClass {

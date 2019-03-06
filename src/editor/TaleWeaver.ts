@@ -1,50 +1,44 @@
 import Config from './Config'
-import State from './state/State';
 import Token from './state/Token';
-import Doc from './model/Doc';
-import DocViewModel from './layout/DocViewModel';
-import DocView from './view/DocView';
+import Tokenizer from './state/Tokenizer';
+import State from './state/State';
 import Cursor from './cursor/Cursor';
+import Parser from './model/Parser';
+import Doc from './model/Doc';
+import Renderer from './render/Renderer';
+import RenderDoc from './render/RenderDoc';
+import LayoutEngine from './layout/LayoutEngine';
+import DocLayout from './layout/DocLayout';
+import ViewAdapter from './view/ViewAdapter';
+import DocView from './view/DocView';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
-import Parser from './model/Parser';
-import Tokenizer from './state/Tokenizer';
 
 export default class TaleWeaver {
   protected config: Config;
   protected state: State;
   protected editorCursor: Cursor | null;
-  protected doc: Doc;
-  protected docViewModel: DocViewModel;
-  protected docView: DocView;
-  protected eventObservers: EventObserver[];
+  protected tokenizer: Tokenizer;
   protected parser: Parser;
+  protected renderer: Renderer;
+  protected layoutEngine: LayoutEngine;
+  protected viewAdapter: ViewAdapter;
   protected domWrapper?: HTMLElement;
+  protected eventObservers: EventObserver[];
 
   constructor(config: Config) {
     this.config = config;
     this.state = new State();
+    this.state.subscribe(this.handleStateUpdated);
     this.editorCursor = null;
-    this.doc = new Doc();
-    this.docViewModel = new DocViewModel(this, this.doc);
-    this.docView = new DocView(
-      this,
-      this.docViewModel,
-      {
-        pageWidth: 800,
-        pageHeight: 1200,
-        pagePaddingTop: 60,
-        pagePaddingBottom: 60,
-        pagePaddingLeft: 60,
-        pagePaddingRight: 60,
-      },
-    );
+    this.tokenizer = new Tokenizer(this.config);
+    this.parser = new Parser(this.config, new Doc());
+    this.renderer = new Renderer(this.config, new RenderDoc());
+    this.layoutEngine = new LayoutEngine(this.config, new DocLayout());
+    this.viewAdapter = new ViewAdapter(this.config, new DocView());
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
       return new SomeEventObserver(this);
     });
-    this.parser = new Parser(this.config, this.doc);
-    this.parser.parse(this.state.getTokens());
-    this.state.subscribe(this.handleStateUpdated);
   }
 
   getConfig(): Config {
@@ -52,21 +46,12 @@ export default class TaleWeaver {
   }
 
   setMarkup(markup: string) {
-    const tokenizer = new Tokenizer(markup);
-    const tokens = tokenizer.tokenize();
+    const tokens = this.tokenizer.tokenize(markup);
     this.state.setTokens(tokens);
   }
 
   getState(): State {
     return this.state;
-  }
-
-  getDoc(): Doc {
-    return this.doc;
-  }
-
-  getDocView(): DocView {
-    return this.docView;
   }
 
   setEditorCursor(editorCursor: Cursor) {
@@ -79,7 +64,7 @@ export default class TaleWeaver {
 
   mount(domWrapper: HTMLElement) {
     this.domWrapper = domWrapper;
-    this.docView.mount(domWrapper);
+    this.viewAdapter.mount(domWrapper);
   }
 
   /**

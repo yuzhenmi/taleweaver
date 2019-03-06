@@ -52,11 +52,11 @@ export default class Renderer {
         renderChildOffset += 1;
       } else {
         const RenderNodeClass = this.config.getRenderNodeClass(child.getType());
-        renderChild = new RenderNodeClass(parent, child.getID(), child.getSize(), child.getSelectableSize()) as RenderBlock;
+        renderChild = new RenderNodeClass(parent, child) as RenderBlock;
         renderNode.insertChild(renderChild, renderChildOffset);
         renderChildOffset += 1;
       }
-      this.renderBranchNode(child, renderChild);
+      this.renderBranchNode(child as BranchNode, renderChild);
     });
   }
 
@@ -85,7 +85,7 @@ export default class Renderer {
         renderChildOffset += 1;
       } else {
         const RenderNodeClass = this.config.getRenderNodeClass(child.getType());
-        renderChild = new RenderNodeClass(parent, child.getID(), child.getSize(), child.getSelectableSize()) as RenderInline;
+        renderChild = new RenderNodeClass(parent, child) as RenderInline;
         if (!(renderChild instanceof RenderInline)) {
           throw new Error(`Renderer error, expecting RenderInline as child of RenderBlock.`);
         }

@@ -1,3 +1,4 @@
+import Config from '../Config';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
@@ -27,53 +28,51 @@ function isAlphabet(char: string) {
 }
 
 class Tokenizer {
-  private markup: string;
-  private tokens: Token[];
-  private offset: number;
-  private state: State;
-  private nodeDepth: number;
-  private tagTypeBuffer: string[];
-  private tagAttributesBuffer: string[];
-  private attributesDepth: number;
-  private escapeNextChar: boolean;
-  private ran: boolean;
+  protected config: Config;
+  protected tokens: Token[];
+  protected state: State;
+  protected nodeDepth: number;
+  protected tagTypeBuffer: string[];
+  protected tagAttributesBuffer: string[];
+  protected attributesDepth: number;
+  protected escapeNextChar: boolean;
 
-  constructor(markup: string) {
-    this.markup = markup;
+  constructor(config: Config) {
+    this.config = config;
     this.tokens = [];
-    this.offset = 0;
     this.state = State.ReadyForToken;
     this.nodeDepth = 0;
     this.tagTypeBuffer = [];
     this.tagAttributesBuffer = [];
     this.attributesDepth = 0;
     this.escapeNextChar = false;
-    this.ran = false;
   }
 
-  tokenize(): Token[] {
-    if (this.ran) {
-      return this.tokens;
+  tokenize(markup: string): Token[] {
+    this.reset();
+    let offset = 0;
+    while (offset < markup.length) {
+      this.step(markup[offset], offset);
+      offset += 1;
     }
-    while (this.offset < this.markup.length) {
-      this.step();
-    }
-    this.ran = true;
     return this.tokens;
   }
 
-  private step() {
-    const char = this.markup[this.offset];
-    if (char === '\\') {
-      this.escapeNextChar = true;
-      this.offset += 1;
-      return;
-    }
+  private reset() {
+    this.tokens = [];
+    this.state = State.ReadyForToken;
+    this.nodeDepth = 0;
+    this.tagTypeBuffer = [];
+    this.tagAttributesBuffer = [];
+    this.attributesDepth = 0;
+  }
+
+  private step(char: string, offset: number) {
     switch (this.state) {
       case State.ReadyForToken:
         if (this.nodeDepth === 0) {
           if (char !== '<') {
-            throw new Error(`Unexpected ${char} at ${this.offset}, expecting <.`);
+            throw new Error(`Unexpected ${char} at ${offset}, expecting <.`);
           }
         }
         if (char === '<') {
@@ -100,12 +99,12 @@ class Tokenizer {
       case State.ReadingTagType:
         if (isWhitespace(char)) {
           if (this.tagTypeBuffer.length === 0) {
-            throw new Error(`Unexpected ${char} at ${this.offset}, open tag type is empty.`);
+            throw new Error(`Unexpected ${char} at ${offset}, open tag type is empty.`);
           }
           this.state = State.ReadyForAttributes;
         } else {
           if (!isAlphabet(char)) {
-            throw new Error(`Unexpected ${char} at ${this.offset}, expecting tag type.`);
+            throw new Error(`Unexpected ${char} at ${offset}, expecting tag type.`);
           }
           this.tagTypeBuffer.push(char);
         }
@@ -115,7 +114,7 @@ class Tokenizer {
           break;
         }
         if (char !== '{') {
-          throw new Error(`Unexpected ${char} at ${this.offset}, expecting {.`);
+          throw new Error(`Unexpected ${char} at ${offset}, expecting {.`);
         }
         this.tagAttributesBuffer.push(char);
         this.state = State.ReadingAttributes;
@@ -137,17 +136,17 @@ class Tokenizer {
           break;
         }
         if (char !== '>') {
-          throw new Error(`Unexpected ${char} at ${this.offset}, expecting >.`);
+          throw new Error(`Unexpected ${char} at ${offset}, expecting >.`);
         }
         const attributesJSON = this.tagAttributesBuffer.join('');
         let attributes: {};
         try {
           attributes = JSON.parse(attributesJSON);
         } catch (err) {
-          throw new Error(`Invalid attributes at ${this.offset - 1}, cannot parse JSON ${attributesJSON}.`);
+          throw new Error(`Invalid attributes at ${offset - 1}, cannot parse JSON ${attributesJSON}.`);
         }
         if (!('id' in attributes)) {
-          throw new Error(`Invalid attributes at ${this.offset - 1}, missing id.`);
+          throw new Error(`Invalid attributes at ${offset - 1}, missing id.`);
         }
         this.tokens.push(new OpenTagToken(this.tagTypeBuffer.join(''), attributes));
         this.tagAttributesBuffer = [];
@@ -158,12 +157,10 @@ class Tokenizer {
         if (isWhitespace(char)) {
           break;
         }
-        throw new Error(`Unexpected ${char} at ${this.offset}, tokenization is done already.`);
+        throw new Error(`Unexpected ${char} at ${offset}, tokenization is done already.`);
       default:
         throw new Error('Tokenizer state is corrupted.');
     }
-    this.escapeNextChar = false;
-    this.offset += 1;
   }
 }
 

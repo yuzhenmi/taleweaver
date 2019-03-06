@@ -1,13 +1,14 @@
 import Node from './RenderNode';
 import RenderBlock from './RenderBlock';
+import Doc from '../model/Doc';
 
 export type Child = RenderBlock;
 
 export default class RenderDoc extends Node {
   private children: Child[];
 
-  constructor(id: string, size: number, selectableSize: number) {
-    super(id, size, selectableSize);
+  constructor() {
+    super();
     this.children = [];
   }
 
