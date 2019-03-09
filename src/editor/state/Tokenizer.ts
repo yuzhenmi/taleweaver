@@ -1,9 +1,10 @@
 import Config from '../Config';
+import State from './State';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
 
-enum State {
+enum TokenizerState {
   ReadyForToken,
   ReadingTag,
   ReadingTagType,
@@ -29,79 +30,86 @@ function isAlphabet(char: string) {
 
 class Tokenizer {
   protected config: Config;
-  protected tokens: Token[];
   protected state: State;
+  protected tokens: Token[];
+  protected tokenizerState: TokenizerState;
   protected nodeDepth: number;
   protected tagTypeBuffer: string[];
   protected tagAttributesBuffer: string[];
   protected attributesDepth: number;
   protected escapeNextChar: boolean;
 
-  constructor(config: Config) {
+  constructor(config: Config, markup: string) {
     this.config = config;
+    this.state = new State();
     this.tokens = [];
-    this.state = State.ReadyForToken;
+    this.tokenizerState = TokenizerState.ReadyForToken;
     this.nodeDepth = 0;
     this.tagTypeBuffer = [];
     this.tagAttributesBuffer = [];
     this.attributesDepth = 0;
     this.escapeNextChar = false;
+    this.tokenize(markup);
   }
 
-  tokenize(markup: string): Token[] {
+  getState(): State {
+    return this.state;
+  }
+
+  protected tokenize(markup: string) {
     this.reset();
     let offset = 0;
     while (offset < markup.length) {
       this.step(markup[offset], offset);
       offset += 1;
     }
-    return this.tokens;
+    this.state.setTokens(this.tokens);
   }
 
-  private reset() {
+  protected reset() {
     this.tokens = [];
-    this.state = State.ReadyForToken;
+    this.tokenizerState = TokenizerState.ReadyForToken;
     this.nodeDepth = 0;
     this.tagTypeBuffer = [];
     this.tagAttributesBuffer = [];
     this.attributesDepth = 0;
   }
 
-  private step(char: string, offset: number) {
-    switch (this.state) {
-      case State.ReadyForToken:
+  protected step(char: string, offset: number) {
+    switch (this.tokenizerState) {
+      case TokenizerState.ReadyForToken:
         if (this.nodeDepth === 0) {
           if (char !== '<') {
             throw new Error(`Unexpected ${char} at ${offset}, expecting <.`);
           }
         }
         if (char === '<') {
-          this.state = State.ReadingTag;
+          this.tokenizerState = TokenizerState.ReadingTag;
           this.nodeDepth += 1;
         } else {
           this.tokens.push(char);
         }
         break;
-      case State.ReadingTag:
+      case TokenizerState.ReadingTag:
         if (char === '>') {
           this.tokens.push(new CloseTagToken());
           this.nodeDepth -= 1;
           if (this.nodeDepth === 0) {
-            this.state = State.Done;
+            this.tokenizerState = TokenizerState.Done;
           } else {
-            this.state = State.ReadyForToken;
+            this.tokenizerState = TokenizerState.ReadyForToken;
           }
         } else {
-          this.state = State.ReadingTagType;
+          this.tokenizerState = TokenizerState.ReadingTagType;
           this.tagTypeBuffer.push(char);
         }
         break;
-      case State.ReadingTagType:
+      case TokenizerState.ReadingTagType:
         if (isWhitespace(char)) {
           if (this.tagTypeBuffer.length === 0) {
             throw new Error(`Unexpected ${char} at ${offset}, open tag type is empty.`);
           }
-          this.state = State.ReadyForAttributes;
+          this.tokenizerState = TokenizerState.ReadyForAttributes;
         } else {
           if (!isAlphabet(char)) {
             throw new Error(`Unexpected ${char} at ${offset}, expecting tag type.`);
@@ -109,7 +117,7 @@ class Tokenizer {
           this.tagTypeBuffer.push(char);
         }
         break;
-      case State.ReadyForAttributes:
+      case TokenizerState.ReadyForAttributes:
         if (isWhitespace(char)) {
           break;
         }
@@ -117,21 +125,21 @@ class Tokenizer {
           throw new Error(`Unexpected ${char} at ${offset}, expecting {.`);
         }
         this.tagAttributesBuffer.push(char);
-        this.state = State.ReadingAttributes;
+        this.tokenizerState = TokenizerState.ReadingAttributes;
         this.attributesDepth += 1;
         break;
-      case State.ReadingAttributes:
+      case TokenizerState.ReadingAttributes:
         this.tagAttributesBuffer.push(char);
         if (char === '{') {
           this.attributesDepth += 1;
         } else if (char === '}') {
           this.attributesDepth -= 1;
           if (this.attributesDepth === 0) {
-            this.state = State.ReadyForTagEnd;
+            this.tokenizerState = TokenizerState.ReadyForTagEnd;
           }
         }
         break;
-      case State.ReadyForTagEnd:
+      case TokenizerState.ReadyForTagEnd:
         if (isWhitespace(char)) {
           break;
         }
@@ -151,15 +159,15 @@ class Tokenizer {
         this.tokens.push(new OpenTagToken(this.tagTypeBuffer.join(''), attributes));
         this.tagAttributesBuffer = [];
         this.tagTypeBuffer = [];
-        this.state = State.ReadyForToken;
+        this.tokenizerState = TokenizerState.ReadyForToken;
         break;
-      case State.Done:
+      case TokenizerState.Done:
         if (isWhitespace(char)) {
           break;
         }
         throw new Error(`Unexpected ${char} at ${offset}, tokenization is done already.`);
       default:
-        throw new Error('Tokenizer state is corrupted.');
+        throw new Error('Tokenizer tokenizerState is corrupted.');
     }
   }
 }

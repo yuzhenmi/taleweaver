@@ -47,8 +47,7 @@ class TaleWeaverComponent extends React.Component<TaleWeaverComponentProps, Tale
     super(props);
     this.domRef = React.createRef();
     const config = new Config();
-    const taleWeaver = new TaleWeaver(config);
-    taleWeaver.setMarkup(props.initialMarkup);
+    const taleWeaver = new TaleWeaver(config, props.initialMarkup);
     const editorCursor = new Cursor(0, 0);
     taleWeaver.setEditorCursor(editorCursor);
     this.state = { taleWeaver };

@@ -1,15 +1,18 @@
-import Node from './Node';
-import BranchNode from './BranchNode';
-import LeafNode from './LeafNode';
+import RenderNode from './RenderNode';
+import BlockRenderNode from './BlockRenderNode';
 
-export type Child = BranchNode | LeafNode;
+export type Child = BlockRenderNode;
 
-export default abstract class RootNode extends Node {
-  private children: Child[];
+export default class DocRenderNode extends RenderNode {
+  protected children: Child[];
 
-  constructor() {
-    super();
+  constructor(selectableSize: number) {
+    super(selectableSize);
     this.children = [];
+  }
+
+  getType(): string {
+    return 'DocRenderNode';
   }
 
   getChildren(): Child[] {
@@ -27,4 +30,4 @@ export default abstract class RootNode extends Node {
     }
     this.children.splice(childOffset, 1);
   }
-};
+}

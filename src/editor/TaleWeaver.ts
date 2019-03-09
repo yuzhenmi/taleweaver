@@ -1,16 +1,11 @@
 import Config from './Config'
-import Token from './state/Token';
 import Tokenizer from './state/Tokenizer';
 import State from './state/State';
 import Cursor from './cursor/Cursor';
 import Parser from './model/Parser';
-import Doc from './model/Doc';
-import Renderer from './render/Renderer';
-import RenderDoc from './render/RenderDoc';
+import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
-import DocLayout from './layout/DocLayout';
 import ViewAdapter from './view/ViewAdapter';
-import DocView from './view/DocView';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
 
@@ -20,22 +15,22 @@ export default class TaleWeaver {
   protected editorCursor: Cursor | null;
   protected tokenizer: Tokenizer;
   protected parser: Parser;
-  protected renderer: Renderer;
+  protected renderEngine: RenderEngine;
   protected layoutEngine: LayoutEngine;
   protected viewAdapter: ViewAdapter;
   protected domWrapper?: HTMLElement;
   protected eventObservers: EventObserver[];
 
-  constructor(config: Config) {
+  constructor(config: Config, markup: string) {
     this.config = config;
-    this.state = new State();
-    this.state.subscribe(this.handleStateUpdated);
     this.editorCursor = null;
-    this.tokenizer = new Tokenizer(this.config);
-    this.parser = new Parser(this.config, new Doc());
-    this.renderer = new Renderer(this.config, new RenderDoc());
-    this.layoutEngine = new LayoutEngine(this.config, new DocLayout());
-    this.viewAdapter = new ViewAdapter(this.config, new DocView());
+    this.tokenizer = new Tokenizer(this.config, markup);
+    this.state = this.tokenizer.getState();
+    this.parser = new Parser(this.config, this.state);
+    this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
+    this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getRenderDoc());
+    console.log(this.layoutEngine.getDocLayout());
+    this.viewAdapter = new ViewAdapter(this.config, this.layoutEngine.getDocLayout());
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
       return new SomeEventObserver(this);
     });
@@ -43,11 +38,6 @@ export default class TaleWeaver {
 
   getConfig(): Config {
     return this.config;
-  }
-
-  setMarkup(markup: string) {
-    const tokens = this.tokenizer.tokenize(markup);
-    this.state.setTokens(tokens);
   }
 
   getState(): State {
@@ -75,9 +65,5 @@ export default class TaleWeaver {
     this.eventObservers.forEach(eventObserver => {
       eventObserver.onEvent(event);
     });
-  }
-
-  protected handleStateUpdated = (tokens: Token[]) => {
-    this.parser.parse(tokens);
   }
 }

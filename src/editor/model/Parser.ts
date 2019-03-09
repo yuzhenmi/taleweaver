@@ -1,13 +1,14 @@
 import Config from '../Config';
 import Token from '../state/Token';
+import State from '../state/State';
 import Node from './Node';
-import RootNode from './RootNode';
+import Doc from './Doc';
 import BranchNode from './BranchNode';
 import LeafNode from './LeafNode';
 import OpenTagToken from '../state/OpenTagToken';
 import CloseTagToken from '../state/CloseTagToken';
 
-enum State {
+enum ParserState {
   ReadyForDocOpenTag,
   ReadyForTag,
   ReadingLeafNodeContent,
@@ -21,7 +22,7 @@ interface ChildInfo {
 type ChildrenMap = Map<string, ChildInfo>;
 
 interface NodeInfo {
-  node: RootNode | BranchNode;
+  node: Doc | BranchNode;
   childrenMap: ChildrenMap;
 }
 
@@ -58,29 +59,39 @@ function buildChildrenMap(children: (BranchNode | LeafNode)[]): ChildrenMap {
 
 class Parser {
   protected config: Config;
-  protected tokens: Token[];
-  protected rootNode: RootNode;
-  protected offset: number;
   protected state: State;
+  protected tokens: Token[];
+  protected doc: Doc;
+  protected offset: number;
+  protected parserState: ParserState;
   protected nodeStack: NodeStack;
   protected leafNode?: LeafNode;
   protected childOffset: number;
   protected leafContentBuffer: string[];
 
-  constructor(config: Config, rootNode: RootNode) {
+  constructor(config: Config, state: State) {
     this.config = config;
-    this.rootNode = rootNode;
+    this.state = state;
+    this.doc = new Doc();
     this.tokens = [];
     this.offset = 0;
-    this.state = State.ReadyForDocOpenTag;
+    this.parserState = ParserState.ReadyForDocOpenTag;
     this.nodeStack = new NodeStack();
     this.childOffset = 0;
     this.leafContentBuffer = [];
+    this.state.subscribe((tokens: Token[]) => {
+      this.parse(tokens);
+    });
+    this.parse(state.getTokens());
   }
 
-  parse(tokens: Token[]) {
+  getDoc(): Doc {
+    return this.doc;
+  }
+
+  protected parse(tokens: Token[]) {
     this.tokens = tokens;
-    this.state = State.ReadyForDocOpenTag;
+    this.parserState = ParserState.ReadyForDocOpenTag;
     while (this.offset < this.tokens.length) {
       this.step();
     }
@@ -88,22 +99,22 @@ class Parser {
 
   protected step() {
     const token = this.tokens[this.offset];
-    switch (this.state) {
-      case State.ReadyForDocOpenTag: {
+    switch (this.parserState) {
+      case ParserState.ReadyForDocOpenTag: {
         if (!(token instanceof OpenTagToken) || token.getType() !== 'Doc') {
           throw new Error(`Unexpected token at ${this.offset}, expecting OpenTagToken of type Doc.`);
         }
-        const node = this.rootNode;
+        const node = this.doc;
         const { id } = token.getAttributes();
         if (node.getID() !== id && node.getID()) {
           throw new Error(`Unexpected token at ${this.offset}, expecting OepnTagToken of type Doc with ID ${node.getID()}.`);
         }
         const childrenMap = buildChildrenMap(node.getChildren());
         this.nodeStack.push({ node, childrenMap });
-        this.state = State.ReadyForTag;
+        this.parserState = ParserState.ReadyForTag;
         break;
       }
-      case State.ReadyForTag: {
+      case ParserState.ReadyForTag: {
         if (token instanceof CloseTagToken) {
           this.nodeStack.pop();
           break;
@@ -138,18 +149,18 @@ class Parser {
           this.nodeStack.push({ node, childrenMap });
         } else if (node instanceof LeafNode) {
           this.leafNode = node;
-          this.state = State.ReadingLeafNodeContent;
+          this.parserState = ParserState.ReadingLeafNodeContent;
         } else {
           throw new Error(`Unexpected token at ${this.offset}, OpenTagToken for a root node type should be the first token.`);
         }
         break;
       }
-      case State.ReadingLeafNodeContent: {
+      case ParserState.ReadingLeafNodeContent: {
         if (token instanceof CloseTagToken) {
           this.leafNode!.setContent(this.leafContentBuffer.join(''));
           this.leafNode = undefined;
           this.leafContentBuffer = [];
-          this.state = State.ReadyForTag;
+          this.parserState = ParserState.ReadyForTag;
           break;
         }
         if (typeof token !== 'string') {

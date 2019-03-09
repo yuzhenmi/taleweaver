@@ -1,16 +1,16 @@
-import Node from './RenderNode';
-import RenderDoc from './RenderDoc';
-import RenderInline from './RenderInline';
+import RenderNode from './RenderNode';
+import DocRenderNode from './DocRenderNode';
+import InlineRenderNode from './InlineRenderNode';
 
-export type Parent = RenderDoc;
-export type Child = RenderInline;
+export type Parent = DocRenderNode;
+export type Child = InlineRenderNode;
 
-export default class RenderBlock extends Node {
-  private parent: Parent;
-  private children: Child[];
+export default abstract class BlockRenderNode extends RenderNode {
+  protected parent: Parent;
+  protected children: Child[];
 
-  constructor(parent: Parent, id: string, size: number, selectableSize: number) {
-    super(id, size, selectableSize);
+  constructor(parent: Parent, selectableSize: number) {
+    super(selectableSize);
     this.parent = parent;
     this.children = [];
   }

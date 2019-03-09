@@ -1,16 +1,16 @@
-import Node from './Node';
-import Doc from './Doc';
-import LeafNode from './LeafNode';
+import RenderNode from './RenderNode';
+import BlockRenderNode from './BlockRenderNode';
+import AtomicRenderNode from './AtomicRenderNode';
 
-export type Parent = Doc | BranchNode;
-export type Child = BranchNode | LeafNode;
+export type Parent = BlockRenderNode;
+export type Child = AtomicRenderNode;
 
-export default abstract class BranchNode extends Node {
-  private parent: Parent;
-  private children: Child[];
+export default abstract class InlineRenderNode extends RenderNode {
+  protected parent: Parent;
+  protected children: Child[];
 
-  constructor(parent: Parent) {
-    super();
+  constructor(parent: Parent, selectableSize: number) {
+    super(selectableSize);
     this.parent = parent;
     this.children = [];
   }
@@ -34,4 +34,4 @@ export default abstract class BranchNode extends Node {
     }
     this.children.splice(childOffset, 1);
   }
-};
+}

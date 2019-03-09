@@ -1,17 +1,13 @@
-export default class RenderNode {
-  protected id?: string;
-  protected size?: number;
-  protected selectableSize?: number;
+export default abstract class RenderNode {
+  protected selectableSize: number;
 
-  getID(): string {
-    return this.id!;
+  constructor(selectableSize: number) {
+    this.selectableSize = selectableSize;
   }
 
-  getSize(): number {
-    return this.size!;
-  }
+  abstract getType(): string;
 
   getSelectableSize(): number {
-    return this.selectableSize!;
+    return this.selectableSize;
   }
 }
