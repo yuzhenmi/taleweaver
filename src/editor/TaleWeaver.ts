@@ -28,7 +28,7 @@ export default class TaleWeaver {
     this.state = this.tokenizer.getState();
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
-    this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getRenderDoc());
+    this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
     console.log(this.layoutEngine.getDocLayout());
     this.viewAdapter = new ViewAdapter(this.config, this.layoutEngine.getDocLayout());
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {

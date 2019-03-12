@@ -15,6 +15,12 @@ export default class TextAtomicBoxBuilder extends AtomicBoxBuilder {
 
   build(textAtomicRenderNode: TextAtomicRenderNode): TextAtomicBox {
     const textMeasurement = measureText(textAtomicRenderNode.getContent(), stubTextStyle);
-    return new TextAtomicBox(textMeasurement.width, textMeasurement.height);
+    return new TextAtomicBox(
+      textAtomicRenderNode.getSelectableSize(),
+      textMeasurement.width,
+      textMeasurement.height,
+      textAtomicRenderNode.getBreakable(),
+      textAtomicRenderNode.getContent(),
+    );
   }
 }

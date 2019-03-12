@@ -5,6 +5,6 @@ import ParagraphLineBox from './ParagraphLineBox';
 export default class ParagraphLineBoxBuilder extends LineBoxBuilder {
 
   build(paragraphBlockRenderNode: ParagraphBlockRenderNode): ParagraphLineBox {
-    return new ParagraphLineBox();
+    return new ParagraphLineBox(paragraphBlockRenderNode.getSelectableSize());
   }
 }

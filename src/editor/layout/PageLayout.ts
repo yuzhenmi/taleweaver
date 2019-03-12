@@ -1,13 +1,19 @@
 import BlockBox from './BlockBox';
 
+type Child = BlockBox;
+
 export default class PageLayout {
-  protected blockBoxes: BlockBox[];
+  protected children: Child[];
 
   constructor() {
-    this.blockBoxes = [];
+    this.children = [];
   }
 
-  insertBlockBox(blockBox: BlockBox) {
-    this.blockBoxes.push(blockBox);
+  insertChild(child: Child, offset: number) {
+    this.children.splice(offset, 0, child);
+  }
+
+  getChildren(): Child[] {
+    return this.children;
   }
 }

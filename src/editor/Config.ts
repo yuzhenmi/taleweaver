@@ -10,6 +10,8 @@ import LineBoxBuilder from './layout/LineBoxBuilder';
 import ParagraphLineBoxBuilder from './layout/ParagraphLineBoxBuilder';
 import InlineBoxBuilder from './layout/InlineBoxBuilder';
 import TextInlineBoxBuilder from './layout/TextInlineBoxBuilder';
+import AtomicBoxBuilder from './layout/AtomicBoxBuilder';
+import TextAtomicBoxBuilder from './layout/TextAtomicBoxBuilder';
 import LineView from './view/LineView';
 import WordView from './view/WordView';
 import EventObserver from './event/EventObserver';
@@ -27,6 +29,7 @@ class Config {
   protected blockBoxBuilders: Map<string, BlockBoxBuilder>;
   protected lineBoxBuilders: Map<string, LineBoxBuilder>;
   protected inlineBoxBuilders: Map<string, InlineBoxBuilder>;
+  protected atomicBoxBuilders: Map<string, AtomicBoxBuilder>;
   protected lineViewClasses: { [key: string]: LineViewClass };
   protected wordViewClasses: { [key: string]: WordViewClass };
   protected eventObserverClasses: EventObserverClass[];
@@ -37,6 +40,7 @@ class Config {
     this.blockBoxBuilders = new Map();
     this.lineBoxBuilders = new Map();
     this.inlineBoxBuilders = new Map();
+    this.atomicBoxBuilders = new Map();
     this.lineViewClasses = {};
     this.wordViewClasses = {};
     this.eventObserverClasses = [];
@@ -44,15 +48,16 @@ class Config {
     this.registerNodeClass('Text', Text);
     this.registerRenderer('Paragraph', new ParagraphRenderer());
     this.registerRenderer('Text', new TextRenderer());
-    this.registerBlockBoxBuilder('Paragraph', new ParagraphBlockBoxBuilder());
-    this.registerLineBoxBuilder('Paragraph', new ParagraphLineBoxBuilder());
-    this.registerInlineBoxBuilder('Text', new TextInlineBoxBuilder());
+    this.registerBlockBoxBuilder('ParagraphBlockRenderNode', new ParagraphBlockBoxBuilder());
+    this.registerLineBoxBuilder('ParagraphBlockRenderNode', new ParagraphLineBoxBuilder());
+    this.registerInlineBoxBuilder('TextInlineRenderNode', new TextInlineBoxBuilder());
+    this.registerAtomicBoxBuilder('TextAtomicRenderNode', new TextAtomicBoxBuilder());
     this.registerEventObserverClass(EditorCursorEventObserver);
     this.registerEventObserverClass(StateEventObserver);
   }
 
-  registerNodeClass(type: string, nodeClass: NodeClass) {
-    this.nodeClasses.set(type, nodeClass);
+  registerNodeClass(nodeType: string, nodeClass: NodeClass) {
+    this.nodeClasses.set(nodeType, nodeClass);
   }
 
   getNodeClass(nodeType: string): NodeClass {
@@ -107,6 +112,18 @@ class Config {
       throw new Error(`No line box builder registered for inline render node type ${inlineRenderNodeType}.`);
     }
     return inlineBoxBuilder;
+  }
+
+  registerAtomicBoxBuilder(inlineRenderNodeType: string, atomicBoxBuilder: AtomicBoxBuilder) {
+    this.atomicBoxBuilders.set(inlineRenderNodeType, atomicBoxBuilder);
+  }
+
+  getAtomicBoxBuilder(atomicRenderNodeType: string): AtomicBoxBuilder {
+    const atomicBoxBuilder = this.atomicBoxBuilders.get(atomicRenderNodeType);
+    if (!atomicBoxBuilder) {
+      throw new Error(`No line box builder registered for atomic render node type ${atomicRenderNodeType}.`);
+    }
+    return atomicBoxBuilder;
   }
 
   getLineViewClass(type: string): LineViewClass {

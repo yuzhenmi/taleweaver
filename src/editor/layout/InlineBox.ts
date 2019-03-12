@@ -3,7 +3,7 @@ import AtomicBox from './AtomicBox';
 
 type Child = AtomicBox;
 
-export default abstract class LineBox extends Box {
+export default abstract class InlineBox extends Box {
   protected children: Child[];
 
   constructor(selectableSize: number) {

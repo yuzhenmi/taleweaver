@@ -1,18 +1,13 @@
 import Config from '../Config';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
+import Node from '../model/Node';
 import Doc from '../model/Doc';
 import BranchNode from '../model/BranchNode';
-import Doc from '../model/Doc';
 import BlockRenderNode from './BlockRenderNode';
 import InlineRenderNode from './InlineRenderNode';
-
-interface ChildInfo {
-  child: RenderNode;
-  offset: number;
-}
-
-type ChildrenMap = Map<string, ChildInfo>;
+import BlockRenderer from './BlockRenderer';
+import InlineRenderer from './InlineRenderer';
 
 export default class RenderEngine {
   protected config: Config;
@@ -30,74 +25,73 @@ export default class RenderEngine {
   }
 
   protected render(doc: Doc) {
-    this.renderDoc(doc, this.renderDoc);
+    this.buildRenderNodeChildren(doc, this.renderDoc);
   }
 
-  protected renderDoc(node: Doc, renderNode: DocRenderNode) {
-    const children = node.getChildren();
-    const renderChildren = renderNode.getChildren();
-    const renderChildrenMap: ChildrenMap = new Map()
-    renderChildren.forEach((child, offset) => {
-      renderChildrenMap.set(child.getID(), { child, offset });
-    });
-    let renderChildOffset = 0;
-    children.forEach(child => {
-      let renderChild: BlockRenderNode;
-      if (renderChildrenMap.has(child.getID())) {
-        const renderChildInfo = renderChildrenMap.get(child.getID())!;
-        renderChild = renderChildInfo.child as BlockRenderNode;
-        while (renderChildOffset < renderChildInfo.offset) {
-          const toDelete = renderChildren[renderChildOffset];
-          if (toDelete instanceof BlockRenderNode) {
-            renderNode.deleteChild(toDelete);
-          } else {
-            throw new Error(`Render engine error, expecting BlockRenderNode as child of DocRenderNode.`);
-          }
-          renderChildOffset += 1;
-        }
-        renderChildOffset += 1;
-      } else {
-        const RenderNodeClass = this.config.getRenderNodeClass(child.getType());
-        renderChild = new RenderNodeClass(parent, child) as BlockRenderNode;
-        renderNode.insertChild(renderChild, renderChildOffset);
-        renderChildOffset += 1;
+  protected buildRenderNodeChildren(node: Node, renderNode: RenderNode) {
+    if (renderNode instanceof DocRenderNode) {
+      return this.buildDocRenderNodeChildren(node, renderNode);
+    }
+    if (renderNode instanceof BlockRenderNode) {
+      return this.buildBlockRenderNodeChildren(node, renderNode);
+    }
+  }
+
+  protected buildDocRenderNodeChildren(node: Node, renderNode: DocRenderNode) {
+    if (!(node instanceof Doc)) {
+      throw new Error(`Error building children for DocRenderNode, expecting Doc as input.`);
+    }
+    let offset = 0;
+    node.getChildren().forEach(child => {
+      const childRenderNode = this.buildRenderNode(renderNode, child);
+      if (!(childRenderNode instanceof BlockRenderNode)) {
+        throw new Error(`Error building children for DocRenderNode, expecting child to be BlockRenderNode. `);
       }
-      this.renderBranchNode(child as BranchNode, renderChild);
+      renderNode.insertChild(childRenderNode, offset);
+      offset += 1;
     });
   }
 
-  protected renderBranchNode(node: BranchNode, renderNode: BlockRenderNode) {
-    const children = node.getChildren();
-    const renderChildren = renderNode.getChildren();
-    const renderChildrenMap: ChildrenMap = new Map()
-    renderChildren.forEach((child, offset) => {
-      renderChildrenMap.set(child.getID(), { child, offset });
-    });
-    let renderChildOffset = 0;
-    children.forEach(child => {
-      let renderChild: InlineRenderNode;
-      if (renderChildrenMap.has(child.getID())) {
-        const renderChildInfo = renderChildrenMap.get(child.getID())!;
-        renderChild = renderChildInfo.child as InlineRenderNode;
-        while (renderChildOffset < renderChildInfo.offset) {
-          const toDelete = renderChildren[renderChildOffset];
-          if (toDelete instanceof InlineRenderNode) {
-            renderNode.deleteChild(toDelete);
-          } else {
-            throw new Error(`Render engine error, expecting InlineRenderNode as child of BlockRenderNode.`);
-          }
-          renderChildOffset += 1;
-        }
-        renderChildOffset += 1;
-      } else {
-        const RenderNodeClass = this.config.getRenderNodeClass(child.getType());
-        renderChild = new RenderNodeClass(parent, child) as InlineRenderNode;
-        if (!(renderChild instanceof InlineRenderNode)) {
-          throw new Error(`Render engine error, expecting InlineRenderNode as child of BlockRenderNode.`);
-        }
-        renderNode.insertChild(renderChild, renderChildOffset);
-        renderChildOffset += 1;
+  protected buildBlockRenderNodeChildren(node: Node, renderNode: BlockRenderNode) {
+    if (!(node instanceof BranchNode)) {
+      throw new Error(`Error building children for DocRenderNode, expecting BranchNode as input.`);
+    }
+    let offset = 0;
+    node.getChildren().forEach(child => {
+      const childRenderNode = this.buildRenderNode(renderNode, child);
+      if (!(childRenderNode instanceof InlineRenderNode)) {
+        throw new Error(`Error building children for BlockRenderNode, expecting child to be InlineRenderNode. `);
       }
+      renderNode.insertChild(childRenderNode, offset);
+      offset += 1;
     });
+  }
+
+  protected buildRenderNode(parent: RenderNode, node: Node): RenderNode {
+    const renderer = this.config.getRenderer(node.getType());
+    if (renderer instanceof BlockRenderer) {
+      return this.buildBlockRenderNode(parent, node, renderer);
+    }
+    if (renderer instanceof InlineRenderer) {
+      return this.buildInlineRenderNode(parent, node, renderer);
+    }
+    throw new Error(`Error building node, renderer is not recognized.`);
+  }
+
+  protected buildBlockRenderNode(parent: RenderNode, node: Node, renderer: BlockRenderer): BlockRenderNode {
+    if (!(parent instanceof DocRenderNode)) {
+      throw new Error(`Error building block render node, expecting parent to be DocRenderNode.`);
+    }
+    const blockRenderNode = renderer.render(parent, node);
+    this.buildBlockRenderNodeChildren(node, blockRenderNode);
+    return blockRenderNode;
+  }
+
+  protected buildInlineRenderNode(parent: RenderNode, node: Node, renderer: InlineRenderer): InlineRenderNode {
+    if (!(parent instanceof BlockRenderNode)) {
+      throw new Error(`Error building inline render node, expecting parent to be BlockRenderNode.`);
+    }
+    const inlineRenderNode = renderer.render(parent, node);
+    return inlineRenderNode;
   }
 }

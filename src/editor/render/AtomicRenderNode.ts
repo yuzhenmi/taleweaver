@@ -16,4 +16,8 @@ export default abstract class AtomicRenderNode extends RenderNode {
   getParent(): Parent {
     return this.parent;
   }
+
+  getBreakable(): boolean {
+    return this.breakable;
+  }
 }
