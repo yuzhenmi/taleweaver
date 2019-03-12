@@ -5,11 +5,11 @@ import DocLayout from './DocLayout';
 import PageLayout from './PageLayout';
 import BlockBox from './BlockBox';
 import LineBox from './LineBox';
-import AtomicBox from './AtomicBox';
+import InlineBox from './InlineBox';
 
-interface BlockOfAtomicBoxes {
+interface BlockOfInlineBoxes {
   blockRenderNode: BlockRenderNode;
-  atomicBoxes: AtomicBox[];
+  inlineBoxes: InlineBox[];
 }
 
 interface BlockOfLineBoxes {
@@ -34,37 +34,35 @@ export default class LayoutEngine {
   }
 
   protected reflow() {
-    // Iterate through render doc to build atomic boxes,
+    // Iterate through render doc to build inline boxes,
     // grouped by blocks
-    const blocksOfAtomicBoxes: BlockOfAtomicBoxes[] = [];
+    const blocksOfInlineBoxes: BlockOfInlineBoxes[] = [];
     this.docRenderNode.getChildren().forEach(blockRenderNode => {
-      const blockOfAtomicBoxes: BlockOfAtomicBoxes = {
+      const blockOfInlineBoxes: BlockOfInlineBoxes = {
         blockRenderNode,
-        atomicBoxes: [],
+        inlineBoxes: [],
       };
       blockRenderNode.getChildren().forEach(inlineRenderNode => {
-        inlineRenderNode.getChildren().map(atomicRenderNode => {
-          const atomicBoxBuider = this.config.getAtomicBoxBuilder(atomicRenderNode.getType());
-          const atomicBox = atomicBoxBuider.build(atomicRenderNode);
-          blockOfAtomicBoxes.atomicBoxes.push(atomicBox);
-        });
+        const inlineBoxBuilder = this.config.getInlineBoxBuilder(inlineRenderNode.getType());
+        const inlineBox = inlineBoxBuilder.build(inlineRenderNode);
+        blockOfInlineBoxes.inlineBoxes.push(inlineBox);
       });
-      blocksOfAtomicBoxes.push(blockOfAtomicBoxes);
+      blocksOfInlineBoxes.push(blockOfInlineBoxes);
     });
 
     // Build line boxes
     const blocksOfLineBoxes: BlockOfLineBoxes[] = [];
-    blocksOfAtomicBoxes.forEach(blockOfAtomicBoxes => {
-      const { blockRenderNode, atomicBoxes } = blockOfAtomicBoxes;
+    blocksOfInlineBoxes.forEach(blockOfInlineBoxes => {
+      const { blockRenderNode, inlineBoxes } = blockOfInlineBoxes;
       const blockOfLineBoxes: BlockOfLineBoxes = {
         blockRenderNode,
         lineBoxes: [],
       };
-      const lineBoxBuilder = this.config.getLineBoxBuilder(blockRenderNode.getType());
-      let lineBox = lineBoxBuilder.build(blockRenderNode);
+      // TODO: Wrap lines
+      let lineBox = new LineBox(inlineBoxes.reduce((sum, inlineBox) => sum + inlineBox.getSelectableSize(), 0));
       let offset = 0;
-      atomicBoxes.forEach(atomicBox => {
-        lineBox.insertChild(atomicBox, offset);
+      inlineBoxes.forEach(inlineBox => {
+        lineBox.insertChild(inlineBox, offset);
         offset += 1;
       });
       blockOfLineBoxes.lineBoxes.push(lineBox);
@@ -95,8 +93,7 @@ export default class LayoutEngine {
     });
     pageLayouts.push(pageLayout);
 
-    // Update doc layout
-    this.docLayout.getPageLayouts().length = 0;
+    // Build doc layout
     pageLayouts.forEach(pageLayout => {
       this.docLayout.insertPageLayout(pageLayout);
     });

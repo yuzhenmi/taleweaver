@@ -9,7 +9,9 @@ export default abstract class Box {
     this.height = height;
   }
 
-  abstract getType(): string;
+  getSelectableSize(): number {
+    return this.selectableSize;
+  }
 
   getWidth(): number {
     return this.width;

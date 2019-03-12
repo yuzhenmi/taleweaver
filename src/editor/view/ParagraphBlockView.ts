@@ -1,11 +1,14 @@
+import ParagraphBlockBox from '../layout/ParagraphBlockBox';
 import BlockView from './BlockView';
 import LineView from './LineView';
 
 export default class ParagraphBlockView extends BlockView {
+  protected paragraphBlockBox: ParagraphBlockBox;
   protected domContainer: HTMLDivElement;
 
-  constructor() {
+  constructor(paragraphBlockBox: ParagraphBlockBox) {
     super();
+    this.paragraphBlockBox = paragraphBlockBox;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
   }

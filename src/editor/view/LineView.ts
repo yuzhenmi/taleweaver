@@ -1,11 +1,14 @@
+import LineBox from '../layout/LineBox';
 import View from './View';
 import InlineView from './InlineView';
 
 export default class LineView extends View {
+  protected lineBox: LineBox;
   protected domContainer: HTMLDivElement;
 
-  constructor() {
+  constructor(lineBox: LineBox) {
     super();
+    this.lineBox = lineBox;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--line';
   }

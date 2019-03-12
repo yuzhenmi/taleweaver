@@ -1,9 +1,9 @@
 import Box from './Box';
-import AtomicBox from './AtomicBox';
+import InlineBox from './InlineBox';
 
-type Child = AtomicBox;
+type Child = InlineBox;
 
-export default abstract class LineBox extends Box {
+export default class LineBox extends Box {
   protected children: Child[];
 
   constructor(selectableSize: number) {

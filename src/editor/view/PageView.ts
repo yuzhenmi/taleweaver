@@ -1,11 +1,14 @@
+import PageLayout from '../layout/PageLayout';
 import View from './View';
 import BlockView from './BlockView';
 
 export default class PageView extends View {
+  protected pageLayout: PageLayout;
   protected domContainer: HTMLDivElement;
 
-  constructor() {
+  constructor(pageLayout: PageLayout) {
     super();
+    this.pageLayout = pageLayout;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
   }

@@ -8,7 +8,7 @@ export default class TextAtomicBox extends AtomicBox {
     this.content = content;
   }
 
-  getType(): string {
-    return 'TextAtomicBox';
+  getContent(): string {
+    return this.content;
   }
 }

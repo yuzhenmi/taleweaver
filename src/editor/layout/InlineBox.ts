@@ -11,6 +11,8 @@ export default abstract class InlineBox extends Box {
     this.children = [];
   }
 
+  abstract getType(): string;
+
   insertChild(child: Child, offset: number) {
     const childWidth = child.getWidth();
     const childHeight = child.getHeight();

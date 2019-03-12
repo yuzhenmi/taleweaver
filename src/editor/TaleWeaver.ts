@@ -5,7 +5,7 @@ import Cursor from './cursor/Cursor';
 import Parser from './model/Parser';
 import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
-import ViewAdapter from './view/ViewAdapter';
+import Presenter from './view/Presenter';
 import Event from './event/Event';
 import EventObserver from './event/EventObserver';
 
@@ -17,7 +17,7 @@ export default class TaleWeaver {
   protected parser: Parser;
   protected renderEngine: RenderEngine;
   protected layoutEngine: LayoutEngine;
-  protected viewAdapter: ViewAdapter;
+  protected presenter: Presenter;
   protected domWrapper?: HTMLElement;
   protected eventObservers: EventObserver[];
 
@@ -29,8 +29,7 @@ export default class TaleWeaver {
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
-    console.log(this.layoutEngine.getDocLayout());
-    this.viewAdapter = new ViewAdapter(this.config, this.layoutEngine.getDocLayout());
+    this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout());
     this.eventObservers = config.getEventObserverClasses().map(SomeEventObserver => {
       return new SomeEventObserver(this);
     });
@@ -54,7 +53,7 @@ export default class TaleWeaver {
 
   mount(domWrapper: HTMLElement) {
     this.domWrapper = domWrapper;
-    this.viewAdapter.mount(domWrapper);
+    this.presenter.mount(domWrapper);
   }
 
   /**

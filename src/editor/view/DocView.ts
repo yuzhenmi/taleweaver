@@ -1,11 +1,14 @@
+import DocLayout from '../layout/DocLayout';
 import View from './View';
 import PageView from './PageView';
 
 export default class DocView extends View {
+  protected docLayout: DocLayout;
   protected domContainer: HTMLDivElement;
 
-  constructor() {
+  constructor(docLayout: DocLayout) {
     super();
+    this.docLayout = docLayout;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
   }
