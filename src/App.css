@@ -8,22 +8,19 @@ body {
   box-sizing: border-box;
 }
 
-.tw--document {
-  padding: 36px;
+.tw--doc {
 }
 
 .tw--page {
   background: white;
   box-shadow: 0 3px 18px rgba(0, 0, 0, 0.09);
-  margin: 0 auto 24px;
+  margin: 20px auto 0;
+  width: 800px;
+  height: 1000px;
+  padding: 40px;
   cursor: text;
-
   font-size: 18px;
   line-height: 36px;
-}
-
-.tw--page:last-child {
-  margin-bottom: 0;
 }
 
 .tw--editing-cursor-selection {

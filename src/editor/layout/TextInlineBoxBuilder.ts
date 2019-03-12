@@ -7,16 +7,16 @@ import measureText from './helpers/measureText';
 
 const stubTextStyle = {
   fontFamily: 'Arial',
-  fontSize: 12,
+  fontSize: 18,
   fontWeight: 400,
-  lineHeight: 12,
+  lineHeight: 36,
   letterSpacing: 0,
 };
 
 export default class TextInlineBoxBuilder extends InlineBoxBuilder {
 
   build(textInlineRenderNode: TextInlineRenderNode): TextInlineBox {
-    const textInlineBox = new TextInlineBox(textInlineRenderNode.getSelectableSize());
+    const textInlineBox = new TextInlineBox();
     let offset = 0;
     textInlineRenderNode.getChildren().forEach(textAtomicRenderNode => {
       if (!(textAtomicRenderNode instanceof TextAtomicRenderNode)) {

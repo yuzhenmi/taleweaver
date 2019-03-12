@@ -6,8 +6,8 @@ type Child = InlineBox;
 export default class LineBox extends Box {
   protected children: Child[];
 
-  constructor(selectableSize: number) {
-    super(selectableSize, 0, 0);
+  constructor() {
+    super(0, 0, 0);
     this.children = [];
   }
 
@@ -17,6 +17,7 @@ export default class LineBox extends Box {
     this.width += childWidth;
     this.height = Math.max(this.height, childHeight);
     this.children.splice(offset, 0, child);
+    this.selectableSize += child.getSelectableSize();
   }
 
   getChildren(): Child[] {

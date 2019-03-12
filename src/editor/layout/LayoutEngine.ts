@@ -58,14 +58,37 @@ export default class LayoutEngine {
         blockRenderNode,
         lineBoxes: [],
       };
-      // TODO: Wrap lines
-      let lineBox = new LineBox(inlineBoxes.reduce((sum, inlineBox) => sum + inlineBox.getSelectableSize(), 0));
-      let offset = 0;
+      let lineBox = new LineBox();
+      let accumulatedLineWidth = 0;
+      let inlineBoxOffset = 0;
       inlineBoxes.forEach(inlineBox => {
-        lineBox.insertChild(inlineBox, offset);
-        offset += 1;
+        let currentInlineBox = inlineBox;
+        let atomicBoxOffset = 0;
+        while (atomicBoxOffset < currentInlineBox.getChildren().length) {
+          const atomicBox = currentInlineBox.getChildren()[atomicBoxOffset];
+          const atomicBoxWidth = atomicBox.getWidth();
+          if (accumulatedLineWidth + atomicBoxWidth > 720) {
+            // Wrap line, cut inline box if applicable
+            if (atomicBoxOffset > 0) {
+              const newInlineBox = currentInlineBox.cutAt(atomicBoxOffset);
+              lineBox.insertChild(currentInlineBox, inlineBoxOffset);
+              inlineBoxOffset += 1;
+              currentInlineBox = newInlineBox;
+              atomicBoxOffset = 0;
+            }
+            blockOfLineBoxes.lineBoxes.push(lineBox);
+            lineBox = new LineBox();
+            accumulatedLineWidth = 0;
+          }
+          accumulatedLineWidth += atomicBoxWidth;
+          atomicBoxOffset += 1;
+        }
+        lineBox.insertChild(currentInlineBox, inlineBoxOffset);
+        inlineBoxOffset += 1;
       });
-      blockOfLineBoxes.lineBoxes.push(lineBox);
+      if (lineBox.getChildren().length > 0) {
+        blockOfLineBoxes.lineBoxes.push(lineBox);
+      }
       blocksOfLineBoxes.push(blockOfLineBoxes);
     });
 
@@ -86,10 +109,32 @@ export default class LayoutEngine {
     // Build page layouts
     const pageLayouts: PageLayout[] = [];
     let pageLayout = new PageLayout();
-    let offset = 0;
+    let accumulatedPageHeight = 0;
+    let blockBoxOffset = 0;
     blockBoxes.forEach(blockBox => {
-      pageLayout.insertChild(blockBox, offset);
-      offset += 1;
+      let currentBlockBox = blockBox;
+      let lineBoxOffset = 0;
+      while (lineBoxOffset < currentBlockBox.getChildren().length) {
+        const lineBox = currentBlockBox.getChildren()[lineBoxOffset];
+        const lineBoxHeight = lineBox.getHeight();
+        if (accumulatedPageHeight + lineBoxHeight > 920) {
+          // Wrap line, cut inline box if applicable
+          if (lineBoxOffset > 0) {
+            const newBlockBox = currentBlockBox.cutAt(lineBoxOffset);
+            pageLayout.insertChild(currentBlockBox, lineBoxOffset);
+            lineBoxOffset += 1;
+            currentBlockBox = newBlockBox;
+            lineBoxOffset = 0;
+          }
+          pageLayouts.push(pageLayout);
+          pageLayout = new PageLayout();
+          accumulatedPageHeight = 0;
+        }
+        accumulatedPageHeight += lineBoxHeight;
+        lineBoxOffset += 1;
+      }
+      pageLayout.insertChild(blockBox, blockBoxOffset);
+      blockBoxOffset += 1;
     });
     pageLayouts.push(pageLayout);
 
