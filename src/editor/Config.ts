@@ -1,9 +1,9 @@
 import Node from './model/Node';
 import Paragraph from './model/Paragraph';
 import Text from './model/Text';
-import Renderer from './render/Renderer';
-import ParagraphRenderer from './render/ParagraphRenderer';
-import TextRenderer from './render/TextRenderer';
+import RenderNodeBuilder from './render/RenderNodeBuilder';
+import ParagraphBlockRenderNodeBuilder from './render/ParagraphBlockRenderNodeBuilder';
+import TextInlineRenderNodeBuilder from './render/TextInlineRenderNodeBuilder';
 import BlockBoxBuilder from './layout/BlockBoxBuilder';
 import ParagraphBlockBoxBuilder from './layout/ParagraphBlockBoxBuilder';
 import LineBoxBuilder from './layout/LineBoxBuilder';
@@ -12,26 +12,23 @@ import InlineBoxBuilder from './layout/InlineBoxBuilder';
 import TextInlineBoxBuilder from './layout/TextInlineBoxBuilder';
 import AtomicBoxBuilder from './layout/AtomicBoxBuilder';
 import TextAtomicBoxBuilder from './layout/TextAtomicBoxBuilder';
-import LineView from './view/LineView';
-import WordView from './view/WordView';
+import View from './view/View';
 import EventObserver from './event/EventObserver';
 import EditorCursorEventObserver from './event/EditorCursorEventObserver';
 import StateEventObserver from './event/StateEventObserver';
 
 type NodeClass = new (...args: any[]) => Node;
-type LineViewClass = new (...args: any[]) => LineView;
-type WordViewClass = new (...args: any[]) => WordView;
+type ViewClass = new (...args: any[]) => View;
 type EventObserverClass = new (...args: any[]) => EventObserver;
 
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
-  protected renderers: Map<string, Renderer>;
+  protected renderers: Map<string, RenderNodeBuilder>;
   protected blockBoxBuilders: Map<string, BlockBoxBuilder>;
   protected lineBoxBuilders: Map<string, LineBoxBuilder>;
   protected inlineBoxBuilders: Map<string, InlineBoxBuilder>;
   protected atomicBoxBuilders: Map<string, AtomicBoxBuilder>;
-  protected lineViewClasses: { [key: string]: LineViewClass };
-  protected wordViewClasses: { [key: string]: WordViewClass };
+  protected viewClasses: Map<string, ViewClass>;
   protected eventObserverClasses: EventObserverClass[];
 
   constructor() {
@@ -41,13 +38,12 @@ class Config {
     this.lineBoxBuilders = new Map();
     this.inlineBoxBuilders = new Map();
     this.atomicBoxBuilders = new Map();
-    this.lineViewClasses = {};
-    this.wordViewClasses = {};
+    this.viewClasses = new Map();
     this.eventObserverClasses = [];
     this.registerNodeClass('Paragraph', Paragraph);
     this.registerNodeClass('Text', Text);
-    this.registerRenderer('Paragraph', new ParagraphRenderer());
-    this.registerRenderer('Text', new TextRenderer());
+    this.registerRenderNodeBuilder('Paragraph', new ParagraphBlockRenderNodeBuilder());
+    this.registerRenderNodeBuilder('Text', new TextInlineRenderNodeBuilder());
     this.registerBlockBoxBuilder('ParagraphBlockRenderNode', new ParagraphBlockBoxBuilder());
     this.registerLineBoxBuilder('ParagraphBlockRenderNode', new ParagraphLineBoxBuilder());
     this.registerInlineBoxBuilder('TextInlineRenderNode', new TextInlineBoxBuilder());
@@ -67,11 +63,11 @@ class Config {
     return this.nodeClasses.get(nodeType)!;
   }
 
-  registerRenderer(nodeType: string, renderer: Renderer) {
+  registerRenderNodeBuilder(nodeType: string, renderer: RenderNodeBuilder) {
     this.renderers.set(nodeType, renderer);
   }
 
-  getRenderer(nodeType: string): Renderer {
+  getRenderNodeBuilder(nodeType: string): RenderNodeBuilder {
     if (!this.renderers.has(nodeType)) {
       throw new Error(`No renderer registered for node type ${nodeType}.`);
     }
@@ -126,20 +122,16 @@ class Config {
     return atomicBoxBuilder;
   }
 
-  getLineViewClass(type: string): LineViewClass {
-    const lineViewClass = this.lineViewClasses[type];
-    if (!lineViewClass) {
-      throw new Error(`Block type ${type} is not regsitered.`);
-    }
-    return lineViewClass;
+  registerViewClass(boxType: string, viewClass: ViewClass) {
+    this.viewClasses.set(boxType, viewClass);
   }
 
-  getWordViewClass(type: string): WordViewClass {
-    const wordViewClass = this.wordViewClasses[type];
-    if (!wordViewClass) {
-      throw new Error(`Inline type ${type} is not regsitered.`);
+  getViewClass(boxType: string): ViewClass {
+    const viewClass = this.viewClasses.get(boxType);
+    if (!viewClass) {
+      throw new Error(`No view class registered for box type ${boxType}.`);
     }
-    return wordViewClass;
+    return viewClass;
   }
 
   registerEventObserverClass(eventObserverClass: EventObserverClass) {

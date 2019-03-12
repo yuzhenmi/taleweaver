@@ -1,12 +1,4 @@
-export interface ViewDOMElements {}
+export default abstract class View {
 
-abstract class View {
-
-  abstract getSize(): number;
-
-  abstract mount(domWrapper: HTMLElement): void;
-  
-  abstract getDOM(): ViewDOMElements;
+  abstract getDOMContainer(): HTMLElement;
 }
-
-export default View;

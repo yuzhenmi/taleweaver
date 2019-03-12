@@ -9,6 +9,8 @@ export default abstract class Box {
     this.height = height;
   }
 
+  abstract getType(): string;
+
   getWidth(): number {
     return this.width;
   }

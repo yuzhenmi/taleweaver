@@ -1,10 +1,10 @@
 import Text from '../model/Text';
-import InlineRenderer, { Parent } from './InlineRenderer';
+import InlineRenderNodeBuilder, { Parent } from './InlineRenderNodeBuilder';
 import TextInlineRenderNode from './TextInlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 import breakTextToWords from './helpers/breakTextToWords';
 
-export default class TextRenderer extends InlineRenderer {
+export default class TextInlineRenderNodeBuilder extends InlineRenderNodeBuilder {
 
   render(parent: Parent, text: Text): TextInlineRenderNode {
     const textInlineRenderNode = new TextInlineRenderNode(parent, text.getSelectableSize());

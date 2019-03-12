@@ -7,4 +7,8 @@ export default class TextAtomicBox extends AtomicBox {
     super(selectableSize, width, height, breakable);
     this.content = content;
   }
+
+  getType(): string {
+    return 'TextAtomicBox';
+  }
 }

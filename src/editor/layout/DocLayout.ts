@@ -11,7 +11,7 @@ export default class DocLayout {
     this.pageLayouts.push(pageLayout);
   }
 
-  getPageLayouts(): PageLayout[] {
+  getChildren(): PageLayout[] {
     return this.pageLayouts;
   }
 }

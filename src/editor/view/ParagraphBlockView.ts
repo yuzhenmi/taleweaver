@@ -1,27 +1,26 @@
-import View from './View';
-import InlineView from './InlineView';
+import BlockView from './BlockView';
+import LineView from './LineView';
 
-export default class LineView extends View {
+export default class ParagraphBlockView extends BlockView {
   protected domContainer: HTMLDivElement;
 
   constructor() {
     super();
     this.domContainer = document.createElement('div');
-    this.domContainer.className = 'tw--line';
+    this.domContainer.className = 'tw--paragraph-block';
   }
 
   getDOMContainer(): HTMLDivElement {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLDivElement {
-    return this.domContainer;
-  }
-
-  insertChild(child: InlineView, offset: number) {
+  insertChild(child: BlockView | LineView, offset: number) {
+    if (child instanceof BlockView) {
+      throw new Error('Error inserting child to paragraph block view, child cannot be block view.');
+    }
     const childDOMContainer = child.getDOMContainer();
     if (offset > this.domContainer.childNodes.length) {
-      throw new Error(`Error inserting child to line view, offset ${offset} is out of range.`);
+      throw new Error(`Error inserting child to paragraph block view, offset ${offset} is out of range.`);
     }
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);

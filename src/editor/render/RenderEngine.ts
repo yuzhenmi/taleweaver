@@ -6,8 +6,8 @@ import Doc from '../model/Doc';
 import BranchNode from '../model/BranchNode';
 import BlockRenderNode from './BlockRenderNode';
 import InlineRenderNode from './InlineRenderNode';
-import BlockRenderer from './BlockRenderer';
-import InlineRenderer from './InlineRenderer';
+import BlockRenderNodeBuilder from './BlockRenderNodeBuilder';
+import InlineRenderNodeBuilder from './InlineRenderNodeBuilder';
 
 export default class RenderEngine {
   protected config: Config;
@@ -68,17 +68,17 @@ export default class RenderEngine {
   }
 
   protected buildRenderNode(parent: RenderNode, node: Node): RenderNode {
-    const renderer = this.config.getRenderer(node.getType());
-    if (renderer instanceof BlockRenderer) {
+    const renderer = this.config.getRenderNodeBuilder(node.getType());
+    if (renderer instanceof BlockRenderNodeBuilder) {
       return this.buildBlockRenderNode(parent, node, renderer);
     }
-    if (renderer instanceof InlineRenderer) {
+    if (renderer instanceof InlineRenderNodeBuilder) {
       return this.buildInlineRenderNode(parent, node, renderer);
     }
     throw new Error(`Error building node, renderer is not recognized.`);
   }
 
-  protected buildBlockRenderNode(parent: RenderNode, node: Node, renderer: BlockRenderer): BlockRenderNode {
+  protected buildBlockRenderNode(parent: RenderNode, node: Node, renderer: BlockRenderNodeBuilder): BlockRenderNode {
     if (!(parent instanceof DocRenderNode)) {
       throw new Error(`Error building block render node, expecting parent to be DocRenderNode.`);
     }
@@ -87,7 +87,7 @@ export default class RenderEngine {
     return blockRenderNode;
   }
 
-  protected buildInlineRenderNode(parent: RenderNode, node: Node, renderer: InlineRenderer): InlineRenderNode {
+  protected buildInlineRenderNode(parent: RenderNode, node: Node, renderer: InlineRenderNodeBuilder): InlineRenderNode {
     if (!(parent instanceof BlockRenderNode)) {
       throw new Error(`Error building inline render node, expecting parent to be BlockRenderNode.`);
     }
