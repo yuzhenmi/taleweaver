@@ -1,5 +1,5 @@
 {
-  "name": "demo",
+  "name": "@taleweaver/example-react",
   "version": "0.0.1",
   "dependencies": {
     "@types/jest": "24.0.11",
@@ -10,7 +10,7 @@
     "react-dom": "^16.8.4",
     "react-scripts": "2.1.8",
     "typescript": "3.3.3333",
-    "@taleweaver/core": "file:../../packages/core"
+    "@taleweaver/core": "file:../../packages/taleweaver-core"
   },
   "scripts": {
     "start": "react-scripts start",

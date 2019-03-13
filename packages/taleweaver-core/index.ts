@@ -1,5 +1,5 @@
-import Editor from './Editor';
-import Config from './Config';
+import Editor from './src/Editor';
+import Config from './src/Config';
 
 const TaleWeaver = {
   Editor,
