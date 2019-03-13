@@ -1,9 +1,7 @@
 import Editor from './src/Editor';
 import Config from './src/Config';
 
-const TaleWeaver = {
+export {
   Editor,
   Config,
-};
-
-export default TaleWeaver;
+}

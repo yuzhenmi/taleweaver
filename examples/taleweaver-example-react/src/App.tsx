@@ -1,5 +1,5 @@
 import React, { Component } from 'react';
-import TaleWeaver from '@taleweaver/core';
+import { Editor } from '@taleweaver/core';
 import './App.css';
 
 class App extends Component {

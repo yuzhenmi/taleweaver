@@ -1,7 +1,5 @@
 import Cursor from './src/Cursor';
 
-const TaleWeaverCursor = {
+export {
   Cursor,
 };
-
-export default TaleWeaverCursor;
