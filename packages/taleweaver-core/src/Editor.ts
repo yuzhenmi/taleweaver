@@ -4,7 +4,7 @@ import State from './state/State';
 import Parser from './model/Parser';
 import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
-import ViewAdapter from './view/ViewAdapter';
+import Presenter from './view/Presenter';
 
 export default class Editor {
   protected config: Config;
@@ -13,7 +13,7 @@ export default class Editor {
   protected parser: Parser;
   protected renderEngine: RenderEngine;
   protected layoutEngine: LayoutEngine;
-  protected viewAdapter: ViewAdapter;
+  protected presenter: Presenter;
   protected domWrapper?: HTMLElement;
 
   constructor(config: Config, markup: string) {
@@ -23,7 +23,7 @@ export default class Editor {
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
-    this.viewAdapter = new ViewAdapter(this.config, this.layoutEngine.getDocLayout());
+    this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout());
   }
 
   getConfig(): Config {
@@ -36,6 +36,6 @@ export default class Editor {
 
   mount(domWrapper: HTMLElement) {
     this.domWrapper = domWrapper;
-    this.viewAdapter.mount(domWrapper);
+    this.presenter.mount(domWrapper);
   }
 }

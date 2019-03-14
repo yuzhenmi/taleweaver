@@ -20,7 +20,7 @@ export interface ScreenBoundingRect {
   height: number;
 }
 
-export default class ViewAdapter {
+export default class Presenter {
   protected config: Config;
   protected docLayout: DocLayout;
   protected docView: DocView;
@@ -40,14 +40,11 @@ export default class ViewAdapter {
     domWrapper.appendChild(this.docView.getDOMContainer());
   }
 
-  convertScreenCoordinateToSelectablePosition(pageId: string, x: number, y: number): number {
-    // TODO
-    return 0;
+  resolveScreenCoordinateToSelectableOffset(pageId: string, x: number, y: number): number {
   }
 
-  convertSelectablePositionRangeToScreenBoundingRects(from: number, to: number): ScreenBoundingRect[] {
-    // TODO
-    return [];
+  resolveSelectableOffsetRangeToScreenBoundingRects(from: number, to: number): ScreenBoundingRect[] {
+    return this.docView.resolveSelectableOffsetRangeToScreenBoundingRects(from, to);
   }
 
   private buildPageView(pageLayout: PageLayout): PageView {
