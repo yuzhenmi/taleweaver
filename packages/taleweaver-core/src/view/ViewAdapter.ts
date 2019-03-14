@@ -11,6 +11,7 @@ import LineView from './LineView';
 import InlineView from './InlineView';
 
 export interface ScreenBoundingRect {
+  pageId: string;
   left: number;
   right: number;
   top: number;
@@ -39,7 +40,7 @@ export default class ViewAdapter {
     domWrapper.appendChild(this.docView.getDOMContainer());
   }
 
-  convertScreenCoordinateToSelectablePosition(x: number, y: number): number {
+  convertScreenCoordinateToSelectablePosition(pageId: string, x: number, y: number): number {
     // TODO
     return 0;
   }
