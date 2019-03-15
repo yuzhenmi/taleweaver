@@ -1,5 +1,14 @@
 import Box from './Box';
 
+export interface ViewportBoundingRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
 export default abstract class AtomicBox extends Box {
   protected breakable: boolean;
 
@@ -7,4 +16,8 @@ export default abstract class AtomicBox extends Box {
     super(selectableSize, width, height);
     this.breakable = breakable;
   }
+
+  abstract resolveViewportPositionToSelectableOffset(x: number): number;
+
+  abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
 }

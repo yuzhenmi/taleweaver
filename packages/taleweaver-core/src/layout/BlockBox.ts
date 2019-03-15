@@ -1,6 +1,15 @@
 import Box from './Box';
 import LineBox from './LineBox';
 
+export interface ViewportBoundingRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
 type Child = LineBox;
 
 export default abstract class BlockBox extends Box {
@@ -27,4 +36,8 @@ export default abstract class BlockBox extends Box {
   }
 
   abstract cutAt(offset: number): BlockBox;
+
+  abstract resolveViewportPositionToSelectableOffset(x: number, y: number): number;
+
+  abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
 }

@@ -10,16 +10,6 @@ import BlockView from './BlockView';
 import LineView from './LineView';
 import InlineView from './InlineView';
 
-export interface ScreenBoundingRect {
-  pageId: string;
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
-
 export default class Presenter {
   protected config: Config;
   protected docLayout: DocLayout;
@@ -38,13 +28,6 @@ export default class Presenter {
       offset += 1;
     });
     domWrapper.appendChild(this.docView.getDOMContainer());
-  }
-
-  resolveScreenCoordinateToSelectableOffset(pageId: string, x: number, y: number): number {
-  }
-
-  resolveSelectableOffsetRangeToScreenBoundingRects(from: number, to: number): ScreenBoundingRect[] {
-    return this.docView.resolveSelectableOffsetRangeToScreenBoundingRects(from, to);
   }
 
   private buildPageView(pageLayout: PageLayout): PageView {

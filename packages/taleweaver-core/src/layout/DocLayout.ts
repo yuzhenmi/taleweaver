@@ -1,6 +1,6 @@
 import PageLayout from './PageLayout';
 
-export interface ViewportBoundingRect {
+interface ViewportBoundingRect {
   pageOffset: number;
   left: number;
   right: number;
@@ -25,7 +25,7 @@ export default class DocLayout {
     return this.pageLayouts;
   }
 
-  resolveViewportCoordinateToSelectableOffset(pageOffset: number, x: number, y: number): number {
+  resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number): number {
     if (pageOffset >= this.pageLayouts.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);
     }
@@ -33,11 +33,34 @@ export default class DocLayout {
     for (let n = 0; n < pageOffset; n++) {
       selectableOffset += this.pageLayouts[n].getSelectableSize();
     }
-    return selectableOffset + this.pageLayouts[pageOffset].resolveViewportCoordinateToSelectableOffset(x, y);
+    return selectableOffset + this.pageLayouts[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
-    // TODO
-    return [];
+    const viewportBoundingRects: ViewportBoundingRect[] = [];
+    let selectableOffset = 0;
+    for (let n = 0, nn = this.pageLayouts.length; n < nn; n++) {
+      const pageLayout = this.pageLayouts[n];
+      const minChildOffset = 0;
+      const maxChildOffset = pageLayout.getSelectableSize();
+      const childFrom = Math.min(Math.max(from - selectableOffset, minChildOffset), maxChildOffset);
+      const childTo = Math.min(Math.max(to - selectableOffset, minChildOffset), maxChildOffset);
+      if (childFrom !== childTo) {
+        const childViewportBoundingRects = pageLayout.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+        childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          viewportBoundingRects.push({
+            pageOffset: n,
+            left: childViewportBoundingRect.left,
+            right: childViewportBoundingRect.right,
+            top: childViewportBoundingRect.top,
+            bottom: childViewportBoundingRect.bottom,
+            width: childViewportBoundingRect.width,
+            height: childViewportBoundingRect.height,
+          });
+        });
+      }
+      selectableOffset += pageLayout.getSelectableSize();
+    }
+    return viewportBoundingRects;
   }
 }
