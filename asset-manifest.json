@@ -1,13 +1,13 @@
 {
-  "main.css": "/taleweaver/static/css/main.be598a2f.chunk.css",
-  "main.js": "/taleweaver/static/js/main.08198eed.chunk.js",
-  "main.js.map": "/taleweaver/static/js/main.08198eed.chunk.js.map",
-  "static/js/1.2d2c491a.chunk.js": "/taleweaver/static/js/1.2d2c491a.chunk.js",
-  "static/js/1.2d2c491a.chunk.js.map": "/taleweaver/static/js/1.2d2c491a.chunk.js.map",
-  "runtime~main.js": "/taleweaver/static/js/runtime~main.3c6042e6.js",
-  "runtime~main.js.map": "/taleweaver/static/js/runtime~main.3c6042e6.js.map",
-  "static/css/main.be598a2f.chunk.css.map": "/taleweaver/static/css/main.be598a2f.chunk.css.map",
-  "index.html": "/taleweaver/index.html",
-  "precache-manifest.23301a9a851accb60c244ce65680ba8f.js": "/taleweaver/precache-manifest.23301a9a851accb60c244ce65680ba8f.js",
-  "service-worker.js": "/taleweaver/service-worker.js"
+  "main.css": "/static/css/main.4a882804.chunk.css",
+  "main.js": "/static/js/main.8aafb97a.chunk.js",
+  "main.js.map": "/static/js/main.8aafb97a.chunk.js.map",
+  "runtime~main.js": "/static/js/runtime~main.a8a9905a.js",
+  "runtime~main.js.map": "/static/js/runtime~main.a8a9905a.js.map",
+  "static/js/2.990172f0.chunk.js": "/static/js/2.990172f0.chunk.js",
+  "static/js/2.990172f0.chunk.js.map": "/static/js/2.990172f0.chunk.js.map",
+  "index.html": "/index.html",
+  "precache-manifest.d681f0aa0d62247d56bfbfc43af7c9c0.js": "/precache-manifest.d681f0aa0d62247d56bfbfc43af7c9c0.js",
+  "service-worker.js": "/service-worker.js",
+  "static/css/main.4a882804.chunk.css.map": "/static/css/main.4a882804.chunk.css.map"
 }
