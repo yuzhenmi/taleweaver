@@ -47,14 +47,14 @@ export default class PageLayout {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedHeight = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
       const minChildOffset = 0;
       const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.min(Math.max(from - selectableOffset, minChildOffset), maxChildOffset);
-      const childTo = Math.min(Math.max(to - selectableOffset, minChildOffset), maxChildOffset);
-      if (childFrom !== childTo) {
+      const childFrom = Math.max(from - selectableOffset, minChildOffset);
+      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
@@ -63,7 +63,7 @@ export default class PageLayout {
             top: cumulatedHeight + childViewportBoundingRect.top + 60,
             bottom: PAGE_HEIGHT_PLACEHOLDER - cumulatedHeight - childHeight + childViewportBoundingRect.bottom + 60,
             width: childViewportBoundingRect.width,
-            height: childHeight,
+            height: childViewportBoundingRect.height,
           });
         });
       }

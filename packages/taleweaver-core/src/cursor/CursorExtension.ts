@@ -3,15 +3,34 @@ import Cursor from './Cursor';
 
 export default class CursorExtension extends Extension {
   protected cursor: Cursor;
+  protected domSelections: HTMLDivElement[];
+  protected domHead: HTMLDivElement;
 
   constructor() {
     super();
-    this.cursor = new Cursor(0, 0);
+    this.cursor = new Cursor(0, 2000);
+    this.domSelections = [];
+    this.domHead = document.createElement('div');;
+    this.domHead.className = 'tw--cursor-head'
+    this.domHead.style.position = 'absolute';
   }
 
   onReflowed() {
+    this.updateView();
+  }
+
+  protected updateView() {
+    // Clear dom selections
+    while (this.domSelections.length > 0) {
+      const domSelection = this.domSelections[0];
+      if (domSelection.parentElement) {
+        domSelection.parentElement.removeChild(domSelection);
+      }
+      this.domSelections.splice(0, 1);
+    }
+
     const provider = this.getProvider();
-    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(0, 100);
+    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(this.cursor.getAnchor(), this.cursor.getHead());
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;
@@ -25,6 +44,9 @@ export default class CursorExtension extends Extension {
         }
         lastPageOffset = pageOffset;
         lastViewportBoundingRectOffset = viewportBoundingRectOffset;
+        if (viewportBoundingRect.width === 0) {
+          return;
+        }
         const domSelection = document.createElement('div');
         domSelection.className = 'tw--cursor-selection'
         domSelection.style.position = 'absolute';
@@ -33,13 +55,14 @@ export default class CursorExtension extends Extension {
         domSelection.style.width = `${viewportBoundingRect.width}px`;
         domSelection.style.height = `${viewportBoundingRect.height}px`;
         pageDOMContentContainer.appendChild(domSelection);
+        this.domSelections.push(domSelection);
       });
     });
     let headPageOffset: number;
     let headLeft: number;
     let headTop: number;
     let headHeight: number;
-    if (this.cursor.getAnchor() < this.cursor.getHead()) {
+    if (this.cursor.getHead() < this.cursor.getAnchor()) {
       headPageOffset = firstPageOffset;
       const viewportBoundingRect = viewportBoundingRectsByPage[firstPageOffset][firstViewportBoundingRectOffset];
       headLeft = viewportBoundingRect.left;
@@ -52,12 +75,15 @@ export default class CursorExtension extends Extension {
       headTop = viewportBoundingRect.top;
       headHeight = viewportBoundingRect.height;
     }
-    const domHead = document.createElement('div');
-    domHead.className = 'tw--cursor-head'
-    domHead.style.position = 'absolute';
-    domHead.style.top = `${headTop}px`;
-    domHead.style.left = `${headLeft}px`;
-    domHead.style.height = `${headHeight}px`;
-    provider.getPageDOMContentContainer(headPageOffset).appendChild(domHead);
+    this.domHead.style.top = `${headTop}px`;
+    this.domHead.style.left = `${headLeft}px`;
+    this.domHead.style.height = `${headHeight}px`;
+    const pageDOMContentContainer = provider.getPageDOMContentContainer(headPageOffset);
+    if (this.domHead.parentElement && this.domHead.parentElement !== pageDOMContentContainer) {
+      this.domHead.parentElement.removeChild(this.domHead);
+    }
+    if (!this.domHead.parentElement) {
+      pageDOMContentContainer.appendChild(this.domHead);
+    }
   }
 }

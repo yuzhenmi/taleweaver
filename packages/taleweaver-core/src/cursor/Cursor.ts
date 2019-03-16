@@ -14,4 +14,12 @@ export default class Cursor {
   getHead(): number {
     return this.head;
   }
+
+  setAnchor(anchor: number) {
+    this.anchor = anchor;
+  }
+
+  setHead(head: number) {
+    this.head = head;
+  }
 }

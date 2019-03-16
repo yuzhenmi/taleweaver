@@ -16,7 +16,7 @@ export default abstract class BlockBox extends Box {
 
   insertChild(child: Child, offset: number) {
     const childHeight = child.getHeight();
-    this.height = Math.max(this.height, childHeight);
+    this.height = this.height + childHeight;
     this.children.splice(offset, 0, child);
     this.selectableSize += child.getSelectableSize();
   }

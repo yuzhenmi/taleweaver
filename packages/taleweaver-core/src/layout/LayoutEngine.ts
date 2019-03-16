@@ -147,8 +147,10 @@ export default class LayoutEngine {
     pageLayouts.push(pageLayout);
 
     // Build doc layout
+    let pageOffset = 0;
     pageLayouts.forEach(pageLayout => {
-      this.docLayout.insertPageLayout(pageLayout);
+      this.docLayout.insertChild(pageLayout, pageOffset);
+      pageOffset += 1;
     });
 
     // Notify subscribers

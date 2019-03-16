@@ -1,46 +1,48 @@
 import PageLayout from './PageLayout';
 import ViewportBoundingRect from './ViewportBoundingRect';
 
+type Child = PageLayout;
+
 export default class DocLayout {
-  protected pageLayouts: PageLayout[];
+  protected children: Child[];
 
   constructor() {
-    this.pageLayouts = [];
+    this.children = [];
   }
 
-  insertPageLayout(pageLayout: PageLayout) {
-    this.pageLayouts.push(pageLayout);
+  insertChild(child: Child, offset: number) {
+    this.children.splice(offset, 0, child);
   }
 
-  getChildren(): PageLayout[] {
-    return this.pageLayouts;
+  getChildren(): Child[] {
+    return this.children;
   }
 
   resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number): number {
-    if (pageOffset >= this.pageLayouts.length) {
+    if (pageOffset >= this.children.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);
     }
     let selectableOffset = 0;
     for (let n = 0; n < pageOffset; n++) {
-      selectableOffset += this.pageLayouts[n].getSelectableSize();
+      selectableOffset += this.children[n].getSelectableSize();
     }
-    return selectableOffset + this.pageLayouts[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
+    return selectableOffset + this.children[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[][] {
     const viewportBoundingRects: ViewportBoundingRect[][] = [];
-    this.pageLayouts.forEach(() => {
+    this.children.forEach(() => {
       viewportBoundingRects.push([]);
     });
     let selectableOffset = 0;
-    for (let n = 0, nn = this.pageLayouts.length; n < nn; n++) {
-      const pageLayout = this.pageLayouts[n];
+    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
+      const child = this.children[n];
       const minChildOffset = 0;
-      const maxChildOffset = pageLayout.getSelectableSize();
-      const childFrom = Math.min(Math.max(from - selectableOffset, minChildOffset), maxChildOffset);
-      const childTo = Math.min(Math.max(to - selectableOffset, minChildOffset), maxChildOffset);
-      if (childFrom !== childTo) {
-        const childViewportBoundingRects = pageLayout.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+      const maxChildOffset = child.getSelectableSize();
+      const childFrom = Math.max(from - selectableOffset, minChildOffset);
+      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
+        const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects[n].push({
             left: childViewportBoundingRect.left,
@@ -52,7 +54,7 @@ export default class DocLayout {
           });
         });
       }
-      selectableOffset += pageLayout.getSelectableSize();
+      selectableOffset += child.getSelectableSize();
     }
     return viewportBoundingRects;
   }

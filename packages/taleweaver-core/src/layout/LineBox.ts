@@ -1,6 +1,7 @@
 import Box from './Box';
 import InlineBox from './InlineBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
+import mergeViewportBoundingRects from './helpers/mergeViewportBoundingRects';
 
 type Child = InlineBox;
 
@@ -43,14 +44,14 @@ export default class LineBox extends Box {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedWidth = 0;
-    for (let n = 0, nn = this.children.length; n < nn && selectableOffset < to; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
       const child = this.children[n];
       const childWidth = child.getWidth();
       const minChildOffset = 0;
       const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.min(Math.max(from - selectableOffset, minChildOffset), maxChildOffset);
-      const childTo = Math.min(Math.max(to - selectableOffset, minChildOffset), maxChildOffset);
-      if (childFrom !== childTo) {
+      const childFrom = Math.max(from - selectableOffset, minChildOffset);
+      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
@@ -66,6 +67,7 @@ export default class LineBox extends Box {
       selectableOffset += child.getSelectableSize();
       cumulatedWidth += childWidth;
     }
+    mergeViewportBoundingRects(viewportBoundingRects);
     return viewportBoundingRects;
   }
 }
