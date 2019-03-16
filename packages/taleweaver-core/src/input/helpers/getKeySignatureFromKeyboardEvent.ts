@@ -1,7 +1,7 @@
 import ModifierKey from '../ModifierKey';
 import KeySignature from '../KeySignature';
 import Key from '../Key';
-import { AltKey, CtrlKey, ShiftKey } from '../modifierKeys';
+import { AltKey, CtrlKey, MetaKey, ShiftKey } from '../modifierKeys';
 import {
   AKey,
   BKey,
@@ -134,6 +134,9 @@ export default function getKeySignatureFromKeyboardEvent(event: KeyboardEvent): 
   }
   if (event.ctrlKey) {
     modifierKeys.push(CtrlKey);
+  }
+  if (event.metaKey) {
+    modifierKeys.push(MetaKey);
   }
   if (event.shiftKey) {
     modifierKeys.push(ShiftKey);

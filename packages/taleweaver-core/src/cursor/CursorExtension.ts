@@ -3,9 +3,15 @@ import Cursor from './Cursor';
 import KeySignature from '../input/KeySignature';
 import { ArrowLeftKey, ArrowRightKey } from '../input/keys';
 import Command from './Command';
-import { moveLeft, moveRight } from './commands';
+import {
+  moveLeft,
+  moveRight,
+  moveHeadLeft,
+  moveHeadRight,
+} from './commands';
 import Transformation from './Transformation';
 import { MoveTo, MoveHeadTo } from './operations';
+import { ShiftKey } from '../input/modifierKeys';
 
 export default class CursorExtension extends Extension {
   protected cursor: Cursor;
@@ -16,7 +22,7 @@ export default class CursorExtension extends Extension {
 
   constructor() {
     super();
-    this.cursor = new Cursor(0, 2000);
+    this.cursor = new Cursor(0, 0);
     this.blinkState = false;
     this.blinkInterval = null;
     this.domSelections = [];
@@ -41,6 +47,8 @@ export default class CursorExtension extends Extension {
     const provider = this.getProvider();
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey), () => this.dispatchCommand(moveLeft()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey), () => this.dispatchCommand(moveRight()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [ShiftKey]), () => this.dispatchCommand(moveHeadLeft()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [ShiftKey]), () => this.dispatchCommand(moveHeadRight()));
   }
 
   protected dispatchCommand(command: Command) {
@@ -102,7 +110,7 @@ export default class CursorExtension extends Extension {
     const provider = this.getProvider();
     const anchor = this.cursor.getAnchor();
     const head = this.cursor.getHead();
-    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(anchor, head);
+    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;

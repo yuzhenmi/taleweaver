@@ -9,6 +9,7 @@ export default class EventObserver {
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
+    event.preventDefault();
     this.inputManager.onKeyPress(event);
   }
 }
