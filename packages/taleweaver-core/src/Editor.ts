@@ -5,6 +5,7 @@ import Parser from './model/Parser';
 import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
 import Presenter from './view/Presenter';
+import InputManager from './input/InputManager';
 import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
 
@@ -16,8 +17,9 @@ export default class Editor {
   protected renderEngine: RenderEngine;
   protected layoutEngine: LayoutEngine;
   protected presenter: Presenter;
-  protected domWrapper?: HTMLElement;
+  protected inputManager: InputManager;
   protected extensionProvider: ExtensionProvider;
+  protected domWrapper?: HTMLElement;
 
   constructor(config: Config, markup: string) {
     this.config = config;
@@ -26,8 +28,9 @@ export default class Editor {
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
-    this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout());
-    this.extensionProvider = new ExtensionProvider(this.layoutEngine, this.presenter);
+    this.inputManager = new InputManager();
+    this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout(), this.inputManager);
+    this.extensionProvider = new ExtensionProvider(this.layoutEngine, this.presenter, this.inputManager);
   }
 
   getConfig(): Config {

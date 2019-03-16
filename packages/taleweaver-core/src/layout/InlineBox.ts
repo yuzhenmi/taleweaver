@@ -60,8 +60,8 @@ export default abstract class InlineBox extends Box {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
-            left: cumulatedWidth,
-            right: this.width - cumulatedWidth - childWidth,
+            left: cumulatedWidth + childViewportBoundingRect.left,
+            right: this.width - cumulatedWidth - childWidth + childViewportBoundingRect.right,
             top: 0,
             bottom: 0,
             width: childViewportBoundingRect.width,

@@ -1,22 +1,92 @@
 import Extension from '../extension/Extension';
 import Cursor from './Cursor';
+import KeySignature from '../input/KeySignature';
+import { ArrowLeftKey, ArrowRightKey } from '../input/keys';
+import Command from './Command';
+import { moveLeft, moveRight } from './commands';
+import Transformation from './Transformation';
+import { MoveTo, MoveHeadTo } from './operations';
 
 export default class CursorExtension extends Extension {
   protected cursor: Cursor;
+  protected blinkState: boolean;
+  protected blinkInterval: number | null;
   protected domSelections: HTMLDivElement[];
   protected domHead: HTMLDivElement;
 
   constructor() {
     super();
     this.cursor = new Cursor(0, 2000);
+    this.blinkState = false;
+    this.blinkInterval = null;
     this.domSelections = [];
     this.domHead = document.createElement('div');;
     this.domHead.className = 'tw--cursor-head'
     this.domHead.style.position = 'absolute';
   }
 
+  getCursor(): Cursor {
+    return this.cursor;
+  }
+
+  onRegistered() {
+    this.subscribeOnInputs();
+  }
+
   onReflowed() {
     this.updateView();
+  }
+
+  protected subscribeOnInputs() {
+    const provider = this.getProvider();
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey), () => this.dispatchCommand(moveLeft()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey), () => this.dispatchCommand(moveRight()));
+  }
+
+  protected dispatchCommand(command: Command) {
+    const transformation = command(this);
+    this.applyTransformation(transformation);
+  }
+
+  protected applyTransformation(transformation: Transformation) {
+    const operations = transformation.getOperations();
+    operations.forEach(operation => {
+      if (operation instanceof MoveTo) {
+        const offset = operation.getOffset();
+        this.cursor.setAnchor(offset);
+        this.cursor.setHead(offset);
+      } else if (operation instanceof MoveHeadTo) {
+        const offset = operation.getOffset();
+        this.cursor.setHead(offset);
+      } else {
+        throw new Error('Unrecognized cursor transformation operation.');
+      }
+    });
+    this.updateView();
+  }
+
+  protected startBlinking() {
+    if (this.blinkInterval !== null) {
+      return;
+    }
+    this.blinkInterval = setInterval(() => {
+      if (this.blinkState) {
+        this.domHead.style.visibility = 'hidden';
+      } else {
+        this.domHead.style.visibility = 'visible';
+      }
+      this.blinkState = !this.blinkState;
+    }, 500);
+  }
+
+  protected stopBlinking() {
+    if (this.blinkInterval === null) {
+      return;
+    }
+    this.blinkState = true;
+    this.domHead.style.visibility = 'visible';
+    clearInterval(this.blinkInterval);
+    this.blinkInterval = null;
   }
 
   protected updateView() {
@@ -30,7 +100,9 @@ export default class CursorExtension extends Extension {
     }
 
     const provider = this.getProvider();
-    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(this.cursor.getAnchor(), this.cursor.getHead());
+    const anchor = this.cursor.getAnchor();
+    const head = this.cursor.getHead();
+    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(anchor, head);
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;
@@ -85,5 +157,9 @@ export default class CursorExtension extends Extension {
     if (!this.domHead.parentElement) {
       pageDOMContentContainer.appendChild(this.domHead);
     }
+
+    // Reset blinking
+    this.stopBlinking();
+    this.startBlinking();
   }
 }

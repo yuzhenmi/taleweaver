@@ -9,8 +9,8 @@ export default class DocView extends View {
 
   constructor(docLayout: DocLayout) {
     super();
-    this.children = [];
     this.docLayout = docLayout;
+    this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
   }

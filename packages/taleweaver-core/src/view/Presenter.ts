@@ -4,6 +4,8 @@ import PageLayout from '../layout/PageLayout';
 import BlockBox from '../layout/BlockBox';
 import LineBox from '../layout/LineBox';
 import InlineBox from '../layout/InlineBox';
+import InputManager from '../input/InputManager';
+import EventObserver from './EventObserver';
 import DocView from './DocView';
 import PageView from './PageView';
 import BlockView from './BlockView';
@@ -15,12 +17,14 @@ export type OnMountedSubscriber = () => void;
 export default class Presenter {
   protected config: Config;
   protected docLayout: DocLayout;
+  protected eventObserver: EventObserver;
   protected docView: DocView;
   protected onMountedSubscribers: OnMountedSubscriber[];
 
-  constructor(config: Config, docLayout: DocLayout) {
+  constructor(config: Config, docLayout: DocLayout, inputManager: InputManager) {
     this.config = config;
     this.docLayout = docLayout;
+    this.eventObserver = new EventObserver(inputManager);
     this.docView = new DocView(docLayout);
     this.onMountedSubscribers = [];
   }

@@ -4,14 +4,17 @@ import ViewportBoundingRect from './ViewportBoundingRect';
 type Child = PageLayout;
 
 export default class DocLayout {
+  protected selectableSize: number;
   protected children: Child[];
 
   constructor() {
+    this.selectableSize = 0;
     this.children = [];
   }
 
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
+    this.selectableSize += child.getSelectableSize();
   }
 
   getChildren(): Child[] {
@@ -57,5 +60,9 @@ export default class DocLayout {
       selectableOffset += child.getSelectableSize();
     }
     return viewportBoundingRects;
+  }
+
+  getSelectableSize(): number {
+    return this.selectableSize;
   }
 }
