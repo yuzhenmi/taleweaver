@@ -7,6 +7,8 @@ import BlockBox from './BlockBox';
 import LineBox from './LineBox';
 import InlineBox from './InlineBox';
 
+export type OnReflowedSubscriber = () => void;
+
 interface BlockOfInlineBoxes {
   blockRenderNode: BlockRenderNode;
   inlineBoxes: InlineBox[];
@@ -21,12 +23,18 @@ export default class LayoutEngine {
   protected config: Config;
   protected docRenderNode: DocRenderNode;
   protected docLayout: DocLayout;
+  protected onReflowedSubscribers: OnReflowedSubscriber[];
   
   constructor(config: Config, docRenderNode: DocRenderNode) {
     this.config = config;
     this.docRenderNode = docRenderNode;
     this.docLayout = new DocLayout();
+    this.onReflowedSubscribers = [];
     this.reflow();
+  }
+
+  subscribeOnReflowed(subscriber: OnReflowedSubscriber) {
+    this.onReflowedSubscribers.push(subscriber);
   }
 
   getDocLayout(): DocLayout {
@@ -142,5 +150,8 @@ export default class LayoutEngine {
     pageLayouts.forEach(pageLayout => {
       this.docLayout.insertPageLayout(pageLayout);
     });
+
+    // Notify subscribers
+    this.onReflowedSubscribers.forEach(subscriber => subscriber());
   }
 }

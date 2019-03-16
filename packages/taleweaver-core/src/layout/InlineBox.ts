@@ -1,14 +1,6 @@
 import Box from './Box';
 import AtomicBox from './AtomicBox';
-
-interface ViewportBoundingRect {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 type Child = AtomicBox;
 
@@ -57,7 +49,7 @@ export default abstract class InlineBox extends Box {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedWidth = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && selectableOffset < to; n++) {
       const child = this.children[n];
       const childWidth = child.getWidth();
       const minChildOffset = 0;

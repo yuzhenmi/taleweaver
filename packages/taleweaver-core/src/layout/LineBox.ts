@@ -1,14 +1,6 @@
 import Box from './Box';
 import InlineBox from './InlineBox';
-
-interface ViewportBoundingRect {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 type Child = InlineBox;
 
@@ -16,14 +8,12 @@ export default class LineBox extends Box {
   protected children: Child[];
 
   constructor() {
-    super(0, 0, 0);
+    super(0, 680, 0);
     this.children = [];
   }
 
   insertChild(child: Child, offset: number) {
-    const childWidth = child.getWidth();
     const childHeight = child.getHeight();
-    this.width += childWidth;
     this.height = Math.max(this.height, childHeight);
     this.children.splice(offset, 0, child);
     this.selectableSize += child.getSelectableSize();
@@ -53,7 +43,7 @@ export default class LineBox extends Box {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedWidth = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && selectableOffset < to; n++) {
       const child = this.children[n];
       const childWidth = child.getWidth();
       const minChildOffset = 0;
@@ -64,8 +54,8 @@ export default class LineBox extends Box {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
-            left: cumulatedWidth,
-            right: this.width - cumulatedWidth - childWidth,
+            left: cumulatedWidth + childViewportBoundingRect.left,
+            right: this.width - cumulatedWidth - childWidth + childViewportBoundingRect.right,
             top: 0,
             bottom: 0,
             width: childViewportBoundingRect.width,

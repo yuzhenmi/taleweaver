@@ -1,13 +1,5 @@
 import BlockBox from './BlockBox';
-
-interface ViewportBoundingRect {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 type Child = BlockBox;
 
@@ -66,10 +58,10 @@ export default class PageLayout {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
-            left: childViewportBoundingRect.left,
-            right: childViewportBoundingRect.right,
-            top: cumulatedHeight,
-            bottom: PAGE_HEIGHT_PLACEHOLDER - cumulatedHeight - childHeight,
+            left: childViewportBoundingRect.left + 60,
+            right: childViewportBoundingRect.right + 60,
+            top: cumulatedHeight + childViewportBoundingRect.top + 60,
+            bottom: PAGE_HEIGHT_PLACEHOLDER - cumulatedHeight - childHeight + childViewportBoundingRect.bottom + 60,
             width: childViewportBoundingRect.width,
             height: childHeight,
           });

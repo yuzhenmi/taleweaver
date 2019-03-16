@@ -1,13 +1,5 @@
 import Box from './Box';
-
-export interface ViewportBoundingRect {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 export default abstract class AtomicBox extends Box {
   protected breakable: boolean;

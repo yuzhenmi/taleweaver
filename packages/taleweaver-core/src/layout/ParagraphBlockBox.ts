@@ -1,4 +1,5 @@
-import BlockBox, { ViewportBoundingRect } from './BlockBox';
+import BlockBox from './BlockBox';
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 export default class ParagraphBlockBox extends BlockBox {
 
@@ -11,8 +12,8 @@ export default class ParagraphBlockBox extends BlockBox {
       throw new Error(`Error cutting ParagraphBlockBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const childrenCutSelectableSize = childrenCut.reduce((sum, child) => sum + child.getSelectableSize(), 0);
-    this.selectableSize -= childrenCutSelectableSize;
+    this.width = this.children.reduce((sum, child) => sum + child.getWidth(), 0)
+    this.selectableSize = this.children.reduce((sum, child) => sum + child.getSelectableSize(), 0)
     const newParagraphBlockBox = new ParagraphBlockBox();
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);
@@ -53,8 +54,8 @@ export default class ParagraphBlockBox extends BlockBox {
           viewportBoundingRects.push({
             left: childViewportBoundingRect.left,
             right: childViewportBoundingRect.right,
-            top: cumulatedHeight,
-            bottom: this.height - cumulatedHeight - childHeight,
+            top: cumulatedHeight + childViewportBoundingRect.top,
+            bottom: this.height - cumulatedHeight - childHeight + childViewportBoundingRect.bottom,
             width: childViewportBoundingRect.width,
             height: childHeight,
           });

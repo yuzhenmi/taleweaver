@@ -5,6 +5,8 @@ import Parser from './model/Parser';
 import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
 import Presenter from './view/Presenter';
+import Extension from './extension/Extension';
+import ExtensionProvider from './extension/ExtensionProvider';
 
 export default class Editor {
   protected config: Config;
@@ -15,6 +17,7 @@ export default class Editor {
   protected layoutEngine: LayoutEngine;
   protected presenter: Presenter;
   protected domWrapper?: HTMLElement;
+  protected extensionProvider: ExtensionProvider;
 
   constructor(config: Config, markup: string) {
     this.config = config;
@@ -24,6 +27,7 @@ export default class Editor {
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
     this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout());
+    this.extensionProvider = new ExtensionProvider(this.layoutEngine, this.presenter);
   }
 
   getConfig(): Config {
@@ -37,5 +41,9 @@ export default class Editor {
   mount(domWrapper: HTMLElement) {
     this.domWrapper = domWrapper;
     this.presenter.mount(domWrapper);
+  }
+
+  registerExtension(extension: Extension) {
+    this.extensionProvider.registerExtension(extension);
   }
 }

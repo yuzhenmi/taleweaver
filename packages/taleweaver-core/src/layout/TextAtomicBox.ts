@@ -1,4 +1,5 @@
-import AtomicBox, { ViewportBoundingRect } from './AtomicBox';
+import AtomicBox from './AtomicBox';
+import ViewportBoundingRect from './ViewportBoundingRect';
 import measureText from './helpers/measureText';
 
 const stubTextStyle = {

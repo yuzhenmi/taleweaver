@@ -17,6 +17,10 @@ export default class PageView extends View {
     return this.domContainer;
   }
 
+  getDOMContentContainer(): HTMLDivElement {
+    return this.domContainer;
+  }
+
   insertChild(child: BlockView, offset: number) {
     const childDOMContainer = child.getDOMContainer();
     if (offset > this.domContainer.childNodes.length) {

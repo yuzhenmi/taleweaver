@@ -1,5 +1,5 @@
 import React from 'react';
-import { Editor, Config } from '@taleweaver/core';
+import { Editor, Config, CursorExtension } from '@taleweaver/core';
 import './App.css';
 
 const initialMarkup = `
@@ -46,6 +46,8 @@ class EditorComponent extends React.Component<EditorComponentProps, EditorCompon
     this.domRef = React.createRef();
     const config = new Config();
     const editor = new Editor(config, props.initialMarkup);
+    const cursorExtension = new CursorExtension();
+    editor.registerExtension(cursorExtension);
     this.state = { editor };
   }
 

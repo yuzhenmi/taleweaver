@@ -4,12 +4,12 @@ import TextAtomicBox from '../layout/TextAtomicBox';
 
 export default class TextInlineView extends InlineView {
   protected textInlineBox: TextInlineBox;
-  protected domContainer: HTMLDivElement;
+  protected domContainer: HTMLSpanElement;
 
   constructor(textInlineBox: TextInlineBox) {
     super();
     this.textInlineBox = textInlineBox;
-    this.domContainer = document.createElement('div');
+    this.domContainer = document.createElement('span');
     this.domContainer.className = 'tw--text-inline';
     const text = textInlineBox.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
@@ -21,7 +21,7 @@ export default class TextInlineView extends InlineView {
     this.domContainer.innerText = text;
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer(): HTMLSpanElement {
     return this.domContainer;
   }
 }

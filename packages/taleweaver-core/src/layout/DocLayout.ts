@@ -1,14 +1,5 @@
 import PageLayout from './PageLayout';
-
-interface ViewportBoundingRect {
-  pageOffset: number;
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
+import ViewportBoundingRect from './ViewportBoundingRect';
 
 export default class DocLayout {
   protected pageLayouts: PageLayout[];
@@ -36,8 +27,11 @@ export default class DocLayout {
     return selectableOffset + this.pageLayouts[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
-    const viewportBoundingRects: ViewportBoundingRect[] = [];
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[][] {
+    const viewportBoundingRects: ViewportBoundingRect[][] = [];
+    this.pageLayouts.forEach(() => {
+      viewportBoundingRects.push([]);
+    });
     let selectableOffset = 0;
     for (let n = 0, nn = this.pageLayouts.length; n < nn; n++) {
       const pageLayout = this.pageLayouts[n];
@@ -48,8 +42,7 @@ export default class DocLayout {
       if (childFrom !== childTo) {
         const childViewportBoundingRects = pageLayout.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
-          viewportBoundingRects.push({
-            pageOffset: n,
+          viewportBoundingRects[n].push({
             left: childViewportBoundingRect.left,
             right: childViewportBoundingRect.right,
             top: childViewportBoundingRect.top,

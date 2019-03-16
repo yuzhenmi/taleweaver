@@ -10,15 +10,19 @@ import BlockView from './BlockView';
 import LineView from './LineView';
 import InlineView from './InlineView';
 
+export type OnMountedSubscriber = () => void;
+
 export default class Presenter {
   protected config: Config;
   protected docLayout: DocLayout;
   protected docView: DocView;
+  protected onMountedSubscribers: OnMountedSubscriber[];
 
   constructor(config: Config, docLayout: DocLayout) {
     this.config = config;
     this.docLayout = docLayout;
     this.docView = new DocView(docLayout);
+    this.onMountedSubscribers = [];
   }
 
   mount(domWrapper: HTMLElement) {
@@ -28,6 +32,21 @@ export default class Presenter {
       offset += 1;
     });
     domWrapper.appendChild(this.docView.getDOMContainer());
+
+    // Notify subscribers
+    this.onMountedSubscribers.forEach(subscriber => subscriber());
+  }
+
+  subscribeOnMounted(subscriber: OnMountedSubscriber) {
+    this.onMountedSubscribers.push(subscriber);
+  }
+
+  getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
+    const pages = this.docView.getChildren();
+    if (pageOffset < 0 || pageOffset >= pages.length) {
+      throw new Error(`Page offset ${pageOffset} is out of range.`);
+    }
+    return pages[pageOffset].getDOMContentContainer();
   }
 
   private buildPageView(pageLayout: PageLayout): PageView {
