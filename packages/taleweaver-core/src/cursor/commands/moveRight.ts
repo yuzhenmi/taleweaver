@@ -13,7 +13,7 @@ export default function moveRight(): Command {
     const anchor = cursor.getAnchor();
     const head = cursor.getHead();
     if (anchor === head) {
-      if (head >= cursorExtension.getProvider().getDocSelectableSize() - 1) {
+      if (head >= cursorExtension.getProvider().getDocLayout().getSelectableSize() - 1) {
         return transformation;
       }
       transformation.addOperation(new MoveTo(cursor.getHead() + 1));

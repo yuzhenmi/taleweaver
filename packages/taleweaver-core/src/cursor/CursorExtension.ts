@@ -1,17 +1,29 @@
 import Extension from '../extension/Extension';
 import Cursor from './Cursor';
 import KeySignature from '../input/KeySignature';
-import { ArrowLeftKey, ArrowRightKey } from '../input/keys';
+import { ArrowLeftKey, ArrowRightKey, ArrowUpKey, ArrowDownKey } from '../input/keys';
 import Command from './Command';
 import {
   moveLeft,
   moveRight,
   moveHeadLeft,
   moveHeadRight,
+  moveLeftByWord,
+  moveRightByWord,
+  moveHeadLeftByWord,
+  moveHeadRightByWord,
+  moveToLeftOfLine,
+  moveToRightOfLine,
+  moveHeadToLeftOfLine,
+  moveHeadToRightOfLine,
+  moveToRightOfDoc,
+  moveToLeftOfDoc,
+  moveHeadToRightOfDoc,
+  moveHeadToLeftOfDoc,
 } from './commands';
 import Transformation from './Transformation';
 import { MoveTo, MoveHeadTo } from './operations';
-import { ShiftKey } from '../input/modifierKeys';
+import { AltKey, ShiftKey, MetaKey } from '../input/modifierKeys';
 
 export default class CursorExtension extends Extension {
   protected cursor: Cursor;
@@ -49,6 +61,18 @@ export default class CursorExtension extends Extension {
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey), () => this.dispatchCommand(moveRight()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [ShiftKey]), () => this.dispatchCommand(moveHeadLeft()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [ShiftKey]), () => this.dispatchCommand(moveHeadRight()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [AltKey]), () => this.dispatchCommand(moveLeftByWord()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [AltKey]), () => this.dispatchCommand(moveRightByWord()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [AltKey, ShiftKey]), () => this.dispatchCommand(moveHeadLeftByWord()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [AltKey, ShiftKey]), () => this.dispatchCommand(moveHeadRightByWord()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [MetaKey]), () => this.dispatchCommand(moveToLeftOfLine()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfLine()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfLine()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfLine()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey]), () => this.dispatchCommand(moveToLeftOfDoc()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfDoc()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfDoc()));
   }
 
   protected dispatchCommand(command: Command) {

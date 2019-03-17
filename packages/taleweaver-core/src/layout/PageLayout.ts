@@ -1,21 +1,41 @@
+import DocLayout from './DocLayout';
 import BlockBox from './BlockBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
+import Position from './Position';
+import LayoutNode from './LayoutNode';
 
+type Parent = DocLayout;
 type Child = BlockBox;
 
 const PAGE_HEIGHT_PLACEHOLDER = 880;
 
-export default class PageLayout {
+export default class PageLayout extends LayoutNode {
+  protected parent?: Parent;
   protected children: Child[];
-  protected selectableSize: number;
 
   constructor() {
+    super(0);
     this.children = [];
-    this.selectableSize = 0;
+  }
+
+  getSelectableSize(): number {
+    return this.selectableSize;
+  }
+
+  setParent(parent: Parent) {
+    this.parent = parent;
+  }
+
+  getParent(): Parent {
+    if (!this.parent) {
+      throw new Error(`Page layout has parent set.`);
+    }
+    return this.parent;
   }
 
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
+    child.setParent(this);
     this.selectableSize += child.getSelectableSize();
   }
 
@@ -23,8 +43,45 @@ export default class PageLayout {
     return this.children;
   }
 
-  getSelectableSize(): number {
-    return this.selectableSize;
+  getPreviousSibling(): PageLayout | null {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Page layout is not found in parent.`);
+    }
+    if (offset > 0) {
+      return siblings[offset - 1];
+    }
+    return null;
+  }
+
+  getNextSibling(): PageLayout | null {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Page layout is not found in parent.`);
+    }
+    if (offset < siblings.length - 1) {
+      return siblings[offset + 1];
+    }
+    return null;
+  }
+
+  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+    const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
+      let cumulatedSelectableOffset = 0;
+      for (let n = 0, nn = this.children.length; n < nn; n++) {
+        const child = this.children[n];
+        const childSelectableSize = child.getSelectableSize();
+        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
+          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+          return childPosition;
+        }
+        cumulatedSelectableOffset += childSelectableSize;
+      }
+      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+    });
+    return position;
   }
 
   resolveViewportPositionToSelectableOffset(x: number, y: number): number {

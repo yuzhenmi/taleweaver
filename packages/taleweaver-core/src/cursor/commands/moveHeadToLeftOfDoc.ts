@@ -3,18 +3,14 @@ import Command from '../Command';
 import Transformation from '../Transformation';
 import { MoveHeadTo } from '../operations'
 
-export default function moveHeadLeft(): Command {
+export default function moveHeadToLeftOfDoc(): Command {
   return (cursorExtension: CursorExtension): Transformation => {
     const transformation = new Transformation();
     const cursor = cursorExtension.getCursor();
     if (!cursor) {
       return transformation;
     }
-    const head = cursor.getHead();
-    if (head >= cursorExtension.getProvider().getDocLayout().getSelectableSize() - 1) {
-      return transformation;
-    }
-    transformation.addOperation(new MoveHeadTo(cursor.getHead() + 1));
+    transformation.addOperation(new MoveHeadTo(0));
     return transformation;
   };
 }

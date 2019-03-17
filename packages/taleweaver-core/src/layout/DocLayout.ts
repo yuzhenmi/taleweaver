@@ -1,24 +1,47 @@
 import PageLayout from './PageLayout';
 import ViewportBoundingRect from './ViewportBoundingRect';
+import Position from './Position';
+import LayoutNode from './LayoutNode';
 
 type Child = PageLayout;
 
-export default class DocLayout {
-  protected selectableSize: number;
+export default class DocLayout extends LayoutNode {
   protected children: Child[];
 
   constructor() {
-    this.selectableSize = 0;
+    super(0);
     this.children = [];
+  }
+
+  getSelectableSize(): number {
+    return this.selectableSize;
   }
 
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
+    child.setParent(this);
     this.selectableSize += child.getSelectableSize();
   }
 
   getChildren(): Child[] {
     return this.children;
+  }
+
+  resolvePosition(selectableOffset: number): Position {
+    const position = new Position(this, selectableOffset, undefined, (parent: Position) => {
+      let cumulatedSelectableOffset = 0;
+      for (let n = 0, nn = this.children.length; n < nn; n++) {
+        const child = this.children[n];
+        const childSelectableSize = child.getSelectableSize();
+        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
+          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+          return childPosition;
+        }
+        cumulatedSelectableOffset += childSelectableSize;
+      }
+      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+    });
+    return position;
   }
 
   resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number): number {
@@ -60,9 +83,5 @@ export default class DocLayout {
       selectableOffset += child.getSelectableSize();
     }
     return viewportBoundingRects;
-  }
-
-  getSelectableSize(): number {
-    return this.selectableSize;
   }
 }

@@ -1,10 +1,11 @@
-export default abstract class Box {
-  protected selectableSize: number;
+import LayoutNode from './LayoutNode';
+
+export default abstract class Box extends LayoutNode {
   protected width: number;
   protected height: number;
 
   constructor(selectableSize: number, width: number, height: number) {
-    this.selectableSize = selectableSize;
+    super(selectableSize);
     this.width = width;
     this.height = height;
   }

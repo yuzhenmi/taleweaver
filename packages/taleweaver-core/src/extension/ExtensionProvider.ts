@@ -3,6 +3,7 @@ import ViewportBoundingRect from '../layout/ViewportBoundingRect';
 import Presenter from '../view/Presenter';
 import InputManager, { KeySignatureSubscriber } from '../input/InputManager';
 import KeySignature from '../input/KeySignature';
+import DocLayout from '../layout/DocLayout';
 import Extension from './Extension';
 
 export default class ExtensionProvider {
@@ -25,8 +26,8 @@ export default class ExtensionProvider {
     extension.$onRegistered(this);
   }
 
-  getDocSelectableSize(): number {
-    return this.layoutEngine.getDocLayout().getSelectableSize();
+  getDocLayout(): DocLayout {
+    return this.layoutEngine.getDocLayout();
   }
 
   subscribeOnKeyboardInput(keySignature: KeySignature, subscriber: KeySignatureSubscriber) {
