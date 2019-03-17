@@ -16,6 +16,10 @@ import {
   moveToRightOfLine,
   moveHeadToLeftOfLine,
   moveHeadToRightOfLine,
+  moveToLineAbove,
+  moveToLineBelow,
+  moveHeadToLineAbove,
+  moveHeadToLineBelow,
   moveToRightOfDoc,
   moveToLeftOfDoc,
   moveHeadToRightOfDoc,
@@ -27,6 +31,7 @@ import { AltKey, ShiftKey, MetaKey } from '../input/modifierKeys';
 
 export default class CursorExtension extends Extension {
   protected cursor: Cursor;
+  protected leftAnchor: number | null;
   protected blinkState: boolean;
   protected blinkInterval: number | null;
   protected domSelections: HTMLDivElement[];
@@ -35,6 +40,7 @@ export default class CursorExtension extends Extension {
   constructor() {
     super();
     this.cursor = new Cursor(0, 0);
+    this.leftAnchor = null;
     this.blinkState = false;
     this.blinkInterval = null;
     this.domSelections = [];
@@ -45,6 +51,10 @@ export default class CursorExtension extends Extension {
 
   getCursor(): Cursor {
     return this.cursor;
+  }
+
+  getLeftAnchor(): number | null {
+    return this.leftAnchor;
   }
 
   onRegistered() {
@@ -69,6 +79,10 @@ export default class CursorExtension extends Extension {
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfLine()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfLine()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfLine()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey), () => this.dispatchCommand(moveToLineAbove()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey), () => this.dispatchCommand(moveToLineBelow()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [ShiftKey]), () => this.dispatchCommand(moveHeadToLineAbove()));
+    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [ShiftKey]), () => this.dispatchCommand(moveHeadToLineBelow()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey]), () => this.dispatchCommand(moveToLeftOfDoc()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfDoc()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc()));
@@ -78,6 +92,7 @@ export default class CursorExtension extends Extension {
   protected dispatchCommand(command: Command) {
     const transformation = command(this);
     this.applyTransformation(transformation);
+    this.leftAnchor = transformation.getLeftAnchor();
   }
 
   protected applyTransformation(transformation: Transformation) {
@@ -134,7 +149,7 @@ export default class CursorExtension extends Extension {
     const provider = this.getProvider();
     const anchor = this.cursor.getAnchor();
     const head = this.cursor.getHead();
-    const viewportBoundingRectsByPage = provider.resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
+    const viewportBoundingRectsByPage = provider.getDocLayout().resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;

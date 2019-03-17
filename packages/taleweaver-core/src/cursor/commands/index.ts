@@ -10,6 +10,10 @@ import moveToLeftOfLine from './moveToLeftOfLine';
 import moveToRightOfLine from './moveToRightOfLine';
 import moveHeadToLeftOfLine from './moveHeadToLeftOfLine';
 import moveHeadToRightOfLine from './moveHeadToRightOfLine';
+import moveToLineAbove from './moveToLineAbove';
+import moveToLineBelow from './moveToLineBelow';
+import moveHeadToLineAbove from './moveHeadToLineAbove';
+import moveHeadToLineBelow from './moveHeadToLineBelow';
 import moveToLeftOfDoc from './moveToLeftOfDoc';
 import moveToRightOfDoc from './moveToRightOfDoc';
 import moveHeadToLeftOfDoc from './moveHeadToLeftOfDoc';
@@ -28,6 +32,10 @@ export {
   moveToRightOfLine,
   moveHeadToLeftOfLine,
   moveHeadToRightOfLine,
+  moveToLineAbove,
+  moveToLineBelow,
+  moveHeadToLineAbove,
+  moveHeadToLineBelow,
   moveToLeftOfDoc,
   moveToRightOfDoc,
   moveHeadToLeftOfDoc,

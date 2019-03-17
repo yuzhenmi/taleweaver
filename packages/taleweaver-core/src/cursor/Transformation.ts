@@ -2,11 +2,11 @@ import Operation from './Operation';
 
 export default class Transformation {
   private operations: Operation[] = [];
-  private keepX: boolean;
+  private leftAnchor: number | null;
 
-  constructor(keepX: boolean = false) {
+  constructor() {
     this.operations = [];
-    this.keepX = keepX;
+    this.leftAnchor = null;
   }
 
   addOperation(operation: Operation) {
@@ -17,7 +17,11 @@ export default class Transformation {
     return this.operations;
   }
 
-  getKeepX(): boolean {
-    return this.keepX;
+  setLeftAnchor(leftAnchor: number) {
+    this.leftAnchor = leftAnchor;
+  }
+
+  getLeftAnchor(): number | null {
+    return this.leftAnchor;
   }
 }

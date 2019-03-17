@@ -141,7 +141,7 @@ export default class LayoutEngine {
         accumulatedPageHeight += lineBoxHeight;
         lineBoxOffset += 1;
       }
-      pageLayout.insertChild(blockBox, blockBoxOffset);
+      pageLayout.insertChild(currentBlockBox, blockBoxOffset);
       blockBoxOffset += 1;
     });
     pageLayouts.push(pageLayout);

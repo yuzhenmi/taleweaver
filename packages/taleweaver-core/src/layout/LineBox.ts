@@ -104,6 +104,9 @@ export default class LineBox extends Box {
       selectableOffset += child.getSelectableSize();
       cumulatedWidth += childWidth;
     }
+    if (selectableOffset === this.selectableSize) {
+      return selectableOffset - 1;
+    }
     return selectableOffset;
   }
 
@@ -118,7 +121,7 @@ export default class LineBox extends Box {
       const maxChildOffset = child.getSelectableSize();
       const childFrom = Math.max(from - selectableOffset, minChildOffset);
       const childTo = Math.min(to - selectableOffset, maxChildOffset);
-      if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
+      if (childFrom <= maxChildOffset && childTo >= minChildOffset && !(childFrom === childTo && childTo === maxChildOffset)) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({

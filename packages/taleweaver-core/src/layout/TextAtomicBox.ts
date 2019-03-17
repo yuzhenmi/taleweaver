@@ -26,7 +26,7 @@ export default class TextAtomicBox extends AtomicBox {
   resolveViewportPositionToSelectableOffset(x: number): number {
     let lastWidth = 0;
     for (let n = 0, nn = this.content.length; n < nn; n++) {
-      const textMeasurement = measureText(this.content, stubTextStyle);
+      const textMeasurement = measureText(this.content.substring(0, n), stubTextStyle);
       const width = textMeasurement.width;
       if (width < x) {
         lastWidth = width;

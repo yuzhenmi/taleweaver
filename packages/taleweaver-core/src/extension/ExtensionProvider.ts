@@ -34,14 +34,6 @@ export default class ExtensionProvider {
     this.inputManager.subscribeOnKeyboardInput(keySignature, subscriber);
   }
 
-  resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number): number {
-    return this.layoutEngine.getDocLayout().resolveViewportPositionToSelectableOffset(pageOffset, x, y);
-  }
-
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[][] {
-    return this.layoutEngine.getDocLayout().resolveSelectableOffsetRangeToViewportBoundingRects(from, to);
-  }
-
   getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
     return this.presenter.getPageDOMContentContainer(pageOffset);
   }
