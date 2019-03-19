@@ -41,6 +41,16 @@ export default class TextAtomicBox extends AtomicBox {
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+    if (from === 0 && to === this.selectableSize) {
+      return [{
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: this.width,
+        height: this.height,
+      }];
+    }
     const fromTextMeasurement = measureText(this.content.substring(0, from), stubTextStyle);
     const toTextMeasurement = measureText(this.content.substring(0, to), stubTextStyle);
     return [{
