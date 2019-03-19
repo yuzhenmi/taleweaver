@@ -1,7 +1,7 @@
 import Extension from '../extension/Extension';
 import Cursor from './Cursor';
 import KeySignature from '../input/KeySignature';
-import { ArrowLeftKey, ArrowRightKey, ArrowUpKey, ArrowDownKey } from '../input/keys';
+import { ArrowLeftKey, ArrowRightKey, ArrowUpKey, ArrowDownKey, AKey } from '../input/keys';
 import Command from './Command';
 import {
   moveLeft,
@@ -24,6 +24,7 @@ import {
   moveToLeftOfDoc,
   moveHeadToRightOfDoc,
   moveHeadToLeftOfDoc,
+  selectAll,
 } from './commands';
 import Transformation from './Transformation';
 import { MoveTo, MoveHeadTo } from './operations';
@@ -87,6 +88,7 @@ export default class CursorExtension extends Extension {
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfDoc()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc()));
     provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfDoc()));
+    provider.subscribeOnKeyboardInput(new KeySignature(AKey, [MetaKey]), () => this.dispatchCommand(selectAll()));
   }
 
   protected dispatchCommand(command: Command) {

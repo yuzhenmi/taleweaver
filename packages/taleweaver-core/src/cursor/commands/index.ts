@@ -18,6 +18,7 @@ import moveToLeftOfDoc from './moveToLeftOfDoc';
 import moveToRightOfDoc from './moveToRightOfDoc';
 import moveHeadToLeftOfDoc from './moveHeadToLeftOfDoc';
 import moveHeadToRightOfDoc from './moveHeadToRightOfDoc';
+import selectAll from './selectAll';
 
 export {
   moveLeft,
@@ -40,4 +41,5 @@ export {
   moveToRightOfDoc,
   moveHeadToLeftOfDoc,
   moveHeadToRightOfDoc,
+  selectAll,
 };
