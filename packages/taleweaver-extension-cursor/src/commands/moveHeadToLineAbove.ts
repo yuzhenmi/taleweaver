@@ -1,19 +1,15 @@
+import Editor, { CursorCommand, CursorTransformation, cursorOperations, LineBox } from '@taleweaver/core';
 import CursorExtension from '../CursorExtension';
-import Command from '../Command';
-import Transformation from '../Transformation';
-import { MoveHeadTo } from '../operations'
-import LineBox from '../../layout/LineBox';
 
-export default function moveHeadToLineAbove(): Command {
-  return (cursorExtension: CursorExtension): Transformation => {
-    const transformation = new Transformation();
-    const cursor = cursorExtension.getCursor();
+export default function moveHeadToLineAbove(cursorExtension: CursorExtension): CursorCommand {
+  return (editor: Editor): CursorTransformation => {
+    const transformation = new CursorTransformation();
+    const cursor = editor.getCursor();
     if (!cursor) {
       return transformation;
     }
     const offset = cursor.getHead();
-    const provider = cursorExtension.getProvider();
-    const docLayout = provider.getDocLayout();
+    const docLayout = editor.getLayoutEngine().getDocLayout();
     const position = docLayout.resolvePosition(offset);
     const lineBoxLevelPosition = position.getLineBoxLevel();
     const lineBox = lineBoxLevelPosition.getLayoutNode();
@@ -22,7 +18,7 @@ export default function moveHeadToLineAbove(): Command {
     }
     const previousLineBox = lineBox.getPreviousSibling();
     if (!previousLineBox) {
-      transformation.addOperation(new MoveHeadTo(offset - lineBoxLevelPosition.getSelectableOffset()));
+      transformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineBoxLevelPosition.getSelectableOffset()));
     } else {
       let leftAnchor: number;
       if (cursorExtension.getLeftAnchor() !== null) {
@@ -35,7 +31,7 @@ export default function moveHeadToLineAbove(): Command {
       }
       transformation.setLeftAnchor(leftAnchor);
       const targetLineSelectableOffset = previousLineBox.resolveViewportPositionToSelectableOffset(leftAnchor);
-      transformation.addOperation(new MoveHeadTo(offset - lineBoxLevelPosition.getSelectableOffset() - previousLineBox.getSelectableSize() + targetLineSelectableOffset));
+      transformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineBoxLevelPosition.getSelectableOffset() - previousLineBox.getSelectableSize() + targetLineSelectableOffset));
     }
     return transformation;
   };

@@ -8,9 +8,11 @@ import Presenter from './view/Presenter';
 import InputManager from './input/InputManager';
 import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
+import Cursor from './cursor/Cursor';
 
 export default class Editor {
   protected config: Config;
+  protected cursor: Cursor;
   protected state: State;
   protected tokenizer: Tokenizer;
   protected parser: Parser;
@@ -23,6 +25,7 @@ export default class Editor {
 
   constructor(config: Config, markup: string) {
     this.config = config;
+    this.cursor = new Cursor(this);
     this.tokenizer = new Tokenizer(this.config, markup);
     this.state = this.tokenizer.getState();
     this.parser = new Parser(this.config, this.state);
@@ -30,20 +33,37 @@ export default class Editor {
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
     this.inputManager = new InputManager();
     this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout(), this.inputManager);
-    this.extensionProvider = new ExtensionProvider(this.layoutEngine, this.presenter, this.inputManager);
+    this.extensionProvider = new ExtensionProvider(this);
   }
 
   getConfig(): Config {
     return this.config;
   }
 
+  getCursor(): Cursor {
+    return this.cursor;
+  }
+
   getState(): State {
     return this.state;
+  }
+
+  getLayoutEngine(): LayoutEngine {
+    return this.layoutEngine;
+  }
+
+  getPresenter(): Presenter {
+    return this.presenter;
+  }
+
+  getInputManager(): InputManager {
+    return this.inputManager;
   }
 
   mount(domWrapper: HTMLElement) {
     this.domWrapper = domWrapper;
     this.presenter.mount(domWrapper);
+    this.extensionProvider.onMounted();
   }
 
   registerExtension(extension: Extension) {

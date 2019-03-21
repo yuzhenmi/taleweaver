@@ -1,8 +1,4 @@
-import Extension from '../extension/Extension';
-import Cursor from './Cursor';
-import KeySignature from '../input/KeySignature';
-import { ArrowLeftKey, ArrowRightKey, ArrowUpKey, ArrowDownKey, AKey } from '../input/keys';
-import Command from './Command';
+import { Extension, KeySignature, keys, modifierKeys, CursorCommand } from '@taleweaver/core';
 import {
   moveLeft,
   moveRight,
@@ -26,12 +22,8 @@ import {
   moveHeadToLeftOfDoc,
   selectAll,
 } from './commands';
-import Transformation from './Transformation';
-import { MoveTo, MoveHeadTo } from './operations';
-import { AltKey, ShiftKey, MetaKey } from '../input/modifierKeys';
 
 export default class CursorExtension extends Extension {
-  protected cursor: Cursor;
   protected leftAnchor: number | null;
   protected blinkState: boolean;
   protected blinkInterval: number | null;
@@ -40,7 +32,6 @@ export default class CursorExtension extends Extension {
 
   constructor() {
     super();
-    this.cursor = new Cursor(0, 0);
     this.leftAnchor = null;
     this.blinkState = false;
     this.blinkInterval = null;
@@ -50,67 +41,52 @@ export default class CursorExtension extends Extension {
     this.domHead.style.position = 'absolute';
   }
 
-  getCursor(): Cursor {
-    return this.cursor;
-  }
-
   getLeftAnchor(): number | null {
     return this.leftAnchor;
   }
 
   onRegistered() {
     this.subscribeOnInputs();
+    this.getEditor().getCursor().subscribeOnChanged(this.onCursorChanged);
   }
 
-  onReflowed() {
+  onMounted() {
     this.updateView();
   }
 
   protected subscribeOnInputs() {
-    const provider = this.getProvider();
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey), () => this.dispatchCommand(moveLeft()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey), () => this.dispatchCommand(moveRight()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [ShiftKey]), () => this.dispatchCommand(moveHeadLeft()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [ShiftKey]), () => this.dispatchCommand(moveHeadRight()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [AltKey]), () => this.dispatchCommand(moveLeftByWord()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [AltKey]), () => this.dispatchCommand(moveRightByWord()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [AltKey, ShiftKey]), () => this.dispatchCommand(moveHeadLeftByWord()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [AltKey, ShiftKey]), () => this.dispatchCommand(moveHeadRightByWord()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [MetaKey]), () => this.dispatchCommand(moveToLeftOfLine()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfLine()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowLeftKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfLine()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowRightKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfLine()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey), () => this.dispatchCommand(moveToLineAbove()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey), () => this.dispatchCommand(moveToLineBelow()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [ShiftKey]), () => this.dispatchCommand(moveHeadToLineAbove()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [ShiftKey]), () => this.dispatchCommand(moveHeadToLineBelow()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey]), () => this.dispatchCommand(moveToLeftOfDoc()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey]), () => this.dispatchCommand(moveToRightOfDoc()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowUpKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc()));
-    provider.subscribeOnKeyboardInput(new KeySignature(ArrowDownKey, [MetaKey, ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfDoc()));
-    provider.subscribeOnKeyboardInput(new KeySignature(AKey, [MetaKey]), () => this.dispatchCommand(selectAll()));
+    const inputManager = this.getEditor().getInputManager();
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey), () => this.dispatchCommand(moveLeft(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey), () => this.dispatchCommand(moveRight(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadLeft(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadRight(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey]), () => this.dispatchCommand(moveLeftByWord(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey]), () => this.dispatchCommand(moveRightByWord(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadLeftByWord(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadRightByWord(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToLeftOfLine(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToRightOfLine(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfLine(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfLine(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowUpKey), () => this.dispatchCommand(moveToLineAbove(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowDownKey), () => this.dispatchCommand(moveToLineBelow(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowUpKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLineAbove(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowDownKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLineBelow(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToLeftOfDoc(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToRightOfDoc(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfDoc(this)));
+    inputManager.subscribeOnKeyboardInput(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(selectAll(this)));
   }
 
-  protected dispatchCommand(command: Command) {
-    const transformation = command(this);
-    this.applyTransformation(transformation);
+  protected dispatchCommand(command: CursorCommand) {
+    const editor = this.getEditor();
+    const transformation = command(editor);
+    editor.getCursor().applyTransformation(transformation);
     this.leftAnchor = transformation.getLeftAnchor();
   }
 
-  protected applyTransformation(transformation: Transformation) {
-    const operations = transformation.getOperations();
-    operations.forEach(operation => {
-      if (operation instanceof MoveTo) {
-        const offset = operation.getOffset();
-        this.cursor.setAnchor(offset);
-        this.cursor.setHead(offset);
-      } else if (operation instanceof MoveHeadTo) {
-        const offset = operation.getOffset();
-        this.cursor.setHead(offset);
-      } else {
-        throw new Error('Unrecognized cursor transformation operation.');
-      }
-    });
+  protected onCursorChanged = () => {
     this.updateView();
   }
 
@@ -148,16 +124,19 @@ export default class CursorExtension extends Extension {
       this.domSelections.splice(0, 1);
     }
 
-    const provider = this.getProvider();
-    const anchor = this.cursor.getAnchor();
-    const head = this.cursor.getHead();
-    const viewportBoundingRectsByPage = provider.getDocLayout().resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
+    const editor = this.getEditor();
+    const cursor = editor.getCursor();
+    const layoutEngine = editor.getLayoutEngine();
+    const presenter = editor.getPresenter();
+    const anchor = cursor.getAnchor();
+    const head = cursor.getHead();
+    const viewportBoundingRectsByPage = layoutEngine.getDocLayout().resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;
     let lastViewportBoundingRectOffset: number = -1;
     viewportBoundingRectsByPage.forEach((viewportBoundingRects, pageOffset) => {
-      const pageDOMContentContainer = provider.getPageDOMContentContainer(pageOffset);
+      const pageDOMContentContainer = presenter.getPageDOMContentContainer(pageOffset);
       viewportBoundingRects.forEach((viewportBoundingRect, viewportBoundingRectOffset) => {
         if (firstPageOffset < 0) {
           firstPageOffset = pageOffset;
@@ -183,7 +162,7 @@ export default class CursorExtension extends Extension {
     let headLeft: number;
     let headTop: number;
     let headHeight: number;
-    if (this.cursor.getHead() < this.cursor.getAnchor()) {
+    if (head < anchor) {
       headPageOffset = firstPageOffset;
       const viewportBoundingRect = viewportBoundingRectsByPage[firstPageOffset][firstViewportBoundingRectOffset];
       headLeft = viewportBoundingRect.left;
@@ -199,7 +178,7 @@ export default class CursorExtension extends Extension {
     this.domHead.style.top = `${headTop}px`;
     this.domHead.style.left = `${headLeft}px`;
     this.domHead.style.height = `${headHeight}px`;
-    const pageDOMContentContainer = provider.getPageDOMContentContainer(headPageOffset);
+    const pageDOMContentContainer = presenter.getPageDOMContentContainer(headPageOffset);
     if (this.domHead.parentElement && this.domHead.parentElement !== pageDOMContentContainer) {
       this.domHead.parentElement.removeChild(this.domHead);
     }

@@ -1,10 +1,10 @@
-import ExtensionProvider from './ExtensionProvider';
+import Editor from '../Editor';
 
 export default abstract class Extension {
-  private provider?: ExtensionProvider;
+  private editor?: Editor;
 
-  $onRegistered(provider: ExtensionProvider) {
-    this.provider = provider;
+  $onRegistered(editor: Editor) {
+    this.editor = editor;
     if (this.onRegistered) {
       this.onRegistered();
     }
@@ -12,12 +12,12 @@ export default abstract class Extension {
 
   onRegistered?(): void;
 
-  getProvider(): ExtensionProvider {
-    if (!this.provider) {
+  onMounted?(): void;
+
+  getEditor(): Editor {
+    if (!this.editor) {
       throw new Error('Extension has not yet been registered.');
     }
-    return this.provider;
+    return this.editor;
   }
-
-  onReflowed?(): void;
 }
