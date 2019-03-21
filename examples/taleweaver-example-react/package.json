@@ -11,8 +11,8 @@
     "react-dom": "^16.8.4",
     "react-scripts": "2.1.8",
     "typescript": "3.3.3333",
-    "@taleweaver/core": "file:../../packages/taleweaver-core",
-    "@taleweaver/extension-cursor": "file:../../packages/taleweaver-extension-cursor"
+    "@taleweaver/core": "file:../../packages/core",
+    "@taleweaver/extension-cursor": "file:../../packages/extension-cursor"
   },
   "scripts": {
     "start": "react-scripts start",

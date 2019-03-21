@@ -1,5 +1,5 @@
 import React from 'react';
-import Editor, { Config } from '@taleweaver/core';
+import { Editor, Config } from '@taleweaver/core';
 import CursorExtension from '@taleweaver/extension-cursor';
 import './App.css';
 
