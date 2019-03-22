@@ -17,14 +17,15 @@ export type OnMountedSubscriber = () => void;
 export default class Presenter {
   protected config: Config;
   protected docLayout: DocLayout;
-  protected eventObserver: EventObserver;
+  protected inputManager: InputManager;
+  protected eventObserver?: EventObserver;
   protected docView: DocView;
   protected onMountedSubscribers: OnMountedSubscriber[];
 
   constructor(config: Config, docLayout: DocLayout, inputManager: InputManager) {
     this.config = config;
     this.docLayout = docLayout;
-    this.eventObserver = new EventObserver(inputManager);
+    this.inputManager = inputManager;
     this.docView = new DocView(docLayout);
     this.onMountedSubscribers = [];
   }
@@ -37,8 +38,15 @@ export default class Presenter {
     });
     domWrapper.appendChild(this.docView.getDOMContainer());
 
+    // Initialize event observer
+    this.eventObserver = new EventObserver(this, this.inputManager);
+
     // Notify subscribers
     this.onMountedSubscribers.forEach(subscriber => subscriber());
+  }
+
+  getDocView(): DocView {
+    return this.docView;
   }
 
   subscribeOnMounted(subscriber: OnMountedSubscriber) {

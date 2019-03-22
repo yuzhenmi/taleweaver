@@ -12,7 +12,8 @@
     "react-scripts": "2.1.8",
     "typescript": "3.3.3333",
     "@taleweaver/core": "file:../../packages/core",
-    "@taleweaver/extension-cursor": "file:../../packages/extension-cursor"
+    "@taleweaver/extension-cursor": "file:../../packages/extension-cursor",
+    "@taleweaver/extension-edit": "file:../../packages/extension-edit"
   },
   "scripts": {
     "start": "react-scripts start",

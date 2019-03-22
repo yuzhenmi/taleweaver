@@ -1,15 +1,17 @@
+import Presenter from './Presenter';
 import InputManager from '../input/InputManager';
 
 export default class EventObserver {
+  protected presenter: Presenter;
   protected inputManager: InputManager;
 
-  constructor(inputManager: InputManager) {
+  constructor(presenter: Presenter, inputManager: InputManager) {
+    this.presenter = presenter;
     this.inputManager = inputManager;
     window.addEventListener('keydown', this.onKeyDown);
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
-    event.preventDefault();
     this.inputManager.onKeyPress(event);
   }
 }

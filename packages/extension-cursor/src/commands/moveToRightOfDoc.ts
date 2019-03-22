@@ -14,7 +14,7 @@ export default function moveToRightOfDoc(cursorExtension: CursorExtension): Curs
       return transformation;
     }
     const docLayout = editor.getLayoutEngine().getDocLayout();
-    transformation.addOperation(new cursorOperations.MoveTo(docLayout.getSelectableSize() - 2));
+    transformation.addOperation(new cursorOperations.MoveTo(docLayout.getSelectableSize() - 1));
     return transformation;
   };
 }
