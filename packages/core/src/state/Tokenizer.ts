@@ -4,25 +4,15 @@ import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
 import State from './State';
 
-class TokenizerState {
-  protected label: string;
-
-  constructor(label: string) {
-    this.label = label;
-  }
-
-  getLabel(): string {
-    return this.label;
-  }
+enum TokenizerState {
+  NewToken,
+  NewTag,
+  Tag,
+  TagAttributes,
+  TagAttributesString,
+  TagAttributesStringEscape,
+  CloseTag,
 }
-
-const S_NEW_TOKEN = new TokenizerState('new token');
-const S_NEW_TAG = new TokenizerState('new tag');
-const S_TAG = new TokenizerState('tag');
-const S_TAG_ATTRIBUTES = new TokenizerState('tag attributes');
-const S_TAG_ATTRIBUTES_STRING = new TokenizerState('tag attributes string');
-const S_TAG_ATTRIBUTES_STRING_ESCAPE = new TokenizerState('tag attributes string escape');
-const S_CLOSE_TAG = new TokenizerState('close tag');
 
 class Tokenizer {
   protected config: Config;
@@ -35,7 +25,7 @@ class Tokenizer {
   constructor(config: Config, markup: string) {
     this.config = config;
     this.markup = markup;
-    this.state = S_NEW_TOKEN;
+    this.state = TokenizerState.NewToken;
     this.tokens = [];
     this.tagBuffer = '';
     this.attributesBuffer = '';
@@ -46,14 +36,14 @@ class Tokenizer {
     for (let n = 0, nn = this.markup.length; n < nn; n++) {
       const char = this.markup[n];
       switch (this.state) {
-        case S_NEW_TOKEN:
+        case TokenizerState.NewToken:
           if (/</.test(char)) {
             this.newTag(char);
             break;
           }
           this.appendChar(char);
           break;
-        case S_NEW_TAG:
+        case TokenizerState.NewTag:
           if (/A-Z/.test(char)) {
             this.appendCharToTag(char);
             break;
@@ -62,7 +52,7 @@ class Tokenizer {
             this.closeTag(char);
             break;
           }
-        case S_TAG:
+        case TokenizerState.Tag:
           if (/[A-Za-z]/.test(char)) {
             this.appendCharToTag(char);
             break;
@@ -71,7 +61,7 @@ class Tokenizer {
             this.newAttributes(char);
             break;
           }
-        case S_TAG_ATTRIBUTES:
+        case TokenizerState.TagAttributes:
           if (/"/.test(char)) {
             this.newAttributesString(char);
             break;
@@ -82,7 +72,7 @@ class Tokenizer {
           }
           this.appendCharToAttributes(char);
           break;
-        case S_TAG_ATTRIBUTES_STRING:
+        case TokenizerState.TagAttributesString:
           if (/"/.test(char)) {
             this.endAttributesString(char);
             break;
@@ -93,10 +83,10 @@ class Tokenizer {
           }
           this.appendCharToAttributes(char);
           break;
-        case S_TAG_ATTRIBUTES_STRING_ESCAPE:
+        case TokenizerState.TagAttributesStringEscape:
           this.appendCharToAttributes(char);
           break;
-        case S_CLOSE_TAG:
+        case TokenizerState.CloseTag:
           if (/>/.test(char)) {
             this.endCloseTag(char);
             break;
@@ -111,7 +101,7 @@ class Tokenizer {
   }
 
   protected newTag(char: string) {
-    this.state = S_NEW_TAG;
+    this.state = TokenizerState.NewTag;
   }
 
   protected appendChar(char: string) {
@@ -120,24 +110,24 @@ class Tokenizer {
 
   protected appendCharToTag(char: string) {
     this.tagBuffer += char;
-    this.state = S_TAG;
+    this.state = TokenizerState.Tag;
   }
 
   protected newAttributes(char: string) {
     this.attributesBuffer += char;
-    this.state = S_TAG_ATTRIBUTES;
+    this.state = TokenizerState.TagAttributes;
   }
 
   protected appendCharToAttributes(char: string) {
     this.attributesBuffer += char;
-    if (this.state === S_TAG_ATTRIBUTES_STRING_ESCAPE) {
-      this.state = S_TAG_ATTRIBUTES_STRING;
+    if (this.state === TokenizerState.TagAttributesStringEscape) {
+      this.state = TokenizerState.TagAttributesString;
     }
   }
 
   protected newAttributesString(char: string){
     this.attributesBuffer += char;
-    this.state = S_TAG_ATTRIBUTES_STRING;
+    this.state = TokenizerState.TagAttributesString;
   }
 
   protected endTag(char: string) {
@@ -154,26 +144,26 @@ class Tokenizer {
     this.tokens.push(openTagToken);
     this.attributesBuffer = '';
     this.tagBuffer = '';
-    this.state = S_NEW_TOKEN;
+    this.state = TokenizerState.NewToken;
   }
 
   protected endAttributesString(char: string) {
     this.attributesBuffer += char;
-    this.state = S_TAG_ATTRIBUTES;
+    this.state = TokenizerState.TagAttributes;
   }
 
   protected escapeNextAttributesStringChar(char: string){
-    this.state = S_TAG_ATTRIBUTES_STRING_ESCAPE;
+    this.state = TokenizerState.TagAttributesStringEscape;
   }
 
   protected closeTag(char: string) {
-    this.state = S_CLOSE_TAG;
+    this.state = TokenizerState.CloseTag;
   }
 
   protected endCloseTag(char: string) {
     const closeTagToken = new CloseTagToken();
     this.tokens.push(closeTagToken);
-    this.state = S_NEW_TOKEN;
+    this.state = TokenizerState.NewToken;
   }
 }
 
