@@ -78,11 +78,10 @@ class NodeStackElement {
     this.node = node;
     this.invertedChildrenMap = new Map();
     if (node instanceof Doc || node instanceof BranchNode) {
-      this.children = [];
-      const children = node.getChildren();
+      this.children = node.getChildren();
       let child: Node;
-      for (let n = 0, nn = children.length; n < nn; n++) {
-        child = children[n];
+      for (let n = 0, nn = this.children.length; n < nn; n++) {
+        child = this.children[n];
         this.invertedChildrenMap.set(child.getID(), n);
       }
     } else {
@@ -214,6 +213,10 @@ class Parser {
     this.nodeStack = new NodeStack;
     this.contentBuffer = '';
     this.ran = false;
+    this.state.subscribe(() => {
+      this.parserState = ParserState.NewDoc;
+      this.run();
+    });
   }
 
   getDoc(): Doc {
