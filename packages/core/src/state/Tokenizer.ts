@@ -17,25 +17,37 @@ enum TokenizerState {
 class Tokenizer {
   protected config: Config;
   protected markup: string;
-  protected state: TokenizerState;
+  protected tokenizerState: TokenizerState;
+  protected state: State;
   protected tokens: Token[];
   protected tagBuffer: string;
   protected attributesBuffer: string;
+  protected ran: boolean;
 
   constructor(config: Config, markup: string) {
     this.config = config;
     this.markup = markup;
-    this.state = TokenizerState.NewToken;
+    this.tokenizerState = TokenizerState.NewToken;
+    this.state = new State();
     this.tokens = [];
     this.tagBuffer = '';
     this.attributesBuffer = '';
+    this.ran = false;
   }
 
-  run() {
-    this.tokens = [];
-    for (let n = 0, nn = this.markup.length; n < nn; n++) {
-      const char = this.markup[n];
-      switch (this.state) {
+  getState() {
+    if (!this.ran) {
+      this.run();
+    }
+    return this.state;
+  }
+
+  protected run() {
+    const markup = this.markup;
+    let char: string;
+    for (let n = 0, nn = markup.length; n < nn; n++) {
+      char = markup[n];
+      switch (this.tokenizerState) {
         case TokenizerState.NewToken:
           if (/</.test(char)) {
             this.newTag(char);
@@ -95,13 +107,12 @@ class Tokenizer {
           throw new Error(`Unexpected character ${char} at offset ${n}.`);
       }
     }
-    const state = new State();
-    state.setTokens(this.tokens);
-    return state;
+    this.state.setTokens(this.tokens);
+    this.ran = true;
   }
 
   protected newTag(char: string) {
-    this.state = TokenizerState.NewTag;
+    this.tokenizerState = TokenizerState.NewTag;
   }
 
   protected appendChar(char: string) {
@@ -110,24 +121,24 @@ class Tokenizer {
 
   protected appendCharToTag(char: string) {
     this.tagBuffer += char;
-    this.state = TokenizerState.Tag;
+    this.tokenizerState = TokenizerState.Tag;
   }
 
   protected newAttributes(char: string) {
     this.attributesBuffer += char;
-    this.state = TokenizerState.TagAttributes;
+    this.tokenizerState = TokenizerState.TagAttributes;
   }
 
   protected appendCharToAttributes(char: string) {
     this.attributesBuffer += char;
-    if (this.state === TokenizerState.TagAttributesStringEscape) {
-      this.state = TokenizerState.TagAttributesString;
+    if (this.tokenizerState === TokenizerState.TagAttributesStringEscape) {
+      this.tokenizerState = TokenizerState.TagAttributesString;
     }
   }
 
   protected newAttributesString(char: string){
     this.attributesBuffer += char;
-    this.state = TokenizerState.TagAttributesString;
+    this.tokenizerState = TokenizerState.TagAttributesString;
   }
 
   protected endTag(char: string) {
@@ -140,30 +151,33 @@ class Tokenizer {
     if (!('id' in attributes)) {
       throw new Error(`Missing id in attributes JSON: ${this.attributesBuffer}.`);
     }
+    if (!this.tagBuffer) {
+      throw new Error('Open tag type cannot be empty.');
+    }
     const openTagToken = new OpenTagToken(this.tagBuffer, attributes);
     this.tokens.push(openTagToken);
     this.attributesBuffer = '';
     this.tagBuffer = '';
-    this.state = TokenizerState.NewToken;
+    this.tokenizerState = TokenizerState.NewToken;
   }
 
   protected endAttributesString(char: string) {
     this.attributesBuffer += char;
-    this.state = TokenizerState.TagAttributes;
+    this.tokenizerState = TokenizerState.TagAttributes;
   }
 
   protected escapeNextAttributesStringChar(char: string){
-    this.state = TokenizerState.TagAttributesStringEscape;
+    this.tokenizerState = TokenizerState.TagAttributesStringEscape;
   }
 
   protected closeTag(char: string) {
-    this.state = TokenizerState.CloseTag;
+    this.tokenizerState = TokenizerState.CloseTag;
   }
 
   protected endCloseTag(char: string) {
     const closeTagToken = new CloseTagToken();
     this.tokens.push(closeTagToken);
-    this.state = TokenizerState.NewToken;
+    this.tokenizerState = TokenizerState.NewToken;
   }
 }
 
