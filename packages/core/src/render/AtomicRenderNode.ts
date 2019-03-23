@@ -7,8 +7,8 @@ export default abstract class AtomicRenderNode extends RenderNode {
   protected parent: Parent;
   protected breakable: boolean;
 
-  constructor(parent: Parent, selectableSize: number, breakable: boolean) {
-    super(selectableSize);
+  constructor(id: string, parent: Parent, selectableSize: number, breakable: boolean) {
+    super(id, selectableSize);
     this.parent = parent;
     this.breakable = breakable;
   }

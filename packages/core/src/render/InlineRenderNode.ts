@@ -9,8 +9,8 @@ export default abstract class InlineRenderNode extends RenderNode {
   protected parent: Parent;
   protected children: Child[];
 
-  constructor(parent: Parent, selectableSize: number) {
-    super(selectableSize);
+  constructor(id: string, parent: Parent, selectableSize: number) {
+    super(id, selectableSize);
     this.parent = parent;
     this.children = [];
   }

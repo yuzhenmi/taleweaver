@@ -6,12 +6,12 @@ import breakTextToWords from './helpers/breakTextToWords';
 
 export default class TextInlineRenderNodeBuilder extends InlineRenderNodeBuilder {
 
-  render(parent: Parent, text: Text): TextInlineRenderNode {
-    const textInlineRenderNode = new TextInlineRenderNode(parent, text.getSelectableSize());
+  build(parent: Parent, text: Text): TextInlineRenderNode {
+    const textInlineRenderNode = new TextInlineRenderNode(text.getID(), parent, text.getSelectableSize());
     let offset = 0;
     const words = breakTextToWords(text.getContent());
-    words.forEach(word => {
-      const textAtomicRenderNode = new TextAtomicRenderNode(textInlineRenderNode, word.text, word.breakable);
+    words.forEach((word, wordOffset) => {
+      const textAtomicRenderNode = new TextAtomicRenderNode(`${text.getID()}-${wordOffset}`, textInlineRenderNode, word.text, word.breakable);
       textInlineRenderNode.insertChild(textAtomicRenderNode, offset);
       offset += 1;
     });

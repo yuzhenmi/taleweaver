@@ -6,8 +6,8 @@ export type Child = BlockRenderNode;
 export default class DocRenderNode extends RenderNode {
   protected children: Child[];
 
-  constructor(selectableSize: number) {
-    super(selectableSize);
+  constructor(id: string, selectableSize: number) {
+    super(id, selectableSize);
     this.children = [];
   }
 

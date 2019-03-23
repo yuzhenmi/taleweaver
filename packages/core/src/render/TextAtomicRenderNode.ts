@@ -3,8 +3,8 @@ import AtomicRenderNode, { Parent } from './AtomicRenderNode';
 export default class TextAtomicRenderNode extends AtomicRenderNode {
   protected content: string;
 
-  constructor(parent: Parent, content: string, breakable: boolean) {
-    super(parent, content.length, breakable);
+  constructor(id: string, parent: Parent, content: string, breakable: boolean) {
+    super(id, parent, content.length, breakable);
     this.content = content;
   }
 

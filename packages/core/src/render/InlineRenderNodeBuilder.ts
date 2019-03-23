@@ -7,5 +7,5 @@ export type Parent = BlockRenderNode;
 
 export default abstract class InlineRenderNodeBuilder extends RenderNodeBuilder {
 
-  abstract render(parent: Parent, node: Node): InlineRenderNode;
+  abstract build(parent: Parent, node: Node): InlineRenderNode;
 }

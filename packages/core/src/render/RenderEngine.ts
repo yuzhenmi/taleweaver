@@ -1,97 +1,321 @@
 import Config from '../Config';
-import RenderNode from './RenderNode';
-import DocRenderNode from './DocRenderNode';
 import Node from '../model/Node';
 import Doc from '../model/Doc';
 import BranchNode from '../model/BranchNode';
+import RenderNode from './RenderNode';
+import DocRenderNode from './DocRenderNode';
 import BlockRenderNode from './BlockRenderNode';
-import InlineRenderNode from './InlineRenderNode';
-import BlockRenderNodeBuilder from './BlockRenderNodeBuilder';
-import InlineRenderNodeBuilder from './InlineRenderNodeBuilder';
+
+abstract class StackElementOperation {
+  
+  abstract shiftOffset(delta: number): void;
+}
+
+class StackElementInsertChildOperation extends StackElementOperation {
+  protected offset: number;
+  protected child: RenderNode;
+
+  constructor(offset: number, child: RenderNode) {
+    super();
+    this.offset = offset;
+    this.child = child;
+  }
+
+  shiftOffset(delta: number) {
+    this.offset += delta;
+  }
+
+  getOffset(): number {
+    return this.offset;
+  }
+
+  getChild(): RenderNode {
+    return this.child;
+  }
+}
+
+class StackElementDeleteChildrenOperation extends StackElementOperation {
+  protected fromOffset: number;
+  protected toOffset: number;
+
+  constructor(fromOffset: number, toOffset: number) {
+    super();
+    this.fromOffset = fromOffset;
+    this.toOffset = toOffset;
+  }
+
+  shiftOffset(delta: number) {
+    this.fromOffset += delta;
+    this.toOffset += delta;
+  }
+
+  getFromOffset(): number {
+    return this.fromOffset;
+  }
+
+  getToOffset(): number {
+    return this.toOffset;
+  }
+}
+
+class StackElementReplaceChildOperation extends StackElementOperation {
+  protected offset: number;
+  protected child: RenderNode;
+
+  constructor(offset: number, child: RenderNode) {
+    super();
+    this.offset = offset;
+    this.child = child;
+  }
+
+  shiftOffset(delta: number) {
+    this.offset += delta;
+  }
+
+  getOffset(): number {
+    return this.offset;
+  }
+
+  getChild(): RenderNode {
+    return this.child;
+  }
+}
+
+class StackElement {
+  protected nodes: Node[];
+  protected iteratorOffset: number;
+  protected renderNode: RenderNode;
+  protected children: RenderNode[];
+  protected invertedChildrenMap: Map<string, number>;
+  protected childIteratorOffset: number;
+  protected operationsBuffer: StackElementOperation[];
+  protected operationsBufferFlushed: boolean;
+
+  constructor(nodes: Node[], renderNode: RenderNode) {
+    this.nodes = nodes;
+    this.renderNode = renderNode;
+    this.iteratorOffset = -1;
+    this.invertedChildrenMap = new Map();
+    if (renderNode instanceof DocRenderNode || renderNode instanceof BlockRenderNode) {
+      this.children = renderNode.getChildren();
+      let child: RenderNode;
+      for (let n = 0, nn = this.children.length; n < nn; n++) {
+        child = this.children[n];
+        this.invertedChildrenMap.set(child.getID(), n);
+      }
+    } else {
+      this.children = [];
+    }
+    this.childIteratorOffset = 0;
+    this.operationsBuffer = [];
+    this.operationsBufferFlushed = false;
+  }
+
+  iterate(): Node | undefined {
+    this.iteratorOffset += 1;
+    if (this.iteratorOffset < this.nodes.length) {
+      return this.nodes[this.iteratorOffset];
+    }
+    return undefined;
+  }
+
+  getRenderNode(): RenderNode {
+    return this.renderNode;
+  }
+
+  findChild(childID: string): number {
+    const offset = this.invertedChildrenMap.get(childID);
+    if (offset === undefined) {
+      return -1;
+    }
+    return offset;
+  }
+
+  getChildAt(offset: number): RenderNode {
+    if (offset < this.childIteratorOffset) {
+      throw new Error(`Cannot get child at offset ${offset}, child iterator offset is already at ${this.childIteratorOffset}.`);
+    }
+    if (offset < 0 || offset > this.children.length - 1) {
+      throw new Error(`Child offset ${offset} is out of valid range 0-${this.children.length - 1}.`);
+    }
+    return this.children[offset];
+  }
+
+  insertChild(child: RenderNode) {
+    if (this.operationsBufferFlushed) {
+      throw new Error('Cannot append more operations after flushing.');
+    }
+    const operation = new StackElementInsertChildOperation(this.childIteratorOffset, child);
+    this.operationsBuffer.push(operation);
+  }
+
+  deleteChildrenTo(offset: number) {
+    if (this.operationsBufferFlushed) {
+      throw new Error('Cannot append more child operations after flushing.');
+    }
+    if (offset < this.childIteratorOffset) {
+      throw new Error(`Cannot delete children to offset ${offset}, iterator offset is already at ${this.childIteratorOffset}.`);
+    }
+    this.childIteratorOffset = offset;
+    if (offset === this.childIteratorOffset) {
+      return;
+    }
+    const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, offset - 1);
+    this.operationsBuffer.push(operation);
+  }
+
+  replaceChild(child: RenderNode) {
+    if (this.operationsBufferFlushed) {
+      throw new Error('Cannot append more child operations after flushing.');
+    }
+    const operation = new StackElementReplaceChildOperation(this.childIteratorOffset, child);
+    this.operationsBuffer.push(operation);
+  }
+
+  flushOperationsBuffer() {
+    if (this.operationsBuffer.length > 0) {
+      const renderNode = this.renderNode;
+      if (!(renderNode instanceof DocRenderNode || renderNode instanceof BlockRenderNode)) {
+        throw new Error(`Cannot flush operations for render node ${renderNode.getID()}, render node has no children.`);
+      }
+      let operation: StackElementOperation;
+      for (let n = 0, nn = this.operationsBuffer.length; n < nn; n++) {
+        let delta: number;
+        operation = this.operationsBuffer[n];
+        if (operation instanceof StackElementInsertChildOperation) {
+          // @ts-ignore
+          renderNode.insertChild(operation.getChild(), operation.getOffset());
+          delta = 1;
+        } else if (operation instanceof StackElementDeleteChildrenOperation) {
+          const childrenToDelete = renderNode.getChildren().slice(operation.getFromOffset(), operation.getToOffset() + 1);
+          for (let m = 0, mm = childrenToDelete.length; m < mm; m++) {
+            // @ts-ignore
+            renderNode.deleteChild(childrenToDelete[m]);
+          }
+          delta = 0 - childrenToDelete.length;
+        } else if (operation instanceof StackElementReplaceChildOperation) {
+          const childToReplace = renderNode.getChildren()[operation.getOffset()];
+          // @ts-ignore
+          renderNode.deleteChild(childToReplace);
+          // @ts-ignore
+          renderNode.insertChild(operation.getChild(), operation.getOffset());
+          delta = 0;
+        } else {
+          throw new Error('Unknown operation.');
+        }
+        if (delta !== 0) {
+          for (let m = n; m < nn; m++) {
+            this.operationsBuffer[m].shiftOffset(delta);
+          }
+        }
+      }
+    }
+    this.operationsBufferFlushed = true;
+  }
+}
+
+class Stack {
+  protected elements: StackElement[];
+
+  constructor() {
+    this.elements = [];
+  }
+
+  push(element: StackElement) {
+    this.elements.push(element);
+  }
+
+  pop(): StackElement | undefined {
+    return this.elements.pop();
+  }
+
+  peek(): StackElement | undefined {
+    return this.elements[this.elements.length - 1];
+  }
+}
 
 export default class RenderEngine {
   protected config: Config;
-  protected renderDoc: DocRenderNode;
+  protected doc: Doc;
+  protected docRenderNode: DocRenderNode;
+  protected renderedDocVersion: number;
+  protected stack: Stack;
+  protected ran: boolean;
 
   constructor(config: Config, doc: Doc) {
     this.config = config;
-    this.renderDoc = new DocRenderNode(doc.getSelectableSize());
-    // TODO: Subscribe to changes from doc
-    this.render(doc);
+    this.doc = doc;
+    this.docRenderNode = new DocRenderNode(doc.getID(), doc.getSelectableSize());
+    this.renderedDocVersion = -1;
+    this.stack = new Stack();
+    this.ran = false;
+    this.doc.subscribeOnUpdated(() => {
+      this.run();
+    });
   }
 
   getDocRenderNode(): DocRenderNode {
-    return this.renderDoc;
+    if (!this.ran) {
+      this.run();
+    }
+    return this.docRenderNode;
   }
 
-  protected render(doc: Doc) {
-    this.buildRenderNodeChildren(doc, this.renderDoc);
+  protected run() {
+    this.stack.push(new StackElement(this.doc.getChildren(), this.docRenderNode));
+    while (this.iterate()) {}
+    this.renderedDocVersion = this.doc.getVersion();
   }
 
-  protected buildRenderNodeChildren(node: Node, renderNode: RenderNode) {
-    if (renderNode instanceof DocRenderNode) {
-      return this.buildDocRenderNodeChildren(node, renderNode);
+  protected iterate(): boolean {
+    const lastStackElement = this.stack.peek();
+    if (!lastStackElement) {
+      return false;
     }
-    if (renderNode instanceof BlockRenderNode) {
-      return this.buildBlockRenderNodeChildren(node, renderNode);
+    const node = lastStackElement.iterate();
+    if (!node) {
+      this.closeNode();
+      return this.iterate();
     }
+    if (node.getVersion() <= this.renderedDocVersion) {
+      return this.iterate();
+    }
+    this.newNode(node);
+    return true;
   }
 
-  protected buildDocRenderNodeChildren(node: Node, renderNode: DocRenderNode) {
-    if (!(node instanceof Doc)) {
-      throw new Error(`Error building children for DocRenderNode, expecting Doc as input.`);
+  protected newNode(node: Node) {
+    const lastStackElement = this.stack.peek();
+    if (lastStackElement === undefined) {
+      throw new Error('Unexpected end of render doc encountered.');
     }
-    let offset = 0;
-    node.getChildren().forEach(child => {
-      const childRenderNode = this.buildRenderNode(renderNode, child);
-      if (!(childRenderNode instanceof BlockRenderNode)) {
-        throw new Error(`Error building children for DocRenderNode, expecting child to be BlockRenderNode. `);
+    const offset = lastStackElement.findChild(node.getID());
+    const renderNodeBuilder = this.config.getRenderNodeBuilder(node.getType());
+    const renderNode = renderNodeBuilder.build(lastStackElement.getRenderNode(), node);
+    if (offset < 0) {
+      lastStackElement.insertChild(renderNode);
+    } else {
+      lastStackElement.deleteChildrenTo(offset);
+      const originalRenderNode = lastStackElement.getChildAt(offset);
+      if (originalRenderNode instanceof DocRenderNode || originalRenderNode instanceof BlockRenderNode) {
+        // @ts-ignore
+        originalRenderNode.getChildren().forEach((child, childOffset) => {
+          // @ts-ignore
+          renderNode.insertChild(child, childOffset);
+        });
       }
-      renderNode.insertChild(childRenderNode, offset);
-      offset += 1;
-    });
+      lastStackElement.replaceChild(renderNode);
+    }
+    if (node instanceof BranchNode) {
+      this.stack.push(new StackElement(node.getChildren(), renderNode));
+    }
   }
 
-  protected buildBlockRenderNodeChildren(node: Node, renderNode: BlockRenderNode) {
-    if (!(node instanceof BranchNode)) {
-      throw new Error(`Error building children for DocRenderNode, expecting BranchNode as input.`);
+  protected closeNode() {
+    const lastStackElement = this.stack.pop();
+    if (lastStackElement === undefined) {
+      throw new Error('Unexpected end of render doc encountered.');
     }
-    let offset = 0;
-    node.getChildren().forEach(child => {
-      const childRenderNode = this.buildRenderNode(renderNode, child);
-      if (!(childRenderNode instanceof InlineRenderNode)) {
-        throw new Error(`Error building children for BlockRenderNode, expecting child to be InlineRenderNode. `);
-      }
-      renderNode.insertChild(childRenderNode, offset);
-      offset += 1;
-    });
-  }
-
-  protected buildRenderNode(parent: RenderNode, node: Node): RenderNode {
-    const renderer = this.config.getRenderNodeBuilder(node.getType());
-    if (renderer instanceof BlockRenderNodeBuilder) {
-      return this.buildBlockRenderNode(parent, node, renderer);
-    }
-    if (renderer instanceof InlineRenderNodeBuilder) {
-      return this.buildInlineRenderNode(parent, node, renderer);
-    }
-    throw new Error(`Error building node, renderer is not recognized.`);
-  }
-
-  protected buildBlockRenderNode(parent: RenderNode, node: Node, renderer: BlockRenderNodeBuilder): BlockRenderNode {
-    if (!(parent instanceof DocRenderNode)) {
-      throw new Error(`Error building block render node, expecting parent to be DocRenderNode.`);
-    }
-    const blockRenderNode = renderer.render(parent, node);
-    this.buildBlockRenderNodeChildren(node, blockRenderNode);
-    return blockRenderNode;
-  }
-
-  protected buildInlineRenderNode(parent: RenderNode, node: Node, renderer: InlineRenderNodeBuilder): InlineRenderNode {
-    if (!(parent instanceof BlockRenderNode)) {
-      throw new Error(`Error building inline render node, expecting parent to be BlockRenderNode.`);
-    }
-    const inlineRenderNode = renderer.render(parent, node);
-    return inlineRenderNode;
+    lastStackElement.flushOperationsBuffer();
   }
 }

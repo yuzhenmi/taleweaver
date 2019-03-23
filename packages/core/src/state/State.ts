@@ -3,30 +3,28 @@ import Transformation from './Transformation';
 import Insert from './operations/Insert';
 import Delete from './operations/Delete';
 
-type StateSubscriber = (tokens: Token[]) => void;
+type OnUpdatedSubscriber = () => void;
 
 class State {
   protected tokens: Token[];
-  protected subscribers: StateSubscriber[];
+  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
   constructor() {
     this.tokens = [];
-    this.subscribers = [];
+    this.onUpdatedSubscribers = [];
   }
 
   setTokens(tokens: Token[]) {
     this.tokens = tokens;
-    this.subscribers.forEach(subscriber => {
-      subscriber(this.tokens);
-    });
+    this.onUpdated();
   }
 
   getTokens(): Token[] {
     return this.tokens;
   }
 
-  subscribe(subscriber: StateSubscriber) {
-    this.subscribers.push(subscriber);
+  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
+    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
   }
 
   applyTransformation(transformation: Transformation) {
@@ -40,8 +38,12 @@ class State {
         throw new Error('Unknown state transformation operation encountered.');
       }
     });
-    this.subscribers.forEach(subscriber => {
-      subscriber(this.tokens);
+    this.onUpdated();
+  }
+
+  protected onUpdated() {
+    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
+      onUpdatedSubscriber();
     });
   }
 }

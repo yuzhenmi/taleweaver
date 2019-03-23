@@ -7,5 +7,5 @@ export type Parent = DocRenderNode;
 
 export default abstract class BlockRenderNodeBuilder extends RenderNodeBuilder {
 
-  abstract render(parent: Parent, node: Node): BlockRenderNode;
+  abstract build(parent: Parent, node: Node): BlockRenderNode;
 }
