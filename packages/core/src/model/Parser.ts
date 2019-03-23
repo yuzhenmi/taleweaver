@@ -1,10 +1,10 @@
 import Config from '../Config';
 import State from '../state/State';
 import Token from '../state/Token';
-import Doc from './Doc';
 import OpenTagToken from '../state/OpenTagToken';
-import Node from './Node';
 import CloseTagToken from '../state/CloseTagToken';
+import Node from './Node';
+import Doc from './Doc';
 import BranchNode from './BranchNode';
 import LeafNode from './LeafNode';
 
