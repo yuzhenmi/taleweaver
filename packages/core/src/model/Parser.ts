@@ -267,7 +267,8 @@ class Parser {
 
   protected newDoc(token: OpenTagToken) {
     const doc = this.doc;
-    // TODO: Update Doc attributes from token
+    const attributes = token.getAttributes();
+    doc.setID(attributes.id);
     this.nodeStack.push(new NodeStackElement(doc));
     this.parserState = ParserState.NewNode;
   }
@@ -286,7 +287,8 @@ class Parser {
     } else {
       node = lastNodeStackElement.getChildAt(offset);
     }
-    // TODO: Update Node attributes from token
+    const attributes = token.getAttributes();
+    node.setID(attributes.id);
     this.nodeStack.push(new NodeStackElement(node));
   }
 
