@@ -1,7 +1,7 @@
-import Operation from './operations/Operation';
+import Operation from './Operation';
 
 export default class Transformation {
-  private operations: Operation[] = [];
+  protected operations: Operation[] = [];
 
   constructor() {
     this.operations = [];

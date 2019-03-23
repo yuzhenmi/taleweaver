@@ -11,7 +11,7 @@ export default class EventObserver {
     window.addEventListener('keydown', this.onKeyDown);
   }
 
-  private onKeyDown = (event: KeyboardEvent) => {
+  protected onKeyDown = (event: KeyboardEvent) => {
     this.inputManager.onKeyPress(event);
   }
 }

@@ -1,9 +1,9 @@
-import Operation from './Operation';
+import Operation from '../Operation';
 import Token from '../Token';
 
 export default class Insert extends Operation {
-  private at: number;
-  private tokens: Token[];
+  protected at: number;
+  protected tokens: Token[];
 
   constructor(at: number, tokens: Token[]) {
     super();

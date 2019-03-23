@@ -1,4 +1,10 @@
-import { Extension } from '@taleweaver/core';
+import {
+  Extension,
+  StateCommand,
+} from '@taleweaver/core';
+import {
+  insertChar,
+} from './commands';
 
 export default class EditExtension extends Extension {
 
@@ -19,6 +25,12 @@ export default class EditExtension extends Extension {
   }
 
   protected onCharInput = (char: string) => {
-    // TODO: Insert char to document at cursor position
+    this.dispatchCommand(insertChar(this, char));
+  }
+
+  protected dispatchCommand(command: StateCommand) {
+    const editor = this.getEditor();
+    const transformation = command(editor);
+    editor.getState().applyTransformation(transformation);
   }
 }

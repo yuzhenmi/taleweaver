@@ -4,8 +4,8 @@ interface Attributes {
 }
 
 class OpenTagToken {
-  private type: string;
-  private attributes: Attributes;
+  protected type: string;
+  protected attributes: Attributes;
 
   constructor(type: string, attributes: Attributes) {
     this.type = type;

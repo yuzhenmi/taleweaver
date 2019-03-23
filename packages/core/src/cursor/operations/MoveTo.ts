@@ -1,7 +1,7 @@
 import Operation from '../Operation';
 
 export default class MoveTo implements Operation {
-  private offset: number;
+  protected offset: number;
 
   constructor(offset: number) {
     this.offset = offset;

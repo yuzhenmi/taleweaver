@@ -27,7 +27,7 @@ export default class Editor {
     this.config = config;
     this.cursor = new Cursor(this);
     this.tokenizer = new Tokenizer(this.config, markup);
-    this.state = this.tokenizer.getState();
+    this.state = this.tokenizer.run();
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());

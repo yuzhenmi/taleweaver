@@ -6,7 +6,7 @@ import LeafNode from './LeafNode';
 export type Child = BranchNode | LeafNode;
 
 export default class Doc extends Node {
-  private children: Child[];
+  protected children: Child[];
 
   constructor() {
     super();

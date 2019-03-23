@@ -27,7 +27,7 @@ export default class InputManager {
   }
 
   onKeyPress(event: KeyboardEvent) {
-    if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key !== 'Shift') {
+    if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key.length === 1) {
       this.charInputSubscribers.forEach(subscriber => subscriber(event.key));
     }
     const keySignature = getKeySignatureFromKeyboardEvent(event);

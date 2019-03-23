@@ -1,7 +1,7 @@
 import Editor from '../Editor';
 
 export default abstract class Extension {
-  private editor?: Editor;
+  protected editor?: Editor;
 
   $onRegistered(editor: Editor) {
     this.editor = editor;

@@ -1,8 +1,8 @@
-import Operation from './Operation';
+import Operation from '../Operation';
 
 export default class Delete extends Operation {
-  private from: number;
-  private to: number;
+  protected from: number;
+  protected to: number;
 
   constructor(from: number, to: number) {
     super();

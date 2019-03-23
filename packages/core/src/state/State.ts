@@ -29,7 +29,7 @@ class State {
     this.subscribers.push(subscriber);
   }
 
-  transform(transformation: Transformation) {
+  applyTransformation(transformation: Transformation) {
     const operations = transformation.getOperations();
     operations.forEach(operation => {
       if (operation instanceof Insert) {

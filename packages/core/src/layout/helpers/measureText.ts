@@ -10,8 +10,8 @@ function getTextStyleKey(textStyle: TextStyle): string {
 }
 
 export class TextMeasurer {
-  private $iframe: HTMLIFrameElement;
-  private $textContainers: Map<string, HTMLSpanElement>;
+  protected $iframe: HTMLIFrameElement;
+  protected $textContainers: Map<string, HTMLSpanElement>;
 
   constructor() {
     this.$iframe = document.createElement('iframe');

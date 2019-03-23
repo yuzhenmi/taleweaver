@@ -1,8 +1,8 @@
 import Operation from './Operation';
 
 export default class Transformation {
-  private operations: Operation[] = [];
-  private leftAnchor: number | null;
+  protected operations: Operation[] = [];
+  protected leftAnchor: number | null;
 
   constructor() {
     this.operations = [];

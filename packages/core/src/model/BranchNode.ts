@@ -6,8 +6,8 @@ export type Parent = Doc | BranchNode;
 export type Child = BranchNode | LeafNode;
 
 export default abstract class BranchNode extends Node {
-  private parent: Parent;
-  private children: Child[];
+  protected parent: Parent;
+  protected children: Child[];
 
   constructor(parent: Parent) {
     super();

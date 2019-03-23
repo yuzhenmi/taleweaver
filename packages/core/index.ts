@@ -1,6 +1,10 @@
 import Editor from './src/Editor';
 import Config from './src/Config';
 
+import StateTransformation from './src/state/Transformation';
+import StateCommand from './src/state/Command';
+import * as stateOperations from './src/state/operations';
+
 import CursorTransformation from './src/cursor/Transformation';
 import CursorCommand from './src/cursor/Command';
 import * as cursorOperations from './src/cursor/operations';
@@ -23,6 +27,10 @@ import Extension from './src/extension/Extension';
 export {
   Editor,
   Config,
+
+  StateTransformation,
+  StateCommand,
+  stateOperations,
 
   CursorTransformation,
   CursorCommand,

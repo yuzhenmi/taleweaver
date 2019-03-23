@@ -61,7 +61,7 @@ export default class Presenter {
     return pages[pageOffset].getDOMContentContainer();
   }
 
-  private buildPageView(pageLayout: PageLayout): PageView {
+  protected buildPageView(pageLayout: PageLayout): PageView {
     const view = new PageView(pageLayout);
     let offset = 0;
     pageLayout.getChildren().forEach(child => {
@@ -71,7 +71,7 @@ export default class Presenter {
     return view;
   }
 
-  private buildBlockView(blockBox: BlockBox): BlockView {
+  protected buildBlockView(blockBox: BlockBox): BlockView {
     const ViewClass = this.config.getViewClass(blockBox.getType());
     const view = new ViewClass(blockBox);
     if (!(view instanceof BlockView)) {
@@ -85,7 +85,7 @@ export default class Presenter {
     return view;
   }
 
-  private buildLineView(lineBox: LineBox): LineView {
+  protected buildLineView(lineBox: LineBox): LineView {
     const view = new LineView(lineBox);
     let offset = 0;
     lineBox.getChildren().forEach(child => {
@@ -95,7 +95,7 @@ export default class Presenter {
     return view;
   }
 
-  private buildInlineView(inlineBox: InlineBox): InlineView {
+  protected buildInlineView(inlineBox: InlineBox): InlineView {
     const ViewClass = this.config.getViewClass(inlineBox.getType());
     const view = new ViewClass(inlineBox);
     if (!(view instanceof InlineView)) {

@@ -1,174 +1,179 @@
 import Config from '../Config';
-import State from './State';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
+import State from './State';
 
-enum TokenizerState {
-  ReadyForToken,
-  ReadingTag,
-  ReadingTagType,
-  ReadyForAttributes,
-  ReadingAttributes,
-  ReadyForTagEnd,
-  Done,
+class TokenizerState {
+  protected label: string;
+
+  constructor(label: string) {
+    this.label = label;
+  }
+
+  getLabel(): string {
+    return this.label;
+  }
 }
 
-const WHITESPACE_CHARS = [
-  ' ',
-  '\t',
-  '\n',
-];
-
-function isWhitespace(char: string) {
-  return WHITESPACE_CHARS.indexOf(char) >= 0;
-}
-
-function isAlphabet(char: string) {
-  return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
-}
+const S_NEW_TOKEN = new TokenizerState('new token');
+const S_NEW_TAG = new TokenizerState('new tag');
+const S_TAG = new TokenizerState('tag');
+const S_TAG_ATTRIBUTES = new TokenizerState('tag attributes');
+const S_TAG_ATTRIBUTES_STRING = new TokenizerState('tag attributes string');
+const S_TAG_ATTRIBUTES_STRING_ESCAPE = new TokenizerState('tag attributes string escape');
+const S_CLOSE_TAG = new TokenizerState('close tag');
 
 class Tokenizer {
   protected config: Config;
-  protected state: State;
+  protected markup: string;
+  protected state: TokenizerState;
   protected tokens: Token[];
-  protected tokenizerState: TokenizerState;
-  protected nodeDepth: number;
-  protected tagTypeBuffer: string[];
-  protected tagAttributesBuffer: string[];
-  protected attributesDepth: number;
-  protected escapeNextChar: boolean;
+  protected tagBuffer: string;
+  protected attributesBuffer: string;
 
   constructor(config: Config, markup: string) {
     this.config = config;
-    this.state = new State();
+    this.markup = markup;
+    this.state = S_NEW_TOKEN;
     this.tokens = [];
-    this.tokenizerState = TokenizerState.ReadyForToken;
-    this.nodeDepth = 0;
-    this.tagTypeBuffer = [];
-    this.tagAttributesBuffer = [];
-    this.attributesDepth = 0;
-    this.escapeNextChar = false;
-    this.tokenize(markup);
+    this.tagBuffer = '';
+    this.attributesBuffer = '';
   }
 
-  getState(): State {
-    return this.state;
-  }
-
-  protected tokenize(markup: string) {
-    this.reset();
-    let offset = 0;
-    while (offset < markup.length) {
-      this.step(markup[offset], offset);
-      offset += 1;
-    }
-    this.state.setTokens(this.tokens);
-  }
-
-  protected reset() {
+  run() {
     this.tokens = [];
-    this.tokenizerState = TokenizerState.ReadyForToken;
-    this.nodeDepth = 0;
-    this.tagTypeBuffer = [];
-    this.tagAttributesBuffer = [];
-    this.attributesDepth = 0;
+    for (let n = 0, nn = this.markup.length; n < nn; n++) {
+      const char = this.markup[n];
+      switch (this.state) {
+        case S_NEW_TOKEN:
+          if (/</.test(char)) {
+            this.newTag(char);
+            break;
+          }
+          this.appendChar(char);
+          break;
+        case S_NEW_TAG:
+          if (/A-Z/.test(char)) {
+            this.appendCharToTag(char);
+            break;
+          }
+          if (/\//.test(char)) {
+            this.closeTag(char);
+            break;
+          }
+        case S_TAG:
+          if (/[A-Za-z]/.test(char)) {
+            this.appendCharToTag(char);
+            break;
+          }
+          if (/{/.test(char)) {
+            this.newAttributes(char);
+            break;
+          }
+        case S_TAG_ATTRIBUTES:
+          if (/"/.test(char)) {
+            this.newAttributesString(char);
+            break;
+          }
+          if (/>/.test(char)) {
+            this.endTag(char);
+            break;
+          }
+          this.appendCharToAttributes(char);
+          break;
+        case S_TAG_ATTRIBUTES_STRING:
+          if (/"/.test(char)) {
+            this.endAttributesString(char);
+            break;
+          }
+          if (/\\/.test(char)) {
+            this.escapeNextAttributesStringChar(char);
+            break;
+          }
+          this.appendCharToAttributes(char);
+          break;
+        case S_TAG_ATTRIBUTES_STRING_ESCAPE:
+          this.appendCharToAttributes(char);
+          break;
+        case S_CLOSE_TAG:
+          if (/>/.test(char)) {
+            this.endCloseTag(char);
+            break;
+          }
+        default:
+          throw new Error(`Unexpected character ${char} at offset ${n}.`);
+      }
+    }
+    const state = new State();
+    state.setTokens(this.tokens);
+    return state;
   }
 
-  protected step(char: string, offset: number) {
-    switch (this.tokenizerState) {
-      case TokenizerState.ReadyForToken:
-        if (this.nodeDepth === 0) {
-          if (char !== '<') {
-            throw new Error(`Unexpected ${char} at ${offset}, expecting <.`);
-          }
-        }
-        if (char === '<') {
-          this.tokenizerState = TokenizerState.ReadingTag;
-          this.nodeDepth += 1;
-        } else {
-          this.tokens.push(char);
-        }
-        break;
-      case TokenizerState.ReadingTag:
-        if (char === '>') {
-          this.tokens.push(new CloseTagToken());
-          this.nodeDepth -= 1;
-          if (this.nodeDepth === 0) {
-            this.tokenizerState = TokenizerState.Done;
-          } else {
-            this.tokenizerState = TokenizerState.ReadyForToken;
-          }
-        } else {
-          this.tokenizerState = TokenizerState.ReadingTagType;
-          this.tagTypeBuffer.push(char);
-        }
-        break;
-      case TokenizerState.ReadingTagType:
-        if (isWhitespace(char)) {
-          if (this.tagTypeBuffer.length === 0) {
-            throw new Error(`Unexpected ${char} at ${offset}, open tag type is empty.`);
-          }
-          this.tokenizerState = TokenizerState.ReadyForAttributes;
-        } else {
-          if (!isAlphabet(char)) {
-            throw new Error(`Unexpected ${char} at ${offset}, expecting tag type.`);
-          }
-          this.tagTypeBuffer.push(char);
-        }
-        break;
-      case TokenizerState.ReadyForAttributes:
-        if (isWhitespace(char)) {
-          break;
-        }
-        if (char !== '{') {
-          throw new Error(`Unexpected ${char} at ${offset}, expecting {.`);
-        }
-        this.tagAttributesBuffer.push(char);
-        this.tokenizerState = TokenizerState.ReadingAttributes;
-        this.attributesDepth += 1;
-        break;
-      case TokenizerState.ReadingAttributes:
-        this.tagAttributesBuffer.push(char);
-        if (char === '{') {
-          this.attributesDepth += 1;
-        } else if (char === '}') {
-          this.attributesDepth -= 1;
-          if (this.attributesDepth === 0) {
-            this.tokenizerState = TokenizerState.ReadyForTagEnd;
-          }
-        }
-        break;
-      case TokenizerState.ReadyForTagEnd:
-        if (isWhitespace(char)) {
-          break;
-        }
-        if (char !== '>') {
-          throw new Error(`Unexpected ${char} at ${offset}, expecting >.`);
-        }
-        const attributesJSON = this.tagAttributesBuffer.join('');
-        let attributes: {};
-        try {
-          attributes = JSON.parse(attributesJSON);
-        } catch (err) {
-          throw new Error(`Invalid attributes at ${offset - 1}, cannot parse JSON ${attributesJSON}.`);
-        }
-        if (!('id' in attributes)) {
-          throw new Error(`Invalid attributes at ${offset - 1}, missing id.`);
-        }
-        this.tokens.push(new OpenTagToken(this.tagTypeBuffer.join(''), attributes));
-        this.tagAttributesBuffer = [];
-        this.tagTypeBuffer = [];
-        this.tokenizerState = TokenizerState.ReadyForToken;
-        break;
-      case TokenizerState.Done:
-        if (isWhitespace(char)) {
-          break;
-        }
-        throw new Error(`Unexpected ${char} at ${offset}, tokenization is done already.`);
-      default:
-        throw new Error('Tokenizer tokenizerState is corrupted.');
+  protected newTag(char: string) {
+    this.state = S_NEW_TAG;
+  }
+
+  protected appendChar(char: string) {
+    this.tokens.push(char);
+  }
+
+  protected appendCharToTag(char: string) {
+    this.tagBuffer += char;
+    this.state = S_TAG;
+  }
+
+  protected newAttributes(char: string) {
+    this.attributesBuffer += char;
+    this.state = S_TAG_ATTRIBUTES;
+  }
+
+  protected appendCharToAttributes(char: string) {
+    this.attributesBuffer += char;
+    if (this.state === S_TAG_ATTRIBUTES_STRING_ESCAPE) {
+      this.state = S_TAG_ATTRIBUTES_STRING;
     }
+  }
+
+  protected newAttributesString(char: string){
+    this.attributesBuffer += char;
+    this.state = S_TAG_ATTRIBUTES_STRING;
+  }
+
+  protected endTag(char: string) {
+    let attributes: {};
+    try {
+      attributes = JSON.parse(this.attributesBuffer);
+    } catch (error) {
+      throw new Error(`Invalid attributes JSON: ${this.attributesBuffer}.`);
+    }
+    if (!('id' in attributes)) {
+      throw new Error(`Missing id in attributes JSON: ${this.attributesBuffer}.`);
+    }
+    const openTagToken = new OpenTagToken(this.tagBuffer, attributes);
+    this.tokens.push(openTagToken);
+    this.attributesBuffer = '';
+    this.tagBuffer = '';
+    this.state = S_NEW_TOKEN;
+  }
+
+  protected endAttributesString(char: string) {
+    this.attributesBuffer += char;
+    this.state = S_TAG_ATTRIBUTES;
+  }
+
+  protected escapeNextAttributesStringChar(char: string){
+    this.state = S_TAG_ATTRIBUTES_STRING_ESCAPE;
+  }
+
+  protected closeTag(char: string) {
+    this.state = S_CLOSE_TAG;
+  }
+
+  protected endCloseTag(char: string) {
+    const closeTagToken = new CloseTagToken();
+    this.tokens.push(closeTagToken);
+    this.state = S_NEW_TOKEN;
   }
 }
 

@@ -5,8 +5,8 @@ import BranchNode from './BranchNode';
 export type Parent = Doc | BranchNode;
 
 export default abstract class LeafNode extends Node {
-  private parent: Parent;
-  private content: string;
+  protected parent: Parent;
+  protected content: string;
 
   constructor(parent: Parent) {
     super();
