@@ -14,8 +14,8 @@ export default function moveToLeftOfLine(cursorExtension: CursorExtension): Curs
       return transformation;
     }
     const head = cursor.getHead();
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    const position = docLayout.resolvePosition(head);
+    const docBox = editor.getLayoutEngine().getDocBox();
+    const position = docBox.resolvePosition(head);
     const lineBoxLevelPosition = position.getLineBoxLevel();
     if (lineBoxLevelPosition.getSelectableOffset() > 0) {
       transformation.addOperation(new cursorOperations.MoveTo(head - lineBoxLevelPosition.getSelectableOffset()));

@@ -4,9 +4,8 @@ import Text from './model/Text';
 import RenderNodeBuilder from './render/RenderNodeBuilder';
 import ParagraphBlockRenderNodeBuilder from './render/ParagraphBlockRenderNodeBuilder';
 import TextInlineRenderNodeBuilder from './render/TextInlineRenderNodeBuilder';
-import BlockBoxBuilder from './layout/BlockBoxBuilder';
+import BoxBuilder from './layout/BoxBuilder';
 import ParagraphBlockBoxBuilder from './layout/ParagraphBlockBoxBuilder';
-import InlineBoxBuilder from './layout/InlineBoxBuilder';
 import TextInlineBoxBuilder from './layout/TextInlineBoxBuilder';
 import View from './view/View';
 import ParagraphBlockView from './view/ParagraphBlockView';
@@ -18,22 +17,20 @@ type ViewClass = new (...args: any[]) => View;
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
   protected renderers: Map<string, RenderNodeBuilder>;
-  protected blockBoxBuilders: Map<string, BlockBoxBuilder>;
-  protected inlineBoxBuilders: Map<string, InlineBoxBuilder>;
+  protected boxBuilders: Map<string, BoxBuilder>;
   protected viewClasses: Map<string, ViewClass>;
 
   constructor() {
     this.nodeClasses = new Map();
     this.renderers = new Map();
-    this.blockBoxBuilders = new Map();
-    this.inlineBoxBuilders = new Map();
+    this.boxBuilders = new Map();
     this.viewClasses = new Map();
     this.registerNodeClass('Paragraph', Paragraph);
     this.registerNodeClass('Text', Text);
     this.registerRenderNodeBuilder('Paragraph', new ParagraphBlockRenderNodeBuilder());
     this.registerRenderNodeBuilder('Text', new TextInlineRenderNodeBuilder());
-    this.registerBlockBoxBuilder('ParagraphBlockRenderNode', new ParagraphBlockBoxBuilder());
-    this.registerInlineBoxBuilder('TextInlineRenderNode', new TextInlineBoxBuilder());
+    this.registerBoxBuilder('ParagraphBlockRenderNode', new ParagraphBlockBoxBuilder());
+    this.registerBoxBuilder('TextInlineRenderNode', new TextInlineBoxBuilder());
     this.registerViewClass('ParagraphBlockBox', ParagraphBlockView);
     this.registerViewClass('TextInlineBox', TextInlineView);
   }
@@ -60,28 +57,16 @@ class Config {
     return this.renderers.get(nodeType)!;
   }
 
-  registerBlockBoxBuilder(blockRenderNodeType: string, blockBoxBuilder: BlockBoxBuilder) {
-    this.blockBoxBuilders.set(blockRenderNodeType, blockBoxBuilder);
+  registerBoxBuilder(renderNodeType: string, boxBuilder: BoxBuilder) {
+    this.boxBuilders.set(renderNodeType, boxBuilder);
   }
 
-  getBlockBoxBuilder(blockRenderNodeType: string): BlockBoxBuilder {
-    const blockBoxBuilder = this.blockBoxBuilders.get(blockRenderNodeType);
+  getBoxBuilder(renderNodeType: string): BoxBuilder {
+    const blockBoxBuilder = this.boxBuilders.get(renderNodeType);
     if (!blockBoxBuilder) {
-      throw new Error(`No block box builder registered for block render node type ${blockRenderNodeType}.`);
+      throw new Error(`No box builder registered for render node type ${renderNodeType}.`);
     }
     return blockBoxBuilder;
-  }
-
-  registerInlineBoxBuilder(inlineRenderNodeType: string, inlineBoxBuilder: InlineBoxBuilder) {
-    this.inlineBoxBuilders.set(inlineRenderNodeType, inlineBoxBuilder);
-  }
-
-  getInlineBoxBuilder(inlineRenderNodeType: string): InlineBoxBuilder {
-    const inlineBoxBuilder = this.inlineBoxBuilders.get(inlineRenderNodeType);
-    if (!inlineBoxBuilder) {
-      throw new Error(`No line box builder registered for inline render node type ${inlineRenderNodeType}.`);
-    }
-    return inlineBoxBuilder;
   }
 
   registerViewClass(boxType: string, viewClass: ViewClass) {

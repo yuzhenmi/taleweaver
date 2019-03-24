@@ -9,8 +9,8 @@ import CursorTransformation from './src/cursor/Transformation';
 import CursorCommand from './src/cursor/Command';
 import * as cursorOperations from './src/cursor/operations';
 
-import DocLayout from './src/layout/DocLayout';
-import PageLayout from './src/layout/PageLayout';
+import DocBox from './src/layout/DocBox';
+import PageBox from './src/layout/PageBox';
 import BlockBox from './src/layout/BlockBox';
 import LineBox from './src/layout/LineBox';
 import InlineBox from './src/layout/InlineBox';
@@ -36,8 +36,8 @@ export {
   CursorCommand,
   cursorOperations,
 
-  DocLayout,
-  PageLayout,
+  DocBox,
+  PageBox,
   BlockBox,
   LineBox,
   InlineBox,

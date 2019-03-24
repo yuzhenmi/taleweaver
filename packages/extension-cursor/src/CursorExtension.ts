@@ -136,7 +136,7 @@ export default class CursorExtension extends Extension {
     const presenter = editor.getPresenter();
     const anchor = cursor.getAnchor();
     const head = cursor.getHead();
-    const viewportBoundingRectsByPage = layoutEngine.getDocLayout().resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
+    const viewportBoundingRectsByPage = layoutEngine.getDocBox().resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;

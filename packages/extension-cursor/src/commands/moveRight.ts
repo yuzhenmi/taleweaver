@@ -15,9 +15,9 @@ export default function moveRight(cursorExtension: CursorExtension): CursorComma
     }
     const anchor = cursor.getAnchor();
     const head = cursor.getHead();
-    const docLayout = editor.getLayoutEngine().getDocLayout();
+    const docBox = editor.getLayoutEngine().getDocBox();
     if (anchor === head) {
-      if (head >= docLayout.getSelectableSize() - 1) {
+      if (head >= docBox.getSelectableSize() - 1) {
         return transformation;
       }
       transformation.addOperation(new cursorOperations.MoveTo(head + 1));

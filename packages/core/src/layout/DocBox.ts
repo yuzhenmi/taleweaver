@@ -1,15 +1,16 @@
-import PageLayout from './PageLayout';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
+import Box from './Box';
+import PageBox from './PageBox';
 import LayoutNode from './LayoutNode';
 
-type Child = PageLayout;
+type Child = PageBox;
 
-export default class DocLayout extends LayoutNode {
+export default class DocBox extends Box {
   protected children: Child[];
 
-  constructor() {
-    super(0);
+  constructor(renderNodeID: string) {
+    super(renderNodeID, 0, 800, 1000);
     this.children = [];
   }
 
@@ -17,10 +18,22 @@ export default class DocLayout extends LayoutNode {
     return this.selectableSize;
   }
 
+  setParent(parent: LayoutNode) {
+    throw new Error('Cannot set parent on doc box.');
+  }
+
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
     child.setParent(this);
     this.selectableSize += child.getSelectableSize();
+  }
+
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
   }
 
   getChildren(): Child[] {

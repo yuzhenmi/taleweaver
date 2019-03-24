@@ -14,8 +14,8 @@ export default function moveHeadLeft(cursorExtension: CursorExtension): CursorCo
       return transformation;
     }
     const head = cursor.getHead();
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    if (head >= docLayout.getSelectableSize() - 1) {
+    const docBox = editor.getLayoutEngine().getDocBox();
+    if (head >= docBox.getSelectableSize() - 1) {
       return transformation;
     }
     transformation.addOperation(new cursorOperations.MoveHeadTo(head + 1));

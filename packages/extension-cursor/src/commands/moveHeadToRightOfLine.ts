@@ -15,8 +15,8 @@ export default function moveHeadToRightOfLine(cursorExtension: CursorExtension):
       return transformation;
     }
     const head = cursor.getHead();
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    const position = docLayout.resolvePosition(head);
+    const docBox = editor.getLayoutEngine().getDocBox();
+    const position = docBox.resolvePosition(head);
     const lineBoxLevelPosition = position.getLineBoxLevel();
     const lineBox = lineBoxLevelPosition.getLayoutNode();
     if (!(lineBox instanceof LineBox)) {

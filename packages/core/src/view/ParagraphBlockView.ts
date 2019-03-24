@@ -11,6 +11,7 @@ export default class ParagraphBlockView extends BlockView {
     this.paragraphBlockBox = paragraphBlockBox;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
+    this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {

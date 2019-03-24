@@ -1,16 +1,17 @@
-import PageLayout from '../layout/PageLayout';
+import PageBox from '../layout/PageBox';
 import View from './View';
 import BlockView from './BlockView';
 
 export default class PageView extends View {
-  protected pageLayout: PageLayout;
+  protected pageBox: PageBox;
   protected domContainer: HTMLDivElement;
 
-  constructor(pageLayout: PageLayout) {
+  constructor(pageBox: PageBox) {
     super();
-    this.pageLayout = pageLayout;
+    this.pageBox = pageBox;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
+    this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {

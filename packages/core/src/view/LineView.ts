@@ -11,6 +11,7 @@ export default class LineView extends View {
     this.lineBox = lineBox;
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--line';
+    this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {

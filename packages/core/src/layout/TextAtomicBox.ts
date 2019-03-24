@@ -13,9 +13,9 @@ const stubTextStyle = {
 export default class TextAtomicBox extends AtomicBox {
   protected content: string;
 
-  constructor(selectableSize: number, breakable: boolean, content: string) {
+  constructor(renderNodeID: string, selectableSize: number, breakable: boolean, content: string) {
     const textMeasurement = measureText(content, stubTextStyle);
-    super(selectableSize, textMeasurement.width, textMeasurement.height, breakable);
+    super(renderNodeID, selectableSize, textMeasurement.width, textMeasurement.height, breakable);
     this.content = content;
   }
 

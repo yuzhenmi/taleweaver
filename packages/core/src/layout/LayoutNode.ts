@@ -8,4 +8,16 @@ export default abstract class LayoutNode {
   getSelectableSize(): number {
     return this.selectableSize;
   }
+
+  adjustSelectableSize(delta: number) {
+    this.selectableSize += delta;
+  }
+
+  abstract setParent(parent: LayoutNode): void;
+
+  abstract getChildren(): LayoutNode[];
+
+  abstract insertChild(child: LayoutNode, offset: number): void;
+
+  abstract deleteChild(child: LayoutNode): void;
 }

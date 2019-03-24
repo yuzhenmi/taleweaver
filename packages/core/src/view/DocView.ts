@@ -1,18 +1,19 @@
-import DocLayout from '../layout/DocLayout';
+import DocBox from '../layout/DocBox';
 import View from './View';
 import PageView from './PageView';
 
 export default class DocView extends View {
-  protected docLayout: DocLayout;
+  protected docBox: DocBox;
   protected children: PageView[];
   protected domContainer: HTMLDivElement;
 
-  constructor(docLayout: DocLayout) {
+  constructor(docBox: DocBox) {
     super();
-    this.docLayout = docLayout;
+    this.docBox = docBox;
     this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
+    this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {

@@ -11,6 +11,7 @@ export default class TextInlineView extends InlineView {
     this.textInlineBox = textInlineBox;
     this.domContainer = document.createElement('span');
     this.domContainer.className = 'tw--text-inline';
+    this.domContainer.style.whiteSpace = 'pre';
     const text = textInlineBox.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
         return child.getContent();

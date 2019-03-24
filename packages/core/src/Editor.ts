@@ -32,7 +32,7 @@ export default class Editor {
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
     this.inputManager = new InputManager();
-    this.presenter = new Presenter(this.config, this.layoutEngine.getDocLayout(), this.inputManager);
+    this.presenter = new Presenter(this.config, this.layoutEngine.getDocBox(), this.inputManager);
     this.extensionProvider = new ExtensionProvider(this);
   }
 

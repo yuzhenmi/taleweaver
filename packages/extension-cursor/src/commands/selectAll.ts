@@ -13,9 +13,9 @@ export default function selectAll(cursorExtension: CursorExtension): CursorComma
     if (!cursor) {
       return transformation;
     }
-    const docLayout = editor.getLayoutEngine().getDocLayout();
+    const docBox = editor.getLayoutEngine().getDocBox();
     transformation.addOperation(new cursorOperations.MoveTo(0));
-    transformation.addOperation(new cursorOperations.MoveHeadTo(docLayout.getSelectableSize() - 1));
+    transformation.addOperation(new cursorOperations.MoveHeadTo(docBox.getSelectableSize() - 1));
     return transformation;
   };
 }

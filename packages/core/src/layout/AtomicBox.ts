@@ -2,6 +2,7 @@ import Box from './Box';
 import InlineBox from './InlineBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
+import LayoutNode from './LayoutNode';
 
 type Parent = InlineBox;
 
@@ -9,9 +10,21 @@ export default abstract class AtomicBox extends Box {
   protected parent?: Parent;
   protected breakable: boolean;
 
-  constructor(selectableSize: number, width: number, height: number, breakable: boolean) {
-    super(selectableSize, width, height);
+  constructor(renderNodeID: string, selectableSize: number, width: number, height: number, breakable: boolean) {
+    super(renderNodeID, selectableSize, width, height);
     this.breakable = breakable;
+  }
+
+  getChildren(): LayoutNode[] {
+    return [];
+  }
+
+  insertChild(child: LayoutNode, offset: number) {
+    throw new Error('Cannot insert child to atomic box.');
+  }
+
+  deleteChild(child: LayoutNode) {
+    throw new Error('Cannot delete child from atomic box.');
   }
 
   isBreakable(): boolean {

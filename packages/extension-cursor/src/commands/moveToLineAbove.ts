@@ -15,8 +15,8 @@ export default function moveToLineAbove(cursorExtension: CursorExtension): Curso
       return transformation;
     }
     const offset = Math.min(cursor.getAnchor(), cursor.getHead());
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    const position = docLayout.resolvePosition(offset);
+    const docBox = editor.getLayoutEngine().getDocBox();
+    const position = docBox.resolvePosition(offset);
     const lineBoxLevelPosition = position.getLineBoxLevel();
     const lineBox = lineBoxLevelPosition.getLayoutNode();
     if (!(lineBox instanceof LineBox)) {

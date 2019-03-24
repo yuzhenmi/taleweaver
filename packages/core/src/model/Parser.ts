@@ -320,9 +320,7 @@ class Parser {
     if (updated) {
       node.setVersion(this.getNextVersion());
     }
-    if (node.getVersion() === this.getNextVersion()) {
-      this.propagateNodeVersionToAncestors(node);
-    }
+    this.propagateVersionToAncestors(node);
     this.contentBuffer = '';
     this.parserState = ParserState.NewNode;
   }
@@ -331,11 +329,14 @@ class Parser {
     return this.doc.getVersion() + 1;
   }
 
-  protected propagateNodeVersionToAncestors(node: Node) {
+  protected propagateVersionToAncestors(node: Node) {
     let currentNode = node;
     let parentNode: Node;
     while (currentNode instanceof BranchNode || currentNode instanceof LeafNode) {
       parentNode = currentNode.getParent();
+      if (parentNode.getVersion() >= currentNode.getVersion()) {
+        break;
+      }
       parentNode.setVersion(currentNode.getVersion());
       currentNode = parentNode;
     }

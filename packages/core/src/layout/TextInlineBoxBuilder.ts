@@ -7,13 +7,14 @@ import TextAtomicBox from './TextAtomicBox';
 export default class TextInlineBoxBuilder extends InlineBoxBuilder {
 
   build(textInlineRenderNode: TextInlineRenderNode): TextInlineBox {
-    const textInlineBox = new TextInlineBox();
+    const textInlineBox = new TextInlineBox(textInlineRenderNode.getID());
     let offset = 0;
     textInlineRenderNode.getChildren().forEach(textAtomicRenderNode => {
       if (!(textAtomicRenderNode instanceof TextAtomicRenderNode)) {
         throw new Error(`Error building TextInlineBox, expecting child of TextInlineRenderNode to be TextAtomicRenderNode.`);
       }
       const textAtomicBox = new TextAtomicBox(
+        textInlineRenderNode.getID(),
         textAtomicRenderNode.getSelectableSize(),
         textAtomicRenderNode.getBreakable(),
         textAtomicRenderNode.getContent(),

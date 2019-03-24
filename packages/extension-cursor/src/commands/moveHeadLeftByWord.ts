@@ -15,8 +15,8 @@ export default function moveHeadLeftByWord(cursorExtension: CursorExtension): Cu
       return transformation;
     }
     const head = cursor.getHead();
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    const position = docLayout.resolvePosition(head);
+    const docBox = editor.getLayoutEngine().getDocBox();
+    const position = docBox.resolvePosition(head);
     const atomicBoxLevelPosition = position.getAtomicBoxLevel();
     if (atomicBoxLevelPosition.getSelectableOffset() > 0) {
       transformation.addOperation(new cursorOperations.MoveHeadTo(head - atomicBoxLevelPosition.getSelectableOffset()));

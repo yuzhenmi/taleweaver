@@ -11,8 +11,8 @@ export default abstract class InlineBox extends Box {
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor() {
-    super(0, 0, 0);
+  constructor(renderNodeID: string) {
+    super(renderNodeID, 0, 0, 0);
     this.children = [];
   }
 
@@ -37,6 +37,14 @@ export default abstract class InlineBox extends Box {
     this.children.splice(offset, 0, child);
     child.setParent(this);
     this.selectableSize += child.getSelectableSize();
+  }
+
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
   }
 
   getChildren(): Child[] {

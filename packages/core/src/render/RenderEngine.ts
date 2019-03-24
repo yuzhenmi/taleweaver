@@ -5,6 +5,7 @@ import BranchNode from '../model/BranchNode';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import BlockRenderNode from './BlockRenderNode';
+import InlineRenderNode from './InlineRenderNode';
 
 abstract class StackElementOperation {
   
@@ -238,17 +239,17 @@ export default class RenderEngine {
   protected config: Config;
   protected doc: Doc;
   protected docRenderNode: DocRenderNode;
-  protected renderedDocVersion: number;
   protected stack: Stack;
   protected ran: boolean;
+  protected ranVersion: number;
 
   constructor(config: Config, doc: Doc) {
     this.config = config;
     this.doc = doc;
     this.docRenderNode = new DocRenderNode(doc.getID(), doc.getSelectableSize());
-    this.renderedDocVersion = -1;
     this.stack = new Stack();
     this.ran = false;
+    this.ranVersion = -1;
     this.doc.subscribeOnUpdated(() => {
       this.run();
     });
@@ -264,7 +265,9 @@ export default class RenderEngine {
   protected run() {
     this.stack.push(new StackElement(this.doc.getChildren(), this.docRenderNode));
     while (this.iterate()) {}
-    this.renderedDocVersion = this.doc.getVersion();
+    this.ranVersion = this.doc.getVersion();
+    this.ran = true;
+    this.docRenderNode.onUpdated();
   }
 
   protected iterate(): boolean {
@@ -277,7 +280,7 @@ export default class RenderEngine {
       this.closeNode();
       return this.iterate();
     }
-    if (node.getVersion() <= this.renderedDocVersion) {
+    if (node.getVersion() <= this.ranVersion) {
       return this.iterate();
     }
     this.newNode(node);
@@ -292,6 +295,7 @@ export default class RenderEngine {
     const offset = lastStackElement.findChild(node.getID());
     const renderNodeBuilder = this.config.getRenderNodeBuilder(node.getType());
     const renderNode = renderNodeBuilder.build(lastStackElement.getRenderNode(), node);
+    renderNode.setVersion(this.getNextVersion());
     if (offset < 0) {
       lastStackElement.insertChild(renderNode);
     } else {
@@ -317,5 +321,23 @@ export default class RenderEngine {
       throw new Error('Unexpected end of render doc encountered.');
     }
     lastStackElement.flushOperationsBuffer();
+    this.propagateVersionToAncestors(lastStackElement.getRenderNode());
+  }
+
+  protected getNextVersion(): number {
+    return this.docRenderNode.getVersion() + 1;
+  }
+
+  protected propagateVersionToAncestors(renderNode: RenderNode) {
+    let currentRenderNode = renderNode;
+    let parentRenderNode: RenderNode;
+    while (currentRenderNode instanceof BlockRenderNode || currentRenderNode instanceof InlineRenderNode) {
+      parentRenderNode = currentRenderNode.getParent();
+      if (parentRenderNode.getVersion() >= currentRenderNode.getVersion()) {
+        break;
+      }
+      parentRenderNode.setVersion(currentRenderNode.getVersion());
+      currentRenderNode = parentRenderNode;
+    }
   }
 }

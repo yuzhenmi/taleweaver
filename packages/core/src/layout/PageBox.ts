@@ -1,20 +1,20 @@
-import DocLayout from './DocLayout';
+import DocBox from './DocBox';
 import BlockBox from './BlockBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
-import LayoutNode from './LayoutNode';
+import FlowBox from './FlowBox';
 
-type Parent = DocLayout;
+type Parent = DocBox;
 type Child = BlockBox;
 
 const PAGE_HEIGHT_PLACEHOLDER = 880;
 
-export default class PageLayout extends LayoutNode {
+export default class PageBox extends FlowBox {
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor() {
-    super(0);
+  constructor(width: number, height: number) {
+    super(0, width, height);
     this.children = [];
   }
 
@@ -28,7 +28,7 @@ export default class PageLayout extends LayoutNode {
 
   getParent(): Parent {
     if (!this.parent) {
-      throw new Error(`Page layout has parent set.`);
+      throw new Error(`Page layout has no parent set.`);
     }
     return this.parent;
   }
@@ -39,11 +39,19 @@ export default class PageLayout extends LayoutNode {
     this.selectableSize += child.getSelectableSize();
   }
 
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
+  }
+
   getChildren(): Child[] {
     return this.children;
   }
 
-  getPreviousSibling(): PageLayout | null {
+  getPreviousSibling(): PageBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -55,7 +63,7 @@ export default class PageLayout extends LayoutNode {
     return null;
   }
 
-  getNextSibling(): PageLayout | null {
+  getNextSibling(): PageBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {

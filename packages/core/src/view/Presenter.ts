@@ -1,6 +1,6 @@
 import Config from '../Config';
-import DocLayout from '../layout/DocLayout';
-import PageLayout from '../layout/PageLayout';
+import DocBox from '../layout/DocBox';
+import PageBox from '../layout/PageBox';
 import BlockBox from '../layout/BlockBox';
 import LineBox from '../layout/LineBox';
 import InlineBox from '../layout/InlineBox';
@@ -16,23 +16,23 @@ export type OnMountedSubscriber = () => void;
 
 export default class Presenter {
   protected config: Config;
-  protected docLayout: DocLayout;
+  protected docBox: DocBox;
   protected inputManager: InputManager;
   protected eventObserver?: EventObserver;
   protected docView: DocView;
   protected onMountedSubscribers: OnMountedSubscriber[];
 
-  constructor(config: Config, docLayout: DocLayout, inputManager: InputManager) {
+  constructor(config: Config, docBox: DocBox, inputManager: InputManager) {
     this.config = config;
-    this.docLayout = docLayout;
+    this.docBox = docBox;
     this.inputManager = inputManager;
-    this.docView = new DocView(docLayout);
+    this.docView = new DocView(docBox);
     this.onMountedSubscribers = [];
   }
 
   mount(domWrapper: HTMLElement) {
     let offset = 0;
-    this.docLayout.getChildren().forEach(child => {
+    this.docBox.getChildren().forEach(child => {
       this.docView.insertChild(this.buildPageView(child), offset)
       offset += 1;
     });
@@ -61,10 +61,10 @@ export default class Presenter {
     return pages[pageOffset].getDOMContentContainer();
   }
 
-  protected buildPageView(pageLayout: PageLayout): PageView {
-    const view = new PageView(pageLayout);
+  protected buildPageView(pageBox: PageBox): PageView {
+    const view = new PageView(pageBox);
     let offset = 0;
-    pageLayout.getChildren().forEach(child => {
+    pageBox.getChildren().forEach(child => {
       view.insertChild(this.buildBlockView(child), offset);
       offset += 1;
     });

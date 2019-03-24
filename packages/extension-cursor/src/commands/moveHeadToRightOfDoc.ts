@@ -13,8 +13,8 @@ export default function moveHeadToRightOfDoc(cursorExtension: CursorExtension): 
     if (!cursor) {
       return transformation;
     }
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    transformation.addOperation(new cursorOperations.MoveHeadTo(docLayout.getSelectableSize() - 1));
+    const docBox = editor.getLayoutEngine().getDocBox();
+    transformation.addOperation(new cursorOperations.MoveHeadTo(docBox.getSelectableSize() - 1));
     return transformation;
   };
 }

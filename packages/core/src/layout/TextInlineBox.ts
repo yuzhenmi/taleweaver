@@ -13,7 +13,7 @@ export default class TextInlineBox extends InlineBox {
     const childrenCut = this.children.splice(offset);
     this.width = this.children.reduce((sum, child) => sum + child.getWidth(), 0)
     this.selectableSize = this.children.reduce((sum, child) => sum + child.getSelectableSize(), 0)
-    const newTextInlineBox = new TextInlineBox();
+    const newTextInlineBox = new TextInlineBox(this.renderNodeID);
     childrenCut.forEach((child, childOffset) => {
       newTextInlineBox.insertChild(child, childOffset);
     });

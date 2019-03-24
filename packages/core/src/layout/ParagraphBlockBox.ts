@@ -14,7 +14,7 @@ export default class ParagraphBlockBox extends BlockBox {
     const childrenCut = this.children.splice(offset);
     this.width = this.children.reduce((sum, child) => sum + child.getWidth(), 0)
     this.selectableSize = this.children.reduce((sum, child) => sum + child.getSelectableSize(), 0)
-    const newParagraphBlockBox = new ParagraphBlockBox();
+    const newParagraphBlockBox = new ParagraphBlockBox(this.renderNodeID);
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);
     });

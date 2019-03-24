@@ -1,5 +1,5 @@
 import mergeViewportBoundingRects from './helpers/mergeViewportBoundingRects';
-import Box from './Box';
+import FlowBox from './FlowBox';
 import BlockBox from './BlockBox';
 import InlineBox from './InlineBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
@@ -8,12 +8,12 @@ import Position from './Position';
 type Parent = BlockBox;
 type Child = InlineBox;
 
-export default class LineBox extends Box {
+export default class LineBox extends FlowBox {
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor() {
-    super(0, 680, 0);
+  constructor(width: number) {
+    super(0, width, 0);
     this.children = [];
   }
 
@@ -34,6 +34,14 @@ export default class LineBox extends Box {
     this.children.splice(offset, 0, child);
     child.setParent(this);
     this.selectableSize += child.getSelectableSize();
+  }
+
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
   }
 
   getChildren(): Child[] {

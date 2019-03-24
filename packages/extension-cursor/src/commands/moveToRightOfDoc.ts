@@ -13,8 +13,8 @@ export default function moveToRightOfDoc(cursorExtension: CursorExtension): Curs
     if (!cursor) {
       return transformation;
     }
-    const docLayout = editor.getLayoutEngine().getDocLayout();
-    transformation.addOperation(new cursorOperations.MoveTo(docLayout.getSelectableSize() - 1));
+    const docBox = editor.getLayoutEngine().getDocBox();
+    transformation.addOperation(new cursorOperations.MoveTo(docBox.getSelectableSize() - 1));
     return transformation;
   };
 }
