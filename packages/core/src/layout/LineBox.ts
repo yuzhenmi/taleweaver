@@ -9,12 +9,45 @@ type Parent = BlockBox;
 type Child = InlineBox;
 
 export default class LineBox extends FlowBox {
+  protected width: number;
+  protected height?: number;
+  protected selectableSize?: number;
   protected parent?: Parent;
   protected children: Child[];
 
   constructor(width: number) {
-    super(0, width, 0);
+    super();
+    this.width = width;
     this.children = [];
+  }
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    if (this.height === undefined) {
+      let height = 0;
+      this.getChildren().forEach(child => {
+        const childHeight = child.getHeight();
+        if (childHeight > height) {
+          height = childHeight;
+        }
+      });
+      this.height = height;
+    }
+    return this.height;
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
   }
 
   setParent(parent: Parent) {
@@ -30,10 +63,8 @@ export default class LineBox extends FlowBox {
 
   insertChild(child: Child, offset: number) {
     const childHeight = child.getHeight();
-    this.height = Math.max(this.height, childHeight);
     this.children.splice(offset, 0, child);
     child.setParent(this);
-    this.selectableSize += child.getSelectableSize();
   }
 
   deleteChild(child: Child) {
@@ -134,11 +165,11 @@ export default class LineBox extends FlowBox {
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
             left: cumulatedWidth + childViewportBoundingRect.left,
-            right: this.width - cumulatedWidth - childWidth + childViewportBoundingRect.right,
+            right: this.getWidth() - cumulatedWidth - childWidth + childViewportBoundingRect.right,
             top: 0,
             bottom: 0,
             width: childViewportBoundingRect.width,
-            height: this.height,
+            height: this.getHeight(),
           });
         });
       }

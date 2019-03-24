@@ -11,12 +11,29 @@ const stubTextStyle = {
 };
 
 export default class TextAtomicBox extends AtomicBox {
+  protected width: number;
+  protected height: number;
+  protected selectableSize?: number;
   protected content: string;
 
-  constructor(renderNodeID: string, selectableSize: number, breakable: boolean, content: string) {
+  constructor(renderNodeID: string, breakable: boolean, content: string) {
+    super(renderNodeID, breakable);
     const textMeasurement = measureText(content, stubTextStyle);
-    super(renderNodeID, selectableSize, textMeasurement.width, textMeasurement.height, breakable);
+    this.width = textMeasurement.width;
+    this.height = textMeasurement.height;
     this.content = content;
+  }
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    return this.height;
+  }
+
+  getSelectableSize(): number {
+    return this.content.length;
   }
 
   getContent(): string {

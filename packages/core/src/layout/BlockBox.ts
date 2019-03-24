@@ -8,15 +8,45 @@ type Parent = PageBox;
 type Child = LineBox;
 
 export default abstract class BlockBox extends Box {
+  protected width: number;
+  protected height?: number;
+  protected selectableSize?: number;
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor(renderNodeID: string) {
-    super(renderNodeID, 0, 680, 0);
+  constructor(renderNodeID: string, width: number) {
+    super(renderNodeID);
+    this.width = width;
     this.children = [];
   }
 
   abstract getType(): string;
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    if (this.height === undefined) {
+      let height = 0;
+      this.children.forEach(child => {
+        height += child.getHeight();
+      });
+      this.height = height;
+    }
+    return this.height;
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
 
   setParent(parent: Parent) {
     this.parent = parent;
@@ -30,11 +60,8 @@ export default abstract class BlockBox extends Box {
   }
 
   insertChild(child: Child, offset: number) {
-    const childHeight = child.getHeight();
-    this.height = this.height + childHeight;
     this.children.splice(offset, 0, child);
     child.setParent(this);
-    this.selectableSize += child.getSelectableSize();
   }
 
   deleteChild(child: Child) {

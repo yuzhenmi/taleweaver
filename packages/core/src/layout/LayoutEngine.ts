@@ -260,10 +260,12 @@ class StackElement {
   }
 
   protected insertBlockBoxToDocBox(docBox: DocBox, blockBox: BlockBox, offset: number): number {
-    let pageBoxes = docBox.getChildren();
-    if (pageBoxes.length === 0) {
-      pageBoxes = [new PageBox(docBox.getWidth(), docBox.getHeight())];
+    if (docBox.getChildren().length === 0) {
+      const pageBox = new PageBox(docBox.getWidth(), docBox.getHeight());
+      pageBox.setParent(docBox);
+      docBox.insertChild(pageBox, 0);
     }
+    const pageBoxes = docBox.getChildren();
     let cumulatedOffset = 0;
     let delta = 0;
     for (let m = 0, mm = pageBoxes.length; m < mm; m++) {
@@ -285,10 +287,12 @@ class StackElement {
   }
 
   protected insertInlineBoxToBlockBox(blockBox: BlockBox, inlineBox: InlineBox, offset: number): number {
-    let lineBoxes = blockBox.getChildren();
-    if (lineBoxes.length === 0) {
-      lineBoxes = [new LineBox(blockBox.getWidth())];
+    if (blockBox.getChildren().length === 0) {
+      const lineBox = new LineBox(blockBox.getWidth());
+      lineBox.setParent(blockBox);
+      blockBox.insertChild(lineBox, 0);
     }
+    const lineBoxes = blockBox.getChildren();
     let cumulatedOffset = 0;
     let delta = 0;
     for (let m = 0, mm = lineBoxes.length; m < mm; m++) {
@@ -383,7 +387,7 @@ export default class LayoutEngine {
   constructor(config: Config, docRenderNode: DocRenderNode) {
     this.config = config;
     this.docRenderNode = docRenderNode;
-    this.docBox = new DocBox(docRenderNode.getID());
+    this.docBox = new DocBox(docRenderNode.getID(), 1000, 800);
     this.stack = new Stack();
     this.ran = false;
     this.ranVersion = -1;
@@ -396,7 +400,6 @@ export default class LayoutEngine {
     if (!this.ran) {
       this.run();
     }
-    console.log(this.docBox);
     return this.docBox;
   }
 

@@ -15,7 +15,6 @@ export default class TextInlineBoxBuilder extends InlineBoxBuilder {
       }
       const textAtomicBox = new TextAtomicBox(
         textInlineRenderNode.getID(),
-        textAtomicRenderNode.getSelectableSize(),
         textAtomicRenderNode.getBreakable(),
         textAtomicRenderNode.getContent(),
       );

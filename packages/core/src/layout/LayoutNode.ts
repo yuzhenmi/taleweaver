@@ -1,17 +1,6 @@
 export default abstract class LayoutNode {
-  protected selectableSize: number;
 
-  constructor(selectableSize: number) {
-    this.selectableSize = selectableSize;
-  }
-
-  getSelectableSize(): number {
-    return this.selectableSize;
-  }
-
-  adjustSelectableSize(delta: number) {
-    this.selectableSize += delta;
-  }
+  abstract getSelectableSize(): number;
 
   abstract setParent(parent: LayoutNode): void;
 

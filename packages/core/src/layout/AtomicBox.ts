@@ -10,8 +10,8 @@ export default abstract class AtomicBox extends Box {
   protected parent?: Parent;
   protected breakable: boolean;
 
-  constructor(renderNodeID: string, selectableSize: number, width: number, height: number, breakable: boolean) {
-    super(renderNodeID, selectableSize, width, height);
+  constructor(renderNodeID: string, breakable: boolean) {
+    super(renderNodeID);
     this.breakable = breakable;
   }
 

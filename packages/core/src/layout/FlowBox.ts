@@ -1,24 +1,12 @@
 import LayoutNode from './LayoutNode';
 
 export default abstract class FlowBox extends LayoutNode {
-  protected width: number;
-  protected height: number;
 
-  constructor(selectableSize: number, width: number, height: number) {
-    super(selectableSize);
-    this.width = width;
-    this.height = height;
+  constructor() {
+    super();
   }
 
-  getSelectableSize(): number {
-    return this.selectableSize;
-  }
+  abstract getWidth(): number;
 
-  getWidth(): number {
-    return this.width;
-  }
-
-  getHeight(): number {
-    return this.height;
-  }
+  abstract getHeight(): number;
 }

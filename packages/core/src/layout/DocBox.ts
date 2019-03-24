@@ -7,14 +7,34 @@ import LayoutNode from './LayoutNode';
 type Child = PageBox;
 
 export default class DocBox extends Box {
+  protected width: number;
+  protected height: number;
+  protected selectableSize?: number;
   protected children: Child[];
 
-  constructor(renderNodeID: string) {
-    super(renderNodeID, 0, 800, 1000);
+  constructor(renderNodeID: string, width: number, height: number) {
+    super(renderNodeID);
+    this.width = width;
+    this.height = height;
     this.children = [];
   }
 
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    return this.height;
+  }
+
   getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
     return this.selectableSize;
   }
 
@@ -25,7 +45,6 @@ export default class DocBox extends Box {
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
     child.setParent(this);
-    this.selectableSize += child.getSelectableSize();
   }
 
   deleteChild(child: Child) {
