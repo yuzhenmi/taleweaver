@@ -113,6 +113,20 @@ export default class LineBox extends FlowBox {
     return parentNextSiblingChildren[0];
   }
 
+  cleaveAt(offset: number): LineBox {
+    if (offset > this.children.length) {
+      throw new Error(`Error cleaving LineBox, offset ${offset} is out of range.`);
+    }
+    const childrenCut = this.children.splice(offset);
+    this.selectableSize = undefined;
+    this.height = undefined;
+    const newLineBox = new LineBox(this.width);
+    childrenCut.forEach((child, childOffset) => {
+      newLineBox.insertChild(child, childOffset);
+    });
+    return newLineBox;
+  }
+
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;

@@ -6,9 +6,9 @@ export default class TextInlineBox extends InlineBox {
     return 'TextInlineBox';
   }
 
-  cutAt(offset: number): InlineBox {
-    if (offset >= this.children.length) {
-      throw new Error(`Error cutting TextInlineBox, offset ${offset} is out of range.`);
+  cleaveAt(offset: number): InlineBox {
+    if (offset > this.children.length) {
+      throw new Error(`Error cleaving TextInlineBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
     this.width = undefined;

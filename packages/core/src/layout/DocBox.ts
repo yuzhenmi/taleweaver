@@ -9,13 +9,15 @@ type Child = PageBox;
 export default class DocBox extends Box {
   protected width: number;
   protected height: number;
+  protected padding: number;
   protected selectableSize?: number;
   protected children: Child[];
 
-  constructor(renderNodeID: string, width: number, height: number) {
+  constructor(renderNodeID: string, width: number, height: number, padding: number) {
     super(renderNodeID);
     this.width = width;
     this.height = height;
+    this.padding = padding;
     this.children = [];
   }
 
@@ -25,6 +27,10 @@ export default class DocBox extends Box {
 
   getHeight(): number {
     return this.height;
+  }
+
+  getPadding(): number {
+    return this.padding;
   }
 
   getSelectableSize(): number {

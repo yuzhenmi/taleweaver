@@ -110,6 +110,8 @@ export default abstract class BlockBox extends Box {
     return parentNextSiblingChildren[0];
   }
 
+  abstract cleaveAt(offset: number): BlockBox;
+
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
@@ -126,8 +128,6 @@ export default abstract class BlockBox extends Box {
     });
     return position;
   }
-
-  abstract cutAt(offset: number): BlockBox;
 
   abstract resolveViewportPositionToSelectableOffset(x: number, y: number): number;
 

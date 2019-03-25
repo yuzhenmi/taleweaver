@@ -246,7 +246,7 @@ export default class RenderEngine {
   constructor(config: Config, doc: Doc) {
     this.config = config;
     this.doc = doc;
-    this.docRenderNode = new DocRenderNode(doc.getID(), doc.getSelectableSize());
+    this.docRenderNode = new DocRenderNode(doc.getID(), doc.getSelectableSize(), 816, 1056, 60);
     this.stack = new Stack();
     this.ran = false;
     this.ranVersion = -1;

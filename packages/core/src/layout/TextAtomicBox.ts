@@ -13,7 +13,6 @@ const stubTextStyle = {
 export default class TextAtomicBox extends AtomicBox {
   protected width: number;
   protected height: number;
-  protected selectableSize?: number;
   protected content: string;
 
   constructor(renderNodeID: string, breakable: boolean, content: string) {
@@ -58,7 +57,7 @@ export default class TextAtomicBox extends AtomicBox {
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
-    if (from === 0 && to === this.selectableSize) {
+    if (from === 0 && to === this.getSelectableSize()) {
       return [{
         left: 0,
         right: 0,

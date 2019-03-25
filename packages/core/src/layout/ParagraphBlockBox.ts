@@ -7,13 +7,13 @@ export default class ParagraphBlockBox extends BlockBox {
     return 'ParagraphBlockBox';
   }
 
-  cutAt(offset: number): BlockBox {
-    if (offset >= this.children.length) {
-      throw new Error(`Error cutting ParagraphBlockBox, offset ${offset} is out of range.`);
+  cleaveAt(offset: number): ParagraphBlockBox {
+    if (offset > this.children.length) {
+      throw new Error(`Error cleaving ParagraphBlockBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    this.height = undefined;
     this.selectableSize = undefined;
+    this.height = undefined;
     const newParagraphBlockBox = new ParagraphBlockBox(this.renderNodeID, this.width);
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);

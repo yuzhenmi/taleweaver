@@ -6,13 +6,19 @@ export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
 
 export default abstract class BlockRenderNode extends RenderNode {
+  protected width: number;
   protected parent: Parent;
   protected children: Child[];
 
-  constructor(id: string, parent: Parent, selectableSize: number) {
+  constructor(id: string, parent: Parent, selectableSize: number, width: number) {
     super(id, selectableSize);
+    this.width = width;
     this.parent = parent;
     this.children = [];
+  }
+
+  getWidth(): number {
+    return this.width;
   }
 
   getParent(): Parent {

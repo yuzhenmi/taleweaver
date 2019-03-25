@@ -138,7 +138,7 @@ export default abstract class InlineBox extends Box {
     return position;
   }
 
-  abstract cutAt(offset: number): InlineBox;
+  abstract cleaveAt(offset: number): InlineBox;
 
   resolveViewportPositionToSelectableOffset(x: number): number {
     let selectableOffset = 0;

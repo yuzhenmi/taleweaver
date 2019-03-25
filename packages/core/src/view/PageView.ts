@@ -12,6 +12,9 @@ export default class PageView extends View {
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
     this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.style.width = `${pageBox.getWidth()}px`;
+    this.domContainer.style.height = `${pageBox.getHeight()}px`;
+    this.domContainer.style.padding = `${pageBox.getPadding()}px`;
   }
 
   getDOMContainer(): HTMLDivElement {

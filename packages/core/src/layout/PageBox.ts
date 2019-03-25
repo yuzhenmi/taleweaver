@@ -7,19 +7,19 @@ import FlowBox from './FlowBox';
 type Parent = DocBox;
 type Child = BlockBox;
 
-const PAGE_HEIGHT_PLACEHOLDER = 880;
-
 export default class PageBox extends FlowBox {
   protected width: number;
   protected height: number;
+  protected padding: number;
   protected selectableSize?: number;
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, padding: number) {
     super();
     this.width = width;
     this.height = height;
+    this.padding = padding;
     this.children = [];
   }
 
@@ -29,6 +29,18 @@ export default class PageBox extends FlowBox {
 
   getHeight(): number {
     return this.height;
+  }
+
+  getInnerWidth(): number {
+    return this.width - this.padding - this.padding;
+  }
+
+  getInnerHeight(): number {
+    return this.height - this.padding - this.padding;
+  }
+
+  getPadding(): number {
+    return this.padding;
   }
 
   getSelectableSize(): number {
@@ -94,6 +106,19 @@ export default class PageBox extends FlowBox {
     return null;
   }
 
+  cleaveAt(offset: number): PageBox {
+    if (offset > this.children.length) {
+      throw new Error(`Error cleaving PageBox, offset ${offset} is out of range.`);
+    }
+    const childrenCut = this.children.splice(offset);
+    this.selectableSize = undefined;
+    const newPageBox = new PageBox(this.width, this.height, this.padding);
+    childrenCut.forEach((child, childOffset) => {
+      newPageBox.insertChild(child, childOffset);
+    });
+    return newPageBox;
+  }
+
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
@@ -142,10 +167,10 @@ export default class PageBox extends FlowBox {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects.push({
-            left: childViewportBoundingRect.left + 60,
-            right: childViewportBoundingRect.right + 60,
-            top: cumulatedHeight + childViewportBoundingRect.top + 60,
-            bottom: PAGE_HEIGHT_PLACEHOLDER - cumulatedHeight - childHeight + childViewportBoundingRect.bottom + 60,
+            left: childViewportBoundingRect.left + this.padding,
+            right: childViewportBoundingRect.right + this.padding,
+            top: cumulatedHeight + childViewportBoundingRect.top + this.padding,
+            bottom: this.height - cumulatedHeight - childHeight + childViewportBoundingRect.bottom + this.padding,
             width: childViewportBoundingRect.width,
             height: childViewportBoundingRect.height,
           });

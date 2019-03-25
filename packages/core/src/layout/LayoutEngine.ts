@@ -93,6 +93,8 @@ class StackElement {
   protected childIteratorOffset: number;
   protected operationsBuffer: StackElementOperation[];
   protected operationsBufferFlushed: boolean;
+  protected lineBoxesToReflow: LineBox[];
+  protected pageBoxesToReflow: PageBox[];
 
   constructor(renderNodes: RenderNode[], box: Box) {
     this.renderNodes = renderNodes;
@@ -120,6 +122,8 @@ class StackElement {
     this.childIteratorOffset = 0;
     this.operationsBuffer = [];
     this.operationsBufferFlushed = false;
+    this.lineBoxesToReflow = [];
+    this.pageBoxesToReflow = [];
   }
 
   iterate(): RenderNode | undefined {
@@ -239,6 +243,14 @@ class StackElement {
     this.operationsBufferFlushed = true;
   }
 
+  getLineBoxesToReflow(): LineBox[] {
+    return this.lineBoxesToReflow;
+  }
+
+  getPageBoxesToReflow(): PageBox[] {
+    return this.pageBoxesToReflow;
+  }
+
   protected getDocBoxChildren(docBox: DocBox): BlockBox[] {
     const children: BlockBox[] = [];
     docBox.getChildren().forEach(pageBox => {
@@ -261,7 +273,7 @@ class StackElement {
 
   protected insertBlockBoxToDocBox(docBox: DocBox, blockBox: BlockBox, offset: number): number {
     if (docBox.getChildren().length === 0) {
-      const pageBox = new PageBox(docBox.getWidth(), docBox.getHeight());
+      const pageBox = new PageBox(docBox.getWidth(), docBox.getHeight(), docBox.getPadding());
       pageBox.setParent(docBox);
       docBox.insertChild(pageBox, 0);
     }
@@ -270,18 +282,17 @@ class StackElement {
     let delta = 0;
     for (let m = 0, mm = pageBoxes.length; m < mm; m++) {
       const pageBox = pageBoxes[m];
+      if (this.pageBoxesToReflow.length === 0 || this.pageBoxesToReflow[this.pageBoxesToReflow.length - 1] !== pageBox) {
+        this.pageBoxesToReflow.push(pageBox);
+      }
       const pageBoxChildrenLength = pageBox.getChildren().length;
       if (cumulatedOffset + pageBoxChildrenLength >= offset) {
-        pageBox.insertChild(blockBox, m);
+        pageBox.insertChild(blockBox, offset - cumulatedOffset);
         blockBox.setParent(pageBox);
         delta = 1;
         break;
       }
       cumulatedOffset += pageBoxChildrenLength;
-    }
-    if (docBox.getChildren().length === 0) {
-      pageBoxes[0].setParent(docBox);
-      docBox.insertChild(pageBoxes[0], 0);
     }
     return delta;
   }
@@ -297,18 +308,17 @@ class StackElement {
     let delta = 0;
     for (let m = 0, mm = lineBoxes.length; m < mm; m++) {
       const lineBox = lineBoxes[m];
+      if (this.lineBoxesToReflow.length === 0 || this.lineBoxesToReflow[this.lineBoxesToReflow.length - 1] !== lineBox) {
+        this.lineBoxesToReflow.push(lineBox);
+      }
       const lineBoxChildrenLength = lineBox.getChildren().length;
       if (cumulatedOffset + lineBoxChildrenLength >= offset) {
-        lineBox.insertChild(inlineBox, m);
+        lineBox.insertChild(inlineBox, offset - cumulatedOffset);
         inlineBox.setParent(lineBox);
         delta = 1;
         break;
       }
       cumulatedOffset += lineBoxChildrenLength;
-    }
-    if (blockBox.getChildren().length === 0) {
-      lineBoxes[0].setParent(blockBox);
-      blockBox.insertChild(lineBoxes[0], 0);
     }
     return delta;
   }
@@ -326,6 +336,9 @@ class StackElement {
         const childrenToDelete = pageBox.getChildren().slice(childFromOffset, childToOffset + 1);
         for (let o = 0, oo = childrenToDelete.length; o < oo; o++) {
           pageBox.deleteChild(childrenToDelete[o]);
+        }
+        if (this.pageBoxesToReflow.length === 0 || this.pageBoxesToReflow[this.pageBoxesToReflow.length - 1] !== pageBox) {
+          this.pageBoxesToReflow.push(pageBox);
         }
         return 0 - childrenToDelete.length;
       }
@@ -347,6 +360,9 @@ class StackElement {
         const childrenToDelete = lineBox.getChildren().slice(childFromOffset, childToOffset + 1);
         for (let o = 0, oo = childrenToDelete.length; o < oo; o++) {
           lineBox.deleteChild(childrenToDelete[o]);
+        }
+        if (this.lineBoxesToReflow.length === 0 || this.lineBoxesToReflow[this.lineBoxesToReflow.length - 1] !== lineBox) {
+          this.lineBoxesToReflow.push(lineBox);
         }
         return 0 - childrenToDelete.length;
       }
@@ -381,14 +397,18 @@ export default class LayoutEngine {
   protected docRenderNode: DocRenderNode;
   protected docBox: DocBox;
   protected stack: Stack;
+  protected lineBoxesToReflow: LineBox[];
+  protected pageBoxesToReflow: PageBox[];
   protected ran: boolean;
   protected ranVersion: number;
   
   constructor(config: Config, docRenderNode: DocRenderNode) {
     this.config = config;
     this.docRenderNode = docRenderNode;
-    this.docBox = new DocBox(docRenderNode.getID(), 1000, 800);
+    this.docBox = new DocBox(docRenderNode.getID(), docRenderNode.getWidth(), docRenderNode.getHeight(), docRenderNode.getPadding());
     this.stack = new Stack();
+    this.lineBoxesToReflow = [];
+    this.pageBoxesToReflow = [];
     this.ran = false;
     this.ranVersion = -1;
     this.docRenderNode.subscribeOnUpdated(() => {
@@ -406,6 +426,8 @@ export default class LayoutEngine {
   protected run() {
     this.stack.push(new StackElement(this.docRenderNode.getChildren(), this.docBox));
     while (this.iterate()) {}
+    this.flushLineReflowOperationsBuffer();
+    this.flushPageReflowOperationsBuffer();
     this.ranVersion = this.docRenderNode.getVersion();
     this.ran = true;
   }
@@ -462,5 +484,139 @@ export default class LayoutEngine {
       throw new Error('Unexpected end of render doc encountered.');
     }
     lastStackElement.flushOperationsBuffer();
+    this.lineBoxesToReflow.push(...lastStackElement.getLineBoxesToReflow());
+    this.pageBoxesToReflow.push(...lastStackElement.getPageBoxesToReflow());
+  }
+
+  protected flushLineReflowOperationsBuffer() {
+    this.lineBoxesToReflow.forEach(lineBox => {
+      this.reflowLineBox(lineBox);
+    });
+    this.lineBoxesToReflow = [];
+  }
+
+  protected flushPageReflowOperationsBuffer() {
+    this.pageBoxesToReflow.forEach(pageBox => {
+      this.reflowPageBox(pageBox);
+    });
+    this.pageBoxesToReflow = [];
+  }
+
+  protected reflowLineBox(lineBoxToReflow: LineBox) {
+    let lineBox = lineBoxToReflow;
+    const blockBox = lineBox.getParent();
+    if (blockBox.getChildren().indexOf(lineBox) < 0) {
+      // Line box was already reflowed and removed when
+      // reflowing a previous line, nothing more needs
+      // to be done
+      return;
+    }
+    const lineBoxWidth = lineBox.getWidth();
+    let cumulatedWidth = 0;
+    let n = 0;
+    while (true) {
+      let inlineBox = lineBox.getChildren()[n];
+      if (cumulatedWidth + inlineBox.getWidth() > lineBoxWidth) {
+        // With this inline box, the line width limit gets exceeded,
+        // so we need to determine where to cleave this inline box
+        for (let m = 0; m < inlineBox.getChildren().length; m++) {
+          let atomicBox = inlineBox.getChildren()[m];
+          if (cumulatedWidth + atomicBox.getWidth() > lineBoxWidth) {
+            // With this atomic box, the line width limit gets exceeded,
+            // so we cleave the line box after this inline box, and then
+            // cleave the inline box before this atomic box
+            const newLineBox = lineBox.cleaveAt(n + 1);
+            blockBox.insertChild(newLineBox, blockBox.getChildren().indexOf(lineBox) + 1);
+            lineBox = newLineBox;
+            n = 0;
+            const newInlineBox = inlineBox.cleaveAt(m);
+            lineBox.insertChild(newInlineBox, lineBox.getChildren().indexOf(inlineBox) + 1);
+            inlineBox = newInlineBox;
+            m = 0;
+            cumulatedWidth = 0;
+          }
+          cumulatedWidth += atomicBox.getWidth();
+        }
+      }
+      cumulatedWidth += inlineBox.getWidth();
+      n++;
+      if (n === lineBox.getChildren().length) {
+        const lineBoxOffset = blockBox.getChildren().indexOf(lineBox);
+        if (lineBoxOffset >= blockBox.getChildren().length - 1) {
+          // Last line box in block box reached
+          break;
+        }
+        const nextLineBox = blockBox.getChildren()[lineBoxOffset + 1];
+        const nextAtomicBox = nextLineBox.getChildren()[0].getChildren()[0];
+        if (cumulatedWidth + nextAtomicBox.getWidth() <= lineBox.getWidth()) {
+          // The first atomic box of the next line box can fit on this
+          // line box, so we merge the next line box into this line box
+          // and continue with reflow
+          nextLineBox.getChildren().forEach(nextInlineBox => {
+            lineBox.insertChild(nextInlineBox, lineBox.getChildren().length);
+          });
+          blockBox.deleteChild(nextLineBox);
+        }
+      }
+    }
+  }
+
+  protected reflowPageBox(pageBoxToReflow: PageBox) {
+    let pageBox = pageBoxToReflow;
+    const docBox = pageBox.getParent();
+    if (docBox.getChildren().indexOf(pageBox) < 0) {
+      // Page box was already reflowed and removed when
+      // reflowing a previous page, nothing more needs
+      // to be done
+      return;
+    }
+    const pageBoxHeight = pageBox.getInnerHeight();
+    let cumulatedHeight = 0;
+    let n = 0;
+    while (true) {
+      let blockBox = pageBox.getChildren()[n];
+      if (cumulatedHeight + blockBox.getHeight() > pageBoxHeight) {
+        // With this block box, the page height limit gets exceeded,
+        // so we need to determine where to cleave this block box
+        for (let m = 0; m < blockBox.getChildren().length; m++) {
+          let lineBox = blockBox.getChildren()[m];
+          if (cumulatedHeight + lineBox.getHeight() > pageBoxHeight) {
+            // With this line box, the page height limit gets exceeded,
+            // so we cleave the page box after this block box, and then
+            // cleave the block box before this line box
+            const newPageBox = pageBox.cleaveAt(n + 1);
+            docBox.insertChild(newPageBox, docBox.getChildren().indexOf(pageBox) + 1);
+            pageBox = newPageBox;
+            n = 0;
+            const newBlockBox = blockBox.cleaveAt(m);
+            pageBox.insertChild(newBlockBox, pageBox.getChildren().indexOf(blockBox) + 1);
+            blockBox = newBlockBox;
+            m = 0;
+            cumulatedHeight = 0;
+          }
+          cumulatedHeight += lineBox.getHeight();
+        }
+      }
+      cumulatedHeight += blockBox.getHeight();
+      n++;
+      if (n === pageBox.getChildren().length) {
+        const pageBoxOffset = docBox.getChildren().indexOf(pageBox);
+        if (pageBoxOffset >= docBox.getChildren().length - 1) {
+          // Last page box in doc box reached
+          break;
+        }
+        const nextPageBox = docBox.getChildren()[pageBoxOffset + 1];
+        const nextLineBox = nextPageBox.getChildren()[0].getChildren()[0];
+        if (cumulatedHeight + nextLineBox.getHeight() <= pageBox.getInnerHeight()) {
+          // The first line box of the next page box can fit on this
+          // page box, so we merge the next page box into this page box
+          // and continue with reflow
+          nextPageBox.getChildren().forEach(nextBlockBox => {
+            pageBox.insertChild(nextBlockBox, pageBox.getChildren().length);
+          });
+          docBox.deleteChild(nextPageBox);
+        }
+      }
+    }
   }
 }
