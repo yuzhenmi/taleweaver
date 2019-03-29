@@ -1,10 +1,11 @@
 import LayoutNode from './LayoutNode';
+import generateRandomString from './helpers/generateRandomString';
 
 export default abstract class Box extends LayoutNode {
   protected renderNodeID: string;
 
   constructor(renderNodeID: string) {
-    super();
+    super(`${renderNodeID}-${generateRandomString()}`);
     this.renderNodeID = renderNodeID;
   }
 

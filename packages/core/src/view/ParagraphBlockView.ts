@@ -1,14 +1,13 @@
 import ParagraphBlockBox from '../layout/ParagraphBlockBox';
-import BlockView from './BlockView';
-import LineView from './LineView';
+import BlockView, { Child } from './BlockView';
 
 export default class ParagraphBlockView extends BlockView {
-  protected paragraphBlockBox: ParagraphBlockBox;
+  protected children: Child[];
   protected domContainer: HTMLDivElement;
 
-  constructor(paragraphBlockBox: ParagraphBlockBox) {
-    super();
-    this.paragraphBlockBox = paragraphBlockBox;
+  constructor(id: string) {
+    super(id);
+    this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
     this.domContainer.style.whiteSpace = 'pre';
@@ -18,13 +17,11 @@ export default class ParagraphBlockView extends BlockView {
     return this.domContainer;
   }
 
-  insertChild(child: BlockView | LineView, offset: number) {
-    if (child instanceof BlockView) {
-      throw new Error('Error inserting child to paragraph block view, child cannot be block view.');
-    }
+  insertChild(child: Child, offset: number) {
+    this.children.splice(offset, 0, child);
     const childDOMContainer = child.getDOMContainer();
     if (offset > this.domContainer.childNodes.length) {
-      throw new Error(`Error inserting child to paragraph block view, offset ${offset} is out of range.`);
+      throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
     }
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);
@@ -33,4 +30,20 @@ export default class ParagraphBlockView extends BlockView {
     }
     this.domContainer.appendChild(childDOMContainer);
   }
+
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
+    const childDOMContainer = child.getDOMContainer();
+    this.domContainer.removeChild(childDOMContainer);
+  }
+
+  getChildren(): Child[] {
+    return this.children;
+  }
+
+  onRender(paragraphBlockBox: ParagraphBlockBox) {}
 }

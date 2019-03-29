@@ -2,12 +2,26 @@ import Config from '../Config';
 import RenderNode from '../render/RenderNode';
 import DocRenderNode from '../render/DocRenderNode';
 import BlockRenderNode from '../render/BlockRenderNode';
+import LayoutNode from './LayoutNode';
 import Box from './Box';
 import DocBox from './DocBox';
 import PageBox from './PageBox';
 import BlockBox from './BlockBox';
 import LineBox from './LineBox';
 import InlineBox from './InlineBox';
+
+function propagateVersionToAncestors(layoutNode: LayoutNode) {
+  let currentNode = layoutNode;
+  let parentNode: LayoutNode;
+  while (!(currentNode instanceof DocBox)) {
+    parentNode = currentNode.getParent();
+    if (parentNode.getVersion() >= currentNode.getVersion()) {
+      break;
+    }
+    parentNode.setVersion(currentNode.getVersion());
+    currentNode = parentNode;
+  }
+}
 
 abstract class StackElementOperation {
   
@@ -202,6 +216,7 @@ class StackElement {
           } else {
             delta = 0;
           }
+          propagateVersionToAncestors(operation.getChild());
         } else if (operation instanceof StackElementDeleteChildrenOperation) {
           if (box instanceof DocBox) {
             delta = this.deleteBlockBoxesFromDocBox(box, operation.getFromOffset(), operation.getToOffset());
@@ -230,6 +245,7 @@ class StackElement {
           } else {
             delta = 0;
           }
+          propagateVersionToAncestors(operation.getChild());
         } else {
           throw new Error('Unknown operation.');
         }
@@ -430,6 +446,7 @@ export default class LayoutEngine {
     this.flushPageReflowOperationsBuffer();
     this.ranVersion = this.docRenderNode.getVersion();
     this.ran = true;
+    this.docBox.onUpdated();
   }
 
   protected iterate(): boolean {
@@ -457,6 +474,7 @@ export default class LayoutEngine {
     const offset = lastStackElement.findChild(renderNode.getID());
     const boxBuilder = this.config.getBoxBuilder(renderNode.getType());
     const box = boxBuilder.build(renderNode);
+    box.setVersion(this.getNextVersion());
     if (offset[0] < 0 || offset[1] < 0) {
       lastStackElement.insertChild(box);
     } else {
@@ -526,10 +544,12 @@ export default class LayoutEngine {
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
             const newLineBox = lineBox.cleaveAt(n + 1);
+            newLineBox.setVersion(this.getNextVersion());
             blockBox.insertChild(newLineBox, blockBox.getChildren().indexOf(lineBox) + 1);
             lineBox = newLineBox;
             n = 0;
             const newInlineBox = inlineBox.cleaveAt(m);
+            newInlineBox.setVersion(this.getNextVersion());
             lineBox.insertChild(newInlineBox, lineBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
             m = 0;
@@ -585,10 +605,12 @@ export default class LayoutEngine {
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
             const newPageBox = pageBox.cleaveAt(n + 1);
+            newPageBox.setVersion(this.getNextVersion());
             docBox.insertChild(newPageBox, docBox.getChildren().indexOf(pageBox) + 1);
             pageBox = newPageBox;
             n = 0;
             const newBlockBox = blockBox.cleaveAt(m);
+            newBlockBox.setVersion(this.getNextVersion());
             pageBox.insertChild(newBlockBox, pageBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
@@ -618,5 +640,9 @@ export default class LayoutEngine {
         }
       }
     }
+  }
+
+  protected getNextVersion(): number {
+    return this.docRenderNode.getVersion() + 1;
   }
 }

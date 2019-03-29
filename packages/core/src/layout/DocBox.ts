@@ -6,12 +6,15 @@ import LayoutNode from './LayoutNode';
 
 type Child = PageBox;
 
+type OnUpdatedSubscriber = () => void;
+
 export default class DocBox extends Box {
   protected width: number;
   protected height: number;
   protected padding: number;
   protected selectableSize?: number;
   protected children: Child[];
+  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
   constructor(renderNodeID: string, width: number, height: number, padding: number) {
     super(renderNodeID);
@@ -19,6 +22,7 @@ export default class DocBox extends Box {
     this.height = height;
     this.padding = padding;
     this.children = [];
+    this.onUpdatedSubscribers = [];
   }
 
   getWidth(): number {
@@ -44,6 +48,10 @@ export default class DocBox extends Box {
     return this.selectableSize;
   }
 
+  getParent(): LayoutNode {
+    throw new Error('Cannot get parent on doc box.');
+  }
+
   setParent(parent: LayoutNode) {
     throw new Error('Cannot set parent on doc box.');
   }
@@ -63,6 +71,16 @@ export default class DocBox extends Box {
 
   getChildren(): Child[] {
     return this.children;
+  }
+
+  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
+    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
+  }
+
+  onUpdated() {
+    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
+      onUpdatedSubscriber();
+    });
   }
 
   resolvePosition(selectableOffset: number): Position {

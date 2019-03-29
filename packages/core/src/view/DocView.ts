@@ -2,14 +2,14 @@ import DocBox from '../layout/DocBox';
 import View from './View';
 import PageView from './PageView';
 
+type Child = PageView;
+
 export default class DocView extends View {
-  protected docBox: DocBox;
-  protected children: PageView[];
+  protected children: Child[];
   protected domContainer: HTMLDivElement;
 
-  constructor(docBox: DocBox) {
-    super();
-    this.docBox = docBox;
+  constructor(id: string) {
+    super(id);
     this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
@@ -20,21 +20,32 @@ export default class DocView extends View {
     return this.domContainer;
   }
 
-  insertChild(child: PageView, offset: number) {
-    this.children.push(child);
+  insertChild(child: Child, offset: number) {
+    this.children.splice(offset, 0, child);
     const childDOMContainer = child.getDOMContainer();
     if (offset > this.domContainer.childNodes.length) {
-      throw new Error(`Error inserting child to doc view, offset ${offset} is out of range.`);
+      throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
     }
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);
     } else {
       this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
     }
-    this.domContainer.appendChild(childDOMContainer);
   }
 
-  getChildren(): PageView[] {
+  deleteChild(child: Child) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    this.children.splice(childOffset, 1);
+    const childDOMContainer = child.getDOMContainer();
+    this.domContainer.removeChild(childDOMContainer);
+  }
+
+  getChildren(): Child[] {
     return this.children;
   }
+
+  onRender(docBox: DocBox) {}
 }

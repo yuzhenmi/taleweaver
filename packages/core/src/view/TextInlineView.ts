@@ -3,15 +3,20 @@ import TextInlineBox from '../layout/TextInlineBox';
 import TextAtomicBox from '../layout/TextAtomicBox';
 
 export default class TextInlineView extends InlineView {
-  protected textInlineBox: TextInlineBox;
   protected domContainer: HTMLSpanElement;
 
-  constructor(textInlineBox: TextInlineBox) {
-    super();
-    this.textInlineBox = textInlineBox;
+  constructor(id: string) {
+    super(id);
     this.domContainer = document.createElement('span');
     this.domContainer.className = 'tw--text-inline';
     this.domContainer.style.whiteSpace = 'pre';
+  }
+
+  getDOMContainer(): HTMLSpanElement {
+    return this.domContainer;
+  }
+
+  onRender(textInlineBox: TextInlineBox) {
     const text = textInlineBox.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
         return child.getContent();
@@ -20,9 +25,5 @@ export default class TextInlineView extends InlineView {
       }
     }).join('');
     this.domContainer.innerText = text;
-  }
-
-  getDOMContainer(): HTMLSpanElement {
-    return this.domContainer;
   }
 }
