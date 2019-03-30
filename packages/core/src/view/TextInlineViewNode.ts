@@ -16,6 +16,12 @@ export default class TextInlineViewNode extends InlineViewNode {
     return this.domContainer;
   }
 
+  onDeleted() {
+    if (this.domContainer.parentElement) {
+      this.domContainer.parentElement.removeChild(this.domContainer);
+    }
+  }
+
   onLayoutUpdated(layoutNode: TextInlineBox) {
     const text = layoutNode.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {

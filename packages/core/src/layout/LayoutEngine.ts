@@ -4,7 +4,6 @@ import RenderNode from '../render/RenderNode';
 import DocRenderNode from '../render/DocRenderNode';
 import BlockRenderNode from '../render/BlockRenderNode';
 import InlineRenderNode from '../render/InlineRenderNode';
-import LayoutNode from './LayoutNode';
 import Box from './Box';
 import DocBox from './DocBox';
 import BlockBox from './BlockBox';
@@ -64,7 +63,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
 
   findSrcNodeInDstNodes(srcNode: RenderNode, dstNodes: Box[]): number {
     const id = srcNode.getID();
-    const offset = dstNodes.findIndex(n => n.getID() === id);
+    const offset = dstNodes.findIndex(n => n.getRenderNodeID() === id);
     return offset;
   }
 
@@ -179,7 +178,11 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
-      this.updatedPageFlowBoxes.push(node.getParent());
+      const pageFlowBox = node.getParent();
+      if (pageFlowBox.getVersion() < srcNode.getVersion()) {
+        pageFlowBox.setVersion(srcNode.getVersion());
+      }
+      this.updatedPageFlowBoxes.push(pageFlowBox);
       return true;
     }
     if (node instanceof InlineBox && srcNode instanceof InlineRenderNode) {
@@ -188,7 +191,11 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
-      this.updatedLineFlowBoxes.push(node.getParent());
+      const lineFlowBox = node.getParent();
+      if (lineFlowBox.getVersion() < srcNode.getVersion()) {
+        lineFlowBox.setVersion(srcNode.getVersion());
+      }
+      this.updatedLineFlowBoxes.push(lineFlowBox);
       return true;
     }
     throw new Error('Error updating box, type mismatch.');
@@ -304,6 +311,8 @@ export default class LayoutEngine {
             currentLineFlowBox.insertChild(nextInlineBox, currentLineFlowBox.getChildren().length);
           });
           blockBox.deleteChild(nextLineFlowBox);
+        } else {
+          break;
         }
       }
     }
@@ -365,6 +374,8 @@ export default class LayoutEngine {
             pageFlowBox.insertChild(nextBlockBox, pageFlowBox.getChildren().length);
           });
           docBox.deleteChild(nextPageFlowBox);
+        } else {
+          break;
         }
       }
     }

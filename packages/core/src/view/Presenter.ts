@@ -67,7 +67,6 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
     if (parent instanceof DocViewNode && srcNode instanceof PageFlowBox) {
       const pageViewNode = new PageViewNode(srcNode.getID());
       parent.insertChild(pageViewNode, offset);
-      pageViewNode.onLayoutUpdated(srcNode);
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
@@ -77,13 +76,11 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
       }
       parent.insertChild(blockViewNode, offset);
-      blockViewNode.onLayoutUpdated(srcNode);
       return blockViewNode;
     }
     if (parent instanceof BlockViewNode && srcNode instanceof LineFlowBox) {
       const lineViewNode = new LineViewNode(srcNode.getID());
       parent.insertChild(lineViewNode, offset);
-      lineViewNode.onLayoutUpdated(srcNode);
       return lineViewNode;
     }
     if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
@@ -93,7 +90,6 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
       }
       parent.insertChild(inlineViewNode, offset);
-      inlineViewNode.onLayoutUpdated(srcNode);
       return inlineViewNode;
     }
     throw new Error('Error inserting view node, type mismatch.');

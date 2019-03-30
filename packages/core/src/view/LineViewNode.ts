@@ -42,13 +42,21 @@ export default class LineViewNode extends ViewNode {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.onDeleted();
     this.children.splice(childOffset, 1);
-    const childDOMContainer = child.getDOMContainer();
-    this.domContainer.removeChild(childDOMContainer);
   }
 
   getChildren(): Child[] {
     return this.children;
+  }
+
+  onDeleted() {
+    this.children.map(child => {
+      child.onDeleted();
+    });
+    if (this.domContainer.parentElement) {
+      this.domContainer.parentElement.removeChild(this.domContainer);
+    }
   }
 
   onLayoutUpdated(layoutNode: LineFlowBox) {}

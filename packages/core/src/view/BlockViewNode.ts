@@ -1,3 +1,4 @@
+import BlockBox from '../layout/BlockBox';
 import ViewNode from './ViewNode';
 import LineViewNode from './LineViewNode';
 
@@ -10,4 +11,8 @@ export default abstract class BlockViewNode extends ViewNode {
   abstract deleteChild(child: Child): void;
 
   abstract getChildren(): Child[];
+
+  abstract onDeleted(): void;
+
+  abstract onLayoutUpdated(layoutNode: BlockBox): void;
 }

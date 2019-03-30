@@ -38,9 +38,8 @@ export default class DocViewNode extends ViewNode {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.onDeleted();
     this.children.splice(childOffset, 1);
-    const childDOMContainer = child.getDOMContainer();
-    this.domContainer.removeChild(childDOMContainer);
   }
 
   getChildren(): Child[] {

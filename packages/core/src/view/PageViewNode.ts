@@ -43,13 +43,21 @@ export default class PageViewNode extends ViewNode {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.onDeleted();
     this.children.splice(childOffset, 1);
-    const childDOMContainer = child.getDOMContainer();
-    this.domContainer.removeChild(childDOMContainer);
   }
 
   getChildren(): Child[] {
     return this.children;
+  }
+
+  onDeleted() {
+    if (this.domContainer.parentElement) {
+      this.domContainer.parentElement.removeChild(this.domContainer);
+    }
+    this.children.map(child => {
+      child.onDeleted();
+    });
   }
 
   onLayoutUpdated(layoutNode: PageFlowBox) {
