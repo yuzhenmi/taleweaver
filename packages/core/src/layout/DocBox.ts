@@ -1,28 +1,38 @@
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
 import Box from './Box';
-import PageBox from './PageBox';
-import LayoutNode from './LayoutNode';
+import PageFlowBox from './PageFlowBox';
+import DocRenderNode from '../render/DocRenderNode';
 
-type Child = PageBox;
+type Child = PageFlowBox;
 
 type OnUpdatedSubscriber = () => void;
 
 export default class DocBox extends Box {
+  protected version: number;
   protected width: number;
   protected height: number;
   protected padding: number;
-  protected selectableSize?: number;
   protected children: Child[];
+  protected selectableSize?: number;
   protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
-  constructor(renderNodeID: string, width: number, height: number, padding: number) {
+  constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.width = width;
-    this.height = height;
-    this.padding = padding;
+    this.version = 0;
+    this.width = 0;
+    this.height = 0;
+    this.padding = 0;
     this.children = [];
     this.onUpdatedSubscribers = [];
+  }
+
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   getWidth(): number {
@@ -35,25 +45,6 @@ export default class DocBox extends Box {
 
   getPadding(): number {
     return this.padding;
-  }
-
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
-  }
-
-  getParent(): LayoutNode {
-    throw new Error('Cannot get parent on doc box.');
-  }
-
-  setParent(parent: LayoutNode) {
-    throw new Error('Cannot set parent on doc box.');
   }
 
   insertChild(child: Child, offset: number) {
@@ -71,6 +62,23 @@ export default class DocBox extends Box {
 
   getChildren(): Child[] {
     return this.children;
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  onRenderUpdated(renderNode: DocRenderNode) {
+    this.width = renderNode.getWidth();
+    this.height = renderNode.getHeight();
+    this.padding = renderNode.getPadding();
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

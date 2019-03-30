@@ -10,9 +10,9 @@ import CursorCommand from './src/cursor/Command';
 import * as cursorOperations from './src/cursor/operations';
 
 import DocBox from './src/layout/DocBox';
-import PageBox from './src/layout/PageBox';
+import PageFlowBox from './src/layout/PageFlowBox';
 import BlockBox from './src/layout/BlockBox';
-import LineBox from './src/layout/LineBox';
+import LineFlowBox from './src/layout/LineFlowBox';
 import InlineBox from './src/layout/InlineBox';
 import AtomicBox from './src/layout/AtomicBox';
 
@@ -37,9 +37,9 @@ export {
   cursorOperations,
 
   DocBox,
-  PageBox,
+  PageFlowBox,
   BlockBox,
-  LineBox,
+  LineFlowBox,
   InlineBox,
   AtomicBox,
 

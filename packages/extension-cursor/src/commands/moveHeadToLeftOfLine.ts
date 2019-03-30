@@ -16,7 +16,7 @@ export default function moveHeadToLeftOfLine(cursorExtension: CursorExtension): 
     const head = cursor.getHead();
     const docBox = editor.getLayoutEngine().getDocBox();
     const position = docBox.resolvePosition(head);
-    const lineBoxLevelPosition = position.getLineBoxLevel();
+    const lineBoxLevelPosition = position.getLineFlowBoxLevel();
     if (lineBoxLevelPosition.getSelectableOffset() > 0) {
       transformation.addOperation(new cursorOperations.MoveHeadTo(head - lineBoxLevelPosition.getSelectableOffset()));
     } else {

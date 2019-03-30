@@ -3,19 +3,19 @@ import InputManager from '../input/InputManager';
 import EventObserver from './EventObserver';
 import LayoutNode from '../layout/LayoutNode';
 import DocBox from '../layout/DocBox';
-import PageBox from '../layout/PageBox';
+import PageFlowBox from '../layout/PageFlowBox';
 import BlockBox from '../layout/BlockBox';
-import LineBox from '../layout/LineBox';
+import LineFlowBox from '../layout/LineFlowBox';
 import InlineBox from '../layout/InlineBox';
-import View from './View';
-import DocView from './DocView';
-import BlockView from './BlockView';
-import PageView from './PageView';
-import LineView from './LineView';
-import InlineView from './InlineView';
+import ViewNode from './ViewNode';
+import DocViewNode from './DocViewNode';
+import BlockViewNode from './BlockViewNode';
+import PageViewNode from './PageViewNode';
+import LineViewNode from './LineViewNode';
+import InlineViewNode from './InlineViewNode';
 import TreeSyncer from '../helpers/TreeSyncer';
 
-class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, View> {
+class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   protected config: Config;
   protected lastVersion: number;
 
@@ -29,116 +29,131 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, View> {
     if (node instanceof DocBox) {
       return node.getChildren();
     }
-    if (node instanceof PageBox) {
+    if (node instanceof PageFlowBox) {
       return node.getChildren();
     }
     if (node instanceof BlockBox) {
       return node.getChildren();
     }
-    if (node instanceof LineBox) {
+    if (node instanceof LineFlowBox) {
       return node.getChildren();
     }
     return [];
   }
 
-  getDstNodeChildren(node: View): View[] {
-    if (node instanceof DocView) {
-      return node.getChildren();
+  getDstNodeChildren(node: ViewNode): ViewNode[] {
+    if (node instanceof DocViewNode) {
+      return [...node.getChildren()];
     }
-    if (node instanceof PageView) {
-      return node.getChildren();
+    if (node instanceof PageViewNode) {
+      return [...node.getChildren()];
     }
-    if (node instanceof BlockView) {
-      return node.getChildren();
+    if (node instanceof BlockViewNode) {
+      return [...node.getChildren()];
     }
-    if (node instanceof LineView) {
-      return node.getChildren();
+    if (node instanceof LineViewNode) {
+      return [...node.getChildren()];
     }
     return [];
   }
 
-  findSrcNodeInDstNodes(srcNode: LayoutNode, dstNodes: View[]): number {
+  findSrcNodeInDstNodes(srcNode: LayoutNode, dstNodes: ViewNode[]): number {
     const id = srcNode.getID();
     const offset = dstNodes.findIndex(n => n.getID() === id);
     return offset;
   }
 
-  insertNode(srcNode: LayoutNode, parent: View, offset: number): View {
-    if (srcNode instanceof PageBox && parent instanceof DocView) {
-      const pageView = new PageView(srcNode.getID());
-      parent.insertChild(pageView, offset);
-      pageView.onRender(srcNode);
-      return pageView;
+  insertNode(parent: ViewNode, srcNode: LayoutNode, offset: number): ViewNode {
+    if (parent instanceof DocViewNode && srcNode instanceof PageFlowBox) {
+      const pageViewNode = new PageViewNode(srcNode.getID());
+      parent.insertChild(pageViewNode, offset);
+      pageViewNode.onLayoutUpdated(srcNode);
+      return pageViewNode;
     }
-    if (srcNode instanceof BlockBox && parent instanceof PageView) {
-      const BlockViewClass = this.config.getViewClass(srcNode.getType());
-      const blockView = new BlockViewClass(srcNode.getID());
-      if (!(blockView instanceof BlockView)) {
+    if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
+      const BlockViewNodeClass = this.config.getViewNodeClass(srcNode.getType());
+      const blockViewNode = new BlockViewNodeClass(srcNode.getID());
+      if (!(blockViewNode instanceof BlockViewNode)) {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
       }
-      parent.insertChild(blockView, offset);
-      blockView.onRender(srcNode);
-      return blockView;
+      parent.insertChild(blockViewNode, offset);
+      blockViewNode.onLayoutUpdated(srcNode);
+      return blockViewNode;
     }
-    if (srcNode instanceof LineBox && parent instanceof BlockView) {
-      const lineView = new LineView(srcNode.getID());
-      parent.insertChild(lineView, offset);
-      lineView.onRender(srcNode);
-      return lineView;
+    if (parent instanceof BlockViewNode && srcNode instanceof LineFlowBox) {
+      const lineViewNode = new LineViewNode(srcNode.getID());
+      parent.insertChild(lineViewNode, offset);
+      lineViewNode.onLayoutUpdated(srcNode);
+      return lineViewNode;
     }
-    if (srcNode instanceof InlineBox && parent instanceof LineView) {
-      const InlineViewClass = this.config.getViewClass(srcNode.getType());
-      const inlineView = new InlineViewClass(srcNode.getID());
-      if (!(inlineView instanceof InlineView)) {
+    if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
+      const InlineViewNodeClass = this.config.getViewNodeClass(srcNode.getType());
+      const inlineViewNode = new InlineViewNodeClass(srcNode.getID());
+      if (!(inlineViewNode instanceof InlineViewNode)) {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
       }
-      parent.insertChild(inlineView, offset);
-      inlineView.onRender(srcNode);
-      return inlineView;
+      parent.insertChild(inlineViewNode, offset);
+      inlineViewNode.onLayoutUpdated(srcNode);
+      return inlineViewNode;
     }
     throw new Error('Error inserting view node, type mismatch.');
   }
 
-  deleteNode(parent: View, node: View) {
-    if (parent instanceof DocView && node instanceof PageView) {
+  deleteNode(parent: ViewNode, node: ViewNode) {
+    if (parent instanceof DocViewNode && node instanceof PageViewNode) {
       parent.deleteChild(node);
       return;
     }
-    if (parent instanceof PageView && node instanceof BlockView) {
+    if (parent instanceof PageViewNode && node instanceof BlockViewNode) {
       parent.deleteChild(node);
       return;
     }
-    if (parent instanceof BlockView && node instanceof LineView) {
+    if (parent instanceof BlockViewNode && node instanceof LineViewNode) {
       parent.deleteChild(node);
       return;
     }
-    if (parent instanceof LineView && node instanceof InlineView) {
+    if (parent instanceof LineViewNode && node instanceof InlineViewNode) {
       parent.deleteChild(node);
       return;
     }
     throw new Error('Error deleting view node, type mismatch.');
   }
 
-  updateNode(node: View, srcNode: LayoutNode): boolean {
-    if (node instanceof DocView && srcNode instanceof DocBox) {
-      node.onRender(srcNode);
-      return srcNode.getVersion() > this.lastVersion;
+  updateNode(node: ViewNode, srcNode: LayoutNode): boolean {
+    if (node instanceof DocViewNode && srcNode instanceof DocBox) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onLayoutUpdated(srcNode);
+      return true;
     }
-    if (node instanceof PageView && srcNode instanceof PageBox) {
-      node.onRender(srcNode);
-      return srcNode.getVersion() > this.lastVersion;
+    if (node instanceof PageViewNode && srcNode instanceof PageFlowBox) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onLayoutUpdated(srcNode);
+      return true;
     }
-    if (node instanceof BlockView && srcNode instanceof BlockBox) {
-      node.onRender(srcNode);
-      return srcNode.getVersion() > this.lastVersion;
+    if (node instanceof BlockViewNode && srcNode instanceof BlockBox) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onLayoutUpdated(srcNode);
+      return true;
     }
-    if (node instanceof LineView && srcNode instanceof LineBox) {
-      node.onRender(srcNode);
-      return srcNode.getVersion() > this.lastVersion;
+    if (node instanceof LineViewNode && srcNode instanceof LineFlowBox) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onLayoutUpdated(srcNode);
+      return true;
     }
-    if (node instanceof InlineView && srcNode instanceof InlineBox) {
-      node.onRender(srcNode);
-      return srcNode.getVersion() > this.lastVersion;
+    if (node instanceof InlineViewNode && srcNode instanceof InlineBox) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onLayoutUpdated(srcNode);
+      return true;
     }
     throw new Error('Error updating view node, type mismatch.');
   }
@@ -151,7 +166,7 @@ export default class Presenter {
   protected docBox: DocBox;
   protected inputManager: InputManager;
   protected eventObserver?: EventObserver;
-  protected docView: DocView;
+  protected docViewNode: DocViewNode;
   protected onMountedSubscribers: OnMountedSubscriber[];
   protected mounted: boolean;
   protected version: number;
@@ -161,7 +176,7 @@ export default class Presenter {
     this.config = config;
     this.docBox = docBox;
     this.inputManager = inputManager;
-    this.docView = new DocView(docBox.getID());
+    this.docViewNode = new DocViewNode(docBox.getID());
     this.onMountedSubscribers = [];
     this.mounted = false;
     this.version = -1;
@@ -176,7 +191,7 @@ export default class Presenter {
     }
     this.domWrapper = domWrapper;
     this.run();
-    domWrapper.appendChild(this.docView.getDOMContainer());
+    domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.mounted = true;
     this.eventObserver = new EventObserver(this, this.inputManager);
     this.onMountedSubscribers.forEach(subscriber => subscriber());
@@ -184,12 +199,12 @@ export default class Presenter {
 
   protected run() {
     const treeSyncer = new LayoutToViewTreeSyncer(this.config, this.version);
-    treeSyncer.syncNodes(this.docBox, this.docView);
+    treeSyncer.syncNodes(this.docBox, this.docViewNode);
     this.version = this.docBox.getVersion();
   }
 
-  getDocView(): DocView {
-    return this.docView;
+  getDocView(): DocViewNode {
+    return this.docViewNode;
   }
 
   subscribeOnMounted(subscriber: OnMountedSubscriber) {
@@ -197,7 +212,7 @@ export default class Presenter {
   }
 
   getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
-    const pages = this.docView.getChildren();
+    const pages = this.docViewNode.getChildren();
     if (pageOffset < 0 || pageOffset >= pages.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);
     }

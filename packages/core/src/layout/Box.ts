@@ -12,8 +12,4 @@ export default abstract class Box extends LayoutNode {
   getRenderNodeID(): string {
     return this.renderNodeID;
   }
-
-  abstract getWidth(): number;
-
-  abstract getHeight(): number;
 }

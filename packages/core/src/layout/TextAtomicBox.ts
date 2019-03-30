@@ -1,6 +1,7 @@
 import AtomicBox from './AtomicBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import measureText from './helpers/measureText';
+import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
 
 const stubTextStyle = {
   fontFamily: 'Arial',
@@ -11,32 +12,46 @@ const stubTextStyle = {
 };
 
 export default class TextAtomicBox extends AtomicBox {
-  protected width: number;
-  protected height: number;
+  protected width?: number;
+  protected height?: number;
   protected content: string;
 
-  constructor(renderNodeID: string, breakable: boolean, content: string) {
-    super(renderNodeID, breakable);
-    const textMeasurement = measureText(content, stubTextStyle);
-    this.width = textMeasurement.width;
-    this.height = textMeasurement.height;
-    this.content = content;
+  constructor(renderNodeID: string) {
+    super(renderNodeID);
+    this.content = '';
   }
 
   getWidth(): number {
+    if (this.width === undefined || this.height === undefined) {
+      const measurement = measureText(this.content, stubTextStyle);
+      this.width = measurement.width;
+      this.height = measurement.height;
+    }
     return this.width;
   }
 
   getHeight(): number {
+    if (this.width === undefined || this.height === undefined) {
+      const measurement = measureText(this.content, stubTextStyle);
+      this.width = measurement.width;
+      this.height = measurement.height;
+    }
     return this.height;
+  }
+
+  getContent(): string {
+    return this.content;
   }
 
   getSelectableSize(): number {
     return this.content.length;
   }
 
-  getContent(): string {
-    return this.content;
+  onRenderUpdated(renderNode: TextAtomicRenderNode) {
+    this.content = renderNode.getContent();
+    this.breakable = renderNode.getBreakable();
+    this.width = undefined;
+    this.height = undefined;
   }
 
   resolveViewportPositionToSelectableOffset(x: number): number {
@@ -63,19 +78,19 @@ export default class TextAtomicBox extends AtomicBox {
         right: 0,
         top: 0,
         bottom: 0,
-        width: this.width,
-        height: this.height,
+        width: this.getWidth(),
+        height: this.getHeight(),
       }];
     }
     const fromTextMeasurement = measureText(this.content.substring(0, from), stubTextStyle);
     const toTextMeasurement = measureText(this.content.substring(0, to), stubTextStyle);
     return [{
       left: fromTextMeasurement.width,
-      right: this.width - toTextMeasurement.width,
+      right: this.getWidth() - toTextMeasurement.width,
       top: 0,
       bottom: 0,
       width: toTextMeasurement.width - fromTextMeasurement.width,
-      height: this.height,
+      height: this.getHeight(),
     }];
   }
 }

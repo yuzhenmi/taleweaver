@@ -1,10 +1,10 @@
-import LineBox from '../layout/LineBox';
-import View from './View';
-import InlineView from './InlineView';
+import PageFlowBox from '../layout/PageFlowBox';
+import ViewNode from './ViewNode';
+import BlockViewNode from './BlockViewNode';
 
-type Child = InlineView;
+type Child = BlockViewNode;
 
-export default class LineView extends View {
+export default class PageViewNode extends ViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
 
@@ -12,7 +12,7 @@ export default class LineView extends View {
     super(id);
     this.children = [];
     this.domContainer = document.createElement('div');
-    this.domContainer.className = 'tw--line';
+    this.domContainer.className = 'tw--page';
     this.domContainer.style.whiteSpace = 'pre';
   }
 
@@ -35,6 +35,7 @@ export default class LineView extends View {
     } else {
       this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
     }
+    this.domContainer.appendChild(childDOMContainer);
   }
 
   deleteChild(child: Child) {
@@ -51,5 +52,9 @@ export default class LineView extends View {
     return this.children;
   }
 
-  onRender(lineBox: LineBox) {}
+  onLayoutUpdated(layoutNode: PageFlowBox) {
+    this.domContainer.style.width = `${layoutNode.getWidth()}px`;
+    this.domContainer.style.height = `${layoutNode.getHeight()}px`;
+    this.domContainer.style.padding = `${layoutNode.getPadding()}px`;
+  }
 }

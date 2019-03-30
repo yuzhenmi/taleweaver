@@ -36,6 +36,18 @@ export default class Doc extends Node {
     this.children.splice(childOffset, 1);
   }
 
+  getWidth(): number {
+    return 816;
+  }
+
+  getHeight(): number {
+    return 1056;
+  }
+
+  getPadding(): number {
+    return 60;
+  }
+
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
     this.onUpdatedSubscribers.push(onUpdatedSubscriber);
   }

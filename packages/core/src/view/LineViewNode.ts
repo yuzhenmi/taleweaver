@@ -1,7 +1,10 @@
-import ParagraphBlockBox from '../layout/ParagraphBlockBox';
-import BlockView, { Child } from './BlockView';
+import LineFlowBox from '../layout/LineFlowBox';
+import ViewNode from './ViewNode';
+import InlineViewNode from './InlineViewNode';
 
-export default class ParagraphBlockView extends BlockView {
+type Child = InlineViewNode;
+
+export default class LineViewNode extends ViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
 
@@ -9,11 +12,15 @@ export default class ParagraphBlockView extends BlockView {
     super(id);
     this.children = [];
     this.domContainer = document.createElement('div');
-    this.domContainer.className = 'tw--paragraph-block';
+    this.domContainer.className = 'tw--line';
     this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {
+    return this.domContainer;
+  }
+
+  getDOMContentContainer(): HTMLDivElement {
     return this.domContainer;
   }
 
@@ -28,7 +35,6 @@ export default class ParagraphBlockView extends BlockView {
     } else {
       this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
     }
-    this.domContainer.appendChild(childDOMContainer);
   }
 
   deleteChild(child: Child) {
@@ -45,5 +51,5 @@ export default class ParagraphBlockView extends BlockView {
     return this.children;
   }
 
-  onRender(paragraphBlockBox: ParagraphBlockBox) {}
+  onLayoutUpdated(layoutNode: LineFlowBox) {}
 }

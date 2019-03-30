@@ -1,10 +1,7 @@
-import PageBox from '../layout/PageBox';
-import View from './View';
-import BlockView from './BlockView';
+import ParagraphBlockBox from '../layout/ParagraphBlockBox';
+import BlockViewNode, { Child } from './BlockViewNode';
 
-type Child = BlockView;
-
-export default class PageView extends View {
+export default class ParagraphBlockViewNode extends BlockViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
 
@@ -12,15 +9,11 @@ export default class PageView extends View {
     super(id);
     this.children = [];
     this.domContainer = document.createElement('div');
-    this.domContainer.className = 'tw--page';
+    this.domContainer.className = 'tw--paragraph-block';
     this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {
-    return this.domContainer;
-  }
-
-  getDOMContentContainer(): HTMLDivElement {
     return this.domContainer;
   }
 
@@ -52,9 +45,5 @@ export default class PageView extends View {
     return this.children;
   }
 
-  onRender(pageBox: PageBox) {
-    this.domContainer.style.width = `${pageBox.getWidth()}px`;
-    this.domContainer.style.height = `${pageBox.getHeight()}px`;
-    this.domContainer.style.padding = `${pageBox.getPadding()}px`;
-  }
+  onLayoutUpdated(layoutNode: ParagraphBlockBox) {}
 }

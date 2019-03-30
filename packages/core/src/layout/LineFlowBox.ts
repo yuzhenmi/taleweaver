@@ -8,7 +8,8 @@ import Position from './Position';
 type Parent = BlockBox;
 type Child = InlineBox;
 
-export default class LineBox extends FlowBox {
+export default class LineFlowBox extends FlowBox {
+  protected version: number;
   protected width: number;
   protected height?: number;
   protected selectableSize?: number;
@@ -17,8 +18,17 @@ export default class LineBox extends FlowBox {
 
   constructor(width: number) {
     super();
+    this.version = 0;
     this.width = width;
     this.children = [];
+  }
+
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   getWidth(): number {
@@ -79,7 +89,7 @@ export default class LineBox extends FlowBox {
     return this.children;
   }
 
-  getPreviousSibling(): LineBox | null {
+  getPreviousSibling(): LineFlowBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -96,7 +106,7 @@ export default class LineBox extends FlowBox {
     return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
   }
 
-  getNextSibling(): LineBox | null {
+  getNextSibling(): LineFlowBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -113,18 +123,18 @@ export default class LineBox extends FlowBox {
     return parentNextSiblingChildren[0];
   }
 
-  cleaveAt(offset: number): LineBox {
+  cleaveAt(offset: number): LineFlowBox {
     if (offset > this.children.length) {
-      throw new Error(`Error cleaving LineBox, offset ${offset} is out of range.`);
+      throw new Error(`Error cleaving LineFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
     this.selectableSize = undefined;
     this.height = undefined;
-    const newLineBox = new LineBox(this.width);
+    const newLineFlowBox = new LineFlowBox(this.width);
     childrenCut.forEach((child, childOffset) => {
-      newLineBox.insertChild(child, childOffset);
+      newLineFlowBox.insertChild(child, childOffset);
     });
-    return newLineBox;
+    return newLineFlowBox;
   }
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {

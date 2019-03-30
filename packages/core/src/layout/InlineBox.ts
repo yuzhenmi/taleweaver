@@ -1,13 +1,15 @@
-import Box from './Box';
-import LineBox from './LineBox';
-import AtomicBox from './AtomicBox';
+import InlineRenderNode from '../render/InlineRenderNode';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
+import Box from './Box';
+import LineFlowBox from './LineFlowBox';
+import AtomicBox from './AtomicBox';
 
-type Parent = LineBox;
+type Parent = LineFlowBox;
 type Child = AtomicBox;
 
 export default abstract class InlineBox extends Box {
+  protected version: number;
   protected width?: number;
   protected height?: number;
   protected selectableSize?: number;
@@ -16,10 +18,19 @@ export default abstract class InlineBox extends Box {
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
+    this.version = 0;
     this.children = [];
   }
 
   abstract getType(): string;
+
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
+  }
 
   getWidth(): number {
     if (this.width === undefined) {
@@ -46,17 +57,6 @@ export default abstract class InlineBox extends Box {
     return this.height;
   }
 
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
-  }
-
   setParent(parent: Parent) {
     this.parent = parent;
   }
@@ -69,10 +69,10 @@ export default abstract class InlineBox extends Box {
   }
 
   insertChild(child: Child, offset: number) {
-    const childWidth = child.getWidth();
-    const childHeight = child.getHeight();
     this.children.splice(offset, 0, child);
     child.setParent(this);
+    this.width = undefined;
+    this.height = undefined;
   }
 
   deleteChild(child: Child) {
@@ -81,6 +81,8 @@ export default abstract class InlineBox extends Box {
       throw new Error('Cannot delete child, child not found.');
     }
     this.children.splice(childOffset, 1);
+    this.width = undefined;
+    this.height = undefined;
   }
 
   getChildren(): Child[] {
@@ -120,6 +122,19 @@ export default abstract class InlineBox extends Box {
     const parentNextSiblingChildren = parentNextSibling.getChildren();
     return parentNextSiblingChildren[0];
   }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  abstract onRenderUpdated(renderNode: InlineRenderNode): void;
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {

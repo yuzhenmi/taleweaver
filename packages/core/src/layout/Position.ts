@@ -1,7 +1,7 @@
 import LayoutNode from './LayoutNode';
 import AtomicBox from './AtomicBox';
 import InlineBox from './InlineBox';
-import LineBox from './LineBox';
+import LineFlowBox from './LineFlowBox';
 
 type BuildChild = (parent: Position) => Position;
 
@@ -44,8 +44,8 @@ export default class Position {
     return this.child ? this.child.getAtomicBoxLevel() : this;
   }
 
-  getLineBoxLevel(): Position {
-    if (this.layoutNode instanceof LineBox) {
+  getLineFlowBoxLevel(): Position {
+    if (this.layoutNode instanceof LineFlowBox) {
       return this;
     }
     if (
@@ -56,12 +56,12 @@ export default class Position {
       if (!parent) {
         throw new Error(`No parent.`);
       }
-      return parent.getLineBoxLevel();
+      return parent.getLineFlowBoxLevel();
     }
     const child = this.getChild();
     if (!child) {
       throw new Error(`No child.`);
     }
-    return child.getLineBoxLevel();
+    return child.getLineFlowBoxLevel();
   }
 }

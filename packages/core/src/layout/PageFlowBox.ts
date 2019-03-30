@@ -7,7 +7,8 @@ import FlowBox from './FlowBox';
 type Parent = DocBox;
 type Child = BlockBox;
 
-export default class PageBox extends FlowBox {
+export default class PageFlowBox extends FlowBox {
+  protected version: number;
   protected width: number;
   protected height: number;
   protected padding: number;
@@ -17,10 +18,19 @@ export default class PageBox extends FlowBox {
 
   constructor(width: number, height: number, padding: number) {
     super();
+    this.version = 0;
     this.width = width;
     this.height = height;
     this.padding = padding;
     this.children = [];
+  }
+
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   getWidth(): number {
@@ -60,7 +70,7 @@ export default class PageBox extends FlowBox {
 
   getParent(): Parent {
     if (!this.parent) {
-      throw new Error(`Page layout has no parent set.`);
+      throw new Error(`Page flow box has no parent set.`);
     }
     return this.parent;
   }
@@ -82,11 +92,11 @@ export default class PageBox extends FlowBox {
     return this.children;
   }
 
-  getPreviousSibling(): PageBox | null {
+  getPreviousSibling(): PageFlowBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
-      throw new Error(`Page layout is not found in parent.`);
+      throw new Error(`Page flow box is not found in parent.`);
     }
     if (offset > 0) {
       return siblings[offset - 1];
@@ -94,11 +104,11 @@ export default class PageBox extends FlowBox {
     return null;
   }
 
-  getNextSibling(): PageBox | null {
+  getNextSibling(): PageFlowBox | null {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
-      throw new Error(`Page layout is not found in parent.`);
+      throw new Error(`Page flow box is not found in parent.`);
     }
     if (offset < siblings.length - 1) {
       return siblings[offset + 1];
@@ -106,17 +116,17 @@ export default class PageBox extends FlowBox {
     return null;
   }
 
-  cleaveAt(offset: number): PageBox {
+  cleaveAt(offset: number): PageFlowBox {
     if (offset > this.children.length) {
-      throw new Error(`Error cleaving PageBox, offset ${offset} is out of range.`);
+      throw new Error(`Error cleaving PageFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
     this.selectableSize = undefined;
-    const newPageBox = new PageBox(this.width, this.height, this.padding);
+    const newPageFlowBox = new PageFlowBox(this.width, this.height, this.padding);
     childrenCut.forEach((child, childOffset) => {
-      newPageBox.insertChild(child, childOffset);
+      newPageFlowBox.insertChild(child, childOffset);
     });
-    return newPageBox;
+    return newPageFlowBox;
   }
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {

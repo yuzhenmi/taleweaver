@@ -1,6 +1,9 @@
 abstract class TreeSyncer<S, D> {
 
   syncNodes(srcNode: S, dstNode: D) {
+    if (!this.updateNode(dstNode, srcNode)) {
+      return false;
+    }
     const srcChildren = this.getSrcNodeChildren(srcNode);
     const dstChildren = this.getDstNodeChildren(dstNode);
     let dstChildOffset = 0;
@@ -8,7 +11,8 @@ abstract class TreeSyncer<S, D> {
       const srcChild = srcChildren[n];
       const foundDstChildOffset = this.findSrcNodeInDstNodes(srcChild, dstChildren);
       if (foundDstChildOffset < dstChildOffset) {
-        const dstChild = this.insertNode(srcChild, dstNode, dstChildOffset);
+        const dstChild = this.insertNode(dstNode, srcChild, dstChildOffset);
+        dstChildren.splice(dstChildOffset, 0, dstChild);
         this.syncNodes(srcChild, dstChild);
         dstChildOffset++;
         continue;
@@ -16,12 +20,11 @@ abstract class TreeSyncer<S, D> {
       for (let m = dstChildOffset; m < foundDstChildOffset; m++) {
         const dstChild = dstChildren[dstChildOffset];
         this.deleteNode(dstNode, dstChild);
+        dstChildren.splice(dstChildOffset, 1);
       }
       const dstChild = dstChildren[dstChildOffset];
       dstChildOffset++;
-      if (this.updateNode(dstChild, srcChild)) {
-        this.syncNodes(srcChild, dstChild);
-      }
+      this.syncNodes(srcChild, dstChild);
     }
   }
 
@@ -31,7 +34,7 @@ abstract class TreeSyncer<S, D> {
 
   abstract findSrcNodeInDstNodes(srcNode: S, dstNodes: D[]): number;
 
-  abstract insertNode(srcNode: S, parent: D, offset: number): D;
+  abstract insertNode(parent: D, srcNode: S, offset: number): D;
 
   abstract deleteNode(parent: D, node: D): void;
 

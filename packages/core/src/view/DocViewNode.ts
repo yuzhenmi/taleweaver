@@ -1,10 +1,10 @@
 import DocBox from '../layout/DocBox';
-import View from './View';
-import PageView from './PageView';
+import ViewNode from './ViewNode';
+import PageViewNode from './PageViewNode';
 
-type Child = PageView;
+type Child = PageViewNode;
 
-export default class DocView extends View {
+export default class DocViewNode extends ViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
 
@@ -47,5 +47,5 @@ export default class DocView extends View {
     return this.children;
   }
 
-  onRender(docBox: DocBox) {}
+  onLayoutUpdated(docBox: DocBox) {}
 }

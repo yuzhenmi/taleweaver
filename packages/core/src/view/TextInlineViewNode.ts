@@ -1,8 +1,8 @@
-import InlineView from './InlineView';
 import TextInlineBox from '../layout/TextInlineBox';
 import TextAtomicBox from '../layout/TextAtomicBox';
+import InlineViewNode from './InlineViewNode';
 
-export default class TextInlineView extends InlineView {
+export default class TextInlineViewNode extends InlineViewNode {
   protected domContainer: HTMLSpanElement;
 
   constructor(id: string) {
@@ -16,8 +16,8 @@ export default class TextInlineView extends InlineView {
     return this.domContainer;
   }
 
-  onRender(textInlineBox: TextInlineBox) {
-    const text = textInlineBox.getChildren().map(child => {
+  onLayoutUpdated(layoutNode: TextInlineBox) {
+    const text = layoutNode.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
         return child.getContent();
       } else {

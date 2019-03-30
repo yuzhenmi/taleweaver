@@ -2,7 +2,7 @@ import {
   Editor,
   CursorCommand,
   CursorTransformation,
-  LineBox,
+  LineFlowBox,
   cursorOperations,
 } from '@taleweaver/core';
 import CursorExtension from '../CursorExtension';
@@ -17,27 +17,27 @@ export default function moveToLineBelow(cursorExtension: CursorExtension): Curso
     const offset = Math.max(cursor.getAnchor(), cursor.getHead());
     const docBox = editor.getLayoutEngine().getDocBox();
     const position = docBox.resolvePosition(offset);
-    const lineBoxLevelPosition = position.getLineBoxLevel();
-    const lineBox = lineBoxLevelPosition.getLayoutNode();
-    if (!(lineBox instanceof LineBox)) {
+    const lineFlowBoxLevelPosition = position.getLineFlowBoxLevel();
+    const lineFlowBox = lineFlowBoxLevelPosition.getLayoutNode();
+    if (!(lineFlowBox instanceof LineFlowBox)) {
       throw new Error(`Expecting position to be referencing an line box.`);
     }
-    const nextLineBox = lineBox.getNextSibling();
-    if (!nextLineBox) {
-      transformation.addOperation(new cursorOperations.MoveTo(offset - lineBoxLevelPosition.getSelectableOffset() + lineBox.getSelectableSize() - 1));
+    const nextLineFlowBox = lineFlowBox.getNextSibling();
+    if (!nextLineFlowBox) {
+      transformation.addOperation(new cursorOperations.MoveTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() - 1));
     } else {
       let leftAnchor: number;
       if (cursorExtension.getLeftAnchor() !== null) {
         leftAnchor = cursorExtension.getLeftAnchor()!;
       } else {
-        leftAnchor = lineBox.resolveSelectableOffsetRangeToViewportBoundingRects(
-          lineBoxLevelPosition.getSelectableOffset(),
-          lineBoxLevelPosition.getSelectableOffset(),
+        leftAnchor = lineFlowBox.resolveSelectableOffsetRangeToViewportBoundingRects(
+          lineFlowBoxLevelPosition.getSelectableOffset(),
+          lineFlowBoxLevelPosition.getSelectableOffset(),
         )[0].left;
       }
       transformation.setLeftAnchor(leftAnchor);
-      const targetLineSelectableOffset = nextLineBox.resolveViewportPositionToSelectableOffset(leftAnchor);
-      transformation.addOperation(new cursorOperations.MoveTo(offset - lineBoxLevelPosition.getSelectableOffset() + lineBox.getSelectableSize() + targetLineSelectableOffset));
+      const targetLineSelectableOffset = nextLineFlowBox.resolveViewportPositionToSelectableOffset(leftAnchor);
+      transformation.addOperation(new cursorOperations.MoveTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() + targetLineSelectableOffset));
     }
     return transformation;
   };

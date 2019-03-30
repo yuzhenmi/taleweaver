@@ -1,3 +1,4 @@
+import OpenTagToken from '../state/OpenTagToken';
 import Node from './Node';
 import Doc from './Doc';
 import LeafNode from './LeafNode';
@@ -34,4 +35,6 @@ export default abstract class BranchNode extends Node {
     }
     this.children.splice(childOffset, 1);
   }
+
+  onStateUpdated(openTagToken: OpenTagToken) {}
 };

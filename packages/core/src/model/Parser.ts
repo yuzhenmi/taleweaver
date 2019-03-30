@@ -205,6 +205,7 @@ class Parser {
   protected stack: Stack;
   protected contentBuffer: string;
   protected ran: boolean;
+  protected version: number;
 
   constructor(config: Config, state: State) {
     this.config = config;
@@ -214,6 +215,7 @@ class Parser {
     this.stack = new Stack;
     this.contentBuffer = '';
     this.ran = false;
+    this.version = 0;
     this.state.subscribeOnUpdated(() => {
       this.parserState = ParserState.NewDoc;
       this.run();
@@ -267,6 +269,7 @@ class Parser {
       }
     }
     this.ran = true;
+    this.version++;
     this.doc.onUpdated();
   }
 
@@ -288,7 +291,7 @@ class Parser {
     if (offset < 0) {
       const NodeClass = this.config.getNodeClass(token.getType());
       node = new NodeClass(lastStackElement.getNode());
-      node.setVersion(this.getNextVersion());
+      node.setVersion(this.version);
       lastStackElement.insertChild(node);
     } else {
       node = lastStackElement.getChildAt(offset);
@@ -314,19 +317,15 @@ class Parser {
     if (node instanceof LeafNode) {
       if (node.getContent() !== this.contentBuffer) {
         node.setContent(this.contentBuffer);
-        node.setVersion(this.getNextVersion());
+        node.setVersion(this.version);
       }
     }
     if (updated) {
-      node.setVersion(this.getNextVersion());
+      node.setVersion(this.version);
     }
     this.propagateVersionToAncestors(node);
     this.contentBuffer = '';
     this.parserState = ParserState.NewNode;
-  }
-
-  protected getNextVersion(): number {
-    return this.doc.getVersion() + 1;
   }
 
   protected propagateVersionToAncestors(node: Node) {

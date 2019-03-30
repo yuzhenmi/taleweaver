@@ -6,8 +6,4 @@ export default abstract class FlowBox extends LayoutNode {
   constructor() {
     super(generateRandomString());
   }
-
-  abstract getWidth(): number;
-
-  abstract getHeight(): number;
 }

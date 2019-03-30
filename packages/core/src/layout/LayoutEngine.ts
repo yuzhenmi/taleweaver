@@ -1,410 +1,197 @@
 import Config from '../Config';
+import TreeSyncer from '../helpers/TreeSyncer';
 import RenderNode from '../render/RenderNode';
 import DocRenderNode from '../render/DocRenderNode';
 import BlockRenderNode from '../render/BlockRenderNode';
+import InlineRenderNode from '../render/InlineRenderNode';
 import LayoutNode from './LayoutNode';
 import Box from './Box';
 import DocBox from './DocBox';
-import PageBox from './PageBox';
 import BlockBox from './BlockBox';
-import LineBox from './LineBox';
 import InlineBox from './InlineBox';
+import PageFlowBox from './PageFlowBox';
+import LineFlowBox from './LineFlowBox';
 
-function propagateVersionToAncestors(layoutNode: LayoutNode) {
-  let currentNode = layoutNode;
-  let parentNode: LayoutNode;
-  while (!(currentNode instanceof DocBox)) {
-    parentNode = currentNode.getParent();
-    if (parentNode.getVersion() >= currentNode.getVersion()) {
-      break;
+class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
+  protected config: Config;
+  protected lastVersion: number;
+  protected updatedPageFlowBoxes: PageFlowBox[];
+  protected updatedLineFlowBoxes: LineFlowBox[];
+
+  constructor(config: Config, lastVersion: number) {
+    super();
+    this.config = config;
+    this.lastVersion = lastVersion;
+    this.updatedPageFlowBoxes = [];
+    this.updatedLineFlowBoxes = [];
+  }
+
+  getUpdatedPageFlowBoxes(): PageFlowBox[] {
+    return Array.from(this.updatedPageFlowBoxes);
+  }
+
+  getUpdatedLineFlowBoxes(): LineFlowBox[] {
+    return Array.from(this.updatedLineFlowBoxes);
+  }
+
+  getSrcNodeChildren(node: RenderNode): RenderNode[] {
+    if (node instanceof DocRenderNode) {
+      return node.getChildren();
     }
-    parentNode.setVersion(currentNode.getVersion());
-    currentNode = parentNode;
-  }
-}
-
-abstract class StackElementOperation {
-  
-  abstract shiftOffset(delta: number): void;
-}
-
-class StackElementInsertChildOperation extends StackElementOperation {
-  protected offset: number;
-  protected child: Box;
-
-  constructor(offset: number, child: Box) {
-    super();
-    this.offset = offset;
-    this.child = child;
-  }
-
-  shiftOffset(delta: number) {
-    this.offset += delta;
-  }
-
-  getOffset(): number {
-    return this.offset;
-  }
-
-  getChild(): Box {
-    return this.child;
-  }
-}
-
-class StackElementDeleteChildrenOperation extends StackElementOperation {
-  protected fromOffset: number;
-  protected toOffset: number;
-
-  constructor(fromOffset: number, toOffset: number) {
-    super();
-    this.fromOffset = fromOffset;
-    this.toOffset = toOffset;
-  }
-
-  shiftOffset(delta: number) {
-    this.fromOffset += delta;
-    this.toOffset += delta;
-  }
-
-  getFromOffset(): number {
-    return this.fromOffset;
-  }
-
-  getToOffset(): number {
-    return this.toOffset;
-  }
-}
-
-class StackElementReplaceChildOperation extends StackElementOperation {
-  protected offset: number;
-  protected child: Box;
-
-  constructor(offset: number, child: Box) {
-    super();
-    this.offset = offset;
-    this.child = child;
-  }
-
-  shiftOffset(delta: number) {
-    this.offset += delta;
-  }
-
-  getOffset(): number {
-    return this.offset;
-  }
-
-  getChild(): Box {
-    return this.child;
-  }
-}
-
-class StackElement {
-  protected renderNodes: RenderNode[];
-  protected iteratorOffset: number;
-  protected box: Box;
-  protected children: Box[];
-  protected invertedChildrenMap: Map<string, [number, number]>;
-  protected childIteratorOffset: number;
-  protected operationsBuffer: StackElementOperation[];
-  protected operationsBufferFlushed: boolean;
-  protected lineBoxesToReflow: LineBox[];
-  protected pageBoxesToReflow: PageBox[];
-
-  constructor(renderNodes: RenderNode[], box: Box) {
-    this.renderNodes = renderNodes;
-    this.box = box;
-    this.iteratorOffset = -1;
-    this.invertedChildrenMap = new Map();
-    if (box instanceof DocBox) {
-      this.children = this.getDocBoxChildren(box);
-    } else if (box instanceof BlockBox) {
-      this.children = this.getBlockBoxChildren(box);
-    } else {
-      this.children = [];
+    if (node instanceof BlockRenderNode) {
+      return node.getChildren();
     }
-    let child: Box;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      child = this.children[n];
-      const childRenderNodeID = child.getRenderNodeID();
-      const from = n;
-      while (n + 1 < nn && this.children[n + 1].getRenderNodeID() === childRenderNodeID) {
-        n++;
+    return [];
+  }
+
+  getDstNodeChildren(node: Box): Box[] {
+    if (node instanceof DocBox) {
+      const children: BlockBox[] = [];
+      node.getChildren().map(child => {
+        children.push(...child.getChildren());
+      });
+      return children;
+    }
+    if (node instanceof BlockBox) {
+      const children: InlineBox[] = [];
+      node.getChildren().map(child => {
+        children.push(...child.getChildren());
+      });
+      return children;
+    }
+    return [];
+  }
+
+  findSrcNodeInDstNodes(srcNode: RenderNode, dstNodes: Box[]): number {
+    const id = srcNode.getID();
+    const offset = dstNodes.findIndex(n => n.getID() === id);
+    return offset;
+  }
+
+  insertNode(parent: Box, srcNode: RenderNode, offset: number): Box {
+    if (parent instanceof DocBox && srcNode instanceof BlockRenderNode) {
+      const BlockBoxClass = this.config.getBoxClass(srcNode.getType());
+      const blockBox = new BlockBoxClass(srcNode.getID());
+      if (!(blockBox instanceof BlockBox)) {
+        throw new Error('Error inserting box, expecting block box.');
       }
-      const to = n;
-      this.invertedChildrenMap.set(childRenderNodeID, [from, to]);
+      blockBox.setVersion(srcNode.getVersion());
+      const pageFlowBoxes = parent.getChildren();
+      let cumulatedOffset = 0;
+      let inserted = false;
+      for (let n = 0, nn = pageFlowBoxes.length; n < nn; n++) {
+        const pageFlowBox = pageFlowBoxes[n];
+        if (cumulatedOffset + pageFlowBox.getChildren().length >= offset) {
+          pageFlowBox.insertChild(blockBox, offset - cumulatedOffset);
+          this.updatedPageFlowBoxes.push(pageFlowBox);
+          inserted = true;
+          break;
+        }
+        cumulatedOffset += pageFlowBox.getChildren().length;
+      }
+      if (!inserted) {
+        const pageFlowBox = new PageFlowBox(parent.getWidth(), parent.getHeight(), parent.getPadding());
+        parent.insertChild(pageFlowBox, pageFlowBoxes.length);
+        pageFlowBox.insertChild(blockBox, 0);
+        this.updatedPageFlowBoxes.push(pageFlowBox);
+      }
+      return blockBox;
     }
-    this.childIteratorOffset = 0;
-    this.operationsBuffer = [];
-    this.operationsBufferFlushed = false;
-    this.lineBoxesToReflow = [];
-    this.pageBoxesToReflow = [];
+    if (parent instanceof BlockBox && srcNode instanceof InlineRenderNode) {
+      const InlineBoxClass = this.config.getBoxClass(srcNode.getType());
+      const inlineBox = new InlineBoxClass(srcNode.getID());
+      if (!(inlineBox instanceof InlineBox)) {
+        throw new Error('Error inserting box, expecting inline box.');
+      }
+      inlineBox.setVersion(srcNode.getVersion());
+      const lineFlowBoxes = parent.getChildren();
+      let cumulatedOffset = 0;
+      let inserted = false;
+      for (let n = 0, nn = lineFlowBoxes.length; n < nn; n++) {
+        const lineFlowBox = lineFlowBoxes[n];
+        if (cumulatedOffset + lineFlowBox.getChildren().length >= offset) {
+          lineFlowBox.insertChild(inlineBox, offset - cumulatedOffset);
+          this.updatedLineFlowBoxes.push(lineFlowBox);
+          inserted = true;
+          break;
+        }
+        cumulatedOffset += lineFlowBox.getChildren().length;
+      }
+      if (!inserted) {
+        const lineFlowBox = new LineFlowBox(parent.getWidth());
+        parent.insertChild(lineFlowBox, lineFlowBoxes.length);
+        lineFlowBox.insertChild(inlineBox, 0);
+        this.updatedLineFlowBoxes.push(lineFlowBox);
+      }
+      return inlineBox;
+    }
+    throw new Error('Error inserting box, type mismatch.');
   }
 
-  iterate(): RenderNode | undefined {
-    this.iteratorOffset += 1;
-    if (this.iteratorOffset < this.renderNodes.length) {
-      return this.renderNodes[this.iteratorOffset];
-    }
-    return undefined;
-  }
-
-  getBox(): Box {
-    return this.box;
-  }
-
-  findChild(childID: string): [number, number] {
-    const offsetRange = this.invertedChildrenMap.get(childID);
-    if (offsetRange === undefined) {
-      return [-1, -1];
-    }
-    return offsetRange;
-  }
-
-  getChildAt(offset: number): Box {
-    if (offset < this.childIteratorOffset) {
-      throw new Error(`Cannot get child at offset ${offset}, child iterator offset is already at ${this.childIteratorOffset}.`);
-    }
-    if (offset < 0 || offset > this.children.length - 1) {
-      throw new Error(`Child offset ${offset} is out of valid range 0-${this.children.length - 1}.`);
-    }
-    return this.children[offset];
-  }
-
-  insertChild(child: Box) {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more operations after flushing.');
-    }
-    const operation = new StackElementInsertChildOperation(this.childIteratorOffset, child);
-    this.operationsBuffer.push(operation);
-  }
-
-  deleteChildrenTo(offset: number) {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more child operations after flushing.');
-    }
-    if (offset < this.childIteratorOffset) {
-      throw new Error(`Cannot delete children to offset ${offset}, iterator offset is already at ${this.childIteratorOffset}.`);
-    }
-    this.childIteratorOffset = offset;
-    if (offset === this.childIteratorOffset) {
+  deleteNode(parent: Box, node: Box) {
+    if (parent instanceof DocBox && node instanceof BlockBox) {
+      const pageFlowBoxes = parent.getChildren();
+      for (let n = 0, nn = pageFlowBoxes.length; n < nn; n++) {
+        const pageFlowBox = pageFlowBoxes[n];
+        if (pageFlowBox.getChildren().indexOf(node) >= 0) {
+          pageFlowBox.deleteChild(node);
+          if (pageFlowBox.getChildren().length === 0) {
+            parent.deleteChild(pageFlowBox);
+          } else {
+            this.updatedPageFlowBoxes.push(pageFlowBox);
+          }
+          break;
+        }
+      }
       return;
     }
-    const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, offset - 1);
-    this.operationsBuffer.push(operation);
-  }
-
-  replaceChild(child: Box) {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more child operations after flushing.');
-    }
-    const operation = new StackElementReplaceChildOperation(this.childIteratorOffset, child);
-    this.operationsBuffer.push(operation);
-  }
-
-  flushOperationsBuffer() {
-    if (this.operationsBuffer.length > 0) {
-      const box = this.box;
-      let operation: StackElementOperation;
-      for (let n = 0, nn = this.operationsBuffer.length; n < nn; n++) {
-        let delta: number;
-        operation = this.operationsBuffer[n];
-        if (operation instanceof StackElementInsertChildOperation) {
-          if (box instanceof DocBox) {
-            delta = this.insertBlockBoxToDocBox(box, operation.getChild() as BlockBox, operation.getOffset());
-          } else if (box instanceof BlockBox) {
-            delta = this.insertInlineBoxToBlockBox(box, operation.getChild() as InlineBox, operation.getOffset());
+    if (parent instanceof BlockBox && node instanceof InlineBox) {
+      const lineFlowBoxes = parent.getChildren();
+      for (let n = 0, nn = lineFlowBoxes.length; n < nn; n++) {
+        const lineFlowBox = lineFlowBoxes[n];
+        if (lineFlowBox.getChildren().indexOf(node) >= 0) {
+          lineFlowBox.deleteChild(node);
+          if (lineFlowBox.getChildren().length === 0) {
+            parent.deleteChild(lineFlowBox);
           } else {
-            delta = 0;
+            this.updatedLineFlowBoxes.push(lineFlowBox);
           }
-          propagateVersionToAncestors(operation.getChild());
-        } else if (operation instanceof StackElementDeleteChildrenOperation) {
-          if (box instanceof DocBox) {
-            delta = this.deleteBlockBoxesFromDocBox(box, operation.getFromOffset(), operation.getToOffset());
-          } else if (box instanceof BlockBox) {
-            delta = this.deleteInlineBoxesFromBlockBox(box, operation.getFromOffset(), operation.getToOffset());
-          } else {
-            delta = 0;
-          }
-        } else if (operation instanceof StackElementReplaceChildOperation) {
-          if (box instanceof DocBox) {
-            const [
-              deleteFromOffset,
-              deleteToOffset,
-            ] = this.invertedChildrenMap.get(operation.getChild().getRenderNodeID())!;
-            const deleteDelta = this.deleteBlockBoxesFromDocBox(box, deleteFromOffset, deleteToOffset);
-            const insertDelta = this.insertBlockBoxToDocBox(box, operation.getChild() as BlockBox, operation.getOffset());
-            delta = deleteDelta + insertDelta;
-          } else if (box instanceof BlockBox) {
-            const [
-              deleteFromOffset,
-              deleteToOffset,
-            ] = this.invertedChildrenMap.get(operation.getChild().getRenderNodeID())!;
-            const deleteDelta = this.deleteInlineBoxesFromBlockBox(box, deleteFromOffset, deleteToOffset);
-            const insertDelta = this.insertInlineBoxToBlockBox(box, operation.getChild() as InlineBox, operation.getOffset());
-            delta = deleteDelta + insertDelta;
-          } else {
-            delta = 0;
-          }
-          propagateVersionToAncestors(operation.getChild());
-        } else {
-          throw new Error('Unknown operation.');
-        }
-        if (delta !== 0) {
-          for (let m = n; m < nn; m++) {
-            this.operationsBuffer[m].shiftOffset(delta);
-          }
+          break;
         }
       }
+      return;
     }
-    this.operationsBufferFlushed = true;
+    throw new Error('Error deleting box, type mismatch.');
   }
 
-  getLineBoxesToReflow(): LineBox[] {
-    return this.lineBoxesToReflow;
-  }
-
-  getPageBoxesToReflow(): PageBox[] {
-    return this.pageBoxesToReflow;
-  }
-
-  protected getDocBoxChildren(docBox: DocBox): BlockBox[] {
-    const children: BlockBox[] = [];
-    docBox.getChildren().forEach(pageBox => {
-      pageBox.getChildren().forEach(blockBox => {
-        children.push(blockBox);
-      });
-    });
-    return children;
-  }
-
-  protected getBlockBoxChildren(blockBox: BlockBox): InlineBox[] {
-    const children: InlineBox[] = [];
-    blockBox.getChildren().forEach(lineBox => {
-      lineBox.getChildren().forEach(inlineBox => {
-        children.push(inlineBox);
-      });
-    });
-    return children;
-  }
-
-  protected insertBlockBoxToDocBox(docBox: DocBox, blockBox: BlockBox, offset: number): number {
-    if (docBox.getChildren().length === 0) {
-      const pageBox = new PageBox(docBox.getWidth(), docBox.getHeight(), docBox.getPadding());
-      pageBox.setParent(docBox);
-      docBox.insertChild(pageBox, 0);
-    }
-    const pageBoxes = docBox.getChildren();
-    let cumulatedOffset = 0;
-    let delta = 0;
-    for (let m = 0, mm = pageBoxes.length; m < mm; m++) {
-      const pageBox = pageBoxes[m];
-      if (this.pageBoxesToReflow.length === 0 || this.pageBoxesToReflow[this.pageBoxesToReflow.length - 1] !== pageBox) {
-        this.pageBoxesToReflow.push(pageBox);
+  updateNode(node: Box, srcNode: RenderNode): boolean {
+    if (node instanceof DocBox && srcNode instanceof DocRenderNode) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
       }
-      const pageBoxChildrenLength = pageBox.getChildren().length;
-      if (cumulatedOffset + pageBoxChildrenLength >= offset) {
-        pageBox.insertChild(blockBox, offset - cumulatedOffset);
-        blockBox.setParent(pageBox);
-        delta = 1;
-        break;
-      }
-      cumulatedOffset += pageBoxChildrenLength;
+      node.onRenderUpdated(srcNode);
+      node.setVersion(srcNode.getVersion());
+      return true;
     }
-    return delta;
-  }
-
-  protected insertInlineBoxToBlockBox(blockBox: BlockBox, inlineBox: InlineBox, offset: number): number {
-    if (blockBox.getChildren().length === 0) {
-      const lineBox = new LineBox(blockBox.getWidth());
-      lineBox.setParent(blockBox);
-      blockBox.insertChild(lineBox, 0);
-    }
-    const lineBoxes = blockBox.getChildren();
-    let cumulatedOffset = 0;
-    let delta = 0;
-    for (let m = 0, mm = lineBoxes.length; m < mm; m++) {
-      const lineBox = lineBoxes[m];
-      if (this.lineBoxesToReflow.length === 0 || this.lineBoxesToReflow[this.lineBoxesToReflow.length - 1] !== lineBox) {
-        this.lineBoxesToReflow.push(lineBox);
+    if (node instanceof BlockBox && srcNode instanceof BlockRenderNode) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
       }
-      const lineBoxChildrenLength = lineBox.getChildren().length;
-      if (cumulatedOffset + lineBoxChildrenLength >= offset) {
-        lineBox.insertChild(inlineBox, offset - cumulatedOffset);
-        inlineBox.setParent(lineBox);
-        delta = 1;
-        break;
-      }
-      cumulatedOffset += lineBoxChildrenLength;
+      node.onRenderUpdated(srcNode);
+      node.setVersion(srcNode.getVersion());
+      this.updatedPageFlowBoxes.push(node.getParent());
+      return true;
     }
-    return delta;
-  }
-
-  protected deleteBlockBoxesFromDocBox(docBox: DocBox, fromOffset: number, toOffset: number): number {
-    const pageBoxes = docBox.getChildren();
-    let cumulatedOffset = 0;
-    let pageBox: PageBox;
-    for (let m = 0, mm = pageBoxes.length; m < mm; m++) {
-      pageBox = pageBoxes[m];
-      const pageBoxChildrenLength =  pageBox.getChildren().length;
-      const childFromOffset = Math.max(fromOffset - cumulatedOffset, 0);
-      const childToOffset = Math.min(toOffset + 1 - cumulatedOffset, pageBoxChildrenLength);
-      if (childFromOffset < childToOffset) {
-        const childrenToDelete = pageBox.getChildren().slice(childFromOffset, childToOffset + 1);
-        for (let o = 0, oo = childrenToDelete.length; o < oo; o++) {
-          pageBox.deleteChild(childrenToDelete[o]);
-        }
-        if (this.pageBoxesToReflow.length === 0 || this.pageBoxesToReflow[this.pageBoxesToReflow.length - 1] !== pageBox) {
-          this.pageBoxesToReflow.push(pageBox);
-        }
-        return 0 - childrenToDelete.length;
+    if (node instanceof InlineBox && srcNode instanceof InlineRenderNode) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
       }
-      cumulatedOffset += pageBoxChildrenLength;
+      node.onRenderUpdated(srcNode);
+      node.setVersion(srcNode.getVersion());
+      this.updatedLineFlowBoxes.push(node.getParent());
+      return true;
     }
-    return 0;
-  }
-
-  protected deleteInlineBoxesFromBlockBox(blockBox: BlockBox, fromOffset: number, toOffset: number): number {
-    const lineBoxes = blockBox.getChildren();
-    let cumulatedOffset = 0;
-    let lineBox: LineBox;
-    for (let m = 0, mm = lineBoxes.length; m < mm; m++) {
-      lineBox = lineBoxes[m];
-      const lineBoxChildrenLength =  lineBox.getChildren().length;
-      const childFromOffset = Math.max(fromOffset - cumulatedOffset, 0);
-      const childToOffset = Math.min(toOffset + 1 - cumulatedOffset, lineBoxChildrenLength);
-      if (childFromOffset < childToOffset) {
-        const childrenToDelete = lineBox.getChildren().slice(childFromOffset, childToOffset + 1);
-        for (let o = 0, oo = childrenToDelete.length; o < oo; o++) {
-          lineBox.deleteChild(childrenToDelete[o]);
-        }
-        if (this.lineBoxesToReflow.length === 0 || this.lineBoxesToReflow[this.lineBoxesToReflow.length - 1] !== lineBox) {
-          this.lineBoxesToReflow.push(lineBox);
-        }
-        return 0 - childrenToDelete.length;
-      }
-      cumulatedOffset += lineBoxChildrenLength;
-    }
-    return 0;
-  }
-}
-
-class Stack {
-  protected elements: StackElement[];
-
-  constructor() {
-    this.elements = [];
-  }
-
-  push(element: StackElement) {
-    this.elements.push(element);
-  }
-
-  pop(): StackElement | undefined {
-    return this.elements.pop();
-  }
-
-  peek(): StackElement | undefined {
-    return this.elements[this.elements.length - 1];
+    throw new Error('Error updating box, type mismatch.');
   }
 }
 
@@ -412,21 +199,16 @@ export default class LayoutEngine {
   protected config: Config;
   protected docRenderNode: DocRenderNode;
   protected docBox: DocBox;
-  protected stack: Stack;
-  protected lineBoxesToReflow: LineBox[];
-  protected pageBoxesToReflow: PageBox[];
   protected ran: boolean;
-  protected ranVersion: number;
+  protected version: number;
   
   constructor(config: Config, docRenderNode: DocRenderNode) {
     this.config = config;
     this.docRenderNode = docRenderNode;
-    this.docBox = new DocBox(docRenderNode.getID(), docRenderNode.getWidth(), docRenderNode.getHeight(), docRenderNode.getPadding());
-    this.stack = new Stack();
-    this.lineBoxesToReflow = [];
-    this.pageBoxesToReflow = [];
+    this.docBox = new DocBox(docRenderNode.getID());
+    this.docBox.onRenderUpdated(docRenderNode);
     this.ran = false;
-    this.ranVersion = -1;
+    this.version = -1;
     this.docRenderNode.subscribeOnUpdated(() => {
       this.run();
     });
@@ -440,100 +222,46 @@ export default class LayoutEngine {
   }
 
   protected run() {
-    this.stack.push(new StackElement(this.docRenderNode.getChildren(), this.docBox));
-    while (this.iterate()) {}
-    this.flushLineReflowOperationsBuffer();
-    this.flushPageReflowOperationsBuffer();
-    this.ranVersion = this.docRenderNode.getVersion();
+    const treeSyncer = new RenderToLayoutTreeSyncer(this.config, this.version);
+    treeSyncer.syncNodes(this.docRenderNode, this.docBox);
+    const newVersion = this.docRenderNode.getVersion();
+    const updatedLineFlowBoxes = treeSyncer.getUpdatedLineFlowBoxes();
+    let lastLineFlowBox: LineFlowBox | undefined = undefined;
+    updatedLineFlowBoxes.forEach(lineFlowBox => {
+      if (lastLineFlowBox && lastLineFlowBox === lineFlowBox) {
+        return;
+      }
+      this.reflowLineFlowBox(lineFlowBox, newVersion);
+      lastLineFlowBox = lineFlowBox;
+    });
+    const updatedPageFlowBoxes = treeSyncer.getUpdatedPageFlowBoxes();
+    let lastPageFlowBox: PageFlowBox | undefined = undefined;
+    updatedPageFlowBoxes.forEach(pageFlowBox => {
+      if (lastPageFlowBox && lastPageFlowBox === pageFlowBox) {
+        return;
+      }
+      this.reflowPageFlowBox(pageFlowBox, newVersion);
+      lastPageFlowBox = pageFlowBox;
+    });
     this.ran = true;
+    this.version = newVersion;
     this.docBox.onUpdated();
   }
 
-  protected iterate(): boolean {
-    const lastStackElement = this.stack.peek();
-    if (!lastStackElement) {
-      return false;
-    }
-    const renderNode = lastStackElement.iterate();
-    if (!renderNode) {
-      this.closeBox();
-      return this.iterate();
-    }
-    if (renderNode.getVersion() <= this.ranVersion) {
-      return this.iterate();
-    }
-    this.newBox(renderNode);
-    return true;
-  }
-
-  protected newBox(renderNode: RenderNode) {
-    const lastStackElement = this.stack.peek();
-    if (lastStackElement === undefined) {
-      throw new Error('Unexpected end of layout encountered.');
-    }
-    const offset = lastStackElement.findChild(renderNode.getID());
-    const boxBuilder = this.config.getBoxBuilder(renderNode.getType());
-    const box = boxBuilder.build(renderNode);
-    box.setVersion(this.getNextVersion());
-    if (offset[0] < 0 || offset[1] < 0) {
-      lastStackElement.insertChild(box);
-    } else {
-      lastStackElement.deleteChildrenTo(offset[1]);
-      const originalBoxes: Box[] = [];
-      for (let n = offset[0], nn = offset[1]; n < nn; n++) {
-        originalBoxes.push(lastStackElement.getChildAt(n));
-      }
-      let childOffset = 0;
-      originalBoxes.forEach(originalBox => {
-        originalBox.getChildren().forEach(child => {
-          box.insertChild(child, childOffset);
-        });
-      });
-      lastStackElement.replaceChild(box);
-    }
-    if (renderNode instanceof BlockRenderNode) {
-      this.stack.push(new StackElement(renderNode.getChildren(), box));
-    }
-  }
-
-  protected closeBox() {
-    const lastStackElement = this.stack.pop();
-    if (lastStackElement === undefined) {
-      throw new Error('Unexpected end of render doc encountered.');
-    }
-    lastStackElement.flushOperationsBuffer();
-    this.lineBoxesToReflow.push(...lastStackElement.getLineBoxesToReflow());
-    this.pageBoxesToReflow.push(...lastStackElement.getPageBoxesToReflow());
-  }
-
-  protected flushLineReflowOperationsBuffer() {
-    this.lineBoxesToReflow.forEach(lineBox => {
-      this.reflowLineBox(lineBox);
-    });
-    this.lineBoxesToReflow = [];
-  }
-
-  protected flushPageReflowOperationsBuffer() {
-    this.pageBoxesToReflow.forEach(pageBox => {
-      this.reflowPageBox(pageBox);
-    });
-    this.pageBoxesToReflow = [];
-  }
-
-  protected reflowLineBox(lineBoxToReflow: LineBox) {
-    let lineBox = lineBoxToReflow;
-    const blockBox = lineBox.getParent();
-    if (blockBox.getChildren().indexOf(lineBox) < 0) {
+  protected reflowLineFlowBox(lineFlowBox: LineFlowBox, version: number) {
+    let currentLineFlowBox = lineFlowBox;
+    const blockBox = currentLineFlowBox.getParent();
+    if (blockBox.getChildren().indexOf(currentLineFlowBox) < 0) {
       // Line box was already reflowed and removed when
       // reflowing a previous line, nothing more needs
       // to be done
       return;
     }
-    const lineBoxWidth = lineBox.getWidth();
+    const lineBoxWidth = currentLineFlowBox.getWidth();
     let cumulatedWidth = 0;
     let n = 0;
     while (true) {
-      let inlineBox = lineBox.getChildren()[n];
+      let inlineBox = currentLineFlowBox.getChildren()[n];
       if (cumulatedWidth + inlineBox.getWidth() > lineBoxWidth) {
         // With this inline box, the line width limit gets exceeded,
         // so we need to determine where to cleave this inline box
@@ -543,14 +271,14 @@ export default class LayoutEngine {
             // With this atomic box, the line width limit gets exceeded,
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
-            const newLineBox = lineBox.cleaveAt(n + 1);
-            newLineBox.setVersion(this.getNextVersion());
-            blockBox.insertChild(newLineBox, blockBox.getChildren().indexOf(lineBox) + 1);
-            lineBox = newLineBox;
+            const newLineFlowBox = currentLineFlowBox.cleaveAt(n + 1);
+            newLineFlowBox.setVersion(version);
+            blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
+            currentLineFlowBox = newLineFlowBox;
             n = 0;
             const newInlineBox = inlineBox.cleaveAt(m);
-            newInlineBox.setVersion(this.getNextVersion());
-            lineBox.insertChild(newInlineBox, lineBox.getChildren().indexOf(inlineBox) + 1);
+            newInlineBox.setVersion(version);
+            currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
             m = 0;
             cumulatedWidth = 0;
@@ -560,58 +288,58 @@ export default class LayoutEngine {
       }
       cumulatedWidth += inlineBox.getWidth();
       n++;
-      if (n === lineBox.getChildren().length) {
-        const lineBoxOffset = blockBox.getChildren().indexOf(lineBox);
+      if (n === currentLineFlowBox.getChildren().length) {
+        const lineBoxOffset = blockBox.getChildren().indexOf(currentLineFlowBox);
         if (lineBoxOffset >= blockBox.getChildren().length - 1) {
           // Last line box in block box reached
           break;
         }
-        const nextLineBox = blockBox.getChildren()[lineBoxOffset + 1];
-        const nextAtomicBox = nextLineBox.getChildren()[0].getChildren()[0];
-        if (cumulatedWidth + nextAtomicBox.getWidth() <= lineBox.getWidth()) {
+        const nextLineFlowBox = blockBox.getChildren()[lineBoxOffset + 1];
+        const nextAtomicBox = nextLineFlowBox.getChildren()[0].getChildren()[0];
+        if (cumulatedWidth + nextAtomicBox.getWidth() <= currentLineFlowBox.getWidth()) {
           // The first atomic box of the next line box can fit on this
           // line box, so we merge the next line box into this line box
           // and continue with reflow
-          nextLineBox.getChildren().forEach(nextInlineBox => {
-            lineBox.insertChild(nextInlineBox, lineBox.getChildren().length);
+          nextLineFlowBox.getChildren().forEach(nextInlineBox => {
+            currentLineFlowBox.insertChild(nextInlineBox, currentLineFlowBox.getChildren().length);
           });
-          blockBox.deleteChild(nextLineBox);
+          blockBox.deleteChild(nextLineFlowBox);
         }
       }
     }
   }
 
-  protected reflowPageBox(pageBoxToReflow: PageBox) {
-    let pageBox = pageBoxToReflow;
-    const docBox = pageBox.getParent();
-    if (docBox.getChildren().indexOf(pageBox) < 0) {
+  protected reflowPageFlowBox(pageFlowBoxToReflow: PageFlowBox, version: number) {
+    let pageFlowBox = pageFlowBoxToReflow;
+    const docBox = pageFlowBox.getParent();
+    if (docBox.getChildren().indexOf(pageFlowBox) < 0) {
       // Page box was already reflowed and removed when
       // reflowing a previous page, nothing more needs
       // to be done
       return;
     }
-    const pageBoxHeight = pageBox.getInnerHeight();
+    const pageFlowBoxHeight = pageFlowBox.getInnerHeight();
     let cumulatedHeight = 0;
     let n = 0;
     while (true) {
-      let blockBox = pageBox.getChildren()[n];
-      if (cumulatedHeight + blockBox.getHeight() > pageBoxHeight) {
+      let blockBox = pageFlowBox.getChildren()[n];
+      if (cumulatedHeight + blockBox.getHeight() > pageFlowBoxHeight) {
         // With this block box, the page height limit gets exceeded,
         // so we need to determine where to cleave this block box
         for (let m = 0; m < blockBox.getChildren().length; m++) {
           let lineBox = blockBox.getChildren()[m];
-          if (cumulatedHeight + lineBox.getHeight() > pageBoxHeight) {
+          if (cumulatedHeight + lineBox.getHeight() > pageFlowBoxHeight) {
             // With this line box, the page height limit gets exceeded,
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
-            const newPageBox = pageBox.cleaveAt(n + 1);
-            newPageBox.setVersion(this.getNextVersion());
-            docBox.insertChild(newPageBox, docBox.getChildren().indexOf(pageBox) + 1);
-            pageBox = newPageBox;
+            const newPageFlowBox = pageFlowBox.cleaveAt(n + 1);
+            newPageFlowBox.setVersion(version);
+            docBox.insertChild(newPageFlowBox, docBox.getChildren().indexOf(pageFlowBox) + 1);
+            pageFlowBox = newPageFlowBox;
             n = 0;
             const newBlockBox = blockBox.cleaveAt(m);
-            newBlockBox.setVersion(this.getNextVersion());
-            pageBox.insertChild(newBlockBox, pageBox.getChildren().indexOf(blockBox) + 1);
+            newBlockBox.setVersion(version);
+            pageFlowBox.insertChild(newBlockBox, pageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
             cumulatedHeight = 0;
@@ -621,28 +349,24 @@ export default class LayoutEngine {
       }
       cumulatedHeight += blockBox.getHeight();
       n++;
-      if (n === pageBox.getChildren().length) {
-        const pageBoxOffset = docBox.getChildren().indexOf(pageBox);
-        if (pageBoxOffset >= docBox.getChildren().length - 1) {
+      if (n === pageFlowBox.getChildren().length) {
+        const pageFlowBoxOffset = docBox.getChildren().indexOf(pageFlowBox);
+        if (pageFlowBoxOffset >= docBox.getChildren().length - 1) {
           // Last page box in doc box reached
           break;
         }
-        const nextPageBox = docBox.getChildren()[pageBoxOffset + 1];
-        const nextLineBox = nextPageBox.getChildren()[0].getChildren()[0];
-        if (cumulatedHeight + nextLineBox.getHeight() <= pageBox.getInnerHeight()) {
+        const nextPageFlowBox = docBox.getChildren()[pageFlowBoxOffset + 1];
+        const nextLineFlowBox = nextPageFlowBox.getChildren()[0].getChildren()[0];
+        if (cumulatedHeight + nextLineFlowBox.getHeight() <= pageFlowBox.getInnerHeight()) {
           // The first line box of the next page box can fit on this
           // page box, so we merge the next page box into this page box
           // and continue with reflow
-          nextPageBox.getChildren().forEach(nextBlockBox => {
-            pageBox.insertChild(nextBlockBox, pageBox.getChildren().length);
+          nextPageFlowBox.getChildren().forEach(nextBlockBox => {
+            pageFlowBox.insertChild(nextBlockBox, pageFlowBox.getChildren().length);
           });
-          docBox.deleteChild(nextPageBox);
+          docBox.deleteChild(nextPageFlowBox);
         }
       }
     }
-  }
-
-  protected getNextVersion(): number {
-    return this.docRenderNode.getVersion() + 1;
   }
 }

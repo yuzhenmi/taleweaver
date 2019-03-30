@@ -1,8 +1,8 @@
-import Box from './Box';
-import InlineBox from './InlineBox';
+import AtomicRenderNode from '../render/AtomicRenderNode';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
-import LayoutNode from './LayoutNode';
+import Box from './Box';
+import InlineBox from './InlineBox';
 
 type Parent = InlineBox;
 
@@ -10,21 +10,9 @@ export default abstract class AtomicBox extends Box {
   protected parent?: Parent;
   protected breakable: boolean;
 
-  constructor(renderNodeID: string, breakable: boolean) {
+  constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.breakable = breakable;
-  }
-
-  getChildren(): LayoutNode[] {
-    return [];
-  }
-
-  insertChild(child: LayoutNode, offset: number) {
-    throw new Error('Cannot insert child to atomic box.');
-  }
-
-  deleteChild(child: LayoutNode) {
-    throw new Error('Cannot delete child from atomic box.');
+    this.breakable = true;
   }
 
   isBreakable(): boolean {
@@ -75,6 +63,10 @@ export default abstract class AtomicBox extends Box {
     const parentNextSiblingChildren = parentNextSibling.getChildren();
     return parentNextSiblingChildren[0];
   }
+
+  abstract getSelectableSize(): number;
+
+  abstract onRenderUpdated(renderNode: AtomicRenderNode): void;
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition);

@@ -1,29 +1,40 @@
-import Box from './Box';
-import LineBox from './LineBox';
+import BlockRenderNode from '../render/BlockRenderNode';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
-import PageBox from './PageBox';
+import Box from './Box';
+import PageFlowBox from './PageFlowBox';
+import LineFlowBox from './LineFlowBox';
 
-type Parent = PageBox;
-type Child = LineBox;
+type Parent = PageFlowBox;
+type Child = LineFlowBox;
 
 export default abstract class BlockBox extends Box {
+  protected version: number;
   protected width: number;
   protected height?: number;
   protected selectableSize?: number;
   protected parent?: Parent;
   protected children: Child[];
 
-  constructor(renderNodeID: string, width: number) {
+  constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.width = width;
+    this.version = 0;
+    this.width = 0;
     this.children = [];
   }
 
   abstract getType(): string;
 
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
+  }
+
   getWidth(): number {
-    return this.width;
+    return this.getParent().getInnerWidth();
   }
 
   getHeight(): number {
@@ -35,17 +46,6 @@ export default abstract class BlockBox extends Box {
       this.height = height;
     }
     return this.height;
-  }
-
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
   }
 
   setParent(parent: Parent) {
@@ -109,6 +109,19 @@ export default abstract class BlockBox extends Box {
     const parentNextSiblingChildren = parentNextSibling.getChildren();
     return parentNextSiblingChildren[0];
   }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  abstract onRenderUpdated(renderNode: BlockRenderNode): void;
 
   abstract cleaveAt(offset: number): BlockBox;
 

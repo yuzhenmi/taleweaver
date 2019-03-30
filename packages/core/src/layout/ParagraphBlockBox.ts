@@ -1,3 +1,4 @@
+import ParagraphBlockRenderNode from '../render/ParagraphBlockRenderNode';
 import BlockBox from './BlockBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
 
@@ -7,6 +8,8 @@ export default class ParagraphBlockBox extends BlockBox {
     return 'ParagraphBlockBox';
   }
 
+  onRenderUpdated(renderNode: ParagraphBlockRenderNode) {}
+
   cleaveAt(offset: number): ParagraphBlockBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving ParagraphBlockBox, offset ${offset} is out of range.`);
@@ -14,7 +17,7 @@ export default class ParagraphBlockBox extends BlockBox {
     const childrenCut = this.children.splice(offset);
     this.selectableSize = undefined;
     this.height = undefined;
-    const newParagraphBlockBox = new ParagraphBlockBox(this.renderNodeID, this.width);
+    const newParagraphBlockBox = new ParagraphBlockBox(this.renderNodeID);
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);
     });

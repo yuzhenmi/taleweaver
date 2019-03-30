@@ -1,38 +1,40 @@
 import Node from './model/Node';
 import Paragraph from './model/Paragraph';
 import Text from './model/Text';
-import RenderNodeBuilder from './render/RenderNodeBuilder';
-import ParagraphBlockRenderNodeBuilder from './render/ParagraphBlockRenderNodeBuilder';
-import TextInlineRenderNodeBuilder from './render/TextInlineRenderNodeBuilder';
-import BoxBuilder from './layout/BoxBuilder';
-import ParagraphBlockBoxBuilder from './layout/ParagraphBlockBoxBuilder';
-import TextInlineBoxBuilder from './layout/TextInlineBoxBuilder';
-import View from './view/View';
-import ParagraphBlockView from './view/ParagraphBlockView';
-import TextInlineView from './view/TextInlineView';
+import RenderNode from './render/RenderNode';
+import ParagraphBlockRenderNode from './render/ParagraphBlockRenderNode';
+import TextInlineRenderNode from './render/TextInlineRenderNode';
+import Box from './layout/Box';
+import ParagraphBlockBox from './layout/ParagraphBlockBox';
+import TextInlineBox from './layout/TextInlineBox';
+import ViewNode from './view/ViewNode';
+import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
+import TextInlineViewNode from './view/TextInlineViewNode';
 
 type NodeClass = new (...args: any[]) => Node;
-type ViewClass = new (...args: any[]) => View;
+type RenderNodeClass = new (...args: any[]) => RenderNode;
+type BoxClass = new (...args: any[]) => Box;
+type ViewNodeClass = new (...args: any[]) => ViewNode;
 
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
-  protected renderers: Map<string, RenderNodeBuilder>;
-  protected boxBuilders: Map<string, BoxBuilder>;
-  protected viewClasses: Map<string, ViewClass>;
+  protected renderNodeClasses: Map<string, RenderNodeClass>;
+  protected boxClasses: Map<string, BoxClass>;
+  protected viewNodeClasses: Map<string, ViewNodeClass>;
 
   constructor() {
     this.nodeClasses = new Map();
-    this.renderers = new Map();
-    this.boxBuilders = new Map();
-    this.viewClasses = new Map();
+    this.renderNodeClasses = new Map();
+    this.boxClasses = new Map();
+    this.viewNodeClasses = new Map();
     this.registerNodeClass('Paragraph', Paragraph);
     this.registerNodeClass('Text', Text);
-    this.registerRenderNodeBuilder('Paragraph', new ParagraphBlockRenderNodeBuilder());
-    this.registerRenderNodeBuilder('Text', new TextInlineRenderNodeBuilder());
-    this.registerBoxBuilder('ParagraphBlockRenderNode', new ParagraphBlockBoxBuilder());
-    this.registerBoxBuilder('TextInlineRenderNode', new TextInlineBoxBuilder());
-    this.registerViewClass('ParagraphBlockBox', ParagraphBlockView);
-    this.registerViewClass('TextInlineBox', TextInlineView);
+    this.registerRenderNodeClass('Paragraph', ParagraphBlockRenderNode);
+    this.registerRenderNodeClass('Text', TextInlineRenderNode);
+    this.registerBoxClass('ParagraphBlockRenderNode', ParagraphBlockBox);
+    this.registerBoxClass('TextInlineRenderNode', TextInlineBox);
+    this.registerViewNodeClass('ParagraphBlockBox', ParagraphBlockViewNode);
+    this.registerViewNodeClass('TextInlineBox', TextInlineViewNode);
   }
 
   registerNodeClass(nodeType: string, nodeClass: NodeClass) {
@@ -46,39 +48,39 @@ class Config {
     return this.nodeClasses.get(nodeType)!;
   }
 
-  registerRenderNodeBuilder(nodeType: string, renderer: RenderNodeBuilder) {
-    this.renderers.set(nodeType, renderer);
+  registerRenderNodeClass(nodeType: string, renderNodeClass: RenderNodeClass) {
+    this.renderNodeClasses.set(nodeType, renderNodeClass);
   }
 
-  getRenderNodeBuilder(nodeType: string): RenderNodeBuilder {
-    if (!this.renderers.has(nodeType)) {
-      throw new Error(`No renderer registered for node type ${nodeType}.`);
+  getRenderNodeClass(nodeType: string): RenderNodeClass {
+    if (!this.renderNodeClasses.has(nodeType)) {
+      throw new Error(`No render node class registered for node type ${nodeType}.`);
     }
-    return this.renderers.get(nodeType)!;
+    return this.renderNodeClasses.get(nodeType)!;
   }
 
-  registerBoxBuilder(renderNodeType: string, boxBuilder: BoxBuilder) {
-    this.boxBuilders.set(renderNodeType, boxBuilder);
+  registerBoxClass(renderNodeType: string, boxClass: BoxClass) {
+    this.boxClasses.set(renderNodeType, boxClass);
   }
 
-  getBoxBuilder(renderNodeType: string): BoxBuilder {
-    const blockBoxBuilder = this.boxBuilders.get(renderNodeType);
-    if (!blockBoxBuilder) {
-      throw new Error(`No box builder registered for render node type ${renderNodeType}.`);
+  getBoxClass(renderNodeType: string): BoxClass {
+    const blockBoxClass = this.boxClasses.get(renderNodeType);
+    if (!blockBoxClass) {
+      throw new Error(`No box class registered for render node type ${renderNodeType}.`);
     }
-    return blockBoxBuilder;
+    return blockBoxClass;
   }
 
-  registerViewClass(boxType: string, viewClass: ViewClass) {
-    this.viewClasses.set(boxType, viewClass);
+  registerViewNodeClass(boxType: string, viewNodeClass: ViewNodeClass) {
+    this.viewNodeClasses.set(boxType, viewNodeClass);
   }
 
-  getViewClass(boxType: string): ViewClass {
-    const viewClass = this.viewClasses.get(boxType);
-    if (!viewClass) {
-      throw new Error(`No view class registered for box type ${boxType}.`);
+  getViewNodeClass(boxType: string): ViewNodeClass {
+    const viewNodeClass = this.viewNodeClasses.get(boxType);
+    if (!viewNodeClass) {
+      throw new Error(`No view node class registered for box type ${boxType}.`);
     }
-    return viewClass;
+    return viewNodeClass;
   }
 }
 
