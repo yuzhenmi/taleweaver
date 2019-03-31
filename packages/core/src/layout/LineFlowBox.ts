@@ -127,7 +127,7 @@ export default class LineFlowBox extends FlowBox {
     this.selectableSize = undefined;
   }
 
-  cleaveAt(offset: number): LineFlowBox {
+  splitAt(offset: number): LineFlowBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving LineFlowBox, offset ${offset} is out of range.`);
     }

@@ -126,7 +126,9 @@ export default abstract class BlockBox extends Box {
     this.selectableSize = undefined;
   }
 
-  abstract cleaveAt(offset: number): BlockBox;
+  abstract splitAt(offset: number): BlockBox;
+
+  abstract join(blockBox: BlockBox): void;
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {

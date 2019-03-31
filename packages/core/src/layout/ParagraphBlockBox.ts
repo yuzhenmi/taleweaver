@@ -7,7 +7,7 @@ export default class ParagraphBlockBox extends BlockBox {
     return 'ParagraphBlockBox';
   }
 
-  cleaveAt(offset: number): ParagraphBlockBox {
+  splitAt(offset: number): ParagraphBlockBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving ParagraphBlockBox, offset ${offset} is out of range.`);
     }
@@ -19,6 +19,19 @@ export default class ParagraphBlockBox extends BlockBox {
     this.height = undefined;
     this.selectableSize = undefined;
     return newParagraphBlockBox;
+  }
+
+  join(paragraphBlockBox: ParagraphBlockBox) {
+    if (paragraphBlockBox.getRenderNodeID() !== this.renderNodeID) {
+      throw new Error('Cannot join block boxes with different render node IDs.');
+    }
+    let childOffset = this.children.length;
+    paragraphBlockBox.getChildren().forEach(child => {
+      this.insertChild(child, childOffset);
+      childOffset++;
+    });
+    this.height = undefined;
+    this.selectableSize = undefined;
   }
 
   resolveViewportPositionToSelectableOffset(x: number, y: number): number {

@@ -22,7 +22,7 @@ export default class TextInlineBox extends InlineBox {
     });
   }
 
-  cleaveAt(offset: number): InlineBox {
+  splitAt(offset: number): InlineBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving TextInlineBox, offset ${offset} is out of range.`);
     }
@@ -35,5 +35,18 @@ export default class TextInlineBox extends InlineBox {
     this.height = undefined;
     this.selectableSize = undefined;
     return newTextInlineBox;
+  }
+
+  join(textInlineBox: TextInlineBox) {
+    if (textInlineBox.getRenderNodeID() !== this.renderNodeID) {
+      throw new Error('Cannot join inline boxes with different render node IDs.');
+    }
+    let childOffset = this.children.length;
+    textInlineBox.getChildren().forEach(child => {
+      this.insertChild(child, childOffset);
+      childOffset++;
+    });
+    this.height = undefined;
+    this.selectableSize = undefined;
   }
 }

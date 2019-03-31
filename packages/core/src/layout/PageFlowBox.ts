@@ -120,7 +120,7 @@ export default class PageFlowBox extends FlowBox {
     this.selectableSize = undefined;
   }
 
-  cleaveAt(offset: number): PageFlowBox {
+  splitAt(offset: number): PageFlowBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving PageFlowBox, offset ${offset} is out of range.`);
     }

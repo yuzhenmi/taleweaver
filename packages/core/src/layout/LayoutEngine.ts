@@ -49,16 +49,6 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       node.getChildren().map(child => {
         children.push(...child.getChildren());
       });
-      // Merge children that were split by reflow
-      for (let n = 1; n < children.length; n++) {
-        const lastBlockBox = children[n - 1];
-        const blockBox = children[n];
-        if (lastBlockBox.getRenderNodeID() === blockBox.getRenderNodeID()) {
-          blockBox.getChildren().forEach(child => {
-            lastBlockBox.insertChild(child, lastBlockBox.getChildren().length);
-          });
-        }
-      }
       return children;
     }
     if (node instanceof BlockBox) {
@@ -66,16 +56,6 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       node.getChildren().map(child => {
         children.push(...child.getChildren());
       });
-      // Merge children that were split by reflow
-      for (let n = 1; n < children.length; n++) {
-        const lastInlineBox = children[n - 1];
-        const inlineBox = children[n];
-        if (lastInlineBox.getRenderNodeID() === inlineBox.getRenderNodeID()) {
-          inlineBox.getChildren().forEach(child => {
-            lastInlineBox.insertChild(child, lastInlineBox.getChildren().length);
-          });
-        }
-      }
       return children;
     }
     return [];
@@ -188,6 +168,24 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }
+      // Join block boxes that were split by reflow
+      let lastChild: BlockBox | undefined;
+      for (let n = 0; n < node.getChildren().length; n++) {
+        const pageFlowBox = node.getChildren()[n];
+        for (let m = 0; m < pageFlowBox.getChildren().length; m++) {
+          const blockBox = pageFlowBox.getChildren()[m];
+          if (lastChild && blockBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
+            lastChild.join(blockBox);
+            pageFlowBox.deleteChild(blockBox);
+            m--;
+          }
+          lastChild = blockBox;
+        }
+        if (pageFlowBox.getChildren().length === 0) {
+          node.deleteChild(pageFlowBox);
+          n--;
+        }
+      }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
       return true;
@@ -196,28 +194,36 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }
+      // Join inline boxes that were split by reflow
+      let lastChild: InlineBox | undefined;
+      for (let n = 0; n < node.getChildren().length; n++) {
+        const lineFlowBox = node.getChildren()[n];
+        for (let m = 0; m < lineFlowBox.getChildren().length; m++) {
+          const inlineBox = lineFlowBox.getChildren()[m];
+          if (lastChild && inlineBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
+            lastChild.join(inlineBox);
+            lineFlowBox.deleteChild(inlineBox);
+            m--;
+          }
+          lastChild = inlineBox;
+        }
+        if (lineFlowBox.getChildren().length === 0) {
+          node.deleteChild(lineFlowBox);
+          n--;
+        }
+      }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
-      const pageFlowBox = node.getParent();
-      if (pageFlowBox.getVersion() < srcNode.getVersion()) {
-        pageFlowBox.setVersion(srcNode.getVersion());
+      const lineFlowBox = node.getParent();
+      if (lineFlowBox.getVersion() < srcNode.getVersion()) {
+        lineFlowBox.setVersion(srcNode.getVersion());
       }
-      this.updatedPageFlowBoxes.push(pageFlowBox);
+      this.updatedPageFlowBoxes.push(lineFlowBox);
       return true;
     }
     if (node instanceof InlineBox && srcNode instanceof InlineRenderNode) {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
-      }
-      let nextSibling = node.getNextSibling();
-      while (nextSibling && nextSibling.getRenderNodeID() === node.getRenderNodeID()) {
-        const nextNextSibling = nextSibling.getNextSibling();;
-        nextSibling.getParent().deleteChild(nextSibling);
-        if (nextSibling.getParent().getChildren().length === 0) {
-          const blankLineFlowBox = nextSibling.getParent();
-          blankLineFlowBox.getParent().deleteChild(blankLineFlowBox);
-        }
-        nextSibling = nextNextSibling;
       }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
@@ -309,13 +315,13 @@ export default class LayoutEngine {
             // With this atomic box, the line width limit gets exceeded,
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
-            const newLineFlowBox = currentLineFlowBox.cleaveAt(n + 1);
+            const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
             currentLineFlowBox.setVersion(version);
             newLineFlowBox.setVersion(version);
             blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
             currentLineFlowBox = newLineFlowBox;
             n = 0;
-            const newInlineBox = inlineBox.cleaveAt(m);
+            const newInlineBox = inlineBox.splitAt(m);
             inlineBox.setVersion(version);
             newInlineBox.setVersion(version);
             currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
@@ -376,13 +382,13 @@ export default class LayoutEngine {
             // With this line box, the page height limit gets exceeded,
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
-            const newPageFlowBox = currentPageFlowBox.cleaveAt(n + 1);
+            const newPageFlowBox = currentPageFlowBox.splitAt(n + 1);
             currentPageFlowBox.setVersion(version);
             newPageFlowBox.setVersion(version);
             docBox.insertChild(newPageFlowBox, docBox.getChildren().indexOf(currentPageFlowBox) + 1);
             currentPageFlowBox = newPageFlowBox;
             n = 0;
-            const newBlockBox = blockBox.cleaveAt(m);
+            const newBlockBox = blockBox.splitAt(m);
             blockBox.setVersion(version);
             this.bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
             currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
