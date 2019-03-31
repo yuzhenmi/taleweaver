@@ -53,7 +53,8 @@ export default class CursorExtension extends Extension {
 
   onRegistered() {
     this.subscribeOnInputs();
-    this.getEditor().getCursor().subscribeOnChanged(this.onCursorChanged);
+    this.getEditor().getCursor().subscribeOnUpdated(this.onCursorChanged);
+    this.getEditor().getDocViewNode().subscribeOnUpdated(this.onDocViewChanged);
   }
 
   onMounted() {
@@ -93,6 +94,10 @@ export default class CursorExtension extends Extension {
   }
 
   protected onCursorChanged = () => {
+    this.updateView();
+  }
+
+  protected onDocViewChanged = () => {
     this.updateView();
   }
 

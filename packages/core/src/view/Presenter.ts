@@ -197,9 +197,10 @@ export default class Presenter {
     const treeSyncer = new LayoutToViewTreeSyncer(this.config, this.version);
     treeSyncer.syncNodes(this.docBox, this.docViewNode);
     this.version = this.docBox.getVersion();
+    this.docViewNode.onUpdated();
   }
 
-  getDocView(): DocViewNode {
+  getDocViewNode(): DocViewNode {
     return this.docViewNode;
   }
 

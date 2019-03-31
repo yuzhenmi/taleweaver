@@ -63,7 +63,7 @@ export default abstract class InlineBox extends Box {
 
   getParent(): Parent {
     if (!this.parent) {
-      throw new Error(`Inline box has parent set.`);
+      throw new Error(`Inline box has no parent set.`);
     }
     return this.parent;
   }

@@ -4,13 +4,17 @@ import PageViewNode from './PageViewNode';
 
 type Child = PageViewNode;
 
+type OnUpdatedSubscriber = () => void;
+
 export default class DocViewNode extends ViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
+  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
   constructor(id: string) {
     super(id);
     this.children = [];
+    this.onUpdatedSubscribers = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
     this.domContainer.style.whiteSpace = 'pre';
@@ -47,4 +51,14 @@ export default class DocViewNode extends ViewNode {
   }
 
   onLayoutUpdated(docBox: DocBox) {}
+
+  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
+    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
+  }
+
+  onUpdated() {
+    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
+      onUpdatedSubscriber();
+    });
+  }
 }

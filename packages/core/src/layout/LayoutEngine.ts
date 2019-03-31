@@ -189,6 +189,16 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }
+      let nextSibling = node.getNextSibling();
+      while (nextSibling && nextSibling.getRenderNodeID() === node.getRenderNodeID()) {
+        const nextNextSibling = nextSibling.getNextSibling();;
+        nextSibling.getParent().deleteChild(nextSibling);
+        if (nextSibling.getParent().getChildren().length === 0) {
+          const blankLineFlowBox = nextSibling.getParent();
+          blankLineFlowBox.getParent().deleteChild(blankLineFlowBox);
+        }
+        nextSibling = nextNextSibling;
+      }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
       const lineFlowBox = node.getParent();
@@ -296,12 +306,12 @@ export default class LayoutEngine {
       cumulatedWidth += inlineBox.getWidth();
       n++;
       if (n === currentLineFlowBox.getChildren().length) {
-        const lineBoxOffset = blockBox.getChildren().indexOf(currentLineFlowBox);
-        if (lineBoxOffset >= blockBox.getChildren().length - 1) {
-          // Last line box in block box reached
+        const lineFlowBoxOffset = blockBox.getChildren().indexOf(currentLineFlowBox) + 1;
+        if (lineFlowBoxOffset >= blockBox.getChildren().length) {
+          // Last line flow box in block box reached
           break;
         }
-        const nextLineFlowBox = blockBox.getChildren()[lineBoxOffset + 1];
+        const nextLineFlowBox = blockBox.getChildren()[lineFlowBoxOffset];
         const nextAtomicBox = nextLineFlowBox.getChildren()[0].getChildren()[0];
         if (cumulatedWidth + nextAtomicBox.getWidth() <= currentLineFlowBox.getWidth()) {
           // The first atomic box of the next line box can fit on this
@@ -359,12 +369,12 @@ export default class LayoutEngine {
       cumulatedHeight += blockBox.getHeight();
       n++;
       if (n === pageFlowBox.getChildren().length) {
-        const pageFlowBoxOffset = docBox.getChildren().indexOf(pageFlowBox);
+        const pageFlowBoxOffset = docBox.getChildren().indexOf(pageFlowBox) + 1;
         if (pageFlowBoxOffset >= docBox.getChildren().length - 1) {
-          // Last page box in doc box reached
+          // Last page flow box in doc box reached
           break;
         }
-        const nextPageFlowBox = docBox.getChildren()[pageFlowBoxOffset + 1];
+        const nextPageFlowBox = docBox.getChildren()[pageFlowBoxOffset];
         const nextLineFlowBox = nextPageFlowBox.getChildren()[0].getChildren()[0];
         if (cumulatedHeight + nextLineFlowBox.getHeight() <= pageFlowBox.getInnerHeight()) {
           // The first line box of the next page box can fit on this

@@ -26,7 +26,7 @@ export default class Cursor {
     return this.head;
   }
 
-  subscribeOnChanged(subscriber: OnChangedSubscriber) {
+  subscribeOnUpdated(subscriber: OnChangedSubscriber) {
     this.onChangedSubscribers.push(subscriber);
   }
 

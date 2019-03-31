@@ -10,6 +10,7 @@ export default abstract class BlockRenderNode extends RenderNode {
   protected version: number;
   protected parent: Parent;
   protected selectableSize?: number;
+  protected modelSize?: number;
   protected children: Child[];
 
   constructor(id: string, parent: Parent) {
@@ -25,17 +26,6 @@ export default abstract class BlockRenderNode extends RenderNode {
 
   getVersion(): number {
     return this.version;
-  }
-
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
   }
 
   getParent(): Parent {
@@ -58,5 +48,45 @@ export default abstract class BlockRenderNode extends RenderNode {
     this.children.splice(childOffset, 1);
   }
 
-  abstract onModelUpdated(node: BranchNode): void;
+  onModelUpdated(node: BranchNode) {
+    this.selectableSize = undefined;
+    this.modelSize = undefined;
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  getModelSize(): number {
+    if (this.modelSize === undefined) {
+      let modelSize = 2;
+      this.children.forEach(child => {
+        modelSize += child.getModelSize();
+      });
+      this.modelSize = modelSize;
+    }
+    return this.modelSize;
+  }
+
+  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+    let cumulatedSelectableOffset = 0;
+    let cumulatedModelOffset = 1;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSelectableOffset = child.getSelectableSize();
+      if (cumulatedSelectableOffset + childSelectableOffset >= selectableOffset) {
+        return cumulatedModelOffset + child.convertSelectableOffsetToModelOffset(selectableOffset - cumulatedSelectableOffset);
+      }
+      cumulatedSelectableOffset += childSelectableOffset;
+      cumulatedModelOffset += child.getModelSize();
+    }
+    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
 }

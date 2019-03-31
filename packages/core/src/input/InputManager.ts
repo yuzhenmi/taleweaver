@@ -28,6 +28,7 @@ export default class InputManager {
 
   onKeyPress(event: KeyboardEvent) {
     if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key.length === 1) {
+      event.preventDefault();
       this.charInputSubscribers.forEach(subscriber => subscriber(event.key));
     }
     const keySignature = getKeySignatureFromKeyboardEvent(event);

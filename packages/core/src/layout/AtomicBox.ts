@@ -25,7 +25,7 @@ export default abstract class AtomicBox extends Box {
 
   getParent(): Parent {
     if (!this.parent) {
-      throw new Error(`Atomic box has parent set.`);
+      throw new Error(`Atomic box has no parent set.`);
     }
     return this.parent;
   }

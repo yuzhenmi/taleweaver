@@ -26,6 +26,12 @@ abstract class TreeSyncer<S, D> {
       dstChildOffset++;
       this.syncNodes(srcChild, dstChild);
     }
+    // Delete extra nodes at the end
+    for (let n = dstChildOffset, nn = dstChildren.length; n < nn; n++) {
+      const dstChild = dstChildren[dstChildOffset];
+      this.deleteNode(dstNode, dstChild);
+      dstChildren.splice(dstChildOffset, 1);
+    }
   }
 
   abstract getSrcNodeChildren(node: S): S[];

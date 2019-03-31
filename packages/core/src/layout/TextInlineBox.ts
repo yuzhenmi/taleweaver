@@ -11,13 +11,13 @@ export default class TextInlineBox extends InlineBox {
 
   onRenderUpdated(renderNode: TextInlineRenderNode) {
     this.children = [];
-    renderNode.getChildren().forEach(atomicRenderNode => {
-      if (!(atomicRenderNode instanceof TextAtomicRenderNode)) {
+    renderNode.getChildren().forEach((child, childOffset) => {
+      if (!(child instanceof TextAtomicRenderNode)) {
         throw new Error('Expecting child of TextInlineRenderNode to be AtomicInlineRenderNode.');
       }
-      const textAtomicBox = new TextAtomicBox(atomicRenderNode.getID());
-      textAtomicBox.onRenderUpdated(atomicRenderNode);
-      this.children.push(textAtomicBox);
+      const textAtomicBox = new TextAtomicBox(child.getID());
+      this.insertChild(textAtomicBox, childOffset);
+      textAtomicBox.onRenderUpdated(child);
     });
     this.width = undefined;
     this.height = undefined;

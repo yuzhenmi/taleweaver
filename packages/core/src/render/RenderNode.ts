@@ -12,4 +12,8 @@ export default abstract class RenderNode {
   }
 
   abstract getSelectableSize(): number;
+
+  abstract getModelSize(): number;
+
+  abstract convertSelectableOffsetToModelOffset(selectableOffset: number): number;
 }

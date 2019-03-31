@@ -66,7 +66,7 @@ export default class LineFlowBox extends FlowBox {
 
   getParent(): Parent {
     if (!this.parent) {
-      throw new Error(`Line box has parent set.`);
+      throw new Error(`Line box has no parent set.`);
     }
     return this.parent;
   }

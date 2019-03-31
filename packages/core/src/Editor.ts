@@ -9,6 +9,7 @@ import InputManager from './input/InputManager';
 import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
 import Cursor from './cursor/Cursor';
+import DocViewNode from './view/DocViewNode';
 
 export default class Editor {
   protected config: Config;
@@ -48,6 +49,14 @@ export default class Editor {
     return this.state;
   }
 
+  getDocViewNode(): DocViewNode {
+    return this.presenter.getDocViewNode();
+  }
+
+  getRenderEngine(): RenderEngine {
+    return this.renderEngine;
+  }
+
   getLayoutEngine(): LayoutEngine {
     return this.layoutEngine;
   }
@@ -68,5 +77,9 @@ export default class Editor {
 
   registerExtension(extension: Extension) {
     this.extensionProvider.registerExtension(extension);
+  }
+
+  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+    return this.renderEngine.getDocRenderNode().convertSelectableOffsetToModelOffset(selectableOffset);
   }
 }

@@ -26,4 +26,12 @@ export default abstract class AtomicRenderNode extends RenderNode {
   }
 
   abstract getBreakable(): boolean;
+
+  getModelSize(): number {
+    return this.getSelectableSize();
+  }
+
+  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+    return selectableOffset;
+  }
 }
