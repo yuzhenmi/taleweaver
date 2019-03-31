@@ -1,4 +1,3 @@
-import Command from './Command';
 import Transformation from './Transformation';
 import { MoveTo, MoveHeadTo } from './operations';
 import Editor from '../Editor';
@@ -28,11 +27,6 @@ export default class Cursor {
 
   subscribeOnUpdated(subscriber: OnChangedSubscriber) {
     this.onChangedSubscribers.push(subscriber);
-  }
-
-  dispatchCommand(command: Command) {
-    const transformation = command(this.editor);
-    this.applyTransformation(transformation);
   }
 
   applyTransformation(transformation: Transformation) {

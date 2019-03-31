@@ -1,25 +1,27 @@
 import {
   Editor,
-  CursorCommand,
+  Command,
+  StateTransformation,
   CursorTransformation,
   AtomicBox,
   cursorOperations,
 } from '@taleweaver/core';
 import CursorExtension from '../CursorExtension';
 
-export default function moveLeftByWord(cursorExtension: CursorExtension): CursorCommand {
-  return (editor: Editor): CursorTransformation => {
-    const transformation = new CursorTransformation();
+export default function moveLeftByWord(cursorExtension: CursorExtension): Command {
+  return (editor: Editor): [StateTransformation, CursorTransformation] => {
+    const stateTransformation = new StateTransformation();
+    const cursorTransformation = new CursorTransformation();
     const cursor = editor.getCursor();
     if (!cursor) {
-      return transformation;
+      return [stateTransformation, cursorTransformation];
     }
     const head = cursor.getHead();
     const docBox = editor.getLayoutEngine().getDocBox();
     const position = docBox.resolvePosition(head);
     const atomicBoxLevelPosition = position.getAtomicBoxLevel();
     if (atomicBoxLevelPosition.getSelectableOffset() > 0) {
-      transformation.addOperation(new cursorOperations.MoveTo(head - atomicBoxLevelPosition.getSelectableOffset()));
+      cursorTransformation.addOperation(new cursorOperations.MoveTo(head - atomicBoxLevelPosition.getSelectableOffset()));
     } else {
       const atomicBox = atomicBoxLevelPosition.getLayoutNode();
       if (!(atomicBox instanceof AtomicBox)) {
@@ -27,11 +29,11 @@ export default function moveLeftByWord(cursorExtension: CursorExtension): Cursor
       }
       const previousSiblingAtomicBox = atomicBox.getPreviousSibling();
       if (previousSiblingAtomicBox) {
-        transformation.addOperation(new cursorOperations.MoveTo(head - previousSiblingAtomicBox.getSelectableSize()));
+        cursorTransformation.addOperation(new cursorOperations.MoveTo(head - previousSiblingAtomicBox.getSelectableSize()));
       } else {
-        transformation.addOperation(new cursorOperations.MoveTo(head));
+        cursorTransformation.addOperation(new cursorOperations.MoveTo(head));
       }
     }
-    return transformation;
+    return [stateTransformation, cursorTransformation];
   };
 }

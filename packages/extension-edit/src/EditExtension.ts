@@ -1,6 +1,6 @@
 import {
   Extension,
-  StateCommand,
+  Command,
 } from '@taleweaver/core';
 import {
   insertChar,
@@ -28,9 +28,13 @@ export default class EditExtension extends Extension {
     this.dispatchCommand(insertChar(this, char));
   }
 
-  protected dispatchCommand(command: StateCommand) {
+  protected dispatchCommand(command: Command) {
     const editor = this.getEditor();
-    const transformation = command(editor);
-    editor.getState().applyTransformation(transformation);
+    const [
+      stateTransformation,
+      cursorTransformation,
+    ] = command(editor);
+    editor.getState().applyTransformation(stateTransformation);
+    editor.getCursor().applyTransformation(cursorTransformation);
   }
 }

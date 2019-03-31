@@ -1,18 +1,20 @@
 import {
   Editor,
-  CursorCommand,
+  Command,
+  StateTransformation,
   CursorTransformation,
   LineFlowBox,
   cursorOperations,
 } from '@taleweaver/core';
 import CursorExtension from '../CursorExtension';
 
-export default function moveHeadToLineBelow(cursorExtension: CursorExtension): CursorCommand {
-  return (editor: Editor): CursorTransformation => {
-    const transformation = new CursorTransformation();
+export default function moveHeadToLineBelow(cursorExtension: CursorExtension): Command {
+  return (editor: Editor): [StateTransformation, CursorTransformation] => {
+    const stateTransformation = new StateTransformation();
+    const cursorTransformation = new CursorTransformation();
     const cursor = editor.getCursor();
     if (!cursor) {
-      return transformation;
+      return [stateTransformation, cursorTransformation];
     }
     const offset = cursor.getHead();
     const docBox = editor.getLayoutEngine().getDocBox();
@@ -24,7 +26,7 @@ export default function moveHeadToLineBelow(cursorExtension: CursorExtension): C
     }
     const nextLineFlowBox = lineFlowBox.getNextSibling();
     if (!nextLineFlowBox) {
-      transformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() - 1));
+      cursorTransformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() - 1));
     } else {
       let leftAnchor: number;
       if (cursorExtension.getLeftAnchor() !== null) {
@@ -35,10 +37,10 @@ export default function moveHeadToLineBelow(cursorExtension: CursorExtension): C
           lineFlowBoxLevelPosition.getSelectableOffset(),
         )[0].left;
       }
-      transformation.setLeftAnchor(leftAnchor);
+      cursorTransformation.setLeftAnchor(leftAnchor);
       const targetLineSelectableOffset = nextLineFlowBox.resolveViewportPositionToSelectableOffset(leftAnchor);
-      transformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() + targetLineSelectableOffset));
+      cursorTransformation.addOperation(new cursorOperations.MoveHeadTo(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() + targetLineSelectableOffset));
     }
-    return transformation;
+    return [stateTransformation, cursorTransformation];
   };
 }

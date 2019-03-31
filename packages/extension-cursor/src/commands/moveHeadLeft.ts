@@ -1,23 +1,25 @@
 import {
   Editor,
-  CursorCommand,
+  Command,
+  StateTransformation,
   CursorTransformation,
   cursorOperations,
 } from '@taleweaver/core';
 import CursorExtension from '../CursorExtension';
 
-export default function moveHeadLeft(cursorExtension: CursorExtension): CursorCommand {
-  return (editor: Editor): CursorTransformation => {
-    const transformation = new CursorTransformation();
+export default function moveHeadLeft(cursorExtension: CursorExtension): Command {
+  return (editor: Editor): [StateTransformation, CursorTransformation] => {
+    const stateTransformation = new StateTransformation();
+    const cursorTransformation = new CursorTransformation();
     const cursor = editor.getCursor();
     if (!cursor) {
-      return transformation;
+      return [stateTransformation, cursorTransformation];
     }
     const head = cursor.getHead();
     if (head < 1) {
-      return transformation;
+      return [stateTransformation, cursorTransformation];
     }
-    transformation.addOperation(new cursorOperations.MoveHeadTo(head - 1));
-    return transformation;
+    cursorTransformation.addOperation(new cursorOperations.MoveHeadTo(head - 1));
+    return [stateTransformation, cursorTransformation];
   };
 }

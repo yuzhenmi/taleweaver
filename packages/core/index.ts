@@ -2,11 +2,9 @@ import Editor from './src/Editor';
 import Config from './src/Config';
 
 import StateTransformation from './src/state/Transformation';
-import StateCommand from './src/state/Command';
 import * as stateOperations from './src/state/operations';
 
 import CursorTransformation from './src/cursor/Transformation';
-import CursorCommand from './src/cursor/Command';
 import * as cursorOperations from './src/cursor/operations';
 
 import DocBox from './src/layout/DocBox';
@@ -21,6 +19,7 @@ import ModifierKey from './src/input/ModifierKey';
 import KeySignature from './src/input/KeySignature';
 import * as keys from './src/input/keys';
 import * as modifierKeys from './src/input/modifierKeys';
+import Command from './src/input/Command';
 
 import Extension from './src/extension/Extension';
 
@@ -29,11 +28,9 @@ export {
   Config,
 
   StateTransformation,
-  StateCommand,
   stateOperations,
 
   CursorTransformation,
-  CursorCommand,
   cursorOperations,
 
   DocBox,
@@ -48,6 +45,7 @@ export {
   KeySignature,
   keys,
   modifierKeys,
+  Command,
 
   Extension,
 };

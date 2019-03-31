@@ -2,7 +2,7 @@ import {
   KeySignature,
   keys,
   modifierKeys,
-  CursorCommand,
+  Command,
   Extension,
 } from '@taleweaver/core';
 import {
@@ -86,11 +86,15 @@ export default class CursorExtension extends Extension {
     inputManager.subscribeOnKeyPress(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(selectAll(this)));
   }
 
-  protected dispatchCommand(command: CursorCommand) {
+  protected dispatchCommand(command: Command) {
     const editor = this.getEditor();
-    const transformation = command(editor);
-    editor.getCursor().applyTransformation(transformation);
-    this.leftAnchor = transformation.getLeftAnchor();
+    const [
+      stateTransformation,
+      cursorTransformation,
+    ] = command(editor);
+    editor.getState().applyTransformation(stateTransformation);
+    editor.getCursor().applyTransformation(cursorTransformation);
+    this.leftAnchor = cursorTransformation.getLeftAnchor();
   }
 
   protected onCursorChanged = () => {
