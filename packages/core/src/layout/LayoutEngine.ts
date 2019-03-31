@@ -49,6 +49,16 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       node.getChildren().map(child => {
         children.push(...child.getChildren());
       });
+      // Merge children that were split by reflow
+      for (let n = 1; n < children.length; n++) {
+        const lastBlockBox = children[n - 1];
+        const blockBox = children[n];
+        if (lastBlockBox.getRenderNodeID() === blockBox.getRenderNodeID()) {
+          blockBox.getChildren().forEach(child => {
+            lastBlockBox.insertChild(child, lastBlockBox.getChildren().length);
+          });
+        }
+      }
       return children;
     }
     if (node instanceof BlockBox) {
@@ -56,6 +66,16 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       node.getChildren().map(child => {
         children.push(...child.getChildren());
       });
+      // Merge children that were split by reflow
+      for (let n = 1; n < children.length; n++) {
+        const lastInlineBox = children[n - 1];
+        const inlineBox = children[n];
+        if (lastInlineBox.getRenderNodeID() === inlineBox.getRenderNodeID()) {
+          inlineBox.getChildren().forEach(child => {
+            lastInlineBox.insertChild(child, lastInlineBox.getChildren().length);
+          });
+        }
+      }
       return children;
     }
     return [];
@@ -275,26 +295,28 @@ export default class LayoutEngine {
       // to be done
       return;
     }
-    const lineBoxWidth = currentLineFlowBox.getWidth();
+    const lineFlowBoxWidth = currentLineFlowBox.getWidth();
     let cumulatedWidth = 0;
     let n = 0;
     while (true) {
       let inlineBox = currentLineFlowBox.getChildren()[n];
-      if (cumulatedWidth + inlineBox.getWidth() > lineBoxWidth) {
+      if (cumulatedWidth + inlineBox.getWidth() > lineFlowBoxWidth) {
         // With this inline box, the line width limit gets exceeded,
         // so we need to determine where to cleave this inline box
         for (let m = 0; m < inlineBox.getChildren().length; m++) {
           let atomicBox = inlineBox.getChildren()[m];
-          if (cumulatedWidth + atomicBox.getWidth() > lineBoxWidth) {
+          if (cumulatedWidth + atomicBox.getWidth() > lineFlowBoxWidth) {
             // With this atomic box, the line width limit gets exceeded,
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
             const newLineFlowBox = currentLineFlowBox.cleaveAt(n + 1);
+            currentLineFlowBox.setVersion(version);
             newLineFlowBox.setVersion(version);
             blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
             currentLineFlowBox = newLineFlowBox;
             n = 0;
             const newInlineBox = inlineBox.cleaveAt(m);
+            inlineBox.setVersion(version);
             newInlineBox.setVersion(version);
             currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
@@ -320,6 +342,7 @@ export default class LayoutEngine {
           // and continue with reflow
           nextLineFlowBox.getChildren().forEach(nextInlineBox => {
             currentLineFlowBox.insertChild(nextInlineBox, currentLineFlowBox.getChildren().length);
+            nextInlineBox.setVersion(version);
           });
           blockBox.deleteChild(nextLineFlowBox);
         } else {
@@ -329,61 +352,64 @@ export default class LayoutEngine {
     }
   }
 
-  protected reflowPageFlowBox(pageFlowBoxToReflow: PageFlowBox, version: number) {
-    pageFlowBoxToReflow.onRenderUpdated();
-    let pageFlowBox = pageFlowBoxToReflow;
-    const docBox = pageFlowBox.getParent();
-    if (docBox.getChildren().indexOf(pageFlowBox) < 0) {
+  protected reflowPageFlowBox(pageFlowBox: PageFlowBox, version: number) {
+    pageFlowBox.onRenderUpdated();
+    let currentPageFlowBox = pageFlowBox;
+    const docBox = currentPageFlowBox.getParent();
+    if (docBox.getChildren().indexOf(currentPageFlowBox) < 0) {
       // Page box was already reflowed and removed when
       // reflowing a previous page, nothing more needs
       // to be done
       return;
     }
-    const pageFlowBoxHeight = pageFlowBox.getInnerHeight();
+    const pageFlowBoxHeight = currentPageFlowBox.getInnerHeight();
     let cumulatedHeight = 0;
     let n = 0;
     while (true) {
-      let blockBox = pageFlowBox.getChildren()[n];
+      let blockBox = currentPageFlowBox.getChildren()[n];
       if (cumulatedHeight + blockBox.getHeight() > pageFlowBoxHeight) {
         // With this block box, the page height limit gets exceeded,
         // so we need to determine where to cleave this block box
         for (let m = 0; m < blockBox.getChildren().length; m++) {
-          let lineBox = blockBox.getChildren()[m];
-          if (cumulatedHeight + lineBox.getHeight() > pageFlowBoxHeight) {
+          let lineFlowBox = blockBox.getChildren()[m];
+          if (cumulatedHeight + lineFlowBox.getHeight() > pageFlowBoxHeight) {
             // With this line box, the page height limit gets exceeded,
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
-            const newPageFlowBox = pageFlowBox.cleaveAt(n + 1);
+            const newPageFlowBox = currentPageFlowBox.cleaveAt(n + 1);
+            currentPageFlowBox.setVersion(version);
             newPageFlowBox.setVersion(version);
-            docBox.insertChild(newPageFlowBox, docBox.getChildren().indexOf(pageFlowBox) + 1);
-            pageFlowBox = newPageFlowBox;
+            docBox.insertChild(newPageFlowBox, docBox.getChildren().indexOf(currentPageFlowBox) + 1);
+            currentPageFlowBox = newPageFlowBox;
             n = 0;
             const newBlockBox = blockBox.cleaveAt(m);
-            newBlockBox.setVersion(version);
-            pageFlowBox.insertChild(newBlockBox, pageFlowBox.getChildren().indexOf(blockBox) + 1);
+            blockBox.setVersion(version);
+            this.bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
+            currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
             cumulatedHeight = 0;
           }
-          cumulatedHeight += lineBox.getHeight();
+          cumulatedHeight += lineFlowBox.getHeight();
         }
       }
       cumulatedHeight += blockBox.getHeight();
       n++;
-      if (n === pageFlowBox.getChildren().length) {
-        const pageFlowBoxOffset = docBox.getChildren().indexOf(pageFlowBox) + 1;
-        if (pageFlowBoxOffset >= docBox.getChildren().length - 1) {
+      if (n === currentPageFlowBox.getChildren().length) {
+        const pageFlowBoxOffset = docBox.getChildren().indexOf(currentPageFlowBox) + 1;
+        if (pageFlowBoxOffset >= docBox.getChildren().length) {
           // Last page flow box in doc box reached
           break;
         }
         const nextPageFlowBox = docBox.getChildren()[pageFlowBoxOffset];
         const nextLineFlowBox = nextPageFlowBox.getChildren()[0].getChildren()[0];
-        if (cumulatedHeight + nextLineFlowBox.getHeight() <= pageFlowBox.getInnerHeight()) {
+        if (cumulatedHeight + nextLineFlowBox.getHeight() <= currentPageFlowBox.getInnerHeight()) {
           // The first line box of the next page box can fit on this
           // page box, so we merge the next page box into this page box
           // and continue with reflow
           nextPageFlowBox.getChildren().forEach(nextBlockBox => {
-            pageFlowBox.insertChild(nextBlockBox, pageFlowBox.getChildren().length);
+            currentPageFlowBox.insertChild(nextBlockBox, currentPageFlowBox.getChildren().length);
+            this.bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
           });
           docBox.deleteChild(nextPageFlowBox);
         } else {
@@ -391,5 +417,15 @@ export default class LayoutEngine {
         }
       }
     }
+  }
+
+  protected bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
+    blockBox.setVersion(version);
+    blockBox.getChildren().forEach(lineFlowBox => {
+      lineFlowBox.setVersion(version);
+      lineFlowBox.getChildren().forEach(inlineBox => {
+        inlineBox.setVersion(version);
+      });
+    });
   }
 }

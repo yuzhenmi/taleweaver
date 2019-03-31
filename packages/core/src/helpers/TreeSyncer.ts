@@ -21,6 +21,7 @@ abstract class TreeSyncer<S, D> {
         const dstChild = dstChildren[dstChildOffset];
         this.deleteNode(dstNode, dstChild);
         dstChildren.splice(dstChildOffset, 1);
+        continue;
       }
       const dstChild = dstChildren[dstChildOffset];
       dstChildOffset++;

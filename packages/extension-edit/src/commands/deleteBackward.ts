@@ -19,7 +19,7 @@ export default function deleteBackward(editExtension: EditExtension): Command {
     if (anchor !== head) {
       stateTransformation.addOperation(new stateOperations.Delete(Math.min(anchor, head), Math.max(anchor, head) - 1));
       cursorTransformation.addOperation(new cursorOperations.MoveTo(Math.min(cursorAnchor, cursorHead)));
-    } else if (head > 0) {
+    } else if (cursorHead > 0) {
       stateTransformation.addOperation(new stateOperations.Delete(head - 1, head - 1));
       cursorTransformation.addOperation(new cursorOperations.MoveTo(cursorHead - 1));
     }

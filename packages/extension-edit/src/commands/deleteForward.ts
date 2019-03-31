@@ -19,7 +19,7 @@ export default function deleteForward(editExtension: EditExtension): Command {
     if (anchor !== head) {
       stateTransformation.addOperation(new stateOperations.Delete(Math.min(anchor, head), Math.max(anchor, head) - 1));
       cursorTransformation.addOperation(new cursorOperations.MoveTo(Math.min(cursorAnchor, cursorHead)));
-    } else if (head > 0) {
+    } else if (cursorHead < editor.getRenderEngine().getDocRenderNode().getSelectableSize() - 1) {
       stateTransformation.addOperation(new stateOperations.Delete(head, head));
       cursorTransformation.addOperation(new cursorOperations.MoveTo(cursorHead));
     }
