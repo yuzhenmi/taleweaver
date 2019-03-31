@@ -49,17 +49,6 @@ export default class LineFlowBox extends FlowBox {
     return this.height;
   }
 
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
-  }
-
   setParent(parent: Parent) {
     this.parent = parent;
   }
@@ -121,6 +110,21 @@ export default class LineFlowBox extends FlowBox {
     }
     const parentNextSiblingChildren = parentNextSibling.getChildren();
     return parentNextSiblingChildren[0];
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  onRenderUpdated() {
+    this.selectableSize = undefined;
   }
 
   cleaveAt(offset: number): LineFlowBox {

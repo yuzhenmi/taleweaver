@@ -29,6 +29,9 @@ class State {
 
   applyTransformation(transformation: Transformation) {
     const operations = transformation.getOperations();
+    if (operations.length === 0) {
+      return;
+    }
     operations.forEach(operation => {
       if (operation instanceof Insert) {
         this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());

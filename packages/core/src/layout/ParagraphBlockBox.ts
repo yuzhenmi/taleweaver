@@ -8,8 +8,6 @@ export default class ParagraphBlockBox extends BlockBox {
     return 'ParagraphBlockBox';
   }
 
-  onRenderUpdated(renderNode: ParagraphBlockRenderNode) {}
-
   cleaveAt(offset: number): ParagraphBlockBox {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving ParagraphBlockBox, offset ${offset} is out of range.`);

@@ -79,6 +79,7 @@ export default class DocBox extends Box {
     this.width = renderNode.getWidth();
     this.height = renderNode.getHeight();
     this.padding = renderNode.getPadding();
+    this.selectableSize = undefined;
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

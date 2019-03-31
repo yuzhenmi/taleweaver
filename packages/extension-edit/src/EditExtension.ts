@@ -1,9 +1,13 @@
 import {
   Extension,
   Command,
+  KeySignature,
+  keys,
 } from '@taleweaver/core';
 import {
   insertChar,
+  deleteBackward,
+  deleteForward,
 } from './commands';
 
 export default class EditExtension extends Extension {
@@ -21,11 +25,21 @@ export default class EditExtension extends Extension {
 
   protected subscribeOnInputs() {
     const inputManager = this.getEditor().getInputManager();
-    inputManager.subscribeOnCharInput(this.onCharInput);
+    inputManager.subscribeOnCharInput(this.onCharInputed);
+    inputManager.subscribeOnKeyPress(new KeySignature(keys.BackspaceKey), this.onBackspacePressed);
+    inputManager.subscribeOnKeyPress(new KeySignature(keys.DeleteKey), this.onDeletePressed);
   }
 
-  protected onCharInput = (char: string) => {
+  protected onCharInputed = (char: string) => {
     this.dispatchCommand(insertChar(this, char));
+  }
+
+  protected onBackspacePressed = () => {
+    this.dispatchCommand(deleteBackward(this));
+  }
+
+  protected onDeletePressed = () => {
+    this.dispatchCommand(deleteForward(this));
   }
 
   protected dispatchCommand(command: Command) {

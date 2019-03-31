@@ -53,17 +53,6 @@ export default class PageFlowBox extends FlowBox {
     return this.padding;
   }
 
-  getSelectableSize(): number {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
-  }
-
   setParent(parent: Parent) {
     this.parent = parent;
   }
@@ -114,6 +103,21 @@ export default class PageFlowBox extends FlowBox {
       return siblings[offset + 1];
     }
     return null;
+  }
+
+  getSelectableSize(): number {
+    if (this.selectableSize === undefined) {
+      let selectableSize = 0;
+      this.children.forEach(child => {
+        selectableSize += child.getSelectableSize();
+      });
+      this.selectableSize = selectableSize;
+    }
+    return this.selectableSize;
+  }
+
+  onRenderUpdated() {
+    this.selectableSize = undefined;
   }
 
   cleaveAt(offset: number): PageFlowBox {

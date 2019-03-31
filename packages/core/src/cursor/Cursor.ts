@@ -31,6 +31,9 @@ export default class Cursor {
 
   applyTransformation(transformation: Transformation) {
     const operations = transformation.getOperations();
+    if (operations.length === 0) {
+      return;
+    }
     operations.forEach(operation => {
       if (operation instanceof MoveTo) {
         const offset = operation.getOffset();

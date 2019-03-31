@@ -121,7 +121,10 @@ export default abstract class BlockBox extends Box {
     return this.selectableSize;
   }
 
-  abstract onRenderUpdated(renderNode: BlockRenderNode): void;
+  onRenderUpdated(renderNode: BlockRenderNode) {
+    this.height = undefined;
+    this.selectableSize = undefined;
+  }
 
   abstract cleaveAt(offset: number): BlockBox;
 

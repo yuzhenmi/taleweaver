@@ -10,6 +10,7 @@ export default class TextInlineBox extends InlineBox {
   }
 
   onRenderUpdated(renderNode: TextInlineRenderNode) {
+    super.onRenderUpdated(renderNode);
     this.children = [];
     renderNode.getChildren().forEach((child, childOffset) => {
       if (!(child instanceof TextAtomicRenderNode)) {
@@ -19,9 +20,6 @@ export default class TextInlineBox extends InlineBox {
       this.insertChild(textAtomicBox, childOffset);
       textAtomicBox.onRenderUpdated(child);
     });
-    this.width = undefined;
-    this.height = undefined;
-    this.selectableSize = undefined;
   }
 
   cleaveAt(offset: number): InlineBox {

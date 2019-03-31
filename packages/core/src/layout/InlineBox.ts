@@ -134,7 +134,11 @@ export default abstract class InlineBox extends Box {
     return this.selectableSize;
   }
 
-  abstract onRenderUpdated(renderNode: InlineRenderNode): void;
+  onRenderUpdated(renderNode: InlineRenderNode) {
+    this.width = undefined;
+    this.height = undefined;
+    this.selectableSize = undefined;
+  }
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {

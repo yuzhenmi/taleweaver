@@ -8,7 +8,7 @@ import {
 } from '@taleweaver/core';
 import EditExtension from '../EditExtension';
 
-export default function insertChar(editExtension: EditExtension, char: string): Command {
+export default function deleteForward(editExtension: EditExtension): Command {
   return (editor: Editor): [StateTransformation, CursorTransformation] => {
     const cursorAnchor = editor.getCursor().getAnchor();
     const cursorHead = editor.getCursor().getHead();
@@ -18,10 +18,11 @@ export default function insertChar(editExtension: EditExtension, char: string): 
     const cursorTransformation = new CursorTransformation();
     if (anchor !== head) {
       stateTransformation.addOperation(new stateOperations.Delete(Math.min(anchor, head), Math.max(anchor, head) - 1));
+      cursorTransformation.addOperation(new cursorOperations.MoveTo(Math.min(cursorAnchor, cursorHead)));
+    } else if (head > 0) {
+      stateTransformation.addOperation(new stateOperations.Delete(head, head));
+      cursorTransformation.addOperation(new cursorOperations.MoveTo(cursorHead));
     }
-    const insertAt = Math.min(anchor, head);
-    stateTransformation.addOperation(new stateOperations.Insert(insertAt, [char]));
-    cursorTransformation.addOperation(new cursorOperations.MoveTo(Math.min(cursorAnchor, cursorHead) + 1));
     return [stateTransformation, cursorTransformation];
   };
 }

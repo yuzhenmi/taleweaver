@@ -46,6 +46,8 @@ import {
   ArrowRightKey,
   ArrowUpKey,
   ArrowDownKey,
+  BackspaceKey,
+  DeleteKey,
 } from '../keys';
 
 const KEY_STRING_TO_KEY_MAP: { [key: string]: Key } = {
@@ -118,6 +120,8 @@ const KEY_STRING_TO_KEY_MAP: { [key: string]: Key } = {
   'ArrowRight': ArrowRightKey,
   'ArrowUp': ArrowUpKey,
   'ArrowDown': ArrowDownKey,
+  'Backspace': BackspaceKey,
+  'Delete': DeleteKey,
 };
 
 function getKeyFromKeyString(keyString: string): Key | null {

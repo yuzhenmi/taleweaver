@@ -43,6 +43,8 @@ const ArrowLeftKey = new Key('ArrowLeft');
 const ArrowRightKey = new Key('ArrowRight');
 const ArrowUpKey = new Key('ArrowUp');
 const ArrowDownKey = new Key('ArrowDown');
+const BackspaceKey = new Key('Backspace');
+const DeleteKey = new Key('Delete');
 
 export {
   AKey,
@@ -88,4 +90,6 @@ export {
   ArrowRightKey,
   ArrowUpKey,
   ArrowDownKey,
+  BackspaceKey,
+  DeleteKey,
 };

@@ -137,6 +137,16 @@ class StackElement {
     this.operationsBuffer.push(operation);
   }
 
+  deleteRemainingChildren() {
+    if (this.operationsBufferFlushed) {
+      throw new Error('Cannot append more child operations after flushing.');
+    }
+    if (this.childIteratorOffset + 1 < this.children.length) {
+      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset + 1, this.children.length - 1);
+      this.operationsBuffer.push(operation);
+    }
+  }
+
   flushOperationsBuffer(): boolean {
     let updated : boolean;
     if (this.operationsBuffer.length > 0) {
@@ -312,6 +322,7 @@ class Parser {
     if (lastStackElement === undefined) {
       throw new Error('Unexpected end of doc encountered.');
     }
+    lastStackElement.deleteRemainingChildren();
     const updated = lastStackElement.flushOperationsBuffer();
     const node = lastStackElement.getNode();
     if (node instanceof LeafNode) {

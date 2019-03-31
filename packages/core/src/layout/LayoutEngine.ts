@@ -266,6 +266,7 @@ export default class LayoutEngine {
   }
 
   protected reflowLineFlowBox(lineFlowBox: LineFlowBox, version: number) {
+    lineFlowBox.onRenderUpdated();
     let currentLineFlowBox = lineFlowBox;
     const blockBox = currentLineFlowBox.getParent();
     if (blockBox.getChildren().indexOf(currentLineFlowBox) < 0) {
@@ -329,6 +330,7 @@ export default class LayoutEngine {
   }
 
   protected reflowPageFlowBox(pageFlowBoxToReflow: PageFlowBox, version: number) {
+    pageFlowBoxToReflow.onRenderUpdated();
     let pageFlowBox = pageFlowBoxToReflow;
     const docBox = pageFlowBox.getParent();
     if (docBox.getChildren().indexOf(pageFlowBox) < 0) {
