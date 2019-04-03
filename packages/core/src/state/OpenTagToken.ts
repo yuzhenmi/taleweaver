@@ -1,7 +1,4 @@
-interface Attributes {
-  id: string;
-  [key: string]: any;
-}
+import Attributes from './Attributes';
 
 class OpenTagToken {
   protected type: string;

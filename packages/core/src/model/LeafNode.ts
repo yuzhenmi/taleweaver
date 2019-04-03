@@ -1,4 +1,4 @@
-import OpenTagToken from '../state/OpenTagToken';
+import Attributes from '../state/Attributes';
 import Node from './Node';
 import Doc from './Doc';
 import BranchNode from './BranchNode';
@@ -27,7 +27,7 @@ export default abstract class LeafNode extends Node {
     return this.content;
   }
 
-  onStateUpdated(openTagToken: OpenTagToken, content: string) {
+  onStateUpdated(attributes: Attributes, content: string) {
     this.content = content;
   }
 };
