@@ -8,6 +8,7 @@ import {
   insertChar,
   deleteBackward,
   deleteForward,
+  breakLine,
 } from './commands';
 
 export default class EditExtension extends Extension {
@@ -26,20 +27,25 @@ export default class EditExtension extends Extension {
   protected subscribeOnInputs() {
     const inputManager = this.getEditor().getInputManager();
     inputManager.subscribeOnCharInput(this.onCharInputed);
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.BackspaceKey), this.onBackspacePressed);
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.DeleteKey), this.onDeletePressed);
+    inputManager.subscribeOnKeyPress(new KeySignature(keys.BackspaceKey), this.onBackspaceKeyPressed);
+    inputManager.subscribeOnKeyPress(new KeySignature(keys.DeleteKey), this.onDeleteKeyPressed);
+    inputManager.subscribeOnKeyPress(new KeySignature(keys.EnterKey), this.onEnterKeyPressed);
   }
 
   protected onCharInputed = (char: string) => {
     this.dispatchCommand(insertChar(this, char));
   }
 
-  protected onBackspacePressed = () => {
+  protected onBackspaceKeyPressed = () => {
     this.dispatchCommand(deleteBackward(this));
   }
 
-  protected onDeletePressed = () => {
+  protected onDeleteKeyPressed = () => {
     this.dispatchCommand(deleteForward(this));
+  }
+
+  protected onEnterKeyPressed = () => {
+    this.dispatchCommand(breakLine(this));
   }
 
   protected dispatchCommand(command: Command) {

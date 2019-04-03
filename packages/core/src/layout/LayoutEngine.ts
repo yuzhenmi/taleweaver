@@ -184,6 +184,8 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         if (pageFlowBox.getChildren().length === 0) {
           node.deleteChild(pageFlowBox);
           n--;
+        } else {
+          this.updatedPageFlowBoxes.push(pageFlowBox);
         }
       }
       node.onRenderUpdated(srcNode);
@@ -210,6 +212,8 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         if (lineFlowBox.getChildren().length === 0) {
           node.deleteChild(lineFlowBox);
           n--;
+        } else {
+          this.updatedLineFlowBoxes.push(lineFlowBox);
         }
       }
       node.onRenderUpdated(srcNode);
@@ -306,7 +310,7 @@ export default class LayoutEngine {
     let n = 0;
     while (true) {
       let inlineBox = currentLineFlowBox.getChildren()[n];
-      if (cumulatedWidth + inlineBox.getWidth() > lineFlowBoxWidth) {
+      while (cumulatedWidth + inlineBox.getWidth() > lineFlowBoxWidth) {
         // With this inline box, the line width limit gets exceeded,
         // so we need to determine where to cleave this inline box
         for (let m = 0; m < inlineBox.getChildren().length; m++) {
@@ -328,6 +332,7 @@ export default class LayoutEngine {
             inlineBox = newInlineBox;
             m = 0;
             cumulatedWidth = 0;
+            break;
           }
           cumulatedWidth += atomicBox.getWidth();
         }
@@ -373,7 +378,7 @@ export default class LayoutEngine {
     let n = 0;
     while (true) {
       let blockBox = currentPageFlowBox.getChildren()[n];
-      if (cumulatedHeight + blockBox.getHeight() > pageFlowBoxHeight) {
+      while (cumulatedHeight + blockBox.getHeight() > pageFlowBoxHeight) {
         // With this block box, the page height limit gets exceeded,
         // so we need to determine where to cleave this block box
         for (let m = 0; m < blockBox.getChildren().length; m++) {
@@ -395,6 +400,7 @@ export default class LayoutEngine {
             blockBox = newBlockBox;
             m = 0;
             cumulatedHeight = 0;
+            break;
           }
           cumulatedHeight += lineFlowBox.getHeight();
         }

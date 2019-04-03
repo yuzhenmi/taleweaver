@@ -129,20 +129,19 @@ class StackElement {
     if (offset < this.childIteratorOffset) {
       throw new Error(`Cannot delete children to offset ${offset}, iterator offset is already at ${this.childIteratorOffset}.`);
     }
-    this.childIteratorOffset = offset;
-    if (offset === this.childIteratorOffset) {
-      return;
+    if (offset > this.childIteratorOffset) {
+      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, offset - 1);
+      this.operationsBuffer.push(operation);
     }
-    const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, offset - 1);
-    this.operationsBuffer.push(operation);
+    this.childIteratorOffset = offset + 1;
   }
 
   deleteRemainingChildren() {
     if (this.operationsBufferFlushed) {
       throw new Error('Cannot append more child operations after flushing.');
     }
-    if (this.childIteratorOffset + 1 < this.children.length) {
-      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset + 1, this.children.length - 1);
+    if (this.childIteratorOffset < this.children.length) {
+      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, this.children.length - 1);
       this.operationsBuffer.push(operation);
     }
   }

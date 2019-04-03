@@ -45,6 +45,7 @@ const ArrowUpKey = new Key('ArrowUp');
 const ArrowDownKey = new Key('ArrowDown');
 const BackspaceKey = new Key('Backspace');
 const DeleteKey = new Key('Delete');
+const EnterKey = new Key('Enter');
 
 export {
   AKey,
@@ -92,4 +93,5 @@ export {
   ArrowDownKey,
   BackspaceKey,
   DeleteKey,
+  EnterKey,
 };

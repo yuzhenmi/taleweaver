@@ -26,9 +26,8 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);
     } else {
-      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
+      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
     }
-    this.domContainer.appendChild(childDOMContainer);
   }
 
   deleteChild(child: Child) {
@@ -53,5 +52,8 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     }
   }
 
-  onLayoutUpdated(layoutNode: ParagraphBlockBox) {}
+  onLayoutUpdated(layoutNode: ParagraphBlockBox) {
+    this.domContainer.style.width = `${layoutNode.getWidth()}px`;
+    this.domContainer.style.height = `${layoutNode.getHeight()}px`;
+  }
 }

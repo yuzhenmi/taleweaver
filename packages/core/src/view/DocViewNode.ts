@@ -33,7 +33,7 @@ export default class DocViewNode extends ViewNode {
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);
     } else {
-      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
+      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
     }
   }
 

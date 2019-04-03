@@ -81,7 +81,7 @@ export default abstract class InlineRenderNode extends RenderNode {
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childSelectableOffset = child.getSelectableSize();
-      if (cumulatedSelectableOffset + childSelectableOffset >= selectableOffset) {
+      if (cumulatedSelectableOffset + childSelectableOffset > selectableOffset) {
         return cumulatedModelOffset + child.convertSelectableOffsetToModelOffset(selectableOffset - cumulatedSelectableOffset);
       }
       cumulatedSelectableOffset += childSelectableOffset;

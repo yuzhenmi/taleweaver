@@ -33,9 +33,8 @@ export default class PageViewNode extends ViewNode {
     if (offset === this.domContainer.childNodes.length) {
       this.domContainer.appendChild(childDOMContainer);
     } else {
-      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset + 1]);
+      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
     }
-    this.domContainer.appendChild(childDOMContainer);
   }
 
   deleteChild(child: Child) {
