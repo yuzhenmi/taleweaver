@@ -36,7 +36,7 @@ class State {
       if (operation instanceof Insert) {
         this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());
       } else if (operation instanceof Delete) {
-        this.tokens.splice(operation.getFrom(), operation.getTo() - operation.getFrom() + 1);
+        this.tokens.splice(operation.getFrom(), operation.getTo() - operation.getFrom());
       } else {
         throw new Error('Unknown state transformation operation encountered.');
       }
