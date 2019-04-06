@@ -12,7 +12,5 @@ export default abstract class BlockViewNode extends ViewNode {
 
   abstract getChildren(): Child[];
 
-  abstract onDeleted(): void;
-
   abstract onLayoutUpdated(layoutNode: BlockBox): void;
 }

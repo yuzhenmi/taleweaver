@@ -14,4 +14,6 @@ export default abstract class ViewNode {
   abstract getDOMContainer(): HTMLElement;
 
   abstract onLayoutUpdated(layoutNode: LayoutNode): void;
+
+  abstract onDeleted(): void;
 }

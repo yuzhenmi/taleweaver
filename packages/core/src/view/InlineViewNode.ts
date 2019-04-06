@@ -5,5 +5,5 @@ export default abstract class InlineViewNode extends ViewNode {
 
   abstract onLayoutUpdated(layoutNode: InlineBox): void;
 
-  abstract onDeleted(): void;
+  abstract resolveSelectionOffset(offset: number): number;
 }

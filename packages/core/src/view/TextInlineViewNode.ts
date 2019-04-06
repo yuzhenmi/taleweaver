@@ -8,8 +8,13 @@ export default class TextInlineViewNode extends InlineViewNode {
   constructor(id: string) {
     super(id);
     this.domContainer = document.createElement('span');
+    // @ts-ignore
+    this.domContainer.$viewNode = this;
     this.domContainer.className = 'tw--text-inline';
+    this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.style.color = 'transparent';
+    this.domContainer.style.textShadow = '0 0 0 black';
   }
 
   getDOMContainer(): HTMLSpanElement {
@@ -31,5 +36,9 @@ export default class TextInlineViewNode extends InlineViewNode {
       }
     }).join('');
     this.domContainer.innerText = text;
+  }
+
+  resolveSelectionOffset(offset: number): number {
+    return offset;
   }
 }
