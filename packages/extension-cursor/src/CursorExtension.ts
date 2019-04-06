@@ -1,33 +1,6 @@
 import {
-  KeySignature,
-  keys,
-  modifierKeys,
-  Command,
   Extension,
 } from '@taleweaver/core';
-import {
-  moveLeft,
-  moveRight,
-  moveHeadLeft,
-  moveHeadRight,
-  moveLeftByWord,
-  moveRightByWord,
-  moveHeadLeftByWord,
-  moveHeadRightByWord,
-  moveToLeftOfLine,
-  moveToRightOfLine,
-  moveHeadToLeftOfLine,
-  moveHeadToRightOfLine,
-  moveToLineAbove,
-  moveToLineBelow,
-  moveHeadToLineAbove,
-  moveHeadToLineBelow,
-  moveToRightOfDoc,
-  moveToLeftOfDoc,
-  moveHeadToRightOfDoc,
-  moveHeadToLeftOfDoc,
-  selectAll,
-} from './commands';
 
 export default class CursorExtension extends Extension {
   protected leftAnchor: number | null;
@@ -45,6 +18,8 @@ export default class CursorExtension extends Extension {
     this.domHead = document.createElement('div');;
     this.domHead.className = 'tw--cursor-head'
     this.domHead.style.position = 'absolute';
+    this.domHead.style.userSelect = 'none';
+    this.domHead.style.pointerEvents = 'none';
   }
 
   getLeftAnchor(): number | null {
@@ -52,49 +27,12 @@ export default class CursorExtension extends Extension {
   }
 
   onRegistered() {
-    this.subscribeOnInputs();
     this.getEditor().getCursor().subscribeOnUpdated(this.onCursorChanged);
     this.getEditor().getDocViewNode().subscribeOnUpdated(this.onDocViewChanged);
   }
 
   onMounted() {
     this.updateView();
-  }
-
-  protected subscribeOnInputs() {
-    const inputManager = this.getEditor().getInputManager();
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey), () => this.dispatchCommand(moveLeft(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey), () => this.dispatchCommand(moveRight(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadLeft(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadRight(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey]), () => this.dispatchCommand(moveLeftByWord(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey]), () => this.dispatchCommand(moveRightByWord(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadLeftByWord(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadRightByWord(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToLeftOfLine(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToRightOfLine(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfLine(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfLine(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowUpKey), () => this.dispatchCommand(moveToLineAbove(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowDownKey), () => this.dispatchCommand(moveToLineBelow(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowUpKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLineAbove(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowDownKey, [modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLineBelow(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToLeftOfDoc(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(moveToRightOfDoc(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToLeftOfDoc(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => this.dispatchCommand(moveHeadToRightOfDoc(this)));
-    inputManager.subscribeOnKeyPress(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => this.dispatchCommand(selectAll(this)));
-  }
-
-  protected dispatchCommand(command: Command) {
-    const editor = this.getEditor();
-    const [
-      stateTransformation,
-      cursorTransformation,
-    ] = command(editor);
-    editor.getState().applyTransformation(stateTransformation);
-    editor.getCursor().applyTransformation(cursorTransformation);
-    this.leftAnchor = cursorTransformation.getLeftAnchor();
   }
 
   protected onCursorChanged = () => {
@@ -169,6 +107,8 @@ export default class CursorExtension extends Extension {
         domSelection.style.left = `${viewportBoundingRect.left}px`;
         domSelection.style.width = `${viewportBoundingRect.width}px`;
         domSelection.style.height = `${viewportBoundingRect.height}px`;
+        domSelection.style.userSelect = 'none';
+        domSelection.style.pointerEvents = 'none';
         pageDOMContentContainer.appendChild(domSelection);
         this.domSelections.push(domSelection);
       });

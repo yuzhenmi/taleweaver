@@ -153,15 +153,22 @@ export default class PageFlowBox extends FlowBox {
   resolveViewportPositionToSelectableOffset(x: number, y: number): number {
     let selectableOffset = 0;
     let cumulatedHeight = 0;
+    const innerX = Math.min(Math.max(x - this.padding, 0), this.width - this.padding);
+    const innerY = Math.min(Math.max(y - this.padding, 0), this.height - this.padding);
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
-      if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(x, y - cumulatedHeight);
+      if (innerY >= cumulatedHeight && innerY <= cumulatedHeight + childHeight) {
+        selectableOffset += child.resolveViewportPositionToSelectableOffset(innerX, innerY - cumulatedHeight);
         break;
       }
       selectableOffset += child.getSelectableSize();
       cumulatedHeight += childHeight;
+    }
+    if (selectableOffset === this.getSelectableSize()) {
+      const lastChild = this.children[this.children.length - 1];
+      selectableOffset -= lastChild.getSelectableSize();
+      selectableOffset += lastChild.resolveViewportPositionToSelectableOffset(innerX, lastChild.getHeight());
     }
     return selectableOffset;
   }

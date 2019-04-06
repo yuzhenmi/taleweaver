@@ -21,6 +21,9 @@ body {
   font-size: 18px;
   line-height: 36px;
 }
+.tw--page *::selection {
+  background: white;
+}
 
 .tw--cursor-selection {
   background: hsla(213, 100%, 50%, 0.2);

@@ -16,8 +16,11 @@ export default class DocViewNode extends ViewNode {
     this.children = [];
     this.onUpdatedSubscribers = [];
     this.domContainer = document.createElement('div');
+    this.domContainer.contentEditable = 'true';
+    this.domContainer.spellcheck = false;
     this.domContainer.className = 'tw--doc';
     this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.style.outline = 'none';
   }
 
   getDOMContainer(): HTMLDivElement {
@@ -61,4 +64,6 @@ export default class DocViewNode extends ViewNode {
       onUpdatedSubscriber();
     });
   }
+
+  onDeleted() {}
 }

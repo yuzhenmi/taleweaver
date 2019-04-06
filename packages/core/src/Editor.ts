@@ -10,6 +10,8 @@ import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
 import Cursor from './cursor/Cursor';
 import DocViewNode from './view/DocViewNode';
+import { MoveTo, MoveHeadTo } from './cursor/operations';
+import CursorTransformation from './cursor/Transformation';
 
 export default class Editor {
   protected config: Config;
@@ -35,6 +37,17 @@ export default class Editor {
     this.inputManager = new InputManager();
     this.presenter = new Presenter(this.config, this.layoutEngine.getDocBox(), this.inputManager);
     this.extensionProvider = new ExtensionProvider(this);
+    this.inputManager.subscribeOnCursorUpdated((anchor, head) => {
+      const transformation = new CursorTransformation();
+      transformation.addOperation(new MoveTo(anchor));
+      transformation.addOperation(new MoveHeadTo(head));
+      this.cursor.applyTransformation(transformation);
+    });
+    this.inputManager.subscribeOnCursorHeadUpdated(head => {
+      const transformation = new CursorTransformation();
+      transformation.addOperation(new MoveHeadTo(head));
+      this.cursor.applyTransformation(transformation);
+    });
   }
 
   getConfig(): Config {
