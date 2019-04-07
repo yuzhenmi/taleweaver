@@ -12,7 +12,6 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.$viewNode = this;
     this.domContainer.className = 'tw--text-inline';
     this.domContainer.setAttribute('data-tw-id', id);
-    this.domContainer.style.whiteSpace = 'pre';
     this.domContainer.style.color = 'transparent';
     this.domContainer.style.textShadow = '0 0 0 black';
   }

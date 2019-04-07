@@ -1,6 +1,6 @@
+import Editor from '../Editor';
 import Config from '../Config';
-import InputManager from '../input/InputManager';
-import EventObserver from './EventObserver';
+import DOMObserver from './DOMObserver';
 import LayoutNode from '../layout/LayoutNode';
 import DocBox from '../layout/DocBox';
 import PageFlowBox from '../layout/PageFlowBox';
@@ -13,6 +13,7 @@ import BlockViewNode from './BlockViewNode';
 import PageViewNode from './PageViewNode';
 import LineViewNode from './LineViewNode';
 import InlineViewNode from './InlineViewNode';
+import CursorView from './CursorView';
 import TreeSyncer from '../helpers/TreeSyncer';
 
 class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
@@ -168,28 +169,32 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
 export type OnMountedSubscriber = () => void;
 
 export default class Presenter {
-  protected config: Config;
-  protected docBox: DocBox;
-  protected inputManager: InputManager;
-  protected eventObserver?: EventObserver;
+  protected editor: Editor;
   protected docViewNode: DocViewNode;
+  protected cursorView: CursorView;
+  protected domObserver: DOMObserver;
   protected onMountedSubscribers: OnMountedSubscriber[];
   protected mounted: boolean;
   protected version: number;
   protected domWrapper?: HTMLElement;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(config: Config, docBox: DocBox, inputManager: InputManager) {
-    this.config = config;
-    this.docBox = docBox;
-    this.inputManager = inputManager;
+  constructor(editor: Editor) {
+    this.editor = editor;
+    const docBox = editor.getLayoutEngine().getDocBox();
+    const cursor = editor.getCursor();
     this.docViewNode = new DocViewNode(docBox.getID());
+    this.cursorView = new CursorView(editor);
+    this.domObserver = new DOMObserver(editor);
     this.onMountedSubscribers = [];
     this.mounted = false;
     this.version = -1;
     this.idMap = new Map();
-    this.docBox.subscribeOnUpdated(() => {
+    docBox.subscribeOnUpdated(() => {
       this.run();
+    });
+    cursor.subscribeOnUpdated(() => {
+      this.updateCursorView();
     });
   }
 
@@ -201,15 +206,8 @@ export default class Presenter {
     this.run();
     domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.mounted = true;
-    this.eventObserver = new EventObserver(this, this.inputManager);
+    this.domObserver.observeDoc(this.docViewNode);
     this.onMountedSubscribers.forEach(subscriber => subscriber());
-  }
-
-  protected run() {
-    const treeSyncer = new LayoutToViewTreeSyncer(this.config, this.version, this.idMap);
-    treeSyncer.syncNodes(this.docBox, this.docViewNode);
-    this.version = this.docBox.getVersion();
-    this.docViewNode.onUpdated();
   }
 
   getDocViewNode(): DocViewNode {
@@ -226,30 +224,6 @@ export default class Presenter {
       throw new Error(`Page offset ${pageOffset} is out of range.`);
     }
     return pages[pageOffset].getDOMContentContainer();
-  }
-
-  resolveScreenPosition(x: number, y: number): number {
-    const pageViews = this.docViewNode.getChildren();
-    const pageFlowBoxes = this.docBox.getChildren();
-    let cumulatedOffset = 0;
-    for (let n = 0, nn = pageViews.length; n < nn; n++) {
-      const pageView = pageViews[n];
-      const pageFlowBox = pageFlowBoxes[n];
-      const pageDOMContainer = pageView.getDOMContainer();
-      const pageBoundingClientRect = pageDOMContainer.getBoundingClientRect();
-      if (
-        pageBoundingClientRect.left <= x &&
-        pageBoundingClientRect.right >= x &&
-        pageBoundingClientRect.top <= y &&
-        pageBoundingClientRect.bottom >= y
-      ) {
-        const relativeX = x - pageBoundingClientRect.left;
-        const relativeY = y - pageBoundingClientRect.top;
-        return cumulatedOffset + pageFlowBox.resolveViewportPositionToSelectableOffset(relativeX, relativeY);
-      }
-      cumulatedOffset += pageFlowBox.getSelectableSize();
-    }
-    return -1;
   }
 
   resolveSelectionPosition(node: Node, offset: number): number {
@@ -277,9 +251,6 @@ export default class Presenter {
             }
             currentLayoutNode = currentLayoutNode.getParent();
           } else if (currentLayoutNode instanceof LineFlowBox) {
-            if (currentLayoutNode.getSelectableSize() === resolvedOffset) {
-              resolvedOffset--;
-            }
             const siblings = currentLayoutNode.getParent().getChildren();
             let currentLayoutNodeOffset = siblings.indexOf(currentLayoutNode);
             while (currentLayoutNodeOffset > 0) {
@@ -312,5 +283,17 @@ export default class Presenter {
       currentElement = currentElement.parentElement;
     }
     return -1;
+  }
+
+  protected run() {
+    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap);
+    treeSyncer.syncNodes(this.editor.getLayoutEngine().getDocBox(), this.docViewNode);
+    this.version = this.editor.getLayoutEngine().getDocBox().getVersion();
+    this.docViewNode.onUpdated();
+    this.updateCursorView();
+  }
+
+  protected updateCursorView() {
+    this.cursorView.onUpdated(this.editor.getCursor(), this.editor.getLayoutEngine().getDocBox(), this.docViewNode.getChildren());
   }
 }

@@ -11,6 +11,7 @@ type Child = AtomicBox;
 export default abstract class InlineBox extends Box {
   protected version: number;
   protected width?: number;
+  protected widthWithoutTrailingWhitespace?: number;
   protected height?: number;
   protected selectableSize?: number;
   protected parent?: Parent;
@@ -41,6 +42,14 @@ export default abstract class InlineBox extends Box {
       this.width = width;
     }
     return this.width;
+  }
+
+  getWidthWithoutTrailingWhitespace(): number {
+    if (this.widthWithoutTrailingWhitespace === undefined) {
+      const lastChild = this.children[this.children.length - 1];
+      this.widthWithoutTrailingWhitespace = this.getWidth() - lastChild.getWidth() + lastChild.getWidthWithoutTrailingWhitespace();
+    }
+    return this.widthWithoutTrailingWhitespace;
   }
 
   getHeight(): number {

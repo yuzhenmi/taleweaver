@@ -10,7 +10,6 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
-    this.domContainer.style.whiteSpace = 'pre';
   }
 
   getDOMContainer(): HTMLDivElement {

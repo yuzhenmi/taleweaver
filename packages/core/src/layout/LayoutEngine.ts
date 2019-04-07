@@ -311,12 +311,12 @@ export default class LayoutEngine {
     let n = 0;
     while (true) {
       let inlineBox = currentLineFlowBox.getChildren()[n];
-      while (cumulatedWidth + inlineBox.getWidth() > lineFlowBoxWidth) {
+      while (cumulatedWidth + inlineBox.getWidthWithoutTrailingWhitespace() > lineFlowBoxWidth) {
         // With this inline box, the line width limit gets exceeded,
         // so we need to determine where to cleave this inline box
         for (let m = 0; m < inlineBox.getChildren().length; m++) {
           let atomicBox = inlineBox.getChildren()[m];
-          if (cumulatedWidth + atomicBox.getWidth() > lineFlowBoxWidth) {
+          if (cumulatedWidth + atomicBox.getWidthWithoutTrailingWhitespace() > lineFlowBoxWidth) {
             // With this atomic box, the line width limit gets exceeded,
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
