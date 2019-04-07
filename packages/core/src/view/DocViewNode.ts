@@ -19,7 +19,6 @@ export default class DocViewNode extends ViewNode {
     this.domContainer.contentEditable = 'true';
     this.domContainer.spellcheck = false;
     this.domContainer.className = 'tw--doc';
-    this.domContainer.style.whiteSpace = 'pre';
     this.domContainer.style.outline = 'none';
   }
 

@@ -5,24 +5,22 @@ import Parser from './model/Parser';
 import RenderEngine from './render/RenderEngine';
 import LayoutEngine from './layout/LayoutEngine';
 import Presenter from './view/Presenter';
-import InputManager from './input/InputManager';
+import Dispatcher from './input/Dispatcher';
 import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
 import Cursor from './cursor/Cursor';
 import DocViewNode from './view/DocViewNode';
-import { MoveTo, MoveHeadTo } from './cursor/operations';
-import CursorTransformation from './cursor/Transformation';
 
 export default class Editor {
   protected config: Config;
   protected cursor: Cursor;
   protected state: State;
+  protected dispatcher: Dispatcher;
   protected tokenizer: Tokenizer;
   protected parser: Parser;
   protected renderEngine: RenderEngine;
   protected layoutEngine: LayoutEngine;
   protected presenter: Presenter;
-  protected inputManager: InputManager;
   protected extensionProvider: ExtensionProvider;
   protected domWrapper?: HTMLElement;
 
@@ -31,23 +29,12 @@ export default class Editor {
     this.cursor = new Cursor(this);
     this.tokenizer = new Tokenizer(this.config, markup);
     this.state = this.tokenizer.getState();
+    this.dispatcher = new Dispatcher(this);
     this.parser = new Parser(this.config, this.state);
     this.renderEngine = new RenderEngine(this.config, this.parser.getDoc());
     this.layoutEngine = new LayoutEngine(this.config, this.renderEngine.getDocRenderNode());
-    this.inputManager = new InputManager();
-    this.presenter = new Presenter(this.config, this.layoutEngine.getDocBox(), this.inputManager);
+    this.presenter = new Presenter(this);
     this.extensionProvider = new ExtensionProvider(this);
-    this.inputManager.subscribeOnCursorUpdated((anchor, head) => {
-      const transformation = new CursorTransformation();
-      transformation.addOperation(new MoveTo(anchor));
-      transformation.addOperation(new MoveHeadTo(head));
-      this.cursor.applyTransformation(transformation);
-    });
-    this.inputManager.subscribeOnCursorHeadUpdated(head => {
-      const transformation = new CursorTransformation();
-      transformation.addOperation(new MoveHeadTo(head));
-      this.cursor.applyTransformation(transformation);
-    });
   }
 
   getConfig(): Config {
@@ -60,6 +47,10 @@ export default class Editor {
 
   getState(): State {
     return this.state;
+  }
+
+  getDispatcher(): Dispatcher {
+    return this.dispatcher;
   }
 
   getDocViewNode(): DocViewNode {
@@ -76,10 +67,6 @@ export default class Editor {
 
   getPresenter(): Presenter {
     return this.presenter;
-  }
-
-  getInputManager(): InputManager {
-    return this.inputManager;
   }
 
   mount(domWrapper: HTMLElement) {

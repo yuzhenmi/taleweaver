@@ -19,6 +19,8 @@ export default abstract class AtomicBox extends Box {
     return this.breakable;
   }
 
+  abstract getWidthWithoutTrailingWhitespace(): number;
+
   setParent(parent: Parent) {
     this.parent = parent;
   }

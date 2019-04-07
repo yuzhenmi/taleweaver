@@ -13,6 +13,7 @@ const stubTextStyle = {
 
 export default class TextAtomicBox extends AtomicBox {
   protected width?: number;
+  protected widthWithoutTrailingWhitespace?: number;
   protected height?: number;
   protected content: string;
 
@@ -28,6 +29,18 @@ export default class TextAtomicBox extends AtomicBox {
       this.height = measurement.height;
     }
     return this.width;
+  }
+
+  getWidthWithoutTrailingWhitespace(): number {
+    if (this.widthWithoutTrailingWhitespace === undefined) {
+      if (this.breakable) {
+        const measurement = measureText(this.content.substring(0, this.content.length - 1), stubTextStyle);
+        this.widthWithoutTrailingWhitespace = measurement.width;
+      } else {
+        this.widthWithoutTrailingWhitespace = this.getWidth();
+      }
+    }
+    return this.widthWithoutTrailingWhitespace;
   }
 
   getHeight(): number {
@@ -68,7 +81,7 @@ export default class TextAtomicBox extends AtomicBox {
       }
       return n;
     }
-    return this.content.length - 1;
+    return this.content.length;
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {

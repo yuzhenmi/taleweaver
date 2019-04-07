@@ -7,13 +7,19 @@ type Child = BlockViewNode;
 export default class PageViewNode extends ViewNode {
   protected children: Child[];
   protected domContainer: HTMLDivElement;
+  protected domContentContainer: HTMLDivElement;
 
   constructor(id: string) {
     super(id);
     this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
-    this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.setAttribute('data-tw-role', 'page');
+    this.domContainer.style.position = 'relative';
+    this.domContentContainer = document.createElement('div');
+    this.domContentContainer.className = 'tw--page-content';
+    this.domContentContainer.setAttribute('data-tw-role', 'page-content');
+    this.domContainer.appendChild(this.domContentContainer);
   }
 
   getDOMContainer(): HTMLDivElement {
@@ -21,19 +27,19 @@ export default class PageViewNode extends ViewNode {
   }
 
   getDOMContentContainer(): HTMLDivElement {
-    return this.domContainer;
+    return this.domContentContainer;
   }
 
   insertChild(child: Child, offset: number) {
     this.children.splice(offset, 0, child);
     const childDOMContainer = child.getDOMContainer();
-    if (offset > this.domContainer.childNodes.length) {
+    if (offset > this.domContentContainer.childNodes.length) {
       throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
     }
-    if (offset === this.domContainer.childNodes.length) {
-      this.domContainer.appendChild(childDOMContainer);
+    if (offset === this.domContentContainer.childNodes.length) {
+      this.domContentContainer.appendChild(childDOMContainer);
     } else {
-      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
+      this.domContentContainer.insertBefore(childDOMContainer, this.domContentContainer.childNodes[offset]);
     }
   }
 

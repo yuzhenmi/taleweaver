@@ -13,7 +13,8 @@ export default class LineViewNode extends ViewNode {
     this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--line';
-    this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.style.whiteSpace = 'pre-wrap';
+    this.domContainer.style.width = '100%';
   }
 
   getDOMContainer(): HTMLDivElement {

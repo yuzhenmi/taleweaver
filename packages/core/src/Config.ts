@@ -10,23 +10,27 @@ import TextInlineBox from './layout/TextInlineBox';
 import ViewNode from './view/ViewNode';
 import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
 import TextInlineViewNode from './view/TextInlineViewNode';
+import KeySignature from './input/KeySignature';
 
 type NodeClass = new (...args: any[]) => Node;
 type RenderNodeClass = new (...args: any[]) => RenderNode;
 type BoxClass = new (...args: any[]) => Box;
 type ViewNodeClass = new (...args: any[]) => ViewNode;
+type KeyBindingHandler = () => void;
 
 class Config {
   protected nodeClasses: Map<string, NodeClass>;
   protected renderNodeClasses: Map<string, RenderNodeClass>;
   protected boxClasses: Map<string, BoxClass>;
   protected viewNodeClasses: Map<string, ViewNodeClass>;
+  protected keyBindings: Map<string, KeyBindingHandler[]>;
 
   constructor() {
     this.nodeClasses = new Map();
     this.renderNodeClasses = new Map();
     this.boxClasses = new Map();
     this.viewNodeClasses = new Map();
+    this.keyBindings = new Map();
     this.registerNodeClass('Paragraph', Paragraph);
     this.registerNodeClass('Text', Text);
     this.registerRenderNodeClass('Paragraph', ParagraphBlockRenderNode);
@@ -81,6 +85,19 @@ class Config {
       throw new Error(`No view node class registered for box type ${boxType}.`);
     }
     return viewNodeClass;
+  }
+
+  bindKey(keySignature: KeySignature, subscriber: KeyBindingHandler) {
+    const keySignatureCode = keySignature.getCode();
+    if (!this.keyBindings.has(keySignatureCode)) {
+      this.keyBindings.set(keySignatureCode, []);
+    }
+    const subscribers = this.keyBindings.get(keySignatureCode)!;
+    subscribers.push(subscriber);
+  }
+
+  getKeyBindings() {
+    return this.keyBindings;
   }
 }
 
