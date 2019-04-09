@@ -158,6 +158,8 @@ export default class CursorView {
 
     // Scroll cursor head into view
     this.domCaret.scrollIntoView({ block: 'nearest' });
+    
+    // TODO: Set browser selection to be consistent with new cursor position
 
     // Reset blinking
     this.stopBlinking();

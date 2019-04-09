@@ -20,12 +20,14 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   protected config: Config;
   protected lastVersion: number;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
+  protected domObserver: DOMObserver;
 
-  constructor(config: Config, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>) {
+  constructor(config: Config, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>, domObserver: DOMObserver) {
     super();
     this.config = config;
     this.lastVersion = lastVersion;
     this.idMap = idMap;
+    this.domObserver = domObserver;
   }
 
   getSrcNodeChildren(node: LayoutNode): LayoutNode[] {
@@ -71,6 +73,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       const pageViewNode = new PageViewNode(srcNode.getID());
       parent.insertChild(pageViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, pageViewNode]);
+      this.domObserver.connectPage(pageViewNode);
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
@@ -106,6 +109,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
     if (parent instanceof DocViewNode && node instanceof PageViewNode) {
       parent.deleteChild(node);
       this.idMap.delete(node.getID());
+      this.domObserver.disconnectPage(node);
       return;
     }
     if (parent instanceof PageViewNode && node instanceof BlockViewNode) {
@@ -206,7 +210,7 @@ export default class Presenter {
     this.run();
     domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.mounted = true;
-    this.domObserver.observeDoc(this.docViewNode);
+    this.domObserver.connectDoc(this.docViewNode);
     this.onMountedSubscribers.forEach(subscriber => subscriber());
   }
 
@@ -286,7 +290,7 @@ export default class Presenter {
   }
 
   protected run() {
-    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap);
+    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap, this.domObserver);
     treeSyncer.syncNodes(this.editor.getLayoutEngine().getDocBox(), this.docViewNode);
     this.version = this.editor.getLayoutEngine().getDocBox().getVersion();
     this.docViewNode.onUpdated();
