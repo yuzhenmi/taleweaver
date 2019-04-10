@@ -73,7 +73,9 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       const pageViewNode = new PageViewNode(srcNode.getID());
       parent.insertChild(pageViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, pageViewNode]);
-      this.domObserver.connectPage(pageViewNode);
+      setTimeout(() => {
+        this.domObserver.connectPage(pageViewNode);
+      });
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
@@ -109,7 +111,9 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
     if (parent instanceof DocViewNode && node instanceof PageViewNode) {
       parent.deleteChild(node);
       this.idMap.delete(node.getID());
-      this.domObserver.disconnectPage(node);
+      setTimeout(() => {
+        this.domObserver.disconnectPage(node);
+      });
       return;
     }
     if (parent instanceof PageViewNode && node instanceof BlockViewNode) {

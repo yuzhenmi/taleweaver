@@ -81,6 +81,10 @@ export default class TextAtomicBox extends AtomicBox {
       }
       return n;
     }
+    const width = this.getWidth();
+    if (x - lastWidth < width - x) {
+      return this.content.length - 1;
+    }
     return this.content.length;
   }
 

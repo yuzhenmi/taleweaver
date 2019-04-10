@@ -2,12 +2,10 @@ import ParagraphBlockBox from '../layout/ParagraphBlockBox';
 import BlockViewNode, { Child } from './BlockViewNode';
 
 export default class ParagraphBlockViewNode extends BlockViewNode {
-  protected children: Child[];
   protected domContainer: HTMLDivElement;
 
   constructor(id: string) {
     super(id);
-    this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
   }
@@ -52,6 +50,7 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
   }
 
   onLayoutUpdated(layoutNode: ParagraphBlockBox) {
+    this.selectableSize = layoutNode.getSelectableSize();
     this.domContainer.style.width = `${layoutNode.getWidth()}px`;
     this.domContainer.style.height = `${layoutNode.getHeight()}px`;
   }

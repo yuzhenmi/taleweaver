@@ -14,6 +14,10 @@ export default class Delete extends Operation {
     return 'Delete';
   }
 
+  getDelta(): number {
+    return this.from - this.to;
+  }
+
   getFrom(): number {
     return this.from;
   }

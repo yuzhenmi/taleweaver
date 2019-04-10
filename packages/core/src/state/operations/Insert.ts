@@ -15,6 +15,10 @@ export default class Insert extends Operation {
     return 'Insert';
   }
 
+  getDelta(): number {
+    return this.tokens.length;
+  }
+
   getAt(): number {
     return this.at;
   }

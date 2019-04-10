@@ -159,7 +159,16 @@ export default class CursorView {
     // Scroll cursor head into view
     this.domCaret.scrollIntoView({ block: 'nearest' });
     
-    // TODO: Set browser selection to be consistent with new cursor position
+    // Set browser selection to be consistent with new cursor position
+    const docViewNode = this.editor.getPresenter().getDocViewNode();
+    const [anchorNode, anchorNodeOffset] = docViewNode.resolveSelectableOffsetToNodeOffset(anchor);
+    const [headNode, headNodeOffset] = docViewNode.resolveSelectableOffsetToNodeOffset(head);
+    const selectionRange = document.createRange();
+    selectionRange.setStart(anchorNode, anchorNodeOffset);
+    selectionRange.setEnd(headNode, headNodeOffset);
+    const selection = window.getSelection();
+    selection.empty();
+    selection.addRange(selectionRange);
 
     // Reset blinking
     this.stopBlinking();
