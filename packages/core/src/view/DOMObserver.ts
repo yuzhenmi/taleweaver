@@ -2,20 +2,24 @@ import Editor from '../Editor';
 import DocViewNode from './DocViewNode';
 import getKeySignatureFromKeyboardEvent from '../input/helpers/getKeySignatureFromKeyboardEvent';
 import * as cursorCommands from '../input/cursorCommands';
+import PageViewNode from './PageViewNode';
+import PageDOMObserver from './PageDOMObserver';
 
 export default class DOMObserver {
   protected editor: Editor;
   protected docViewNode?: DocViewNode;
   protected isFocused: boolean;
   protected isMouseDown: boolean;
+  protected pageDOMObservers: PageDOMObserver[];
 
   constructor(editor: Editor) {
     this.editor = editor;
     this.isFocused = false;
     this.isMouseDown = false;
+    this.pageDOMObservers = [];
   }
 
-  observeDoc(docViewNode: DocViewNode) {
+  connectDoc(docViewNode: DocViewNode) {
     this.docViewNode = docViewNode;
     const docViewDOMContainer = docViewNode.getDOMContainer();
     docViewDOMContainer.addEventListener('focus', this.onFocus);
@@ -24,6 +28,20 @@ export default class DOMObserver {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('keydown', this.onKeyDown);
+  }
+
+  connectPage(pageViewNode: PageViewNode) {
+    const pageDOMObserver = new PageDOMObserver(this.editor, pageViewNode);
+    this.pageDOMObservers.push(pageDOMObserver);
+  }
+
+  disconnectPage(pageViewNode: PageViewNode) {
+    const offset = this.pageDOMObservers.findIndex(o => o.getPageID() === pageViewNode.getID());
+    if (offset < 0) {
+      throw new Error(`No DOM observer found for page ${pageViewNode.getID()}.`);
+    }
+    this.pageDOMObservers[offset].disconnect();
+    this.pageDOMObservers.splice(offset, 1);
   }
 
   protected onFocus = (event: FocusEvent) => {

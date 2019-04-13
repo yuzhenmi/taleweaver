@@ -66,8 +66,21 @@ export default class PageViewNode extends ViewNode {
   }
 
   onLayoutUpdated(layoutNode: PageFlowBox) {
+    this.selectableSize = layoutNode.getSelectableSize();
     this.domContainer.style.width = `${layoutNode.getWidth()}px`;
     this.domContainer.style.height = `${layoutNode.getHeight()}px`;
     this.domContainer.style.padding = `${layoutNode.getPadding()}px`;
+  }
+
+  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      if (cumulatedOffset + child.getSelectableSize() > offset) {
+        return child.resolveSelectableOffsetToNodeOffset(offset - cumulatedOffset);
+      }
+      cumulatedOffset += child.getSelectableSize();
+    }
+    throw new Error(`Selectable offset ${offset} is out of range.`);
   }
 }

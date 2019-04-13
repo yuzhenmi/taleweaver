@@ -1,7 +1,6 @@
 body {
-  background: #F7F8F9;
+  background: rgba(0, 0, 0, 0.04);
   min-height: 100vh;
-  font-family: Arial, Helvetica, sans-serif;
 }
 
 * {
@@ -9,20 +8,21 @@ body {
 }
 
 .tw--doc {
-  padding: 20px 0;
+  font-family: Arial, sans-serif;
+  display: inline-block;
 }
 
 .tw--page {
-  position: relative;
-  background: white;
-  box-shadow: 0 3px 18px rgba(0, 0, 0, 0.09);
-  margin: 20px auto 0;
-  cursor: text;
+  background: rgba(255, 255, 255, 1);
+  margin: 0 auto;
   font-size: 18px;
   line-height: 36px;
 }
 .tw--page *::selection {
-  background: white;
+  background: rgba(255, 255, 255, 1);
+}
+.tw--page + .tw--page {
+  border-top: 1px dashed rgba(0, 0, 0, 0.15);
 }
 
 .tw--cursor-selection {

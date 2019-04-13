@@ -20,6 +20,7 @@ export default class DocViewNode extends ViewNode {
     this.domContainer.spellcheck = false;
     this.domContainer.className = 'tw--doc';
     this.domContainer.style.outline = 'none';
+    this.domContainer.style.textAlign = 'left';
   }
 
   getDOMContainer(): HTMLDivElement {
@@ -52,7 +53,9 @@ export default class DocViewNode extends ViewNode {
     return this.children;
   }
 
-  onLayoutUpdated(docBox: DocBox) {}
+  onLayoutUpdated(layoutNode: DocBox) {
+    this.selectableSize = layoutNode.getSelectableSize();
+  }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
     this.onUpdatedSubscribers.push(onUpdatedSubscriber);
@@ -65,4 +68,16 @@ export default class DocViewNode extends ViewNode {
   }
 
   onDeleted() {}
+
+  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      if (cumulatedOffset + child.getSelectableSize() > offset) {
+        return child.resolveSelectableOffsetToNodeOffset(offset - cumulatedOffset);
+      }
+      cumulatedOffset += child.getSelectableSize();
+    }
+    throw new Error(`Selectable offset ${offset} is out of range.`);
+  }
 }

@@ -1,4 +1,3 @@
-
 import Node from './Node';
 import BranchNode from './BranchNode';
 
@@ -45,7 +44,7 @@ export default class Doc extends Node {
   }
 
   getPadding(): number {
-    return 60;
+    return 40;
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

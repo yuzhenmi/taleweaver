@@ -10,8 +10,13 @@ export default class Delete extends Operation {
     this.to = to;
   }
 
-  getType(): string {
-    return 'Delete';
+  getDelta(): number {
+    return this.from - this.to;
+  }
+
+  offsetBy(delta: number) {
+    this.from += delta;
+    this.to += delta;
   }
 
   getFrom(): number {
