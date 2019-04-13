@@ -16,7 +16,7 @@ export default abstract class ViewNode {
 
   getSelectableSize(): number {
     if (this.selectableSize === undefined) {
-      throw new Error('View node has not yet been initialized with selectabls zie.');
+      throw new Error('View node has not yet been initialized with selectable size.');
     }
     return this.selectableSize;
   }

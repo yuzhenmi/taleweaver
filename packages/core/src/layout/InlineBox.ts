@@ -82,6 +82,7 @@ export default abstract class InlineBox extends Box {
     child.setParent(this);
     this.width = undefined;
     this.height = undefined;
+    this.widthWithoutTrailingWhitespace = undefined;
   }
 
   deleteChild(child: Child) {
@@ -92,6 +93,7 @@ export default abstract class InlineBox extends Box {
     this.children.splice(childOffset, 1);
     this.width = undefined;
     this.height = undefined;
+    this.widthWithoutTrailingWhitespace = undefined;
   }
 
   getChildren(): Child[] {
@@ -144,9 +146,10 @@ export default abstract class InlineBox extends Box {
   }
 
   onRenderUpdated(renderNode: InlineRenderNode) {
+    this.selectableSize = undefined;
     this.width = undefined;
     this.height = undefined;
-    this.selectableSize = undefined;
+    this.widthWithoutTrailingWhitespace = undefined;
   }
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {

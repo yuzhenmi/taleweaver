@@ -20,6 +20,7 @@ export default class DocViewNode extends ViewNode {
     this.domContainer.spellcheck = false;
     this.domContainer.className = 'tw--doc';
     this.domContainer.style.outline = 'none';
+    this.domContainer.style.textAlign = 'left';
   }
 
   getDOMContainer(): HTMLDivElement {

@@ -293,6 +293,14 @@ export default class Presenter {
     return -1;
   }
 
+  getViewNodeByID(viewNodeID: string): ViewNode {
+    const idMapValue = this.idMap.get(viewNodeID);
+    if (!idMapValue) {
+      throw new Error(`View node ${viewNodeID} is not registered.`);
+    }
+    return idMapValue[1];
+  }
+
   protected run() {
     const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap, this.domObserver);
     treeSyncer.syncNodes(this.editor.getLayoutEngine().getDocBox(), this.docViewNode);

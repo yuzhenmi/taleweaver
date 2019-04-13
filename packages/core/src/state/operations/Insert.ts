@@ -11,12 +11,12 @@ export default class Insert extends Operation {
     this.tokens = tokens;
   }
 
-  getType(): string {
-    return 'Insert';
-  }
-
   getDelta(): number {
     return this.tokens.length;
+  }
+
+  offsetBy(delta: number) {
+    this.at += delta;
   }
 
   getAt(): number {

@@ -21,27 +21,35 @@ function getStringDiff(oldStr: string, newStr: string): [number, number, number,
   return [oldA, oldB, newA, newB];
 }
 
-interface Transformation {
-  state: StateTransformation;
-}
-
 export default class PageDOMObserver {
   protected editor: Editor;
   protected pageViewNode: PageViewNode;
   protected mutationObserver: MutationObserver;
+  protected disconnected: boolean;
 
   constructor(editor: Editor, pageViewNode: PageViewNode) {
     this.editor = editor;
     this.pageViewNode = pageViewNode;
     this.mutationObserver = new MutationObserver(this.handleMutations);
-    this.connect();
+    this.disconnected = false;
+    this.resume();
   }
 
   getPageID(): string {
     return this.pageViewNode.getID();
   }
 
-  connect() {
+  disconnect() {
+    this.pause();
+    this.disconnected = true;
+  }
+
+  protected resume() {
+    if (this.disconnected) {
+      return;
+    }
+    // Clear queue
+    this.mutationObserver.takeRecords();
     const pageDOMContentContainer = this.pageViewNode.getDOMContentContainer();
     this.mutationObserver.observe(pageDOMContentContainer, {
       characterData: true,
@@ -51,12 +59,12 @@ export default class PageDOMObserver {
     });
   }
 
-  disconnect() {
+  protected pause() {
     this.mutationObserver.disconnect();
   }
 
   protected handleMutations = (mutations: MutationRecord[]) => {
-    this.disconnect();
+    this.pause();
     const transformation = new StateTransformation();
     mutations.forEach(mutation => {
       if (mutation.type === 'childList') {
@@ -80,13 +88,24 @@ export default class PageDOMObserver {
       cursorTransformation.addOperation(new MoveTo(Math.min(cursor.getAnchor(), cursor.getHead()) + insertDelta));
     }
     this.editor.getDispatcher().dispatchCommand((editor: Editor) => [transformation, cursorTransformation]);
-    this.connect();
+    this.resume();
   }
 
   protected handleChildListMutation(mutation: MutationRecord, transformation: StateTransformation) {
     // TODO: Undo mutation
-    // TODO: Build transformation
-    // TODO: Apply transformation
+    mutation.addedNodes.forEach(addedNode => {
+      if (addedNode.parentNode) {
+        addedNode.parentNode.removeChild(addedNode);
+      }
+    });
+    mutation.removedNodes.forEach(removedNode => {
+      if (mutation instanceof HTMLElement && mutation.nextSibling) {
+        mutation.target.insertBefore(mutation.nextSibling, removedNode);
+      } else {
+        mutation.target.appendChild(removedNode);
+      }
+    });
+    // TODO: Add operations to transformation
   }
 
   protected handleCharacterDataMutation(mutation: MutationRecord, transformation: StateTransformation) {
