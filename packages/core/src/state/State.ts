@@ -4,6 +4,7 @@ import CloseTagToken from './CloseTagToken';
 import Transformation from './Transformation';
 import Insert from './operations/Insert';
 import Delete from './operations/Delete';
+import { OffsetAdjustment } from './Operation';
 
 type OnUpdatedSubscriber = () => void;
 
@@ -34,9 +35,9 @@ class State {
     if (operations.length === 0) {
       return;
     }
-    let delta = 0;
+    const offsetAdjustments: OffsetAdjustment[] = [];
     operations.forEach(operation => {
-      operation.offsetBy(delta);
+      offsetAdjustments.forEach(offsetAdjustment => operation.adjustOffsetBy(offsetAdjustment));
       if (operation instanceof Insert) {
         this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());
       } else if (operation instanceof Delete) {
@@ -48,7 +49,7 @@ class State {
       } else {
         throw new Error('Unknown state transformation operation encountered.');
       }
-      delta += operation.getDelta();
+      offsetAdjustments.push(operation.getOffsetAdjustment());
     });
     this.onUpdated();
   }

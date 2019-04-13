@@ -1,4 +1,4 @@
-import Operation from '../Operation';
+import Operation, { OffsetAdjustment } from '../Operation';
 import Token from '../Token';
 
 export default class Insert extends Operation {
@@ -11,12 +11,17 @@ export default class Insert extends Operation {
     this.tokens = tokens;
   }
 
-  getDelta(): number {
-    return this.tokens.length;
+  getOffsetAdjustment(): OffsetAdjustment {
+    return {
+      at: this.at,
+      delta: this.tokens.length,
+    };
   }
 
-  offsetBy(delta: number) {
-    this.at += delta;
+  adjustOffsetBy(offsetAdjustment: OffsetAdjustment) {
+    if (this.at >= offsetAdjustment.at) {
+      this.at += offsetAdjustment.delta;
+    }
   }
 
   getAt(): number {

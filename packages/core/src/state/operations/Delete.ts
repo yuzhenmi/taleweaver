@@ -1,4 +1,4 @@
-import Operation from '../Operation';
+import Operation, { OffsetAdjustment } from '../Operation';
 
 export default class Delete extends Operation {
   protected from: number;
@@ -10,13 +10,20 @@ export default class Delete extends Operation {
     this.to = to;
   }
 
-  getDelta(): number {
-    return this.from - this.to;
+  getOffsetAdjustment(): OffsetAdjustment {
+    return {
+      at: this.to,
+      delta: this.from - this.to,
+    };
   }
 
-  offsetBy(delta: number) {
-    this.from += delta;
-    this.to += delta;
+  adjustOffsetBy(offsetAdjustment: OffsetAdjustment) {
+    if (this.from >= offsetAdjustment.at) {
+      this.from += offsetAdjustment.delta;
+    }
+    if (this.to >= offsetAdjustment.at) {
+      this.to += offsetAdjustment.delta;
+    }
   }
 
   getFrom(): number {

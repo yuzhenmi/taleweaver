@@ -6,22 +6,22 @@ type Child = InlineViewNode;
 
 export default class LineViewNode extends ViewNode {
   protected children: Child[];
-  protected domContainer: HTMLDivElement;
+  protected domContainer: HTMLSpanElement;
 
   constructor(id: string) {
     super(id);
     this.children = [];
-    this.domContainer = document.createElement('div');
+    this.domContainer = document.createElement('span');
     this.domContainer.className = 'tw--line';
     this.domContainer.style.whiteSpace = 'pre-wrap';
     this.domContainer.style.width = '100%';
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer(): HTMLSpanElement {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLDivElement {
+  getDOMContentContainer(): HTMLSpanElement {
     return this.domContainer;
   }
 

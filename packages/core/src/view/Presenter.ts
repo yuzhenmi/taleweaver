@@ -234,7 +234,9 @@ export default class Presenter {
     return pages[pageOffset].getDOMContentContainer();
   }
 
-  resolveSelectionPosition(node: Node, offset: number): number {
+  resolveDOMNodePosition(node: Node, offset: number): number {
+    // FIXME: This method is work in progress. It should try its
+    // best to resolve position, even if it may not be 100% accurate.
     let currentElement: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
     while (currentElement) {
       const nodeID = currentElement.getAttribute('data-tw-id');
