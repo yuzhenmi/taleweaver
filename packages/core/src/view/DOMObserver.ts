@@ -1,22 +1,43 @@
 import Editor from '../Editor';
-import DocViewNode from './DocViewNode';
+import StateTransformation from '../state/Transformation';
+import { Insert, Delete } from '../state/operations';
+import CursorTransformation from '../cursor/Transformation';
+import { MoveTo, MoveHeadTo } from '../cursor/operations';
 import getKeySignatureFromKeyboardEvent from '../input/helpers/getKeySignatureFromKeyboardEvent';
 import * as cursorCommands from '../input/cursorCommands';
+import DocViewNode from './DocViewNode';
 import PageViewNode from './PageViewNode';
-import PageDOMObserver from './PageDOMObserver';
+
+function getStringDiff(oldStr: string, newStr: string): [number, number, number, number] {
+  let oldA = 0;
+  let oldB = oldStr.length;
+  let newA = 0;
+  let newB = newStr.length;
+  while (oldStr[oldA] === newStr[newA] && oldA < oldB && newA < newB) {
+    oldA++;
+    newA++;
+  }
+  while (oldStr[oldB - 1] === newStr[newB - 1] && oldB > oldA && newB > newA) {
+    oldB--;
+    newB--;
+  }
+  return [oldA, oldB, newA, newB];
+}
 
 export default class DOMObserver {
   protected editor: Editor;
   protected docViewNode?: DocViewNode;
   protected isFocused: boolean;
   protected isMouseDown: boolean;
-  protected pageDOMObservers: PageDOMObserver[];
+  protected mutationObserver: MutationObserver;
+  protected pageViewNodes: PageViewNode[];
 
   constructor(editor: Editor) {
     this.editor = editor;
     this.isFocused = false;
     this.isMouseDown = false;
-    this.pageDOMObservers = [];
+    this.mutationObserver = new MutationObserver(this.handleMutations);
+    this.pageViewNodes = [];
   }
 
   connectDoc(docViewNode: DocViewNode) {
@@ -31,17 +52,22 @@ export default class DOMObserver {
   }
 
   connectPage(pageViewNode: PageViewNode) {
-    const pageDOMObserver = new PageDOMObserver(this.editor, pageViewNode);
-    this.pageDOMObservers.push(pageDOMObserver);
+    if (this.pageViewNodes.indexOf(pageViewNode) >= 0) {
+      return;
+    }
+    this.pauseMutationObserver();
+    this.pageViewNodes.push(pageViewNode);
+    this.resumeMutationObserver();
   }
 
   disconnectPage(pageViewNode: PageViewNode) {
-    const offset = this.pageDOMObservers.findIndex(o => o.getPageID() === pageViewNode.getID());
+    const offset = this.pageViewNodes.indexOf(pageViewNode);
     if (offset < 0) {
-      throw new Error(`No DOM observer found for page ${pageViewNode.getID()}.`);
+      return;
     }
-    this.pageDOMObservers[offset].disconnect();
-    this.pageDOMObservers.splice(offset, 1);
+    this.pauseMutationObserver();
+    this.pageViewNodes.splice(offset, 1);
+    this.resumeMutationObserver();
   }
 
   protected onFocus = (event: FocusEvent) => {
@@ -128,5 +154,98 @@ export default class DOMObserver {
       cumulatedOffset += pageFlowBox.getSelectableSize();
     }
     return -1;
+  }
+
+  protected resumeMutationObserver() {
+    this.pageViewNodes.forEach(pageViewNode => {
+      const pageDOMContentContainer = pageViewNode.getDOMContentContainer();
+      this.mutationObserver.observe(pageDOMContentContainer, {
+        characterData: true,
+        characterDataOldValue: true,
+        childList: true,
+        subtree: true,
+      });
+    });
+  }
+
+  protected pauseMutationObserver() {
+    this.mutationObserver.disconnect();
+  }
+
+  protected handleMutations = (mutations: MutationRecord[]) => {
+    this.pauseMutationObserver();
+    this.syncCursorWithDOM();
+    const transformation = new StateTransformation();
+    mutations.forEach(mutation => {
+      if (mutation.type === 'childList') {
+        this.handleChildListMutation(mutation, transformation);
+      } else if (mutation.type === 'characterData') {
+        this.handleCharacterDataMutation(mutation, transformation);
+      }
+    });
+    this.editor.getState().applyTransformation(transformation);
+    this.resumeMutationObserver();
+  }
+
+  protected handleChildListMutation(mutation: MutationRecord, transformation: StateTransformation) {
+    mutation.addedNodes.forEach(addedNode => {
+      if (addedNode.parentNode) {
+        addedNode.parentNode.removeChild(addedNode);
+      }
+      const offset = this.editor.getPresenter().resolveDOMNodePosition(addedNode, 0);
+      if (offset < 0) {
+        return;
+      }
+      const insertAt = this.editor.convertSelectableOffsetToModelOffset(offset);
+      transformation.addOperation(new Insert(insertAt, (addedNode.textContent || '').split('')));
+    });
+    mutation.removedNodes.forEach(removedNode => {
+      if (mutation instanceof HTMLElement && mutation.nextSibling) {
+        mutation.target.insertBefore(mutation.nextSibling, removedNode);
+      } else {
+        mutation.target.appendChild(removedNode);
+      }
+      const offset = this.editor.getPresenter().resolveDOMNodePosition(removedNode, 0);
+      if (offset < 0) {
+        return;
+      }
+      const deleteFrom = this.editor.convertSelectableOffsetToModelOffset(offset);
+      const deleteTo = this.editor.convertSelectableOffsetToModelOffset(offset + (removedNode.textContent || '').length);
+      transformation.addOperation(new Delete(deleteFrom, deleteTo));
+    });
+  }
+
+  protected handleCharacterDataMutation(mutation: MutationRecord, transformation: StateTransformation) {
+    const oldContent = mutation.oldValue || '';
+    const newContent = mutation.target.textContent || '';
+    const mutatedNode = mutation.target;
+    mutatedNode.textContent = mutation.oldValue;
+    const offset = this.editor.getPresenter().resolveDOMNodePosition(mutatedNode, 0);
+    if (offset < 0) {
+      return;
+    }
+    const [oldA, oldB, newA, newB] = getStringDiff(oldContent, newContent);
+    const editor = this.editor;
+    const deleteFrom = editor.convertSelectableOffsetToModelOffset(offset + oldA);
+    const deleteTo = editor.convertSelectableOffsetToModelOffset(offset + oldB);
+    const insertAt = deleteFrom;
+    const tokensToInsert = newContent.slice(newA, newB).split('');
+    if (deleteFrom < deleteTo) {
+      transformation.addOperation(new Delete(deleteFrom, deleteTo));
+    }
+    if (tokensToInsert.length > 0) {
+      transformation.addOperation(new Insert(insertAt, tokensToInsert));
+    }
+  }
+
+  protected syncCursorWithDOM() {
+    const selection = window.getSelection();
+    const presenter = this.editor.getPresenter();
+    const anchor = presenter.resolveDOMNodePosition(selection.anchorNode, selection.anchorOffset);
+    const head = presenter.resolveDOMNodePosition(selection.focusNode, selection.focusOffset);
+    const transformation = new CursorTransformation();
+    transformation.addOperation(new MoveTo(anchor));
+    transformation.addOperation(new MoveHeadTo(head));
+    this.editor.getCursor().applyTransformation(transformation);
   }
 }

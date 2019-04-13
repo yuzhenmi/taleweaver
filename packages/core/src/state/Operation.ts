@@ -1,8 +1,11 @@
-abstract class Operation {
-
-  abstract getDelta(): number;
-
-  abstract offsetBy(delta: number): void;
+export interface OffsetAdjustment {
+  at: number;
+  delta: number;
 }
 
-export default Operation;
+export default abstract class Operation {
+
+  abstract getOffsetAdjustment(): OffsetAdjustment;
+
+  abstract adjustOffsetBy(offsetAdjustment: OffsetAdjustment): void;
+}
