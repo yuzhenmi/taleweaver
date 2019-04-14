@@ -1,15 +1,15 @@
 import Config from '../Config';
 import TreeSyncer from '../helpers/TreeSyncer';
-import Node from '../model/Node';
+import Element from '../model/Element';
 import Doc from '../model/Doc';
-import BranchNode from '../model/BranchNode';
-import LeafNode from '../model/LeafNode';
+import BlockElement from '../model/BlockElement';
+import InlineElement from '../model/InlineElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import BlockRenderNode from './BlockRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 
-class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
+class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
   protected config: Config;
   protected lastVersion: number;
 
@@ -19,17 +19,17 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
     this.lastVersion = lastVersion;
   }
 
-  getSrcNodeChildren(node: Node): Node[] {
+  getSrcNodeChildren(node: Element) {
     if (node instanceof Doc) {
       return node.getChildren();
     }
-    if (node instanceof BranchNode) {
+    if (node instanceof BlockElement) {
       return node.getChildren();
     }
     return [];
   }
 
-  getDstNodeChildren(node: RenderNode): RenderNode[] {
+  getDstNodeChildren(node: RenderNode) {
     if (node instanceof DocRenderNode) {
       return [...node.getChildren()];
     }
@@ -39,14 +39,14 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
     return [];
   }
 
-  findSrcNodeInDstNodes(srcNode: Node, dstNodes: RenderNode[]): number {
+  findSrcNodeInDstNodes(srcNode: Element, dstNodes: RenderNode[]) {
     const id = srcNode.getID();
     const offset = dstNodes.findIndex(n => n.getID() === id);
     return offset;
   }
 
-  insertNode(parent: RenderNode, srcNode: Node, offset: number): RenderNode {
-    if (parent instanceof DocRenderNode && srcNode instanceof BranchNode) {
+  insertNode(parent: RenderNode, srcNode: Element, offset: number) {
+    if (parent instanceof DocRenderNode && srcNode instanceof BlockElement) {
       const BlockRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
       const blockRenderNode = new BlockRenderNodeClass(srcNode.getID(), parent);
       if (!(blockRenderNode instanceof BlockRenderNode)) {
@@ -56,7 +56,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
       parent.insertChild(blockRenderNode, offset);
       return blockRenderNode;
     }
-    if (parent instanceof BlockRenderNode && srcNode instanceof LeafNode) {
+    if (parent instanceof BlockRenderNode && srcNode instanceof InlineElement) {
       const InlineRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
       const inlineRenderNode = new InlineRenderNodeClass(srcNode.getID(), parent);
       if (!(inlineRenderNode instanceof InlineRenderNode)) {
@@ -81,7 +81,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
     throw new Error('Error deleting render node, type mismatch.');
   }
 
-  updateNode(node: RenderNode, srcNode: Node): boolean {
+  updateNode(node: RenderNode, srcNode: Element) {
     if (node instanceof DocRenderNode && srcNode instanceof Doc) {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
@@ -90,7 +90,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
       node.setVersion(srcNode.getVersion());
       return true;
     }
-    if (node instanceof BlockRenderNode && srcNode instanceof BranchNode) {
+    if (node instanceof BlockRenderNode && srcNode instanceof BlockElement) {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }
@@ -98,7 +98,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Node, RenderNode> {
       node.setVersion(srcNode.getVersion());
       return true;
     }
-    if (node instanceof InlineRenderNode && srcNode instanceof LeafNode) {
+    if (node instanceof InlineRenderNode && srcNode instanceof InlineElement) {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }

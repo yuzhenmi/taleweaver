@@ -1,4 +1,4 @@
-import LeafNode from '../model/LeafNode';
+import InlineElement from '../model/InlineElement';
 import RenderNode from './RenderNode';
 import BlockRenderNode from './BlockRenderNode';
 import AtomicRenderNode from './AtomicRenderNode';
@@ -59,7 +59,7 @@ export default abstract class InlineRenderNode extends RenderNode {
     this.children.splice(childOffset, 1);
   }
 
-  onModelUpdated(node: LeafNode) {
+  onModelUpdated(element: InlineElement) {
     this.selectableSize = undefined;
     this.modelSize = undefined;
   }

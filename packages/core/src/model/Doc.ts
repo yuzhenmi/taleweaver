@@ -1,50 +1,101 @@
-import Node from './Node';
-import BranchNode from './BranchNode';
+import RootNode from '../tree/RootNode';
+import Attributes from '../state/Attributes';
+import Element from './Element';
+import BlockElement from './BlockElement';
 
-export type Child = BranchNode;
-
+type ChildElement = BlockElement;
 type OnUpdatedSubscriber = () => void;
 
-export default class Doc extends Node {
-  protected children: Child[];
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
+const DEFAULT_ATTRIBUTES = {
+  width: 816,
+  height: 1056,
+  padding: 40,
+};
 
-  constructor() {
-    super();
-    this.children = [];
-    this.onUpdatedSubscribers = [];
-  }
+export default class Doc extends Element implements RootNode {
+  protected children: ChildElement[] = [];
+  protected size?: number;
+  protected width: number = 0;
+  protected height: number = 0;
+  protected padding: number = 0;
+  protected onUpdatedSubscribers: OnUpdatedSubscriber[] = [];
 
-  getType(): string {
+  getType() {
     return 'Doc';
   }
 
-  getChildren(): Child[] {
-    return this.children;
+  insertChild(child: ChildElement, offset: number | undefined = undefined) {
+    child.setParent(this);
+    if (offset === undefined) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.size = undefined;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
-  }
-
-  deleteChild(child: Child) {
+  deleteChild(child: ChildElement) {
     const childOffset = this.children.indexOf(child);
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.size = undefined;
   }
 
-  getWidth(): number {
-    return 816;
+  getChildren() {
+    return this.children;
   }
 
-  getHeight(): number {
-    return 1056;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 2;
+      this.children.forEach(child => {
+        size += child.getSize();
+      });
+      this.size = size;
+    }
+    return this.size;
   }
 
-  getPadding(): number {
-    return 40;
+  onStateUpdated(attributes: Attributes) {
+    attributes = { ...DEFAULT_ATTRIBUTES, ...attributes };
+    let isUpdated = false;
+    if (this.width !== attributes.width) {
+      this.width = attributes.width;
+      isUpdated = true;
+    }
+    if (this.height !== attributes.height) {
+      this.height = attributes.height;
+      isUpdated = true;
+    }
+    if (this.padding !== attributes.padding) {
+      this.padding = attributes.padding;
+      isUpdated = true;
+    }
+    return isUpdated;
+  }
+
+  getWidth() {
+    return this.width;
+  }
+
+  getHeight() {
+    return this.height;
+  }
+
+  getPadding() {
+    return this.padding;
+  }
+
+  getAttributes() {
+    return {
+      id: this.id!,
+      width: this.width,
+      height: this.height,
+      padding: this.padding,
+    };
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

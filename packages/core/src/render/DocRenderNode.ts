@@ -111,11 +111,11 @@ export default class DocRenderNode extends RenderNode {
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }
 
-  onModelUpdated(node: Doc) {
-    this.id = node.getID();
-    this.width = node.getWidth();
-    this.height = node.getHeight();
-    this.padding = node.getPadding();
+  onModelUpdated(element: Doc) {
+    this.id = element.getID();
+    this.width = element.getWidth();
+    this.height = element.getHeight();
+    this.padding = element.getPadding();
     this.selectableSize = undefined;
     this.modelSize = undefined;
   }

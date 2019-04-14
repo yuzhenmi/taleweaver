@@ -1,10 +1,19 @@
-import LeafNode from './LeafNode';
+import Attributes from '../state/Attributes';
+import InlineElement from './InlineElement';
 
-class Text extends LeafNode {
+export default class Text extends InlineElement {
 
-  getType(): string {
+  getType() {
     return 'Text';
   }
-}
 
-export default Text;
+  getAttributes() {
+    return {
+      id: this.id!,
+    };
+  }
+
+  onStateUpdated(attributes: Attributes) {
+    return false;
+  }
+}

@@ -1,207 +1,156 @@
 import Config from '../Config';
+import TreeSyncer from '../helpers/TreeSyncer';
 import State from '../state/State';
 import Token from '../state/Token';
 import OpenTagToken from '../state/OpenTagToken';
 import CloseTagToken from '../state/CloseTagToken';
-import Node from './Node';
+import Element from './Element';
 import Doc from './Doc';
-import BranchNode from './BranchNode';
-import LeafNode from './LeafNode';
+import BlockElement from './BlockElement';
+import InlineElement from './InlineElement';
 
-enum ParserState {
-  NewDoc,
-  NewNode,
-  LeafNode,
-}
+class ModelTreeSyncer extends TreeSyncer<Element, Element> {
+  protected config: Config;
+  protected lastVersion: number;
 
-abstract class StackElementOperation {
-  
-  abstract shiftOffset(delta: number): void;
-}
-
-class StackElementInsertChildOperation extends StackElementOperation {
-  protected offset: number;
-  protected child: Node;
-
-  constructor(offset: number, child: Node) {
+  constructor(config: Config, lastVersion: number) {
     super();
-    this.offset = offset;
-    this.child = child;
+    this.config = config;
+    this.lastVersion = lastVersion;
   }
 
-  shiftOffset(delta: number) {
-    this.offset += delta;
-  }
-
-  getOffset(): number {
-    return this.offset;
-  }
-
-  getChild(): Node {
-    return this.child;
-  }
-}
-
-class StackElementDeleteChildrenOperation extends StackElementOperation {
-  protected fromOffset: number;
-  protected toOffset: number;
-
-  constructor(fromOffset: number, toOffset: number) {
-    super();
-    this.fromOffset = fromOffset;
-    this.toOffset = toOffset;
-  }
-
-  shiftOffset(delta: number) {
-    this.fromOffset += delta;
-    this.toOffset += delta;
-  }
-
-  getFromOffset(): number {
-    return this.fromOffset;
-  }
-
-  getToOffset(): number {
-    return this.toOffset;
-  }
-}
-
-class StackElement {
-  protected node: Node;
-  protected children: Node[];
-  protected invertedChildrenMap: Map<string, number>;
-  protected childIteratorOffset: number;
-  protected operationsBuffer: StackElementOperation[];
-  protected operationsBufferFlushed: boolean;
-
-  constructor(node: Node) {
-    this.node = node;
-    this.invertedChildrenMap = new Map();
-    if (node instanceof Doc || node instanceof BranchNode) {
-      this.children = node.getChildren();
-      let child: Node;
-      for (let n = 0, nn = this.children.length; n < nn; n++) {
-        child = this.children[n];
-        this.invertedChildrenMap.set(child.getID(), n);
-      }
-    } else {
-      this.children = [];
+  getSrcNodeChildren(node: Element) {
+    if (node instanceof Doc) {
+      return node.getChildren();
     }
-    this.childIteratorOffset = 0;
-    this.operationsBuffer = [];
-    this.operationsBufferFlushed = false;
-  }
-
-  getNode(): Node {
-    return this.node;
-  }
-
-  findChild(childID: string): number {
-    const offset = this.invertedChildrenMap.get(childID);
-    if (offset === undefined) {
-      return -1;
+    if (node instanceof BlockElement) {
+      return node.getChildren();
     }
+    return [];
+  }
+
+  getDstNodeChildren(node: Element) {
+    if (node instanceof Doc) {
+      return [...node.getChildren()];
+    }
+    if (node instanceof BlockElement) {
+      return [...node.getChildren()];
+    }
+    return [];
+  }
+
+  findSrcNodeInDstNodes(srcNode: Element, dstNodes: Element[]) {
+    const id = srcNode.getID();
+    const offset = dstNodes.findIndex(n => n.getID() === id);
     return offset;
   }
 
-  getChildAt(offset: number): Node {
-    if (offset < this.childIteratorOffset) {
-      throw new Error(`Cannot get child at offset ${offset}, child iterator offset is already at ${this.childIteratorOffset}.`);
-    }
-    if (offset < 0 || offset > this.children.length - 1) {
-      throw new Error(`Child offset ${offset} is out of valid range 0-${this.children.length - 1}.`);
-    }
-    return this.children[offset];
-  }
-
-  insertChild(child: Node) {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more operations after flushing.');
-    }
-    const operation = new StackElementInsertChildOperation(this.childIteratorOffset, child);
-    this.operationsBuffer.push(operation);
-  }
-
-  deleteChildrenTo(offset: number) {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more child operations after flushing.');
-    }
-    if (offset < this.childIteratorOffset) {
-      throw new Error(`Cannot delete children to offset ${offset}, iterator offset is already at ${this.childIteratorOffset}.`);
-    }
-    if (offset > this.childIteratorOffset) {
-      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, offset - 1);
-      this.operationsBuffer.push(operation);
-    }
-    this.childIteratorOffset = offset + 1;
-  }
-
-  deleteRemainingChildren() {
-    if (this.operationsBufferFlushed) {
-      throw new Error('Cannot append more child operations after flushing.');
-    }
-    if (this.childIteratorOffset < this.children.length) {
-      const operation = new StackElementDeleteChildrenOperation(this.childIteratorOffset, this.children.length - 1);
-      this.operationsBuffer.push(operation);
-    }
-  }
-
-  flushOperationsBuffer(): boolean {
-    let updated : boolean;
-    if (this.operationsBuffer.length > 0) {
-      const node = this.node;
-      if (!(node instanceof Doc || node instanceof BranchNode)) {
-        throw new Error(`Cannot flush operations for node ${node.getID()}, node has no children.`);
+  insertNode(parent: Element, srcNode: Element, offset: number) {
+    if (parent instanceof Doc && srcNode instanceof BlockElement) {
+      const ElementClass = this.config.getElementClass(srcNode.getType());
+      const element = new ElementClass();
+      if (!(element instanceof BlockElement)) {
+        throw new Error('Error inserting element, expecting block element.');
       }
-      let operation: StackElementOperation;
-      for (let n = 0, nn = this.operationsBuffer.length; n < nn; n++) {
-        let delta: number;
-        operation = this.operationsBuffer[n];
-        if (operation instanceof StackElementInsertChildOperation) {
-          // @ts-ignore
-          node.insertChild(operation.getChild(), operation.getOffset());
-          delta = 1;
-        } else if (operation instanceof StackElementDeleteChildrenOperation) {
-          const childrenToDelete = node.getChildren().slice(operation.getFromOffset(), operation.getToOffset() + 1);
-          for (let m = 0, mm = childrenToDelete.length; m < mm; m++) {
-            // @ts-ignore
-            node.deleteChild(childrenToDelete[m]);
-          }
-          delta = 0 - childrenToDelete.length;
-        } else {
-          throw new Error('Unknown operation.');
-        }
-        if (delta !== 0) {
-          for (let m = n; m < nn; m++) {
-            this.operationsBuffer[m].shiftOffset(delta);
-          }
-        }
-      }
-      updated = true;
-    } else {
-      updated = false;
+      element.setID(srcNode.getID());
+      parent.insertChild(element, offset);
+      this.updateElementVersion(element);
+      return element;
     }
-    this.operationsBufferFlushed = true;
-    return updated;
+    if (parent instanceof BlockElement && srcNode instanceof InlineElement) {
+      const ElementClass = this.config.getElementClass(srcNode.getType());
+      const element = new ElementClass();
+      if (!(element instanceof InlineElement)) {
+        throw new Error('Error inserting element, expecting inline element.');
+      }
+      element.setID(srcNode.getID());
+      parent.insertChild(element, offset);
+      this.updateElementVersion(element);
+      return element;
+    }
+    throw new Error('Error inserting element, type mismatch.');
+  }
+
+  deleteNode(parent: Element, node: Element) {
+    if (parent instanceof Doc && node instanceof BlockElement) {
+      parent.deleteChild(node);
+      this.updateElementVersion(parent);
+      return;
+    }
+    if (parent instanceof BlockElement && node instanceof InlineElement) {
+      parent.deleteChild(node);
+      this.updateElementVersion(parent);
+      return;
+    }
+    throw new Error('Error deleting element, type mismatch.');
+  }
+
+  updateNode(node: Element, srcNode: Element) {
+    if (node instanceof Doc && srcNode instanceof Doc) {
+      const attributes = srcNode.getAttributes();
+      if (node.onStateUpdated(attributes)) {
+        this.updateElementVersion(node);
+      }
+      return true;
+    }
+    if (node instanceof BlockElement && srcNode instanceof BlockElement) {
+      const attributes = srcNode.getAttributes();
+      if (node.onStateUpdated(attributes)) {
+        this.updateElementVersion(node);
+      }
+      return true;
+    }
+    if (node instanceof InlineElement && srcNode instanceof InlineElement) {
+      const attributes = srcNode.getAttributes();
+      let isUpdated = false;
+      if (node.onStateUpdated(attributes)) {
+        isUpdated = true;
+      }
+      const content = srcNode.getContent();
+      if (node.getContent() !== content) {
+        node.setContent(content);
+        isUpdated = true;
+      }
+      if (isUpdated) {
+        this.updateElementVersion(node);
+      }
+      return true;
+    }
+    throw new Error('Error updating render node, type mismatch.');
+  }
+
+  protected updateElementVersion(element: Element) {
+    element.setVersion(this.lastVersion + 1);
+    if (element instanceof InlineElement) {
+      this.updateElementVersion(element.getParent());
+    } else if (element instanceof BlockElement) {
+      this.updateElementVersion(element.getParent());
+    }
   }
 }
 
+enum ParserState {
+  NewDoc,
+  NewElement,
+  InlineElement,
+}
+
 class Stack {
-  protected elements: StackElement[];
+  protected elements: Element[];
 
   constructor() {
     this.elements = [];
   }
 
-  push(element: StackElement) {
+  push(element: Element) {
     this.elements.push(element);
   }
 
-  pop(): StackElement | undefined {
+  pop(): Element | undefined {
     return this.elements.pop();
   }
 
-  peek(): StackElement | undefined {
+  peek(): Element | undefined {
     return this.elements[this.elements.length - 1];
   }
 }
@@ -221,7 +170,7 @@ class Parser {
     this.state = state;
     this.parserState = ParserState.NewDoc;
     this.doc = new Doc();
-    this.stack = new Stack;
+    this.stack = new Stack();
     this.contentBuffer = '';
     this.ran = false;
     this.version = 0;
@@ -239,6 +188,9 @@ class Parser {
   }
 
   protected run() {
+    const newDoc = new Doc();
+    this.stack = new Stack();
+    this.stack.push(newDoc);
     const tokens = this.state.getTokens();
     let token: Token;
     for (let n = 0, nn = tokens.length; n < nn; n++) {
@@ -249,9 +201,9 @@ class Parser {
             this.newDoc(token);
             break;
           }
-        case ParserState.NewNode:
+        case ParserState.NewElement:
           if (token instanceof OpenTagToken) {
-            this.newNode(token);
+            this.newElement(token);
             break;
           }
           if (typeof token === 'string') {
@@ -264,7 +216,7 @@ class Parser {
           }
           this.appendToContent(token);
           break;
-        case ParserState.LeafNode:
+        case ParserState.InlineElement:
           if (typeof token === 'string') {
             this.appendToContent(token);
             break;
@@ -277,78 +229,64 @@ class Parser {
           throw new Error(`Unexpected token at offset ${n}.`);
       }
     }
+    const treeSyncer = new ModelTreeSyncer(this.config, this.version);
+    this.doc.setID(newDoc.getID());
+    treeSyncer.syncNodes(newDoc, this.doc);
     this.ran = true;
-    this.version++;
+    this.version = this.doc.getVersion();
     this.doc.onUpdated();
   }
 
   protected newDoc(token: OpenTagToken) {
-    const doc = this.doc;
+    const doc = this.stack.peek();
+    if (!(doc instanceof Doc)) {
+      throw new Error('Expected doc.');
+    }
     const attributes = token.getAttributes();
     doc.setID(attributes.id);
-    this.stack.push(new StackElement(doc));
-    this.parserState = ParserState.NewNode;
+    doc.onStateUpdated(attributes);
+    this.parserState = ParserState.NewElement;
   }
 
-  protected newNode(token: OpenTagToken) {
-    const lastStackElement = this.stack.peek();
-    if (lastStackElement === undefined) {
+  protected newElement(token: OpenTagToken) {
+    const parentElement = this.stack.peek();
+    if (!parentElement) {
       throw new Error('Unexpected end of doc encountered.');
     }
-    const offset = lastStackElement.findChild(token.getAttributes().id);
-    let node: Node;
-    if (offset < 0) {
-      const NodeClass = this.config.getNodeClass(token.getType());
-      node = new NodeClass(lastStackElement.getNode());
-      node.setVersion(this.version);
-      lastStackElement.insertChild(node);
-    } else {
-      node = lastStackElement.getChildAt(offset);
-      lastStackElement.deleteChildrenTo(offset);
-    }
+    const ElementClass = this.config.getElementClass(token.getType());
+    const element = new ElementClass();
     const attributes = token.getAttributes();
-    node.setID(attributes.id);
-    this.stack.push(new StackElement(node));
+    element.setID(attributes.id);
+    element.onStateUpdated(attributes);
+    if (parentElement instanceof Doc) {
+      if (!(element instanceof BlockElement)) {
+        throw new Error('Unexpected child element for doc.');
+      }
+      parentElement.insertChild(element)
+    } else if (parentElement instanceof BlockElement) {
+      if (!(element instanceof InlineElement)) {
+        throw new Error('Unexpected child element for block element.');
+      }
+      parentElement.insertChild(element)
+    }
+    this.stack.push(element);
   }
 
   protected appendToContent(token: string) {
     this.contentBuffer += token;
-    this.parserState = ParserState.LeafNode;
+    this.parserState = ParserState.InlineElement;
   }
 
   protected closeNode(token: CloseTagToken) {
-    const lastStackElement = this.stack.pop();
-    if (lastStackElement === undefined) {
+    const element = this.stack.pop();
+    if (element === undefined) {
       throw new Error('Unexpected end of doc encountered.');
     }
-    lastStackElement.deleteRemainingChildren();
-    const updated = lastStackElement.flushOperationsBuffer();
-    const node = lastStackElement.getNode();
-    if (node instanceof LeafNode) {
-      if (node.getContent() !== this.contentBuffer) {
-        node.setContent(this.contentBuffer);
-        node.setVersion(this.version);
-      }
+    if (element instanceof InlineElement) {
+      element.setContent(this.contentBuffer);
     }
-    if (updated) {
-      node.setVersion(this.version);
-    }
-    this.propagateVersionToAncestors(node);
     this.contentBuffer = '';
-    this.parserState = ParserState.NewNode;
-  }
-
-  protected propagateVersionToAncestors(node: Node) {
-    let currentNode = node;
-    let parentNode: Node;
-    while (currentNode instanceof BranchNode || currentNode instanceof LeafNode) {
-      parentNode = currentNode.getParent();
-      if (parentNode.getVersion() >= currentNode.getVersion()) {
-        break;
-      }
-      parentNode.setVersion(currentNode.getVersion());
-      currentNode = parentNode;
-    }
+    this.parserState = ParserState.NewElement;
   }
 }
 

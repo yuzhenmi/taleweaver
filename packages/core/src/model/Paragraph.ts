@@ -1,10 +1,19 @@
-import BranchNode from './BranchNode';
+import Attributes from '../state/Attributes';
+import BlockElement from './BlockElement';
 
-class Paragraph extends BranchNode {
+export default class Paragraph extends BlockElement {
 
-  getType(): string {
+  getType() {
     return 'Paragraph';
   }
-}
 
-export default Paragraph;
+  getAttributes() {
+    return {
+      id: this.id!,
+    };
+  }
+
+  onStateUpdated(attributes: Attributes) {
+    return false;
+  }
+}

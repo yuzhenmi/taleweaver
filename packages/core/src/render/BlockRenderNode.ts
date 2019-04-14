@@ -1,4 +1,4 @@
-import BranchNode from '../model/BranchNode';
+import BlockElement from '../model/BlockElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
@@ -48,7 +48,7 @@ export default abstract class BlockRenderNode extends RenderNode {
     this.children.splice(childOffset, 1);
   }
 
-  onModelUpdated(node: BranchNode) {
+  onModelUpdated(element: BlockElement) {
     this.selectableSize = undefined;
     this.modelSize = undefined;
   }
