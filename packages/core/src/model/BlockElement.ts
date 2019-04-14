@@ -1,0 +1,59 @@
+import BranchNode from '../tree/BranchNode';
+import Element from './Element';
+import Doc from './Doc';
+import InlineElement from './InlineElement';
+
+type ParentElement = Doc;
+type ChildElement = InlineElement;
+
+export default abstract class BlockElement extends Element implements BranchNode {
+  protected parent: ParentElement | null = null;
+  protected children: ChildElement[] = [];
+  protected size?: number;
+
+  setParent(parent: ParentElement | null) {
+    this.parent = parent;
+  }
+
+  getParent() {
+    if (!this.parent) {
+      throw new Error('No parent has been set.');
+    }
+    return this.parent;
+  }
+
+  insertChild(child: ChildElement, offset: number | undefined = undefined) {
+    child.setParent(this);
+    if (offset === undefined) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.size = undefined;
+  }
+
+  deleteChild(child: ChildElement) {
+    const childOffset = this.children.indexOf(child);
+    if (childOffset < 0) {
+      throw new Error('Cannot delete child, child not found.');
+    }
+    child.setParent(null);
+    this.children.splice(childOffset, 1);
+    this.size = undefined;
+  }
+
+  getChildren(): ChildElement[] {
+    return this.children;
+  }
+
+  getSize() {
+    if (this.size === undefined) {
+      let size = 2;
+      this.children.forEach(child => {
+        size += child.getSize();
+      });
+      this.size = size;
+    }
+    return this.size;
+  }
+};

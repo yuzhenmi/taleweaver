@@ -2,18 +2,7 @@ import React from 'react';;
 import styled from 'styled-components';
 import './App.css';
 import Editor from './Editor';
-
-const initialMarkup = `
-<Doc {"id": "{{id}}"}>
-  <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
-      This is the document, start typing here.
-    </>
-  </>
-</>
-`.split('\n').map(line => line.trim()).join('').replace(/\.<\/>/g, '.\n</>').replace(/{{id}}/g, () => `${Math.random().toString(36).substring(2)}`);
-
-
+import littleRedRidingHood from './samples/littleRedRidingHood';
 
 const Wrapper = styled.div`
 `;
@@ -103,7 +92,7 @@ class App extends React.Component {
         <DemoHintWrapper>
           <DemoHint>&darr; Check it out &darr;</DemoHint>
         </DemoHintWrapper>
-        <Editor initialMarkup={initialMarkup} />
+        <Editor initialMarkup={littleRedRidingHood} />
       </Wrapper>
     );
   }

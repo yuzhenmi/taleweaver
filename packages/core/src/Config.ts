@@ -1,4 +1,4 @@
-import Node from './model/Node';
+import Element from './model/Element';
 import Paragraph from './model/Paragraph';
 import Text from './model/Text';
 import RenderNode from './render/RenderNode';
@@ -12,14 +12,14 @@ import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
 import TextInlineViewNode from './view/TextInlineViewNode';
 import KeySignature from './input/KeySignature';
 
-type NodeClass = new (...args: any[]) => Node;
+type ElementClass = new (...args: any[]) => Element;
 type RenderNodeClass = new (...args: any[]) => RenderNode;
 type BoxClass = new (...args: any[]) => Box;
 type ViewNodeClass = new (...args: any[]) => ViewNode;
 type KeyBindingHandler = () => void;
 
 class Config {
-  protected nodeClasses: Map<string, NodeClass>;
+  protected nodeClasses: Map<string, ElementClass>;
   protected renderNodeClasses: Map<string, RenderNodeClass>;
   protected boxClasses: Map<string, BoxClass>;
   protected viewNodeClasses: Map<string, ViewNodeClass>;
@@ -31,8 +31,8 @@ class Config {
     this.boxClasses = new Map();
     this.viewNodeClasses = new Map();
     this.keyBindings = new Map();
-    this.registerNodeClass('Paragraph', Paragraph);
-    this.registerNodeClass('Text', Text);
+    this.registerElementClass('Paragraph', Paragraph);
+    this.registerElementClass('Text', Text);
     this.registerRenderNodeClass('Paragraph', ParagraphBlockRenderNode);
     this.registerRenderNodeClass('Text', TextInlineRenderNode);
     this.registerBoxClass('ParagraphBlockRenderNode', ParagraphBlockBox);
@@ -41,26 +41,26 @@ class Config {
     this.registerViewNodeClass('TextInlineBox', TextInlineViewNode);
   }
 
-  registerNodeClass(nodeType: string, nodeClass: NodeClass) {
-    this.nodeClasses.set(nodeType, nodeClass);
+  registerElementClass(elementType: string, nodeClass: ElementClass) {
+    this.nodeClasses.set(elementType, nodeClass);
   }
 
-  getNodeClass(nodeType: string): NodeClass {
-    if (!this.nodeClasses.has(nodeType)) {
-      throw new Error(`Node type ${nodeType} is not registered.`);
+  getElementClass(elementType: string): ElementClass {
+    if (!this.nodeClasses.has(elementType)) {
+      throw new Error(`Element type ${elementType} is not registered.`);
     }
-    return this.nodeClasses.get(nodeType)!;
+    return this.nodeClasses.get(elementType)!;
   }
 
-  registerRenderNodeClass(nodeType: string, renderNodeClass: RenderNodeClass) {
-    this.renderNodeClasses.set(nodeType, renderNodeClass);
+  registerRenderNodeClass(elementType: string, renderNodeClass: RenderNodeClass) {
+    this.renderNodeClasses.set(elementType, renderNodeClass);
   }
 
-  getRenderNodeClass(nodeType: string): RenderNodeClass {
-    if (!this.renderNodeClasses.has(nodeType)) {
-      throw new Error(`No render node class registered for node type ${nodeType}.`);
+  getRenderNodeClass(elementType: string): RenderNodeClass {
+    if (!this.renderNodeClasses.has(elementType)) {
+      throw new Error(`No render node class registered for element type ${elementType}.`);
     }
-    return this.renderNodeClasses.get(nodeType)!;
+    return this.renderNodeClasses.get(elementType)!;
   }
 
   registerBoxClass(renderNodeType: string, boxClass: BoxClass) {
@@ -70,7 +70,7 @@ class Config {
   getBoxClass(renderNodeType: string): BoxClass {
     const blockBoxClass = this.boxClasses.get(renderNodeType);
     if (!blockBoxClass) {
-      throw new Error(`No box class registered for render node type ${renderNodeType}.`);
+      throw new Error(`No box class registered for render element type ${renderNodeType}.`);
     }
     return blockBoxClass;
   }
