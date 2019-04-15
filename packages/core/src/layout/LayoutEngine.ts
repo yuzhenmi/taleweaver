@@ -359,7 +359,11 @@ export default class LayoutEngine {
             currentLineFlowBox = newLineFlowBox;
             n = 0;
             const newInlineBox = inlineBox.splitAt(m);
-            inlineBox.setVersion(version);
+            if (inlineBox.getChildren().length === 0) {
+              inlineBox.getParent().deleteChild(inlineBox);
+            } else {
+              inlineBox.setVersion(version);
+            }
             newInlineBox.setVersion(version);
             currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
@@ -428,7 +432,11 @@ export default class LayoutEngine {
             currentPageFlowBox = newPageFlowBox;
             n = 0;
             const newBlockBox = blockBox.splitAt(m);
-            blockBox.setVersion(version);
+            if (blockBox.getChildren().length === 0) {
+              blockBox.getParent().deleteChild(blockBox);
+            } else {
+              blockBox.setVersion(version);
+            }
             this.bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
             currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
