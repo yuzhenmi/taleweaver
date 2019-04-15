@@ -7,12 +7,22 @@ import InlineBox from './InlineBox';
 type Parent = InlineBox;
 
 export default abstract class AtomicBox extends Box {
+  protected version: number;
   protected parent?: Parent;
   protected breakable: boolean;
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
+    this.version = 0;
     this.breakable = true;
+  }
+
+  setVersion(version: number) {
+    this.version = version;
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   isBreakable(): boolean {

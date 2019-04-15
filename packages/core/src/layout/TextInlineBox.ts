@@ -1,25 +1,9 @@
-import TextInlineRenderNode from '../render/TextInlineRenderNode';
 import InlineBox from './InlineBox';
-import TextAtomicBox from './TextAtomicBox';
-import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
 
 export default class TextInlineBox extends InlineBox {
 
   getType(): string {
     return 'TextInlineBox';
-  }
-
-  onRenderUpdated(renderNode: TextInlineRenderNode) {
-    super.onRenderUpdated(renderNode);
-    this.children = [];
-    renderNode.getChildren().forEach((child, childOffset) => {
-      if (!(child instanceof TextAtomicRenderNode)) {
-        throw new Error('Expecting child of TextInlineRenderNode to be AtomicInlineRenderNode.');
-      }
-      const textAtomicBox = new TextAtomicBox(child.getID());
-      this.insertChild(textAtomicBox, childOffset);
-      textAtomicBox.onRenderUpdated(child);
-    });
   }
 
   splitAt(offset: number): InlineBox {

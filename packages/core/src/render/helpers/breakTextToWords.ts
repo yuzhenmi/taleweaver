@@ -4,7 +4,7 @@ const BREAKABLES = [
   '\t',
 ];
 
-interface Word {
+export interface Word {
   text: string;
   breakable: boolean;
 }

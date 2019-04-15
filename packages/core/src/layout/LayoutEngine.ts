@@ -4,12 +4,14 @@ import RenderNode from '../render/RenderNode';
 import DocRenderNode from '../render/DocRenderNode';
 import BlockRenderNode from '../render/BlockRenderNode';
 import InlineRenderNode from '../render/InlineRenderNode';
+import AtomicRenderNode from '../render/AtomicRenderNode';
 import Box from './Box';
 import DocBox from './DocBox';
-import BlockBox from './BlockBox';
-import InlineBox from './InlineBox';
 import PageFlowBox from './PageFlowBox';
+import BlockBox from './BlockBox';
 import LineFlowBox from './LineFlowBox';
+import InlineBox from './InlineBox';
+import AtomicBox from './AtomicBox';
 
 class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   protected config: Config;
@@ -40,6 +42,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
     if (node instanceof BlockRenderNode) {
       return node.getChildren();
     }
+    if (node instanceof InlineRenderNode) {
+      return node.getChildren();
+    }
     return [];
   }
 
@@ -57,6 +62,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         children.push(...child.getChildren());
       });
       return children;
+    }
+    if (node instanceof InlineBox) {
+      return [...node.getChildren()];
     }
     return [];
   }
@@ -124,6 +132,16 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       }
       return inlineBox;
     }
+    if (parent instanceof InlineBox && srcNode instanceof AtomicRenderNode) {
+      const AtomicBoxClass = this.config.getBoxClass(srcNode.getType());
+      const atomicBox = new AtomicBoxClass(srcNode.getID());
+      if (!(atomicBox instanceof AtomicBox)) {
+        throw new Error('Error inserting box, expecting atomic box.');
+      }
+      atomicBox.setVersion(srcNode.getVersion());
+      parent.insertChild(atomicBox, offset);
+      return atomicBox;
+    }
     throw new Error('Error inserting box, type mismatch.');
   }
 
@@ -160,6 +178,10 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       }
       return;
     }
+    if (parent instanceof InlineBox && node instanceof AtomicBox) {
+      parent.deleteChild(node);
+      return;
+    }
     throw new Error('Error deleting box, type mismatch.');
   }
 
@@ -178,8 +200,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
             lastChild.join(blockBox);
             pageFlowBox.deleteChild(blockBox);
             m--;
+          } else {
+            lastChild = blockBox;
           }
-          lastChild = blockBox;
         }
         if (pageFlowBox.getChildren().length === 0) {
           node.deleteChild(pageFlowBox);
@@ -206,8 +229,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
             lastChild.join(inlineBox);
             lineFlowBox.deleteChild(inlineBox);
             m--;
+          } else {
+            lastChild = inlineBox;
           }
-          lastChild = inlineBox;
         }
         if (lineFlowBox.getChildren().length === 0) {
           node.deleteChild(lineFlowBox);
@@ -236,6 +260,14 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         lineFlowBox.setVersion(srcNode.getVersion());
       }
       this.updatedLineFlowBoxes.push(lineFlowBox);
+      return true;
+    }
+    if (node instanceof AtomicBox && srcNode instanceof AtomicRenderNode) {
+      if (srcNode.getVersion() <= this.lastVersion) {
+        return false;
+      }
+      node.onRenderUpdated(srcNode);
+      node.setVersion(srcNode.getVersion());
       return true;
     }
     throw new Error('Error updating box, type mismatch.');
@@ -439,6 +471,9 @@ export default class LayoutEngine {
       lineFlowBox.setVersion(version);
       lineFlowBox.getChildren().forEach(inlineBox => {
         inlineBox.setVersion(version);
+        inlineBox.getChildren().forEach(atomicBox => {
+          atomicBox.setVersion(version);
+        });
       });
     });
   }

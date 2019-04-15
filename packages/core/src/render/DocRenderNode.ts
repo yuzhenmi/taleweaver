@@ -1,3 +1,4 @@
+import RootNode from '../tree/RootNode';
 import Doc from '../model/Doc';
 import RenderNode from './RenderNode';
 import BlockRenderNode from './BlockRenderNode';
@@ -6,7 +7,7 @@ export type Child = BlockRenderNode;
 
 type OnUpdatedSubscriber = () => void;
 
-export default class DocRenderNode extends RenderNode {
+export default class DocRenderNode extends RenderNode implements RootNode {
   protected version: number;
   protected selectableSize?: number;
   protected modelSize?: number;

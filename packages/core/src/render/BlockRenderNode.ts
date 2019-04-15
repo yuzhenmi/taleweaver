@@ -1,3 +1,4 @@
+import BranchNode from '../tree/BranchNode';
 import BlockElement from '../model/BlockElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
@@ -6,7 +7,7 @@ import InlineRenderNode from './InlineRenderNode';
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
 
-export default abstract class BlockRenderNode extends RenderNode {
+export default abstract class BlockRenderNode extends RenderNode implements BranchNode {
   protected version: number;
   protected parent: Parent;
   protected selectableSize?: number;
