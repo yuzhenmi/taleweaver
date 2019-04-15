@@ -1,9 +1,10 @@
+import LeafNode from '../tree/LeafNode';
 import RenderNode from './RenderNode';
 import InlineRenderNode from './InlineRenderNode';
 
 export type Parent = InlineRenderNode;
 
-export default abstract class AtomicRenderNode extends RenderNode {
+export default abstract class AtomicRenderNode extends RenderNode implements LeafNode {
   protected version: number;
   protected parent: Parent;
 

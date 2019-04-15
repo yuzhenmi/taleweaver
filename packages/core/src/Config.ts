@@ -7,6 +7,7 @@ import TextInlineRenderNode from './render/TextInlineRenderNode';
 import Box from './layout/Box';
 import ParagraphBlockBox from './layout/ParagraphBlockBox';
 import TextInlineBox from './layout/TextInlineBox';
+import TextAtomicBox from './layout/TextAtomicBox';
 import ViewNode from './view/ViewNode';
 import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
 import TextInlineViewNode from './view/TextInlineViewNode';
@@ -37,6 +38,7 @@ class Config {
     this.registerRenderNodeClass('Text', TextInlineRenderNode);
     this.registerBoxClass('ParagraphBlockRenderNode', ParagraphBlockBox);
     this.registerBoxClass('TextInlineRenderNode', TextInlineBox);
+    this.registerBoxClass('TextAtomicRenderNode', TextAtomicBox);
     this.registerViewNodeClass('ParagraphBlockBox', ParagraphBlockViewNode);
     this.registerViewNodeClass('TextInlineBox', TextInlineViewNode);
   }
