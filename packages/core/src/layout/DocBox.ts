@@ -51,6 +51,7 @@ export default class DocBox extends Box implements RootNode {
       throw new Error('Cannot delete child, child not found.');
     }
     child.setParent(null);
+    child.markAsDeleted();
     this.children.splice(childOffset, 1);
     this.clearCache();
   }

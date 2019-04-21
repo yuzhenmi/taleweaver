@@ -328,6 +328,11 @@ export default class LayoutEngine {
   }
 
   protected reflowLineFlowBox(lineFlowBox: LineFlowBox, version: number) {
+    if (lineFlowBox.isDeleted()) {
+      // Line flow box was already deleted, nothing to
+      // do here
+      return;
+    }
     lineFlowBox.onRenderUpdated();
     lineFlowBox.setVersion(version);
     let currentLineFlowBox = lineFlowBox;
@@ -401,6 +406,11 @@ export default class LayoutEngine {
   }
 
   protected reflowPageFlowBox(pageFlowBox: PageFlowBox, version: number) {
+    if (pageFlowBox.isDeleted()) {
+      // Page flow box was already deleted, nothing to
+      // do here
+      return;
+    }
     pageFlowBox.onRenderUpdated();
     pageFlowBox.setVersion(version);
     let currentPageFlowBox = pageFlowBox;

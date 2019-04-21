@@ -75,6 +75,7 @@ export default abstract class InlineBox extends Box {
       throw new Error('Cannot delete child, child not found.');
     }
     child.setParent(null);
+    child.markAsDeleted();
     this.children.splice(childOffset, 1);
     this.clearCache();
   }

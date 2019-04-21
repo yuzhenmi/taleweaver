@@ -6,6 +6,7 @@ export default abstract class LayoutNode implements Node {
   protected selectableSize?: number;
   protected width?: number;
   protected height?: number;
+  protected deleted: boolean = false;
 
   constructor(id: string) {
     this.id = id;
@@ -22,6 +23,14 @@ export default abstract class LayoutNode implements Node {
 
   getVersion(): number {
     return this.version;
+  }
+
+  markAsDeleted() {
+    this.deleted = true;
+  }
+
+  isDeleted() {
+    return this.deleted;
   }
 
   abstract getSelectableSize(): number;
