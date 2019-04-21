@@ -63,6 +63,7 @@ export default class LineFlowBox extends FlowBox {
       throw new Error('Cannot delete child, child not found.');
     }
     child.setParent(null);
+    child.markAsDeleted();
     this.children.splice(childOffset, 1);
     this.clearCache();
   }
