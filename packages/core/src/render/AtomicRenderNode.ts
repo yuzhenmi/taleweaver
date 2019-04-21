@@ -5,24 +5,16 @@ import InlineRenderNode from './InlineRenderNode';
 export type Parent = InlineRenderNode;
 
 export default abstract class AtomicRenderNode extends RenderNode implements LeafNode {
-  protected version: number;
-  protected parent: Parent;
+  protected parent: Parent | null = null;
 
-  constructor(id: string, parent: Parent) {
-    super(id);
-    this.version = 0;
+  setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
-  }
-
   getParent(): Parent {
+    if (!this.parent) {
+      throw new Error('No parent has been set.');
+    }
     return this.parent;
   }
 

@@ -1,3 +1,4 @@
+import RootNode from '../tree/RootNode';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
 import Box from './Box';
@@ -8,48 +9,40 @@ type Child = PageFlowBox;
 
 type OnUpdatedSubscriber = () => void;
 
-export default class DocBox extends Box {
-  protected version: number;
-  protected width: number;
-  protected height: number;
+export default class DocBox extends Box implements RootNode {
+  protected configWidth: number;
+  protected configHeight: number;
   protected padding: number;
-  protected children: Child[];
-  protected selectableSize?: number;
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
+  protected children: Child[] = [];
+  protected onUpdatedSubscribers: OnUpdatedSubscriber[] = [];
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.version = 0;
-    this.width = 0;
-    this.height = 0;
+    this.configWidth = 0;
+    this.configHeight = 0;
     this.padding = 0;
-    this.children = [];
-    this.onUpdatedSubscribers = [];
-  }
-
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
   }
 
   getWidth(): number {
-    return this.width;
+    return this.configWidth;
   }
 
   getHeight(): number {
-    return this.height;
+    return this.configHeight;
   }
 
   getPadding(): number {
     return this.padding;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
     child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.clearCache();
   }
 
   deleteChild(child: Child) {
@@ -57,7 +50,9 @@ export default class DocBox extends Box {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.clearCache();
   }
 
   getChildren(): Child[] {
@@ -76,10 +71,10 @@ export default class DocBox extends Box {
   }
 
   onRenderUpdated(renderNode: DocRenderNode) {
-    this.width = renderNode.getWidth();
-    this.height = renderNode.getHeight();
+    this.configWidth = renderNode.getWidth();
+    this.configHeight = renderNode.getHeight();
     this.padding = renderNode.getPadding();
-    this.selectableSize = undefined;
+    this.clearCache();
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

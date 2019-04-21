@@ -9,29 +9,16 @@ type Parent = PageFlowBox;
 type Child = LineFlowBox;
 
 export default abstract class BlockBox extends Box {
-  protected version: number;
-  protected width: number;
-  protected height?: number;
-  protected selectableSize?: number;
-  protected parent?: Parent;
-  protected children: Child[];
+  protected configWidth: number;
+  protected parent: Parent | null = null;
+  protected children: Child[] = [];
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.version = 0;
-    this.width = 0;
-    this.children = [];
+    this.configWidth = 0;
   }
 
   abstract getType(): string;
-
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
-  }
 
   getWidth(): number {
     return this.getParent().getInnerWidth();
@@ -48,7 +35,7 @@ export default abstract class BlockBox extends Box {
     return this.height;
   }
 
-  setParent(parent: Parent) {
+  setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
@@ -59,9 +46,14 @@ export default abstract class BlockBox extends Box {
     return this.parent;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
     child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.clearCache();
   }
 
   deleteChild(child: Child) {
@@ -69,7 +61,9 @@ export default abstract class BlockBox extends Box {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.clearCache();
   }
 
   getChildren(): Child[] {
@@ -122,8 +116,7 @@ export default abstract class BlockBox extends Box {
   }
 
   onRenderUpdated(renderNode: BlockRenderNode) {
-    this.height = undefined;
-    this.selectableSize = undefined;
+    this.clearCache();
   }
 
   abstract splitAt(offset: number): BlockBox;

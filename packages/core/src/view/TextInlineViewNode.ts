@@ -11,7 +11,7 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.className = 'tw--text-inline';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'inline');
-    this.domContainer.style.color = 'transparent';
+    // this.domContainer.style.color = 'transparent';
     this.domContainer.style.textShadow = '0 0 0 black';
   }
 
@@ -20,9 +20,6 @@ export default class TextInlineViewNode extends InlineViewNode {
   }
 
   onDeleted() {
-    if (this.domContainer.parentElement) {
-      this.domContainer.parentElement.removeChild(this.domContainer);
-    }
   }
 
   onLayoutUpdated(layoutNode: TextInlineBox) {

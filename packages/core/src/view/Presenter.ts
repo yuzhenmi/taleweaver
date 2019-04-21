@@ -235,18 +235,24 @@ export default class Presenter {
   }
 
   resolveDOMNodePosition(node: Node, offset: number): number {
-    // FIXME: This method is work in progress. It should try its
-    // best to resolve position, even if it may not be 100% accurate.
+    // This works by finding the nearest inline view node and
+    // resolving the position through the view node. If the
+    // DOM node is within a view node already, the DOM node
+    // and the offset are passed to the view node to resolve
+    // to a position. Otherwise, the closest posterior view node
+    // is used to resolve the position, assuming the cursor is at
+    // the beginning of the view node.
     let currentElement: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
     while (currentElement) {
       const nodeID = currentElement.getAttribute('data-tw-id');
       if (nodeID) {
         const idMapValue = this.idMap.get(nodeID);
         if (!idMapValue) {
-          return -1;
+          throw new Error(`View node ${nodeID} is not registered, even though it is in the DOM.`);
         }
         const [layoutNode, viewNode] = idMapValue;
         if (!(layoutNode instanceof InlineBox && viewNode instanceof InlineViewNode)) {
+          // TODO: Determine inline position
           return -1;
         }
         let resolvedOffset = viewNode.resolveSelectionOffset(offset);

@@ -48,7 +48,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
   insertNode(parent: RenderNode, srcNode: Element, offset: number) {
     if (parent instanceof DocRenderNode && srcNode instanceof BlockElement) {
       const BlockRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
-      const blockRenderNode = new BlockRenderNodeClass(srcNode.getID(), parent);
+      const blockRenderNode = new BlockRenderNodeClass(srcNode.getID());
       if (!(blockRenderNode instanceof BlockRenderNode)) {
         throw new Error('Error inserting render node, expecting block render node.');
       }
@@ -58,7 +58,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
     }
     if (parent instanceof BlockRenderNode && srcNode instanceof InlineElement) {
       const InlineRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
-      const inlineRenderNode = new InlineRenderNodeClass(srcNode.getID(), parent);
+      const inlineRenderNode = new InlineRenderNodeClass(srcNode.getID());
       if (!(inlineRenderNode instanceof InlineRenderNode)) {
         throw new Error('Error inserting render node, expecting inline render node.');
       }

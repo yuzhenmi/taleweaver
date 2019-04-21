@@ -7,22 +7,13 @@ import InlineBox from './InlineBox';
 type Parent = InlineBox;
 
 export default abstract class AtomicBox extends Box {
-  protected version: number;
-  protected parent?: Parent;
+  protected widthWithoutTrailingWhitespace?: number;
+  protected parent: Parent | null = null;
   protected breakable: boolean;
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
-    this.version = 0;
     this.breakable = true;
-  }
-
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
   }
 
   isBreakable(): boolean {
@@ -31,7 +22,7 @@ export default abstract class AtomicBox extends Box {
 
   abstract getWidthWithoutTrailingWhitespace(): number;
 
-  setParent(parent: Parent) {
+  setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
@@ -88,4 +79,9 @@ export default abstract class AtomicBox extends Box {
   abstract resolveViewportPositionToSelectableOffset(x: number): number;
 
   abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
+
+  protected clearCache() {
+    super.clearCache();
+    this.widthWithoutTrailingWhitespace = undefined;
+  }
 }

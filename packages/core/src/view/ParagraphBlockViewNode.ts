@@ -8,22 +8,30 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     super(id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
+    this.domContainer.setAttribute('data-tw-id', id);
+    this.domContainer.setAttribute('data-tw-role', 'block');
   }
 
   getDOMContainer(): HTMLDivElement {
     return this.domContainer;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
     const childDOMContainer = child.getDOMContainer();
-    if (offset > this.domContainer.childNodes.length) {
-      throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
-    }
-    if (offset === this.domContainer.childNodes.length) {
+    child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
       this.domContainer.appendChild(childDOMContainer);
     } else {
-      this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
+      this.children.splice(offset, 0, child);
+      if (offset > this.domContainer.childNodes.length) {
+        throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
+      }
+      if (offset === this.domContainer.childNodes.length) {
+        this.domContainer.appendChild(childDOMContainer);
+      } else {
+        this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
+      }
     }
   }
 
@@ -33,6 +41,9 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
       throw new Error('Cannot delete child, child not found.');
     }
     child.onDeleted();
+    const childDOMContainer = child.getDOMContainer();
+    this.domContainer.removeChild(childDOMContainer);
+    child.setParent(null);
     this.children.splice(childOffset, 1);
   }
 
@@ -44,9 +55,6 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     this.children.map(child => {
       child.onDeleted();
     });
-    if (this.domContainer.parentElement) {
-      this.domContainer.parentElement.removeChild(this.domContainer);
-    }
   }
 
   onLayoutUpdated(layoutNode: ParagraphBlockBox) {
