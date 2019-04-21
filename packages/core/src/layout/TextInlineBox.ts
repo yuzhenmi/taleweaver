@@ -15,9 +15,7 @@ export default class TextInlineBox extends InlineBox {
     childrenCut.forEach((child, childOffset) => {
       newTextInlineBox.insertChild(child, childOffset);
     });
-    this.width = undefined;
-    this.height = undefined;
-    this.selectableSize = undefined;
+    this.clearCache();
     return newTextInlineBox;
   }
 
@@ -30,7 +28,6 @@ export default class TextInlineBox extends InlineBox {
       this.insertChild(child, childOffset);
       childOffset++;
     });
-    this.height = undefined;
-    this.selectableSize = undefined;
+    this.clearCache();
   }
 }

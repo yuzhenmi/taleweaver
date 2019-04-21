@@ -1,19 +1,23 @@
+import BranchNode from '../tree/BranchNode';
 import PageFlowBox from '../layout/PageFlowBox';
 import ViewNode from './ViewNode';
+import DocViewNode from './DocViewNode';
 import BlockViewNode from './BlockViewNode';
 
+type Parent = DocViewNode;
 type Child = BlockViewNode;
 
-export default class PageViewNode extends ViewNode {
-  protected children: Child[];
+export default class PageViewNode extends ViewNode implements BranchNode {
+  protected parent: Parent | null = null;
+  protected children: Child[] = [];
   protected domContainer: HTMLDivElement;
   protected domContentContainer: HTMLDivElement;
 
   constructor(id: string) {
     super(id);
-    this.children = [];
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
+    this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'page');
     this.domContainer.style.position = 'relative';
     this.domContentContainer = document.createElement('div');
@@ -30,16 +34,33 @@ export default class PageViewNode extends ViewNode {
     return this.domContentContainer;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
-    const childDOMContainer = child.getDOMContainer();
-    if (offset > this.domContentContainer.childNodes.length) {
-      throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
+  setParent(parent: Parent | null) {
+    this.parent = parent;
+  }
+
+  getParent(): Parent {
+    if (!this.parent) {
+      throw new Error(`No parent has been set.`);
     }
-    if (offset === this.domContentContainer.childNodes.length) {
+    return this.parent;
+  }
+
+  insertChild(child: Child, offset: number | null = null) {
+    const childDOMContainer = child.getDOMContainer();
+    child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
       this.domContentContainer.appendChild(childDOMContainer);
     } else {
-      this.domContentContainer.insertBefore(childDOMContainer, this.domContentContainer.childNodes[offset]);
+      this.children.splice(offset, 0, child);
+      if (offset > this.domContentContainer.childNodes.length) {
+        throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
+      }
+      if (offset === this.domContentContainer.childNodes.length) {
+        this.domContentContainer.appendChild(childDOMContainer);
+      } else {
+        this.domContentContainer.insertBefore(childDOMContainer, this.domContentContainer.childNodes[offset]);
+      }
     }
   }
 
@@ -49,6 +70,9 @@ export default class PageViewNode extends ViewNode {
       throw new Error('Cannot delete child, child not found.');
     }
     child.onDeleted();
+    const childDOMContainer = child.getDOMContainer();
+    this.domContentContainer.removeChild(childDOMContainer);
+    child.setParent(null);
     this.children.splice(childOffset, 1);
   }
 
@@ -57,9 +81,6 @@ export default class PageViewNode extends ViewNode {
   }
 
   onDeleted() {
-    if (this.domContainer.parentElement) {
-      this.domContainer.parentElement.removeChild(this.domContainer);
-    }
     this.children.map(child => {
       child.onDeleted();
     });

@@ -8,18 +8,8 @@ export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
 
 export default abstract class BlockRenderNode extends RenderNode implements BranchNode {
-  protected version: number;
-  protected parent: Parent;
-  protected selectableSize?: number;
-  protected modelSize?: number;
-  protected children: Child[];
-
-  constructor(id: string, parent: Parent) {
-    super(id);
-    this.version = 0;
-    this.parent = parent;
-    this.children = [];
-  }
+  protected parent: Parent | null = null;
+  protected children: Child[] = [];
 
   setVersion(version: number) {
     this.version = version;
@@ -29,7 +19,14 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.version;
   }
 
+  setParent(parent: Parent | null) {
+    this.parent = parent;
+  }
+
   getParent(): Parent {
+    if (!this.parent) {
+      throw new Error('No parent has been set.');
+    }
     return this.parent;
   }
 
@@ -37,8 +34,15 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.children;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
+    child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.selectableSize = undefined;
+    this.modelSize = undefined;
   }
 
   deleteChild(child: Child) {
@@ -46,7 +50,10 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.selectableSize = undefined;
+    this.modelSize = undefined;
   }
 
   onModelUpdated(element: BlockElement) {

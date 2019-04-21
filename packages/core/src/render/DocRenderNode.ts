@@ -8,9 +8,6 @@ export type Child = BlockRenderNode;
 type OnUpdatedSubscriber = () => void;
 
 export default class DocRenderNode extends RenderNode implements RootNode {
-  protected version: number;
-  protected selectableSize?: number;
-  protected modelSize?: number;
   protected width: number;
   protected height: number;
   protected padding: number;
@@ -19,7 +16,6 @@ export default class DocRenderNode extends RenderNode implements RootNode {
 
   constructor(id: string) {
     super(id);
-    this.version = 0;
     this.width = 0;
     this.height = 0;
     this.padding = 0;
@@ -59,12 +55,14 @@ export default class DocRenderNode extends RenderNode implements RootNode {
     return this.height - this.padding - this.padding;
   }
 
-  getChildren(): Child[] {
-    return this.children;
-  }
-
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
+    child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.clearCache();
   }
 
   deleteChild(child: Child) {
@@ -72,7 +70,13 @@ export default class DocRenderNode extends RenderNode implements RootNode {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.clearCache();
+  }
+
+  getChildren(): Child[] {
+    return this.children;
   }
 
   getSelectableSize() {
@@ -117,8 +121,7 @@ export default class DocRenderNode extends RenderNode implements RootNode {
     this.width = element.getWidth();
     this.height = element.getHeight();
     this.padding = element.getPadding();
-    this.selectableSize = undefined;
-    this.modelSize = undefined;
+    this.clearCache();
   }
 
   subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {

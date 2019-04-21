@@ -20,9 +20,6 @@ export default class TextInlineViewNode extends InlineViewNode {
   }
 
   onDeleted() {
-    if (this.domContainer.parentElement) {
-      this.domContainer.parentElement.removeChild(this.domContainer);
-    }
   }
 
   onLayoutUpdated(layoutNode: TextInlineBox) {

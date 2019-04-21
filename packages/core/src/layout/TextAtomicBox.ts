@@ -12,15 +12,7 @@ const stubTextStyle = {
 };
 
 export default class TextAtomicBox extends AtomicBox {
-  protected width?: number;
-  protected widthWithoutTrailingWhitespace?: number;
-  protected height?: number;
-  protected content: string;
-
-  constructor(renderNodeID: string) {
-    super(renderNodeID);
-    this.content = '';
-  }
+  protected content: string = '';
 
   getWidth(): number {
     if (this.width === undefined || this.height === undefined) {
@@ -63,8 +55,7 @@ export default class TextAtomicBox extends AtomicBox {
   onRenderUpdated(renderNode: TextAtomicRenderNode) {
     this.content = renderNode.getContent();
     this.breakable = renderNode.getBreakable();
-    this.width = undefined;
-    this.height = undefined;
+    this.clearCache();
   }
 
   resolveViewportPositionToSelectableOffset(x: number): number {

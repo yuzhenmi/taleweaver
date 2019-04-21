@@ -9,7 +9,6 @@ type ChildElement = InlineElement;
 export default abstract class BlockElement extends Element implements BranchNode {
   protected parent: ParentElement | null = null;
   protected children: ChildElement[] = [];
-  protected size?: number;
 
   setParent(parent: ParentElement | null) {
     this.parent = parent;
@@ -22,14 +21,14 @@ export default abstract class BlockElement extends Element implements BranchNode
     return this.parent;
   }
 
-  insertChild(child: ChildElement, offset: number | undefined = undefined) {
+  insertChild(child: ChildElement, offset: number | null = null) {
     child.setParent(this);
-    if (offset === undefined) {
+    if (offset === null) {
       this.children.push(child);
     } else {
       this.children.splice(offset, 0, child);
     }
-    this.size = undefined;
+    this.clearCache();
   }
 
   deleteChild(child: ChildElement) {
@@ -39,7 +38,7 @@ export default abstract class BlockElement extends Element implements BranchNode
     }
     child.setParent(null);
     this.children.splice(childOffset, 1);
-    this.size = undefined;
+    this.clearCache();
   }
 
   getChildren(): ChildElement[] {

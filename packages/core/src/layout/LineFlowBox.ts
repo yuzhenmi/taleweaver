@@ -9,30 +9,17 @@ type Parent = BlockBox;
 type Child = InlineBox;
 
 export default class LineFlowBox extends FlowBox {
-  protected version: number;
-  protected width: number;
-  protected height?: number;
-  protected selectableSize?: number;
-  protected parent?: Parent;
-  protected children: Child[];
+  protected configWidth: number;
+  protected parent: Parent | null = null;
+  protected children: Child[] = [];
 
   constructor(width: number) {
     super();
-    this.version = 0;
-    this.width = width;
-    this.children = [];
-  }
-
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
+    this.configWidth = width;
   }
 
   getWidth(): number {
-    return this.width;
+    return this.configWidth;
   }
 
   getHeight(): number {
@@ -49,7 +36,7 @@ export default class LineFlowBox extends FlowBox {
     return this.height;
   }
 
-  setParent(parent: Parent) {
+  setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
@@ -60,10 +47,14 @@ export default class LineFlowBox extends FlowBox {
     return this.parent;
   }
 
-  insertChild(child: Child, offset: number) {
-    const childHeight = child.getHeight();
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
     child.setParent(this);
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.clearCache();
   }
 
   deleteChild(child: Child) {
@@ -71,7 +62,9 @@ export default class LineFlowBox extends FlowBox {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
+    this.clearCache();
   }
 
   getChildren(): Child[] {
@@ -124,7 +117,7 @@ export default class LineFlowBox extends FlowBox {
   }
 
   onRenderUpdated() {
-    this.selectableSize = undefined;
+    this.clearCache();
   }
 
   splitAt(offset: number): LineFlowBox {
@@ -132,12 +125,11 @@ export default class LineFlowBox extends FlowBox {
       throw new Error(`Error cleaving LineFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    this.selectableSize = undefined;
-    this.height = undefined;
-    const newLineFlowBox = new LineFlowBox(this.width);
+    const newLineFlowBox = new LineFlowBox(this.getWidth());
     childrenCut.forEach((child, childOffset) => {
       newLineFlowBox.insertChild(child, childOffset);
     });
+    this.clearCache();
     return newLineFlowBox;
   }
 

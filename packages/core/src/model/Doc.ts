@@ -14,7 +14,6 @@ const DEFAULT_ATTRIBUTES = {
 
 export default class Doc extends Element implements RootNode {
   protected children: ChildElement[] = [];
-  protected size?: number;
   protected width: number = 0;
   protected height: number = 0;
   protected padding: number = 0;
@@ -24,14 +23,14 @@ export default class Doc extends Element implements RootNode {
     return 'Doc';
   }
 
-  insertChild(child: ChildElement, offset: number | undefined = undefined) {
+  insertChild(child: ChildElement, offset: number | null = null) {
     child.setParent(this);
-    if (offset === undefined) {
+    if (offset === null) {
       this.children.push(child);
     } else {
       this.children.splice(offset, 0, child);
     }
-    this.size = undefined;
+    this.clearCache();
   }
 
   deleteChild(child: ChildElement) {
@@ -41,7 +40,7 @@ export default class Doc extends Element implements RootNode {
     }
     child.setParent(null);
     this.children.splice(childOffset, 1);
-    this.size = undefined;
+    this.clearCache();
   }
 
   getChildren() {

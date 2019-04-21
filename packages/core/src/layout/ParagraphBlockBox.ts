@@ -16,8 +16,7 @@ export default class ParagraphBlockBox extends BlockBox {
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);
     });
-    this.height = undefined;
-    this.selectableSize = undefined;
+    this.clearCache();
     return newParagraphBlockBox;
   }
 
@@ -30,8 +29,7 @@ export default class ParagraphBlockBox extends BlockBox {
       this.insertChild(child, childOffset);
       childOffset++;
     });
-    this.height = undefined;
-    this.selectableSize = undefined;
+    this.clearCache();
   }
 
   resolveViewportPositionToSelectableOffset(x: number, y: number): number {

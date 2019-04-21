@@ -7,7 +7,6 @@ type ParentElement = BlockElement;
 export default abstract class InlineElement extends Element implements LeafNode {
   protected parent: ParentElement | null = null;
   protected content: string = '';
-  protected size?: number;
 
   setParent(parent: ParentElement | null) {
     this.parent = parent;
@@ -22,7 +21,7 @@ export default abstract class InlineElement extends Element implements LeafNode 
 
   setContent(content: string) {
     this.content = content;
-    this.size = undefined;
+    this.clearCache();
   }
 
   getContent(): string {

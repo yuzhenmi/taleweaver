@@ -95,6 +95,8 @@ export default class DOMObserver {
     if (!isInPage) {
       return;
     }
+    // Bypass browser selection
+    event.preventDefault();
     this.isMouseDown = true;
     const offset = this.resolveScreenPosition(event.clientX, event.clientY);
     if (offset < 0) {

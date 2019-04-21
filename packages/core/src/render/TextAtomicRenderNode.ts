@@ -4,8 +4,8 @@ export default class TextAtomicRenderNode extends AtomicRenderNode {
   protected content: string;
   protected breakable: boolean;
 
-  constructor(id: string, parent: Parent, content: string, breakable: boolean) {
-    super(id, parent);
+  constructor(id: string, content: string, breakable: boolean) {
+    super(id);
     this.content = content;
     this.breakable = breakable;
   }

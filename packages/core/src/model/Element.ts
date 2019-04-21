@@ -4,6 +4,7 @@ import Attributes from '../state/Attributes';
 export default abstract class Element implements Node {
   protected id?: string;
   protected version: number = 0;
+  protected size?: number;
 
   abstract getType(): string;
 
@@ -31,4 +32,8 @@ export default abstract class Element implements Node {
   abstract getAttributes(): Attributes;
 
   abstract onStateUpdated(attributes: Attributes): boolean;
+
+  protected clearCache() {
+    this.size = undefined;
+  }
 }

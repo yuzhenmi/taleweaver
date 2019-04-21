@@ -9,29 +9,11 @@ type Parent = LineFlowBox;
 type Child = AtomicBox;
 
 export default abstract class InlineBox extends Box {
-  protected version: number;
-  protected width?: number;
   protected widthWithoutTrailingWhitespace?: number;
-  protected height?: number;
-  protected selectableSize?: number;
-  protected parent?: Parent;
-  protected children: Child[];
-
-  constructor(renderNodeID: string) {
-    super(renderNodeID);
-    this.version = 0;
-    this.children = [];
-  }
+  protected parent: Parent | null = null;
+  protected children: Child[] = [];
 
   abstract getType(): string;
-
-  setVersion(version: number) {
-    this.version = version;
-  }
-
-  getVersion(): number {
-    return this.version;
-  }
 
   getWidth(): number {
     if (this.width === undefined) {
@@ -66,7 +48,7 @@ export default abstract class InlineBox extends Box {
     return this.height;
   }
 
-  setParent(parent: Parent) {
+  setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
@@ -77,12 +59,14 @@ export default abstract class InlineBox extends Box {
     return this.parent;
   }
 
-  insertChild(child: Child, offset: number) {
-    this.children.splice(offset, 0, child);
+  insertChild(child: Child, offset: number | null = null) {
     child.setParent(this);
-    this.width = undefined;
-    this.height = undefined;
-    this.widthWithoutTrailingWhitespace = undefined;
+    if (offset === null) {
+      this.children.push(child);
+    } else {
+      this.children.splice(offset, 0, child);
+    }
+    this.clearCache();
   }
 
   deleteChild(child: Child) {
@@ -90,10 +74,9 @@ export default abstract class InlineBox extends Box {
     if (childOffset < 0) {
       throw new Error('Cannot delete child, child not found.');
     }
+    child.setParent(null);
     this.children.splice(childOffset, 1);
-    this.width = undefined;
-    this.height = undefined;
-    this.widthWithoutTrailingWhitespace = undefined;
+    this.clearCache();
   }
 
   getChildren(): Child[] {
@@ -146,10 +129,7 @@ export default abstract class InlineBox extends Box {
   }
 
   onRenderUpdated(renderNode: InlineRenderNode) {
-    this.selectableSize = undefined;
-    this.width = undefined;
-    this.height = undefined;
-    this.widthWithoutTrailingWhitespace = undefined;
+    this.clearCache();
   }
 
   resolvePosition(parentPosition: Position, selectableOffset: number): Position {
@@ -217,5 +197,10 @@ export default abstract class InlineBox extends Box {
       cumulatedWidth += childWidth;
     }
     return viewportBoundingRects;
+  }
+
+  protected clearCache() {
+    super.clearCache();
+    this.widthWithoutTrailingWhitespace = undefined;
   }
 }
