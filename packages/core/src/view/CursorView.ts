@@ -122,6 +122,7 @@ export default class CursorView {
         domSelection.style.left = `${viewportBoundingRect.left}px`;
         domSelection.style.width = `${viewportBoundingRect.width}px`;
         domSelection.style.height = `${viewportBoundingRect.height}px`;
+        domSelection.style.background = 'hsla(213, 100%, 50%, 0.2)';
         domSelection.style.userSelect = 'none';
         domSelection.style.pointerEvents = 'none';
         pageDOMContainer.appendChild(domSelection);

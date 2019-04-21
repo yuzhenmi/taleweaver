@@ -24,14 +24,3 @@ body {
 .tw--page + .tw--page {
   border-top: 1px dashed rgba(0, 0, 0, 0.45);
 }
-
-.tw--cursor-selection {
-  background: hsla(213, 100%, 50%, 0.2);
-}
-
-.tw--cursor-head {
-  z-index: 10;
-  width: 2px;
-  background: hsla(213, 100%, 50%, 1);
-  margin-left: -1px;
-}
