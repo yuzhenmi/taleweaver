@@ -25,7 +25,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
       }
       if (atomOffset < 0) {
         const atomicRenderNode = new TextAtomicRenderNode(`${element.getID()}-${generateID()}`, word.text, word.breakable);
-        atomicRenderNode.setVersion(this.version + 1);
+        atomicRenderNode.setVersion(element.getVersion());
         this.insertChild(atomicRenderNode, offset);
       } else {
         for (let n = offset; n < atomOffset; n++) {
