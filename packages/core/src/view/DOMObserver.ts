@@ -1,81 +1,84 @@
 import Editor from '../Editor';
-import StateTransformation from '../state/Transformation';
-import { Insert, Delete } from '../state/operations';
-import CursorTransformation from '../cursor/Transformation';
-import { MoveTo, MoveHeadTo } from '../cursor/operations';
+import Token from '../state/Token';
 import getKeySignatureFromKeyboardEvent from '../input/helpers/getKeySignatureFromKeyboardEvent';
 import * as cursorCommands from '../input/cursorCommands';
+import * as docCommands from '../input/docCommands';
 import DocViewNode from './DocViewNode';
-import PageViewNode from './PageViewNode';
 
-function getStringDiff(oldStr: string, newStr: string): [number, number, number, number] {
-  let oldA = 0;
-  let oldB = oldStr.length;
-  let newA = 0;
-  let newB = newStr.length;
-  while (oldStr[oldA] === newStr[newA] && oldA < oldB && newA < newB) {
-    oldA++;
-    newA++;
+function parseNode(node: Node): Token[] {
+  if (node.nodeValue) {
+    return node.nodeValue.split('');
   }
-  while (oldStr[oldB - 1] === newStr[newB - 1] && oldB > oldA && newB > newA) {
-    oldB--;
-    newB--;
-  }
-  return [oldA, oldB, newA, newB];
+  const tokens: Token[] = [];
+  node.childNodes.forEach(childNode => {
+    tokens.push(...parseNode(childNode));
+  });
+  return tokens;
 }
 
 export default class DOMObserver {
   protected editor: Editor;
   protected docViewNode?: DocViewNode;
+  protected $iframe: HTMLIFrameElement;
+  protected $contentEditable: HTMLDivElement;
+  protected mutationObserver: MutationObserver;
+  protected isComposing: boolean;
   protected isFocused: boolean;
   protected isMouseDown: boolean;
-  protected mutationObserver: MutationObserver;
-  protected pageViewNodes: PageViewNode[];
 
   constructor(editor: Editor) {
     this.editor = editor;
+    this.$iframe = document.createElement('iframe');
+    this.$iframe.scrolling = 'no';
+    this.$iframe.src = 'about:blank';
+    this.$iframe.style.width = '0';
+    this.$iframe.style.height = '0';
+    this.$iframe.style.border = 'none';
+    this.$iframe.style.position = 'fixed';
+    this.$iframe.style.zIndex = '-1';
+    this.$iframe.style.opacity = '0';
+    this.$iframe.style.overflow = 'hidden';
+    this.$iframe.style.left = '0';
+    this.$iframe.style.top = '0';
+    this.$contentEditable = document.createElement('div');
+    this.$contentEditable.contentEditable = 'true';
+    this.$contentEditable.style.whiteSpace = 'pre';
+    this.mutationObserver = new MutationObserver(this.onInput);
+    this.isComposing = false;
     this.isFocused = false;
     this.isMouseDown = false;
-    this.mutationObserver = new MutationObserver(this.handleMutations);
-    this.pageViewNodes = [];
   }
 
-  connectDoc(docViewNode: DocViewNode) {
+  connect(docViewNode: DocViewNode) {
     this.docViewNode = docViewNode;
     const docViewDOMContainer = docViewNode.getDOMContainer();
-    docViewDOMContainer.addEventListener('focus', this.onFocus);
-    docViewDOMContainer.addEventListener('blur', this.onBlur);
     docViewDOMContainer.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
-    window.addEventListener('keydown', this.onKeyDown);
+    document.body.appendChild(this.$iframe);
+    this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);
+    this.$contentEditable.addEventListener('keydown', this.onKeyDown);
+    this.$contentEditable.addEventListener('compositionstart', () => {
+      this.isComposing = true;
+    });
+    this.$contentEditable.addEventListener('compositionend', () => {
+      this.isComposing = false;
+    });
+    this.mutationObserver.observe(this.$contentEditable, {
+      subtree: true,
+      characterData: true,
+      childList: true,
+    });
   }
 
-  connectPage(pageViewNode: PageViewNode) {
-    if (this.pageViewNodes.indexOf(pageViewNode) >= 0) {
-      return;
-    }
-    this.pauseMutationObserver();
-    this.pageViewNodes.push(pageViewNode);
-    this.resumeMutationObserver();
-  }
-
-  disconnectPage(pageViewNode: PageViewNode) {
-    const offset = this.pageViewNodes.indexOf(pageViewNode);
-    if (offset < 0) {
-      return;
-    }
-    this.pauseMutationObserver();
-    this.pageViewNodes.splice(offset, 1);
-    this.resumeMutationObserver();
-  }
-
-  protected onFocus = (event: FocusEvent) => {
+  protected onFocus() {
     this.isFocused = true;
+    this.$contentEditable.focus();
   }
 
-  protected onBlur = (event: FocusEvent) => {
+  protected onBlur() {
     this.isFocused = false;
+    this.$contentEditable.blur();
   }
 
   protected onMouseDown = (event: MouseEvent) => {
@@ -93,8 +96,10 @@ export default class DOMObserver {
       currentElement = currentElement.parentElement;
     }
     if (!isInPage) {
+      this.onBlur();
       return;
     }
+    this.onFocus();
     // Bypass browser selection
     event.preventDefault();
     this.isMouseDown = true;
@@ -131,6 +136,21 @@ export default class DOMObserver {
     }
   }
 
+  protected onInput = () => {
+    setTimeout(() => {
+      if (this.isComposing) {
+        return;
+      }
+      const tokens = this.parseContentEditableValue();
+      this.$contentEditable.innerHTML = '';
+      if (tokens.length === 0) {
+        return;
+      }
+      const dispatcher = this.editor.getDispatcher();
+      dispatcher.dispatchCommand(docCommands.insert(tokens));
+    });
+  }
+
   protected resolveScreenPosition(x: number, y: number): number {
     if (!this.docViewNode) {
       throw new Error('No doc view is being observed.');
@@ -158,96 +178,11 @@ export default class DOMObserver {
     return -1;
   }
 
-  protected resumeMutationObserver() {
-    this.pageViewNodes.forEach(pageViewNode => {
-      const pageDOMContentContainer = pageViewNode.getDOMContentContainer();
-      this.mutationObserver.observe(pageDOMContentContainer, {
-        characterData: true,
-        characterDataOldValue: true,
-        childList: true,
-        subtree: true,
-      });
+  protected parseContentEditableValue(): Token[] {
+    const tokens: Token[] = [];
+    this.$contentEditable.childNodes.forEach(childNode => {
+      tokens.push(...parseNode(childNode));
     });
-  }
-
-  protected pauseMutationObserver() {
-    this.mutationObserver.disconnect();
-  }
-
-  protected handleMutations = (mutations: MutationRecord[]) => {
-    this.pauseMutationObserver();
-    this.syncCursorWithDOM();
-    const transformation = new StateTransformation();
-    mutations.forEach(mutation => {
-      if (mutation.type === 'childList') {
-        this.handleChildListMutation(mutation, transformation);
-      } else if (mutation.type === 'characterData') {
-        this.handleCharacterDataMutation(mutation, transformation);
-      }
-    });
-    this.editor.getState().applyTransformation(transformation);
-    this.resumeMutationObserver();
-  }
-
-  protected handleChildListMutation(mutation: MutationRecord, transformation: StateTransformation) {
-    mutation.addedNodes.forEach(addedNode => {
-      if (addedNode.parentNode) {
-        addedNode.parentNode.removeChild(addedNode);
-      }
-      const offset = this.editor.getPresenter().resolveDOMNodePosition(addedNode, 0);
-      if (offset < 0) {
-        return;
-      }
-      const insertAt = this.editor.convertSelectableOffsetToModelOffset(offset);
-      transformation.addOperation(new Insert(insertAt, (addedNode.textContent || '').split('')));
-    });
-    mutation.removedNodes.forEach(removedNode => {
-      if (mutation instanceof HTMLElement && mutation.nextSibling) {
-        mutation.target.insertBefore(mutation.nextSibling, removedNode);
-      } else {
-        mutation.target.appendChild(removedNode);
-      }
-      const offset = this.editor.getPresenter().resolveDOMNodePosition(removedNode, 0);
-      if (offset < 0) {
-        return;
-      }
-      const deleteFrom = this.editor.convertSelectableOffsetToModelOffset(offset);
-      const deleteTo = this.editor.convertSelectableOffsetToModelOffset(offset + (removedNode.textContent || '').length);
-      transformation.addOperation(new Delete(deleteFrom, deleteTo));
-    });
-  }
-
-  protected handleCharacterDataMutation(mutation: MutationRecord, transformation: StateTransformation) {
-    const oldContent = mutation.oldValue || '';
-    const newContent = mutation.target.textContent || '';
-    const mutatedNode = mutation.target;
-    mutatedNode.textContent = mutation.oldValue;
-    const offset = this.editor.getPresenter().resolveDOMNodePosition(mutatedNode, 0);
-    if (offset < 0) {
-      return;
-    }
-    const [oldA, oldB, newA, newB] = getStringDiff(oldContent, newContent);
-    const editor = this.editor;
-    const deleteFrom = editor.convertSelectableOffsetToModelOffset(offset + oldA);
-    const deleteTo = editor.convertSelectableOffsetToModelOffset(offset + oldB);
-    const insertAt = deleteFrom;
-    const tokensToInsert = newContent.slice(newA, newB).split('');
-    if (deleteFrom < deleteTo) {
-      transformation.addOperation(new Delete(deleteFrom, deleteTo));
-    }
-    if (tokensToInsert.length > 0) {
-      transformation.addOperation(new Insert(insertAt, tokensToInsert));
-    }
-  }
-
-  protected syncCursorWithDOM() {
-    const selection = window.getSelection();
-    const presenter = this.editor.getPresenter();
-    const anchor = presenter.resolveDOMNodePosition(selection.anchorNode, selection.anchorOffset);
-    const head = presenter.resolveDOMNodePosition(selection.focusNode, selection.focusOffset);
-    const transformation = new CursorTransformation();
-    transformation.addOperation(new MoveTo(anchor));
-    transformation.addOperation(new MoveHeadTo(head));
-    this.editor.getCursor().applyTransformation(transformation);
+    return tokens;
   }
 }

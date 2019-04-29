@@ -2,32 +2,6 @@ import Editor from '../Editor';
 import Cursor from '../cursor/Cursor';
 import DocBox from '../layout/DocBox';
 import PageViewNode from './PageViewNode';
-import KeySignature from '../input/KeySignature';
-import * as keys from '../input/keys';
-import * as modifierKeys from '../input/modifierKeys';
-import {
-  moveLeft,
-  moveRight,
-  moveHeadLeft,
-  moveHeadRight,
-  moveLeftByWord,
-  moveRightByWord,
-  moveHeadLeftByWord,
-  moveHeadRightByWord,
-  moveToLeftOfLine,
-  moveToRightOfLine,
-  moveHeadToLeftOfLine,
-  moveHeadToRightOfLine,
-  moveToLineAbove,
-  moveToLineBelow,
-  moveHeadToLineAbove,
-  moveHeadToLineBelow,
-  moveToRightOfDoc,
-  moveToLeftOfDoc,
-  moveHeadToRightOfDoc,
-  moveHeadToLeftOfDoc,
-  selectAll,
-} from '../input/cursorCommands';
 
 export default class CursorView {
   protected editor: Editor;
@@ -51,7 +25,6 @@ export default class CursorView {
     this.domCaret.style.marginLeft = '-1px';
     this.domCaret.style.background = 'hsla(213, 100%, 50%, 1)';
     this.domSelections = [];
-    this.bindKeys();
   }
 
   onUpdated(cursor: Cursor, docBox: DocBox, pageViewNodes: PageViewNode[]) {
@@ -159,51 +132,9 @@ export default class CursorView {
 
     // Scroll cursor head into view
     this.domCaret.scrollIntoView({ block: 'nearest' });
-    
-    // Set browser selection to be consistent with new cursor position
-    const docViewNode = this.editor.getPresenter().getDocViewNode();
-    const [anchorNode, anchorNodeOffset] = docViewNode.resolveSelectableOffsetToNodeOffset(anchor);
-    const [headNode, headNodeOffset] = docViewNode.resolveSelectableOffsetToNodeOffset(head);
-    const selectionRange = document.createRange();
-    if (anchor < head) {
-      selectionRange.setStart(anchorNode, anchorNodeOffset);
-      selectionRange.setEnd(headNode, headNodeOffset);
-    } else {
-      selectionRange.setStart(headNode, headNodeOffset);
-      selectionRange.setEnd(anchorNode, anchorNodeOffset);
-    }
-    const selection = window.getSelection();
-    selection.empty();
-    selection.addRange(selectionRange);
 
     // Reset blinking
     this.stopBlinking();
     this.startBlinking();
-  }
-
-  protected bindKeys() {
-    const config = this.editor.getConfig();
-    const dispatcher = this.editor.getDispatcher();
-    config.bindKey(new KeySignature(keys.ArrowLeftKey), () => dispatcher.dispatchCommand(moveLeft()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey), () => dispatcher.dispatchCommand(moveRight()));
-    config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadLeft()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadRight()));
-    config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveLeftByWord()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveRightByWord()));
-    config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadLeftByWord()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadRightByWord()));
-    config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToLeftOfLine()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToRightOfLine()));
-    config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLeftOfLine()));
-    config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToRightOfLine()));
-    config.bindKey(new KeySignature(keys.ArrowUpKey), () => dispatcher.dispatchCommand(moveToLineAbove()));
-    config.bindKey(new KeySignature(keys.ArrowDownKey), () => dispatcher.dispatchCommand(moveToLineBelow()));
-    config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLineAbove()));
-    config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLineBelow()));
-    config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToLeftOfDoc()));
-    config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToRightOfDoc()));
-    config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLeftOfDoc()));
-    config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToRightOfDoc()));
-    config.bindKey(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(selectAll()));
   }
 }

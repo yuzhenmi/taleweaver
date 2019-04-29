@@ -142,19 +142,20 @@ class Tokenizer {
   }
 
   protected endTag(char: string) {
+    let id: string;
     let attributes: {};
     try {
-      attributes = JSON.parse(this.attributesBuffer);
+      ({ id, attributes } = JSON.parse(this.attributesBuffer));
     } catch (error) {
       throw new Error(`Invalid attributes JSON: ${this.attributesBuffer}.`);
     }
-    if (!('id' in attributes)) {
+    if (!id) {
       throw new Error(`Missing id in attributes JSON: ${this.attributesBuffer}.`);
     }
     if (!this.tagBuffer) {
       throw new Error('Open tag type cannot be empty.');
     }
-    const openTagToken = new OpenTagToken(this.tagBuffer, attributes);
+    const openTagToken = new OpenTagToken(this.tagBuffer, id, attributes);
     this.tokens.push(openTagToken);
     this.attributesBuffer = '';
     this.tagBuffer = '';

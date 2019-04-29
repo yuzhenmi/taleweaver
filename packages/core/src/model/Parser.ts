@@ -243,7 +243,7 @@ class Parser {
       throw new Error('Expected doc.');
     }
     const attributes = token.getAttributes();
-    doc.setID(attributes.id);
+    doc.setID(token.getID());
     doc.onStateUpdated(attributes);
     this.parserState = ParserState.NewElement;
   }
@@ -256,7 +256,7 @@ class Parser {
     const ElementClass = this.config.getElementClass(token.getType());
     const element = new ElementClass();
     const attributes = token.getAttributes();
-    element.setID(attributes.id);
+    element.setID(token.getID());
     element.onStateUpdated(attributes);
     if (parentElement instanceof Doc) {
       if (!(element instanceof BlockElement)) {

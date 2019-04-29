@@ -15,12 +15,9 @@ export default class DocViewNode extends ViewNode implements RootNode {
   constructor(id: string) {
     super(id);
     this.domContainer = document.createElement('div');
-    this.domContainer.contentEditable = 'true';
-    this.domContainer.spellcheck = false;
     this.domContainer.className = 'tw--doc';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'doc');
-    this.domContainer.style.outline = 'none';
     this.domContainer.style.textAlign = 'left';
   }
 
