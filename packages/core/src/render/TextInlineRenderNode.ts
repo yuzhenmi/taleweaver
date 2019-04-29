@@ -34,7 +34,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
       }
       offset++;
     });
-    for (let n = offset; n < this.children.length; n++) {
+    for (let n = offset, nn = this.children.length; n < nn; n++) {
       this.deleteChild(this.children[offset]);
     }
   }

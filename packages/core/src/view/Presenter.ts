@@ -15,19 +15,18 @@ import LineViewNode from './LineViewNode';
 import InlineViewNode from './InlineViewNode';
 import CursorView from './CursorView';
 import TreeSyncer from '../helpers/TreeSyncer';
+import bindKeys from './bindKeys';
 
 class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   protected config: Config;
   protected lastVersion: number;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
-  protected domObserver: DOMObserver;
 
-  constructor(config: Config, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>, domObserver: DOMObserver) {
+  constructor(config: Config, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>) {
     super();
     this.config = config;
     this.lastVersion = lastVersion;
     this.idMap = idMap;
-    this.domObserver = domObserver;
   }
 
   getSrcNodeChildren(node: LayoutNode): LayoutNode[] {
@@ -73,9 +72,6 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       const pageViewNode = new PageViewNode(srcNode.getID());
       parent.insertChild(pageViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, pageViewNode]);
-      setTimeout(() => {
-        this.domObserver.connectPage(pageViewNode);
-      });
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
@@ -111,9 +107,6 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
     if (parent instanceof DocViewNode && node instanceof PageViewNode) {
       parent.deleteChild(node);
       this.idMap.delete(node.getID());
-      setTimeout(() => {
-        this.domObserver.disconnectPage(node);
-      });
       return;
     }
     if (parent instanceof PageViewNode && node instanceof BlockViewNode) {
@@ -174,9 +167,9 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   }
 }
 
-export type OnMountedSubscriber = () => void;
+type OnMountedSubscriber = () => void;
 
-export default class Presenter {
+class Presenter {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
   protected cursorView: CursorView;
@@ -198,12 +191,9 @@ export default class Presenter {
     this.mounted = false;
     this.version = -1;
     this.idMap = new Map();
-    docBox.subscribeOnUpdated(() => {
-      this.run();
-    });
-    cursor.subscribeOnUpdated(() => {
-      this.updateCursorView();
-    });
+    docBox.subscribeOnUpdated(() => this.run());
+    cursor.subscribeOnUpdated(() => this.updateCursorView());
+    bindKeys(editor);
   }
 
   mount(domWrapper: HTMLElement) {
@@ -214,7 +204,7 @@ export default class Presenter {
     this.run();
     domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.mounted = true;
-    this.domObserver.connectDoc(this.docViewNode);
+    this.domObserver.connect(this.docViewNode);
     this.onMountedSubscribers.forEach(subscriber => subscriber());
   }
 
@@ -234,83 +224,8 @@ export default class Presenter {
     return pages[pageOffset].getDOMContentContainer();
   }
 
-  resolveDOMNodePosition(node: Node, offset: number): number {
-    // This works by finding the nearest inline view node and
-    // resolving the position through the view node. If the
-    // DOM node is within a view node already, the DOM node
-    // and the offset are passed to the view node to resolve
-    // to a position. Otherwise, the closest posterior view node
-    // is used to resolve the position, assuming the cursor is at
-    // the beginning of the view node.
-    let currentElement: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
-    while (currentElement) {
-      const nodeID = currentElement.getAttribute('data-tw-id');
-      if (nodeID) {
-        const idMapValue = this.idMap.get(nodeID);
-        if (!idMapValue) {
-          throw new Error(`View node ${nodeID} is not registered, even though it is in the DOM.`);
-        }
-        const [layoutNode, viewNode] = idMapValue;
-        if (!(layoutNode instanceof InlineBox && viewNode instanceof InlineViewNode)) {
-          // TODO: Determine inline position
-          return -1;
-        }
-        let resolvedOffset = viewNode.resolveSelectionOffset(offset);
-        let currentLayoutNode: LayoutNode = layoutNode;
-        while (currentLayoutNode) {
-          if (currentLayoutNode instanceof InlineBox) {
-            const siblings = currentLayoutNode.getParent().getChildren();
-            let currentLayoutNodeOffset = siblings.indexOf(currentLayoutNode);
-            while (currentLayoutNodeOffset > 0) {
-              currentLayoutNodeOffset--;
-              resolvedOffset += siblings[currentLayoutNodeOffset].getSelectableSize();
-            }
-            currentLayoutNode = currentLayoutNode.getParent();
-          } else if (currentLayoutNode instanceof LineFlowBox) {
-            const siblings = currentLayoutNode.getParent().getChildren();
-            let currentLayoutNodeOffset = siblings.indexOf(currentLayoutNode);
-            while (currentLayoutNodeOffset > 0) {
-              currentLayoutNodeOffset--;
-              resolvedOffset += siblings[currentLayoutNodeOffset].getSelectableSize();
-            }
-            currentLayoutNode = currentLayoutNode.getParent();
-          } else if (currentLayoutNode instanceof BlockBox) {
-            const siblings = currentLayoutNode.getParent().getChildren();
-            let currentLayoutNodeOffset = siblings.indexOf(currentLayoutNode);
-            while (currentLayoutNodeOffset > 0) {
-              currentLayoutNodeOffset--;
-              resolvedOffset += siblings[currentLayoutNodeOffset].getSelectableSize();
-            }
-            currentLayoutNode = currentLayoutNode.getParent();
-          } else if (currentLayoutNode instanceof PageFlowBox) {
-            const siblings = currentLayoutNode.getParent().getChildren();
-            let currentLayoutNodeOffset = siblings.indexOf(currentLayoutNode);
-            while (currentLayoutNodeOffset > 0) {
-              currentLayoutNodeOffset--;
-              resolvedOffset += siblings[currentLayoutNodeOffset].getSelectableSize();
-            }
-            currentLayoutNode = currentLayoutNode.getParent();
-          } else {
-            break;
-          }
-        }
-        return resolvedOffset;
-      }
-      currentElement = currentElement.parentElement;
-    }
-    return -1;
-  }
-
-  getViewNodeByID(viewNodeID: string): ViewNode {
-    const idMapValue = this.idMap.get(viewNodeID);
-    if (!idMapValue) {
-      throw new Error(`View node ${viewNodeID} is not registered.`);
-    }
-    return idMapValue[1];
-  }
-
   protected run() {
-    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap, this.domObserver);
+    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap);
     treeSyncer.syncNodes(this.editor.getLayoutEngine().getDocBox(), this.docViewNode);
     this.version = this.editor.getLayoutEngine().getDocBox().getVersion();
     this.docViewNode.onUpdated();
@@ -321,3 +236,8 @@ export default class Presenter {
     this.cursorView.onUpdated(this.editor.getCursor(), this.editor.getLayoutEngine().getDocBox(), this.docViewNode.getChildren());
   }
 }
+
+export default Presenter;
+export {
+  OnMountedSubscriber,
+};
