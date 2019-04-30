@@ -253,6 +253,18 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (srcNode.getVersion() <= this.lastVersion) {
         return false;
       }
+      // Join atomic boxes that were split by reflow
+      let lastChild: AtomicBox | undefined;
+      for (let n = 0; n < node.getChildren().length; n++) {
+        const atomicBox = node.getChildren()[n];
+        if (lastChild && atomicBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
+          lastChild.join(atomicBox);
+          node.deleteChild(atomicBox);
+          n--;
+        } else {
+          lastChild = atomicBox;
+        }
+      }
       node.onRenderUpdated(srcNode);
       node.setVersion(srcNode.getVersion());
       const lineFlowBox = node.getParent();
@@ -353,6 +365,52 @@ export default class LayoutEngine {
         // so we need to determine where to cleave this inline box
         for (let m = 0; m < inlineBox.getChildren().length; m++) {
           let atomicBox = inlineBox.getChildren()[m];
+          while (atomicBox.getWidthWithoutTrailingWhitespace() > lineFlowBoxWidth) {
+            // Edge case where atomic box is wider than line, in this
+            // case we need to break up the atomic box into pieces that
+            // fit as closely to the line width as possible
+            if (cumulatedWidth > 0) {
+              // If the current line already has content, split the line
+              const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
+              currentLineFlowBox.setVersion(version);
+              newLineFlowBox.setVersion(version);
+              blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
+              currentLineFlowBox = newLineFlowBox;
+              n = 0;
+              const newInlineBox = inlineBox.splitAt(m);
+              if (inlineBox.getChildren().length === 0) {
+                inlineBox.getParent().deleteChild(inlineBox);
+              } else {
+                inlineBox.setVersion(version);
+              }
+              newInlineBox.setVersion(version);
+              currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
+              inlineBox = newInlineBox;
+              m = 0;
+            }
+            const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
+            currentLineFlowBox.setVersion(version);
+            newLineFlowBox.setVersion(version);
+            blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
+            currentLineFlowBox = newLineFlowBox;
+            n = 0;
+            const newInlineBox = inlineBox.splitAt(m + 1);
+            if (inlineBox.getChildren().length === 0) {
+              inlineBox.getParent().deleteChild(inlineBox);
+            } else {
+              inlineBox.setVersion(version);
+            }
+            newInlineBox.setVersion(version);
+            currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
+            inlineBox = newInlineBox;
+            m = 0;
+            const newAtomicBox = atomicBox.splitAtWidth(lineFlowBoxWidth);
+            atomicBox.setVersion(version);
+            newAtomicBox.setVersion(version);
+            inlineBox.insertChild(newAtomicBox, inlineBox.getChildren().indexOf(atomicBox) + 1);
+            atomicBox = newAtomicBox;
+            cumulatedWidth = 0;
+          }
           if (cumulatedWidth + atomicBox.getWidthWithoutTrailingWhitespace() > lineFlowBoxWidth) {
             // With this atomic box, the line width limit gets exceeded,
             // so we cleave the line box after this inline box, and then

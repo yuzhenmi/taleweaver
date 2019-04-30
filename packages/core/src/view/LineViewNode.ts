@@ -10,23 +10,22 @@ type Child = InlineViewNode;
 export default class LineViewNode extends ViewNode implements BranchNode {
   protected parent: Parent | null = null;
   protected children: Child[] = [];
-  protected domContainer: HTMLSpanElement;
+  protected domContainer: HTMLDivElement;
 
   constructor(id: string) {
     super(id);
-    this.domContainer = document.createElement('span');
+    this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--line';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'line');
     this.domContainer.style.whiteSpace = 'pre-wrap';
-    this.domContainer.style.width = '100%';
   }
 
-  getDOMContainer(): HTMLSpanElement {
+  getDOMContainer(): HTMLDivElement {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLSpanElement {
+  getDOMContentContainer(): HTMLDivElement {
     return this.domContainer;
   }
 

@@ -76,6 +76,10 @@ export default abstract class AtomicBox extends Box {
     return position;
   }
 
+  abstract splitAtWidth(width: number): AtomicBox;
+
+  abstract join(atomicBox: AtomicBox): void;
+
   abstract resolveViewportPositionToSelectableOffset(x: number): number;
 
   abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];

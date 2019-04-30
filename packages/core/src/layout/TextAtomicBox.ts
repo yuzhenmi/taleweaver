@@ -44,6 +44,11 @@ export default class TextAtomicBox extends AtomicBox {
     return this.height;
   }
 
+  setContent(content: string) {
+    this.content = content;
+    this.clearCache();
+  }
+
   getContent(): string {
     return this.content;
   }
@@ -55,6 +60,36 @@ export default class TextAtomicBox extends AtomicBox {
   onRenderUpdated(renderNode: TextAtomicRenderNode) {
     this.content = renderNode.getContent();
     this.breakable = renderNode.getBreakable();
+    this.clearCache();
+  }
+
+  splitAtWidth(width: number): TextAtomicBox {
+    // Use binary search to determine offset to split at
+    let min = 0;
+    let max = this.content.length;
+    while (max - min > 1) {
+      const offset = Math.floor((max + min) / 2);
+      const substr = this.content.substring(0, offset);
+      const subwidth = measureText(substr, stubTextStyle).width;
+      if (subwidth > width) {
+        max = offset;
+      } else {
+        min = offset;
+      }
+    }
+    const splitAt = min;
+    const newTextAtomicBox = new TextAtomicBox(this.renderNodeID);
+    newTextAtomicBox.setContent(this.content.substring(splitAt));
+    this.content = this.content.substring(0, splitAt);
+    this.clearCache();
+    return newTextAtomicBox;
+  }
+
+  join(textAtomicBox: TextAtomicBox) {
+    if (textAtomicBox.getRenderNodeID() !== this.renderNodeID) {
+      throw new Error('Cannot join atomic boxes with different render node IDs.');
+    }
+    this.content += textAtomicBox.getContent();
     this.clearCache();
   }
 
