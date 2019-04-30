@@ -14,7 +14,7 @@
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/3.6.3/workbox-sw.js");
 
 importScripts(
-  "/taleweaver/precache-manifest.05359a0938ceea277accf5f21b7ae36f.js"
+  "/taleweaver/precache-manifest.b6f0da52571423fca9fbf0bffb2508ab.js"
 );
 
 workbox.clientsClaim();
