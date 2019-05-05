@@ -11,7 +11,7 @@ import TextAtomicBox from './layout/TextAtomicBox';
 import ViewNode from './view/ViewNode';
 import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
 import TextInlineViewNode from './view/TextInlineViewNode';
-import KeySignature from './input/KeySignature';
+import KeySignature from './key/KeySignature';
 
 type ElementClass = new (...args: any[]) => Element;
 type RenderNodeClass = new (...args: any[]) => RenderNode;

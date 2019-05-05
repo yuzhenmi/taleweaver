@@ -1,73 +1,61 @@
 import Editor from '../Editor';
-import Config from '../Config';
-import Dispatcher from '../dispatch/Dispatcher';
-import KeySignature from '../input/KeySignature';
-import * as keys from '../input/keys';
-import * as modifierKeys from '../input/modifierKeys';
+import KeySignature from '../key/KeySignature';
+import * as keys from '../key/keys';
+import * as modifierKeys from '../key/modifierKeys';
 import {
-  moveLeft,
-  moveRight,
-  moveHeadLeft,
-  moveHeadRight,
-  moveLeftByWord,
-  moveRightByWord,
-  moveHeadLeftByWord,
-  moveHeadRightByWord,
-  moveToLeftOfLine,
-  moveToRightOfLine,
-  moveHeadToLeftOfLine,
-  moveHeadToRightOfLine,
-  moveToLineAbove,
-  moveToLineBelow,
-  moveHeadToLineAbove,
-  moveHeadToLineBelow,
-  moveToRightOfDoc,
-  moveToLeftOfDoc,
-  moveHeadToRightOfDoc,
-  moveHeadToLeftOfDoc,
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorHeadLeft,
+  moveCursorHeadRight,
+  moveCursorLeftByWord,
+  moveCursorRightByWord,
+  moveCursorHeadLeftByWord,
+  moveCursorHeadRightByWord,
+  moveCursorToLeftOfLine,
+  moveCursorToRightOfLine,
+  moveCursorHeadToLeftOfLine,
+  moveCursorHeadToRightOfLine,
+  moveCursorToLineAbove,
+  moveCursorToLineBelow,
+  moveCursorHeadToLineAbove,
+  moveCursorHeadToLineBelow,
+  moveCursorToRightOfDoc,
+  moveCursorToLeftOfDoc,
+  moveCursorHeadToRightOfDoc,
+  moveCursorHeadToLeftOfDoc,
   selectAll,
-} from '../input/cursorCommands';
-import {
   deleteBackward,
   deleteForward,
   split,
-} from '../input/docCommands';
-
-function bindCursorNavivagateKeys(config: Config, dispatcher: Dispatcher) {
-  config.bindKey(new KeySignature(keys.ArrowLeftKey), () => dispatcher.dispatchCommand(moveLeft()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey), () => dispatcher.dispatchCommand(moveRight()));
-  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadLeft()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadRight()));
-  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveLeftByWord()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveRightByWord()));
-  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadLeftByWord()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadRightByWord()));
-  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToLeftOfLine()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToRightOfLine()));
-  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLeftOfLine()));
-  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToRightOfLine()));
-  config.bindKey(new KeySignature(keys.ArrowUpKey), () => dispatcher.dispatchCommand(moveToLineAbove()));
-  config.bindKey(new KeySignature(keys.ArrowDownKey), () => dispatcher.dispatchCommand(moveToLineBelow()));
-  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLineAbove()));
-  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLineBelow()));
-  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToLeftOfDoc()));
-  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveToRightOfDoc()));
-  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToLeftOfDoc()));
-  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveHeadToRightOfDoc()));
-  config.bindKey(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(selectAll()));
-}
-
-function bindDocEditKeys(config: Config, dispatcher: Dispatcher) {
-  config.bindKey(new KeySignature(keys.BackspaceKey), () => dispatcher.dispatchCommand(deleteBackward()));
-  config.bindKey(new KeySignature(keys.DeleteKey), () => dispatcher.dispatchCommand(deleteForward()));
-  config.bindKey(new KeySignature(keys.EnterKey), () => dispatcher.dispatchCommand(split()));
-}
+} from '../command/commands';
 
 function bindKeys(editor: Editor) {
   const config = editor.getConfig();
   const dispatcher = editor.getDispatcher();
-  bindCursorNavivagateKeys(config, dispatcher);
-  bindDocEditKeys(config, dispatcher);
+  config.bindKey(new KeySignature(keys.ArrowLeftKey), () => dispatcher.dispatchCommand(moveCursorLeft()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey), () => dispatcher.dispatchCommand(moveCursorRight()));
+  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadLeft()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadRight()));
+  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveCursorLeftByWord()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey]), () => dispatcher.dispatchCommand(moveCursorRightByWord()));
+  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadLeftByWord()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.AltKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadRightByWord()));
+  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveCursorToLeftOfLine()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveCursorToRightOfLine()));
+  config.bindKey(new KeySignature(keys.ArrowLeftKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToLeftOfLine()));
+  config.bindKey(new KeySignature(keys.ArrowRightKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToRightOfLine()));
+  config.bindKey(new KeySignature(keys.ArrowUpKey), () => dispatcher.dispatchCommand(moveCursorToLineAbove()));
+  config.bindKey(new KeySignature(keys.ArrowDownKey), () => dispatcher.dispatchCommand(moveCursorToLineBelow()));
+  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToLineAbove()));
+  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToLineBelow()));
+  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveCursorToLeftOfDoc()));
+  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(moveCursorToRightOfDoc()));
+  config.bindKey(new KeySignature(keys.ArrowUpKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToLeftOfDoc()));
+  config.bindKey(new KeySignature(keys.ArrowDownKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchCommand(moveCursorHeadToRightOfDoc()));
+  config.bindKey(new KeySignature(keys.AKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchCommand(selectAll()));
+  config.bindKey(new KeySignature(keys.BackspaceKey), () => dispatcher.dispatchCommand(deleteBackward()));
+  config.bindKey(new KeySignature(keys.DeleteKey), () => dispatcher.dispatchCommand(deleteForward()));
+  config.bindKey(new KeySignature(keys.EnterKey), () => dispatcher.dispatchCommand(split()));
 }
 
 export default bindKeys;
