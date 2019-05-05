@@ -2,10 +2,10 @@ import Editor from '../Editor';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
-import Transformation from './Transformation';
-import { OffsetAdjustment } from './Operation';
-import Insert from './operations/Insert';
-import Delete from './operations/Delete';
+import Transformation from '../transform/Transformation';
+import { OffsetAdjustment } from '../transform/Operation';
+import Insert from '../transform/operations/Insert';
+import Delete from '../transform/operations/Delete';
 import { TokenStateUpdatedEvent } from '../dispatch/events';
 
 class TokenState {

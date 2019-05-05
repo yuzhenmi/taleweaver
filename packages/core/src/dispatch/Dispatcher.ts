@@ -1,7 +1,7 @@
 import Editor from '../Editor';
 import Event from './Event';
-import Command from '../input/Command';
-import KeySignature from '../input/KeySignature';
+import Command from '../command/Command';
+import KeySignature from '../key/KeySignature';
 
 interface EventClass {
   getType(): string;
@@ -42,12 +42,17 @@ class Dispatcher {
   dispatchCommand(command: Command) {
     const tokenState = this.editor.getTokenManager().getTokenState();
     const cursor = this.editor.getCursor();
-    const [
-      stateTransformation,
-      cursorTransformation,
-    ] = command(this.editor);
-    tokenState.applyTransformation(stateTransformation);
-    cursor.applyTransformation(cursorTransformation);
+    const transformation = command(this.editor);
+    tokenState.applyTransformation(transformation);
+    let cursorAnchor = transformation.getCursorAnchor();
+    if (cursorAnchor === null)  {
+      cursorAnchor = cursor.getAnchor();
+    }
+    let cursorHead = transformation.getCursorHead();
+    if (cursorHead === null)  {
+      cursorHead = cursor.getHead();
+    }
+    cursor.set(cursorAnchor, cursorHead, transformation.getCursorLockLeft());
   }
 
   dispatchKeyPress(keySignature: KeySignature): boolean {

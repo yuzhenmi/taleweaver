@@ -1,9 +1,8 @@
 import Editor from '../Editor';
 import { CursorFocusedEvent, CursorBlurredEvent } from '../dispatch/events';
 import Token from '../token/Token';
-import getKeySignatureFromKeyboardEvent from '../input/utils/getKeySignatureFromKeyboardEvent';
-import * as cursorCommands from '../input/cursorCommands';
-import * as docCommands from '../input/docCommands';
+import getKeySignatureFromKeyboardEvent from '../key/utils/getKeySignatureFromKeyboardEvent';
+import * as commands from '../command/commands';
 import DocViewNode from './DocViewNode';
 
 function parseNode(node: Node): Token[] {
@@ -52,7 +51,6 @@ export default class DOMObserver {
 
   connect(docViewNode: DocViewNode) {
     this.docViewNode = docViewNode;
-    const docViewDOMContainer = docViewNode.getDOMContainer();
     window.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
@@ -114,7 +112,7 @@ export default class DOMObserver {
     if (offset < 0) {
       return;
     }
-    this.editor.getDispatcher().dispatchCommand(cursorCommands.moveTo(offset));
+    this.editor.getDispatcher().dispatchCommand(commands.moveCursorTo(offset));
   }
 
   protected onMouseMove = (event: MouseEvent) => {
@@ -125,7 +123,7 @@ export default class DOMObserver {
     if (offset < 0) {
       return;
     }
-    this.editor.getDispatcher().dispatchCommand(cursorCommands.moveHeadTo(offset));
+    this.editor.getDispatcher().dispatchCommand(commands.moveCursorHeadTo(offset));
   }
 
   protected onMouseUp = (event: MouseEvent) => {
@@ -154,7 +152,7 @@ export default class DOMObserver {
         return;
       }
       const dispatcher = this.editor.getDispatcher();
-      dispatcher.dispatchCommand(docCommands.insert(tokens));
+      dispatcher.dispatchCommand(commands.insert(tokens));
     });
   }
 
