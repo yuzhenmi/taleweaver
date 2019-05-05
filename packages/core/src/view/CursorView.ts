@@ -1,5 +1,12 @@
 import Editor from '../Editor';
-import { CursorStateUpdatedEvent, ViewStateUpdatedEvent } from '../dispatch/events';
+import {
+  CursorBlurredEvent,
+  CursorFocusedEvent,
+  CursorStateUpdatedEvent,
+  ViewStateUpdatedEvent,
+} from '../dispatch/events';
+
+const CURSOR_HUE = 213;
 
 export default class CursorView {
   protected editor: Editor;
@@ -21,10 +28,11 @@ export default class CursorView {
     this.domCaret.style.pointerEvents = 'none';
     this.domCaret.style.width = '2px';
     this.domCaret.style.marginLeft = '-1px';
-    this.domCaret.style.background = 'hsla(213, 100%, 50%, 1)';
     this.domSelections = [];
     editor.getDispatcher().on(CursorStateUpdatedEvent, event => this.updateView());
     editor.getDispatcher().on(ViewStateUpdatedEvent, event => this.updateView());
+    editor.getDispatcher().on(CursorFocusedEvent, event => this.updateView());
+    editor.getDispatcher().on(CursorBlurredEvent, event => this.updateView());
     setTimeout(() => this.updateView());
   }
 
@@ -58,6 +66,7 @@ export default class CursorView {
 
   protected updateView() {
     const cursor = this.editor.getCursor();
+    const isFocused = this.editor.getViewManager().getIsFocused();
     const docBox = this.editor.getLayoutManager().getDocBox();
     const pageViewNodes = this.editor.getViewManager().getPageViewNodes();
 
@@ -96,9 +105,13 @@ export default class CursorView {
         domSelection.style.left = `${viewportBoundingRect.left}px`;
         domSelection.style.width = `${viewportBoundingRect.width}px`;
         domSelection.style.height = `${viewportBoundingRect.height}px`;
-        domSelection.style.background = 'hsla(213, 100%, 50%, 0.2)';
         domSelection.style.userSelect = 'none';
         domSelection.style.pointerEvents = 'none';
+        if (isFocused) {
+          domSelection.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 0.2)`;
+        } else {
+          domSelection.style.background = 'hsla(0, 0%, 0%, 0.08)';
+        }
         pageDOMContainer.appendChild(domSelection);
         this.domSelections.push(domSelection);
       });
@@ -123,6 +136,11 @@ export default class CursorView {
     this.domCaret.style.top = `${headTop}px`;
     this.domCaret.style.left = `${headLeft}px`;
     this.domCaret.style.height = `${headHeight}px`;
+    if (isFocused) {
+      this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+    } else {
+      this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+    }
     const pageDOMContainer = pageViewNodes[headPageOffset].getDOMContainer();
     if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContainer) {
       this.domCaret.parentElement.removeChild(this.domCaret);
@@ -136,6 +154,8 @@ export default class CursorView {
 
     // Reset blinking
     this.stopBlinking();
-    this.startBlinking();
+    if (isFocused) {
+      this.startBlinking();
+    }
   }
 }

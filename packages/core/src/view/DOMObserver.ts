@@ -1,4 +1,5 @@
 import Editor from '../Editor';
+import { CursorFocusedEvent, CursorBlurredEvent } from '../dispatch/events';
 import Token from '../token/Token';
 import getKeySignatureFromKeyboardEvent from '../input/utils/getKeySignatureFromKeyboardEvent';
 import * as cursorCommands from '../input/cursorCommands';
@@ -52,7 +53,7 @@ export default class DOMObserver {
   connect(docViewNode: DocViewNode) {
     this.docViewNode = docViewNode;
     const docViewDOMContainer = docViewNode.getDOMContainer();
-    docViewDOMContainer.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     document.body.appendChild(this.$iframe);
@@ -71,14 +72,20 @@ export default class DOMObserver {
     });
   }
 
+  getIsFocused() {
+    return this.isFocused;
+  }
+
   protected onFocus() {
     this.isFocused = true;
     this.$contentEditable.focus();
+    this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
   }
 
   protected onBlur() {
     this.isFocused = false;
     this.$contentEditable.blur();
+    this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
   }
 
   protected onMouseDown = (event: MouseEvent) => {
