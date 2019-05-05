@@ -1,33 +1,24 @@
+import Editor from '../Editor';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
 import Transformation from './Transformation';
+import { OffsetAdjustment } from './Operation';
 import Insert from './operations/Insert';
 import Delete from './operations/Delete';
-import { OffsetAdjustment } from './Operation';
+import { TokenStateUpdatedEvent } from '../dispatch/events';
 
-type OnUpdatedSubscriber = () => void;
-
-class State {
+class TokenState {
+  protected editor: Editor;
   protected tokens: Token[];
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
-  constructor() {
-    this.tokens = [];
-    this.onUpdatedSubscribers = [];
-  }
-
-  setTokens(tokens: Token[]) {
+  constructor(editor: Editor, tokens: Token[]) {
+    this.editor = editor;
     this.tokens = tokens;
-    this.onUpdated();
   }
 
   getTokens(): Token[] {
     return this.tokens;
-  }
-
-  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
   }
 
   applyTransformation(transformation: Transformation) {
@@ -51,14 +42,8 @@ class State {
       }
       offsetAdjustments.push(operation.getOffsetAdjustment());
     });
-    this.onUpdated();
-  }
-
-  protected onUpdated() {
-    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
-      onUpdatedSubscriber();
-    });
+    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
   }
 }
 
-export default State;
+export default TokenState;

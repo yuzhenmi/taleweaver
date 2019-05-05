@@ -1,22 +1,19 @@
+import Editor from '../Editor';
 import Transformation from './Transformation';
 import { MoveTo, MoveHeadTo } from './operations';
-import Editor from '../Editor';
-
-export type OnUpdatedSubscriber = () => void;
+import CursorStateUpdatedEvent from '../dispatch/events/CursorStateUpdatedEvent';
 
 export default class Cursor {
   protected editor: Editor;
   protected anchor: number;
   protected head: number;
   protected leftAnchor: number | null;
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
   constructor(editor: Editor) {
     this.editor = editor;
     this.anchor = 0;
     this.head = 0;
     this.leftAnchor = null;
-    this.onUpdatedSubscribers = [];
   }
 
   getAnchor(): number {
@@ -29,10 +26,6 @@ export default class Cursor {
 
   getLeftAnchor(): number | null {
     return this.leftAnchor;
-  }
-
-  subscribeOnUpdated(subscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(subscriber);
   }
 
   applyTransformation(transformation: Transformation) {
@@ -53,6 +46,6 @@ export default class Cursor {
         throw new Error('Unrecognized cursor transformation operation.');
       }
     });
-    this.onUpdatedSubscribers.forEach(subscriber => subscriber());
+    this.editor.getDispatcher().dispatch(new CursorStateUpdatedEvent());
   }
 }

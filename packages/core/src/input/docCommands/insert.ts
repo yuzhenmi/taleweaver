@@ -1,10 +1,10 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
-import * as stateOperations from '../../state/operations';
-import Token from '../../state/Token';
+import * as stateOperations from '../../token/operations';
+import Token from '../../token/Token';
 
 export default function insert(tokens: Token[]): Command {
   return (editor: Editor): [StateTransformation, CursorTransformation] => {
@@ -19,18 +19,18 @@ export default function insert(tokens: Token[]): Command {
     let collapsedAt = anchor;
     if (anchor < head) {
       stateTransformation.addOperation(new stateOperations.Delete(
-        editor.convertSelectableOffsetToModelOffset(anchor),
-        editor.convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
       ));
     } else if (anchor > head) {
       stateTransformation.addOperation(new stateOperations.Delete(
-        editor.convertSelectableOffsetToModelOffset(head),
-        editor.convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
       ));
       collapsedAt = head;
     }
     stateTransformation.addOperation(new stateOperations.Insert(
-      editor.convertSelectableOffsetToModelOffset(collapsedAt),
+      editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
       tokens,
     ));
     cursorTransformation.addOperation(new cursorOperations.MoveTo(collapsedAt + tokens.filter(t => typeof(t) === 'string').length));

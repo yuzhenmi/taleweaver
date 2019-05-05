@@ -1,4 +1,4 @@
-import Attributes from '../state/Attributes';
+import Attributes from '../token/Attributes';
 import InlineElement from './InlineElement';
 
 export default class Text extends InlineElement {

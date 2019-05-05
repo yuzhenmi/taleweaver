@@ -1,6 +1,6 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
 

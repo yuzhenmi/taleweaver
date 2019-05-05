@@ -1,6 +1,5 @@
 import Editor from '../Editor';
-import Config from '../Config';
-import DOMObserver from './DOMObserver';
+import { LayoutStateUpdatedEvent, ViewStateUpdatedEvent } from '../dispatch/events';
 import LayoutNode from '../layout/LayoutNode';
 import DocBox from '../layout/DocBox';
 import PageFlowBox from '../layout/PageFlowBox';
@@ -14,17 +13,17 @@ import PageViewNode from './PageViewNode';
 import LineViewNode from './LineViewNode';
 import InlineViewNode from './InlineViewNode';
 import CursorView from './CursorView';
-import TreeSyncer from '../helpers/TreeSyncer';
+import TreeSyncer from '../utils/TreeSyncer';
 import bindKeys from './bindKeys';
 
 class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
-  protected config: Config;
+  protected editor: Editor;
   protected lastVersion: number;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(config: Config, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>) {
+  constructor(editor: Editor, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>) {
     super();
-    this.config = config;
+    this.editor = editor;
     this.lastVersion = lastVersion;
     this.idMap = idMap;
   }
@@ -75,7 +74,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
-      const BlockViewNodeClass = this.config.getViewNodeClass(srcNode.getType());
+      const BlockViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
       const blockViewNode = new BlockViewNodeClass(srcNode.getID());
       if (!(blockViewNode instanceof BlockViewNode)) {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
@@ -91,7 +90,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return lineViewNode;
     }
     if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
-      const InlineViewNodeClass = this.config.getViewNodeClass(srcNode.getType());
+      const InlineViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
       const inlineViewNode = new InlineViewNodeClass(srcNode.getID());
       if (!(inlineViewNode instanceof InlineViewNode)) {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
@@ -167,53 +166,26 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   }
 }
 
-type OnMountedSubscriber = () => void;
-
 class Presenter {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
-  protected cursorView: CursorView;
-  protected domObserver: DOMObserver;
-  protected onMountedSubscribers: OnMountedSubscriber[];
-  protected mounted: boolean;
   protected version: number;
   protected domWrapper?: HTMLElement;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(editor: Editor) {
+  constructor(editor: Editor, docViewNode: DocViewNode) {
     this.editor = editor;
-    const docBox = editor.getLayoutEngine().getDocBox();
-    const cursor = editor.getCursor();
-    this.docViewNode = new DocViewNode(docBox.getID());
-    this.cursorView = new CursorView(editor);
-    this.domObserver = new DOMObserver(editor);
-    this.onMountedSubscribers = [];
-    this.mounted = false;
+    this.docViewNode = docViewNode;
     this.version = -1;
     this.idMap = new Map();
-    docBox.subscribeOnUpdated(() => this.run());
-    cursor.subscribeOnUpdated(() => this.updateCursorView());
     bindKeys(editor);
+    editor.getDispatcher().on(LayoutStateUpdatedEvent, event => this.sync());
   }
 
   mount(domWrapper: HTMLElement) {
-    if (this.mounted) {
-      return;
-    }
     this.domWrapper = domWrapper;
-    this.run();
+    this.sync();
     domWrapper.appendChild(this.docViewNode.getDOMContainer());
-    this.mounted = true;
-    this.domObserver.connect(this.docViewNode);
-    this.onMountedSubscribers.forEach(subscriber => subscriber());
-  }
-
-  getDocViewNode(): DocViewNode {
-    return this.docViewNode;
-  }
-
-  subscribeOnMounted(subscriber: OnMountedSubscriber) {
-    this.onMountedSubscribers.push(subscriber);
   }
 
   getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
@@ -224,20 +196,13 @@ class Presenter {
     return pages[pageOffset].getDOMContentContainer();
   }
 
-  protected run() {
-    const treeSyncer = new LayoutToViewTreeSyncer(this.editor.getConfig(), this.version, this.idMap);
-    treeSyncer.syncNodes(this.editor.getLayoutEngine().getDocBox(), this.docViewNode);
-    this.version = this.editor.getLayoutEngine().getDocBox().getVersion();
-    this.docViewNode.onUpdated();
-    this.updateCursorView();
-  }
-
-  protected updateCursorView() {
-    this.cursorView.onUpdated(this.editor.getCursor(), this.editor.getLayoutEngine().getDocBox(), this.docViewNode.getChildren());
+  protected sync() {
+    const docBox = this.editor.getLayoutManager().getDocBox();
+    const treeSyncer = new LayoutToViewTreeSyncer(this.editor, this.version, this.idMap);
+    treeSyncer.syncNodes(docBox, this.docViewNode);
+    this.version = docBox.getVersion();
+    this.editor.getDispatcher().dispatch(new ViewStateUpdatedEvent());
   }
 }
 
 export default Presenter;
-export {
-  OnMountedSubscriber,
-};

@@ -1,6 +1,6 @@
-import generateID from '../helpers/generateID';
+import generateID from '../utils/generateID';
 import Text from '../model/Text';
-import breakTextToWords from './helpers/breakTextToWords';
+import breakTextToWords from './utils/breakTextToWords';
 import InlineRenderNode from './InlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 

@@ -1,4 +1,4 @@
-import mergeViewportBoundingRects from './helpers/mergeViewportBoundingRects';
+import mergeViewportBoundingRects from './utils/mergeViewportBoundingRects';
 import FlowBox from './FlowBox';
 import BlockBox from './BlockBox';
 import InlineBox from './InlineBox';

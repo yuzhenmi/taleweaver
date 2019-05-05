@@ -7,14 +7,11 @@ import DocRenderNode from '../render/DocRenderNode';
 
 type Child = PageFlowBox;
 
-type OnUpdatedSubscriber = () => void;
-
 export default class DocBox extends Box implements RootNode {
   protected configWidth: number;
   protected configHeight: number;
   protected padding: number;
   protected children: Child[] = [];
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[] = [];
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
@@ -76,16 +73,6 @@ export default class DocBox extends Box implements RootNode {
     this.configHeight = renderNode.getHeight();
     this.padding = renderNode.getPadding();
     this.clearCache();
-  }
-
-  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
-  }
-
-  onUpdated() {
-    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
-      onUpdatedSubscriber();
-    });
   }
 
   resolvePosition(selectableOffset: number): Position {

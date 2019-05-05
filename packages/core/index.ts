@@ -1,10 +1,10 @@
 import Editor from './src/Editor';
 import Config from './src/Config';
 
-import StateTransformation from './src/state/Transformation';
-import * as stateOperations from './src/state/operations';
-import OpenTagToken from './src/state/OpenTagToken';
-import CloseTagToken from './src/state/CloseTagToken';
+import StateTransformation from './src/token/Transformation';
+import * as stateOperations from './src/token/operations';
+import OpenTagToken from './src/token/OpenTagToken';
+import CloseTagToken from './src/token/CloseTagToken';
 
 import CursorTransformation from './src/cursor/Transformation';
 import * as cursorOperations from './src/cursor/operations';
@@ -25,7 +25,7 @@ import Command from './src/input/Command';
 
 import Extension from './src/extension/Extension';
 
-import generateID from './src/helpers/generateID';
+import generateID from './src/utils/generateID';
 
 export {
   Editor,

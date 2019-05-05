@@ -1,8 +1,6 @@
-import Config from '../Config';
 import Token from './Token';
 import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
-import State from './State';
 
 enum TokenizerState {
   NewToken,
@@ -15,34 +13,28 @@ enum TokenizerState {
 }
 
 class Tokenizer {
-  protected config: Config;
   protected markup: string;
   protected tokenizerState: TokenizerState;
-  protected state: State;
   protected tokens: Token[];
   protected tagBuffer: string;
   protected attributesBuffer: string;
   protected ran: boolean;
 
-  constructor(config: Config, markup: string) {
-    this.config = config;
+  constructor(markup: string) {
     this.markup = markup;
     this.tokenizerState = TokenizerState.NewToken;
-    this.state = new State();
     this.tokens = [];
     this.tagBuffer = '';
     this.attributesBuffer = '';
     this.ran = false;
   }
 
-  getState() {
-    if (!this.ran) {
-      this.run();
-    }
-    return this.state;
+  getTokens() {
+    this.tokenize();
+    return this.tokens;
   }
 
-  protected run() {
+  protected tokenize() {
     const markup = this.markup;
     let char: string;
     for (let n = 0, nn = markup.length; n < nn; n++) {
@@ -107,7 +99,6 @@ class Tokenizer {
           throw new Error(`Unexpected character ${char} at offset ${n}.`);
       }
     }
-    this.state.setTokens(this.tokens);
     this.ran = true;
   }
 

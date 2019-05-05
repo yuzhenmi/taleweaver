@@ -1,5 +1,6 @@
-import Config from '../Config';
-import TreeSyncer from '../helpers/TreeSyncer';
+import Editor from '../Editor';
+import TreeSyncer from '../utils/TreeSyncer';
+import { ModelStateUpdatedEvent, RenderStateUpdatedEvent } from '../dispatch/events';
 import Element from '../model/Element';
 import Doc from '../model/Doc';
 import BlockElement from '../model/BlockElement';
@@ -10,12 +11,12 @@ import BlockRenderNode from './BlockRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 
 class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
-  protected config: Config;
+  protected editor: Editor;
   protected lastVersion: number;
 
-  constructor(config: Config, lastVersion: number) {
+  constructor(editor: Editor, lastVersion: number) {
     super();
-    this.config = config;
+    this.editor = editor;
     this.lastVersion = lastVersion;
   }
 
@@ -47,7 +48,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
 
   insertNode(parent: RenderNode, srcNode: Element, offset: number) {
     if (parent instanceof DocRenderNode && srcNode instanceof BlockElement) {
-      const BlockRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
+      const BlockRenderNodeClass = this.editor.getConfig().getRenderNodeClass(srcNode.getType());
       const blockRenderNode = new BlockRenderNodeClass(srcNode.getID());
       if (!(blockRenderNode instanceof BlockRenderNode)) {
         throw new Error('Error inserting render node, expecting block render node.');
@@ -57,7 +58,7 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
       return blockRenderNode;
     }
     if (parent instanceof BlockRenderNode && srcNode instanceof InlineElement) {
-      const InlineRenderNodeClass = this.config.getRenderNodeClass(srcNode.getType());
+      const InlineRenderNodeClass = this.editor.getConfig().getRenderNodeClass(srcNode.getType());
       const inlineRenderNode = new InlineRenderNodeClass(srcNode.getID());
       if (!(inlineRenderNode instanceof InlineRenderNode)) {
         throw new Error('Error inserting render node, expecting inline render node.');
@@ -111,39 +112,27 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
 }
 
 export default class RenderEngine {
-  protected config: Config;
-  protected doc: Doc;
+  protected editor: Editor;
   protected docRenderNode: DocRenderNode;
-  protected ran: boolean;
   protected version: number;
 
-  constructor(config: Config, doc: Doc) {
-    this.config = config;
-    this.doc = doc;
-    this.docRenderNode = new DocRenderNode(doc.getID());
-    this.ran = false;
+  constructor(editor: Editor, docRenderNode: DocRenderNode) {
+    this.editor = editor;
+    this.docRenderNode = docRenderNode;
     this.version = -1;
-    this.doc.subscribeOnUpdated(() => {
-      this.run();
-    });
+    editor.getDispatcher().on(ModelStateUpdatedEvent, event => this.sync());
+    this.sync();
   }
 
-  getDocRenderNode(): DocRenderNode {
-    if (!this.ran) {
-      this.run();
-    }
-    return this.docRenderNode;
+  protected sync() {
+    const doc = this.editor.getModelManager().getDoc();
+    const treeSyncer = new ModelToRenderTreeSyncer(this.editor, this.version);
+    treeSyncer.syncNodes(doc, this.docRenderNode);
+    this.version = doc.getVersion();
+    this.editor.getDispatcher().dispatch(new RenderStateUpdatedEvent());
   }
 
-  protected run() {
-    const treeSyncer = new ModelToRenderTreeSyncer(this.config, this.version);
-    treeSyncer.syncNodes(this.doc, this.docRenderNode);
-    this.ran = true;
-    this.version = this.doc.getVersion();
-    this.docRenderNode.onUpdated();
-  }
-
-  protected getNextVersion(): number {
+  protected getNextVersion() {
     return this.docRenderNode.getVersion() + 1;
   }
 }

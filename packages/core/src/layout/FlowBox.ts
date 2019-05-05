@@ -1,5 +1,5 @@
 import LayoutNode from './LayoutNode';
-import generateID from '../helpers/generateID';
+import generateID from '../utils/generateID';
 
 export default abstract class FlowBox extends LayoutNode {
 

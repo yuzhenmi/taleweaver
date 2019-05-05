@@ -1,5 +1,5 @@
 import Node from '../tree/Node';
-import Attributes from '../state/Attributes';
+import Attributes from '../token/Attributes';
 
 export default abstract class Element implements Node {
   protected id?: string;

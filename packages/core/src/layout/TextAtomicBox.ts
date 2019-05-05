@@ -1,6 +1,6 @@
 import AtomicBox from './AtomicBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
-import measureText from './helpers/measureText';
+import measureText from './utils/measureText';
 import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
 
 const stubTextStyle = {
