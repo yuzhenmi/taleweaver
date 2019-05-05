@@ -1,21 +1,21 @@
-import Config from '../Config';
-import TreeSyncer from '../helpers/TreeSyncer';
-import State from '../state/State';
-import Token from '../state/Token';
-import OpenTagToken from '../state/OpenTagToken';
-import CloseTagToken from '../state/CloseTagToken';
+import Editor from '../Editor';
+import TreeSyncer from '../utils/TreeSyncer';
+import { TokenStateUpdatedEvent, ModelStateUpdatedEvent } from '../dispatch/events';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
 import Element from './Element';
 import Doc from './Doc';
 import BlockElement from './BlockElement';
 import InlineElement from './InlineElement';
 
 class ModelTreeSyncer extends TreeSyncer<Element, Element> {
-  protected config: Config;
+  protected editor: Editor;
   protected lastVersion: number;
 
-  constructor(config: Config, lastVersion: number) {
+  constructor(editor: Editor, lastVersion: number) {
     super();
-    this.config = config;
+    this.editor = editor;
     this.lastVersion = lastVersion;
   }
 
@@ -47,7 +47,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
 
   insertNode(parent: Element, srcNode: Element, offset: number) {
     if (parent instanceof Doc && srcNode instanceof BlockElement) {
-      const ElementClass = this.config.getElementClass(srcNode.getType());
+      const ElementClass = this.editor.getConfig().getElementClass(srcNode.getType());
       const element = new ElementClass();
       if (!(element instanceof BlockElement)) {
         throw new Error('Error inserting element, expecting block element.');
@@ -58,7 +58,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
       return element;
     }
     if (parent instanceof BlockElement && srcNode instanceof InlineElement) {
-      const ElementClass = this.config.getElementClass(srcNode.getType());
+      const ElementClass = this.editor.getConfig().getElementClass(srcNode.getType());
       const element = new ElementClass();
       if (!(element instanceof InlineElement)) {
         throw new Error('Error inserting element, expecting inline element.');
@@ -156,42 +156,39 @@ class Stack {
 }
 
 class Parser {
-  protected config: Config;
-  protected state: State;
-  protected parserState: ParserState;
+  protected editor: Editor;
   protected doc: Doc;
+  protected parserState: ParserState;
   protected stack: Stack;
   protected contentBuffer: string;
-  protected ran: boolean;
   protected version: number;
 
-  constructor(config: Config, state: State) {
-    this.config = config;
-    this.state = state;
+  constructor(editor: Editor, doc: Doc) {
+    this.editor = editor;
+    this.doc = doc;
     this.parserState = ParserState.NewDoc;
-    this.doc = new Doc();
     this.stack = new Stack();
     this.contentBuffer = '';
-    this.ran = false;
     this.version = 0;
-    this.state.subscribeOnUpdated(() => {
-      this.parserState = ParserState.NewDoc;
-      this.run();
-    });
+    editor.getDispatcher().on(TokenStateUpdatedEvent, event => this.sync());
+    this.sync();
   }
 
-  getDoc(): Doc {
-    if (!this.ran) {
-      this.run();
-    }
-    return this.doc;
+  protected sync() {
+    this.parserState = ParserState.NewDoc;
+    const newDoc = this.parse();
+    const treeSyncer = new ModelTreeSyncer(this.editor, this.version);
+    this.doc.setID(newDoc.getID());
+    treeSyncer.syncNodes(newDoc, this.doc);
+    this.version = this.doc.getVersion();
+    this.editor.getDispatcher().dispatch(new ModelStateUpdatedEvent());
   }
 
-  protected run() {
+  protected parse() {
     const newDoc = new Doc();
     this.stack = new Stack();
     this.stack.push(newDoc);
-    const tokens = this.state.getTokens();
+    const tokens = this.editor.getTokenManager().getTokenState().getTokens();
     let token: Token;
     for (let n = 0, nn = tokens.length; n < nn; n++) {
       token = tokens[n];
@@ -229,12 +226,7 @@ class Parser {
           throw new Error(`Unexpected token at offset ${n}.`);
       }
     }
-    const treeSyncer = new ModelTreeSyncer(this.config, this.version);
-    this.doc.setID(newDoc.getID());
-    treeSyncer.syncNodes(newDoc, this.doc);
-    this.ran = true;
-    this.version = this.doc.getVersion();
-    this.doc.onUpdated();
+    return newDoc;
   }
 
   protected newDoc(token: OpenTagToken) {
@@ -253,7 +245,7 @@ class Parser {
     if (!parentElement) {
       throw new Error('Unexpected end of doc encountered.');
     }
-    const ElementClass = this.config.getElementClass(token.getType());
+    const ElementClass = this.editor.getConfig().getElementClass(token.getType());
     const element = new ElementClass();
     const attributes = token.getAttributes();
     element.setID(token.getID());

@@ -1,9 +1,9 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
-import * as stateOperations from '../../state/operations';
+import * as stateOperations from '../../token/operations';
 
 export default function deleteBackward(): Command {
   return (editor: Editor): [StateTransformation, CursorTransformation] => {
@@ -20,21 +20,21 @@ export default function deleteBackward(): Command {
         return [stateTransformation, cursorTransformation];
       }
       stateTransformation.addOperation(new stateOperations.Delete(
-        editor.convertSelectableOffsetToModelOffset(head - 1),
-        editor.convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head - 1),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
       ));
       cursorTransformation.addOperation(new cursorOperations.MoveTo(head - 1));
     } else {
       if (anchor < head) {
         stateTransformation.addOperation(new stateOperations.Delete(
-          editor.convertSelectableOffsetToModelOffset(anchor),
-          editor.convertSelectableOffsetToModelOffset(head),
+          editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+          editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
         ));
         cursorTransformation.addOperation(new cursorOperations.MoveTo(anchor));
       } else if (anchor > head) {
         stateTransformation.addOperation(new stateOperations.Delete(
-          editor.convertSelectableOffsetToModelOffset(head),
-          editor.convertSelectableOffsetToModelOffset(anchor),
+          editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+          editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
         ));
         cursorTransformation.addOperation(new cursorOperations.MoveTo(head));
       }

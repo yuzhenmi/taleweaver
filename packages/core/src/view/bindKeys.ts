@@ -1,6 +1,6 @@
 import Editor from '../Editor';
 import Config from '../Config';
-import Dispatcher from '../input/Dispatcher';
+import Dispatcher from '../dispatch/Dispatcher';
 import KeySignature from '../input/KeySignature';
 import * as keys from '../input/keys';
 import * as modifierKeys from '../input/modifierKeys';

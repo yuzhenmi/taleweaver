@@ -1,7 +1,5 @@
 import Editor from '../Editor';
-import Cursor from '../cursor/Cursor';
-import DocBox from '../layout/DocBox';
-import PageViewNode from './PageViewNode';
+import { CursorStateUpdatedEvent, ViewStateUpdatedEvent } from '../dispatch/events';
 
 export default class CursorView {
   protected editor: Editor;
@@ -25,10 +23,9 @@ export default class CursorView {
     this.domCaret.style.marginLeft = '-1px';
     this.domCaret.style.background = 'hsla(213, 100%, 50%, 1)';
     this.domSelections = [];
-  }
-
-  onUpdated(cursor: Cursor, docBox: DocBox, pageViewNodes: PageViewNode[]) {
-    this.updateView(cursor, docBox, pageViewNodes);
+    editor.getDispatcher().on(CursorStateUpdatedEvent, event => this.updateView());
+    editor.getDispatcher().on(ViewStateUpdatedEvent, event => this.updateView());
+    setTimeout(() => this.updateView());
   }
 
   getLeftAnchor(): number | null {
@@ -59,7 +56,11 @@ export default class CursorView {
     this.blinkInterval = null;
   }
 
-  protected updateView(cursor: Cursor, docBox: DocBox, pageViewNodes: PageViewNode[]) {
+  protected updateView() {
+    const cursor = this.editor.getCursor();
+    const docBox = this.editor.getLayoutManager().getDocBox();
+    const pageViewNodes = this.editor.getViewManager().getPageViewNodes();
+
     // Clear dom selections
     while (this.domSelections.length > 0) {
       const domSelection = this.domSelections[0];

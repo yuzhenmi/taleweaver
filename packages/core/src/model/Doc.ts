@@ -1,10 +1,9 @@
 import RootNode from '../tree/RootNode';
-import Attributes from '../state/Attributes';
+import Attributes from '../token/Attributes';
 import Element from './Element';
 import BlockElement from './BlockElement';
 
 type ChildElement = BlockElement;
-type OnUpdatedSubscriber = () => void;
 
 const DEFAULT_ATTRIBUTES = {
   width: 816,
@@ -17,7 +16,6 @@ export default class Doc extends Element implements RootNode {
   protected width: number = 0;
   protected height: number = 0;
   protected padding: number = 0;
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[] = [];
 
   getType() {
     return 'Doc';
@@ -95,15 +93,5 @@ export default class Doc extends Element implements RootNode {
       height: this.height,
       padding: this.padding,
     };
-  }
-
-  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
-  }
-
-  onUpdated() {
-    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
-      onUpdatedSubscriber();
-    });
   }
 }

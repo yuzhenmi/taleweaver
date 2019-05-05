@@ -1,6 +1,6 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
 import AtomicBox from '../../layout/AtomicBox';
@@ -14,7 +14,7 @@ export default function moveHeadLeftByWord(): Command {
       return [stateTransformation, cursorTransformation];
     }
     const head = cursor.getHead();
-    const docBox = editor.getLayoutEngine().getDocBox();
+    const docBox = editor.getLayoutManager().getDocBox();
     const position = docBox.resolvePosition(head);
     const atomicBoxLevelPosition = position.getAtomicBoxLevel();
     if (atomicBoxLevelPosition.getSelectableOffset() > 0) {

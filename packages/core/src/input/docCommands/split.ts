@@ -1,13 +1,13 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
-import * as stateOperations from '../../state/operations';
-import Token from '../../state/Token';
-import OpenTagToken from '../../state/OpenTagToken';
-import CloseTagToken from '../../state/CloseTagToken';
-import generateID from '../../helpers/generateID';
+import * as stateOperations from '../../token/operations';
+import Token from '../../token/Token';
+import OpenTagToken from '../../token/OpenTagToken';
+import CloseTagToken from '../../token/CloseTagToken';
+import generateID from '../../utils/generateID';
 
 export default function split(): Command {
   return (editor: Editor): [StateTransformation, CursorTransformation] => {
@@ -22,19 +22,19 @@ export default function split(): Command {
     let collapsedAt = anchor;
     if (anchor < head) {
       stateTransformation.addOperation(new stateOperations.Delete(
-        editor.convertSelectableOffsetToModelOffset(anchor),
-        editor.convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
       ));
     } else if (anchor > head) {
       stateTransformation.addOperation(new stateOperations.Delete(
-        editor.convertSelectableOffsetToModelOffset(head),
-        editor.convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
       ));
       collapsedAt = head;
     }
     // Find preceding inline and block open tags
-    const stateCollapsedAt = editor.convertSelectableOffsetToModelOffset(collapsedAt);
-    const tokens = editor.getState().getTokens();
+    const stateCollapsedAt = editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt);
+    const tokens = editor.getTokenManager().getTokenState().getTokens();
     let inlineOpenTagToken: OpenTagToken | null = null;
     let blockOpenTagToken: OpenTagToken | null = null;
     let token: Token;
@@ -53,7 +53,7 @@ export default function split(): Command {
       throw new Error('State is corrupted, cannot perform split.');
     }
     stateTransformation.addOperation(new stateOperations.Insert(
-      editor.convertSelectableOffsetToModelOffset(collapsedAt),
+      editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
       [
         '\n',
         new CloseTagToken(), // Close inline

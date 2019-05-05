@@ -1,6 +1,6 @@
 import Editor from '../Editor';
-import Token from '../state/Token';
-import getKeySignatureFromKeyboardEvent from '../input/helpers/getKeySignatureFromKeyboardEvent';
+import Token from '../token/Token';
+import getKeySignatureFromKeyboardEvent from '../input/utils/getKeySignatureFromKeyboardEvent';
 import * as cursorCommands from '../input/cursorCommands';
 import * as docCommands from '../input/docCommands';
 import DocViewNode from './DocViewNode';
@@ -156,7 +156,7 @@ export default class DOMObserver {
       throw new Error('No doc view is being observed.');
     }
     const pageViews = this.docViewNode.getChildren();
-    const pageFlowBoxes = this.editor.getLayoutEngine().getDocBox().getChildren();
+    const pageFlowBoxes = this.editor.getLayoutManager().getDocBox().getChildren();
     let cumulatedOffset = 0;
     for (let n = 0, nn = pageViews.length; n < nn; n++) {
       const pageView = pageViews[n];

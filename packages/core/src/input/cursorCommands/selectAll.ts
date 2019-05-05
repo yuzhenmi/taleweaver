@@ -1,6 +1,6 @@
 import Editor from '../../Editor';
 import Command from '../Command';
-import StateTransformation from '../../state/Transformation';
+import StateTransformation from '../../token/Transformation';
 import CursorTransformation from '../../cursor/Transformation';
 import * as cursorOperations from '../../cursor/operations';
 
@@ -12,7 +12,7 @@ export default function selectAll(): Command {
     if (!cursor) {
       return [stateTransformation, cursorTransformation];
     }
-    const docBox = editor.getLayoutEngine().getDocBox();
+    const docBox = editor.getLayoutManager().getDocBox();
     cursorTransformation.addOperation(new cursorOperations.MoveTo(0));
     cursorTransformation.addOperation(new cursorOperations.MoveHeadTo(docBox.getSelectableSize() - 1));
     return [stateTransformation, cursorTransformation];

@@ -5,12 +5,9 @@ import PageViewNode from './PageViewNode';
 
 type Child = PageViewNode;
 
-type OnUpdatedSubscriber = () => void;
-
 export default class DocViewNode extends ViewNode implements RootNode {
   protected children: Child[] = [];
   protected domContainer: HTMLDivElement;
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[] = [];
 
   constructor(id: string) {
     super(id);
@@ -19,6 +16,7 @@ export default class DocViewNode extends ViewNode implements RootNode {
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'doc');
     this.domContainer.style.textAlign = 'left';
+    this.domContainer.style.cursor = 'text';
   }
 
   getDOMContainer(): HTMLDivElement {
@@ -62,16 +60,6 @@ export default class DocViewNode extends ViewNode implements RootNode {
 
   onLayoutUpdated(layoutNode: DocBox) {
     this.selectableSize = layoutNode.getSelectableSize();
-  }
-
-  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
-  }
-
-  onUpdated() {
-    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
-      onUpdatedSubscriber();
-    });
   }
 
   onDeleted() {}

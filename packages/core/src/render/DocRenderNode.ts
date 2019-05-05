@@ -5,14 +5,11 @@ import BlockRenderNode from './BlockRenderNode';
 
 export type Child = BlockRenderNode;
 
-type OnUpdatedSubscriber = () => void;
-
 export default class DocRenderNode extends RenderNode implements RootNode {
   protected width: number;
   protected height: number;
   protected padding: number;
   protected children: Child[];
-  protected onUpdatedSubscribers: OnUpdatedSubscriber[];
 
   constructor(id: string) {
     super(id);
@@ -20,7 +17,6 @@ export default class DocRenderNode extends RenderNode implements RootNode {
     this.height = 0;
     this.padding = 0;
     this.children = [];
-    this.onUpdatedSubscribers = [];
   }
 
   getType(): string {
@@ -122,15 +118,5 @@ export default class DocRenderNode extends RenderNode implements RootNode {
     this.height = element.getHeight();
     this.padding = element.getPadding();
     this.clearCache();
-  }
-
-  subscribeOnUpdated(onUpdatedSubscriber: OnUpdatedSubscriber) {
-    this.onUpdatedSubscribers.push(onUpdatedSubscriber);
-  }
-
-  onUpdated() {
-    this.onUpdatedSubscribers.forEach(onUpdatedSubscriber => {
-      onUpdatedSubscriber();
-    });
   }
 }
