@@ -34,8 +34,8 @@ class ViewManager {
     return this.docViewNode.getChildren();
   }
 
-  getFocusState() {
-    return this.presenter
+  getIsFocused() {
+    return this.domObserver.getIsFocused();
   }
 
   mount(domWrapper: HTMLElement) {
