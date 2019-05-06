@@ -1,16 +1,30 @@
 import Editor from '../Editor';
 import AppliedTransformation from './AppliedTransformation';
 
+const HISTORY_COLLAPSE_THRESHOLD = 500;
+const HISTORY_COLLAPSE_MAX_DURATION = 2000;
+
 class HistoryItem {
   protected timestamp: number;
+  protected lastTimestamp: number;
   protected appliedTransformations: AppliedTransformation[] = [];
 
   constructor() {
     this.timestamp = Date.now();
+    this.lastTimestamp = this.timestamp;
+  }
+
+  getTimestamp() {
+    return this.timestamp;
+  }
+
+  getLastTimestamp() {
+    return this.lastTimestamp;
   }
 
   addAppliedTransformation(appliedTransformation: AppliedTransformation) {
     this.appliedTransformations.push(appliedTransformation);
+    this.lastTimestamp = Date.now();
   }
 
   getAppliedTransformations() {
@@ -28,13 +42,30 @@ class History {
   }
 
   recordAppliedTransformation(appliedTransformation: AppliedTransformation) {
+    if (this.pointer < 0) {
+      this.recordAppliedTransformationToNewItem(appliedTransformation);
+      return;
+    }
     if (this.pointer < this.items.length - 1) {
       this.items.splice(this.pointer + 1, this.items.length - 1 - this.pointer);
     }
-    const item = new HistoryItem();
-    item.addAppliedTransformation(appliedTransformation);
-    this.items.push(item);
-    this.pointer++;
+    const currentItem = this.items[this.pointer];
+    const currentAppliedTransformations = currentItem.getAppliedTransformations();
+    const lastAppliedTransformation = currentAppliedTransformations[currentAppliedTransformations.length - 1];
+    if (appliedTransformation.getOperations().length === 0) {
+      if (lastAppliedTransformation.getOperations().length === 0) {
+        this.recordAppliedTransformationToLastItem(appliedTransformation);
+      } else {
+        this.recordAppliedTransformationToNewItem(appliedTransformation);
+      }
+      return;
+    }
+    const now = Date.now();
+    if (now - currentItem.getTimestamp() < HISTORY_COLLAPSE_MAX_DURATION && now - currentItem.getLastTimestamp() < HISTORY_COLLAPSE_THRESHOLD) {
+      this.recordAppliedTransformationToLastItem(appliedTransformation);
+    } else {
+      this.recordAppliedTransformationToNewItem(appliedTransformation);
+    }
   }
 
   undo(): HistoryItem | null {
@@ -52,6 +83,21 @@ class History {
     }
     this.pointer += 1;
     return this.items[this.pointer];
+  }
+
+  protected recordAppliedTransformationToNewItem(appliedTransformation: AppliedTransformation) {
+    const item = new HistoryItem();
+    item.addAppliedTransformation(appliedTransformation);
+    this.items.push(item);
+    this.pointer++;
+  }
+
+  protected recordAppliedTransformationToLastItem(appliedTransformation: AppliedTransformation) {
+    const currentItem = this.items[this.pointer];
+    if (!currentItem) {
+      throw new Error('Error recording applied transformation, history is empty.');
+    }
+    currentItem.addAppliedTransformation(appliedTransformation);
   }
 }
 

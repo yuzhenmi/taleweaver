@@ -149,8 +149,10 @@ export default class CursorView {
       pageDOMContainer.appendChild(this.domCaret);
     }
 
-    // Scroll cursor head into view
-    this.domCaret.scrollIntoView({ block: 'nearest' });
+    // Scroll cursor head into view, if focused
+    if (isFocused) {
+      this.domCaret.scrollIntoView({ block: 'nearest' });
+    }
 
     // Reset blinking
     this.stopBlinking();
