@@ -23,7 +23,7 @@ class Transformer {
     }
     const tokenManager = this.editor.getTokenManager();
     const cursor = this.editor.getCursor();
-    historyItemToUndo.getAppliedTransformations().reverse().forEach(appliedTransformation => {
+    historyItemToUndo.getAppliedTransformations().slice().reverse().forEach(appliedTransformation => {
       tokenManager.unapplyTransformation(appliedTransformation);
       cursor.set(
         appliedTransformation.getOriginalCursorAnchor(),

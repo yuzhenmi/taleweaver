@@ -53,7 +53,7 @@ class TokenState {
   }
 
   unapplyTransformation(appliedTransformation: AppliedTransformation) {
-    appliedTransformation.getOperations().reverse().forEach(appliedOperation => {
+    appliedTransformation.getOperations().slice().reverse().forEach(appliedOperation => {
       if (appliedOperation instanceof AppliedInsert) {
         this.tokens.splice(appliedOperation.getAt(), appliedOperation.getTokens().length);
       } else if (appliedOperation instanceof AppliedDelete) {
