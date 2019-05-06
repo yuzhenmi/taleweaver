@@ -56,6 +56,8 @@ function bindKeys(editor: Editor) {
   config.bindKey(new KeySignature(keys.BackspaceKey), () => dispatcher.dispatchCommand(deleteBackward()));
   config.bindKey(new KeySignature(keys.DeleteKey), () => dispatcher.dispatchCommand(deleteForward()));
   config.bindKey(new KeySignature(keys.EnterKey), () => dispatcher.dispatchCommand(split()));
+  config.bindKey(new KeySignature(keys.ZKey, [modifierKeys.MetaKey]), () => dispatcher.dispatchUndo());
+  config.bindKey(new KeySignature(keys.ZKey, [modifierKeys.MetaKey, modifierKeys.ShiftKey]), () => dispatcher.dispatchRedo());
 }
 
 export default bindKeys;

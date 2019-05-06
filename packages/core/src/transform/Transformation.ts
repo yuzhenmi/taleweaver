@@ -1,6 +1,6 @@
 import Operation from './Operation';
 
-export default class Transformation {
+class Transformation {
   protected operations: Operation[] = [];
   protected cursorHead: number | null = null;
   protected cursorAnchor: number | null = null;
@@ -39,3 +39,5 @@ export default class Transformation {
     return this.cursorLockLeft;
   }
 }
+
+export default Transformation;

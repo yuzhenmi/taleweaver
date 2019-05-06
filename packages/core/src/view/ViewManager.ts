@@ -46,6 +46,14 @@ class ViewManager {
     this.domObserver.connect(this.docViewNode);
     this.mounted = true;
   }
+
+  focus() {
+    this.domObserver.focus();
+  }
+
+  blur() {
+    this.domObserver.blur();
+  }
 }
 
 export default ViewManager;
