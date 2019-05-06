@@ -1,6 +1,8 @@
+import Token from '../../token/Token';
 import Operation, { OffsetAdjustment } from '../Operation';
+import AppliedOperation from '../AppliedOperation';
 
-export default class Delete extends Operation {
+class Delete extends Operation {
   protected from: number;
   protected to: number;
 
@@ -17,20 +19,49 @@ export default class Delete extends Operation {
     };
   }
 
-  adjustOffsetBy(offsetAdjustment: OffsetAdjustment) {
-    if (this.from >= offsetAdjustment.at) {
-      this.from += offsetAdjustment.delta;
-    }
-    if (this.to >= offsetAdjustment.at) {
-      this.to += offsetAdjustment.delta;
-    }
+  adjustOffset(adjustments: OffsetAdjustment[]) {
+    let from = this.from;
+    let to = this.to;
+    adjustments.forEach(adjustment => {
+      if (from >= adjustment.at) {
+        from += adjustment.delta;
+      }
+      if (to >= adjustment.at) {
+        to += adjustment.delta;
+      }
+    });
+    return new Delete(from, to);
   }
 
-  getFrom(): number {
+  getFrom() {
     return this.from;
   }
 
-  getTo(): number {
+  getTo() {
     return this.to;
   }
 }
+
+class AppliedDelete extends AppliedOperation {
+  protected at: number;
+  protected tokens: Token[];
+
+  constructor(at: number, tokens: Token[]) {
+    super();
+    this.at = at;
+    this.tokens = tokens;
+  }
+
+  getAt() {
+    return this.at;
+  }
+
+  getTokens() {
+    return this.tokens;
+  }
+}
+
+export default Delete;
+export {
+  AppliedDelete,
+};

@@ -70,20 +70,20 @@ export default class DOMObserver {
     });
   }
 
-  getIsFocused() {
-    return this.isFocused;
-  }
-
-  protected onFocus() {
+  focus() {
     this.isFocused = true;
     this.$contentEditable.focus();
     this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
   }
 
-  protected onBlur() {
+  blur() {
     this.isFocused = false;
     this.$contentEditable.blur();
     this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
+  }
+
+  getIsFocused() {
+    return this.isFocused;
   }
 
   protected onMouseDown = (event: MouseEvent) => {
@@ -101,12 +101,18 @@ export default class DOMObserver {
       currentElement = currentElement.parentElement;
     }
     if (!isInPage) {
-      this.onBlur();
+      if (this.isFocused) {
+        this.blur();
+      }
       return;
     }
-    this.onFocus();
     // Bypass browser selection
     event.preventDefault();
+    if (!this.isFocused) {
+      this.focus();
+      // Don't reset cursor if regaining focus
+      return;
+    }
     this.isMouseDown = true;
     const offset = this.resolveScreenPosition(event.clientX, event.clientY);
     if (offset < 0) {

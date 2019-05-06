@@ -40,19 +40,16 @@ class Dispatcher {
   }
 
   dispatchCommand(command: Command) {
-    const tokenState = this.editor.getTokenManager().getTokenState();
-    const cursor = this.editor.getCursor();
     const transformation = command(this.editor);
-    tokenState.applyTransformation(transformation);
-    let cursorAnchor = transformation.getCursorAnchor();
-    if (cursorAnchor === null)  {
-      cursorAnchor = cursor.getAnchor();
-    }
-    let cursorHead = transformation.getCursorHead();
-    if (cursorHead === null)  {
-      cursorHead = cursor.getHead();
-    }
-    cursor.set(cursorAnchor, cursorHead, transformation.getCursorLockLeft());
+    this.editor.getTransformer().applyTransformation(transformation);
+  }
+
+  dispatchUndo() {
+    this.editor.getTransformer().undo();
+  }
+
+  dispatchRedo() {
+    this.editor.getTransformer().redo();
   }
 
   dispatchKeyPress(keySignature: KeySignature): boolean {

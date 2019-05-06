@@ -1,5 +1,6 @@
 import Config from './Config'
 import Dispatcher from './dispatch/Dispatcher';
+import Transformer from './transform/Transformer';
 import Cursor from './cursor/Cursor';
 import TokenManager from './token/TokenManager';
 import ModelManager from './model/ModelManager';
@@ -12,6 +13,7 @@ import ExtensionProvider from './extension/ExtensionProvider';
 export default class Editor {
   protected config: Config;
   protected dispatcher: Dispatcher;
+  protected transformer: Transformer;
   protected cursor: Cursor;
   protected tokenManager: TokenManager;
   protected modelManager: ModelManager;
@@ -24,6 +26,7 @@ export default class Editor {
   constructor(config: Config, markup: string) {
     this.config = config;
     this.dispatcher = new Dispatcher(this);
+    this.transformer = new Transformer(this);
     this.cursor = new Cursor(this);
     this.tokenManager = new TokenManager(this, markup);
     this.modelManager = new ModelManager(this);
@@ -39,6 +42,10 @@ export default class Editor {
 
   getDispatcher() {
     return this.dispatcher;
+  }
+
+  getTransformer() {
+    return this.transformer;
   }
 
   getCursor() {
@@ -69,6 +76,7 @@ export default class Editor {
     this.domWrapper = domWrapper;
     this.viewManager.mount(domWrapper);
     this.extensionProvider.onMounted();
+    setTimeout(() => this.getViewManager().focus());
   }
 
   registerExtension(extension: Extension) {
