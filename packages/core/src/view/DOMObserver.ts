@@ -63,6 +63,14 @@ export default class DOMObserver {
     this.$contentEditable.addEventListener('compositionend', () => {
       this.isComposing = false;
     });
+    this.$contentEditable.addEventListener('focus', () => {
+      this.isFocused = true;
+      this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
+    });
+    this.$contentEditable.addEventListener('blur', () => {
+      this.isFocused = false;
+      this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
+    });
     this.mutationObserver.observe(this.$contentEditable, {
       subtree: true,
       characterData: true,
@@ -71,15 +79,11 @@ export default class DOMObserver {
   }
 
   focus() {
-    this.isFocused = true;
     this.$contentEditable.focus();
-    this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
   }
 
   blur() {
-    this.isFocused = false;
     this.$contentEditable.blur();
-    this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
   }
 
   getIsFocused() {
