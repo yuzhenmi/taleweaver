@@ -12,8 +12,10 @@ class Transformer {
   }
 
   applyTransformation(transformation: Transformation) {
-    const appliedTransformation = this.applyTransformationWithoutHistory(transformation);
-    this.history.recordAppliedTransformation(appliedTransformation);
+    const appliedTransformations = this.applyTransformationsWithoutHistory([transformation]);
+    appliedTransformations.forEach(appliedTransformation => {
+      this.history.recordAppliedTransformation(appliedTransformation);
+    });
   }
 
   undo() {
@@ -22,15 +24,15 @@ class Transformer {
       return;
     }
     const tokenManager = this.editor.getTokenManager();
+    const appliedTransformations = historyItemToUndo.getAppliedTransformations();
+    tokenManager.unapplyTransformations(appliedTransformations);
     const cursor = this.editor.getCursor();
-    historyItemToUndo.getAppliedTransformations().slice().reverse().forEach(appliedTransformation => {
-      tokenManager.unapplyTransformation(appliedTransformation);
-      cursor.set(
-        appliedTransformation.getOriginalCursorAnchor(),
-        appliedTransformation.getOriginalCursorHead(),
-        appliedTransformation.getOriginalCursorLockLeft(),
-      );
-    });
+    const firstAppliedTransformation = appliedTransformations[0];
+    cursor.set(
+      firstAppliedTransformation.getOriginalCursorAnchor(),
+      firstAppliedTransformation.getOriginalCursorHead(),
+      firstAppliedTransformation.getOriginalCursorLockLeft(),
+    );
   }
 
   redo() {
@@ -38,26 +40,29 @@ class Transformer {
     if (!historyItemToRedo) {
       return;
     }
-    historyItemToRedo.getAppliedTransformations().forEach(appliedTransformation => {
-      const originalTransformation = appliedTransformation.getOriginalTransformation();
-      this.applyTransformationWithoutHistory(originalTransformation);
-    });
+    const transformations = historyItemToRedo.getAppliedTransformations().map(appliedTransformation => appliedTransformation.getOriginalTransformation());
+    this.applyTransformationsWithoutHistory(transformations);
   }
 
-  protected applyTransformationWithoutHistory(transformation: Transformation) {
+  protected applyTransformationsWithoutHistory(transformations: Transformation[]) {
     const tokenManager = this.editor.getTokenManager();
     const cursor = this.editor.getCursor();
-    const appliedTransformation = tokenManager.applyTransformation(transformation);
-    let cursorAnchor = transformation.getCursorAnchor();
-    if (cursorAnchor === null)  {
-      cursorAnchor = cursor.getAnchor();
-    }
-    let cursorHead = transformation.getCursorHead();
-    if (cursorHead === null)  {
-      cursorHead = cursor.getHead();
-    }
-    cursor.set(cursorAnchor, cursorHead, transformation.getCursorLockLeft());
-    return appliedTransformation;
+    const appliedTransformations = tokenManager.applyTransformations(transformations);
+    const lastTransformation = transformations[transformations.length - 1];
+    let cursorAnchor = cursor.getAnchor();
+    let cursorHead = cursor.getHead();
+    transformations.forEach(transformation => {
+      const transformationCursorAnchor = transformation.getCursorAnchor();
+      const transformationCursorHead = transformation.getCursorHead();
+      if (transformationCursorAnchor !== null) {
+        cursorAnchor = transformationCursorAnchor;
+      }
+      if (transformationCursorHead !== null) {
+        cursorHead = transformationCursorHead;
+      }
+    });
+    cursor.set(cursorAnchor, cursorHead, lastTransformation.getCursorLockLeft());
+    return appliedTransformations;
   }
 }
 

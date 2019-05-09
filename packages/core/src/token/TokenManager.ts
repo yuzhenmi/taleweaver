@@ -19,12 +19,12 @@ class TokenManager {
     return this.tokenState;
   }
 
-  applyTransformation(transformation: Transformation) {
-    return this.tokenState.applyTransformation(transformation);
+  applyTransformations(transformations: Transformation[]) {
+    return this.tokenState.applyTransformations(transformations);
   }
 
-  unapplyTransformation(appliedTransformation: AppliedTransformation) {
-    this.tokenState.unapplyTransformation(appliedTransformation);
+  unapplyTransformations(appliedTransformations: AppliedTransformation[]) {
+    this.tokenState.unapplyTransformations(appliedTransformations);
   }
 }
 

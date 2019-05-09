@@ -20,7 +20,18 @@ class TokenState {
     return this.tokens;
   }
 
-  applyTransformation(transformation: Transformation): AppliedTransformation {
+  applyTransformations(transformations: Transformation[]): AppliedTransformation[] {
+    const appliedTransformations = transformations.map(transformation => this.applyTransformation(transformation));
+    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
+    return appliedTransformations;
+  }
+
+  unapplyTransformations(appliedTransformations: AppliedTransformation[]) {
+    appliedTransformations.slice().reverse().forEach(appliedTransformation => this.unapplyTransformation(appliedTransformation));
+    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
+  }
+
+  protected applyTransformation(transformation: Transformation): AppliedTransformation {
     const cursor = this.editor.getCursor();
     const appliedTransformation = new AppliedTransformation(
       transformation,
@@ -48,11 +59,10 @@ class TokenState {
       }
       offsetAdjustments.push(operation.getOffsetAdjustment());
     });
-    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
     return appliedTransformation;
   }
 
-  unapplyTransformation(appliedTransformation: AppliedTransformation) {
+  protected unapplyTransformation(appliedTransformation: AppliedTransformation) {
     appliedTransformation.getOperations().slice().reverse().forEach(appliedOperation => {
       if (appliedOperation instanceof AppliedInsert) {
         this.tokens.splice(appliedOperation.getAt(), appliedOperation.getTokens().length);
@@ -62,7 +72,6 @@ class TokenState {
         throw new Error('Unknown applied transformation operation encountered.');
       }
     });
-    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
   }
 }
 
