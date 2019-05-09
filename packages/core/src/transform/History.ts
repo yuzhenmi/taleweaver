@@ -42,24 +42,17 @@ class History {
   }
 
   recordAppliedTransformation(appliedTransformation: AppliedTransformation) {
-    if (this.pointer < 0) {
-      this.recordAppliedTransformationToNewItem(appliedTransformation);
+    if (appliedTransformation.getOperations().length === 0) {
       return;
     }
     if (this.pointer < this.items.length - 1) {
       this.items.splice(this.pointer + 1, this.items.length - 1 - this.pointer);
     }
-    const currentItem = this.items[this.pointer];
-    const currentAppliedTransformations = currentItem.getAppliedTransformations();
-    const lastAppliedTransformation = currentAppliedTransformations[currentAppliedTransformations.length - 1];
-    if (appliedTransformation.getOperations().length === 0) {
-      if (lastAppliedTransformation.getOperations().length === 0) {
-        this.recordAppliedTransformationToLastItem(appliedTransformation);
-      } else {
-        this.recordAppliedTransformationToNewItem(appliedTransformation);
-      }
+    if (this.pointer < 0) {
+      this.recordAppliedTransformationToNewItem(appliedTransformation);
       return;
     }
+    const currentItem = this.items[this.pointer];
     const now = Date.now();
     if (now - currentItem.getTimestamp() < HISTORY_COLLAPSE_MAX_DURATION && now - currentItem.getLastTimestamp() < HISTORY_COLLAPSE_THRESHOLD) {
       this.recordAppliedTransformationToLastItem(appliedTransformation);
