@@ -16,6 +16,10 @@ class ModelManager {
   getDoc() {
     return this.doc;
   }
+
+  toHTML(from: number, to: number) {
+    return this.doc.toHTML(from, to).outerHTML;
+  }
 }
 
 export default ModelManager;
