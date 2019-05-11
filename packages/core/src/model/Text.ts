@@ -13,6 +13,12 @@ export default class Text extends InlineElement {
     };
   }
 
+  toHTML(from: number, to: number) {
+    const $element = document.createElement('span');
+    $element.innerText = this.content.substring(from - 1, to - 1).replace('\n', '');
+    return $element;
+  }
+
   onStateUpdated(attributes: Attributes) {
     return false;
   }

@@ -4,6 +4,7 @@ import Token from '../token/Token';
 import getKeySignatureFromKeyboardEvent from '../key/utils/getKeySignatureFromKeyboardEvent';
 import * as commands from '../command/commands';
 import DocViewNode from './DocViewNode';
+import copy from '../helpers/copy';
 
 function parseNode(node: Node): Token[] {
   if (node.nodeValue) {
@@ -22,9 +23,9 @@ export default class DOMObserver {
   protected $iframe: HTMLIFrameElement;
   protected $contentEditable: HTMLDivElement;
   protected mutationObserver: MutationObserver;
-  protected isComposing: boolean;
-  protected isFocused: boolean;
-  protected isMouseDown: boolean;
+  protected isComposing: boolean = false;
+  protected isFocused: boolean = false;
+  protected isMouseDown: boolean = false;
 
   constructor(editor: Editor) {
     this.editor = editor;
@@ -44,9 +45,6 @@ export default class DOMObserver {
     this.$contentEditable.contentEditable = 'true';
     this.$contentEditable.style.whiteSpace = 'pre';
     this.mutationObserver = new MutationObserver(this.onInput);
-    this.isComposing = false;
-    this.isFocused = false;
-    this.isMouseDown = false;
   }
 
   connect(docViewNode: DocViewNode) {
@@ -55,27 +53,11 @@ export default class DOMObserver {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     document.body.appendChild(this.$iframe);
-    this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);
-    this.$contentEditable.addEventListener('keydown', this.onKeyDown);
-    this.$contentEditable.addEventListener('compositionstart', () => {
-      this.isComposing = true;
-    });
-    this.$contentEditable.addEventListener('compositionend', () => {
-      this.isComposing = false;
-    });
-    this.$contentEditable.addEventListener('focus', () => {
-      this.isFocused = true;
-      this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
-    });
-    this.$contentEditable.addEventListener('blur', () => {
-      this.isFocused = false;
-      this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
-    });
-    this.mutationObserver.observe(this.$contentEditable, {
-      subtree: true,
-      characterData: true,
-      childList: true,
-    });
+    this.$iframe.contentDocument!.body.onload = () => {
+      // Init contenteditable on load for FireFox
+      this.initContentEditable();
+    };
+    this.initContentEditable();
   }
 
   focus() {
@@ -166,6 +148,29 @@ export default class DOMObserver {
     });
   }
 
+  protected onCompositionStart = () => {
+    this.isComposing = true;
+  }
+
+  protected onCompositionEnd = () => {
+    this.isComposing = false;
+  }
+
+  protected onFocused = () => {
+    this.isFocused = true;
+    this.editor.getDispatcher().dispatch(new CursorFocusedEvent());
+  }
+
+  protected onBlurred = () => {
+    this.isFocused = false;
+    this.editor.getDispatcher().dispatch(new CursorBlurredEvent());
+  }
+
+  protected onCopy = (event: ClipboardEvent) => {
+    event.preventDefault();
+    copy(this.editor);
+  }
+
   protected resolveScreenPosition(x: number, y: number): number {
     if (!this.docViewNode) {
       throw new Error('No doc view is being observed.');
@@ -199,5 +204,23 @@ export default class DOMObserver {
       tokens.push(...parseNode(childNode));
     });
     return tokens;
+  }
+
+  protected initContentEditable() {
+    if (this.$contentEditable.parentElement) {
+      return;
+    }
+    this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);
+    this.$contentEditable.addEventListener('keydown', this.onKeyDown);
+    this.$contentEditable.addEventListener('compositionstart', this.onCompositionStart);
+    this.$contentEditable.addEventListener('compositionend', this.onCompositionEnd);
+    this.$contentEditable.addEventListener('focus', this.onFocused);
+    this.$contentEditable.addEventListener('blur', this.onBlurred);
+    this.$contentEditable.addEventListener('copy', this.onCopy);
+    this.mutationObserver.observe(this.$contentEditable, {
+      subtree: true,
+      characterData: true,
+      childList: true,
+    });
   }
 }

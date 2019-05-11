@@ -94,4 +94,22 @@ export default class Doc extends Element implements RootNode {
       padding: this.padding,
     };
   }
+
+  toHTML(from: number, to: number) {
+    const $element = document.createElement('div');
+    let offset = 1;
+    for (let n = 0, nn = this.children.length; n < nn && offset < to; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      const childFrom = Math.max(0, from - offset);
+      const childTo = Math.min(childFrom + childSize, to - offset);
+      if (from > childTo || to < childFrom) {
+        continue;
+      }
+      const $childElement = child.toHTML(childFrom, childTo);
+      $element.appendChild($childElement);
+      offset += childSize;
+    }
+    return $element;
+  }
 }

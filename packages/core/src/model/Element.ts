@@ -31,6 +31,8 @@ export default abstract class Element implements Node {
 
   abstract getAttributes(): Attributes;
 
+  abstract toHTML(from: number, to: number): HTMLElement;
+
   abstract onStateUpdated(attributes: Attributes): boolean;
 
   protected clearCache() {
