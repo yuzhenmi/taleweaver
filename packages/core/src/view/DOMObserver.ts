@@ -22,7 +22,6 @@ export default class DOMObserver {
   protected docViewNode?: DocViewNode;
   protected $iframe: HTMLIFrameElement;
   protected $contentEditable: HTMLDivElement;
-  protected $copyIframe: HTMLIFrameElement;
   protected mutationObserver: MutationObserver;
   protected isComposing: boolean = false;
   protected isFocused: boolean = false;
@@ -45,19 +44,6 @@ export default class DOMObserver {
     this.$contentEditable = document.createElement('div');
     this.$contentEditable.contentEditable = 'true';
     this.$contentEditable.style.whiteSpace = 'pre';
-    this.$copyIframe = document.createElement('iframe');
-    this.$copyIframe.scrolling = 'no';
-    this.$copyIframe.src = 'about:blank';
-    this.$copyIframe.style.width = '0';
-    this.$copyIframe.style.height = '0';
-    this.$copyIframe.style.border = 'none';
-    this.$copyIframe.style.position = 'fixed';
-    this.$copyIframe.style.zIndex = '-1';
-    this.$copyIframe.style.opacity = '0';
-    this.$copyIframe.style.overflow = 'hidden';
-    this.$copyIframe.style.left = '0';
-    this.$copyIframe.style.top = '0';
-    this.$copyIframe.contentEditable = 'true';
     this.mutationObserver = new MutationObserver(this.onInput);
   }
 
