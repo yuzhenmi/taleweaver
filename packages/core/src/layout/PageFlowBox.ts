@@ -10,15 +10,21 @@ type Child = BlockBox;
 export default class PageFlowBox extends FlowBox {
   protected configWidth: number;
   protected configHeight: number;
-  protected padding: number;
+  protected paddingTop: number;
+  protected paddingBottom: number;
+  protected paddingLeft: number;
+  protected paddingRight: number;
   protected parent: Parent | null = null;
   protected children: Child[] = [];
 
-  constructor(width: number, height: number, padding: number) {
+  constructor(width: number, height: number, paddingTop: number, paddingBottom: number, paddingLeft: number, paddingRight: number) {
     super();
     this.configWidth = width;
     this.configHeight = height;
-    this.padding = padding;
+    this.paddingTop = paddingTop;
+    this.paddingBottom = paddingBottom;
+    this.paddingLeft = paddingLeft;
+    this.paddingRight = paddingRight;
   }
 
   getWidth(): number {
@@ -29,16 +35,28 @@ export default class PageFlowBox extends FlowBox {
     return this.configHeight;
   }
 
-  getPadding(): number {
-    return this.padding;
+  getPaddingTop() {
+    return this.paddingTop;
+  }
+
+  getPaddingBottom() {
+    return this.paddingBottom;
+  }
+
+  getPaddingLeft() {
+    return this.paddingLeft;
+  }
+
+  getPaddingRight() {
+    return this.paddingRight;
   }
 
   getInnerWidth(): number {
-    return this.getWidth() - this.getPadding() * 2;
+    return this.getWidth() - this.getPaddingLeft() - this.getPaddingRight();
   }
 
   getInnerHeight(): number {
-    return this.getHeight() - this.getPadding() * 2;
+    return this.getHeight() - this.getPaddingTop() - this.getPaddingBottom();
   }
 
   setParent(parent: Parent | null) {
@@ -121,7 +139,14 @@ export default class PageFlowBox extends FlowBox {
       throw new Error(`Error cleaving PageFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const newPageFlowBox = new PageFlowBox(this.configWidth, this.configHeight, this.padding);
+    const newPageFlowBox = new PageFlowBox(
+      this.configWidth,
+      this.configHeight,
+      this.getPaddingTop(),
+      this.getPaddingBottom(),
+      this.getPaddingLeft(),
+      this.getPaddingRight(),
+    );
     childrenCut.forEach((child, childOffset) => {
       newPageFlowBox.insertChild(child, childOffset);
     });
@@ -149,8 +174,8 @@ export default class PageFlowBox extends FlowBox {
   resolveViewportPositionToSelectableOffset(x: number, y: number): number {
     let selectableOffset = 0;
     let cumulatedHeight = 0;
-    const innerX = Math.min(Math.max(x - this.getPadding(), 0), this.getWidth() - this.getPadding());
-    const innerY = Math.min(Math.max(y - this.getPadding(), 0), this.getHeight() - this.getPadding());
+    const innerX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getWidth() - this.getPaddingRight());
+    const innerY = Math.min(Math.max(y - this.getPaddingTop(), 0), this.getHeight() - this.getPaddingBottom());
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
@@ -183,13 +208,27 @@ export default class PageFlowBox extends FlowBox {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          const width = childViewportBoundingRect.width;
+          const height = childViewportBoundingRect.height;
+          const paddingTop = this.getPaddingTop();
+          const paddingBottom = this.getPaddingBottom();
+          const paddingLeft = this.getPaddingLeft();
+          const paddingRight = this.getPaddingRight();
+          const left = paddingLeft + childViewportBoundingRect.left;
+          const right = paddingRight + childViewportBoundingRect.right;
+          const top = cumulatedHeight + paddingTop + childViewportBoundingRect.top;
+          const bottom = this.getHeight() - cumulatedHeight - childHeight - childViewportBoundingRect.bottom - paddingBottom;
           viewportBoundingRects.push({
-            left: childViewportBoundingRect.left + this.getPadding(),
-            right: childViewportBoundingRect.right + this.getPadding(),
-            top: cumulatedHeight + childViewportBoundingRect.top + this.getPadding(),
-            bottom: this.getHeight() - cumulatedHeight - childHeight + childViewportBoundingRect.bottom + this.getPadding(),
-            width: childViewportBoundingRect.width,
-            height: childViewportBoundingRect.height,
+            width,
+            height,
+            left,
+            right,
+            top,
+            bottom,
+            paddingTop: childViewportBoundingRect.paddingTop,
+            paddingBottom: childViewportBoundingRect.paddingBottom,
+            paddingLeft: childViewportBoundingRect.paddingLeft,
+            paddingRight: childViewportBoundingRect.paddingRight,
           });
         });
       }

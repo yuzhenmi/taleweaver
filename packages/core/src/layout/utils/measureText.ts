@@ -32,7 +32,7 @@ export class TextMeasurer {
       $textContainer.style.fontFamily = textStyle.fontFamily;
       $textContainer.style.fontSize = `${textStyle.fontSize}px`;
       $textContainer.style.fontWeight = `${textStyle.fontWeight}`;
-      $textContainer.style.lineHeight = `${textStyle.lineHeight}px`;
+      $textContainer.style.lineHeight = '1.5em';
       $textContainer.style.letterSpacing = `${textStyle.letterSpacing}`;
       this.$iframe.contentDocument!.body.appendChild($textContainer);
       this.$textContainers.set(textStyleKey, $textContainer);

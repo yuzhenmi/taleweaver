@@ -11,8 +11,12 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.className = 'tw--text-inline';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'inline');
-    this.domContainer.style.color = 'transparent';
-    this.domContainer.style.textShadow = '0 0 0 black';
+    this.domContainer.style.display = 'inline-block';
+    this.domContainer.style.color = 'black';
+    this.domContainer.style.fontSize = '18px';
+    this.domContainer.style.lineHeight = '1.5em';
+    this.domContainer.style.paddingTop = '0px';
+    this.domContainer.style.paddingBottom = '0px';
   }
 
   getDOMContainer(): HTMLSpanElement {
@@ -32,6 +36,8 @@ export default class TextInlineViewNode extends InlineViewNode {
       }
     }).join('');
     this.domContainer.innerText = text;
+    this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
+    this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
   }
 
   resolveSelectionOffset(offset: number): number {

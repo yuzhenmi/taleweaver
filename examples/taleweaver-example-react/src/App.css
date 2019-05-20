@@ -15,8 +15,6 @@ body {
 .tw--page {
   background: rgba(255, 255, 255, 1);
   margin: 0 auto;
-  font-size: 18px;
-  line-height: 36px;
 }
 .tw--page *::selection {
   background: rgba(255, 255, 255, 1);

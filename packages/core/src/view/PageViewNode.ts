@@ -90,7 +90,10 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.selectableSize = layoutNode.getSelectableSize();
     this.domContainer.style.width = `${layoutNode.getWidth()}px`;
     this.domContainer.style.height = `${layoutNode.getHeight()}px`;
-    this.domContainer.style.padding = `${layoutNode.getPadding()}px`;
+    this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
+    this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
+    this.domContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
+    this.domContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
   }
 
   resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {

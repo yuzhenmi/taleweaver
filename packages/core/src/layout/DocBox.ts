@@ -10,14 +10,20 @@ type Child = PageFlowBox;
 export default class DocBox extends Box implements RootNode {
   protected configWidth: number;
   protected configHeight: number;
-  protected padding: number;
+  protected paddingTop: number;
+  protected paddingBottom: number;
+  protected paddingLeft: number;
+  protected paddingRight: number;
   protected children: Child[] = [];
 
   constructor(renderNodeID: string) {
     super(renderNodeID);
     this.configWidth = 0;
     this.configHeight = 0;
-    this.padding = 0;
+    this.paddingTop = 0;
+    this.paddingBottom = 0;
+    this.paddingLeft = 0;
+    this.paddingRight = 0;
   }
 
   getWidth(): number {
@@ -28,8 +34,20 @@ export default class DocBox extends Box implements RootNode {
     return this.configHeight;
   }
 
-  getPadding(): number {
-    return this.padding;
+  getPaddingTop() {
+    return this.paddingTop;
+  }
+
+  getPaddingBottom() {
+    return this.paddingBottom;
+  }
+
+  getPaddingLeft() {
+    return this.paddingLeft;
+  }
+
+  getPaddingRight() {
+    return this.paddingRight;
   }
 
   insertChild(child: Child, offset: number | null = null) {
@@ -71,7 +89,10 @@ export default class DocBox extends Box implements RootNode {
   onRenderUpdated(renderNode: DocRenderNode) {
     this.configWidth = renderNode.getWidth();
     this.configHeight = renderNode.getHeight();
-    this.padding = renderNode.getPadding();
+    this.paddingTop = renderNode.getPadding();
+    this.paddingBottom = renderNode.getPadding();
+    this.paddingLeft = renderNode.getPadding();
+    this.paddingRight = renderNode.getPadding();
     this.clearCache();
   }
 
@@ -118,14 +139,7 @@ export default class DocBox extends Box implements RootNode {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
-          viewportBoundingRects[n].push({
-            left: childViewportBoundingRect.left,
-            right: childViewportBoundingRect.right,
-            top: childViewportBoundingRect.top,
-            bottom: childViewportBoundingRect.bottom,
-            width: childViewportBoundingRect.width,
-            height: childViewportBoundingRect.height,
-          });
+          viewportBoundingRects[n].push(childViewportBoundingRect);
         });
       }
       selectableOffset += child.getSelectableSize();
