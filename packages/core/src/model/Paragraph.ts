@@ -2,6 +2,10 @@ import Attributes from '../token/Attributes';
 import BlockElement from './BlockElement';
 
 export default class Paragraph extends BlockElement {
+  static compatibleHTMLTagNames: string[] = ['*'];
+  static fromHTMLElement($element: HTMLElement): Paragraph {
+    throw new Error('TODO');
+  }
 
   getType() {
     return 'Paragraph';
@@ -21,12 +25,12 @@ export default class Paragraph extends BlockElement {
       const childSize = child.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
-      if (from > childTo || to < childFrom) {
+      offset += childSize;
+      if (childFrom > childSize || childTo < 0) {
         continue;
       }
       const $childElement = child.toHTML(childFrom, childTo);
       $element.appendChild($childElement);
-      offset += childSize;
     }
     return $element;
   }

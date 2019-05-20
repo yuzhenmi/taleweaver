@@ -13,21 +13,21 @@ import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
 import TextInlineViewNode from './view/TextInlineViewNode';
 import KeySignature from './key/KeySignature';
 
-type ElementClass = new (...args: any[]) => Element;
-type RenderNodeClass = new (...args: any[]) => RenderNode;
-type BoxClass = new (...args: any[]) => Box;
-type ViewNodeClass = new (...args: any[]) => ViewNode;
-type KeyBindingHandler = () => void;
+export type ElementClass = new (...args: any[]) => Element;
+export type RenderNodeClass = new (...args: any[]) => RenderNode;
+export type BoxClass = new (...args: any[]) => Box;
+export type ViewNodeClass = new (...args: any[]) => ViewNode;
+export type KeyBindingHandler = () => void;
 
 class Config {
-  protected nodeClasses: Map<string, ElementClass>;
+  protected elementClasses: Map<string, ElementClass>;
   protected renderNodeClasses: Map<string, RenderNodeClass>;
   protected boxClasses: Map<string, BoxClass>;
   protected viewNodeClasses: Map<string, ViewNodeClass>;
   protected keyBindings: Map<string, KeyBindingHandler[]>;
 
   constructor() {
-    this.nodeClasses = new Map();
+    this.elementClasses = new Map();
     this.renderNodeClasses = new Map();
     this.boxClasses = new Map();
     this.viewNodeClasses = new Map();
@@ -44,14 +44,22 @@ class Config {
   }
 
   registerElementClass(elementType: string, nodeClass: ElementClass) {
-    this.nodeClasses.set(elementType, nodeClass);
+    this.elementClasses.set(elementType, nodeClass);
   }
 
   getElementClass(elementType: string): ElementClass {
-    if (!this.nodeClasses.has(elementType)) {
+    if (!this.elementClasses.has(elementType)) {
       throw new Error(`Element type ${elementType} is not registered.`);
     }
-    return this.nodeClasses.get(elementType)!;
+    return this.elementClasses.get(elementType)!;
+  }
+
+  getAllElementClasses(): ElementClass[] {
+    const elementClasses: ElementClass[] = [];
+    this.elementClasses.forEach(elementClass => {
+      elementClasses.push(elementClass);
+    });
+    return elementClasses;
   }
 
   registerRenderNodeClass(elementType: string, renderNodeClass: RenderNodeClass) {

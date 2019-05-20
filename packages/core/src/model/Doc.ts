@@ -1,4 +1,7 @@
 import RootNode from '../tree/RootNode';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
 import Attributes from '../token/Attributes';
 import Element from './Element';
 import BlockElement from './BlockElement';
@@ -103,13 +106,23 @@ export default class Doc extends Element implements RootNode {
       const childSize = child.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
-      if (from > childTo || to < childFrom) {
+      offset += childSize;
+      if (childFrom > childSize || childTo < 0) {
         continue;
       }
       const $childElement = child.toHTML(childFrom, childTo);
       $element.appendChild($childElement);
-      offset += childSize;
     }
     return $element;
+  }
+
+  toTokens() {
+    const tokens: Token[] = [];
+    tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
+    this.children.forEach(child => {
+      tokens.push(...child.toTokens());
+    });
+    tokens.push(new CloseTagToken());
+    return tokens;
   }
 }

@@ -1,4 +1,7 @@
 import BranchNode from '../tree/BranchNode';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
 import Element from './Element';
 import Doc from './Doc';
 import InlineElement from './InlineElement';
@@ -54,5 +57,15 @@ export default abstract class BlockElement extends Element implements BranchNode
       this.size = size;
     }
     return this.size;
+  }
+
+  toTokens() {
+    const tokens: Token[] = [];
+    tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
+    this.children.forEach(child => {
+      tokens.push(...child.toTokens());
+    });
+    tokens.push(new CloseTagToken());
+    return tokens;
   }
 };

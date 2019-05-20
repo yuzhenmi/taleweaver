@@ -1,4 +1,7 @@
 import LeafNode from '../tree/LeafNode';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
 import Element from './Element';
 import BlockElement from './BlockElement';
 
@@ -33,5 +36,13 @@ export default abstract class InlineElement extends Element implements LeafNode 
       this.size = 2 + this.content.length;
     }
     return this.size;
+  }
+  
+  toTokens() {
+    const tokens: Token[] = [];
+    tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
+    tokens.push(...this.content.split(''));
+    tokens.push(new CloseTagToken());
+    return tokens;
   }
 };
