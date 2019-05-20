@@ -98,7 +98,14 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         cumulatedOffset += pageFlowBox.getChildren().length;
       }
       if (!inserted) {
-        const pageFlowBox = new PageFlowBox(parent.getWidth(), parent.getHeight(), parent.getPadding());
+        const pageFlowBox = new PageFlowBox(
+          parent.getWidth(),
+          parent.getHeight(),
+          parent.getPaddingTop(),
+          parent.getPaddingBottom(),
+          parent.getPaddingLeft(),
+          parent.getPaddingRight(),
+        );
         parent.insertChild(pageFlowBox, pageFlowBoxes.length);
         pageFlowBox.insertChild(blockBox, 0);
         this.updatedPageFlowBoxes.push(pageFlowBox);

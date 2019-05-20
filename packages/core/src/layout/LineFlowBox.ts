@@ -26,7 +26,7 @@ export default class LineFlowBox extends FlowBox {
     if (this.height === undefined) {
       let height = 0;
       this.getChildren().forEach(child => {
-        const childHeight = child.getHeight();
+        const childHeight = child.getPaddingTop() + child.getHeight() + child.getPaddingBottom();
         if (childHeight > height) {
           height = childHeight;
         }
@@ -34,6 +34,22 @@ export default class LineFlowBox extends FlowBox {
       this.height = height;
     }
     return this.height;
+  }
+
+  getPaddingTop() {
+    return 0;
+  }
+
+  getPaddingBottom() {
+    return 0;
+  }
+
+  getPaddingLeft() {
+    return 0;
+  }
+
+  getPaddingRight() {
+    return 0;
   }
 
   setParent(parent: Parent | null) {
@@ -184,13 +200,27 @@ export default class LineFlowBox extends FlowBox {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset && !(childFrom === childTo && childTo === maxChildOffset)) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          const width = childViewportBoundingRect.width;
+          const height = childViewportBoundingRect.height;
+          const paddingTop = this.getPaddingTop();
+          const paddingBottom = this.getPaddingBottom();
+          const paddingLeft = this.getPaddingLeft();
+          const paddingRight = this.getPaddingRight();
+          const left = cumulatedWidth + paddingLeft + childViewportBoundingRect.left;
+          const right = this.getWidth() - cumulatedWidth - childViewportBoundingRect.right - paddingRight;
+          const top = paddingTop + childViewportBoundingRect.top;
+          const bottom = paddingBottom + childViewportBoundingRect.bottom;
           viewportBoundingRects.push({
-            left: cumulatedWidth + childViewportBoundingRect.left,
-            right: this.getWidth() - cumulatedWidth - childWidth + childViewportBoundingRect.right,
-            top: 0,
-            bottom: 0,
-            width: childViewportBoundingRect.width,
-            height: this.getHeight(),
+            width,
+            height,
+            left,
+            right,
+            top,
+            bottom,
+            paddingTop: childViewportBoundingRect.paddingTop,
+            paddingBottom: childViewportBoundingRect.paddingBottom,
+            paddingLeft: 0,
+            paddingRight: 0,
           });
         });
       }

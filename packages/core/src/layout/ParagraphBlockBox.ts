@@ -3,6 +3,22 @@ import ViewportBoundingRect from './ViewportBoundingRect';
 
 export default class ParagraphBlockBox extends BlockBox {
 
+  getPaddingTop() {
+    return 0;
+  }
+
+  getPaddingBottom() {
+    return 0;
+  }
+
+  getPaddingLeft() {
+    return 0;
+  }
+
+  getPaddingRight() {
+    return 0;
+  }
+
   getType(): string {
     return 'ParagraphBlockBox';
   }
@@ -62,13 +78,27 @@ export default class ParagraphBlockBox extends BlockBox {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          const width = childViewportBoundingRect.width;
+          const height = childViewportBoundingRect.height;
+          const paddingTop = this.getPaddingTop();
+          const paddingBottom = this.getPaddingBottom();
+          const paddingLeft = this.getPaddingLeft();
+          const paddingRight = this.getPaddingRight();
+          const left = paddingLeft + childViewportBoundingRect.left;
+          const right = paddingRight + childViewportBoundingRect.right;
+          const top = cumulatedHeight + paddingTop + childViewportBoundingRect.top;
+          const bottom = this.getHeight() - cumulatedHeight - childHeight - childViewportBoundingRect.bottom - paddingBottom;
           viewportBoundingRects.push({
-            left: childViewportBoundingRect.left,
-            right: childViewportBoundingRect.right,
-            top: cumulatedHeight + childViewportBoundingRect.top,
-            bottom: this.getHeight() - cumulatedHeight - childHeight + childViewportBoundingRect.bottom,
-            width: childViewportBoundingRect.width,
-            height: childHeight,
+            width,
+            height,
+            left,
+            right,
+            top,
+            bottom,
+            paddingTop: childViewportBoundingRect.paddingTop,
+            paddingBottom: childViewportBoundingRect.paddingBottom,
+            paddingLeft: childViewportBoundingRect.paddingLeft,
+            paddingRight: childViewportBoundingRect.paddingRight,
           });
         });
       }

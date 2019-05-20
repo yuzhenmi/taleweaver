@@ -39,6 +39,14 @@ export default abstract class LayoutNode implements Node {
 
   abstract getHeight(): number;
 
+  abstract getPaddingTop(): number;
+
+  abstract getPaddingBottom(): number;
+
+  abstract getPaddingLeft(): number;
+
+  abstract getPaddingRight(): number;
+
   protected clearCache() {
     this.width = undefined;
     this.height = undefined;

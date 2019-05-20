@@ -7,7 +7,6 @@ const stubTextStyle = {
   fontFamily: 'Arial',
   fontSize: 18,
   fontWeight: 400,
-  lineHeight: 36,
   letterSpacing: 0,
 };
 
@@ -42,6 +41,22 @@ export default class TextAtomicBox extends AtomicBox {
       this.height = measurement.height;
     }
     return this.height;
+  }
+
+  getPaddingTop() {
+    return 0;
+  }
+
+  getPaddingBottom() {
+    return 0;
+  }
+
+  getPaddingLeft() {
+    return 0;
+  }
+
+  getPaddingRight() {
+    return 0;
   }
 
   setContent(content: string) {
@@ -123,17 +138,35 @@ export default class TextAtomicBox extends AtomicBox {
         bottom: 0,
         width: this.getWidth(),
         height: this.getHeight(),
+        paddingTop: 0,
+        paddingBottom: 0,
+        paddingLeft: 0,
+        paddingRight: 0,
       }];
     }
     const fromTextMeasurement = measureText(this.content.substring(0, from), stubTextStyle);
     const toTextMeasurement = measureText(this.content.substring(0, to), stubTextStyle);
+    const width = toTextMeasurement.width - fromTextMeasurement.width;
+    const height = this.getHeight();
+    const paddingTop = this.getPaddingTop();
+    const paddingBottom = this.getPaddingBottom();
+    const paddingLeft = this.getPaddingLeft();
+    const paddingRight = this.getPaddingRight();
+    const left = paddingLeft + fromTextMeasurement.width;
+    const right = paddingRight + (this.getWidth() - toTextMeasurement.width);
+    const top = paddingTop;
+    const bottom = paddingBottom;
     return [{
-      left: fromTextMeasurement.width,
-      right: this.getWidth() - toTextMeasurement.width,
-      top: 0,
-      bottom: 0,
-      width: toTextMeasurement.width - fromTextMeasurement.width,
-      height: this.getHeight(),
+      width,
+      height,
+      left,
+      right,
+      top,
+      bottom,
+      paddingTop: 0,
+      paddingBottom: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
     }];
   }
 }

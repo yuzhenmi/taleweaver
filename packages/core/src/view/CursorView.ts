@@ -103,8 +103,8 @@ export default class CursorView {
         domSelection.style.position = 'absolute';
         domSelection.style.top = `${viewportBoundingRect.top}px`;
         domSelection.style.left = `${viewportBoundingRect.left}px`;
-        domSelection.style.width = `${viewportBoundingRect.width}px`;
-        domSelection.style.height = `${viewportBoundingRect.height}px`;
+        domSelection.style.width = `${viewportBoundingRect.paddingLeft + viewportBoundingRect.width + viewportBoundingRect.paddingRight}px`;
+        domSelection.style.height = `${viewportBoundingRect.paddingTop + viewportBoundingRect.height + viewportBoundingRect.paddingBottom}px`;
         domSelection.style.userSelect = 'none';
         domSelection.style.pointerEvents = 'none';
         if (isFocused) {
@@ -133,31 +133,34 @@ export default class CursorView {
       headTop = viewportBoundingRect.top;
       headHeight = viewportBoundingRect.height;
     }
-    this.domCaret.style.top = `${headTop}px`;
-    this.domCaret.style.left = `${headLeft}px`;
-    this.domCaret.style.height = `${headHeight}px`;
-    if (isFocused) {
-      this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+    if (head === anchor) {
+      this.domCaret.style.display = 'block';
+      this.domCaret.style.top = `${headTop}px`;
+      this.domCaret.style.left = `${headLeft}px`;
+      this.domCaret.style.height = `${headHeight}px`;
+      if (isFocused) {
+        this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+      } else {
+        this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+      }
+      const pageDOMContainer = pageViewNodes[headPageOffset].getDOMContainer();
+      if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContainer) {
+        this.domCaret.parentElement.removeChild(this.domCaret);
+      }
+      if (!this.domCaret.parentElement) {
+        pageDOMContainer.appendChild(this.domCaret);
+      }
+      // Reset blinking
+      this.stopBlinking();
+      if (isFocused) {
+        this.startBlinking();
+      }
     } else {
-      this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+      this.domCaret.style.display = 'none';
     }
-    const pageDOMContainer = pageViewNodes[headPageOffset].getDOMContainer();
-    if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContainer) {
-      this.domCaret.parentElement.removeChild(this.domCaret);
-    }
-    if (!this.domCaret.parentElement) {
-      pageDOMContainer.appendChild(this.domCaret);
-    }
-
     // Scroll cursor head into view, if focused
     if (isFocused) {
       this.domCaret.scrollIntoView({ block: 'nearest' });
-    }
-
-    // Reset blinking
-    this.stopBlinking();
-    if (isFocused) {
-      this.startBlinking();
     }
   }
 }
