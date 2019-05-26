@@ -21,9 +21,8 @@ export default class Editor {
   protected layoutManager: LayoutManager;
   protected viewManager: ViewManager;
   protected extensionProvider: ExtensionProvider;
-  protected domWrapper?: HTMLElement;
 
-  constructor(config: Config, markup: string) {
+  constructor(config: Config, markup: string, domWrapper: HTMLElement) {
     this.config = config;
     this.dispatcher = new Dispatcher(this);
     this.transformer = new Transformer(this);
@@ -32,8 +31,9 @@ export default class Editor {
     this.modelManager = new ModelManager(this);
     this.renderManager = new RenderManager(this);
     this.layoutManager = new LayoutManager(this);
-    this.viewManager = new ViewManager(this);
+    this.viewManager = new ViewManager(this, domWrapper);
     this.extensionProvider = new ExtensionProvider(this);
+    setTimeout(() => this.getViewManager().focus());
   }
 
   getConfig() {
@@ -70,13 +70,6 @@ export default class Editor {
 
   getViewManager() {
     return this.viewManager;
-  }
-
-  mount(domWrapper: HTMLElement) {
-    this.domWrapper = domWrapper;
-    this.viewManager.mount(domWrapper);
-    this.extensionProvider.onMounted();
-    setTimeout(() => this.getViewManager().focus());
   }
 
   registerExtension(extension: Extension) {

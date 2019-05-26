@@ -11,7 +11,7 @@ type EditorComponentProps = {
 }
 
 type EditorComponentState = {
-  editor: Editor;
+  editor: Editor | null;
 }
 
 export default class EditorComponent extends React.Component<EditorComponentProps, EditorComponentState> {
@@ -20,14 +20,15 @@ export default class EditorComponent extends React.Component<EditorComponentProp
   constructor(props: EditorComponentProps) {
     super(props);
     this.domRef = React.createRef();
-    const config = new Config();
-    const editor = new Editor(config, props.initialMarkup);
-    this.state = { editor };
+    this.state = { editor: null };
   }
 
   componentDidMount() {
+    const { initialMarkup } = this.props;
     const domElement = this.domRef.current!;
-    this.state.editor.mount(domElement);
+    const config = new Config();
+    const editor = new Editor(config, initialMarkup, domElement);
+    this.setState({ editor });
   }
 
   render() {

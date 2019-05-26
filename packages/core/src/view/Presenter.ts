@@ -12,7 +12,6 @@ import BlockViewNode from './BlockViewNode';
 import PageViewNode from './PageViewNode';
 import LineViewNode from './LineViewNode';
 import InlineViewNode from './InlineViewNode';
-import CursorView from './CursorView';
 import TreeSyncer from '../utils/TreeSyncer';
 import bindKeys from './bindKeys';
 
@@ -169,23 +168,20 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
 class Presenter {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
+  protected domWrapper: HTMLElement;
   protected version: number;
-  protected domWrapper?: HTMLElement;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(editor: Editor, docViewNode: DocViewNode) {
+  constructor(editor: Editor, docViewNode: DocViewNode, domWrapper: HTMLElement) {
     this.editor = editor;
     this.docViewNode = docViewNode;
+    this.domWrapper = domWrapper;
+    domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.version = -1;
     this.idMap = new Map();
     bindKeys(editor);
     editor.getDispatcher().on(LayoutStateUpdatedEvent, event => this.sync());
-  }
-
-  mount(domWrapper: HTMLElement) {
-    this.domWrapper = domWrapper;
     this.sync();
-    domWrapper.appendChild(this.docViewNode.getDOMContainer());
   }
 
   getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
