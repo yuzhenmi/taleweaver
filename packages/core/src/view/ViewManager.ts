@@ -10,16 +10,16 @@ class ViewManager {
   protected cursorView: CursorView;
   protected presenter: Presenter;
   protected domObserver: DOMObserver;
-  protected mounted: boolean = false;
 
-  constructor(editor: Editor) {
+  constructor(editor: Editor, domWrapper: HTMLElement) {
     this.editor = editor;
     const layoutManager = editor.getLayoutManager();
     const docBox = layoutManager.getDocBox();
     this.docViewNode = new DocViewNode(docBox.getID());
     this.cursorView = new CursorView(editor);
-    this.presenter = new Presenter(editor, this.docViewNode);
+    this.presenter = new Presenter(editor, this.docViewNode, domWrapper);
     this.domObserver = new DOMObserver(editor);
+    this.domObserver.connect(this.docViewNode);
   }
 
   getDocViewNode() {
@@ -36,15 +36,6 @@ class ViewManager {
 
   getIsFocused() {
     return this.domObserver.getIsFocused();
-  }
-
-  mount(domWrapper: HTMLElement) {
-    if (this.mounted) {
-      return;
-    }
-    this.presenter.mount(domWrapper);
-    this.domObserver.connect(this.docViewNode);
-    this.mounted = true;
   }
 
   focus() {

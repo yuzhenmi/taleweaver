@@ -20,7 +20,7 @@ export class TextMeasurer {
     this.$iframe.style.height = '0';
     this.$iframe.style.border = 'none';
     document.body.appendChild(this.$iframe);
-    this.$textContainers = new Map<string, HTMLSpanElement>();
+    this.$textContainers = new Map();
   }
 
   getTextContainerElement(textStyle: TextStyle): HTMLSpanElement {
@@ -45,8 +45,8 @@ export class TextMeasurer {
     // Substitute trailing new line with space
     const adjustedText = text.replace(/\n$/, ' ');
     const $textContainer = this.getTextContainerElement(textStyle);
-    if ($textContainer.innerHTML !== adjustedText) {
-      $textContainer.innerHTML = adjustedText;
+    if ($textContainer.innerText !== adjustedText) {
+      $textContainer.innerText = adjustedText;
     }
     const boundingClientRect = $textContainer.getBoundingClientRect();
     return {

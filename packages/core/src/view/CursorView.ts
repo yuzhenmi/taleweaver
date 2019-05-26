@@ -33,7 +33,6 @@ export default class CursorView {
     editor.getDispatcher().on(ViewStateUpdatedEvent, event => this.updateView());
     editor.getDispatcher().on(CursorFocusedEvent, event => this.updateView());
     editor.getDispatcher().on(CursorBlurredEvent, event => this.updateView());
-    setTimeout(() => this.updateView());
   }
 
   getLeftAnchor(): number | null {
@@ -160,7 +159,9 @@ export default class CursorView {
     }
     // Scroll cursor head into view, if focused
     if (isFocused) {
-      this.domCaret.scrollIntoView({ block: 'nearest' });
+      setTimeout(() => {
+        this.domCaret.scrollIntoView({ block: 'nearest' });
+      });
     }
   }
 }

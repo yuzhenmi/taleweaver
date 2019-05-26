@@ -306,7 +306,12 @@ export default class LayoutEngine {
     this.ran = false;
     this.version = -1;
     editor.getDispatcher().on(RenderStateUpdatedEvent, event => this.sync());
-    this.sync();
+    // Perform first sync after timeout to give
+    // TextMeasurer a chance to initialize its
+    // iframe.
+    setTimeout(() => {
+      this.sync();
+    });
   }
 
   protected sync() {

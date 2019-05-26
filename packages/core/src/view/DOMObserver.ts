@@ -53,11 +53,9 @@ export default class DOMObserver {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     document.body.appendChild(this.$iframe);
-    this.$iframe.contentDocument!.body.onload = () => {
-      // Init contenteditable on load for FireFox
+    setTimeout(() => {
       this.initContentEditable();
-    };
-    this.initContentEditable();
+    });
   }
 
   focus() {
