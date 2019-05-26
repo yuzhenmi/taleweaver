@@ -12,7 +12,12 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
   protected children: Child[] = [];
 
   setVersion(version: number) {
-    this.version = version;
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
   }
 
   getVersion(): number {

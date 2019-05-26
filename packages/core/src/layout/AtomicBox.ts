@@ -16,6 +16,15 @@ export default abstract class AtomicBox extends Box {
     this.breakable = true;
   }
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
   isBreakable(): boolean {
     return this.breakable;
   }

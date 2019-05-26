@@ -20,6 +20,15 @@ export default abstract class BlockBox extends Box {
 
   abstract getType(): string;
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
   getWidth(): number {
     return this.getParent().getInnerWidth();
   }

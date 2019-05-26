@@ -12,7 +12,12 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
   protected children: Child[] = [];
 
   setVersion(version: number) {
-    this.version = version;
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
   }
 
   getVersion(): number {

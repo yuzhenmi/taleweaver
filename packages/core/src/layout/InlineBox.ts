@@ -15,6 +15,15 @@ export default abstract class InlineBox extends Box {
 
   abstract getType(): string;
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
   getWidth(): number {
     if (this.width === undefined) {
       let width = 0;

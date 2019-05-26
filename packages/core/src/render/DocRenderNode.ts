@@ -24,7 +24,9 @@ export default class DocRenderNode extends RenderNode implements RootNode {
   }
 
   setVersion(version: number) {
-    this.version = version;
+    if (this.version < version) {
+      this.version = version;
+    }
   }
 
   getVersion(): number {
