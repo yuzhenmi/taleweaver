@@ -26,6 +26,12 @@ export default class DocBox extends Box implements RootNode {
     this.paddingRight = 0;
   }
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+    }
+  }
+
   getWidth(): number {
     return this.configWidth;
   }

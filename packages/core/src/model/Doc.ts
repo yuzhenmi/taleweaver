@@ -21,6 +21,12 @@ export default class Doc extends Element implements RootNode {
     return 'Doc';
   }
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+    }
+  }
+
   insertChild(child: ChildElement, offset: number | null = null) {
     child.setParent(this);
     if (offset === null) {

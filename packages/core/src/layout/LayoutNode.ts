@@ -17,9 +17,7 @@ export default abstract class LayoutNode implements Node {
     return this.id;
   }
 
-  setVersion(version: number) {
-    this.version = version;
-  }
+  abstract setVersion(version: number): void;
 
   getVersion(): number {
     return this.version;
