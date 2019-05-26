@@ -297,21 +297,14 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
 export default class LayoutEngine {
   protected editor: Editor;
   protected docBox: DocBox;
-  protected ran: boolean;
   protected version: number;
   
   constructor(editor: Editor, docBox: DocBox) {
     this.editor = editor;
     this.docBox = docBox;
-    this.ran = false;
     this.version = -1;
     editor.getDispatcher().on(RenderStateUpdatedEvent, event => this.sync());
-    // Perform first sync after timeout to give
-    // TextMeasurer a chance to initialize its
-    // iframe.
-    setTimeout(() => {
-      this.sync();
-    });
+    this.sync();
   }
 
   protected sync() {
@@ -337,7 +330,6 @@ export default class LayoutEngine {
       this.reflowPageFlowBox(pageFlowBox, newVersion);
       lastPageFlowBox = pageFlowBox;
     });
-    this.ran = true;
     this.version = newVersion;
     this.editor.getDispatcher().dispatch(new LayoutStateUpdatedEvent());
   }

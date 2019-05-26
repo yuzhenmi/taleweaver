@@ -181,6 +181,7 @@ class Presenter {
     this.idMap = new Map();
     bindKeys(editor);
     editor.getDispatcher().on(LayoutStateUpdatedEvent, event => this.sync());
+    this.sync();
   }
 
   getPageDOMContentContainer(pageOffset: number): HTMLDivElement {

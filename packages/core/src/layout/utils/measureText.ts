@@ -21,6 +21,13 @@ export class TextMeasurer {
     this.$iframe.style.border = 'none';
     document.body.appendChild(this.$iframe);
     this.$textContainers = new Map();
+    // On Firefox, iframe seems to reset after
+    // first loop so we also reset cached text
+    // containers in case they get initialized
+    // before the reset.
+    setTimeout(() => {
+      this.$textContainers.clear();
+    });
   }
 
   getTextContainerElement(textStyle: TextStyle): HTMLSpanElement {
