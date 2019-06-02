@@ -14,6 +14,19 @@ import LineFlowBox from './LineFlowBox';
 import InlineBox from './InlineBox';
 import AtomicBox from './AtomicBox';
 
+function bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
+  blockBox.setVersion(version);
+  blockBox.getChildren().forEach(lineFlowBox => {
+    lineFlowBox.setVersion(version);
+    lineFlowBox.getChildren().forEach(inlineBox => {
+      inlineBox.setVersion(version);
+      inlineBox.getChildren().forEach(atomicBox => {
+        atomicBox.setVersion(version);
+      });
+    });
+  });
+}
+
 class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   protected editor: Editor;
   protected lastVersion: number;
@@ -206,6 +219,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
           const blockBox = pageFlowBox.getChildren()[m];
           if (lastChild && blockBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
             lastChild.join(blockBox);
+            bumpVersionForBlockBoxAndDescendents(lastChild, srcNode.getVersion());
             pageFlowBox.deleteChild(blockBox);
             m--;
           } else {
@@ -500,7 +514,7 @@ export default class LayoutEngine {
             } else {
               blockBox.setVersion(version);
             }
-            this.bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
+            bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
             currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
@@ -526,7 +540,7 @@ export default class LayoutEngine {
           // and continue with reflow
           nextPageFlowBox.getChildren().forEach(nextBlockBox => {
             currentPageFlowBox.insertChild(nextBlockBox, currentPageFlowBox.getChildren().length);
-            this.bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
+            bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
           });
           docBox.deleteChild(nextPageFlowBox);
         } else {
@@ -534,18 +548,5 @@ export default class LayoutEngine {
         }
       }
     }
-  }
-
-  protected bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
-    blockBox.setVersion(version);
-    blockBox.getChildren().forEach(lineFlowBox => {
-      lineFlowBox.setVersion(version);
-      lineFlowBox.getChildren().forEach(inlineBox => {
-        inlineBox.setVersion(version);
-        inlineBox.getChildren().forEach(atomicBox => {
-          atomicBox.setVersion(version);
-        });
-      });
-    });
   }
 }
