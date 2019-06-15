@@ -5,6 +5,7 @@ class PageConfig {
   protected pagePaddingBottom: number = 40;
   protected pagePaddingLeft: number = 40;
   protected pagePaddingRight: number = 40;
+  protected shouldTrimPageBottom: boolean = false;
 
   setPageWidth(pageWidth: number) {
     this.pageWidth = pageWidth;
@@ -52,6 +53,14 @@ class PageConfig {
 
   getPagePaddingRight() {
     return this.pagePaddingRight;
+  }
+
+  setShouldTrimPageBottom(shouldTrimPageBottom: boolean) {
+    this.shouldTrimPageBottom = shouldTrimPageBottom;
+  }
+
+  getShouldTrimPageBottom() {
+    return this.shouldTrimPageBottom;
   }
 }
 

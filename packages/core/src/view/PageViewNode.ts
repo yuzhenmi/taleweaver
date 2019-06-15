@@ -98,9 +98,14 @@ export default class PageViewNode extends ViewNode implements BranchNode {
   }
 
   onLayoutUpdated(layoutNode: PageFlowBox) {
+    const pageConfig = this.editor.getConfig().getPageConfig();
     this.selectableSize = layoutNode.getSelectableSize();
     this.domContentContainer.style.width = `${layoutNode.getWidth()}px`;
-    this.domContentContainer.style.height = `${layoutNode.getHeight()}px`;
+    if (pageConfig.getShouldTrimPageBottom()) {
+      this.domContentContainer.style.maxHeight = `${layoutNode.getHeight()}px`;
+    } else {
+      this.domContentContainer.style.height = `${layoutNode.getHeight()}px`;
+    }
     this.domContentContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
     this.domContentContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
     this.domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
