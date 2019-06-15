@@ -492,7 +492,14 @@ export default class LayoutEngine {
         // so we need to determine where to cleave this block box
         for (let m = 0; m < blockBox.getChildren().length; m++) {
           let lineFlowBox = blockBox.getChildren()[m];
-          if (cumulatedHeight + lineFlowBox.getHeight() > pageFlowBoxHeight) {
+          let heightAfterLine = cumulatedHeight + lineFlowBox.getHeight();
+          if (m === 0) {
+            heightAfterLine += blockBox.getPaddingTop();
+          }
+          if (m === blockBox.getChildren().length - 1) {
+            heightAfterLine += blockBox.getPaddingBottom();
+          }
+          if (heightAfterLine > pageFlowBoxHeight) {
             // With this line box, the page height limit gets exceeded,
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box

@@ -151,4 +151,9 @@ export default abstract class BlockBox extends Box {
   abstract resolveViewportPositionToSelectableOffset(x: number, y: number): number;
 
   abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
+
+  protected clearCache() {
+    this.width = undefined;
+    this.height = undefined;
+  }
 }
