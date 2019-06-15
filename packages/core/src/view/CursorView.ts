@@ -86,7 +86,7 @@ export default class CursorView {
     let lastPageOffset: number = -1;
     let lastViewportBoundingRectOffset: number = -1;
     viewportBoundingRectsByPage.forEach((viewportBoundingRects, pageOffset) => {
-      const pageDOMContainer = pageViewNodes[pageOffset].getDOMContainer();
+      const pageDOMContentContainer = pageViewNodes[pageOffset].getDOMContentContainer();
       viewportBoundingRects.forEach((viewportBoundingRect, viewportBoundingRectOffset) => {
         if (firstPageOffset < 0) {
           firstPageOffset = pageOffset;
@@ -111,7 +111,7 @@ export default class CursorView {
         } else {
           domSelection.style.background = 'hsla(0, 0%, 0%, 0.08)';
         }
-        pageDOMContainer.appendChild(domSelection);
+        pageDOMContentContainer.appendChild(domSelection);
         this.domSelections.push(domSelection);
       });
     });
@@ -142,12 +142,12 @@ export default class CursorView {
       } else {
         this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
       }
-      const pageDOMContainer = pageViewNodes[headPageOffset].getDOMContainer();
-      if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContainer) {
+      const pageDOMContentContainer = pageViewNodes[headPageOffset].getDOMContentContainer();
+      if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContentContainer) {
         this.domCaret.parentElement.removeChild(this.domCaret);
       }
       if (!this.domCaret.parentElement) {
-        pageDOMContainer.appendChild(this.domCaret);
+        pageDOMContentContainer.appendChild(this.domCaret);
       }
       // Reset blinking
       this.stopBlinking();
