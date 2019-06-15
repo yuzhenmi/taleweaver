@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import TextInlineBox from '../layout/TextInlineBox';
 import TextAtomicBox from '../layout/TextAtomicBox';
 import InlineViewNode from './InlineViewNode';
@@ -5,8 +6,8 @@ import InlineViewNode from './InlineViewNode';
 export default class TextInlineViewNode extends InlineViewNode {
   protected domContainer: HTMLSpanElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('span');
     this.domContainer.className = 'tw--text-inline';
     this.domContainer.setAttribute('data-tw-id', id);
@@ -19,7 +20,7 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.style.paddingBottom = '0px';
   }
 
-  getDOMContainer(): HTMLSpanElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
@@ -40,7 +41,7 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
   }
 
-  resolveSelectionOffset(offset: number): number {
+  resolveSelectionOffset(offset: number) {
     return offset;
   }
 

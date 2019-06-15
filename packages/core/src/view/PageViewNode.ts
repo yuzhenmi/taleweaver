@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import BranchNode from '../tree/BranchNode';
 import PageFlowBox from '../layout/PageFlowBox';
 import ViewNode from './ViewNode';
@@ -13,8 +14,8 @@ export default class PageViewNode extends ViewNode implements BranchNode {
   protected domContainer: HTMLDivElement;
   protected domContentContainer: HTMLDivElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
     this.domContainer.setAttribute('data-tw-id', id);
@@ -26,11 +27,11 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.domContainer.appendChild(this.domContentContainer);
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLDivElement {
+  getDOMContentContainer() {
     return this.domContentContainer;
   }
 
@@ -38,7 +39,7 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`No parent has been set.`);
     }
@@ -76,7 +77,7 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.children.splice(childOffset, 1);
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -96,7 +97,7 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.domContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
   }
 
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+  resolveSelectableOffsetToNodeOffset(offset: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];

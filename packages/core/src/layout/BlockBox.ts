@@ -9,14 +9,10 @@ type Parent = PageFlowBox;
 type Child = LineFlowBox;
 
 export default abstract class BlockBox extends Box {
-  protected configWidth: number;
+  protected width?: number;
+  protected height?: number;
   protected parent: Parent | null = null;
   protected children: Child[] = [];
-
-  constructor(renderNodeID: string) {
-    super(renderNodeID);
-    this.configWidth = 0;
-  }
 
   abstract getType(): string;
 
@@ -29,11 +25,11 @@ export default abstract class BlockBox extends Box {
     }
   }
 
-  getWidth(): number {
+  getWidth() {
     return this.getParent().getInnerWidth();
   }
 
-  getHeight(): number {
+  getHeight() {
     if (this.height === undefined) {
       let height = 0;
       this.children.forEach(child => {
@@ -48,7 +44,7 @@ export default abstract class BlockBox extends Box {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error('Block box has no parent set.');
     }
@@ -76,11 +72,11 @@ export default abstract class BlockBox extends Box {
     this.clearCache();
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
-  getPreviousSibling(): BlockBox | null {
+  getPreviousSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -97,7 +93,7 @@ export default abstract class BlockBox extends Box {
     return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
   }
 
-  getNextSibling(): BlockBox | null {
+  getNextSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -114,7 +110,7 @@ export default abstract class BlockBox extends Box {
     return parentNextSiblingChildren[0];
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -127,13 +123,15 @@ export default abstract class BlockBox extends Box {
 
   onRenderUpdated(renderNode: BlockRenderNode) {
     this.clearCache();
+    this.width = undefined;
+    this.height = undefined;
   }
 
   abstract splitAt(offset: number): BlockBox;
 
   abstract join(blockBox: BlockBox): void;
 
-  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+  resolvePosition(parentPosition: Position, selectableOffset: number) {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {

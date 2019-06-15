@@ -35,7 +35,7 @@ export default class CursorView {
     editor.getDispatcher().on(CursorBlurredEvent, event => this.updateView());
   }
 
-  getLeftAnchor(): number | null {
+  getLeftAnchor() {
     return this.leftAnchor;
   }
 

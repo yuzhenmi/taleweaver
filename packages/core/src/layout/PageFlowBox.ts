@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import DocBox from './DocBox';
 import BlockBox from './BlockBox';
 import ViewportBoundingRect from './ViewportBoundingRect';
@@ -8,8 +9,8 @@ type Parent = DocBox;
 type Child = BlockBox;
 
 export default class PageFlowBox extends FlowBox {
-  protected configWidth: number;
-  protected configHeight: number;
+  protected width: number;
+  protected height: number;
   protected paddingTop: number;
   protected paddingBottom: number;
   protected paddingLeft: number;
@@ -17,14 +18,15 @@ export default class PageFlowBox extends FlowBox {
   protected parent: Parent | null = null;
   protected children: Child[] = [];
 
-  constructor(width: number, height: number, paddingTop: number, paddingBottom: number, paddingLeft: number, paddingRight: number) {
-    super();
-    this.configWidth = width;
-    this.configHeight = height;
-    this.paddingTop = paddingTop;
-    this.paddingBottom = paddingBottom;
-    this.paddingLeft = paddingLeft;
-    this.paddingRight = paddingRight;
+  constructor(editor: Editor) {
+    super(editor);
+    const pageConfig = editor.getConfig().getPageConfig();
+    this.width = pageConfig.getPageWidth();
+    this.height = pageConfig.getPageHeight();
+    this.paddingTop = pageConfig.getPagePaddingTop();
+    this.paddingBottom = pageConfig.getPagePaddingBottom();
+    this.paddingLeft = pageConfig.getPagePaddingLeft();
+    this.paddingRight = pageConfig.getPagePaddingRight();
   }
 
   setVersion(version: number) {
@@ -36,12 +38,12 @@ export default class PageFlowBox extends FlowBox {
     }
   }
 
-  getWidth(): number {
-    return this.configWidth;
+  getWidth() {
+    return this.width;
   }
 
-  getHeight(): number {
-    return this.configHeight;
+  getHeight() {
+    return this.height;
   }
 
   getPaddingTop() {
@@ -60,19 +62,19 @@ export default class PageFlowBox extends FlowBox {
     return this.paddingRight;
   }
 
-  getInnerWidth(): number {
-    return this.getWidth() - this.getPaddingLeft() - this.getPaddingRight();
+  getInnerWidth() {
+    return this.width - this.paddingLeft - this.paddingRight;
   }
 
-  getInnerHeight(): number {
-    return this.getHeight() - this.getPaddingTop() - this.getPaddingBottom();
+  getInnerHeight() {
+    return this.height - this.paddingTop - this.paddingBottom;
   }
 
   setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`Page flow box has no parent set.`);
     }
@@ -100,11 +102,11 @@ export default class PageFlowBox extends FlowBox {
     this.clearCache();
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
-  getPreviousSibling(): PageFlowBox | null {
+  getPreviousSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -116,7 +118,7 @@ export default class PageFlowBox extends FlowBox {
     return null;
   }
 
-  getNextSibling(): PageFlowBox | null {
+  getNextSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -128,7 +130,7 @@ export default class PageFlowBox extends FlowBox {
     return null;
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -143,19 +145,12 @@ export default class PageFlowBox extends FlowBox {
     this.clearCache();
   }
 
-  splitAt(offset: number): PageFlowBox {
+  splitAt(offset: number) {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving PageFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const newPageFlowBox = new PageFlowBox(
-      this.configWidth,
-      this.configHeight,
-      this.getPaddingTop(),
-      this.getPaddingBottom(),
-      this.getPaddingLeft(),
-      this.getPaddingRight(),
-    );
+    const newPageFlowBox = new PageFlowBox(this.editor);
     childrenCut.forEach((child, childOffset) => {
       newPageFlowBox.insertChild(child, childOffset);
     });
@@ -163,7 +158,7 @@ export default class PageFlowBox extends FlowBox {
     return newPageFlowBox;
   }
 
-  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+  resolvePosition(parentPosition: Position, selectableOffset: number) {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -180,7 +175,7 @@ export default class PageFlowBox extends FlowBox {
     return position;
   }
 
-  resolveViewportPositionToSelectableOffset(x: number, y: number): number {
+  resolveViewportPositionToSelectableOffset(x: number, y: number) {
     let selectableOffset = 0;
     let cumulatedHeight = 0;
     const innerX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getWidth() - this.getPaddingRight());
@@ -203,7 +198,7 @@ export default class PageFlowBox extends FlowBox {
     return selectableOffset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedHeight = 0;

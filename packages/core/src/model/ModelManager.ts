@@ -9,7 +9,7 @@ class ModelManager {
 
   constructor(editor: Editor) {
     this.editor = editor;
-    this.doc = new Doc();
+    this.doc = new Doc(editor);
     this.parser = new Parser(editor, this.doc);
   }
 

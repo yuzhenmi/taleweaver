@@ -1,10 +1,16 @@
 import Node from '../tree/Node';
 import Attributes from '../token/Attributes';
+import Editor from '../Editor';
 
 export default abstract class Element implements Node {
+  protected editor: Editor;
   protected id?: string;
   protected version: number = 0;
   protected size?: number;
+
+  constructor(editor: Editor) {
+    this.editor = editor;
+  }
 
   abstract getType(): string;
 

@@ -24,7 +24,12 @@ export default class TextInlineRenderNode extends InlineRenderNode {
         }
       }
       if (atomOffset < 0) {
-        const atomicRenderNode = new TextAtomicRenderNode(`${element.getID()}-${generateID()}`, word.text, word.breakable);
+        const atomicRenderNode = new TextAtomicRenderNode(
+          this.editor,
+          `${element.getID()}-${generateID()}`,
+          word.text,
+          word.breakable,
+        );
         atomicRenderNode.setVersion(element.getVersion());
         this.insertChild(atomicRenderNode, offset);
       } else {

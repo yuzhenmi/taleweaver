@@ -20,7 +20,7 @@ export default abstract class AtomicRenderNode extends RenderNode implements Lea
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error('No parent has been set.');
     }
@@ -29,11 +29,11 @@ export default abstract class AtomicRenderNode extends RenderNode implements Lea
 
   abstract getBreakable(): boolean;
 
-  getModelSize(): number {
+  getModelSize() {
     return this.getSelectableSize();
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+  convertSelectableOffsetToModelOffset(selectableOffset: number) {
     return selectableOffset;
   }
 }

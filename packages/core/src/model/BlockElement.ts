@@ -50,7 +50,7 @@ export default abstract class BlockElement extends Element implements BranchNode
     this.clearCache();
   }
 
-  getChildren(): ChildElement[] {
+  getChildren() {
     return this.children;
   }
 

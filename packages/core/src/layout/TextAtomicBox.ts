@@ -1,10 +1,11 @@
 import AtomicBox from './AtomicBox';
-import ViewportBoundingRect from './ViewportBoundingRect';
 import measureText from './utils/measureText';
 import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
 import TextStyle from './utils/TextStyle';
 
 export default class TextAtomicBox extends AtomicBox {
+  protected width?: number;
+  protected height?: number;
   protected content: string = '';
   protected textStyle: TextStyle = {
     fontFamily: 'sans-serif',
@@ -13,7 +14,7 @@ export default class TextAtomicBox extends AtomicBox {
     letterSpacing: 0,
   };
 
-  getWidth(): number {
+  getWidth() {
     if (this.width === undefined || this.height === undefined) {
       const measurement = measureText(this.content, this.textStyle);
       this.width = measurement.width;
@@ -22,7 +23,7 @@ export default class TextAtomicBox extends AtomicBox {
     return this.width;
   }
 
-  getWidthWithoutTrailingWhitespace(): number {
+  getWidthWithoutTrailingWhitespace() {
     if (this.widthWithoutTrailingWhitespace === undefined) {
       if (this.breakable) {
         const measurement = measureText(this.content.substring(0, this.content.length - 1), this.textStyle);
@@ -34,7 +35,7 @@ export default class TextAtomicBox extends AtomicBox {
     return this.widthWithoutTrailingWhitespace;
   }
 
-  getHeight(): number {
+  getHeight() {
     if (this.width === undefined || this.height === undefined) {
       const measurement = measureText(this.content, this.textStyle);
       this.width = measurement.width;
@@ -64,11 +65,11 @@ export default class TextAtomicBox extends AtomicBox {
     this.clearCache();
   }
 
-  getContent(): string {
+  getContent() {
     return this.content;
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     return this.content.length;
   }
 
@@ -78,7 +79,7 @@ export default class TextAtomicBox extends AtomicBox {
     this.clearCache();
   }
 
-  splitAtWidth(width: number): TextAtomicBox {
+  splitAtWidth(width: number) {
     // Use binary search to determine offset to split at
     let min = 0;
     let max = this.content.length;
@@ -93,7 +94,7 @@ export default class TextAtomicBox extends AtomicBox {
       }
     }
     const splitAt = min;
-    const newTextAtomicBox = new TextAtomicBox(this.renderNodeID);
+    const newTextAtomicBox = new TextAtomicBox(this.editor, this.renderNodeID);
     newTextAtomicBox.setContent(this.content.substring(splitAt));
     this.content = this.content.substring(0, splitAt);
     this.clearCache();
@@ -108,7 +109,7 @@ export default class TextAtomicBox extends AtomicBox {
     this.clearCache();
   }
 
-  resolveViewportPositionToSelectableOffset(x: number): number {
+  resolveViewportPositionToSelectableOffset(x: number) {
     let lastWidth = 0;
     for (let n = 0, nn = this.content.length; n < nn; n++) {
       const textMeasurement = measureText(this.content.substring(0, n), this.textStyle);
@@ -129,7 +130,7 @@ export default class TextAtomicBox extends AtomicBox {
     return this.content.length;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     if (from === 0 && to === this.getSelectableSize()) {
       return [{
         left: 0,
@@ -168,5 +169,11 @@ export default class TextAtomicBox extends AtomicBox {
       paddingLeft: 0,
       paddingRight: 0,
     }];
+  }
+
+  protected clearCache() {
+    super.clearCache();
+    this.width = undefined;
+    this.height = undefined;
   }
 }

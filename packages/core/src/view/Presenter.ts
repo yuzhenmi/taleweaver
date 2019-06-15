@@ -68,14 +68,14 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   insertNode(parent: ViewNode, srcNode: LayoutNode, offset: number): ViewNode {
     const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof DocViewNode && srcNode instanceof PageFlowBox) {
-      const pageViewNode = new PageViewNode(srcNode.getID());
+      const pageViewNode = new PageViewNode(this.editor, srcNode.getID());
       parent.insertChild(pageViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, pageViewNode]);
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
-      const BlockViewNodeClass = elementConfig.getViewNodeClass(srcNode.getType());
-      const blockViewNode = new BlockViewNodeClass(srcNode.getID());
+      const BlockViewNodeClass = elementConfig.getBlockViewNodeClass(srcNode.getType());
+      const blockViewNode = new BlockViewNodeClass(this.editor, srcNode.getID());
       if (!(blockViewNode instanceof BlockViewNode)) {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
       }
@@ -84,14 +84,14 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return blockViewNode;
     }
     if (parent instanceof BlockViewNode && srcNode instanceof LineFlowBox) {
-      const lineViewNode = new LineViewNode(srcNode.getID());
+      const lineViewNode = new LineViewNode(this.editor, srcNode.getID());
       parent.insertChild(lineViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, lineViewNode]);
       return lineViewNode;
     }
     if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
-      const InlineViewNodeClass = elementConfig.getViewNodeClass(srcNode.getType());
-      const inlineViewNode = new InlineViewNodeClass(srcNode.getID());
+      const InlineViewNodeClass = elementConfig.getInlineViewNodeClass(srcNode.getType());
+      const inlineViewNode = new InlineViewNodeClass(this.editor, srcNode.getID());
       if (!(inlineViewNode instanceof InlineViewNode)) {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
       }
@@ -185,7 +185,7 @@ class Presenter {
     this.sync();
   }
 
-  getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
+  getPageDOMContentContainer(pageOffset: number) {
     const pages = this.docViewNode.getChildren();
     if (pageOffset < 0 || pageOffset >= pages.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);

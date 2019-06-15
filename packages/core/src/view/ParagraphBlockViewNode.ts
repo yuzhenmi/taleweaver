@@ -1,18 +1,19 @@
+import Editor from '../Editor';
 import ParagraphBlockBox from '../layout/ParagraphBlockBox';
 import BlockViewNode, { Child } from './BlockViewNode';
 
 export default class ParagraphBlockViewNode extends BlockViewNode {
   protected domContainer: HTMLDivElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--paragraph-block';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'block');
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
@@ -47,7 +48,7 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
     this.children.splice(childOffset, 1);
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 

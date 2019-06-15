@@ -23,12 +23,12 @@ export default class ParagraphBlockBox extends BlockBox {
     return 'ParagraphBlockBox';
   }
 
-  splitAt(offset: number): ParagraphBlockBox {
+  splitAt(offset: number) {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving ParagraphBlockBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const newParagraphBlockBox = new ParagraphBlockBox(this.renderNodeID);
+    const newParagraphBlockBox = new ParagraphBlockBox(this.editor, this.renderNodeID);
     childrenCut.forEach((child, childOffset) => {
       newParagraphBlockBox.insertChild(child, childOffset);
     });
@@ -48,7 +48,7 @@ export default class ParagraphBlockBox extends BlockBox {
     this.clearCache();
   }
 
-  resolveViewportPositionToSelectableOffset(x: number, y: number): number {
+  resolveViewportPositionToSelectableOffset(x: number, y: number) {
     let selectableOffset = 0;
     let cumulatedHeight = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -64,7 +64,7 @@ export default class ParagraphBlockBox extends BlockBox {
     return selectableOffset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedHeight = 0;

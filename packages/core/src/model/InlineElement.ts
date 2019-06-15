@@ -33,7 +33,7 @@ export default abstract class InlineElement extends Element implements LeafNode 
     this.clearCache();
   }
 
-  getContent(): string {
+  getContent() {
     return this.content;
   }
 
