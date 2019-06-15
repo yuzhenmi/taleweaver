@@ -8,7 +8,7 @@ export default class ParagraphBlockBox extends BlockBox {
   }
 
   getPaddingBottom() {
-    return 0;
+    return 12;
   }
 
   getPaddingLeft() {

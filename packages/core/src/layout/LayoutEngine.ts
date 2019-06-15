@@ -90,8 +90,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   }
 
   insertNode(parent: Box, srcNode: RenderNode, offset: number): Box {
+    const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof DocBox && srcNode instanceof BlockRenderNode) {
-      const BlockBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
+      const BlockBoxClass = elementConfig.getBoxClass(srcNode.getType());
       const blockBox = new BlockBoxClass(srcNode.getID());
       if (!(blockBox instanceof BlockBox)) {
         throw new Error('Error inserting box, expecting block box.');
@@ -126,7 +127,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return blockBox;
     }
     if (parent instanceof BlockBox && srcNode instanceof InlineRenderNode) {
-      const InlineBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
+      const InlineBoxClass = elementConfig.getBoxClass(srcNode.getType());
       const inlineBox = new InlineBoxClass(srcNode.getID());
       if (!(inlineBox instanceof InlineBox)) {
         throw new Error('Error inserting box, expecting inline box.');
@@ -154,7 +155,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return inlineBox;
     }
     if (parent instanceof InlineBox && srcNode instanceof AtomicRenderNode) {
-      const AtomicBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
+      const AtomicBoxClass = elementConfig.getBoxClass(srcNode.getType());
       const atomicBox = new AtomicBoxClass(srcNode.getID());
       if (!(atomicBox instanceof AtomicBox)) {
         throw new Error('Error inserting box, expecting atomic box.');

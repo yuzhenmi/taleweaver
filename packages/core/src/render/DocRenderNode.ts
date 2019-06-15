@@ -11,11 +11,11 @@ export default class DocRenderNode extends RenderNode implements RootNode {
   protected padding: number;
   protected children: Child[];
 
-  constructor(id: string) {
+  constructor(id: string, width: number, height: number, padding: number) {
     super(id);
-    this.width = 0;
-    this.height = 0;
-    this.padding = 0;
+    this.width = width;
+    this.height = height;
+    this.padding = padding;
     this.children = [];
   }
 
@@ -116,9 +116,6 @@ export default class DocRenderNode extends RenderNode implements RootNode {
 
   onModelUpdated(element: Doc) {
     this.id = element.getID();
-    this.width = element.getWidth();
-    this.height = element.getHeight();
-    this.padding = element.getPadding();
     this.clearCache();
   }
 }
