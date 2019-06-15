@@ -15,7 +15,7 @@ class ViewManager {
     this.editor = editor;
     const layoutManager = editor.getLayoutManager();
     const docBox = layoutManager.getDocBox();
-    this.docViewNode = new DocViewNode(docBox.getID());
+    this.docViewNode = new DocViewNode(editor, docBox.getID());
     this.presenter = new Presenter(editor, this.docViewNode, domWrapper);
     this.domObserver = new DOMObserver(editor);
     this.domObserver.connect(this.docViewNode);
@@ -26,7 +26,7 @@ class ViewManager {
     return this.docViewNode;
   }
 
-  getCursorView(): CursorView {
+  getCursorView() {
     return this.cursorView;
   }
 

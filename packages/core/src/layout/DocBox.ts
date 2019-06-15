@@ -8,23 +8,7 @@ import DocRenderNode from '../render/DocRenderNode';
 type Child = PageFlowBox;
 
 export default class DocBox extends Box implements RootNode {
-  protected configWidth: number;
-  protected configHeight: number;
-  protected paddingTop: number;
-  protected paddingBottom: number;
-  protected paddingLeft: number;
-  protected paddingRight: number;
   protected children: Child[] = [];
-
-  constructor(renderNodeID: string) {
-    super(renderNodeID);
-    this.configWidth = 0;
-    this.configHeight = 0;
-    this.paddingTop = 0;
-    this.paddingBottom = 0;
-    this.paddingLeft = 0;
-    this.paddingRight = 0;
-  }
 
   setVersion(version: number) {
     if (this.version < version) {
@@ -32,28 +16,28 @@ export default class DocBox extends Box implements RootNode {
     }
   }
 
-  getWidth(): number {
-    return this.configWidth;
+  getWidth() {
+    return 0;
   }
 
-  getHeight(): number {
-    return this.configHeight;
+  getHeight() {
+    return 0;
   }
 
   getPaddingTop() {
-    return this.paddingTop;
+    return 0;
   }
 
   getPaddingBottom() {
-    return this.paddingBottom;
+    return 0;
   }
 
   getPaddingLeft() {
-    return this.paddingLeft;
+    return 0;
   }
 
   getPaddingRight() {
-    return this.paddingRight;
+    return 0;
   }
 
   insertChild(child: Child, offset: number | null = null) {
@@ -77,11 +61,11 @@ export default class DocBox extends Box implements RootNode {
     this.clearCache();
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -93,16 +77,10 @@ export default class DocBox extends Box implements RootNode {
   }
 
   onRenderUpdated(renderNode: DocRenderNode) {
-    this.configWidth = renderNode.getWidth();
-    this.configHeight = renderNode.getHeight();
-    this.paddingTop = renderNode.getPadding();
-    this.paddingBottom = renderNode.getPadding();
-    this.paddingLeft = renderNode.getPadding();
-    this.paddingRight = renderNode.getPadding();
     this.clearCache();
   }
 
-  resolvePosition(selectableOffset: number): Position {
+  resolvePosition(selectableOffset: number) {
     const position = new Position(this, selectableOffset, undefined, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -119,7 +97,7 @@ export default class DocBox extends Box implements RootNode {
     return position;
   }
 
-  resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number): number {
+  resolveViewportPositionToSelectableOffset(pageOffset: number, x: number, y: number) {
     if (pageOffset >= this.children.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);
     }
@@ -130,7 +108,7 @@ export default class DocBox extends Box implements RootNode {
     return selectableOffset + this.children[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[][] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[][] = [];
     this.children.forEach(() => {
       viewportBoundingRects.push([]);

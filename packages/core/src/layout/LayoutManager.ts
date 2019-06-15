@@ -11,7 +11,7 @@ class LayoutManager {
     this.editor = editor;
     const renderManager = editor.getRenderManager();
     const docRenderNode = renderManager.getDocRenderNode();
-    this.docBox = new DocBox(docRenderNode.getID());
+    this.docBox = new DocBox(editor, docRenderNode.getID());
     this.layoutEngine = new LayoutEngine(editor, this.docBox);
   }
 

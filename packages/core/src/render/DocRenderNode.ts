@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import RootNode from '../tree/RootNode';
 import Doc from '../model/Doc';
 import RenderNode from './RenderNode';
@@ -6,16 +7,10 @@ import BlockRenderNode from './BlockRenderNode';
 export type Child = BlockRenderNode;
 
 export default class DocRenderNode extends RenderNode implements RootNode {
-  protected width: number;
-  protected height: number;
-  protected padding: number;
   protected children: Child[];
 
-  constructor(id: string, width: number, height: number, padding: number) {
-    super(id);
-    this.width = width;
-    this.height = height;
-    this.padding = padding;
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.children = [];
   }
 
@@ -31,26 +26,6 @@ export default class DocRenderNode extends RenderNode implements RootNode {
 
   getVersion(): number {
     return this.version;
-  }
-
-  getWidth(): number {
-    return this.width;
-  }
-
-  getHeight(): number {
-    return this.height;
-  }
-
-  getPadding(): number {
-    return this.padding;
-  }
-
-  getInnerWidth(): number {
-    return this.width - this.padding - this.padding;
-  }
-
-  getInnerHeight(): number {
-    return this.height - this.padding - this.padding;
   }
 
   insertChild(child: Child, offset: number | null = null) {

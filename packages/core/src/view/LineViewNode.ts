@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import BranchNode from '../tree/BranchNode';
 import LineFlowBox from '../layout/LineFlowBox';
 import ViewNode from './ViewNode';
@@ -12,8 +13,8 @@ export default class LineViewNode extends ViewNode implements BranchNode {
   protected children: Child[] = [];
   protected domContainer: HTMLDivElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--line';
     this.domContainer.setAttribute('data-tw-id', id);
@@ -21,11 +22,11 @@ export default class LineViewNode extends ViewNode implements BranchNode {
     this.domContainer.style.whiteSpace = 'pre-wrap';
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLDivElement {
+  getDOMContentContainer() {
     return this.domContainer;
   }
 
@@ -70,7 +71,7 @@ export default class LineViewNode extends ViewNode implements BranchNode {
     this.children.splice(childOffset, 1);
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -84,7 +85,7 @@ export default class LineViewNode extends ViewNode implements BranchNode {
     this.selectableSize = layoutNode.getSelectableSize();
   }
 
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+  resolveSelectableOffsetToNodeOffset(offset: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];

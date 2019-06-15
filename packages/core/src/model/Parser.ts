@@ -49,7 +49,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
     const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof Doc && srcNode instanceof BlockElement) {
       const ElementClass = elementConfig.getElementClass(srcNode.getType());
-      const element = new ElementClass();
+      const element = new ElementClass(this.editor);
       if (!(element instanceof BlockElement)) {
         throw new Error('Error inserting element, expecting block element.');
       }
@@ -60,7 +60,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
     }
     if (parent instanceof BlockElement && srcNode instanceof InlineElement) {
       const ElementClass = elementConfig.getElementClass(srcNode.getType());
-      const element = new ElementClass();
+      const element = new ElementClass(this.editor);
       if (!(element instanceof InlineElement)) {
         throw new Error('Error inserting element, expecting inline element.');
       }
@@ -186,7 +186,7 @@ class Parser {
   }
 
   protected parse() {
-    const newDoc = new Doc();
+    const newDoc = new Doc(this.editor);
     this.stack = new Stack();
     this.stack.push(newDoc);
     const tokens = this.editor.getTokenManager().getTokenState().getTokens();
@@ -248,7 +248,7 @@ class Parser {
       throw new Error('Unexpected end of doc encountered.');
     }
     const ElementClass = elementConfig.getElementClass(token.getType());
-    const element = new ElementClass();
+    const element = new ElementClass(this.editor);
     const attributes = token.getAttributes();
     element.setID(token.getID());
     element.onStateUpdated(attributes);

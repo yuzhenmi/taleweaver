@@ -6,7 +6,7 @@ import * as commands from '../command/commands';
 import DocViewNode from './DocViewNode';
 import copy from '../helpers/copy';
 
-function parseNode(node: Node): Token[] {
+function parseNode(node: Node) {
   if (node.nodeValue) {
     return node.nodeValue.split('');
   }
@@ -169,7 +169,7 @@ export default class DOMObserver {
     copy(this.editor);
   }
 
-  protected resolveScreenPosition(x: number, y: number): number {
+  protected resolveScreenPosition(x: number, y: number) {
     if (!this.docViewNode) {
       throw new Error('No doc view is being observed.');
     }
@@ -196,7 +196,7 @@ export default class DOMObserver {
     return -1;
   }
 
-  protected parseContentEditableValue(): Token[] {
+  protected parseContentEditableValue() {
     const tokens: Token[] = [];
     this.$contentEditable.childNodes.forEach(childNode => {
       tokens.push(...parseNode(childNode));

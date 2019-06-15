@@ -20,11 +20,11 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     }
   }
 
-  getVersion(): number {
+  getVersion() {
     return this.version;
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -39,14 +39,14 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error('No parent has been set.');
     }
     return this.parent;
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -74,7 +74,7 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     this.clearCache();
   }
 
-  getModelSize(): number {
+  getModelSize() {
     if (this.modelSize === undefined) {
       let modelSize = 2;
       this.children.forEach(child => {
@@ -85,7 +85,7 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+  convertSelectableOffsetToModelOffset(selectableOffset: number) {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {

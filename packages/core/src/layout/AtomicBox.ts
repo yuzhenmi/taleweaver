@@ -9,12 +9,7 @@ type Parent = InlineBox;
 export default abstract class AtomicBox extends Box {
   protected widthWithoutTrailingWhitespace?: number;
   protected parent: Parent | null = null;
-  protected breakable: boolean;
-
-  constructor(renderNodeID: string) {
-    super(renderNodeID);
-    this.breakable = true;
-  }
+  protected breakable: boolean = true;
 
   setVersion(version: number) {
     if (this.version < version) {
@@ -25,7 +20,7 @@ export default abstract class AtomicBox extends Box {
     }
   }
 
-  isBreakable(): boolean {
+  isBreakable() {
     return this.breakable;
   }
 
@@ -35,14 +30,14 @@ export default abstract class AtomicBox extends Box {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`Atomic box has no parent set.`);
     }
     return this.parent;
   }
 
-  getPreviousSibling(): AtomicBox | null {
+  getPreviousSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -59,7 +54,7 @@ export default abstract class AtomicBox extends Box {
     return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
   }
 
-  getNextSibling(): AtomicBox | null {
+  getNextSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -80,7 +75,7 @@ export default abstract class AtomicBox extends Box {
 
   abstract onRenderUpdated(renderNode: AtomicRenderNode): void;
 
-  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+  resolvePosition(parentPosition: Position, selectableOffset: number) {
     const position = new Position(this, selectableOffset, parentPosition);
     return position;
   }
