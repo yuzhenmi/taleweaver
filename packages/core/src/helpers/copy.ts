@@ -10,8 +10,8 @@ $iframe.style.position = 'fixed';
 $iframe.style.zIndex = '-1';
 $iframe.style.opacity = '0';
 $iframe.style.overflow = 'hidden';
-$iframe.style.left = '0';
-$iframe.style.top = '0';
+$iframe.style.left = '-1000000px';
+$iframe.style.top = '-1000000px';
 $iframe.contentEditable = 'true';
 document.body.appendChild($iframe);
 

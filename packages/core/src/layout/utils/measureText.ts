@@ -15,10 +15,17 @@ export class TextMeasurer {
 
   constructor() {
     this.$iframe = document.createElement('iframe');
+    this.$iframe.scrolling = 'no';
     this.$iframe.src = 'about:blank';
     this.$iframe.style.width = '0';
     this.$iframe.style.height = '0';
     this.$iframe.style.border = 'none';
+    this.$iframe.style.position = 'fixed';
+    this.$iframe.style.zIndex = '-1';
+    this.$iframe.style.opacity = '0';
+    this.$iframe.style.overflow = 'hidden';
+    this.$iframe.style.left = '-1000000px';
+    this.$iframe.style.top = '-1000000px';
     document.body.appendChild(this.$iframe);
     this.$textContainers = new Map();
     // On Firefox, iframe seems to reset after
