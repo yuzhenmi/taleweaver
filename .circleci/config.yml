@@ -6,7 +6,19 @@ jobs:
     working_directory: /tmp/taleweaver
     steps:
       - checkout
+      - restore_cache:
+        keys:
+        - v1-dependencies-{{ checksum "package-lock.json" }}
+        - v1-dependencies-
       - run:
+          name: Install dependencies
+          command: npm ci
+      - save_cache:
+          paths:
+            - node_modules
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
+      - run:
+          name: Build
           command: |
             cd packages/core
             npm run build
