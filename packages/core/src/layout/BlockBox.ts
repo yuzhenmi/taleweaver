@@ -31,7 +31,7 @@ export default abstract class BlockBox extends Box {
 
   getHeight() {
     if (this.height === undefined) {
-      let height = 0;
+      let height = this.getPaddingTop() + this.getPaddingBottom();
       this.children.forEach(child => {
         height += child.getHeight();
       });
