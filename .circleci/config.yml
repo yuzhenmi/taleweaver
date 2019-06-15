@@ -7,9 +7,9 @@ jobs:
     steps:
       - checkout
       - run:
-        command: |
-          cd packages/core
-          npm run build
+          command: |
+            cd packages/core
+            npm run build
 workflows:
   version: 2
   build:
