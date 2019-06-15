@@ -17,6 +17,7 @@ export default class DocViewNode extends ViewNode implements RootNode {
     this.domContainer.setAttribute('data-tw-role', 'doc');
     this.domContainer.style.textAlign = 'left';
     this.domContainer.style.cursor = 'text';
+    this.domContainer.style.userSelect = 'none';
   }
 
   getDOMContainer(): HTMLDivElement {

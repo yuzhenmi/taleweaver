@@ -9,9 +9,15 @@ class RenderManager {
 
   constructor(editor: Editor) {
     this.editor = editor;
+    const pageConfig = editor.getConfig().getPageConfig();
     const modelManager = editor.getModelManager();
     const doc = modelManager.getDoc();
-    this.docRenderNode = new DocRenderNode(doc.getID());
+    this.docRenderNode = new DocRenderNode(
+      doc.getID(),
+      pageConfig.getPageWidth(),
+      pageConfig.getPageHeight(),
+      pageConfig.getPagePaddingTop(),
+    );
     this.renderEngine = new RenderEngine(editor, this.docRenderNode);
   }
 

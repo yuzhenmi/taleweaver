@@ -1,4 +1,4 @@
-import Config from './Config'
+import Config from './config/Config'
 import Dispatcher from './dispatch/Dispatcher';
 import Transformer from './transform/Transformer';
 import Cursor from './cursor/Cursor';

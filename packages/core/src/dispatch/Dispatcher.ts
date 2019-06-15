@@ -53,7 +53,8 @@ class Dispatcher {
   }
 
   dispatchKeyPress(keySignature: KeySignature): boolean {
-    const keyBindings = this.editor.getConfig().getKeyBindings();
+    const keyBindingConfig = this.editor.getConfig().getKeyBindingConfig();
+    const keyBindings = keyBindingConfig.getKeyBindings();
     const keySignatureCode = keySignature.getCode();
     if (!keyBindings.has(keySignatureCode)) {
       return false;

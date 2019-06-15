@@ -1,37 +1,29 @@
-import Element from './model/Element';
-import Paragraph from './model/Paragraph';
-import Text from './model/Text';
-import RenderNode from './render/RenderNode';
-import ParagraphBlockRenderNode from './render/ParagraphBlockRenderNode';
-import TextInlineRenderNode from './render/TextInlineRenderNode';
-import Box from './layout/Box';
-import ParagraphBlockBox from './layout/ParagraphBlockBox';
-import TextInlineBox from './layout/TextInlineBox';
-import TextAtomicBox from './layout/TextAtomicBox';
-import ViewNode from './view/ViewNode';
-import ParagraphBlockViewNode from './view/ParagraphBlockViewNode';
-import TextInlineViewNode from './view/TextInlineViewNode';
-import KeySignature from './key/KeySignature';
+import Element from '../model/Element';
+import Paragraph from '../model/Paragraph';
+import Text from '../model/Text';
+import RenderNode from '../render/RenderNode';
+import ParagraphBlockRenderNode from '../render/ParagraphBlockRenderNode';
+import TextInlineRenderNode from '../render/TextInlineRenderNode';
+import Box from '../layout/Box';
+import ParagraphBlockBox from '../layout/ParagraphBlockBox';
+import TextInlineBox from '../layout/TextInlineBox';
+import TextAtomicBox from '../layout/TextAtomicBox';
+import ViewNode from '../view/ViewNode';
+import ParagraphBlockViewNode from '../view/ParagraphBlockViewNode';
+import TextInlineViewNode from '../view/TextInlineViewNode';
 
 type ElementClass = new (...args: any[]) => Element;
 type RenderNodeClass = new (...args: any[]) => RenderNode;
 type BoxClass = new (...args: any[]) => Box;
 type ViewNodeClass = new (...args: any[]) => ViewNode;
-type KeyBindingHandler = () => void;
 
-class Config {
-  protected nodeClasses: Map<string, ElementClass>;
-  protected renderNodeClasses: Map<string, RenderNodeClass>;
-  protected boxClasses: Map<string, BoxClass>;
-  protected viewNodeClasses: Map<string, ViewNodeClass>;
-  protected keyBindings: Map<string, KeyBindingHandler[]>;
+class ElementConfig {
+  protected nodeClasses: Map<string, ElementClass> = new Map();
+  protected renderNodeClasses: Map<string, RenderNodeClass> = new Map();
+  protected boxClasses: Map<string, BoxClass> = new Map();
+  protected viewNodeClasses: Map<string, ViewNodeClass> = new Map();
 
   constructor() {
-    this.nodeClasses = new Map();
-    this.renderNodeClasses = new Map();
-    this.boxClasses = new Map();
-    this.viewNodeClasses = new Map();
-    this.keyBindings = new Map();
     this.registerElementClass('Paragraph', Paragraph);
     this.registerElementClass('Text', Text);
     this.registerRenderNodeClass('Paragraph', ParagraphBlockRenderNode);
@@ -88,19 +80,6 @@ class Config {
     }
     return viewNodeClass;
   }
-
-  bindKey(keySignature: KeySignature, subscriber: KeyBindingHandler) {
-    const keySignatureCode = keySignature.getCode();
-    if (!this.keyBindings.has(keySignatureCode)) {
-      this.keyBindings.set(keySignatureCode, []);
-    }
-    const subscribers = this.keyBindings.get(keySignatureCode)!;
-    subscribers.push(subscriber);
-  }
-
-  getKeyBindings() {
-    return this.keyBindings;
-  }
 }
 
-export default Config;
+export default ElementConfig;

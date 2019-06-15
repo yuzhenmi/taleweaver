@@ -66,6 +66,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   }
 
   insertNode(parent: ViewNode, srcNode: LayoutNode, offset: number): ViewNode {
+    const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof DocViewNode && srcNode instanceof PageFlowBox) {
       const pageViewNode = new PageViewNode(srcNode.getID());
       parent.insertChild(pageViewNode, offset);
@@ -73,7 +74,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
-      const BlockViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
+      const BlockViewNodeClass = elementConfig.getViewNodeClass(srcNode.getType());
       const blockViewNode = new BlockViewNodeClass(srcNode.getID());
       if (!(blockViewNode instanceof BlockViewNode)) {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
@@ -89,7 +90,7 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return lineViewNode;
     }
     if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
-      const InlineViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
+      const InlineViewNodeClass = elementConfig.getViewNodeClass(srcNode.getType());
       const inlineViewNode = new InlineViewNodeClass(srcNode.getID());
       if (!(inlineViewNode instanceof InlineViewNode)) {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
