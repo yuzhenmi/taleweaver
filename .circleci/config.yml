@@ -1,0 +1,17 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: node:12
+    working_directory: /tmp/taleweaver
+    steps:
+      - checkout
+      - run:
+        command: |
+          cd packages/core
+          npm run build
+workflows:
+  version: 2
+  build:
+    jobs:
+      - build
