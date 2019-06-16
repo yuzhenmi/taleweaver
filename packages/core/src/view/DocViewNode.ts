@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import RootNode from '../tree/RootNode';
 import DocBox from '../layout/DocBox';
 import ViewNode from './ViewNode';
@@ -9,17 +10,18 @@ export default class DocViewNode extends ViewNode implements RootNode {
   protected children: Child[] = [];
   protected domContainer: HTMLDivElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'doc');
     this.domContainer.style.textAlign = 'left';
     this.domContainer.style.cursor = 'text';
+    this.domContainer.style.userSelect = 'none';
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
@@ -54,7 +56,7 @@ export default class DocViewNode extends ViewNode implements RootNode {
     this.children.splice(childOffset, 1);
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -64,7 +66,7 @@ export default class DocViewNode extends ViewNode implements RootNode {
 
   onDeleted() {}
 
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+  resolveSelectableOffsetToNodeOffset(offset: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];

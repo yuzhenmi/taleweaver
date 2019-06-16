@@ -7,7 +7,7 @@ import DocViewNode from './DocViewNode';
 import copy from '../helpers/copy';
 import paste from '../helpers/paste';
 
-function parseNode(node: Node): Token[] {
+function parseNode(node: Node) {
   if (node.nodeValue) {
     return node.nodeValue.split('');
   }
@@ -172,10 +172,14 @@ export default class DOMObserver {
 
   protected onPaste = (event: ClipboardEvent) => {
     event.preventDefault();
-    paste(this.editor, event.clipboardData);
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) {
+      return;
+    }
+    paste(this.editor, clipboardData);
   }
 
-  protected resolveScreenPosition(x: number, y: number): number {
+  protected resolveScreenPosition(x: number, y: number) {
     if (!this.docViewNode) {
       throw new Error('No doc view is being observed.');
     }
@@ -193,8 +197,10 @@ export default class DOMObserver {
         pageBoundingClientRect.top <= y &&
         pageBoundingClientRect.bottom >= y
       ) {
-        const relativeX = x - pageBoundingClientRect.left;
-        const relativeY = y - pageBoundingClientRect.top;
+        const pageDOMContentContainer = pageView.getDOMContentContainer();
+        const pageContentBoundingClientRect = pageDOMContentContainer.getBoundingClientRect();
+        const relativeX = x - pageContentBoundingClientRect.left;
+        const relativeY = y - pageContentBoundingClientRect.top;
         return cumulatedOffset + pageFlowBox.resolveViewportPositionToSelectableOffset(relativeX, relativeY);
       }
       cumulatedOffset += pageFlowBox.getSelectableSize();
@@ -202,7 +208,7 @@ export default class DOMObserver {
     return -1;
   }
 
-  protected parseContentEditableValue(): Token[] {
+  protected parseContentEditableValue() {
     const tokens: Token[] = [];
     this.$contentEditable.childNodes.forEach(childNode => {
       tokens.push(...parseNode(childNode));

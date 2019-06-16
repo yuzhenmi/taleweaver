@@ -1,6 +1,7 @@
 import Node from '../tree/Node';
 import Token from '../token/Token';
 import Attributes from '../token/Attributes';
+import Editor from '../Editor';
 
 export default abstract class Element implements Node {
   static compatibleHTMLTagNames: string[] = [];
@@ -8,9 +9,14 @@ export default abstract class Element implements Node {
     throw new Error('Element class must implement static method fromHTMLElement.');
   }
 
+  protected editor: Editor;
   protected id?: string;
   protected version: number = 0;
   protected size?: number;
+
+  constructor(editor: Editor) {
+    this.editor = editor;
+  }
 
   abstract getType(): string;
 
@@ -25,9 +31,7 @@ export default abstract class Element implements Node {
     return this.id;
   }
 
-  setVersion(version: number) {
-    this.version = version;
-  }
+  abstract setVersion(version: number): void;
 
   getVersion(): number {
     return this.version;

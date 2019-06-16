@@ -15,12 +15,26 @@ export class TextMeasurer {
 
   constructor() {
     this.$iframe = document.createElement('iframe');
+    this.$iframe.scrolling = 'no';
     this.$iframe.src = 'about:blank';
     this.$iframe.style.width = '0';
     this.$iframe.style.height = '0';
     this.$iframe.style.border = 'none';
+    this.$iframe.style.position = 'fixed';
+    this.$iframe.style.zIndex = '-1';
+    this.$iframe.style.opacity = '0';
+    this.$iframe.style.overflow = 'hidden';
+    this.$iframe.style.left = '-1000000px';
+    this.$iframe.style.top = '-1000000px';
     document.body.appendChild(this.$iframe);
-    this.$textContainers = new Map<string, HTMLSpanElement>();
+    this.$textContainers = new Map();
+    // On Firefox, iframe seems to reset after
+    // first loop so we also reset cached text
+    // containers in case they get initialized
+    // before the reset.
+    setTimeout(() => {
+      this.$textContainers.clear();
+    });
   }
 
   getTextContainerElement(textStyle: TextStyle): HTMLSpanElement {
@@ -32,7 +46,7 @@ export class TextMeasurer {
       $textContainer.style.fontFamily = textStyle.fontFamily;
       $textContainer.style.fontSize = `${textStyle.fontSize}px`;
       $textContainer.style.fontWeight = `${textStyle.fontWeight}`;
-      $textContainer.style.lineHeight = `${textStyle.lineHeight}px`;
+      $textContainer.style.lineHeight = '1.5em';
       $textContainer.style.letterSpacing = `${textStyle.letterSpacing}`;
       this.$iframe.contentDocument!.body.appendChild($textContainer);
       this.$textContainers.set(textStyleKey, $textContainer);
@@ -45,8 +59,8 @@ export class TextMeasurer {
     // Substitute trailing new line with space
     const adjustedText = text.replace(/\n$/, ' ');
     const $textContainer = this.getTextContainerElement(textStyle);
-    if ($textContainer.innerHTML !== adjustedText) {
-      $textContainer.innerHTML = adjustedText;
+    if ($textContainer.innerText !== adjustedText) {
+      $textContainer.innerText = adjustedText;
     }
     const boundingClientRect = $textContainer.getBoundingClientRect();
     return {

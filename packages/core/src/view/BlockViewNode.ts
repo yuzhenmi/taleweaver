@@ -15,7 +15,7 @@ export default abstract class BlockViewNode extends ViewNode implements BranchNo
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`No parent has been set.`);
     }
@@ -30,7 +30,7 @@ export default abstract class BlockViewNode extends ViewNode implements BranchNo
 
   abstract onLayoutUpdated(layoutNode: BlockBox): void;
 
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+  resolveSelectableOffsetToNodeOffset(offset: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];

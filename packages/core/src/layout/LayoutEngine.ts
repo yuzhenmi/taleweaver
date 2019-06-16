@@ -14,6 +14,19 @@ import LineFlowBox from './LineFlowBox';
 import InlineBox from './InlineBox';
 import AtomicBox from './AtomicBox';
 
+function bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
+  blockBox.setVersion(version);
+  blockBox.getChildren().forEach(lineFlowBox => {
+    lineFlowBox.setVersion(version);
+    lineFlowBox.getChildren().forEach(inlineBox => {
+      inlineBox.setVersion(version);
+      inlineBox.getChildren().forEach(atomicBox => {
+        atomicBox.setVersion(version);
+      });
+    });
+  });
+}
+
 class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   protected editor: Editor;
   protected lastVersion: number;
@@ -77,9 +90,10 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   }
 
   insertNode(parent: Box, srcNode: RenderNode, offset: number): Box {
+    const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof DocBox && srcNode instanceof BlockRenderNode) {
-      const BlockBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
-      const blockBox = new BlockBoxClass(srcNode.getID());
+      const BlockBoxClass = elementConfig.getBlockBoxClass(srcNode.getType());
+      const blockBox = new BlockBoxClass(this.editor, srcNode.getID());
       if (!(blockBox instanceof BlockBox)) {
         throw new Error('Error inserting box, expecting block box.');
       }
@@ -98,7 +112,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         cumulatedOffset += pageFlowBox.getChildren().length;
       }
       if (!inserted) {
-        const pageFlowBox = new PageFlowBox(parent.getWidth(), parent.getHeight(), parent.getPadding());
+        const pageFlowBox = new PageFlowBox(this.editor);
         parent.insertChild(pageFlowBox, pageFlowBoxes.length);
         pageFlowBox.insertChild(blockBox, 0);
         this.updatedPageFlowBoxes.push(pageFlowBox);
@@ -106,8 +120,8 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return blockBox;
     }
     if (parent instanceof BlockBox && srcNode instanceof InlineRenderNode) {
-      const InlineBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
-      const inlineBox = new InlineBoxClass(srcNode.getID());
+      const InlineBoxClass = elementConfig.getInlineBoxClass(srcNode.getType());
+      const inlineBox = new InlineBoxClass(this.editor, srcNode.getID());
       if (!(inlineBox instanceof InlineBox)) {
         throw new Error('Error inserting box, expecting inline box.');
       }
@@ -126,7 +140,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         cumulatedOffset += lineFlowBox.getChildren().length;
       }
       if (!inserted) {
-        const lineFlowBox = new LineFlowBox(parent.getWidth());
+        const lineFlowBox = new LineFlowBox(this.editor, parent.getWidth());
         parent.insertChild(lineFlowBox, lineFlowBoxes.length);
         lineFlowBox.insertChild(inlineBox, 0);
         this.updatedLineFlowBoxes.push(lineFlowBox);
@@ -134,8 +148,8 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return inlineBox;
     }
     if (parent instanceof InlineBox && srcNode instanceof AtomicRenderNode) {
-      const AtomicBoxClass = this.editor.getConfig().getBoxClass(srcNode.getType());
-      const atomicBox = new AtomicBoxClass(srcNode.getID());
+      const AtomicBoxClass = elementConfig.getAtomicBoxClass(srcNode.getType());
+      const atomicBox = new AtomicBoxClass(this.editor, srcNode.getID());
       if (!(atomicBox instanceof AtomicBox)) {
         throw new Error('Error inserting box, expecting atomic box.');
       }
@@ -199,6 +213,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
           const blockBox = pageFlowBox.getChildren()[m];
           if (lastChild && blockBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
             lastChild.join(blockBox);
+            bumpVersionForBlockBoxAndDescendents(lastChild, srcNode.getVersion());
             pageFlowBox.deleteChild(blockBox);
             m--;
           } else {
@@ -290,13 +305,11 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
 export default class LayoutEngine {
   protected editor: Editor;
   protected docBox: DocBox;
-  protected ran: boolean;
   protected version: number;
   
   constructor(editor: Editor, docBox: DocBox) {
     this.editor = editor;
     this.docBox = docBox;
-    this.ran = false;
     this.version = -1;
     editor.getDispatcher().on(RenderStateUpdatedEvent, event => this.sync());
     this.sync();
@@ -325,7 +338,6 @@ export default class LayoutEngine {
       this.reflowPageFlowBox(pageFlowBox, newVersion);
       lastPageFlowBox = pageFlowBox;
     });
-    this.ran = true;
     this.version = newVersion;
     this.editor.getDispatcher().dispatch(new LayoutStateUpdatedEvent());
   }
@@ -480,7 +492,14 @@ export default class LayoutEngine {
         // so we need to determine where to cleave this block box
         for (let m = 0; m < blockBox.getChildren().length; m++) {
           let lineFlowBox = blockBox.getChildren()[m];
-          if (cumulatedHeight + lineFlowBox.getHeight() > pageFlowBoxHeight) {
+          let heightAfterLine = cumulatedHeight + lineFlowBox.getHeight();
+          if (m === 0) {
+            heightAfterLine += blockBox.getPaddingTop();
+          }
+          if (m === blockBox.getChildren().length - 1) {
+            heightAfterLine += blockBox.getPaddingBottom();
+          }
+          if (heightAfterLine > pageFlowBoxHeight) {
             // With this line box, the page height limit gets exceeded,
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
@@ -496,7 +515,7 @@ export default class LayoutEngine {
             } else {
               blockBox.setVersion(version);
             }
-            this.bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
+            bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
             currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
@@ -522,7 +541,7 @@ export default class LayoutEngine {
           // and continue with reflow
           nextPageFlowBox.getChildren().forEach(nextBlockBox => {
             currentPageFlowBox.insertChild(nextBlockBox, currentPageFlowBox.getChildren().length);
-            this.bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
+            bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
           });
           docBox.deleteChild(nextPageFlowBox);
         } else {
@@ -530,18 +549,5 @@ export default class LayoutEngine {
         }
       }
     }
-  }
-
-  protected bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
-    blockBox.setVersion(version);
-    blockBox.getChildren().forEach(lineFlowBox => {
-      lineFlowBox.setVersion(version);
-      lineFlowBox.getChildren().forEach(inlineBox => {
-        inlineBox.setVersion(version);
-        inlineBox.getChildren().forEach(atomicBox => {
-          atomicBox.setVersion(version);
-        });
-      });
-    });
   }
 }

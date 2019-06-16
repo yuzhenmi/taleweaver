@@ -7,11 +7,20 @@ export type Parent = InlineRenderNode;
 export default abstract class AtomicRenderNode extends RenderNode implements LeafNode {
   protected parent: Parent | null = null;
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
   setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error('No parent has been set.');
     }
@@ -20,11 +29,11 @@ export default abstract class AtomicRenderNode extends RenderNode implements Lea
 
   abstract getBreakable(): boolean;
 
-  getModelSize(): number {
+  getModelSize() {
     return this.getSelectableSize();
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+  convertSelectableOffsetToModelOffset(selectableOffset: number) {
     return selectableOffset;
   }
 }

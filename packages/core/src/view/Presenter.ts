@@ -12,7 +12,6 @@ import BlockViewNode from './BlockViewNode';
 import PageViewNode from './PageViewNode';
 import LineViewNode from './LineViewNode';
 import InlineViewNode from './InlineViewNode';
-import CursorView from './CursorView';
 import TreeSyncer from '../utils/TreeSyncer';
 import bindKeys from './bindKeys';
 
@@ -67,15 +66,16 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   }
 
   insertNode(parent: ViewNode, srcNode: LayoutNode, offset: number): ViewNode {
+    const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof DocViewNode && srcNode instanceof PageFlowBox) {
-      const pageViewNode = new PageViewNode(srcNode.getID());
+      const pageViewNode = new PageViewNode(this.editor, srcNode.getID());
       parent.insertChild(pageViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, pageViewNode]);
       return pageViewNode;
     }
     if (parent instanceof PageViewNode && srcNode instanceof BlockBox) {
-      const BlockViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
-      const blockViewNode = new BlockViewNodeClass(srcNode.getID());
+      const BlockViewNodeClass = elementConfig.getBlockViewNodeClass(srcNode.getType());
+      const blockViewNode = new BlockViewNodeClass(this.editor, srcNode.getID());
       if (!(blockViewNode instanceof BlockViewNode)) {
         throw new Error('Error inserting view node, expected block view to be built from block box.');
       }
@@ -84,14 +84,14 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
       return blockViewNode;
     }
     if (parent instanceof BlockViewNode && srcNode instanceof LineFlowBox) {
-      const lineViewNode = new LineViewNode(srcNode.getID());
+      const lineViewNode = new LineViewNode(this.editor, srcNode.getID());
       parent.insertChild(lineViewNode, offset);
       this.idMap.set(srcNode.getID(), [srcNode, lineViewNode]);
       return lineViewNode;
     }
     if (parent instanceof LineViewNode && srcNode instanceof InlineBox) {
-      const InlineViewNodeClass = this.editor.getConfig().getViewNodeClass(srcNode.getType());
-      const inlineViewNode = new InlineViewNodeClass(srcNode.getID());
+      const InlineViewNodeClass = elementConfig.getInlineViewNodeClass(srcNode.getType());
+      const inlineViewNode = new InlineViewNodeClass(this.editor, srcNode.getID());
       if (!(inlineViewNode instanceof InlineViewNode)) {
         throw new Error('Error inserting view node, expected inline view to be built from inline box.');
       }
@@ -169,26 +169,23 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
 class Presenter {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
+  protected domWrapper: HTMLElement;
   protected version: number;
-  protected domWrapper?: HTMLElement;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(editor: Editor, docViewNode: DocViewNode) {
+  constructor(editor: Editor, docViewNode: DocViewNode, domWrapper: HTMLElement) {
     this.editor = editor;
     this.docViewNode = docViewNode;
+    this.domWrapper = domWrapper;
+    domWrapper.appendChild(this.docViewNode.getDOMContainer());
     this.version = -1;
     this.idMap = new Map();
     bindKeys(editor);
     editor.getDispatcher().on(LayoutStateUpdatedEvent, event => this.sync());
-  }
-
-  mount(domWrapper: HTMLElement) {
-    this.domWrapper = domWrapper;
     this.sync();
-    domWrapper.appendChild(this.docViewNode.getDOMContainer());
   }
 
-  getPageDOMContentContainer(pageOffset: number): HTMLDivElement {
+  getPageDOMContentContainer(pageOffset: number) {
     const pages = this.docViewNode.getChildren();
     if (pageOffset < 0 || pageOffset >= pages.length) {
       throw new Error(`Page offset ${pageOffset} is out of range.`);

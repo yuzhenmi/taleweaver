@@ -8,20 +8,19 @@ import BlockElement from './BlockElement';
 
 type ChildElement = BlockElement;
 
-const DEFAULT_ATTRIBUTES = {
-  width: 816,
-  height: 1056,
-  padding: 40,
-};
+const DEFAULT_ATTRIBUTES = {};
 
 export default class Doc extends Element implements RootNode {
   protected children: ChildElement[] = [];
-  protected width: number = 0;
-  protected height: number = 0;
-  protected padding: number = 0;
 
   getType() {
     return 'Doc';
+  }
+
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+    }
   }
 
   insertChild(child: ChildElement, offset: number | null = null) {
@@ -62,39 +61,12 @@ export default class Doc extends Element implements RootNode {
   onStateUpdated(attributes: Attributes) {
     attributes = { ...DEFAULT_ATTRIBUTES, ...attributes };
     let isUpdated = false;
-    if (this.width !== attributes.width) {
-      this.width = attributes.width;
-      isUpdated = true;
-    }
-    if (this.height !== attributes.height) {
-      this.height = attributes.height;
-      isUpdated = true;
-    }
-    if (this.padding !== attributes.padding) {
-      this.padding = attributes.padding;
-      isUpdated = true;
-    }
     return isUpdated;
-  }
-
-  getWidth() {
-    return this.width;
-  }
-
-  getHeight() {
-    return this.height;
-  }
-
-  getPadding() {
-    return this.padding;
   }
 
   getAttributes() {
     return {
       id: this.id!,
-      width: this.width,
-      height: this.height,
-      padding: this.padding,
     };
   }
 

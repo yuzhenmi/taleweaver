@@ -1,28 +1,29 @@
-import AtomicRenderNode, { Parent } from './AtomicRenderNode';
+import AtomicRenderNode from './AtomicRenderNode';
+import Editor from '../Editor';
 
 export default class TextAtomicRenderNode extends AtomicRenderNode {
   protected content: string;
   protected breakable: boolean;
 
-  constructor(id: string, content: string, breakable: boolean) {
-    super(id);
+  constructor(editor: Editor, id: string, content: string, breakable: boolean) {
+    super(editor, id);
     this.content = content;
     this.breakable = breakable;
   }
 
-  getType(): string {
+  getType() {
     return 'TextAtomicRenderNode';
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     return this.content.length;
   }
 
-  getContent(): string {
+  getContent() {
     return this.content;
   }
 
-  getBreakable(): boolean {
+  getBreakable() {
     return this.breakable;
   }
 }

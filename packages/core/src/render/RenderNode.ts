@@ -1,12 +1,15 @@
+import Editor from '../Editor';
 import Node from '../tree/Node';
 
 export default abstract class RenderNode implements Node {
+  protected editor: Editor;
   protected id: string;
   protected version: number;
   protected selectableSize?: number;
   protected modelSize?: number;
 
-  constructor(id: string) {
+  constructor(editor: Editor, id: string) {
+    this.editor = editor;
     this.id = id;
     this.version = 0;
   }
@@ -17,11 +20,9 @@ export default abstract class RenderNode implements Node {
     return this.id;
   }
 
-  setVersion(version: number) {
-    this.version = version;
-  }
+  abstract setVersion(version: number): void;
 
-  getVersion(): number {
+  getVersion() {
     return this.version;
   }
 

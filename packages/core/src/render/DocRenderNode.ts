@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import RootNode from '../tree/RootNode';
 import Doc from '../model/Doc';
 import RenderNode from './RenderNode';
@@ -6,16 +7,10 @@ import BlockRenderNode from './BlockRenderNode';
 export type Child = BlockRenderNode;
 
 export default class DocRenderNode extends RenderNode implements RootNode {
-  protected width: number;
-  protected height: number;
-  protected padding: number;
   protected children: Child[];
 
-  constructor(id: string) {
-    super(id);
-    this.width = 0;
-    this.height = 0;
-    this.padding = 0;
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.children = [];
   }
 
@@ -24,31 +19,13 @@ export default class DocRenderNode extends RenderNode implements RootNode {
   }
 
   setVersion(version: number) {
-    this.version = version;
+    if (this.version < version) {
+      this.version = version;
+    }
   }
 
   getVersion(): number {
     return this.version;
-  }
-
-  getWidth(): number {
-    return this.width;
-  }
-
-  getHeight(): number {
-    return this.height;
-  }
-
-  getPadding(): number {
-    return this.padding;
-  }
-
-  getInnerWidth(): number {
-    return this.width - this.padding - this.padding;
-  }
-
-  getInnerHeight(): number {
-    return this.height - this.padding - this.padding;
   }
 
   insertChild(child: Child, offset: number | null = null) {
@@ -114,9 +91,6 @@ export default class DocRenderNode extends RenderNode implements RootNode {
 
   onModelUpdated(element: Doc) {
     this.id = element.getID();
-    this.width = element.getWidth();
-    this.height = element.getHeight();
-    this.padding = element.getPadding();
     this.clearCache();
   }
 }

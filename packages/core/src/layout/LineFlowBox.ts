@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import mergeViewportBoundingRects from './utils/mergeViewportBoundingRects';
 import FlowBox from './FlowBox';
 import BlockBox from './BlockBox';
@@ -9,24 +10,34 @@ type Parent = BlockBox;
 type Child = InlineBox;
 
 export default class LineFlowBox extends FlowBox {
-  protected configWidth: number;
+  protected width: number;
+  protected height?: number;
   protected parent: Parent | null = null;
   protected children: Child[] = [];
 
-  constructor(width: number) {
-    super();
-    this.configWidth = width;
+  constructor(editor: Editor, width: number) {
+    super(editor);
+    this.width = width;
   }
 
-  getWidth(): number {
-    return this.configWidth;
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
   }
 
-  getHeight(): number {
+  getWidth() {
+    return this.width;
+  }
+
+  getHeight() {
     if (this.height === undefined) {
       let height = 0;
       this.getChildren().forEach(child => {
-        const childHeight = child.getHeight();
+        const childHeight = child.getPaddingTop() + child.getHeight() + child.getPaddingBottom();
         if (childHeight > height) {
           height = childHeight;
         }
@@ -36,11 +47,27 @@ export default class LineFlowBox extends FlowBox {
     return this.height;
   }
 
+  getPaddingTop() {
+    return 0;
+  }
+
+  getPaddingBottom() {
+    return 0;
+  }
+
+  getPaddingLeft() {
+    return 0;
+  }
+
+  getPaddingRight() {
+    return 0;
+  }
+
   setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`Line box has no parent set.`);
     }
@@ -68,11 +95,11 @@ export default class LineFlowBox extends FlowBox {
     this.clearCache();
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
-  getPreviousSibling(): LineFlowBox | null {
+  getPreviousSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -89,7 +116,7 @@ export default class LineFlowBox extends FlowBox {
     return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
   }
 
-  getNextSibling(): LineFlowBox | null {
+  getNextSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -106,7 +133,7 @@ export default class LineFlowBox extends FlowBox {
     return parentNextSiblingChildren[0];
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -121,12 +148,12 @@ export default class LineFlowBox extends FlowBox {
     this.clearCache();
   }
 
-  splitAt(offset: number): LineFlowBox {
+  splitAt(offset: number) {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving LineFlowBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const newLineFlowBox = new LineFlowBox(this.getWidth());
+    const newLineFlowBox = new LineFlowBox(this.editor, this.getWidth());
     childrenCut.forEach((child, childOffset) => {
       newLineFlowBox.insertChild(child, childOffset);
     });
@@ -134,7 +161,7 @@ export default class LineFlowBox extends FlowBox {
     return newLineFlowBox;
   }
 
-  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+  resolvePosition(parentPosition: Position, selectableOffset: number) {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -151,7 +178,7 @@ export default class LineFlowBox extends FlowBox {
     return position;
   }
 
-  resolveViewportPositionToSelectableOffset(x: number): number {
+  resolveViewportPositionToSelectableOffset(x: number) {
     let selectableOffset = 0;
     let cumulatedWidth = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -170,7 +197,7 @@ export default class LineFlowBox extends FlowBox {
     return selectableOffset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedWidth = 0;
@@ -184,13 +211,27 @@ export default class LineFlowBox extends FlowBox {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset && !(childFrom === childTo && childTo === maxChildOffset)) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          const width = childViewportBoundingRect.width;
+          const height = childViewportBoundingRect.height;
+          const paddingTop = this.getPaddingTop();
+          const paddingBottom = this.getPaddingBottom();
+          const paddingLeft = this.getPaddingLeft();
+          const paddingRight = this.getPaddingRight();
+          const left = cumulatedWidth + paddingLeft + childViewportBoundingRect.left;
+          const right = this.getWidth() - cumulatedWidth - childViewportBoundingRect.right - paddingRight;
+          const top = paddingTop + childViewportBoundingRect.top;
+          const bottom = paddingBottom + childViewportBoundingRect.bottom;
           viewportBoundingRects.push({
-            left: cumulatedWidth + childViewportBoundingRect.left,
-            right: this.getWidth() - cumulatedWidth - childWidth + childViewportBoundingRect.right,
-            top: 0,
-            bottom: 0,
-            width: childViewportBoundingRect.width,
-            height: this.getHeight(),
+            width,
+            height,
+            left,
+            right,
+            top,
+            bottom,
+            paddingTop: childViewportBoundingRect.paddingTop,
+            paddingBottom: childViewportBoundingRect.paddingBottom,
+            paddingLeft: 0,
+            paddingRight: 0,
           });
         });
       }
@@ -199,5 +240,10 @@ export default class LineFlowBox extends FlowBox {
     }
     mergeViewportBoundingRects(viewportBoundingRects);
     return viewportBoundingRects;
+  }
+
+  protected clearCache() {
+    super.clearCache();
+    this.height = undefined;
   }
 }

@@ -11,6 +11,15 @@ export default abstract class InlineElement extends Element implements LeafNode 
   protected parent: ParentElement | null = null;
   protected content: string = '';
 
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
   setParent(parent: ParentElement | null) {
     this.parent = parent;
   }
@@ -27,7 +36,7 @@ export default abstract class InlineElement extends Element implements LeafNode 
     this.clearCache();
   }
 
-  getContent(): string {
+  getContent() {
     return this.content;
   }
 

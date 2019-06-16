@@ -9,13 +9,24 @@ type Parent = LineFlowBox;
 type Child = AtomicBox;
 
 export default abstract class InlineBox extends Box {
+  protected width?: number;
+  protected height?: number;
   protected widthWithoutTrailingWhitespace?: number;
   protected parent: Parent | null = null;
   protected children: Child[] = [];
 
   abstract getType(): string;
 
-  getWidth(): number {
+  setVersion(version: number) {
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
+  }
+
+  getWidth() {
     if (this.width === undefined) {
       let width = 0;
       this.getChildren().forEach(child => {
@@ -26,7 +37,7 @@ export default abstract class InlineBox extends Box {
     return this.width;
   }
 
-  getWidthWithoutTrailingWhitespace(): number {
+  getWidthWithoutTrailingWhitespace() {
     if (this.widthWithoutTrailingWhitespace === undefined) {
       const lastChild = this.children[this.children.length - 1];
       this.widthWithoutTrailingWhitespace = this.getWidth() - lastChild.getWidth() + lastChild.getWidthWithoutTrailingWhitespace();
@@ -34,11 +45,11 @@ export default abstract class InlineBox extends Box {
     return this.widthWithoutTrailingWhitespace;
   }
 
-  getHeight(): number {
+  getHeight() {
     if (this.height === undefined) {
       let height = 0;
       this.getChildren().forEach(child => {
-        const childHeight = child.getHeight();
+        const childHeight = child.getPaddingTop() + child.getHeight() + child.getPaddingBottom();
         if (childHeight > height) {
           height = childHeight;
         }
@@ -48,11 +59,27 @@ export default abstract class InlineBox extends Box {
     return this.height;
   }
 
+  getPaddingTop() {
+    return 0;
+  }
+
+  getPaddingBottom() {
+    return 9;
+  }
+
+  getPaddingLeft() {
+    return 0;
+  }
+
+  getPaddingRight() {
+    return 0;
+  }
+
   setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`Inline box has no parent set.`);
     }
@@ -80,11 +107,11 @@ export default abstract class InlineBox extends Box {
     this.clearCache();
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
-  getPreviousSibling(): InlineBox | null {
+  getPreviousSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -101,7 +128,7 @@ export default abstract class InlineBox extends Box {
     return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
   }
 
-  getNextSibling(): InlineBox | null {
+  getNextSibling() {
     const siblings = this.getParent().getChildren();
     const offset = siblings.indexOf(this);
     if (offset < 0) {
@@ -118,7 +145,7 @@ export default abstract class InlineBox extends Box {
     return parentNextSiblingChildren[0];
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -133,7 +160,7 @@ export default abstract class InlineBox extends Box {
     this.clearCache();
   }
 
-  resolvePosition(parentPosition: Position, selectableOffset: number): Position {
+  resolvePosition(parentPosition: Position, selectableOffset: number) {
     const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -154,7 +181,7 @@ export default abstract class InlineBox extends Box {
 
   abstract join(inlineBox: InlineBox): void;
 
-  resolveViewportPositionToSelectableOffset(x: number): number {
+  resolveViewportPositionToSelectableOffset(x: number) {
     let selectableOffset = 0;
     let cumulatedWidth = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -170,7 +197,7 @@ export default abstract class InlineBox extends Box {
     return selectableOffset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[] {
+  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
     let selectableOffset = 0;
     let cumulatedWidth = 0;
@@ -184,13 +211,27 @@ export default abstract class InlineBox extends Box {
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
         const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
+          const width = childViewportBoundingRect.width;
+          const height = childViewportBoundingRect.height;
+          const paddingTop = this.getPaddingTop();
+          const paddingBottom = this.getPaddingBottom();
+          const paddingLeft = this.getPaddingLeft();
+          const paddingRight = this.getPaddingRight();
+          const left = cumulatedWidth + paddingLeft + childViewportBoundingRect.left;
+          const right = this.getWidth() - cumulatedWidth - childViewportBoundingRect.right - paddingRight;
+          const top = paddingTop + childViewportBoundingRect.top;
+          const bottom = paddingBottom + childViewportBoundingRect.bottom;
           viewportBoundingRects.push({
-            left: cumulatedWidth + childViewportBoundingRect.left,
-            right: this.getWidth() - cumulatedWidth - childWidth + childViewportBoundingRect.right,
-            top: 0,
-            bottom: 0,
-            width: childViewportBoundingRect.width,
-            height: this.getHeight(),
+            width,
+            height,
+            left,
+            right,
+            top,
+            bottom,
+            paddingTop,
+            paddingBottom,
+            paddingLeft: 0,
+            paddingRight: 0,
           });
         });
       }
@@ -202,6 +243,8 @@ export default abstract class InlineBox extends Box {
 
   protected clearCache() {
     super.clearCache();
+    this.width = undefined;
+    this.height = undefined;
     this.widthWithoutTrailingWhitespace = undefined;
   }
 }

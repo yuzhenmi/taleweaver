@@ -12,7 +12,7 @@ export default abstract class InlineViewNode extends ViewNode implements LeafNod
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`No parent has been set.`);
     }

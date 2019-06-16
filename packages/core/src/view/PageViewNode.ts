@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import BranchNode from '../tree/BranchNode';
 import PageFlowBox from '../layout/PageFlowBox';
 import ViewNode from './ViewNode';
@@ -12,33 +13,43 @@ export default class PageViewNode extends ViewNode implements BranchNode {
   protected children: Child[] = [];
   protected domContainer: HTMLDivElement;
   protected domContentContainer: HTMLDivElement;
+  protected domContentInnerContainer: HTMLDivElement;
 
-  constructor(id: string) {
-    super(id);
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'page');
-    this.domContainer.style.position = 'relative';
     this.domContentContainer = document.createElement('div');
-    this.domContentContainer.className = 'tw--page-content';
-    this.domContentContainer.setAttribute('data-tw-role', 'page-content');
+    this.domContentContainer.className = 'tw--page-inner';
+    this.domContentContainer.style.position = 'relative';
+    this.domContentContainer.style.marginLeft = 'auto';
+    this.domContentContainer.style.marginRight = 'auto';
     this.domContainer.appendChild(this.domContentContainer);
+    this.domContentInnerContainer = document.createElement('div');
+    this.domContentInnerContainer.className = 'tw--page-content';
+    this.domContentInnerContainer.setAttribute('data-tw-role', 'page-content');
+    this.domContentContainer.appendChild(this.domContentInnerContainer);
   }
 
-  getDOMContainer(): HTMLDivElement {
+  getDOMContainer() {
     return this.domContainer;
   }
 
-  getDOMContentContainer(): HTMLDivElement {
+  getDOMContentContainer() {
     return this.domContentContainer;
+  }
+
+  getDOMContentInnerContainer() {
+    return this.domContentInnerContainer;
   }
 
   setParent(parent: Parent | null) {
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error(`No parent has been set.`);
     }
@@ -50,16 +61,16 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     child.setParent(this);
     if (offset === null) {
       this.children.push(child);
-      this.domContentContainer.appendChild(childDOMContainer);
+      this.domContentInnerContainer.appendChild(childDOMContainer);
     } else {
       this.children.splice(offset, 0, child);
-      if (offset > this.domContentContainer.childNodes.length) {
+      if (offset > this.domContentInnerContainer.childNodes.length) {
         throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
       }
-      if (offset === this.domContentContainer.childNodes.length) {
-        this.domContentContainer.appendChild(childDOMContainer);
+      if (offset === this.domContentInnerContainer.childNodes.length) {
+        this.domContentInnerContainer.appendChild(childDOMContainer);
       } else {
-        this.domContentContainer.insertBefore(childDOMContainer, this.domContentContainer.childNodes[offset]);
+        this.domContentInnerContainer.insertBefore(childDOMContainer, this.domContentInnerContainer.childNodes[offset]);
       }
     }
   }
@@ -71,12 +82,12 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     }
     child.onDeleted();
     const childDOMContainer = child.getDOMContainer();
-    this.domContentContainer.removeChild(childDOMContainer);
+    this.domContentInnerContainer.removeChild(childDOMContainer);
     child.setParent(null);
     this.children.splice(childOffset, 1);
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -87,13 +98,21 @@ export default class PageViewNode extends ViewNode implements BranchNode {
   }
 
   onLayoutUpdated(layoutNode: PageFlowBox) {
+    const pageConfig = this.editor.getConfig().getPageConfig();
     this.selectableSize = layoutNode.getSelectableSize();
-    this.domContainer.style.width = `${layoutNode.getWidth()}px`;
-    this.domContainer.style.height = `${layoutNode.getHeight()}px`;
-    this.domContainer.style.padding = `${layoutNode.getPadding()}px`;
+    this.domContentContainer.style.width = `${layoutNode.getWidth()}px`;
+    if (pageConfig.getShouldTrimPageBottom()) {
+      this.domContentContainer.style.maxHeight = `${layoutNode.getHeight()}px`;
+    } else {
+      this.domContentContainer.style.height = `${layoutNode.getHeight()}px`;
+    }
+    this.domContentContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
+    this.domContentContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
+    this.domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
+    this.domContentContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
   }
 
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
+  resolveSelectableOffsetToNodeOffset(offset: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];

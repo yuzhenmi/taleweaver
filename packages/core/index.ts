@@ -1,5 +1,5 @@
 import Editor from './src/Editor';
-import Config from './src/Config';
+import Config from './src/config/Config';
 
 import OpenTagToken from './src/token/OpenTagToken';
 import CloseTagToken from './src/token/CloseTagToken';

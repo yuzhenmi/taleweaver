@@ -12,10 +12,15 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
   protected children: Child[] = [];
 
   setVersion(version: number) {
-    this.version = version;
+    if (this.version < version) {
+      this.version = version;
+      if (this.parent) {
+        this.parent.setVersion(version);
+      }
+    }
   }
 
-  getVersion(): number {
+  getVersion() {
     return this.version;
   }
 
@@ -23,14 +28,14 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     this.parent = parent;
   }
 
-  getParent(): Parent {
+  getParent() {
     if (!this.parent) {
       throw new Error('No parent has been set.');
     }
     return this.parent;
   }
 
-  getChildren(): Child[] {
+  getChildren() {
     return this.children;
   }
 
@@ -61,7 +66,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     this.modelSize = undefined;
   }
 
-  getSelectableSize(): number {
+  getSelectableSize() {
     if (this.selectableSize === undefined) {
       let selectableSize = 0;
       this.children.forEach(child => {
@@ -72,7 +77,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.selectableSize;
   }
 
-  getModelSize(): number {
+  getModelSize() {
     if (this.modelSize === undefined) {
       let modelSize = 2;
       this.children.forEach(child => {
@@ -83,7 +88,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+  convertSelectableOffsetToModelOffset(selectableOffset: number) {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {

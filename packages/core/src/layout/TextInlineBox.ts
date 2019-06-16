@@ -2,16 +2,16 @@ import InlineBox from './InlineBox';
 
 export default class TextInlineBox extends InlineBox {
 
-  getType(): string {
+  getType() {
     return 'TextInlineBox';
   }
 
-  splitAt(offset: number): InlineBox {
+  splitAt(offset: number) {
     if (offset > this.children.length) {
       throw new Error(`Error cleaving TextInlineBox, offset ${offset} is out of range.`);
     }
     const childrenCut = this.children.splice(offset);
-    const newTextInlineBox = new TextInlineBox(this.renderNodeID);
+    const newTextInlineBox = new TextInlineBox(this.editor, this.renderNodeID);
     childrenCut.forEach((child, childOffset) => {
       newTextInlineBox.insertChild(child, childOffset);
     });

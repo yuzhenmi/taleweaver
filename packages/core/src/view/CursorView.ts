@@ -33,10 +33,9 @@ export default class CursorView {
     editor.getDispatcher().on(ViewStateUpdatedEvent, event => this.updateView());
     editor.getDispatcher().on(CursorFocusedEvent, event => this.updateView());
     editor.getDispatcher().on(CursorBlurredEvent, event => this.updateView());
-    setTimeout(() => this.updateView());
   }
 
-  getLeftAnchor(): number | null {
+  getLeftAnchor() {
     return this.leftAnchor;
   }
 
@@ -87,7 +86,7 @@ export default class CursorView {
     let lastPageOffset: number = -1;
     let lastViewportBoundingRectOffset: number = -1;
     viewportBoundingRectsByPage.forEach((viewportBoundingRects, pageOffset) => {
-      const pageDOMContainer = pageViewNodes[pageOffset].getDOMContainer();
+      const pageDOMContentContainer = pageViewNodes[pageOffset].getDOMContentContainer();
       viewportBoundingRects.forEach((viewportBoundingRect, viewportBoundingRectOffset) => {
         if (firstPageOffset < 0) {
           firstPageOffset = pageOffset;
@@ -103,8 +102,8 @@ export default class CursorView {
         domSelection.style.position = 'absolute';
         domSelection.style.top = `${viewportBoundingRect.top}px`;
         domSelection.style.left = `${viewportBoundingRect.left}px`;
-        domSelection.style.width = `${viewportBoundingRect.width}px`;
-        domSelection.style.height = `${viewportBoundingRect.height}px`;
+        domSelection.style.width = `${viewportBoundingRect.paddingLeft + viewportBoundingRect.width + viewportBoundingRect.paddingRight}px`;
+        domSelection.style.height = `${viewportBoundingRect.paddingTop + viewportBoundingRect.height + viewportBoundingRect.paddingBottom}px`;
         domSelection.style.userSelect = 'none';
         domSelection.style.pointerEvents = 'none';
         if (isFocused) {
@@ -112,7 +111,7 @@ export default class CursorView {
         } else {
           domSelection.style.background = 'hsla(0, 0%, 0%, 0.08)';
         }
-        pageDOMContainer.appendChild(domSelection);
+        pageDOMContentContainer.appendChild(domSelection);
         this.domSelections.push(domSelection);
       });
     });
@@ -133,31 +132,36 @@ export default class CursorView {
       headTop = viewportBoundingRect.top;
       headHeight = viewportBoundingRect.height;
     }
-    this.domCaret.style.top = `${headTop}px`;
-    this.domCaret.style.left = `${headLeft}px`;
-    this.domCaret.style.height = `${headHeight}px`;
-    if (isFocused) {
-      this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+    if (head === anchor) {
+      this.domCaret.style.display = 'block';
+      this.domCaret.style.top = `${headTop}px`;
+      this.domCaret.style.left = `${headLeft}px`;
+      this.domCaret.style.height = `${headHeight}px`;
+      if (isFocused) {
+        this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+      } else {
+        this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+      }
+      const pageDOMContentContainer = pageViewNodes[headPageOffset].getDOMContentContainer();
+      if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContentContainer) {
+        this.domCaret.parentElement.removeChild(this.domCaret);
+      }
+      if (!this.domCaret.parentElement) {
+        pageDOMContentContainer.appendChild(this.domCaret);
+      }
+      // Reset blinking
+      this.stopBlinking();
+      if (isFocused) {
+        this.startBlinking();
+      }
     } else {
-      this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+      this.domCaret.style.display = 'none';
     }
-    const pageDOMContainer = pageViewNodes[headPageOffset].getDOMContainer();
-    if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContainer) {
-      this.domCaret.parentElement.removeChild(this.domCaret);
-    }
-    if (!this.domCaret.parentElement) {
-      pageDOMContainer.appendChild(this.domCaret);
-    }
-
     // Scroll cursor head into view, if focused
     if (isFocused) {
-      this.domCaret.scrollIntoView({ block: 'nearest' });
-    }
-
-    // Reset blinking
-    this.stopBlinking();
-    if (isFocused) {
-      this.startBlinking();
+      setTimeout(() => {
+        this.domCaret.scrollIntoView({ block: 'nearest' });
+      });
     }
   }
 }

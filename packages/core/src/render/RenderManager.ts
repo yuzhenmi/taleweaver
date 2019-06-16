@@ -11,7 +11,7 @@ class RenderManager {
     this.editor = editor;
     const modelManager = editor.getModelManager();
     const doc = modelManager.getDoc();
-    this.docRenderNode = new DocRenderNode(doc.getID());
+    this.docRenderNode = new DocRenderNode(editor, doc.getID());
     this.renderEngine = new RenderEngine(editor, this.docRenderNode);
   }
 
