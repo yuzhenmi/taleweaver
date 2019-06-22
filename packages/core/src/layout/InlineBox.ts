@@ -60,11 +60,11 @@ export default abstract class InlineBox extends Box {
   }
 
   getPaddingTop() {
-    return 0;
+    return 3;
   }
 
   getPaddingBottom() {
-    return 9;
+    return 6;
   }
 
   getPaddingLeft() {
