@@ -52,7 +52,6 @@ export default function split(): Command {
     transformation.addOperation(new Insert(
       editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
       [
-        '\n',
         new CloseTagToken(), // Close inline
         new CloseTagToken(), // Close block
         new OpenTagToken(blockOpenTagToken.getType(), generateID(), blockOpenTagToken.getAttributes()), // Open block

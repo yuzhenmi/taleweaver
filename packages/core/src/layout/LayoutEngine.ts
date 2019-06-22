@@ -54,7 +54,10 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return node.getChildren();
     }
     if (node instanceof BlockRenderNode) {
-      return node.getChildren();
+      return [
+        ...node.getChildren(),
+        node.getLineBreakInlineRenderNode(),
+      ];
     }
     if (node instanceof InlineRenderNode) {
       return node.getChildren();

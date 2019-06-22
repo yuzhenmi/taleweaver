@@ -4,26 +4,19 @@ import TreeNode from '../tree/Node';
 import Token from '../token/Token';
 import Attributes from '../token/Attributes';
 
-export interface Segment {
-  nodes: Array<{
-    name: string;
-    attributes: {
-      [key: string]: any;
-    };
-    ref: Node;
-  }>;
-  content: string | null;
-}
-
 export interface DOMAttributes {
   [key: string]: any;
 }
 
-export default abstract class Element implements TreeNode {
-  static fromSegment(editor: Editor, segment: Segment): [Element | null, Node | null] {
-    throw new Error('Element class must implement static method fromSegment.');
-  }
+export interface ResolvedPosition {
+  element: Element;
+  depth: number;
+  offset: number;
+  parent: ResolvedPosition | null;
+  child: ResolvedPosition | null;
+}
 
+export default abstract class Element implements TreeNode {
   protected editor: Editor;
   protected id: string;
   protected version: number = 0;

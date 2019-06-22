@@ -1,13 +1,13 @@
 import Editor from '../Editor';
-import generateID from '../utils/generateID';
 import Token from '../token/Token';
 import OpenTagToken from '../token/OpenTagToken';
 import CloseTagToken from '../token/CloseTagToken';
-import { DOMAttributes } from '../model/Element';
+import { DOMAttributes, ResolvedPosition } from '../model/Element';
+import Doc from '../model/Doc';
 import BlockElement from '../model/BlockElement';
-import { insert } from '../command/commands';
 import Paragraph from '../model/Paragraph';
 import Text from '../model/Text';
+import { insert } from '../command/commands';
 
 const $iframe = document.createElement('iframe');
 $iframe.scrolling = 'no';
@@ -90,13 +90,40 @@ function interpretRootDOMNode(editor: Editor, node: Node) {
   return blockElements;
 }
 
-function wrapTokens(tokens: Token[]) {
-  const wrappedTokens = [...tokens];
-  wrappedTokens.unshift(new CloseTagToken(), new CloseTagToken());
-  wrappedTokens.push(
-    new OpenTagToken('Paragraph', generateID(), {}),
-    new OpenTagToken('Text', generateID(), {}),
-  );
+function getWrappingCloseTagTokens(position: ResolvedPosition) {
+  const tokens: CloseTagToken[] = [];
+  if (position.child) {
+    tokens.push(...getWrappingCloseTagTokens(position.child));
+  }
+  if (!(position.element instanceof Doc)) {
+    tokens.push(new CloseTagToken());
+  }
+  return tokens;
+}
+
+function getWrappingOpenTagTokens(position: ResolvedPosition) {
+  const tokens: OpenTagToken[] = [];
+  if (!(position.element instanceof Doc)) {
+    tokens.push(new OpenTagToken(
+      position.element.getType(),
+      position.element.getID(),
+      position.element.getAttributes(),
+    ));
+  }
+  if (position.child) {
+    tokens.push(...getWrappingOpenTagTokens(position.child));
+  }
+  return tokens;
+}
+
+function wrapTokens(editor: Editor, tokens: Token[]) {
+  const cursorOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
+  const cursorPosition = editor.getModelManager().resolveOffset(cursorOffset);
+  const wrappedTokens = [
+    ...getWrappingCloseTagTokens(cursorPosition),
+    ...tokens,
+    ...getWrappingOpenTagTokens(cursorPosition),
+  ];
   return wrappedTokens;
 }
 
@@ -113,7 +140,7 @@ function paste(editor: Editor, data: DataTransfer) {
   blockElements.forEach(element => {
     tokens.push(...element.toTokens());
   });
-  const wrappedTokens = wrapTokens(tokens);
+  const wrappedTokens = wrapTokens(editor, tokens);
   editor.getDispatcher().dispatchCommand(insert(wrappedTokens));
 }
 

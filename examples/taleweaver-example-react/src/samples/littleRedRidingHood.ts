@@ -176,4 +176,4 @@ export default `
     </>
   </>
 </>
-`.split('\n').map(line => line.trim()).join('').replace(/([^>])<\/>/g, '$1\n</>').replace(/{{id}}/g, () => `${Math.random().toString(36).substring(2)}`);
+`.split('\n').map(line => line.trim()).join('').replace(/{{id}}/g, () => `${Math.random().toString(36).substring(2)}`);

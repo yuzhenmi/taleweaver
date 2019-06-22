@@ -3,7 +3,7 @@ import Token from '../token/Token';
 import OpenTagToken from '../token/OpenTagToken';
 import CloseTagToken from '../token/CloseTagToken';
 import Attributes from '../token/Attributes';
-import Element from './Element';
+import Element, { ResolvedPosition } from './Element';
 import BlockElement from './BlockElement';
 
 type ChildElement = BlockElement;
@@ -96,5 +96,27 @@ export default class Doc extends Element implements RootNode {
     });
     tokens.push(new CloseTagToken());
     return tokens;
+  }
+
+  resolveOffset(offset: number) {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
+        const resolvedPosition: ResolvedPosition = {
+          element: this,
+          depth: 0,
+          offset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+    }
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 }

@@ -1,8 +1,12 @@
+import Editor from '../Editor';
 import BranchNode from '../tree/BranchNode';
 import BlockElement from '../model/BlockElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
+import TextInlineRenderNode from './TextInlineRenderNode';
+import generateID from '../utils/generateID';
+import TextAtomicRenderNode from './TextAtomicRenderNode';
 
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
@@ -10,6 +14,12 @@ export type Child = InlineRenderNode;
 export default abstract class BlockRenderNode extends RenderNode implements BranchNode {
   protected parent: Parent | null = null;
   protected children: Child[] = [];
+  protected lineBreakInlineRenderNode: InlineRenderNode;
+
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
+    this.lineBreakInlineRenderNode = this.buildLineBreakInlineRenderNode();
+  }
 
   setVersion(version: number) {
     if (this.version < version) {
@@ -101,5 +111,16 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
       cumulatedModelOffset += child.getModelSize();
     }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
+
+  buildLineBreakInlineRenderNode(): InlineRenderNode {
+    const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
+    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true);
+    inlineRenderNode.insertChild(atomicRenderNode);
+    return inlineRenderNode;
+  }
+
+  getLineBreakInlineRenderNode() {
+    return this.lineBreakInlineRenderNode;
   }
 }

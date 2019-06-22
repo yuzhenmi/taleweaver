@@ -2,7 +2,7 @@ import BranchNode from '../tree/BranchNode';
 import Token from '../token/Token';
 import OpenTagToken from '../token/OpenTagToken';
 import CloseTagToken from '../token/CloseTagToken';
-import Element from './Element';
+import Element, { ResolvedPosition } from './Element';
 import Doc from './Doc';
 import InlineElement from './InlineElement';
 
@@ -76,6 +76,28 @@ export default abstract class BlockElement extends Element implements BranchNode
     });
     tokens.push(new CloseTagToken());
     return tokens;
+  }
+
+  resolveOffset(offset: number, depth: number) {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
+        const resolvedPosition: ResolvedPosition = {
+          element: this,
+          depth,
+          offset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, depth + 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+    }
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 
   abstract clone(): BlockElement;

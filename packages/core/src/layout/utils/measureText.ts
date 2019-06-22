@@ -13,11 +13,9 @@ export class TextMeasurer {
   }
 
   measure(text: string, textStyle: TextStyle) {
-    // Substitute trailing new line with space
-    const adjustedText = text.replace(/\n$/, ' ');
     const ctx = this.$canvas.getContext('2d')!;
     ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px "${textStyle.fontFamily}"`;
-    const measurement = ctx.measureText(adjustedText);
+    const measurement = ctx.measureText(text);
     return {
       width: measurement.width,
       height: textStyle.fontSize,
