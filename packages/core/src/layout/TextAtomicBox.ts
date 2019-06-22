@@ -8,10 +8,9 @@ export default class TextAtomicBox extends AtomicBox {
   protected height?: number;
   protected content: string = '';
   protected textStyle: TextStyle = {
-    fontFamily: 'sans-serif',
+    fontFamily: 'Source Sans Pro',
     fontSize: 18,
     fontWeight: 400,
-    letterSpacing: 0,
   };
 
   getWidth() {

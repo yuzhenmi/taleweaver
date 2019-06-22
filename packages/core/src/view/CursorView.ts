@@ -100,7 +100,7 @@ export default class CursorView {
         const domSelection = document.createElement('div');
         domSelection.className = 'tw--cursor-selection'
         domSelection.style.position = 'absolute';
-        domSelection.style.top = `${viewportBoundingRect.top}px`;
+        domSelection.style.top = `${viewportBoundingRect.top - viewportBoundingRect.paddingTop}px`;
         domSelection.style.left = `${viewportBoundingRect.left}px`;
         domSelection.style.width = `${viewportBoundingRect.paddingLeft + viewportBoundingRect.width + viewportBoundingRect.paddingRight}px`;
         domSelection.style.height = `${viewportBoundingRect.paddingTop + viewportBoundingRect.height + viewportBoundingRect.paddingBottom}px`;
@@ -156,12 +156,7 @@ export default class CursorView {
       }
     } else {
       this.domCaret.style.display = 'none';
-    }
-    // Scroll cursor head into view, if focused
-    if (isFocused) {
-      setTimeout(() => {
-        this.domCaret.scrollIntoView({ block: 'nearest' });
-      });
+      this.stopBlinking();
     }
   }
 }
