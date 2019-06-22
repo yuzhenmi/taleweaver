@@ -19,7 +19,8 @@ export default class LineViewNode extends ViewNode implements BranchNode {
     this.domContainer.className = 'tw--line';
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'line');
-    this.domContainer.style.whiteSpace = 'pre-wrap';
+    this.domContainer.style.whiteSpace = 'pre';
+    this.domContainer.style.lineHeight = '0';
   }
 
   getDOMContainer() {
