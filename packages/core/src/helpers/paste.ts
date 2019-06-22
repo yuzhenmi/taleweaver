@@ -1,27 +1,13 @@
 import Editor from '../Editor';
+import generateID from '../utils/generateID';
 import Token from '../token/Token';
-import Element from '../model/Element';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
+import { DOMAttributes } from '../model/Element';
+import BlockElement from '../model/BlockElement';
 import { insert } from '../command/commands';
-
-const NON_CONTENT_TAG_NAMES = [
-  'meta'
-];
-
-function interpretHTMLElement(editor: Editor, $element: HTMLElement): Element {
-  const config = editor.getConfig();
-  const elementClasses = config.getAllElementClasses();
-  const tagName = $element.tagName;
-  for (let n = 0, nn = elementClasses.length; n < nn; n++) {
-    const elementClass = elementClasses[n];
-    // @ts-ignore
-    if (elementClass.compatibleHTMLTagNames.inludes(tagName)) {
-      // @ts-ignore
-      return elementClass.fromHTMLElement($element) as Element;
-    }
-  }
-  // TODO: Handle with default / wildcard class, guess whether block or inline
-  throw new Error('TODO');
-}
+import Paragraph from '../model/Paragraph';
+import Text from '../model/Text';
 
 const $iframe = document.createElement('iframe');
 $iframe.scrolling = 'no';
@@ -33,27 +19,102 @@ $iframe.style.position = 'fixed';
 $iframe.style.zIndex = '-1';
 $iframe.style.opacity = '0';
 $iframe.style.overflow = 'hidden';
-$iframe.style.left = '0';
-$iframe.style.top = '0';
+$iframe.style.left = '-1000000px';
+$iframe.style.top = '-1000000px';
 $iframe.contentEditable = 'true';
 document.body.appendChild($iframe);
 
-function paste(editor: Editor, data: DataTransfer) {
-  const content = data.getData('text/html');
-  $iframe.innerHTML = content;
-  const elements: Element[] = [];
-  for (let n = 0, nn = $iframe.children.length; n < nn; n++) {
-    const $element = $iframe.children[n] as HTMLElement;
-    if (NON_CONTENT_TAG_NAMES.includes($element.tagName.toLowerCase())) {
-      continue;
+interface InterpretedDOMNode {
+  blockElement: BlockElement | null;
+  content: string;
+}
+
+function getBlockElementFromDOMNode(editor: Editor, node: Node, attributes: DOMAttributes) {
+  const elementConfig = editor.getConfig().getElementConfig();
+  const nodeName = node.nodeName;
+  const blockElementClasses = elementConfig.getAllBlockElementClasses();
+  let blockElement: BlockElement | null = null;
+  for (let n = 0, nn = blockElementClasses.length; n < nn; n++) {
+    const blockElementClass = blockElementClasses[n] as any;
+    const nodeNames = blockElementClass.getDOMNodeNames();
+    if (nodeNames.includes(nodeName)) {
+      blockElement = blockElementClass.fromDOM(editor, nodeName, attributes);
     }
-    elements.push(interpretHTMLElement(editor, $element));
   }
+  return blockElement;
+}
+
+function interpretDOMNode(editor: Editor, node: Node, attributes: DOMAttributes, parentBlockElement: BlockElement): InterpretedDOMNode[] {
+  const blockElement = getBlockElementFromDOMNode(editor, node, attributes);
+  const unmergedInterpretedNodes: InterpretedDOMNode[][] = [];
+  let hasBlockElement: boolean = false;
+  node.childNodes.forEach(childNode => {
+    const interpretedNodes = interpretDOMNode(editor, childNode, attributes, blockElement || parentBlockElement);
+    unmergedInterpretedNodes.push(interpretedNodes);
+    if (interpretedNodes.some(n => !!n.blockElement)) {
+      hasBlockElement = true;
+    }
+  });
+  const mergedInterpretedNodes: InterpretedDOMNode[] = [];
+  if (hasBlockElement) {
+    unmergedInterpretedNodes.forEach(interpretedNodes => {
+      interpretedNodes.forEach(interpretedNode => {
+        if (!interpretedNode.blockElement) {
+          interpretedNode.blockElement = (blockElement || parentBlockElement).clone();
+        }
+        mergedInterpretedNodes.push(interpretedNode);
+      });
+    });
+  } else {
+    mergedInterpretedNodes.push({
+      blockElement,
+      content: node.textContent || '',
+    });
+  }
+  return mergedInterpretedNodes;
+}
+
+function interpretRootDOMNode(editor: Editor, node: Node) {
+  const defaultBlockElement = new Paragraph(editor);
+  const interpretedNodes = interpretDOMNode(editor, node, {}, defaultBlockElement);
+  const blockElements = interpretedNodes.map(interpretedNode => {
+    if (!interpretedNode.blockElement) {
+      interpretedNode.blockElement = defaultBlockElement.clone();
+    }
+    const { blockElement, content } = interpretedNode;
+    const inlineElement = new Text(editor);
+    inlineElement.setContent(content);
+    blockElement.insertChild(inlineElement);
+    return blockElement;
+  });
+  return blockElements;
+}
+
+function wrapTokens(tokens: Token[]) {
+  const wrappedTokens = [...tokens];
+  wrappedTokens.unshift(new CloseTagToken(), new CloseTagToken());
+  wrappedTokens.push(
+    new OpenTagToken('Paragraph', generateID(), {}),
+    new OpenTagToken('Text', generateID(), {}),
+  );
+  return wrappedTokens;
+}
+
+function paste(editor: Editor, data: DataTransfer) {
+  const iframeDoc = $iframe.contentDocument;
+  if (!iframeDoc) {
+    return;
+  }
+  const content = data.getData('text/plain');
+  iframeDoc.body.innerHTML = content;
+  const bodyNode = iframeDoc.body;
+  const blockElements = interpretRootDOMNode(editor, bodyNode);
   const tokens: Token[] = [];
-  elements.forEach(element => {
+  blockElements.forEach(element => {
     tokens.push(...element.toTokens());
   });
-  editor.getDispatcher().dispatchCommand(insert(tokens));
+  const wrappedTokens = wrapTokens(tokens);
+  editor.getDispatcher().dispatchCommand(insert(wrappedTokens));
 }
 
 export default paste;

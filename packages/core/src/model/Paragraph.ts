@@ -1,10 +1,20 @@
+import Editor from '../Editor';
+import generateID from '../utils/generateID';
 import Attributes from '../token/Attributes';
+import { DOMAttributes } from './Element';
 import BlockElement from './BlockElement';
 
 export default class Paragraph extends BlockElement {
-  static compatibleHTMLTagNames: string[] = ['*'];
-  static fromHTMLElement($element: HTMLElement): Paragraph {
-    throw new Error('TODO');
+
+  static getDOMNodeNames(): string[] {
+    return [
+      'P',
+      'DIV',
+    ];
+  }
+
+  static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes): BlockElement | null {
+    return new Paragraph(editor);
   }
 
   getType() {
@@ -37,5 +47,10 @@ export default class Paragraph extends BlockElement {
 
   onStateUpdated(attributes: Attributes) {
     return false;
+  }
+
+  clone() {
+    const paragraph = new Paragraph(this.editor);
+    return paragraph;
   }
 }

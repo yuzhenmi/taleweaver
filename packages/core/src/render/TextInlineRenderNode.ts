@@ -42,5 +42,14 @@ export default class TextInlineRenderNode extends InlineRenderNode {
     for (let n = offset, nn = this.children.length; n < nn; n++) {
       this.deleteChild(this.children[offset]);
     }
+    if (this.children.length === 0) {
+      const atomicRenderNode = new TextAtomicRenderNode(
+        this.editor,
+        `${element.getID()}-${generateID()}`,
+        '',
+        true,
+      );
+      this.insertChild(atomicRenderNode);
+    }
   }
 }

@@ -48,7 +48,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
   insertNode(parent: Element, srcNode: Element, offset: number) {
     const elementConfig = this.editor.getConfig().getElementConfig();
     if (parent instanceof Doc && srcNode instanceof BlockElement) {
-      const ElementClass = elementConfig.getElementClass(srcNode.getType());
+      const ElementClass = elementConfig.getBlockElementClass(srcNode.getType());
       const element = new ElementClass(this.editor);
       if (!(element instanceof BlockElement)) {
         throw new Error('Error inserting element, expecting block element.');
@@ -59,7 +59,7 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
       return element;
     }
     if (parent instanceof BlockElement && srcNode instanceof InlineElement) {
-      const ElementClass = elementConfig.getElementClass(srcNode.getType());
+      const ElementClass = elementConfig.getInlineElementClass(srcNode.getType());
       const element = new ElementClass(this.editor);
       if (!(element instanceof InlineElement)) {
         throw new Error('Error inserting element, expecting inline element.');

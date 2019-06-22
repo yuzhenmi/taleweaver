@@ -77,4 +77,6 @@ export default abstract class BlockElement extends Element implements BranchNode
     tokens.push(new CloseTagToken());
     return tokens;
   }
+
+  abstract clone(): BlockElement;
 };
