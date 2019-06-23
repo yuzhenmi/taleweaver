@@ -45,6 +45,10 @@ export default abstract class Element implements TreeNode {
     this.version++;
   }
 
+  clearCache() {
+    this.size = undefined;
+  }
+
   abstract getSize(): number;
 
   abstract getAttributes(): Attributes;
@@ -54,8 +58,4 @@ export default abstract class Element implements TreeNode {
   abstract toTokens(): Token[];
 
   abstract onStateUpdated(attributes: Attributes): boolean;
-
-  protected clearCache() {
-    this.size = undefined;
-  }
 }

@@ -59,4 +59,11 @@ export default abstract class InlineElement extends Element implements LeafNode 
     };
     return resolvedPosition;
   }
+
+  clearCache() {
+    super.clearCache();
+    if (this.parent) {
+      this.parent.clearCache();
+    }
+  }
 };

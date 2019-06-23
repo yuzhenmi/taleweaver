@@ -1,5 +1,4 @@
 import Editor from '../Editor';
-import generateID from '../utils/generateID';
 import Attributes from '../token/Attributes';
 import { DOMAttributes } from './Element';
 import BlockElement from './BlockElement';

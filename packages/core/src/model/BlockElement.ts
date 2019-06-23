@@ -70,7 +70,7 @@ export default abstract class BlockElement extends Element implements BranchNode
   }
 
   resolveOffset(offset: number, depth: number) {
-    let cumulatedOffset = 0;
+    let cumulatedOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childSize = child.getSize();
@@ -87,8 +87,17 @@ export default abstract class BlockElement extends Element implements BranchNode
         childResolvedPosition.parent = resolvedPosition;
         return resolvedPosition;
       }
+      cumulatedOffset += childSize;
     }
+    this.size = undefined;
     throw new Error(`Offset ${offset} is out of range.`);
+  }
+
+  clearCache() {
+    super.clearCache();
+    if (this.parent) {
+      this.parent.clearCache();
+    }
   }
 
   abstract clone(): BlockElement;

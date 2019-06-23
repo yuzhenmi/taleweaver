@@ -3,6 +3,7 @@ import Transformation from '../../transform/Transformation';
 import { Delete, Insert } from '../../transform/operations';
 import Token from '../../token/Token';
 import Command from '../Command';
+import OpenTagToken from '../../token/OpenTagToken';
 
 export default function insert(tokens: Token[]): Command {
   return (editor: Editor): Transformation => {
@@ -30,7 +31,20 @@ export default function insert(tokens: Token[]): Command {
       editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
       tokens,
     ));
-    transformation.setCursor(collapsedAt + tokens.filter(t => typeof(t) === 'string').length);
+    const elementConfig = editor.getConfig().getElementConfig();
+    const insertedSelectableSize = tokens.filter(token => {
+      if (typeof(token) === 'string') {
+        return true;
+      }
+      if (token instanceof OpenTagToken) {
+        try {
+          elementConfig.getBlockElementClass(token.getType());
+          return true;
+        } catch (error) {}
+      }
+      return false;
+    }).length;
+    transformation.setCursor(collapsedAt + insertedSelectableSize);
     return transformation;
   };
 }

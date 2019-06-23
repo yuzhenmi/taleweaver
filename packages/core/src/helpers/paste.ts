@@ -3,11 +3,16 @@ import Token from '../token/Token';
 import OpenTagToken from '../token/OpenTagToken';
 import CloseTagToken from '../token/CloseTagToken';
 import { DOMAttributes, ResolvedPosition } from '../model/Element';
-import Doc from '../model/Doc';
 import BlockElement from '../model/BlockElement';
 import Paragraph from '../model/Paragraph';
 import Text from '../model/Text';
 import { insert } from '../command/commands';
+import Attributes from '../token/Attributes';
+import generateID from '../utils/generateID';
+
+const DOM_NODE_NAMES_TO_IGNORE = [
+  'META',
+];
 
 const $iframe = document.createElement('iframe');
 $iframe.scrolling = 'no';
@@ -45,6 +50,9 @@ function getBlockElementFromDOMNode(editor: Editor, node: Node, attributes: DOMA
 }
 
 function interpretDOMNode(editor: Editor, node: Node, attributes: DOMAttributes, parentBlockElement: BlockElement): InterpretedDOMNode[] {
+  if (DOM_NODE_NAMES_TO_IGNORE.includes(node.nodeName)) {
+    return [];
+  }
   const blockElement = getBlockElementFromDOMNode(editor, node, attributes);
   const unmergedInterpretedNodes: InterpretedDOMNode[][] = [];
   let hasBlockElement: boolean = false;
@@ -74,8 +82,7 @@ function interpretDOMNode(editor: Editor, node: Node, attributes: DOMAttributes,
   return mergedInterpretedNodes;
 }
 
-function interpretRootDOMNode(editor: Editor, node: Node) {
-  const defaultBlockElement = new Paragraph(editor);
+function interpretRootDOMNode(editor: Editor, node: Node, defaultBlockElement: BlockElement) {
   const interpretedNodes = interpretDOMNode(editor, node, {}, defaultBlockElement);
   const blockElements = interpretedNodes.map(interpretedNode => {
     if (!interpretedNode.blockElement) {
@@ -90,42 +97,62 @@ function interpretRootDOMNode(editor: Editor, node: Node) {
   return blockElements;
 }
 
-function getWrappingCloseTagTokens(position: ResolvedPosition) {
-  const tokens: CloseTagToken[] = [];
-  if (position.child) {
-    tokens.push(...getWrappingCloseTagTokens(position.child));
-  }
-  if (!(position.element instanceof Doc)) {
-    tokens.push(new CloseTagToken());
+function compareAttributes(attributes1: Attributes, attributes2: Attributes) {
+  const { id: id1, ...attr1 } = attributes1;
+  const { id: id2, ...attr2 } = attributes2;
+  return JSON.stringify(attr1) === JSON.stringify(attr2);
+}
+
+function replaceNewLineTokens(editor: Editor, tokens: Token[]) {
+  for (let n = 0; n < tokens.length; n++) {
+    const token = tokens[n];
+    if (token === '\n') {
+      tokens = [
+        ...tokens.slice(0, n),
+        new CloseTagToken(),
+        new CloseTagToken(),
+        new OpenTagToken('Paragraph', generateID(), {}),
+        new OpenTagToken('Text', generateID(), {}),
+        ...tokens.slice(n + 1),
+      ];
+    }
   }
   return tokens;
 }
 
-function getWrappingOpenTagTokens(position: ResolvedPosition) {
-  const tokens: OpenTagToken[] = [];
-  if (!(position.element instanceof Doc)) {
-    tokens.push(new OpenTagToken(
-      position.element.getType(),
-      position.element.getID(),
-      position.element.getAttributes(),
-    ));
-  }
-  if (position.child) {
-    tokens.push(...getWrappingOpenTagTokens(position.child));
+function wrapTokens(tokens: Token[], cursorPosition: ResolvedPosition) {
+  let currentCursorPosition = cursorPosition.child;
+  let currentTokenOffset = 0;
+  while (currentCursorPosition) {
+    const element = currentCursorPosition.element;
+    const token = tokens[currentTokenOffset];
+    if (!(token instanceof OpenTagToken)) {
+      break;
+    }
+    let isSame: boolean = true;
+    if (element.getType() !== token.getType()) {
+      isSame = false;
+    }
+    if (!compareAttributes(element.getAttributes(), token.getAttributes())) {
+      isSame = false;
+    }
+    if (isSame) {
+      tokens = tokens.slice(1, tokens.length - 1);
+    } else {
+      tokens = [
+        new CloseTagToken(),
+        ...tokens,
+        new OpenTagToken(
+          element.getType(),
+          element.getID(),
+          element.getAttributes(),
+        ),
+      ];
+      currentTokenOffset += 2;
+    }
+    currentCursorPosition = currentCursorPosition.child;
   }
   return tokens;
-}
-
-function wrapTokens(editor: Editor, tokens: Token[]) {
-  const cursorSelectableOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
-  const cursorOffset = editor.getRenderManager().convertSelectableOffsetToModelOffset(cursorSelectableOffset);
-  const cursorPosition = editor.getModelManager().resolveOffset(cursorOffset);
-  const wrappedTokens = [
-    ...getWrappingCloseTagTokens(cursorPosition),
-    ...tokens,
-    ...getWrappingOpenTagTokens(cursorPosition),
-  ];
-  return wrappedTokens;
 }
 
 function paste(editor: Editor, data: DataTransfer) {
@@ -133,16 +160,26 @@ function paste(editor: Editor, data: DataTransfer) {
   if (!iframeDoc) {
     return;
   }
-  const content = data.getData('text/plain');
+  const content = data.getData('text/html') || data.getData('text/plain');
   iframeDoc.body.innerHTML = content;
   const bodyNode = iframeDoc.body;
-  const blockElements = interpretRootDOMNode(editor, bodyNode);
-  const tokens: Token[] = [];
+  const cursorSelectableOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
+  const cursorOffset = editor.getRenderManager().convertSelectableOffsetToModelOffset(cursorSelectableOffset);
+  const cursorPosition = editor.getModelManager().resolveOffset(cursorOffset);
+  let defaultBlockElement: BlockElement;
+  if (cursorPosition.child && cursorPosition.child.element instanceof BlockElement) {
+    defaultBlockElement = cursorPosition.child.element;
+  } else {
+    defaultBlockElement = new Paragraph(editor);
+  }
+  const blockElements = interpretRootDOMNode(editor, bodyNode, defaultBlockElement);
+  let tokens: Token[] = [];
   blockElements.forEach(element => {
     tokens.push(...element.toTokens());
   });
-  const wrappedTokens = wrapTokens(editor, tokens);
-  editor.getDispatcher().dispatchCommand(insert(wrappedTokens));
+  tokens = replaceNewLineTokens(editor, tokens);
+  tokens = wrapTokens(tokens, cursorPosition);
+  editor.getDispatcher().dispatchCommand(insert(tokens));
 }
 
 export default paste;

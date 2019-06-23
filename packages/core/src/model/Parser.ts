@@ -234,12 +234,12 @@ class Parser {
       if (!(element instanceof BlockElement)) {
         throw new Error('Unexpected child element for doc.');
       }
-      parentElement.insertChild(element)
+      parentElement.insertChild(element);
     } else if (parentElement instanceof BlockElement) {
       if (!(element instanceof InlineElement)) {
         throw new Error('Unexpected child element for block element.');
       }
-      parentElement.insertChild(element)
+      parentElement.insertChild(element);
     }
     this.stack.push(element);
   }

@@ -20,10 +20,7 @@ class RenderManager {
   }
 
   convertSelectableOffsetToModelOffset(selectableOffset: number): number {
-    console.log('CONVERTING', selectableOffset);
-    const offset = this.docRenderNode.convertSelectableOffsetToModelOffset(selectableOffset);
-    console.log(offset);
-    return offset;
+    return this.docRenderNode.convertSelectableOffsetToModelOffset(selectableOffset);
   }
 }
 

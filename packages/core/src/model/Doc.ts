@@ -55,6 +55,7 @@ export default class Doc extends Element implements RootNode {
   onStateUpdated(attributes: Attributes) {
     attributes = { ...DEFAULT_ATTRIBUTES, ...attributes };
     let isUpdated = false;
+    this.clearCache();
     return isUpdated;
   }
 
@@ -93,7 +94,7 @@ export default class Doc extends Element implements RootNode {
   }
 
   resolveOffset(offset: number) {
-    let cumulatedOffset = 0;
+    let cumulatedOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childSize = child.getSize();
@@ -110,6 +111,7 @@ export default class Doc extends Element implements RootNode {
         childResolvedPosition.parent = resolvedPosition;
         return resolvedPosition;
       }
+      cumulatedOffset += childSize;
     }
     throw new Error(`Offset ${offset} is out of range.`);
   }
