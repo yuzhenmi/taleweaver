@@ -13,15 +13,6 @@ export default abstract class BlockElement extends Element implements BranchNode
   protected parent: ParentElement | null = null;
   protected children: ChildElement[] = [];
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
-
   setParent(parent: ParentElement | null) {
     this.parent = parent;
   }

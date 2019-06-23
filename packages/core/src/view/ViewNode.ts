@@ -4,6 +4,7 @@ import LayoutNode from '../layout/LayoutNode';
 export default abstract class ViewNode {
   protected editor: Editor;
   protected id: string;
+  protected version: number = 0;
   protected selectableSize?: number;
 
   constructor(editor: Editor, id: string) {
@@ -13,6 +14,14 @@ export default abstract class ViewNode {
 
   getID() {
     return this.id;
+  }
+
+  getVersion() {
+    return this.version;
+  }
+
+  bumpVersion() {
+    this.version++;
   }
 
   abstract getDOMContainer(): HTMLElement;

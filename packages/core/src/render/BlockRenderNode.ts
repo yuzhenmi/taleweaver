@@ -21,15 +21,6 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     this.lineBreakInlineRenderNode = this.buildLineBreakInlineRenderNode();
   }
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
-
   getVersion() {
     return this.version;
   }
@@ -78,7 +69,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
 
   getSelectableSize() {
     if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+      let selectableSize = 1;
       this.children.forEach(child => {
         selectableSize += child.getSelectableSize();
       });
@@ -110,12 +101,17 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
     }
+    if (cumulatedSelectableOffset === selectableOffset) {
+      return this.getModelSize() - 2;
+    }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }
 
   buildLineBreakInlineRenderNode(): InlineRenderNode {
     const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
+    inlineRenderNode.bumpVersion();
     const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true);
+    atomicRenderNode.bumpVersion();
     inlineRenderNode.insertChild(atomicRenderNode);
     return inlineRenderNode;
   }

@@ -7,15 +7,6 @@ export type Parent = InlineRenderNode;
 export default abstract class AtomicRenderNode extends RenderNode implements LeafNode {
   protected parent: Parent | null = null;
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
-
   setParent(parent: Parent | null) {
     this.parent = parent;
   }

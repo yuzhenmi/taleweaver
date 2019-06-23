@@ -17,13 +17,11 @@ import bindKeys from './bindKeys';
 
 class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   protected editor: Editor;
-  protected lastVersion: number;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
-  constructor(editor: Editor, lastVersion: number, idMap: Map<string, [LayoutNode, ViewNode]>) {
+  constructor(editor: Editor, idMap: Map<string, [LayoutNode, ViewNode]>) {
     super();
     this.editor = editor;
-    this.lastVersion = lastVersion;
     this.idMap = idMap;
   }
 
@@ -127,38 +125,26 @@ class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   }
 
   updateNode(node: ViewNode, srcNode: LayoutNode): boolean {
+    if (srcNode.getVersion() <= node.getVersion()) {
+      return false;
+    }
     if (node instanceof DocViewNode && srcNode instanceof DocBox) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onLayoutUpdated(srcNode);
       return true;
     }
     if (node instanceof PageViewNode && srcNode instanceof PageFlowBox) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onLayoutUpdated(srcNode);
       return true;
     }
     if (node instanceof BlockViewNode && srcNode instanceof BlockBox) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onLayoutUpdated(srcNode);
       return true;
     }
     if (node instanceof LineViewNode && srcNode instanceof LineFlowBox) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onLayoutUpdated(srcNode);
       return true;
     }
     if (node instanceof InlineViewNode && srcNode instanceof InlineBox) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onLayoutUpdated(srcNode);
       return true;
     }
@@ -170,7 +156,6 @@ class Presenter {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
   protected domWrapper: HTMLElement;
-  protected version: number;
   protected idMap: Map<string, [LayoutNode, ViewNode]>;
 
   constructor(editor: Editor, docViewNode: DocViewNode, domWrapper: HTMLElement) {
@@ -178,7 +163,6 @@ class Presenter {
     this.docViewNode = docViewNode;
     this.domWrapper = domWrapper;
     domWrapper.appendChild(this.docViewNode.getDOMContainer());
-    this.version = -1;
     this.idMap = new Map();
     bindKeys(editor);
     editor.getDispatcher().on(LayoutStateUpdatedEvent, event => this.sync());
@@ -195,9 +179,15 @@ class Presenter {
 
   protected sync() {
     const docBox = this.editor.getLayoutManager().getDocBox();
-    const treeSyncer = new LayoutToViewTreeSyncer(this.editor, this.version, this.idMap);
+    const treeSyncer = new LayoutToViewTreeSyncer(this.editor, this.idMap);
     treeSyncer.syncNodes(docBox, this.docViewNode);
-    this.version = docBox.getVersion();
+    const updatedViewNodes = treeSyncer.getUpdatedNodes();
+    updatedViewNodes.forEach(viewNode => {
+      viewNode.bumpVersion();
+      if (viewNode instanceof PageViewNode || viewNode instanceof BlockViewNode || viewNode instanceof LineViewNode) {
+        updatedViewNodes.add(viewNode.getParent());
+      }
+    });
     this.editor.getDispatcher().dispatch(new ViewStateUpdatedEvent());
   }
 }

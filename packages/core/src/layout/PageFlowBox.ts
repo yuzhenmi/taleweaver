@@ -29,15 +29,6 @@ export default class PageFlowBox extends FlowBox {
     this.paddingRight = pageConfig.getPagePaddingRight();
   }
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
-
   getWidth() {
     return this.width;
   }

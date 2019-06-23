@@ -37,10 +37,12 @@ export default abstract class Element implements TreeNode {
     return this.id;
   }
 
-  abstract setVersion(version: number): void;
-
   getVersion(): number {
     return this.version;
+  }
+
+  bumpVersion() {
+    this.version++;
   }
 
   abstract getSize(): number;

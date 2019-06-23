@@ -4,14 +4,13 @@ import Node from '../tree/Node';
 export default abstract class RenderNode implements Node {
   protected editor: Editor;
   protected id: string;
-  protected version: number;
+  protected version: number = 0;
   protected selectableSize?: number;
   protected modelSize?: number;
 
   constructor(editor: Editor, id: string) {
     this.editor = editor;
     this.id = id;
-    this.version = 0;
   }
 
   abstract getType(): string;
@@ -20,10 +19,12 @@ export default abstract class RenderNode implements Node {
     return this.id;
   }
 
-  abstract setVersion(version: number): void;
-
   getVersion() {
     return this.version;
+  }
+
+  bumpVersion() {
+    this.version++;
   }
 
   abstract getSelectableSize(): number;

@@ -12,12 +12,10 @@ import InlineRenderNode from './InlineRenderNode';
 
 class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
   protected editor: Editor;
-  protected lastVersion: number;
 
-  constructor(editor: Editor, lastVersion: number) {
+  constructor(editor: Editor) {
     super();
     this.editor = editor;
-    this.lastVersion = lastVersion;
   }
 
   getSrcNodeChildren(node: Element) {
@@ -54,7 +52,6 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
       if (!(blockRenderNode instanceof BlockRenderNode)) {
         throw new Error('Error inserting render node, expecting block render node.');
       }
-      blockRenderNode.setVersion(srcNode.getVersion());
       parent.insertChild(blockRenderNode, offset);
       return blockRenderNode;
     }
@@ -64,7 +61,6 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
       if (!(inlineRenderNode instanceof InlineRenderNode)) {
         throw new Error('Error inserting render node, expecting inline render node.');
       }
-      inlineRenderNode.setVersion(srcNode.getVersion());
       parent.insertChild(inlineRenderNode, offset);
       return inlineRenderNode;
     }
@@ -84,28 +80,19 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
   }
 
   updateNode(node: RenderNode, srcNode: Element) {
+    if (srcNode.getVersion() <= node.getVersion()) {
+      return false;
+    }
     if (node instanceof DocRenderNode && srcNode instanceof Doc) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onModelUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       return true;
     }
     if (node instanceof BlockRenderNode && srcNode instanceof BlockElement) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onModelUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       return true;
     }
     if (node instanceof InlineRenderNode && srcNode instanceof InlineElement) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onModelUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       return true;
     }
     throw new Error('Error updating render node, type mismatch.');
@@ -115,25 +102,25 @@ class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
 export default class RenderEngine {
   protected editor: Editor;
   protected docRenderNode: DocRenderNode;
-  protected version: number;
 
   constructor(editor: Editor, docRenderNode: DocRenderNode) {
     this.editor = editor;
     this.docRenderNode = docRenderNode;
-    this.version = -1;
     editor.getDispatcher().on(ModelStateUpdatedEvent, event => this.sync());
     this.sync();
   }
 
   protected sync() {
     const doc = this.editor.getModelManager().getDoc();
-    const treeSyncer = new ModelToRenderTreeSyncer(this.editor, this.version);
+    const treeSyncer = new ModelToRenderTreeSyncer(this.editor);
     treeSyncer.syncNodes(doc, this.docRenderNode);
-    this.version = doc.getVersion();
+    const updatedRenderNodes = treeSyncer.getUpdatedNodes();
+    updatedRenderNodes.forEach(renderNode => {
+      renderNode.bumpVersion();
+      if (renderNode instanceof BlockRenderNode || renderNode instanceof InlineRenderNode) {
+        updatedRenderNodes.add(renderNode.getParent());
+      }
+    });
     this.editor.getDispatcher().dispatch(new RenderStateUpdatedEvent());
-  }
-
-  protected getNextVersion() {
-    return this.docRenderNode.getVersion() + 1;
   }
 }

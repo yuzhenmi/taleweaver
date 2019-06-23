@@ -10,12 +10,6 @@ type Child = PageFlowBox;
 export default class DocBox extends Box implements RootNode {
   protected children: Child[] = [];
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-    }
-  }
-
   getWidth() {
     return 0;
   }

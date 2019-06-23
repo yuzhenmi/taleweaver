@@ -1,6 +1,6 @@
 import generateID from '../utils/generateID';
-import Text from '../model/Text';
 import breakTextToWords from './utils/breakTextToWords';
+import Text from '../model/Text';
 import InlineRenderNode from './InlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 
@@ -30,7 +30,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
           word.text,
           word.breakable,
         );
-        atomicRenderNode.setVersion(element.getVersion());
+        atomicRenderNode.bumpVersion();
         this.insertChild(atomicRenderNode, offset);
       } else {
         for (let n = offset; n < atomOffset; n++) {
@@ -49,6 +49,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
         '',
         true,
       );
+      atomicRenderNode.bumpVersion();
       this.insertChild(atomicRenderNode);
     }
   }

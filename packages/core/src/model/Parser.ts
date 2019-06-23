@@ -11,12 +11,10 @@ import InlineElement from './InlineElement';
 
 class ModelTreeSyncer extends TreeSyncer<Element, Element> {
   protected editor: Editor;
-  protected lastVersion: number;
 
-  constructor(editor: Editor, lastVersion: number) {
+  constructor(editor: Editor) {
     super();
     this.editor = editor;
-    this.lastVersion = lastVersion;
   }
 
   getSrcNodeChildren(node: Element) {
@@ -55,7 +53,6 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
       }
       element.setID(srcNode.getID());
       parent.insertChild(element, offset);
-      this.updateElementVersion(element);
       return element;
     }
     if (parent instanceof BlockElement && srcNode instanceof InlineElement) {
@@ -66,7 +63,6 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
       }
       element.setID(srcNode.getID());
       parent.insertChild(element, offset);
-      this.updateElementVersion(element);
       return element;
     }
     throw new Error('Error inserting element, type mismatch.');
@@ -75,12 +71,10 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
   deleteNode(parent: Element, node: Element) {
     if (parent instanceof Doc && node instanceof BlockElement) {
       parent.deleteChild(node);
-      this.updateElementVersion(parent);
       return;
     }
     if (parent instanceof BlockElement && node instanceof InlineElement) {
       parent.deleteChild(node);
-      this.updateElementVersion(parent);
       return;
     }
     throw new Error('Error deleting element, type mismatch.');
@@ -89,44 +83,24 @@ class ModelTreeSyncer extends TreeSyncer<Element, Element> {
   updateNode(node: Element, srcNode: Element) {
     if (node instanceof Doc && srcNode instanceof Doc) {
       const attributes = srcNode.getAttributes();
-      if (node.onStateUpdated(attributes)) {
-        this.updateElementVersion(node);
-      }
+      node.onStateUpdated(attributes);
       return true;
     }
     if (node instanceof BlockElement && srcNode instanceof BlockElement) {
       const attributes = srcNode.getAttributes();
-      if (node.onStateUpdated(attributes)) {
-        this.updateElementVersion(node);
-      }
+      node.onStateUpdated(attributes);
       return true;
     }
     if (node instanceof InlineElement && srcNode instanceof InlineElement) {
       const attributes = srcNode.getAttributes();
-      let isUpdated = false;
-      if (node.onStateUpdated(attributes)) {
-        isUpdated = true;
-      }
+      node.onStateUpdated(attributes);
       const content = srcNode.getContent();
       if (node.getContent() !== content) {
         node.setContent(content);
-        isUpdated = true;
-      }
-      if (isUpdated) {
-        this.updateElementVersion(node);
       }
       return true;
     }
     throw new Error('Error updating render node, type mismatch.');
-  }
-
-  protected updateElementVersion(element: Element) {
-    element.setVersion(this.lastVersion + 1);
-    if (element instanceof InlineElement) {
-      this.updateElementVersion(element.getParent());
-    } else if (element instanceof BlockElement) {
-      this.updateElementVersion(element.getParent());
-    }
   }
 }
 
@@ -162,7 +136,6 @@ class Parser {
   protected parserState: ParserState;
   protected stack: Stack;
   protected contentBuffer: string;
-  protected version: number;
 
   constructor(editor: Editor, doc: Doc) {
     this.editor = editor;
@@ -170,7 +143,6 @@ class Parser {
     this.parserState = ParserState.NewDoc;
     this.stack = new Stack();
     this.contentBuffer = '';
-    this.version = 0;
     editor.getDispatcher().on(TokenStateUpdatedEvent, event => this.sync());
     this.sync();
   }
@@ -178,10 +150,16 @@ class Parser {
   protected sync() {
     this.parserState = ParserState.NewDoc;
     const newDoc = this.parse();
-    const treeSyncer = new ModelTreeSyncer(this.editor, this.version);
+    const treeSyncer = new ModelTreeSyncer(this.editor);
     this.doc.setID(newDoc.getID());
     treeSyncer.syncNodes(newDoc, this.doc);
-    this.version = this.doc.getVersion();
+    const updatedElements = treeSyncer.getUpdatedNodes();
+    updatedElements.forEach(element => {
+      element.bumpVersion();
+      if (element instanceof BlockElement || element instanceof InlineElement) {
+        updatedElements.add(element.getParent());
+      }
+    });
     this.editor.getDispatcher().dispatch(new ModelStateUpdatedEvent());
   }
 
