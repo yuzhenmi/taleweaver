@@ -1,15 +1,30 @@
-import Node from '../tree/Node';
-import Attributes from '../token/Attributes';
 import Editor from '../Editor';
+import generateID from '../utils/generateID';
+import TreeNode from '../tree/Node';
+import Token from '../token/Token';
+import Attributes from '../token/Attributes';
 
-export default abstract class Element implements Node {
+export interface DOMAttributes {
+  [key: string]: any;
+}
+
+export interface ResolvedPosition {
+  element: Element;
+  depth: number;
+  offset: number;
+  parent: ResolvedPosition | null;
+  child: ResolvedPosition | null;
+}
+
+export default abstract class Element implements TreeNode {
   protected editor: Editor;
-  protected id?: string;
+  protected id: string;
   protected version: number = 0;
   protected size?: number;
 
   constructor(editor: Editor) {
     this.editor = editor;
+    this.id = generateID();
   }
 
   abstract getType(): string;
@@ -19,16 +34,19 @@ export default abstract class Element implements Node {
   }
 
   getID() {
-    if (!this.id) {
-      throw new Error('No ID has been set.');
-    }
     return this.id;
   }
 
-  abstract setVersion(version: number): void;
-
   getVersion(): number {
     return this.version;
+  }
+
+  bumpVersion() {
+    this.version++;
+  }
+
+  clearCache() {
+    this.size = undefined;
   }
 
   abstract getSize(): number;
@@ -37,9 +55,7 @@ export default abstract class Element implements Node {
 
   abstract toHTML(from: number, to: number): HTMLElement;
 
-  abstract onStateUpdated(attributes: Attributes): boolean;
+  abstract toTokens(): Token[];
 
-  protected clearCache() {
-    this.size = undefined;
-  }
+  abstract onStateUpdated(attributes: Attributes): boolean;
 }

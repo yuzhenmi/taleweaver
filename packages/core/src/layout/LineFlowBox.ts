@@ -20,15 +20,6 @@ export default class LineFlowBox extends FlowBox {
     this.width = width;
   }
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
-
   getWidth() {
     return this.width;
   }

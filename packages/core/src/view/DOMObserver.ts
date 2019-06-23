@@ -5,6 +5,7 @@ import getKeySignatureFromKeyboardEvent from '../key/utils/getKeySignatureFromKe
 import * as commands from '../command/commands';
 import DocViewNode from './DocViewNode';
 import copy from '../helpers/copy';
+import paste from '../helpers/paste';
 
 function parseNode(node: Node) {
   if (node.nodeValue) {
@@ -169,6 +170,15 @@ export default class DOMObserver {
     copy(this.editor);
   }
 
+  protected onPaste = (event: ClipboardEvent) => {
+    event.preventDefault();
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) {
+      return;
+    }
+    paste(this.editor, clipboardData);
+  }
+
   protected resolveScreenPosition(x: number, y: number) {
     if (!this.docViewNode) {
       throw new Error('No doc view is being observed.');
@@ -207,9 +217,6 @@ export default class DOMObserver {
   }
 
   protected initContentEditable() {
-    if (this.$contentEditable.parentElement) {
-      return;
-    }
     this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);
     this.$contentEditable.addEventListener('keydown', this.onKeyDown);
     this.$contentEditable.addEventListener('compositionstart', this.onCompositionStart);
@@ -217,6 +224,7 @@ export default class DOMObserver {
     this.$contentEditable.addEventListener('focus', this.onFocused);
     this.$contentEditable.addEventListener('blur', this.onBlurred);
     this.$contentEditable.addEventListener('copy', this.onCopy);
+    this.$contentEditable.addEventListener('paste', this.onPaste);
     this.mutationObserver.observe(this.$contentEditable, {
       subtree: true,
       characterData: true,

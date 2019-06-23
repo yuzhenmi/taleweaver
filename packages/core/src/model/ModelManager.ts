@@ -20,6 +20,10 @@ class ModelManager {
   toHTML(from: number, to: number) {
     return this.doc.toHTML(from, to).outerHTML;
   }
+
+  resolveOffset(offset: number) {
+    return this.doc.resolveOffset(offset);
+  }
 }
 
 export default ModelManager;

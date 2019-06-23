@@ -1,6 +1,6 @@
 import generateID from '../utils/generateID';
-import Text from '../model/Text';
 import breakTextToWords from './utils/breakTextToWords';
+import Text from '../model/Text';
 import InlineRenderNode from './InlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 
@@ -30,7 +30,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
           word.text,
           word.breakable,
         );
-        atomicRenderNode.setVersion(element.getVersion());
+        atomicRenderNode.bumpVersion();
         this.insertChild(atomicRenderNode, offset);
       } else {
         for (let n = offset; n < atomOffset; n++) {
@@ -41,6 +41,16 @@ export default class TextInlineRenderNode extends InlineRenderNode {
     });
     for (let n = offset, nn = this.children.length; n < nn; n++) {
       this.deleteChild(this.children[offset]);
+    }
+    if (this.children.length === 0) {
+      const atomicRenderNode = new TextAtomicRenderNode(
+        this.editor,
+        `${element.getID()}-${generateID()}`,
+        '',
+        true,
+      );
+      atomicRenderNode.bumpVersion();
+      this.insertChild(atomicRenderNode);
     }
   }
 }

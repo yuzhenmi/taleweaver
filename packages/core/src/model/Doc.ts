@@ -1,6 +1,9 @@
 import RootNode from '../tree/RootNode';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
 import Attributes from '../token/Attributes';
-import Element from './Element';
+import Element, { ResolvedPosition } from './Element';
 import BlockElement from './BlockElement';
 
 type ChildElement = BlockElement;
@@ -12,12 +15,6 @@ export default class Doc extends Element implements RootNode {
 
   getType() {
     return 'Doc';
-  }
-
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-    }
   }
 
   insertChild(child: ChildElement, offset: number | null = null) {
@@ -58,6 +55,7 @@ export default class Doc extends Element implements RootNode {
   onStateUpdated(attributes: Attributes) {
     attributes = { ...DEFAULT_ATTRIBUTES, ...attributes };
     let isUpdated = false;
+    this.clearCache();
     return isUpdated;
   }
 
@@ -75,13 +73,46 @@ export default class Doc extends Element implements RootNode {
       const childSize = child.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
-      if (from > childTo || to < childFrom) {
+      offset += childSize;
+      if (childFrom > childSize || childTo < 0) {
         continue;
       }
       const $childElement = child.toHTML(childFrom, childTo);
       $element.appendChild($childElement);
-      offset += childSize;
     }
     return $element;
+  }
+
+  toTokens() {
+    const tokens: Token[] = [];
+    tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
+    this.children.forEach(child => {
+      tokens.push(...child.toTokens());
+    });
+    tokens.push(new CloseTagToken());
+    return tokens;
+  }
+
+  resolveOffset(offset: number) {
+    let cumulatedOffset = 1;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
+        const resolvedPosition: ResolvedPosition = {
+          element: this,
+          depth: 0,
+          offset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+      cumulatedOffset += childSize;
+    }
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 }

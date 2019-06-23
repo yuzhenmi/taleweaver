@@ -4,24 +4,25 @@ import Node from '../tree/Node';
 export default abstract class LayoutNode implements Node {
   protected editor: Editor;
   protected id: string;
-  protected version: number;
+  protected version: number = 0;
   protected selectableSize?: number;
   protected deleted: boolean = false;
 
   constructor(editor: Editor, id: string) {
     this.editor = editor;
     this.id = id;
-    this.version = 0;
   }
 
   getID() {
     return this.id;
   }
 
-  abstract setVersion(version: number): void;
-
   getVersion() {
     return this.version;
+  }
+
+  bumpVersion() {
+    this.version++;
   }
 
   markAsDeleted() {

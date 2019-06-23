@@ -13,30 +13,16 @@ import BlockBox from './BlockBox';
 import LineFlowBox from './LineFlowBox';
 import InlineBox from './InlineBox';
 import AtomicBox from './AtomicBox';
+import LayoutNode from './LayoutNode';
 
-function bumpVersionForBlockBoxAndDescendents(blockBox: BlockBox, version: number) {
-  blockBox.setVersion(version);
-  blockBox.getChildren().forEach(lineFlowBox => {
-    lineFlowBox.setVersion(version);
-    lineFlowBox.getChildren().forEach(inlineBox => {
-      inlineBox.setVersion(version);
-      inlineBox.getChildren().forEach(atomicBox => {
-        atomicBox.setVersion(version);
-      });
-    });
-  });
-}
-
-class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
+class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, LayoutNode> {
   protected editor: Editor;
-  protected lastVersion: number;
   protected updatedPageFlowBoxes: PageFlowBox[];
   protected updatedLineFlowBoxes: LineFlowBox[];
 
-  constructor(editor: Editor, lastVersion: number) {
+  constructor(editor: Editor) {
     super();
     this.editor = editor;
-    this.lastVersion = lastVersion;
     this.updatedPageFlowBoxes = [];
     this.updatedLineFlowBoxes = [];
   }
@@ -54,7 +40,10 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       return node.getChildren();
     }
     if (node instanceof BlockRenderNode) {
-      return node.getChildren();
+      return [
+        ...node.getChildren(),
+        node.getLineBreakInlineRenderNode(),
+      ];
     }
     if (node instanceof InlineRenderNode) {
       return node.getChildren();
@@ -97,7 +86,6 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (!(blockBox instanceof BlockBox)) {
         throw new Error('Error inserting box, expecting block box.');
       }
-      blockBox.setVersion(srcNode.getVersion());
       const pageFlowBoxes = parent.getChildren();
       let cumulatedOffset = 0;
       let inserted = false;
@@ -125,7 +113,6 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (!(inlineBox instanceof InlineBox)) {
         throw new Error('Error inserting box, expecting inline box.');
       }
-      inlineBox.setVersion(srcNode.getVersion());
       const lineFlowBoxes = parent.getChildren();
       let cumulatedOffset = 0;
       let inserted = false;
@@ -153,7 +140,6 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
       if (!(atomicBox instanceof AtomicBox)) {
         throw new Error('Error inserting box, expecting atomic box.');
       }
-      atomicBox.setVersion(srcNode.getVersion());
       parent.insertChild(atomicBox, offset);
       return atomicBox;
     }
@@ -201,10 +187,10 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
   }
 
   updateNode(node: Box, srcNode: RenderNode): boolean {
+    if (srcNode.getVersion() <= node.getVersion()) {
+      return false;
+    }
     if (node instanceof DocBox && srcNode instanceof DocRenderNode) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       // Join block boxes that were split by reflow
       let lastChild: BlockBox | undefined;
       for (let n = 0; n < node.getChildren().length; n++) {
@@ -213,7 +199,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
           const blockBox = pageFlowBox.getChildren()[m];
           if (lastChild && blockBox.getRenderNodeID() === lastChild.getRenderNodeID()) {
             lastChild.join(blockBox);
-            bumpVersionForBlockBoxAndDescendents(lastChild, srcNode.getVersion());
+            this.updatedNodes.add(lastChild);
             pageFlowBox.deleteChild(blockBox);
             m--;
           } else {
@@ -228,13 +214,9 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         }
       }
       node.onRenderUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       return true;
     }
     if (node instanceof BlockBox && srcNode instanceof BlockRenderNode) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       // Join inline boxes that were split by reflow
       let lastChild: InlineBox | undefined;
       for (let n = 0; n < node.getChildren().length; n++) {
@@ -257,18 +239,11 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         }
       }
       node.onRenderUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
-      const lineFlowBox = node.getParent();
-      if (lineFlowBox.getVersion() < srcNode.getVersion()) {
-        lineFlowBox.setVersion(srcNode.getVersion());
-      }
-      this.updatedPageFlowBoxes.push(lineFlowBox);
+      const pageFlowBox = node.getParent();
+      this.updatedPageFlowBoxes.push(pageFlowBox);
       return true;
     }
     if (node instanceof InlineBox && srcNode instanceof InlineRenderNode) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       // Join atomic boxes that were split by reflow
       let lastChild: AtomicBox | undefined;
       for (let n = 0; n < node.getChildren().length; n++) {
@@ -282,20 +257,12 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
         }
       }
       node.onRenderUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       const lineFlowBox = node.getParent();
-      if (lineFlowBox.getVersion() < srcNode.getVersion()) {
-        lineFlowBox.setVersion(srcNode.getVersion());
-      }
       this.updatedLineFlowBoxes.push(lineFlowBox);
       return true;
     }
     if (node instanceof AtomicBox && srcNode instanceof AtomicRenderNode) {
-      if (srcNode.getVersion() <= this.lastVersion) {
-        return false;
-      }
       node.onRenderUpdated(srcNode);
-      node.setVersion(srcNode.getVersion());
       return true;
     }
     throw new Error('Error updating box, type mismatch.');
@@ -305,28 +272,26 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, Box> {
 export default class LayoutEngine {
   protected editor: Editor;
   protected docBox: DocBox;
-  protected version: number;
   
   constructor(editor: Editor, docBox: DocBox) {
     this.editor = editor;
     this.docBox = docBox;
-    this.version = -1;
     editor.getDispatcher().on(RenderStateUpdatedEvent, event => this.sync());
     this.sync();
   }
 
   protected sync() {
     const docRenderNode = this.editor.getRenderManager().getDocRenderNode();
-    const treeSyncer = new RenderToLayoutTreeSyncer(this.editor, this.version);
+    const treeSyncer = new RenderToLayoutTreeSyncer(this.editor);
     treeSyncer.syncNodes(docRenderNode, this.docBox);
-    const newVersion = docRenderNode.getVersion();
+    const updatedLayoutNodes = treeSyncer.getUpdatedNodes();
     const updatedLineFlowBoxes = treeSyncer.getUpdatedLineFlowBoxes();
     let lastLineFlowBox: LineFlowBox | undefined = undefined;
     updatedLineFlowBoxes.forEach(lineFlowBox => {
       if (lastLineFlowBox && lastLineFlowBox === lineFlowBox) {
         return;
       }
-      this.reflowLineFlowBox(lineFlowBox, newVersion);
+      this.reflowLineFlowBox(lineFlowBox, updatedLayoutNodes);
       lastLineFlowBox = lineFlowBox;
     });
     const updatedPageFlowBoxes = treeSyncer.getUpdatedPageFlowBoxes();
@@ -335,21 +300,35 @@ export default class LayoutEngine {
       if (lastPageFlowBox && lastPageFlowBox === pageFlowBox) {
         return;
       }
-      this.reflowPageFlowBox(pageFlowBox, newVersion);
+      this.reflowPageFlowBox(pageFlowBox, updatedLayoutNodes);
       lastPageFlowBox = pageFlowBox;
     });
-    this.version = newVersion;
+    updatedLayoutNodes.forEach(layoutNode => {
+      if (layoutNode.isDeleted()) {
+        return;
+      }
+      layoutNode.bumpVersion();
+      if (
+        layoutNode instanceof PageFlowBox ||
+        layoutNode instanceof BlockBox ||
+        layoutNode instanceof LineFlowBox ||
+        layoutNode instanceof InlineBox ||
+        layoutNode instanceof AtomicBox
+      ) {
+        updatedLayoutNodes.add(layoutNode.getParent());
+      }
+    });
     this.editor.getDispatcher().dispatch(new LayoutStateUpdatedEvent());
   }
 
-  protected reflowLineFlowBox(lineFlowBox: LineFlowBox, version: number) {
+  protected reflowLineFlowBox(lineFlowBox: LineFlowBox, updatedLayoutNodes: Set<LayoutNode>) {
     if (lineFlowBox.isDeleted()) {
       // Line flow box was already deleted, nothing to
       // do here
       return;
     }
     lineFlowBox.onRenderUpdated();
-    lineFlowBox.setVersion(version);
+    updatedLayoutNodes.add(lineFlowBox);
     let currentLineFlowBox = lineFlowBox;
     const blockBox = currentLineFlowBox.getParent();
     if (blockBox.getChildren().indexOf(currentLineFlowBox) < 0) {
@@ -375,8 +354,8 @@ export default class LayoutEngine {
             if (cumulatedWidth > 0) {
               // If the current line already has content, split the line
               const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
-              currentLineFlowBox.setVersion(version);
-              newLineFlowBox.setVersion(version);
+              updatedLayoutNodes.add(currentLineFlowBox);
+              updatedLayoutNodes.add(newLineFlowBox);
               blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
               currentLineFlowBox = newLineFlowBox;
               n = 0;
@@ -384,16 +363,16 @@ export default class LayoutEngine {
               if (inlineBox.getChildren().length === 0) {
                 inlineBox.getParent().deleteChild(inlineBox);
               } else {
-                inlineBox.setVersion(version);
+                updatedLayoutNodes.add(inlineBox);
               }
-              newInlineBox.setVersion(version);
+              updatedLayoutNodes.add(newInlineBox);
               currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
               inlineBox = newInlineBox;
               m = 0;
             }
             const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
-            currentLineFlowBox.setVersion(version);
-            newLineFlowBox.setVersion(version);
+            updatedLayoutNodes.add(currentLineFlowBox);
+            updatedLayoutNodes.add(newLineFlowBox);
             blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
             currentLineFlowBox = newLineFlowBox;
             n = 0;
@@ -401,15 +380,15 @@ export default class LayoutEngine {
             if (inlineBox.getChildren().length === 0) {
               inlineBox.getParent().deleteChild(inlineBox);
             } else {
-              inlineBox.setVersion(version);
+              updatedLayoutNodes.add(inlineBox);
             }
-            newInlineBox.setVersion(version);
+            updatedLayoutNodes.add(newInlineBox);
             currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
             m = 0;
             const newAtomicBox = atomicBox.splitAtWidth(lineFlowBoxWidth);
-            atomicBox.setVersion(version);
-            newAtomicBox.setVersion(version);
+            updatedLayoutNodes.add(atomicBox);
+            updatedLayoutNodes.add(newAtomicBox);
             inlineBox.insertChild(newAtomicBox, inlineBox.getChildren().indexOf(atomicBox) + 1);
             atomicBox = newAtomicBox;
             cumulatedWidth = 0;
@@ -419,8 +398,8 @@ export default class LayoutEngine {
             // so we cleave the line box after this inline box, and then
             // cleave the inline box before this atomic box
             const newLineFlowBox = currentLineFlowBox.splitAt(n + 1);
-            currentLineFlowBox.setVersion(version);
-            newLineFlowBox.setVersion(version);
+            updatedLayoutNodes.add(currentLineFlowBox);
+            updatedLayoutNodes.add(newLineFlowBox);
             blockBox.insertChild(newLineFlowBox, blockBox.getChildren().indexOf(currentLineFlowBox) + 1);
             currentLineFlowBox = newLineFlowBox;
             n = 0;
@@ -428,9 +407,9 @@ export default class LayoutEngine {
             if (inlineBox.getChildren().length === 0) {
               inlineBox.getParent().deleteChild(inlineBox);
             } else {
-              inlineBox.setVersion(version);
+              updatedLayoutNodes.add(inlineBox);
             }
-            newInlineBox.setVersion(version);
+            updatedLayoutNodes.add(newInlineBox);
             currentLineFlowBox.insertChild(newInlineBox, currentLineFlowBox.getChildren().indexOf(inlineBox) + 1);
             inlineBox = newInlineBox;
             m = 0;
@@ -456,7 +435,7 @@ export default class LayoutEngine {
           // and continue with reflow
           nextLineFlowBox.getChildren().forEach(nextInlineBox => {
             currentLineFlowBox.insertChild(nextInlineBox, currentLineFlowBox.getChildren().length);
-            nextInlineBox.setVersion(version);
+            updatedLayoutNodes.add(nextInlineBox);
           });
           blockBox.deleteChild(nextLineFlowBox);
         } else {
@@ -466,14 +445,14 @@ export default class LayoutEngine {
     }
   }
 
-  protected reflowPageFlowBox(pageFlowBox: PageFlowBox, version: number) {
+  protected reflowPageFlowBox(pageFlowBox: PageFlowBox, updatedLayoutNodes: Set<LayoutNode>) {
     if (pageFlowBox.isDeleted()) {
       // Page flow box was already deleted, nothing to
       // do here
       return;
     }
     pageFlowBox.onRenderUpdated();
-    pageFlowBox.setVersion(version);
+    updatedLayoutNodes.add(pageFlowBox);
     let currentPageFlowBox = pageFlowBox;
     const docBox = currentPageFlowBox.getParent();
     if (docBox.getChildren().indexOf(currentPageFlowBox) < 0) {
@@ -504,8 +483,8 @@ export default class LayoutEngine {
             // so we cleave the page box after this block box, and then
             // cleave the block box before this line box
             const newPageFlowBox = currentPageFlowBox.splitAt(n + 1);
-            currentPageFlowBox.setVersion(version);
-            newPageFlowBox.setVersion(version);
+            updatedLayoutNodes.add(currentPageFlowBox);
+            updatedLayoutNodes.add(newPageFlowBox);
             docBox.insertChild(newPageFlowBox, docBox.getChildren().indexOf(currentPageFlowBox) + 1);
             currentPageFlowBox = newPageFlowBox;
             n = 0;
@@ -513,9 +492,9 @@ export default class LayoutEngine {
             if (blockBox.getChildren().length === 0) {
               blockBox.getParent().deleteChild(blockBox);
             } else {
-              blockBox.setVersion(version);
+              updatedLayoutNodes.add(blockBox);
             }
-            bumpVersionForBlockBoxAndDescendents(newBlockBox, version);
+            updatedLayoutNodes.add(newBlockBox);
             currentPageFlowBox.insertChild(newBlockBox, currentPageFlowBox.getChildren().indexOf(blockBox) + 1);
             blockBox = newBlockBox;
             m = 0;
@@ -541,7 +520,7 @@ export default class LayoutEngine {
           // and continue with reflow
           nextPageFlowBox.getChildren().forEach(nextBlockBox => {
             currentPageFlowBox.insertChild(nextBlockBox, currentPageFlowBox.getChildren().length);
-            bumpVersionForBlockBoxAndDescendents(nextBlockBox, version);
+            updatedLayoutNodes.add(nextBlockBox);
           });
           docBox.deleteChild(nextPageFlowBox);
         } else {

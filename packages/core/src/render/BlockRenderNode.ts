@@ -1,8 +1,12 @@
+import Editor from '../Editor';
 import BranchNode from '../tree/BranchNode';
 import BlockElement from '../model/BlockElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
+import TextInlineRenderNode from './TextInlineRenderNode';
+import generateID from '../utils/generateID';
+import TextAtomicRenderNode from './TextAtomicRenderNode';
 
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
@@ -10,14 +14,11 @@ export type Child = InlineRenderNode;
 export default abstract class BlockRenderNode extends RenderNode implements BranchNode {
   protected parent: Parent | null = null;
   protected children: Child[] = [];
+  protected lineBreakInlineRenderNode: InlineRenderNode;
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
+    this.lineBreakInlineRenderNode = this.buildLineBreakInlineRenderNode();
   }
 
   getVersion() {
@@ -68,7 +69,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
 
   getSelectableSize() {
     if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+      let selectableSize = 1;
       this.children.forEach(child => {
         selectableSize += child.getSelectableSize();
       });
@@ -88,7 +89,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number) {
+  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -100,6 +101,22 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
     }
+    if (cumulatedSelectableOffset === selectableOffset) {
+      return this.convertSelectableOffsetToModelOffset(selectableOffset - 1) + 1;
+    }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
+
+  buildLineBreakInlineRenderNode(): InlineRenderNode {
+    const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
+    inlineRenderNode.bumpVersion();
+    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true);
+    atomicRenderNode.bumpVersion();
+    inlineRenderNode.insertChild(atomicRenderNode);
+    return inlineRenderNode;
+  }
+
+  getLineBreakInlineRenderNode() {
+    return this.lineBreakInlineRenderNode;
   }
 }

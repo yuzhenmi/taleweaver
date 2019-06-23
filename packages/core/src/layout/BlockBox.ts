@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import BlockRenderNode from '../render/BlockRenderNode';
 import ViewportBoundingRect from './ViewportBoundingRect';
 import Position from './Position';
@@ -16,13 +17,8 @@ export default abstract class BlockBox extends Box {
 
   abstract getType(): string;
 
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
+  constructor(editor: Editor, renderNodeID: string) {
+    super(editor, renderNodeID);
   }
 
   getWidth() {

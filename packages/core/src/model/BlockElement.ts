@@ -1,5 +1,8 @@
 import BranchNode from '../tree/BranchNode';
-import Element from './Element';
+import Token from '../token/Token';
+import OpenTagToken from '../token/OpenTagToken';
+import CloseTagToken from '../token/CloseTagToken';
+import Element, { ResolvedPosition } from './Element';
 import Doc from './Doc';
 import InlineElement from './InlineElement';
 
@@ -9,15 +12,6 @@ type ChildElement = InlineElement;
 export default abstract class BlockElement extends Element implements BranchNode {
   protected parent: ParentElement | null = null;
   protected children: ChildElement[] = [];
-
-  setVersion(version: number) {
-    if (this.version < version) {
-      this.version = version;
-      if (this.parent) {
-        this.parent.setVersion(version);
-      }
-    }
-  }
 
   setParent(parent: ParentElement | null) {
     this.parent = parent;
@@ -64,4 +58,47 @@ export default abstract class BlockElement extends Element implements BranchNode
     }
     return this.size;
   }
+
+  toTokens() {
+    const tokens: Token[] = [];
+    tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
+    this.children.forEach(child => {
+      tokens.push(...child.toTokens());
+    });
+    tokens.push(new CloseTagToken());
+    return tokens;
+  }
+
+  resolveOffset(offset: number, depth: number) {
+    let cumulatedOffset = 1;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
+        const resolvedPosition: ResolvedPosition = {
+          element: this,
+          depth,
+          offset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, depth + 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+      cumulatedOffset += childSize;
+    }
+    this.size = undefined;
+    throw new Error(`Offset ${offset} is out of range.`);
+  }
+
+  clearCache() {
+    super.clearCache();
+    if (this.parent) {
+      this.parent.clearCache();
+    }
+  }
+
+  abstract clone(): BlockElement;
 };

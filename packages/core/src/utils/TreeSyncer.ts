@@ -1,9 +1,11 @@
 abstract class TreeSyncer<S, D> {
+  protected updatedNodes: Set<D> = new Set();
 
   syncNodes(srcNode: S, dstNode: D) {
     if (!this.updateNode(dstNode, srcNode)) {
       return false;
     }
+    this.updatedNodes.add(dstNode);
     const srcChildren = this.getSrcNodeChildren(srcNode);
     const dstChildren = this.getDstNodeChildren(dstNode);
     let dstChildOffset = 0;
@@ -32,6 +34,10 @@ abstract class TreeSyncer<S, D> {
       this.deleteNode(dstNode, dstChild);
       dstChildren.splice(dstChildOffset, 1);
     }
+  }
+
+  getUpdatedNodes() {
+    return this.updatedNodes;
   }
 
   abstract getSrcNodeChildren(node: S): S[];
