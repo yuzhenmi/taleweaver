@@ -117,7 +117,8 @@ function getWrappingOpenTagTokens(position: ResolvedPosition) {
 }
 
 function wrapTokens(editor: Editor, tokens: Token[]) {
-  const cursorOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
+  const cursorSelectableOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
+  const cursorOffset = editor.getRenderManager().convertSelectableOffsetToModelOffset(cursorSelectableOffset);
   const cursorPosition = editor.getModelManager().resolveOffset(cursorOffset);
   const wrappedTokens = [
     ...getWrappingCloseTagTokens(cursorPosition),

@@ -89,7 +89,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number) {
+  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -102,7 +102,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
       cumulatedModelOffset += child.getModelSize();
     }
     if (cumulatedSelectableOffset === selectableOffset) {
-      return this.getModelSize() - 2;
+      return this.convertSelectableOffsetToModelOffset(selectableOffset - 1) + 1;
     }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }
