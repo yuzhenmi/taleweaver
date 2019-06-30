@@ -7,6 +7,7 @@ import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
+import { DEFAULT_STYLE } from '../config/TextConfig';
 
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
@@ -108,20 +109,10 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
   }
 
   buildLineBreakInlineRenderNode(): InlineRenderNode {
-    const defaultTextStyle = {
-      weight: 400,
-      size: 16,
-      color: 'rgba(0, 0, 0, 1)',
-      font: 'Source Sans Pro',
-      letterSpacing: 0,
-      italic: false,
-      underline: false,
-      strikethrough: false,
-    };
     const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
-    inlineRenderNode.setTextStyle(defaultTextStyle);
+    inlineRenderNode.setTextStyle(DEFAULT_STYLE);
     inlineRenderNode.bumpVersion();
-    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true, defaultTextStyle);
+    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true, DEFAULT_STYLE);
     atomicRenderNode.bumpVersion();
     inlineRenderNode.insertChild(atomicRenderNode);
     return inlineRenderNode;
