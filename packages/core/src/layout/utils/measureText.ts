@@ -1,4 +1,4 @@
-import TextStyle from './TextStyle';
+import { TextStyle } from '../../model/Text';
 
 type Measurement = {
   width: number;
@@ -14,11 +14,18 @@ export class TextMeasurer {
 
   measure(text: string, textStyle: TextStyle) {
     const ctx = this.$canvas.getContext('2d')!;
-    ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px "${textStyle.fontFamily}"`;
+    const weight = textStyle.weight;
+    const size = textStyle.size;
+    const font = textStyle.font;
+    const letterSpacing = textStyle.letterSpacing;
+    ctx.font = `${weight} ${size}px "${font}"`;
     const measurement = ctx.measureText(text);
+    const width = letterSpacing === 0 || text.length <= 1 ?
+      measurement.width :
+      measurement.width + (text.length - 1) * letterSpacing;
     return {
-      width: measurement.width,
-      height: textStyle.fontSize,
+      width,
+      height: size,
     };
   }
 }

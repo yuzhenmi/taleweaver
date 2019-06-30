@@ -78,8 +78,11 @@ export default class DOMObserver {
     // Ignore if target is not in page
     let isInPage = false;
     let currentElement: HTMLElement | null = event.target;
+    const instanceID = this.editor.getID();
     while (currentElement) {
-      if (currentElement.getAttribute('data-tw-role') === 'page') {
+      const instance = currentElement.getAttribute('data-tw-instance');
+      const role = currentElement.getAttribute('data-tw-role');
+      if (instance === instanceID && role === 'page') {
         isInPage = true;
         break;
       }

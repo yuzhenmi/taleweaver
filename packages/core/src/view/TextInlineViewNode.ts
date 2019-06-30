@@ -14,11 +14,7 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.setAttribute('data-tw-role', 'inline');
     this.domContainer.style.display = 'inline-block';
     this.domContainer.style.whiteSpace = 'pre';
-    this.domContainer.style.color = 'black';
-    this.domContainer.style.fontSize = '18px';
     this.domContainer.style.lineHeight = '1em';
-    this.domContainer.style.paddingTop = '0px';
-    this.domContainer.style.paddingBottom = '0px';
   }
 
   getDOMContainer() {
@@ -29,6 +25,7 @@ export default class TextInlineViewNode extends InlineViewNode {
   }
 
   onLayoutUpdated(layoutNode: TextInlineBox) {
+    const textStyle = layoutNode.getTextStyle();
     this.selectableSize = layoutNode.getSelectableSize();
     const text = layoutNode.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
@@ -40,6 +37,13 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.innerText = text;
     this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
     this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
+    this.domContainer.style.fontFamily = textStyle.font;
+    this.domContainer.style.fontSize = `${textStyle.size}px`;
+    this.domContainer.style.letterSpacing = `${textStyle.letterSpacing}px`;
+    this.domContainer.style.fontWeight = `${textStyle.weight}`;
+    this.domContainer.style.color = textStyle.color;
+    this.domContainer.style.textDecoration = textStyle.underline ? 'underline' : null;
+    this.domContainer.style.fontStyle = textStyle.italic ? 'italic' : null;
   }
 
   resolveSelectionOffset(offset: number) {

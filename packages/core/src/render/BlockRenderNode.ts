@@ -1,11 +1,11 @@
 import Editor from '../Editor';
+import generateID from '../utils/generateID';
 import BranchNode from '../tree/BranchNode';
 import BlockElement from '../model/BlockElement';
 import RenderNode from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
-import generateID from '../utils/generateID';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 
 export type Parent = DocRenderNode;
@@ -108,9 +108,20 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
   }
 
   buildLineBreakInlineRenderNode(): InlineRenderNode {
+    const defaultTextStyle = {
+      weight: 400,
+      size: 16,
+      color: 'rgba(0, 0, 0, 1)',
+      font: 'Source Sans Pro',
+      letterSpacing: 0,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+    };
     const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
+    inlineRenderNode.setTextStyle(defaultTextStyle);
     inlineRenderNode.bumpVersion();
-    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true);
+    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true, defaultTextStyle);
     atomicRenderNode.bumpVersion();
     inlineRenderNode.insertChild(atomicRenderNode);
     return inlineRenderNode;

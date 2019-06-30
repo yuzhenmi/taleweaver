@@ -1,6 +1,9 @@
+import { TextStyle } from '../model/Text';
+import TextInlineRenderNode from '../render/TextInlineRenderNode';
 import InlineBox from './InlineBox';
 
 export default class TextInlineBox extends InlineBox {
+  protected textStyle?: TextStyle;
 
   getType() {
     return 'TextInlineBox';
@@ -12,6 +15,7 @@ export default class TextInlineBox extends InlineBox {
     }
     const childrenCut = this.children.splice(offset);
     const newTextInlineBox = new TextInlineBox(this.editor, this.renderNodeID);
+    newTextInlineBox.setTextStyle(this.getTextStyle());
     childrenCut.forEach((child, childOffset) => {
       newTextInlineBox.insertChild(child, childOffset);
     });
@@ -29,5 +33,21 @@ export default class TextInlineBox extends InlineBox {
       childOffset++;
     });
     this.clearCache();
+  }
+
+  onRenderUpdated(renderNode: TextInlineRenderNode) {
+    super.onRenderUpdated(renderNode);
+    this.setTextStyle(renderNode.getTextStyle());
+  }
+
+  setTextStyle(textStyle: TextStyle) {
+    this.textStyle = textStyle;
+  }
+
+  getTextStyle() {
+    if (!this.textStyle) {
+      throw new Error('Text render node has not been initialized with style.');
+    }
+    return this.textStyle;
   }
 }

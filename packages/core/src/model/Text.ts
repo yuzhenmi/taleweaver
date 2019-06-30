@@ -3,8 +3,18 @@ import Attributes from '../token/Attributes';
 import { DOMAttributes } from './Element';
 import InlineElement from './InlineElement';
 
-export default class Text extends InlineElement {
+export interface TextStyle {
+  weight: number;
+  size: number;
+  color: string;
+  font: string;
+  letterSpacing: number;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+}
 
+export default class Text extends InlineElement {
   static getDOMNodeNames(): string[] {
     return [
       'SPAN',
@@ -15,6 +25,14 @@ export default class Text extends InlineElement {
     const text = new Text(editor);
     text.setContent(content);
     return text;
+  }
+
+  protected textStyle: TextStyle;
+
+  constructor(editor: Editor) {
+    super(editor);
+    const textConfig = editor.getConfig().getTextConfig();
+    this.textStyle = textConfig.getDefaultStyle();
   }
 
   getType() {
@@ -35,5 +53,9 @@ export default class Text extends InlineElement {
 
   onStateUpdated(attributes: Attributes) {
     return false;
+  }
+
+  getTextStyle(): TextStyle {
+    return this.textStyle;
   }
 }

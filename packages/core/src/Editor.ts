@@ -1,3 +1,4 @@
+import generateID from './utils/generateID';
 import Config from './config/Config'
 import Dispatcher from './dispatch/Dispatcher';
 import Transformer from './transform/Transformer';
@@ -11,6 +12,7 @@ import Extension from './extension/Extension';
 import ExtensionProvider from './extension/ExtensionProvider';
 
 export default class Editor {
+  protected id: string;
   protected config: Config;
   protected dispatcher: Dispatcher;
   protected transformer: Transformer;
@@ -23,6 +25,7 @@ export default class Editor {
   protected extensionProvider: ExtensionProvider;
 
   constructor(config: Config, markup: string, domWrapper: HTMLElement) {
+    this.id = generateID();
     this.config = config;
     this.dispatcher = new Dispatcher(this);
     this.transformer = new Transformer(this);
@@ -34,6 +37,10 @@ export default class Editor {
     this.viewManager = new ViewManager(this, domWrapper);
     this.extensionProvider = new ExtensionProvider(this);
     setTimeout(() => this.getViewManager().focus());
+  }
+
+  getID() {
+    return this.id;
   }
 
   getConfig() {
