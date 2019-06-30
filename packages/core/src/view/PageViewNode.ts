@@ -19,6 +19,7 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     super(editor, id);
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--page';
+    this.domContainer.setAttribute('data-tw-instance', editor.getID());
     this.domContainer.setAttribute('data-tw-id', id);
     this.domContainer.setAttribute('data-tw-role', 'page');
     this.domContentContainer = document.createElement('div');

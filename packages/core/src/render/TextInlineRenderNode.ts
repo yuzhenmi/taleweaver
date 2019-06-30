@@ -1,16 +1,24 @@
+import Editor from '../Editor';
 import generateID from '../utils/generateID';
 import breakTextToWords from './utils/breakTextToWords';
-import Text from '../model/Text';
+import Text, { TextStyle } from '../model/Text';
 import InlineRenderNode from './InlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
 
 export default class TextInlineRenderNode extends InlineRenderNode {
+  protected textStyle?: TextStyle;
+
+  constructor(editor: Editor, id: string) {
+    super(editor, id);
+  }
 
   getType(): string {
     return 'TextInlineRenderNode';
   }
 
   onModelUpdated(element: Text) {
+    const textStyle = element.getTextStyle();
+    this.setTextStyle(textStyle);
     super.onModelUpdated(element);
     const words = breakTextToWords(element.getContent());
     let offset = 0;
@@ -29,6 +37,7 @@ export default class TextInlineRenderNode extends InlineRenderNode {
           `${element.getID()}-${generateID()}`,
           word.text,
           word.breakable,
+          textStyle,
         );
         atomicRenderNode.bumpVersion();
         this.insertChild(atomicRenderNode, offset);
@@ -48,9 +57,21 @@ export default class TextInlineRenderNode extends InlineRenderNode {
         `${element.getID()}-${generateID()}`,
         '',
         true,
+        textStyle,
       );
       atomicRenderNode.bumpVersion();
       this.insertChild(atomicRenderNode);
     }
+  }
+
+  getTextStyle() {
+    if (!this.textStyle) {
+      throw new Error('Text render node has not been initialized with style.');
+    }
+    return this.textStyle;
+  }
+
+  setTextStyle(textStyle: TextStyle) {
+    this.textStyle = textStyle;
   }
 }

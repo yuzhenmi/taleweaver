@@ -1,13 +1,13 @@
 import ElementConfig from './ElementConfig';
 import KeyBindingConfig from './KeyBindingConfig';
 import PageConfig from './PageConfig';
-import FontConfig from './FontConfig';
+import TextConfig from './TextConfig';
 
 class Config {
   protected elementConfig = new ElementConfig();
   protected keyBindingConfig = new KeyBindingConfig();
   protected pageConfig = new PageConfig();
-  protected fontConfig: FontConfig = new FontConfig();
+  protected textConfig: TextConfig = new TextConfig();
 
   getElementConfig() {
     return this.elementConfig;
@@ -21,8 +21,8 @@ class Config {
     return this.pageConfig;
   }
 
-  getFontConfig() {
-    return this.fontConfig;
+  getTextConfig() {
+    return this.textConfig;
   }
 }
 
