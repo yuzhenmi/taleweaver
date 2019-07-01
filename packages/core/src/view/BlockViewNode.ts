@@ -29,16 +29,4 @@ export default abstract class BlockViewNode extends ViewNode implements BranchNo
   abstract getChildren(): Child[];
 
   abstract onLayoutUpdated(layoutNode: BlockBox): void;
-
-  resolveSelectableOffsetToNodeOffset(offset: number) {
-    let cumulatedOffset = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      if (cumulatedOffset + child.getSelectableSize() > offset) {
-        return child.resolveSelectableOffsetToNodeOffset(offset - cumulatedOffset);
-      }
-      cumulatedOffset += child.getSelectableSize();
-    }
-    throw new Error(`Selectable offset ${offset} is out of range.`);
-  }
 }

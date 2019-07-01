@@ -1,6 +1,14 @@
 import Editor from '../Editor';
 import Node from '../tree/Node';
 
+export interface ResolvedPosition {
+  renderNode: RenderNode;
+  depth: number;
+  offset: number;
+  parent: ResolvedPosition | null;
+  child: ResolvedPosition | null;
+}
+
 export default abstract class RenderNode implements Node {
   protected editor: Editor;
   protected id: string;

@@ -2,12 +2,10 @@ import Editor from '../Editor';
 import generateID from '../utils/generateID';
 import BranchNode from '../tree/BranchNode';
 import BlockElement from '../model/BlockElement';
-import RenderNode from './RenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
-import TextInlineRenderNode from './TextInlineRenderNode';
-import TextAtomicRenderNode from './TextAtomicRenderNode';
-import { DEFAULT_STYLE } from '../config/TextConfig';
+import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
 
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;
@@ -15,7 +13,7 @@ export type Child = InlineRenderNode;
 export default abstract class BlockRenderNode extends RenderNode implements BranchNode {
   protected parent: Parent | null = null;
   protected children: Child[] = [];
-  protected lineBreakInlineRenderNode: InlineRenderNode;
+  protected lineBreakInlineRenderNode: LineBreakInlineRenderNode;
 
   constructor(editor: Editor, id: string) {
     super(editor, id);
@@ -70,10 +68,11 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
 
   getSelectableSize() {
     if (this.selectableSize === undefined) {
-      let selectableSize = 1;
+      let selectableSize = 0;
       this.children.forEach(child => {
         selectableSize += child.getSelectableSize();
       });
+      selectableSize += this.lineBreakInlineRenderNode.getSelectableSize();
       this.selectableSize = selectableSize;
     }
     return this.selectableSize;
@@ -108,17 +107,44 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }
 
-  buildLineBreakInlineRenderNode(): InlineRenderNode {
-    const inlineRenderNode = new TextInlineRenderNode(this.editor, generateID());
-    inlineRenderNode.setTextStyle(DEFAULT_STYLE);
+  resolveSelectableOffset(selectableOffset: number, depth: number) {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSelectableSize();
+      if (cumulatedOffset + childSize > selectableOffset) {
+        const resolvedPosition: ResolvedPosition = {
+          renderNode: this,
+          depth,
+          offset: selectableOffset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, depth + 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+      cumulatedOffset += childSize;
+    }
+    if (cumulatedOffset === selectableOffset) {
+      return this.lineBreakInlineRenderNode.resolveSelectableOffset(0, depth + 1);
+    }
+    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
+
+  buildLineBreakInlineRenderNode(): LineBreakInlineRenderNode {
+    const inlineRenderNode = new LineBreakInlineRenderNode(this.editor, generateID());
     inlineRenderNode.bumpVersion();
-    const atomicRenderNode = new TextAtomicRenderNode(this.editor, generateID(), '\n', true, DEFAULT_STYLE);
-    atomicRenderNode.bumpVersion();
-    inlineRenderNode.insertChild(atomicRenderNode);
     return inlineRenderNode;
   }
 
   getLineBreakInlineRenderNode() {
     return this.lineBreakInlineRenderNode;
+  }
+
+  bumpVersion() {
+    super.bumpVersion();
+    this.lineBreakInlineRenderNode.bumpVersion();
   }
 }

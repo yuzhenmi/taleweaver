@@ -36,6 +36,4 @@ export default abstract class ViewNode {
   abstract onLayoutUpdated(layoutNode: LayoutNode): void;
 
   abstract onDeleted(): void;
-
-  abstract resolveSelectableOffsetToNodeOffset(selectableOffset: number): [Node, number];
 }

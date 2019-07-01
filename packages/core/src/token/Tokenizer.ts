@@ -136,7 +136,7 @@ class Tokenizer {
     let id: string;
     let attributes: {};
     try {
-      ({ id, attributes } = JSON.parse(this.attributesBuffer));
+      ({ id, ...attributes } = JSON.parse(this.attributesBuffer));
     } catch (error) {
       throw new Error(`Invalid attributes JSON: ${this.attributesBuffer}.`);
     }

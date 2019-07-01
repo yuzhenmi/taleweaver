@@ -89,7 +89,6 @@ export default abstract class BlockElement extends Element implements BranchNode
       }
       cumulatedOffset += childSize;
     }
-    this.size = undefined;
     throw new Error(`Offset ${offset} is out of range.`);
   }
 

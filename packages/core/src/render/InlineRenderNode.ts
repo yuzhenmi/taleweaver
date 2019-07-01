@@ -1,6 +1,6 @@
 import BranchNode from '../tree/BranchNode';
 import InlineElement from '../model/InlineElement';
-import RenderNode from './RenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 import BlockRenderNode from './BlockRenderNode';
 import AtomicRenderNode from './AtomicRenderNode';
 
@@ -87,6 +87,29 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
       }
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
+    }
+    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
+
+  resolveSelectableOffset(selectableOffset: number, depth: number) {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSelectableSize();
+      if (cumulatedOffset + childSize > selectableOffset) {
+        const resolvedPosition: ResolvedPosition = {
+          renderNode: this,
+          depth,
+          offset: selectableOffset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, depth + 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+      cumulatedOffset += childSize;
     }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }
