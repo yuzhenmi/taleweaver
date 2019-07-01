@@ -17,7 +17,19 @@ export default class TextInlineRenderNode extends InlineRenderNode {
   }
 
   onModelUpdated(element: Text) {
-    const textStyle = element.getTextStyle();
+    const textConfig = this.editor.getConfig().getTextConfig();
+    const defaultTextStyle = textConfig.getDefaultStyle();
+    const attributes = element.getAttributes();
+    const textStyle = {
+      weight: attributes.weight || defaultTextStyle.weight,
+      size: attributes.size || defaultTextStyle.size,
+      color: attributes.color || defaultTextStyle.color,
+      font: attributes.font || defaultTextStyle.font,
+      letterSpacing: attributes.letterSpacing || defaultTextStyle.letterSpacing,
+      italic: attributes.italic || defaultTextStyle.italic,
+      underline: attributes.underline || defaultTextStyle.underline,
+      strikethrough: attributes.strikethrough || defaultTextStyle.strikethrough,
+    };
     this.setTextStyle(textStyle);
     super.onModelUpdated(element);
     const words = breakTextToWords(element.getContent());

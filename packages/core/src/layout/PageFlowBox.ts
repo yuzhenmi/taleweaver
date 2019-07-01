@@ -186,6 +186,9 @@ export default class PageFlowBox extends FlowBox {
       selectableOffset -= lastChild.getSelectableSize();
       selectableOffset += lastChild.resolveViewportPositionToSelectableOffset(innerX, lastChild.getHeight());
     }
+    if (selectableOffset === this.getSelectableSize()) {
+      selectableOffset--;
+    }
     return selectableOffset;
   }
 

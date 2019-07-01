@@ -20,6 +20,4 @@ export default abstract class InlineViewNode extends ViewNode implements LeafNod
   }
 
   abstract onLayoutUpdated(layoutNode: InlineBox): void;
-
-  abstract resolveSelectionOffset(offset: number): number;
 }

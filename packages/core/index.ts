@@ -17,6 +17,10 @@ import LineFlowBox from './src/layout/LineFlowBox';
 import InlineBox from './src/layout/InlineBox';
 import AtomicBox from './src/layout/AtomicBox';
 
+import {
+  ViewStateUpdatedEvent,
+} from './src/dispatch/events';
+
 import Key from './src/key/Key';
 import ModifierKey from './src/key/ModifierKey';
 import KeySignature from './src/key/KeySignature';
@@ -46,6 +50,8 @@ export {
   LineFlowBox,
   InlineBox,
   AtomicBox,
+
+  ViewStateUpdatedEvent,
 
   Key,
   ModifierKey,

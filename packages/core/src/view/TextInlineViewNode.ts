@@ -5,6 +5,7 @@ import InlineViewNode from './InlineViewNode';
 
 export default class TextInlineViewNode extends InlineViewNode {
   protected domContainer: HTMLSpanElement;
+  protected domContent: HTMLSpanElement;
 
   constructor(editor: Editor, id: string) {
     super(editor, id);
@@ -15,6 +16,9 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.style.display = 'inline-block';
     this.domContainer.style.whiteSpace = 'pre';
     this.domContainer.style.lineHeight = '1em';
+    this.domContent = document.createElement('span');
+    this.domContent.className = 'tw--text-inline-content';
+    this.domContainer.appendChild(this.domContent);
   }
 
   getDOMContainer() {
@@ -34,7 +38,6 @@ export default class TextInlineViewNode extends InlineViewNode {
         throw new Error(`Invalid child AtomicBox encountered for TextInlineBox.`);
       }
     }).join('');
-    this.domContainer.innerText = text;
     this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
     this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
     this.domContainer.style.fontFamily = textStyle.font;
@@ -44,16 +47,7 @@ export default class TextInlineViewNode extends InlineViewNode {
     this.domContainer.style.color = textStyle.color;
     this.domContainer.style.textDecoration = textStyle.underline ? 'underline' : null;
     this.domContainer.style.fontStyle = textStyle.italic ? 'italic' : null;
-  }
-
-  resolveSelectionOffset(offset: number) {
-    return offset;
-  }
-
-  resolveSelectableOffsetToNodeOffset(offset: number): [Node, number] {
-    if (!this.domContainer.firstChild) {
-      throw new Error('Text inline view is not built properly.');
-    }
-    return [this.domContainer.firstChild, offset];
+    this.domContent.style.textDecoration = textStyle.strikethrough ? 'line-through' : null;
+    this.domContent.innerText = text;
   }
 }

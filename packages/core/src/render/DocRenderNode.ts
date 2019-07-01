@@ -1,7 +1,7 @@
 import Editor from '../Editor';
 import RootNode from '../tree/RootNode';
 import Doc from '../model/Doc';
-import RenderNode from './RenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 import BlockRenderNode from './BlockRenderNode';
 
 export type Child = BlockRenderNode;
@@ -79,6 +79,29 @@ export default class DocRenderNode extends RenderNode implements RootNode {
       }
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
+    }
+    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  }
+
+  resolveSelectableOffset(selectableOffset: number): ResolvedPosition {
+    let cumulatedOffset = 0;
+    for (let n = 0, nn = this.children.length; n < nn; n++) {
+      const child = this.children[n];
+      const childSize = child.getSelectableSize();
+      if (cumulatedOffset + childSize > selectableOffset) {
+        const resolvedPosition: ResolvedPosition = {
+          renderNode: this,
+          depth: 0,
+          offset: selectableOffset,
+          parent: null,
+          child: null,
+        };
+        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, 1);
+        resolvedPosition.child = childResolvedPosition;
+        childResolvedPosition.parent = resolvedPosition;
+        return resolvedPosition;
+      }
+      cumulatedOffset += childSize;
     }
     throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
   }

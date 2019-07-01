@@ -112,16 +112,4 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
     this.domContentContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
   }
-
-  resolveSelectableOffsetToNodeOffset(offset: number) {
-    let cumulatedOffset = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      if (cumulatedOffset + child.getSelectableSize() > offset) {
-        return child.resolveSelectableOffsetToNodeOffset(offset - cumulatedOffset);
-      }
-      cumulatedOffset += child.getSelectableSize();
-    }
-    throw new Error(`Selectable offset ${offset} is out of range.`);
-  }
 }

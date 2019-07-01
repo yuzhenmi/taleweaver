@@ -1,22 +1,22 @@
 export default `
 <Doc {"id": "{{id}}"}>
   <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
+    <Text {"id": "{{id}}", "weight": 700}>
       Once upon a time there lived in a certain village a little country girl, the prettiest creature was ever seen. Her mother was excessively fond of her; and her grandmother doted on her still more. This good woman had made for her a little red riding-hood; which became the girl so extremely well that everybody called her Little Red Riding-Hood.
     </>
   </>
   <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
+    <Text {"id": "{{id}}", "italic": true}>
       One day her mother, having made some custards, said to her:
     </>
   </>
   <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
+    <Text {"id": "{{id}}", "color": "rgba(255, 0, 0, 1)"}>
       "Go, my dear, and see how thy grandmamma does, for I hear she has been very ill; carry her a custard, and this little pot of butter."
     </>
   </>
   <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
+    <Text {"id": "{{id}}", "size": 24}>
       Little Red Riding-Hood set out immediately to go to her grandmother, who lived in another village.
     </>
   </>

@@ -11,12 +11,15 @@ import BlockBox from '../layout/BlockBox';
 import ParagraphBlockBox from '../layout/ParagraphBlockBox';
 import TextInlineBox from '../layout/TextInlineBox';
 import TextAtomicBox from '../layout/TextAtomicBox';
-import BlockViewNode from '../view/BlockViewNode';
-import InlineViewNode from '../view/InlineViewNode';
-import ParagraphBlockViewNode from '../view/ParagraphBlockViewNode';
-import TextInlineViewNode from '../view/TextInlineViewNode';
 import InlineBox from '../layout/InlineBox';
+import LineBreakInlineBox from '../layout/LineBreakInlineBox';
 import AtomicBox from '../layout/AtomicBox';
+import LineBreakAtomicBox from '../layout/LineBreakAtomicBox';
+import BlockViewNode from '../view/BlockViewNode';
+import ParagraphBlockViewNode from '../view/ParagraphBlockViewNode';
+import InlineViewNode from '../view/InlineViewNode';
+import TextInlineViewNode from '../view/TextInlineViewNode';
+import LineBreakInlineViewNode from '../view/LineBreakInlineViewNode';
 
 type BlockElementClass = new (editor: Editor) => BlockElement;
 type InlineElementClass = new (editor: Editor) => InlineElement;
@@ -48,9 +51,12 @@ class ElementConfig {
     this.registerInlineRenderNodeClass('Text', TextInlineRenderNode);
     this.registerBlockBoxClass('ParagraphBlockRenderNode', ParagraphBlockBox);
     this.registerInlineBoxClass('TextInlineRenderNode', TextInlineBox);
+    this.registerInlineBoxClass('LineBreakInlineRenderNode', LineBreakInlineBox);
     this.registerAtomicBoxClass('TextAtomicRenderNode', TextAtomicBox);
+    this.registerAtomicBoxClass('LineBreakAtomicRenderNode', LineBreakAtomicBox);
     this.registerBlockViewNodeClass('ParagraphBlockBox', ParagraphBlockViewNode);
     this.registerInlineViewNodeClass('TextInlineBox', TextInlineViewNode);
+    this.registerInlineViewNodeClass('LineBreakInlineBox', LineBreakInlineViewNode);
   }
 
   registerBlockElementClass(elementType: string, elementClass: BlockElementClass) {

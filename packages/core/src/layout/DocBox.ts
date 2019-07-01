@@ -99,7 +99,11 @@ export default class DocBox extends Box implements RootNode {
     for (let n = 0; n < pageOffset; n++) {
       selectableOffset += this.children[n].getSelectableSize();
     }
-    return selectableOffset + this.children[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
+    selectableOffset += this.children[pageOffset].resolveViewportPositionToSelectableOffset(x, y);
+    if (selectableOffset === this.getSelectableSize()) {
+      selectableOffset--;
+    }
+    return selectableOffset;
   }
 
   resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {

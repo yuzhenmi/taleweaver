@@ -14,6 +14,17 @@ export interface TextStyle {
   strikethrough: boolean;
 }
 
+export interface TextAttributes extends Attributes {
+  weight?: number;
+  size?: number;
+  color?: string;
+  font?: string;
+  letterSpacing?: number;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+}
+
 export default class Text extends InlineElement {
   static getDOMNodeNames(): string[] {
     return [
@@ -27,12 +38,11 @@ export default class Text extends InlineElement {
     return text;
   }
 
-  protected textStyle: TextStyle;
+  protected attributes: TextAttributes;
 
   constructor(editor: Editor) {
     super(editor);
-    const textConfig = editor.getConfig().getTextConfig();
-    this.textStyle = textConfig.getDefaultStyle();
+    this.attributes = {};
   }
 
   getType() {
@@ -40,9 +50,7 @@ export default class Text extends InlineElement {
   }
 
   getAttributes() {
-    return {
-      id: this.id!,
-    };
+    return this.attributes;
   }
 
   toHTML(from: number, to: number) {
@@ -52,10 +60,7 @@ export default class Text extends InlineElement {
   }
 
   onStateUpdated(attributes: Attributes) {
+    this.attributes = attributes;
     return false;
-  }
-
-  getTextStyle(): TextStyle {
-    return this.textStyle;
   }
 }
