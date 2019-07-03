@@ -4,19 +4,19 @@ self.__precacheManifest = [
     "url": "/taleweaver/static/js/runtime~main.2f6baeca.js"
   },
   {
-    "revision": "d71ee106dfa19f7c9626",
-    "url": "/taleweaver/static/js/main.7f05e269.chunk.js"
+    "revision": "546de8c47bffbc44cebd",
+    "url": "/taleweaver/static/js/main.92389129.chunk.js"
   },
   {
     "revision": "95a03250d1b1b21258a6",
     "url": "/taleweaver/static/js/2.cf4fb4d9.chunk.js"
   },
   {
-    "revision": "d71ee106dfa19f7c9626",
+    "revision": "546de8c47bffbc44cebd",
     "url": "/taleweaver/static/css/main.8133830e.chunk.css"
   },
   {
-    "revision": "1da62d1395200bc3fe834bd7a8ffe36e",
+    "revision": "3d276c9eaf03c40cb24c5d619bb407f0",
     "url": "/taleweaver/index.html"
   }
 ];
