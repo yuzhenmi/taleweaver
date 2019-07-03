@@ -1,7 +1,7 @@
 import React from 'react';;
 import styled from 'styled-components';
 import './App.css';
-import Editor from './Editor';
+import Taleweaver from './Taleweaver';
 import littleRedRidingHood from './samples/littleRedRidingHood';
 
 const Wrapper = styled.div`
@@ -9,8 +9,7 @@ const Wrapper = styled.div`
 
 const Hero = styled.div`
   text-align: center;
-  padding: 90px 60px;
-  background: rgba(0, 0, 0, 0.04);
+  padding: 90px 60px 30PX;
 `;
 
 const BrandWrapper = styled.div`
@@ -49,20 +48,19 @@ const Link = styled.a`
   color: rgba(0, 0, 0, 0.85);
   text-decoration: none;
   font-size: 20px;
-  background: rgba(0, 0, 0, 0.04);
+  background: transparent;
   border-radius: 3px;
   border: 1px solid rgba(0, 0, 0, 0.15);
   &:hover {
     color: rgba(0, 0, 0, 1);
-    background: rgba(0, 0, 0, 0.09);
+    background: rgba(0, 0, 0, 0.04);
     border-color: rgba(0, 0, 0, 0.25);
   }
 `;
 
 const DemoHintWrapper = styled.div`
   text-align: center;
-  background: rgba(0, 0, 0, 0.04);
-  padding-bottom: 30px;
+  margin-top: 90px;
 `;
 
 const DemoHint = styled.span`
@@ -88,11 +86,11 @@ class App extends React.Component {
           <Links>
             <Link href="https://github.com/yuzhenmi/taleweaver">GitHub</Link>
           </Links>
+          <DemoHintWrapper>
+            <DemoHint>&darr; Check it out &darr;</DemoHint>
+          </DemoHintWrapper>
         </Hero>
-        <DemoHintWrapper>
-          <DemoHint>&darr; Check it out &darr;</DemoHint>
-        </DemoHintWrapper>
-        <Editor initialMarkup={littleRedRidingHood} />
+        <Taleweaver initialMarkup={littleRedRidingHood} />
       </Wrapper>
     );
   }

@@ -61,6 +61,40 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     this.clearCache();
   }
 
+  getPreviousSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Inline render node is not found in parent.`);
+    }
+    if (offset > 0) {
+      return siblings[offset - 1];
+    }
+    const parentPreviousSibling = this.getParent().getPreviousSibling();
+    if (!parentPreviousSibling) {
+      return null;
+    }
+    const parentPreviousSiblingChildren = parentPreviousSibling.getChildren();
+    return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
+  }
+
+  getNextSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Inline render node is not found in parent.`);
+    }
+    if (offset < siblings.length - 1) {
+      return siblings[offset + 1];
+    }
+    const parentNextSibling = this.getParent().getNextSibling();
+    if (!parentNextSibling) {
+      return null;
+    }
+    const parentNextSiblingChildren = parentNextSibling.getChildren();
+    return parentNextSiblingChildren[0];
+  }
+
   onModelUpdated(element: InlineElement) {
     this.clearCache();
   }

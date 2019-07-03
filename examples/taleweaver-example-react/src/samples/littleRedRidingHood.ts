@@ -21,7 +21,7 @@ export default `
     </>
   </>
   <Paragraph {"id": "{{id}}"}>
-    <Text {"id": "{{id}}"}>
+    <Text {"id": "{{id}}", "strikethrough": true, "underline": true}>
       As she was going through the wood, she met with Gaffer Wolf, who had a very great mind to eat her up, but he dared not, because of some faggot-makers hard by in the forest. He asked her whither she was going. The poor child, who did not know that it was dangerous to stay and hear a wolf talk, said to him:
     </>
   </>

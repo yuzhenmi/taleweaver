@@ -4,6 +4,8 @@ import Config from './src/config/Config';
 import OpenTagToken from './src/token/OpenTagToken';
 import CloseTagToken from './src/token/CloseTagToken';
 
+import { TextStyle } from './src/model/Text';
+
 import Transformation from './src/transform/Transformation';
 import * as operations from './src/transform/operations';
 
@@ -37,6 +39,8 @@ export {
 
   OpenTagToken,
   CloseTagToken,
+
+  TextStyle,
 
   Transformation,
   operations,
