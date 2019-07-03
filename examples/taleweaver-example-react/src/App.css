@@ -1,24 +1,8 @@
 body {
-  background: rgba(0, 0, 0, 0.04);
+  background: #F5F6F7;
   min-height: 100vh;
 }
 
 * {
   box-sizing: border-box;
-}
-
-.tw--doc {
-  font-family: 'Source Sans Pro', sans-serif;
-  display: inline-block;
-}
-
-.tw--page {
-  background: rgba(255, 255, 255, 1);
-  margin: 0 auto;
-}
-.tw--page *::selection {
-  background: rgba(255, 255, 255, 1);
-}
-.tw--page + .tw--page {
-  border-top: 1px dashed rgba(0, 0, 0, 0.45);
 }

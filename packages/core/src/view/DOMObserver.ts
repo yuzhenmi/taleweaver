@@ -98,8 +98,6 @@ export default class DOMObserver {
     event.preventDefault();
     if (!this.isFocused) {
       this.focus();
-      // Don't reset cursor if regaining focus
-      return;
     }
     this.isMouseDown = true;
     const offset = this.resolveScreenPosition(event.clientX, event.clientY);

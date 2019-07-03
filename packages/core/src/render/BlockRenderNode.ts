@@ -61,6 +61,30 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     this.modelSize = undefined;
   }
 
+  getPreviousSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Block render node is not found in parent.`);
+    }
+    if (offset > 0) {
+      return siblings[offset - 1];
+    }
+    return null;
+  }
+
+  getNextSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Block render node is not found in parent.`);
+    }
+    if (offset < siblings.length - 1) {
+      return siblings[offset + 1];
+    }
+    return null;
+  }
+
   onModelUpdated(element: BlockElement) {
     this.selectableSize = undefined;
     this.modelSize = undefined;
@@ -135,6 +159,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
 
   buildLineBreakInlineRenderNode(): LineBreakInlineRenderNode {
     const inlineRenderNode = new LineBreakInlineRenderNode(this.editor, generateID());
+    inlineRenderNode.setParent(this);
     inlineRenderNode.bumpVersion();
     return inlineRenderNode;
   }

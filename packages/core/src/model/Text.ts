@@ -4,11 +4,11 @@ import { DOMAttributes } from './Element';
 import InlineElement from './InlineElement';
 
 export interface TextStyle {
-  weight: number;
-  size: number;
-  color: string;
-  font: string;
-  letterSpacing: number;
+  weight: number | null;
+  size: number | null;
+  color: string | null;
+  font: string | null;
+  letterSpacing: number | null;
   italic: boolean;
   underline: boolean;
   strikethrough: boolean;
