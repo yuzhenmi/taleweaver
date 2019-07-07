@@ -1,18 +1,11 @@
 import Editor from '../Editor';
 import { TextStyle } from '../model/Text';
+import getInlineRenderNodesBetween from './utils/getInlineRenderNodesBetween';
 import DocRenderNode from './DocRenderNode';
 import RenderEngine from './RenderEngine';
-import RenderNode, { ResolvedPosition } from './RenderNode';
 import InlineRenderNode from './InlineRenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
 import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
-
-function getLeafPosition(position: ResolvedPosition): ResolvedPosition {
-  if (!position.child) {
-    return position
-  }
-  return getLeafPosition(position.child);
-}
 
 class RenderManager {
   protected editor: Editor;
@@ -31,94 +24,35 @@ class RenderManager {
     return this.docRenderNode;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
-    return this.docRenderNode.convertSelectableOffsetToModelOffset(selectableOffset);
+  getModelOffset(offset: number): number {
+    return this.docRenderNode.getModelOffset(offset);
   }
 
-  resolveSelectableOffset(selectableOffset: number) {
-    return this.docRenderNode.resolveSelectableOffset(selectableOffset);
+  resolveOffset(offset: number) {
+    return this.docRenderNode.resolveOffset(offset);
   }
 
   getTextStyleBetween(from: number, to: number) {
-    const _from = from;
-    const _to = to;
-    from = Math.min(_from, _to);
-    to = Math.max(_from, _to);
-    if (from < to) {
-      to--;
-    } else if (from > to) {
-      from--;
-    }
-    const renderManager =  this.editor.getRenderManager();
-    let fromInlineRenderNode: InlineRenderNode | null = null;
-    while (fromInlineRenderNode === null) {
-      const fromPosition = renderManager.resolveSelectableOffset(from);
-      const fromInlinePosition = getLeafPosition(fromPosition).parent!;
-      if (!(fromInlinePosition.renderNode instanceof InlineRenderNode)) {
-        return null;
+    const renderNodes = getInlineRenderNodesBetween(this.editor, from, to);
+    const textStyles: TextStyle[] = [];
+    renderNodes.forEach(renderNode => {
+      let textStyle: TextStyle | null = null;
+      if (renderNode instanceof TextInlineRenderNode) {
+        textStyle = renderNode.getTextStyle();
       }
-      fromInlineRenderNode = fromInlinePosition.renderNode;
-      if (fromInlineRenderNode instanceof LineBreakInlineRenderNode) {
-        fromInlineRenderNode = null;
-        if (from === to) {
-          if (from === 0) {
-            return null;
-          }
-          from--;
-          to--;
-        } else {
-          from++;
-        }
+      if (textStyle) {
+        textStyles.push(textStyle);
       }
-    }
-    let toInlineRenderNode: InlineRenderNode | null = null;
-    while (toInlineRenderNode === null) {
-      const toPosition = renderManager.resolveSelectableOffset(to);
-      const toInlinePosition = getLeafPosition(toPosition).parent!;
-      if (!(toInlinePosition.renderNode instanceof InlineRenderNode)) {
-        return null;
-      }
-      toInlineRenderNode = toInlinePosition.renderNode;
-      if (toInlineRenderNode instanceof LineBreakInlineRenderNode) {
-        toInlineRenderNode = null;
-        if (from === to) {
-          return null;
-        }
-        to--;
-      }
-    }
-    if (fromInlineRenderNode === toInlineRenderNode) {
-      return this.getInlineRenderNodeTextStyle(fromInlineRenderNode);
-    }
-    const textStyles: Array<TextStyle | null> = [];
-    let inlineRenderNode: InlineRenderNode = fromInlineRenderNode;
-    let isLastIteration = false;
-    while (true) {
-      const textStyle = this.getInlineRenderNodeTextStyle(inlineRenderNode);
-      textStyles.push(textStyle);
-      const nextSibling = inlineRenderNode.getNextSibling();
-      if (!nextSibling) {
-        break;
-      }
-      inlineRenderNode = nextSibling;
-      if (isLastIteration) {
-        break;
-      }
-      if (inlineRenderNode === toInlineRenderNode) {
-        isLastIteration = true;
-      }
-    }
-    const textStylesWithoutNull: TextStyle[] = [];
-    textStyles.forEach(textStyle => textStyle && textStylesWithoutNull.push(textStyle));
-    if (textStylesWithoutNull.length === 0) {
+    });
+    if (textStyles.length === 0) {
       return null;
     }
-    const mergedTextStyle = textStylesWithoutNull.reduce(
+    const mergedTextStyle = textStyles.reduce(
       (mergedTextStyle, textStyle) => this.mergeTextStyles(
         mergedTextStyle,
         textStyle,
       ),
-      textStylesWithoutNull[0],
+      textStyles[0],
     );
     return mergedTextStyle;
   }

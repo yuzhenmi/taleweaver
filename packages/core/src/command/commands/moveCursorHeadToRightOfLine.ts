@@ -18,8 +18,8 @@ export default function moveHeadToRightOfLine(): Command {
     if (!(lineFlowBox instanceof LineFlowBox)) {
       throw new Error(`Expecting position to be referencing an line box.`);
     }
-    if (lineFlowBoxLevelPosition.getSelectableOffset() < lineFlowBox.getSelectableSize() - 1) {
-      transformation.setCursorHead(head - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() - 1);
+    if (lineFlowBoxLevelPosition.getOffset() < lineFlowBox.getSize() - 1) {
+      transformation.setCursorHead(head - lineFlowBoxLevelPosition.getOffset() + lineFlowBox.getSize() - 1);
     } else {
       transformation.setCursorHead(head);
     }

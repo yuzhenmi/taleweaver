@@ -106,15 +106,15 @@ export default abstract class BlockBox extends Box {
     return parentNextSiblingChildren[0];
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      this.selectableSize = selectableSize;
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   onRenderUpdated(renderNode: BlockRenderNode) {
@@ -127,26 +127,26 @@ export default abstract class BlockBox extends Box {
 
   abstract join(blockBox: BlockBox): void;
 
-  resolvePosition(parentPosition: Position, selectableOffset: number) {
-    const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
+  resolvePosition(parentPosition: Position, offset: number) {
+    const position = new Position(this, offset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
         const child = this.children[n];
-        const childSelectableSize = child.getSelectableSize();
-        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
-          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+        const childSelectableSize = child.getSize();
+        if (cumulatedSelectableOffset + childSelectableSize > offset) {
+          const childPosition = child.resolvePosition(parent, offset - cumulatedSelectableOffset);
           return childPosition;
         }
         cumulatedSelectableOffset += childSelectableSize;
       }
-      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+      throw new Error(`Offset ${offset} cannot be resolved to position.`);
     });
     return position;
   }
 
   abstract resolveViewportPositionToSelectableOffset(x: number, y: number): number;
 
-  abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
+  abstract resolveOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
 
   protected clearCache() {
     super.clearCache();

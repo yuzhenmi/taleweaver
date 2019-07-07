@@ -15,15 +15,15 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     return this.version;
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      this.selectableSize = selectableSize;
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   setParent(parent: Parent | null) {
@@ -110,41 +110,41 @@ export default abstract class InlineRenderNode extends RenderNode implements Bra
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number) {
+  getModelOffset(offset: number) {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
-      const childSelectableOffset = child.getSelectableSize();
-      if (cumulatedSelectableOffset + childSelectableOffset > selectableOffset) {
-        return cumulatedModelOffset + child.convertSelectableOffsetToModelOffset(selectableOffset - cumulatedSelectableOffset);
+      const childSelectableOffset = child.getSize();
+      if (cumulatedSelectableOffset + childSelectableOffset > offset) {
+        return cumulatedModelOffset + child.getModelOffset(offset - cumulatedSelectableOffset);
       }
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveSelectableOffset(selectableOffset: number, depth: number) {
+  resolveOffset(offset: number, depth: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
-      const childSize = child.getSelectableSize();
-      if (cumulatedOffset + childSize > selectableOffset) {
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
         const resolvedPosition: ResolvedPosition = {
           renderNode: this,
           depth,
-          offset: selectableOffset,
+          offset,
           parent: null,
           child: null,
         };
-        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, depth + 1);
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, depth + 1);
         resolvedPosition.child = childResolvedPosition;
         childResolvedPosition.parent = resolvedPosition;
         return resolvedPosition;
       }
       cumulatedOffset += childSize;
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 }

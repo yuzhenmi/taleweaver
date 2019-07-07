@@ -13,7 +13,7 @@ export default abstract class RenderNode implements Node {
   protected editor: Editor;
   protected id: string;
   protected version: number = 0;
-  protected selectableSize?: number;
+  protected size?: number;
   protected modelSize?: number;
 
   constructor(editor: Editor, id: string) {
@@ -35,14 +35,14 @@ export default abstract class RenderNode implements Node {
     this.version++;
   }
 
-  abstract getSelectableSize(): number;
+  abstract getSize(): number;
 
   abstract getModelSize(): number;
 
-  abstract convertSelectableOffsetToModelOffset(selectableOffset: number): number;
+  abstract getModelOffset(offset: number): number;
 
   protected clearCache() {
-    this.selectableSize = undefined;
+    this.size = undefined;
     this.modelSize = undefined;
   }
 }

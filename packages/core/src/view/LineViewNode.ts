@@ -83,6 +83,6 @@ export default class LineViewNode extends ViewNode implements BranchNode {
   }
 
   onLayoutUpdated(layoutNode: LineFlowBox) {
-    this.selectableSize = layoutNode.getSelectableSize();
+    this.size = layoutNode.getSize();
   }
 }

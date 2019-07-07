@@ -24,6 +24,11 @@ import moveCursorToRightOfDoc from './moveCursorToRightOfDoc';
 import moveCursorHeadToLeftOfDoc from './moveCursorHeadToLeftOfDoc';
 import moveCursorHeadToRightOfDoc from './moveCursorHeadToRightOfDoc';
 import selectAll from '../../command/commands/selectAll';
+import setTextBold from './setTextBold';
+import setTextColor from './setTextColor';
+import setTextItalic from './setTextItalic';
+import setTextStrikethrough from './setTextStrikethrough';
+import setTextUnderline from './setTextUnderline';
 import split from './split';
 
 export {
@@ -53,5 +58,10 @@ export {
   moveCursorHeadToLeftOfDoc,
   moveCursorHeadToRightOfDoc,
   selectAll,
+  setTextBold,
+  setTextColor,
+  setTextItalic,
+  setTextStrikethrough,
+  setTextUnderline,
   split,
 };

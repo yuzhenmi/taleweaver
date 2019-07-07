@@ -62,12 +62,12 @@ export default abstract class AtomicBox extends Box {
     return parentNextSiblingChildren[0];
   }
 
-  abstract getSelectableSize(): number;
+  abstract getSize(): number;
 
   abstract onRenderUpdated(renderNode: AtomicRenderNode): void;
 
-  resolvePosition(parentPosition: Position, selectableOffset: number) {
-    const position = new Position(this, selectableOffset, parentPosition);
+  resolvePosition(parentPosition: Position, offset: number) {
+    const position = new Position(this, offset, parentPosition);
     return position;
   }
 
@@ -77,7 +77,7 @@ export default abstract class AtomicBox extends Box {
 
   abstract resolveViewportPositionToSelectableOffset(x: number): number;
 
-  abstract resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
+  abstract resolveOffsetRangeToViewportBoundingRects(from: number, to: number): ViewportBoundingRect[];
 
   protected clearCache() {
     super.clearCache();

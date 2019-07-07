@@ -20,18 +20,18 @@ export default function moveHeadToLineAbove(): Command {
     }
     const previousLineFlowBox = lineFlowBox.getPreviousSibling();
     if (!previousLineFlowBox) {
-      transformation.setCursorHead(offset - lineFlowBoxLevelPosition.getSelectableOffset());
+      transformation.setCursorHead(offset - lineFlowBoxLevelPosition.getOffset());
     } else {
       let leftLock = cursor.getLeftLock();
       if (leftLock === null) {
-        leftLock = lineFlowBox.resolveSelectableOffsetRangeToViewportBoundingRects(
-          lineFlowBoxLevelPosition.getSelectableOffset(),
-          lineFlowBoxLevelPosition.getSelectableOffset(),
+        leftLock = lineFlowBox.resolveOffsetRangeToViewportBoundingRects(
+          lineFlowBoxLevelPosition.getOffset(),
+          lineFlowBoxLevelPosition.getOffset(),
         )[0].left;
       }
       transformation.setCursorLockLeft(leftLock);
       const targetLineSelectableOffset = previousLineFlowBox.resolveViewportPositionToSelectableOffset(leftLock);
-      transformation.setCursorHead(offset - lineFlowBoxLevelPosition.getSelectableOffset() - previousLineFlowBox.getSelectableSize() + targetLineSelectableOffset);
+      transformation.setCursorHead(offset - lineFlowBoxLevelPosition.getOffset() - previousLineFlowBox.getSize() + targetLineSelectableOffset);
     }
     return transformation;
   };

@@ -14,8 +14,8 @@ export default function moveHeadLeftByWord(): Command {
     const docBox = editor.getLayoutManager().getDocBox();
     const position = docBox.resolvePosition(head);
     const atomicBoxLevelPosition = position.getAtomicBoxLevel();
-    if (atomicBoxLevelPosition.getSelectableOffset() > 0) {
-      transformation.setCursorHead(head - atomicBoxLevelPosition.getSelectableOffset());
+    if (atomicBoxLevelPosition.getOffset() > 0) {
+      transformation.setCursorHead(head - atomicBoxLevelPosition.getOffset());
     } else {
       const atomicBox = atomicBoxLevelPosition.getLayoutNode();
       if (!(atomicBox instanceof AtomicBox)) {
@@ -23,7 +23,7 @@ export default function moveHeadLeftByWord(): Command {
       }
       const previousSiblingAtomicBox = atomicBox.getPreviousSibling();
       if (previousSiblingAtomicBox) {
-        transformation.setCursorHead(head - previousSiblingAtomicBox.getSelectableSize());
+        transformation.setCursorHead(head - previousSiblingAtomicBox.getSize());
       }
     }
     return transformation;

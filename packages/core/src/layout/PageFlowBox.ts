@@ -121,15 +121,15 @@ export default class PageFlowBox extends FlowBox {
     return null;
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      this.selectableSize = selectableSize;
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   onRenderUpdated() {
@@ -149,25 +149,25 @@ export default class PageFlowBox extends FlowBox {
     return newPageFlowBox;
   }
 
-  resolvePosition(parentPosition: Position, selectableOffset: number) {
-    const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
+  resolvePosition(parentPosition: Position, offset: number) {
+    const position = new Position(this, offset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
         const child = this.children[n];
-        const childSelectableSize = child.getSelectableSize();
-        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
-          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+        const childSelectableSize = child.getSize();
+        if (cumulatedSelectableOffset + childSelectableSize > offset) {
+          const childPosition = child.resolvePosition(parent, offset - cumulatedSelectableOffset);
           return childPosition;
         }
         cumulatedSelectableOffset += childSelectableSize;
       }
-      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+      throw new Error(`Offset ${offset} cannot be resolved to position.`);
     });
     return position;
   }
 
   resolveViewportPositionToSelectableOffset(x: number, y: number) {
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedHeight = 0;
     const innerX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getWidth() - this.getPaddingRight());
     const innerY = Math.min(Math.max(y - this.getPaddingTop(), 0), this.getHeight() - this.getPaddingBottom());
@@ -175,36 +175,36 @@ export default class PageFlowBox extends FlowBox {
       const child = this.children[n];
       const childHeight = child.getHeight();
       if (innerY >= cumulatedHeight && innerY <= cumulatedHeight + childHeight) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(innerX, innerY - cumulatedHeight);
+        offset += child.resolveViewportPositionToSelectableOffset(innerX, innerY - cumulatedHeight);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedHeight += childHeight;
     }
-    if (selectableOffset === this.getSelectableSize()) {
+    if (offset === this.getSize()) {
       const lastChild = this.children[this.children.length - 1];
-      selectableOffset -= lastChild.getSelectableSize();
-      selectableOffset += lastChild.resolveViewportPositionToSelectableOffset(innerX, lastChild.getHeight());
+      offset -= lastChild.getSize();
+      offset += lastChild.resolveViewportPositionToSelectableOffset(innerX, lastChild.getHeight());
     }
-    if (selectableOffset === this.getSelectableSize()) {
-      selectableOffset--;
+    if (offset === this.getSize()) {
+      offset--;
     }
-    return selectableOffset;
+    return offset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedHeight = 0;
-    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && offset <= to; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
       const minChildOffset = 0;
-      const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.max(from - selectableOffset, minChildOffset);
-      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      const maxChildOffset = child.getSize();
+      const childFrom = Math.max(from - offset, minChildOffset);
+      const childTo = Math.min(to - offset, maxChildOffset);
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-        const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+        const childViewportBoundingRects = child.resolveOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           const width = childViewportBoundingRect.width;
           const height = childViewportBoundingRect.height;
@@ -230,7 +230,7 @@ export default class PageFlowBox extends FlowBox {
           });
         });
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedHeight += childHeight;
     }
     return viewportBoundingRects;

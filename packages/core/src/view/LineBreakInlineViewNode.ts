@@ -28,7 +28,7 @@ export default class LineBreakInlineViewNode extends InlineViewNode {
   onLayoutUpdated(layoutNode: LineBreakInlineBox) {
     // const textStyle = layoutNode.getTextStyle();
     const textStyle = DEFAULT_STYLE;
-    this.selectableSize = layoutNode.getSelectableSize();
+    this.size = layoutNode.getSize();
     this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
     this.domContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
     this.domContainer.style.fontFamily = textStyle.font;

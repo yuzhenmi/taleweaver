@@ -78,9 +78,9 @@ export default class CursorView {
       this.domSelections.splice(0, 1);
     }
     // Render cursor caret and selections
-    const anchor = Math.min(Math.max(cursor.getAnchor(), 0), docBox.getSelectableSize() - 1);
-    const head = Math.min(Math.max(cursor.getHead(), 0), docBox.getSelectableSize() - 1);
-    const viewportBoundingRectsByPage = docBox.resolveSelectableOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
+    const anchor = Math.min(Math.max(cursor.getAnchor(), 0), docBox.getSize() - 1);
+    const head = Math.min(Math.max(cursor.getHead(), 0), docBox.getSize() - 1);
+    const viewportBoundingRectsByPage = docBox.resolveOffsetRangeToViewportBoundingRects(Math.min(anchor, head), Math.max(anchor, head));
     let firstPageOffset: number = -1;
     let firstViewportBoundingRectOffset: number = -1;
     let lastPageOffset: number = -1;

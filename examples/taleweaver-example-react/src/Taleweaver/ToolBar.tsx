@@ -75,6 +75,7 @@ const Item = styled.button<ItemProps>`
   border: none;
   border-radius: 3px;
   outline: none;
+  background: transparent;
   &:after {
     content: "";
     position: absolute;

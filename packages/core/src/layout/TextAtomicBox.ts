@@ -64,7 +64,7 @@ export default class TextAtomicBox extends AtomicBox {
     return this.content;
   }
 
-  getSelectableSize() {
+  getSize() {
     return this.content.length;
   }
 
@@ -125,8 +125,8 @@ export default class TextAtomicBox extends AtomicBox {
     return this.content.length;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
-    if (from === 0 && to === this.getSelectableSize()) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
+    if (from === 0 && to === this.getSize()) {
       return [{
         left: 0,
         right: 0,

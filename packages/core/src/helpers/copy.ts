@@ -23,8 +23,8 @@ function copy(editor: Editor) {
     return;
   }
   const renderManager = editor.getRenderManager();
-  const from = renderManager.convertSelectableOffsetToModelOffset(Math.min(anchor, head));
-  const to = renderManager.convertSelectableOffsetToModelOffset(Math.max(anchor, head));
+  const from = renderManager.getModelOffset(Math.min(anchor, head));
+  const to = renderManager.getModelOffset(Math.max(anchor, head));
   const html = editor.getModelManager().toHTML(from, to);
   $iframe.contentDocument!.body.innerHTML = html;
   $iframe.contentDocument!.execCommand('selectAll');

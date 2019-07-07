@@ -59,7 +59,7 @@ export default class ParagraphBlockViewNode extends BlockViewNode {
   }
 
   onLayoutUpdated(layoutNode: ParagraphBlockBox) {
-    this.selectableSize = layoutNode.getSelectableSize();
+    this.size = layoutNode.getSize();
     this.domContainer.style.width = `${layoutNode.getWidth()}px`;
     this.domContainer.style.height = `${layoutNode.getHeight()}px`;
     this.domContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;

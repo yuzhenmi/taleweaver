@@ -14,8 +14,8 @@ export default function moveLeftByWord(): Command {
     const docBox = editor.getLayoutManager().getDocBox();
     const position = docBox.resolvePosition(head);
     const atomicBoxLevelPosition = position.getAtomicBoxLevel();
-    if (atomicBoxLevelPosition.getSelectableOffset() > 0) {
-      transformation.setCursor(head - atomicBoxLevelPosition.getSelectableOffset());
+    if (atomicBoxLevelPosition.getOffset() > 0) {
+      transformation.setCursor(head - atomicBoxLevelPosition.getOffset());
     } else {
       const atomicBox = atomicBoxLevelPosition.getLayoutNode();
       if (!(atomicBox instanceof AtomicBox)) {
@@ -23,7 +23,7 @@ export default function moveLeftByWord(): Command {
       }
       const previousSiblingAtomicBox = atomicBox.getPreviousSibling();
       if (previousSiblingAtomicBox) {
-        transformation.setCursor(head - previousSiblingAtomicBox.getSelectableSize());
+        transformation.setCursor(head - previousSiblingAtomicBox.getSize());
       } else {
         transformation.setCursor(head);
       }

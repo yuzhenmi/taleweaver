@@ -124,15 +124,15 @@ export default class LineFlowBox extends FlowBox {
     return parentNextSiblingChildren[0];
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      this.selectableSize = selectableSize;
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   onRenderUpdated() {
@@ -152,55 +152,55 @@ export default class LineFlowBox extends FlowBox {
     return newLineFlowBox;
   }
 
-  resolvePosition(parentPosition: Position, selectableOffset: number) {
-    const position = new Position(this, selectableOffset, parentPosition, (parent: Position) => {
+  resolvePosition(parentPosition: Position, offset: number) {
+    const position = new Position(this, offset, parentPosition, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
         const child = this.children[n];
-        const childSelectableSize = child.getSelectableSize();
-        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
-          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+        const childSelectableSize = child.getSize();
+        if (cumulatedSelectableOffset + childSelectableSize > offset) {
+          const childPosition = child.resolvePosition(parent, offset - cumulatedSelectableOffset);
           return childPosition;
         }
         cumulatedSelectableOffset += childSelectableSize;
       }
-      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+      throw new Error(`Offset ${offset} cannot be resolved to position.`);
     });
     return position;
   }
 
   resolveViewportPositionToSelectableOffset(x: number) {
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedWidth = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childWidth = child.getWidth();
       if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(x - cumulatedWidth);
+        offset += child.resolveViewportPositionToSelectableOffset(x - cumulatedWidth);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedWidth += childWidth;
     }
-    if (selectableOffset === this.selectableSize) {
-      return selectableOffset - 1;
+    if (offset === this.size) {
+      return offset - 1;
     }
-    return selectableOffset;
+    return offset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedWidth = 0;
-    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && offset <= to; n++) {
       const child = this.children[n];
       const childWidth = child.getWidth();
       const minChildOffset = 0;
-      const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.max(from - selectableOffset, minChildOffset);
-      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      const maxChildOffset = child.getSize();
+      const childFrom = Math.max(from - offset, minChildOffset);
+      const childTo = Math.min(to - offset, maxChildOffset);
       if (childFrom <= maxChildOffset && childTo >= minChildOffset && !(childFrom === childTo && childTo === maxChildOffset)) {
-        const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+        const childViewportBoundingRects = child.resolveOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           const width = childViewportBoundingRect.width;
           const height = childViewportBoundingRect.height;
@@ -226,7 +226,7 @@ export default class LineFlowBox extends FlowBox {
           });
         });
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedWidth += childWidth;
     }
     mergeViewportBoundingRects(viewportBoundingRects);

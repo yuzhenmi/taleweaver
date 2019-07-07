@@ -18,12 +18,12 @@ export default function moveRightByWord(): Command {
     if (!(atomicBox instanceof AtomicBox)) {
       throw new Error(`Expecting position to be referencing an atomic box.`);
     }
-    if (atomicBoxLevelPosition.getSelectableOffset() < atomicBox.getSelectableSize() - 1) {
-      transformation.setCursor(head - atomicBoxLevelPosition.getSelectableOffset() + atomicBox.getSelectableSize() - 1);
+    if (atomicBoxLevelPosition.getOffset() < atomicBox.getSize() - 1) {
+      transformation.setCursor(head - atomicBoxLevelPosition.getOffset() + atomicBox.getSize() - 1);
     } else {
       const nextSiblingAtomicBox = atomicBox.getNextSibling();
       if (nextSiblingAtomicBox) {
-        transformation.setCursor(head - atomicBoxLevelPosition.getSelectableOffset() + atomicBox.getSelectableSize() - 1 + nextSiblingAtomicBox.getSelectableSize());
+        transformation.setCursor(head - atomicBoxLevelPosition.getOffset() + atomicBox.getSize() - 1 + nextSiblingAtomicBox.getSize());
       } else {
         transformation.setCursor(head);
       }

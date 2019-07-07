@@ -46,7 +46,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     } else {
       this.children.splice(offset, 0, child);
     }
-    this.selectableSize = undefined;
+    this.size = undefined;
     this.modelSize = undefined;
   }
 
@@ -57,7 +57,7 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     }
     child.setParent(null);
     this.children.splice(childOffset, 1);
-    this.selectableSize = undefined;
+    this.size = undefined;
     this.modelSize = undefined;
   }
 
@@ -86,20 +86,20 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
   }
 
   onModelUpdated(element: BlockElement) {
-    this.selectableSize = undefined;
+    this.size = undefined;
     this.modelSize = undefined;
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      selectableSize += this.lineBreakInlineRenderNode.getSelectableSize();
-      this.selectableSize = selectableSize;
+      size += this.lineBreakInlineRenderNode.getSize();
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   getModelSize() {
@@ -113,48 +113,48 @@ export default abstract class BlockRenderNode extends RenderNode implements Bran
     return this.modelSize;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
+  getModelOffset(offset: number): number {
     let cumulatedSelectableOffset = 0;
     let cumulatedModelOffset = 1;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
-      const childSelectableOffset = child.getSelectableSize();
-      if (cumulatedSelectableOffset + childSelectableOffset > selectableOffset) {
-        return cumulatedModelOffset + child.convertSelectableOffsetToModelOffset(selectableOffset - cumulatedSelectableOffset);
+      const childSelectableOffset = child.getSize();
+      if (cumulatedSelectableOffset + childSelectableOffset > offset) {
+        return cumulatedModelOffset + child.getModelOffset(offset - cumulatedSelectableOffset);
       }
       cumulatedSelectableOffset += childSelectableOffset;
       cumulatedModelOffset += child.getModelSize();
     }
-    if (cumulatedSelectableOffset === selectableOffset) {
-      return this.convertSelectableOffsetToModelOffset(selectableOffset - 1) + 1;
+    if (cumulatedSelectableOffset === offset) {
+      return this.getModelOffset(offset - 1) + 1;
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveSelectableOffset(selectableOffset: number, depth: number) {
+  resolveOffset(offset: number, depth: number) {
     let cumulatedOffset = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
-      const childSize = child.getSelectableSize();
-      if (cumulatedOffset + childSize > selectableOffset) {
+      const childSize = child.getSize();
+      if (cumulatedOffset + childSize > offset) {
         const resolvedPosition: ResolvedPosition = {
           renderNode: this,
           depth,
-          offset: selectableOffset,
+          offset,
           parent: null,
           child: null,
         };
-        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, depth + 1);
+        const childResolvedPosition = child.resolveOffset(offset - cumulatedOffset, depth + 1);
         resolvedPosition.child = childResolvedPosition;
         childResolvedPosition.parent = resolvedPosition;
         return resolvedPosition;
       }
       cumulatedOffset += childSize;
     }
-    if (cumulatedOffset === selectableOffset) {
-      return this.lineBreakInlineRenderNode.resolveSelectableOffset(0, depth + 1);
+    if (cumulatedOffset === offset) {
+      return this.lineBreakInlineRenderNode.resolveOffset(0, depth + 1);
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 
   buildLineBreakInlineRenderNode(): LineBreakInlineRenderNode {

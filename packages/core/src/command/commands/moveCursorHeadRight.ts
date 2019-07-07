@@ -11,7 +11,7 @@ export default function moveHeadLeft(): Command {
     }
     const head = cursor.getHead();
     const docBox = editor.getLayoutManager().getDocBox();
-    if (head >= docBox.getSelectableSize() - 1) {
+    if (head >= docBox.getSize() - 1) {
       return transformation;
     }
     transformation.setCursorHead(head + 1);

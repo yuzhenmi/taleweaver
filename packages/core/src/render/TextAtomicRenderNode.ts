@@ -18,7 +18,7 @@ export default class TextAtomicRenderNode extends AtomicRenderNode {
     return 'TextAtomicRenderNode';
   }
 
-  getSelectableSize() {
+  getSize() {
     return this.content.length;
   }
 

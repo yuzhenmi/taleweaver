@@ -62,7 +62,7 @@ export default class DocViewNode extends ViewNode implements RootNode {
   }
 
   onLayoutUpdated(layoutNode: DocBox) {
-    this.selectableSize = layoutNode.getSelectableSize();
+    this.size = layoutNode.getSize();
   }
 
   onDeleted() {}

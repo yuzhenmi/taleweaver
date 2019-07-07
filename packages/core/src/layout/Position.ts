@@ -7,14 +7,14 @@ type BuildChild = (parent: Position) => Position;
 
 export default class Position {
   protected layoutNode: LayoutNode;
-  protected selectableOffset: number;
+  protected offset: number;
   protected parent: Position | null;
   protected level: number;
   protected child: Position | null;
 
-  constructor(layoutNode: LayoutNode, selectableOffset: number, parent?: Position, buildChild?: BuildChild) {
+  constructor(layoutNode: LayoutNode, offset: number, parent?: Position, buildChild?: BuildChild) {
     this.layoutNode = layoutNode;
-    this.selectableOffset = selectableOffset;
+    this.offset = offset;
     this.parent = parent || null;
     this.level = parent ? parent.getLevel() + 1 : 0;
     this.child = buildChild ? buildChild(this) : null;
@@ -24,8 +24,8 @@ export default class Position {
     return this.layoutNode;
   }
 
-  getSelectableOffset(): number {
-    return this.selectableOffset;
+  getOffset(): number {
+    return this.offset;
   }
 
   getLevel(): number {

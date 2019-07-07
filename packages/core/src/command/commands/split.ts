@@ -19,18 +19,18 @@ export default function split(): Command {
     let collapsedAt = anchor;
     if (anchor < head) {
       transformation.addOperation(new Delete(
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().getModelOffset(anchor),
+        editor.getRenderManager().getModelOffset(head),
       ));
     } else if (anchor > head) {
       transformation.addOperation(new Delete(
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().getModelOffset(head),
+        editor.getRenderManager().getModelOffset(anchor),
       ));
       collapsedAt = head;
     }
     // Find preceding inline and block open tags
-    const stateCollapsedAt = editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt);
+    const stateCollapsedAt = editor.getRenderManager().getModelOffset(collapsedAt);
     const tokens = editor.getTokenManager().getTokenState().getTokens();
     let inlineOpenTagToken: OpenTagToken | null = null;
     let blockOpenTagToken: OpenTagToken | null = null;
@@ -50,7 +50,7 @@ export default function split(): Command {
       throw new Error('State is corrupted, cannot perform split.');
     }
     transformation.addOperation(new Insert(
-      editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
+      editor.getRenderManager().getModelOffset(collapsedAt),
       [
         new CloseTagToken(),
         new CloseTagToken(),

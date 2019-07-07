@@ -2,7 +2,11 @@ import Editor from '../../Editor';
 import Command from '../Command';
 import Transformation from '../../transform/Transformation';
 
-export default function selectAll(): Command {
+export default function setTextColor(
+  from: number,
+  to: number,
+  value: boolean,
+): Command {
   return (editor: Editor): Transformation => {
     const transformation = new Transformation();
     const cursor = editor.getCursor();

@@ -10,7 +10,7 @@ export default function moveToRightOfDoc(): Command {
       return transformation;
     }
     const docBox = editor.getLayoutManager().getDocBox();
-    transformation.setCursor(docBox.getSelectableSize() - 1);
+    transformation.setCursor(docBox.getSize() - 1);
     return transformation;
   };
 }

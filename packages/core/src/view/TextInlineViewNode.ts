@@ -30,7 +30,7 @@ export default class TextInlineViewNode extends InlineViewNode {
 
   onLayoutUpdated(layoutNode: TextInlineBox) {
     const textStyle = layoutNode.getTextStyle();
-    this.selectableSize = layoutNode.getSelectableSize();
+    this.size = layoutNode.getSize();
     const text = layoutNode.getChildren().map(child => {
       if (child instanceof TextAtomicBox) {
         return child.getContent();

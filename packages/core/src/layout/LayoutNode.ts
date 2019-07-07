@@ -5,7 +5,7 @@ export default abstract class LayoutNode implements Node {
   protected editor: Editor;
   protected id: string;
   protected version: number = 0;
-  protected selectableSize?: number;
+  protected size?: number;
   protected deleted: boolean = false;
 
   constructor(editor: Editor, id: string) {
@@ -33,7 +33,7 @@ export default abstract class LayoutNode implements Node {
     return this.deleted;
   }
 
-  abstract getSelectableSize(): number;
+  abstract getSize(): number;
 
   abstract getWidth(): number;
 
@@ -48,6 +48,6 @@ export default abstract class LayoutNode implements Node {
   abstract getPaddingRight(): number;
 
   protected clearCache() {
-    this.selectableSize = undefined;
+    this.size = undefined;
   }
 }

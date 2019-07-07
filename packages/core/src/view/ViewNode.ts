@@ -5,7 +5,7 @@ export default abstract class ViewNode {
   protected editor: Editor;
   protected id: string;
   protected version: number = 0;
-  protected selectableSize?: number;
+  protected size?: number;
 
   constructor(editor: Editor, id: string) {
     this.editor = editor;
@@ -26,11 +26,11 @@ export default abstract class ViewNode {
 
   abstract getDOMContainer(): HTMLElement;
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
+  getSize() {
+    if (this.size === undefined) {
       throw new Error('View node has not yet been initialized with selectable size.');
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   abstract onLayoutUpdated(layoutNode: LayoutNode): void;

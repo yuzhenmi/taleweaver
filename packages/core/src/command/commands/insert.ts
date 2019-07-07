@@ -17,18 +17,18 @@ export default function insert(tokens: Token[]): Command {
     let collapsedAt = anchor;
     if (anchor < head) {
       transformation.addOperation(new Delete(
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().getModelOffset(anchor),
+        editor.getRenderManager().getModelOffset(head),
       ));
     } else if (anchor > head) {
       transformation.addOperation(new Delete(
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+        editor.getRenderManager().getModelOffset(head),
+        editor.getRenderManager().getModelOffset(anchor),
       ));
       collapsedAt = head;
     }
     transformation.addOperation(new Insert(
-      editor.getRenderManager().convertSelectableOffsetToModelOffset(collapsedAt),
+      editor.getRenderManager().getModelOffset(collapsedAt),
       tokens,
     ));
     const elementConfig = editor.getConfig().getElementConfig();

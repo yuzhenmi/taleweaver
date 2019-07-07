@@ -15,7 +15,7 @@ export default class LineBreakAtomicRenderNode extends AtomicRenderNode {
     return true;
   }
 
-  getSelectableSize() {
+  getSize() {
     return 1;
   }
 }

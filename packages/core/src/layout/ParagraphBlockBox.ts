@@ -49,34 +49,34 @@ export default class ParagraphBlockBox extends BlockBox {
   }
 
   resolveViewportPositionToSelectableOffset(x: number, y: number) {
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedHeight = 0;
     for (let n = 0, nn = this.children.length; n < nn; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
       if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(x);
+        offset += child.resolveViewportPositionToSelectableOffset(x);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedHeight += childHeight;
     }
-    return selectableOffset;
+    return offset;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[] = [];
-    let selectableOffset = 0;
+    let offset = 0;
     let cumulatedHeight = 0;
-    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
+    for (let n = 0, nn = this.children.length; n < nn && offset <= to; n++) {
       const child = this.children[n];
       const childHeight = child.getHeight();
       const minChildOffset = 0;
-      const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.max(from - selectableOffset, minChildOffset);
-      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      const maxChildOffset = child.getSize();
+      const childFrom = Math.max(from - offset, minChildOffset);
+      const childTo = Math.min(to - offset, maxChildOffset);
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-        const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+        const childViewportBoundingRects = child.resolveOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           const width = childViewportBoundingRect.width;
           const height = childViewportBoundingRect.height;
@@ -102,7 +102,7 @@ export default class ParagraphBlockBox extends BlockBox {
           });
         });
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
       cumulatedHeight += childHeight;
     }
     return viewportBoundingRects;

@@ -59,57 +59,57 @@ export default class DocBox extends Box implements RootNode {
     return this.children;
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
+  getSize() {
+    if (this.size === undefined) {
+      let size = 0;
       this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
+        size += child.getSize();
       });
-      this.selectableSize = selectableSize;
+      this.size = size;
     }
-    return this.selectableSize;
+    return this.size;
   }
 
   onRenderUpdated(renderNode: DocRenderNode) {
     this.clearCache();
   }
 
-  resolvePosition(selectableOffset: number) {
-    const position = new Position(this, selectableOffset, undefined, (parent: Position) => {
+  resolvePosition(offset: number) {
+    const position = new Position(this, offset, undefined, (parent: Position) => {
       let cumulatedSelectableOffset = 0;
       for (let n = 0, nn = this.children.length; n < nn; n++) {
         const child = this.children[n];
-        const childSelectableSize = child.getSelectableSize();
-        if (cumulatedSelectableOffset + childSelectableSize > selectableOffset) {
-          const childPosition = child.resolvePosition(parent, selectableOffset - cumulatedSelectableOffset);
+        const childSelectableSize = child.getSize();
+        if (cumulatedSelectableOffset + childSelectableSize > offset) {
+          const childPosition = child.resolvePosition(parent, offset - cumulatedSelectableOffset);
           return childPosition;
         }
         cumulatedSelectableOffset += childSelectableSize;
       }
-      throw new Error(`Selectable offset ${selectableOffset} cannot be resolved to position.`);
+      throw new Error(`Offset ${offset} cannot be resolved to position.`);
     });
     return position;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
     const viewportBoundingRects: ViewportBoundingRect[][] = [];
     this.children.forEach(() => {
       viewportBoundingRects.push([]);
     });
-    let selectableOffset = 0;
-    for (let n = 0, nn = this.children.length; n < nn && selectableOffset <= to; n++) {
+    let offset = 0;
+    for (let n = 0, nn = this.children.length; n < nn && offset <= to; n++) {
       const child = this.children[n];
       const minChildOffset = 0;
-      const maxChildOffset = child.getSelectableSize();
-      const childFrom = Math.max(from - selectableOffset, minChildOffset);
-      const childTo = Math.min(to - selectableOffset, maxChildOffset);
+      const maxChildOffset = child.getSize();
+      const childFrom = Math.max(from - offset, minChildOffset);
+      const childTo = Math.min(to - offset, maxChildOffset);
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-        const childViewportBoundingRects = child.resolveSelectableOffsetRangeToViewportBoundingRects(childFrom, childTo);
+        const childViewportBoundingRects = child.resolveOffsetRangeToViewportBoundingRects(childFrom, childTo);
         childViewportBoundingRects.forEach(childViewportBoundingRect => {
           viewportBoundingRects[n].push(childViewportBoundingRect);
         });
       }
-      selectableOffset += child.getSelectableSize();
+      offset += child.getSize();
     }
     return viewportBoundingRects;
   }

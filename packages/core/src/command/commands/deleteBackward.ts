@@ -17,21 +17,21 @@ export default function deleteBackward(): Command {
         return transformation;
       }
       transformation.addOperation(new Delete(
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head - 1),
-        editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+        editor.getRenderManager().getModelOffset(head - 1),
+        editor.getRenderManager().getModelOffset(head),
       ));
       transformation.setCursor(head - 1);
     } else {
       if (anchor < head) {
         transformation.addOperation(new Delete(
-          editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
-          editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
+          editor.getRenderManager().getModelOffset(anchor),
+          editor.getRenderManager().getModelOffset(head),
         ));
         transformation.setCursor(anchor);
       } else if (anchor > head) {
         transformation.addOperation(new Delete(
-          editor.getRenderManager().convertSelectableOffsetToModelOffset(head),
-          editor.getRenderManager().convertSelectableOffsetToModelOffset(anchor),
+          editor.getRenderManager().getModelOffset(head),
+          editor.getRenderManager().getModelOffset(anchor),
         ));
         transformation.setCursor(head);
       }

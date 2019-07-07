@@ -55,21 +55,21 @@ export default abstract class AtomicRenderNode extends RenderNode implements Lea
   abstract getBreakable(): boolean;
 
   getModelSize() {
-    return this.getSelectableSize();
+    return this.getSize();
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number) {
-    return selectableOffset;
+  getModelOffset(offset: number) {
+    return offset;
   }
 
-  resolveSelectableOffset(selectableOffset: number, depth: number) {
-    if (selectableOffset >= this.getSelectableSize()) {
-      throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+  resolveOffset(offset: number, depth: number) {
+    if (offset >= this.getSize()) {
+      throw new Error(`Offset ${offset} is out of range.`);
     }
     const resolvedPosition: ResolvedPosition = {
       renderNode: this,
       depth,
-      offset: selectableOffset,
+      offset: offset,
       parent: null,
       child: null,
     };

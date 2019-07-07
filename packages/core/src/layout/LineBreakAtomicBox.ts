@@ -45,7 +45,7 @@ export default class LineBreakAtomicBox extends AtomicBox {
     return 0;
   }
 
-  getSelectableSize() {
+  getSize() {
     return 1;
   }
 
@@ -66,7 +66,7 @@ export default class LineBreakAtomicBox extends AtomicBox {
     return 0;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveOffsetRangeToViewportBoundingRects(from: number, to: number) {
     if (from === to) {
       return [{
         left: 0,

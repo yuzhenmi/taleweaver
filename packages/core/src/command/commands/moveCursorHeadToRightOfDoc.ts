@@ -10,7 +10,7 @@ export default function moveHeadToRightOfDoc(): Command {
       return transformation;
     }
     const docBox = editor.getLayoutManager().getDocBox();
-    transformation.setCursorHead(docBox.getSelectableSize() - 1);
+    transformation.setCursorHead(docBox.getSize() - 1);
     return transformation;
   };
 }
