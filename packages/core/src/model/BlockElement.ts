@@ -48,6 +48,30 @@ export default abstract class BlockElement extends Element implements BranchNode
     return this.children;
   }
 
+  getPreviousSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Block element is not found in parent.`);
+    }
+    if (offset > 0) {
+      return siblings[offset - 1];
+    }
+    return null;
+  }
+
+  getNextSibling() {
+    const siblings = this.getParent().getChildren();
+    const offset = siblings.indexOf(this);
+    if (offset < 0) {
+      throw new Error(`Block element is not found in parent.`);
+    }
+    if (offset < siblings.length - 1) {
+      return siblings[offset + 1];
+    }
+    return null;
+  }
+
   getSize() {
     if (this.size === undefined) {
       let size = 2;

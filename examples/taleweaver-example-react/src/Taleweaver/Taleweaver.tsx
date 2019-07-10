@@ -1,6 +1,6 @@
 import React from 'react';;
 import styled from 'styled-components';
-import { Editor, Config, TextStyle, ViewStateUpdatedEvent } from '@taleweaver/core';
+import { Editor, Config, TextStyle, ViewStateUpdatedEvent, commands } from '@taleweaver/core';
 
 import ToolBar from './ToolBar';
 
@@ -70,10 +70,16 @@ export default class Taleweaver extends React.Component<Props, State> {
   }
 
   render() {
-    const { textStyle } = this.state;
+    const { editor, textStyle } = this.state;
     return (
       <Wrapper>
-        <ToolBar textStyle={textStyle} />
+        <ToolBar
+          textStyle={textStyle}
+          onSetTextBold={value => editor!.getDispatcher().dispatchCommand(commands.setTextBold(value))}
+          onSetTextItalic={value => editor!.getDispatcher().dispatchCommand(commands.setTextItalic(value))}
+          onSetTextUnderline={value => editor!.getDispatcher().dispatchCommand(commands.setTextUnderline(value))}
+          onSetTextStrikethrough={value => editor!.getDispatcher().dispatchCommand(commands.setTextStrikethrough(value))}
+        />
         <EditorWrapper ref={this.domRef} />
       </Wrapper>
     );

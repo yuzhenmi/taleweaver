@@ -83,7 +83,7 @@ const Item = styled.button<ItemProps>`
     right: 3px;
     height: 3px;
   }
-  &:hover, &:focus {
+  &:hover {
     background: rgba(0, 0, 0, 0.04);
   }
   ${({ disabled }) => disabled && `
@@ -139,6 +139,10 @@ const ItemColorLine = styled.div<ItemColorLineProps>`
 
 interface Props {
   textStyle: TextStyle | null;
+  onSetTextBold: (value: boolean) => void;
+  onSetTextItalic: (value: boolean) => void;
+  onSetTextUnderline: (value: boolean) => void;
+  onSetTextStrikethrough: (value: boolean) => void;
 }
 
 interface State {
@@ -169,8 +173,24 @@ class ToolBar extends React.Component<Props, State> {
   }
 
   render () {
-    const { textStyle } = this.props;
+    const {
+      textStyle,
+      onSetTextBold,
+      onSetTextItalic,
+      onSetTextUnderline,
+      onSetTextStrikethrough,
+    } = this.props;
     const { isDocked } = this.state;
+    let isTextBold = false;
+    let isTextItalic = false;
+    let isTextUnderline = false;
+    let isTextStrikethrough = false;
+    if (textStyle) {
+      isTextBold = textStyle.weight !== null && textStyle.weight > 400;
+      isTextItalic = textStyle.italic;
+      isTextUnderline = textStyle.underline;
+      isTextStrikethrough = textStyle.strikethrough;
+    }
     return (
       <>
         {isDocked && <DockedPlaceholder />}
@@ -213,26 +233,30 @@ class ToolBar extends React.Component<Props, State> {
             </Group>
             <Group>
               <Item
-                active={textStyle && textStyle.weight !== null && textStyle.weight > 400 ? true : false}
+                active={isTextBold}
                 disabled={!textStyle}
+                onClick={() => onSetTextBold(!isTextBold)}
               >
                 <i className="mdi mdi-format-bold" />
               </Item>
               <Item
-                active={textStyle && textStyle.italic ? true : false}
+                active={isTextItalic}
                 disabled={!textStyle}
+                onClick={() => onSetTextItalic(!isTextItalic)}
               >
                 <i className="mdi mdi-format-italic" />
               </Item>
               <Item
-                active={textStyle && textStyle.underline ? true : false}
+                active={isTextUnderline}
                 disabled={!textStyle}
+                onClick={() => onSetTextUnderline(!isTextUnderline)}
               >
                 <i className="mdi mdi-format-underline" />
               </Item>
               <Item
-                active={textStyle && textStyle.strikethrough ? true : false}
+                active={isTextStrikethrough}
                 disabled={!textStyle}
+                onClick={() => onSetTextStrikethrough(!isTextStrikethrough)}
               >
                 <i className="mdi mdi-format-strikethrough-variant" />
               </Item>

@@ -1,5 +1,9 @@
 import Editor from '../Editor';
 import { TextStyle } from '../model/Text';
+<<<<<<< Updated upstream
+=======
+import { ResolvedPosition } from './RenderNode';
+>>>>>>> Stashed changes
 import DocRenderNode from './DocRenderNode';
 import RenderEngine from './RenderEngine';
 import RenderNode, { ResolvedPosition } from './RenderNode';
@@ -7,30 +11,43 @@ import InlineRenderNode from './InlineRenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
 import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
 
+<<<<<<< Updated upstream
 function getLeafPosition(position: ResolvedPosition): ResolvedPosition {
   if (!position.child) {
     return position
   }
   return getLeafPosition(position.child);
+=======
+function getInlinePosition(position: ResolvedPosition): ResolvedPosition {
+  if (position.renderNode instanceof InlineRenderNode) {
+    return position;
+  }
+  const child = position.child;
+  if (!child) {
+    throw new Error(`Failed to get position at ${position.offset} of render node ${position.renderNode.getID()}.`);
+  }
+  return getInlinePosition(child);
+>>>>>>> Stashed changes
 }
 
 class RenderManager {
   protected editor: Editor;
-  protected docRenderNode: DocRenderNode;
+  protected docNode: DocRenderNode;
   protected renderEngine: RenderEngine;
 
   constructor(editor: Editor) {
     this.editor = editor;
     const modelManager = editor.getModelManager();
     const doc = modelManager.getDoc();
-    this.docRenderNode = new DocRenderNode(editor, doc.getID());
-    this.renderEngine = new RenderEngine(editor, this.docRenderNode);
+    this.docNode = new DocRenderNode(editor, doc.getID());
+    this.renderEngine = new RenderEngine(editor, this.docNode);
   }
 
   getDocRenderNode() {
-    return this.docRenderNode;
+    return this.docNode;
   }
 
+<<<<<<< Updated upstream
   convertSelectableOffsetToModelOffset(selectableOffset: number): number {
     return this.docRenderNode.convertSelectableOffsetToModelOffset(selectableOffset);
   }
@@ -77,6 +94,66 @@ class RenderManager {
       const toInlinePosition = getLeafPosition(toPosition).parent!;
       if (!(toInlinePosition.renderNode instanceof InlineRenderNode)) {
         return null;
+=======
+  getModelOffset(offset: number): number {
+    return this.docNode.getModelOffset(offset);
+  }
+
+  resolveOffset(offset: number) {
+    return this.docNode.resolveOffset(offset);
+  }
+
+  getInlineNodesBetween(from: number, to: number) {
+    const nodes: InlineRenderNode[] = [];
+    const min = Math.min(from, to);
+    const max = Math.max(from, to);
+    const renderManager = this.editor.getRenderManager();
+    const fromPosition = renderManager.resolveOffset(min);
+    const toPosition = renderManager.resolveOffset(max);
+    let fromNode = getInlinePosition(fromPosition).renderNode as InlineRenderNode;
+    let toNode = getInlinePosition(toPosition).renderNode as InlineRenderNode;
+    try {
+      fromNode.getPreviousSibling();
+    } catch (error) {
+      const siblings = fromNode.getParent().getChildren();
+      fromNode = siblings[siblings.length - 1];
+    }
+    try {
+      toNode.getPreviousSibling();
+    } catch (error) {
+      const siblings = toNode.getParent().getChildren();
+      toNode = siblings[siblings.length - 1];
+    }
+    let node = fromNode;
+    while (true) {
+      nodes.push(node);
+      if (toNode instanceof LineBreakInlineRenderNode) {
+        const siblings = toNode.getParent().getChildren();
+        if (node === siblings[siblings.length - 1]) {
+          break;
+        }
+      } else {
+        if (node === toNode) {
+          break;
+        }
+      }
+      const nextNode = node.getNextSibling();
+      if (!nextNode) {
+        break;
+      }
+      node = nextNode;
+    }
+    return nodes;
+  }
+
+  getTextStyleBetween(from: number, to: number) {
+    const nodes = this.getInlineNodesBetween(from, to);
+    const textStyles: TextStyle[] = [];
+    nodes.forEach(node => {
+      let textStyle: TextStyle | null = null;
+      if (node instanceof TextInlineRenderNode) {
+        textStyle = node.getTextStyle();
+>>>>>>> Stashed changes
       }
       toInlineRenderNode = toInlinePosition.renderNode;
       if (toInlineRenderNode instanceof LineBreakInlineRenderNode) {
@@ -121,19 +198,6 @@ class RenderManager {
       textStylesWithoutNull[0],
     );
     return mergedTextStyle;
-  }
-
-  protected getInlineRenderNodeTextStyle(inlineRenderNode: InlineRenderNode): TextStyle | null {
-    if (inlineRenderNode instanceof TextInlineRenderNode) {
-      return inlineRenderNode.getTextStyle();
-    }
-    if (inlineRenderNode instanceof LineBreakInlineRenderNode) {
-      const siblings = inlineRenderNode.getParent().getChildren();
-      if (siblings.length > 0) {
-        return this.getInlineRenderNodeTextStyle(siblings[siblings.length - 1]);
-      }
-    }
-    return null;
   }
 
   protected mergeTextStyles(textStyle1: TextStyle, textStyle2: TextStyle): TextStyle {

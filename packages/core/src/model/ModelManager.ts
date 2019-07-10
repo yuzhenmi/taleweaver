@@ -1,6 +1,8 @@
 import Editor from '../Editor';
+import getInlinePosition from './utils/getInlinePosition';
 import Doc from './Doc';
 import Parser from './Parser';
+import InlineElement from './InlineElement';
 
 class ModelManager {
   protected editor: Editor;
@@ -23,6 +25,30 @@ class ModelManager {
 
   resolveOffset(offset: number) {
     return this.doc.resolveOffset(offset);
+  }
+
+  getInlineNodesBetween(from: number, to: number) {
+    const nodes: InlineElement[] = [];
+    const min = Math.min(from, to);
+    const max = Math.max(from, to);
+    const modelManager = this.editor.getModelManager();
+    const fromPosition = modelManager.resolveOffset(min);
+    const toPosition = modelManager.resolveOffset(max);
+    const fromNode = getInlinePosition(fromPosition).element as InlineElement;
+    const toNode = getInlinePosition(toPosition).element as InlineElement;
+    let node = fromNode;
+    while (true) {
+      nodes.push(node);
+      if (node === toNode) {
+        break;
+      }
+      const nextNode = node.getNextSibling();
+      if (!nextNode) {
+        break;
+      }
+      node = nextNode;
+    }
+    return nodes;
   }
 }
 
