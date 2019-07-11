@@ -1,42 +1,38 @@
-import generateID from './utils/generateID';
-import Config from './config/Config'
-import Dispatcher from './dispatch/Dispatcher';
-import Transformer from './transform/Transformer';
+import Config from './config/Config';
 import Cursor from './cursor/Cursor';
-import TokenManager from './token/TokenManager';
-import ModelManager from './model/ModelManager';
-import RenderManager from './render/RenderManager';
-import LayoutManager from './layout/LayoutManager';
-import ViewManager from './view/ViewManager';
-import Extension from './extension/Extension';
-import ExtensionProvider from './extension/ExtensionProvider';
+import Dispatcher from './dispatch/Dispatcher';
+import LayoutEngine from './layout/LayoutEngine';
+import ModelEngine from './model/ModelEngine';
+import ModelService from './model/ModelService';
+import RenderEngine from './render/RenderEngine';
+import StateEngine from './state/StateEngine';
+import StateService from './state/StateService';
+import generateID from './utils/generateID';
 
 export default class Editor {
   protected id: string;
   protected config: Config;
   protected dispatcher: Dispatcher;
-  protected transformer: Transformer;
   protected cursor: Cursor;
-  protected tokenManager: TokenManager;
-  protected modelManager: ModelManager;
-  protected renderManager: RenderManager;
-  protected layoutManager: LayoutManager;
-  protected viewManager: ViewManager;
-  protected extensionProvider: ExtensionProvider;
+  protected stateService: StateService;
+  protected modelService: ModelService;
+  protected renderService: RenderService;
+  protected layoutService: LayoutService;
+  protected viewService: ViewService;
+  protected historyService: HistoryService;
 
   constructor(config: Config, markup: string, domWrapper: HTMLElement) {
     this.id = generateID();
     this.config = config;
     this.dispatcher = new Dispatcher(this);
-    this.transformer = new Transformer(this);
     this.cursor = new Cursor(this);
-    this.tokenManager = new TokenManager(this, markup);
-    this.modelManager = new ModelManager(this);
-    this.renderManager = new RenderManager(this);
-    this.layoutManager = new LayoutManager(this);
-    this.viewManager = new ViewManager(this, domWrapper);
-    this.extensionProvider = new ExtensionProvider(this);
-    setTimeout(() => this.getViewManager().focus());
+    this.stateService = new StateService(this, new StateEngine(this, markup));
+    this.modelService = new ModelService(this, new ModelEngine(this));
+    this.renderService = new RenderService(this, new RenderEngine(this));
+    this.layoutService = new LayoutService(this, new LayoutEngine(this);
+    this.viewService = new ViewService(this, new ViewEngine(this, domWrapper));
+    this.historyService = new HistoryService(this);
+    setTimeout(() => this.getViewService().focus());
   }
 
   getID() {
@@ -51,35 +47,31 @@ export default class Editor {
     return this.dispatcher;
   }
 
-  getTransformer() {
-    return this.transformer;
-  }
-
   getCursor() {
     return this.cursor;
   }
 
-  getTokenManager() {
-    return this.tokenManager;
+  getStateService() {
+    return this.stateService;
   }
 
-  getModelManager() {
-    return this.modelManager;
+  getModelService() {
+    return this.modelService;
   }
 
-  getRenderManager() {
-    return this.renderManager;
+  getRenderService() {
+    return this.renderService;
   }
 
-  getLayoutManager() {
-    return this.layoutManager;
+  getLayoutService() {
+    return this.layoutService;
   }
 
-  getViewManager() {
-    return this.viewManager;
+  getViewService() {
+    return this.viewService;
   }
 
-  registerExtension(extension: Extension) {
-    this.extensionProvider.registerExtension(extension);
+  getHistoryService() {
+    return this.historyService;
   }
 }

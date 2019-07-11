@@ -1,11 +1,11 @@
 import Editor from '../Editor';
-import { TextStyle } from '../model/Text';
+import { TextStyle } from '../model/TextModelNode';
 import DocRenderNode from './DocRenderNode';
+import InlineRenderNode from './InlineRenderNode';
+import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
 import RenderEngine from './RenderEngine';
 import RenderNode, { ResolvedPosition } from './RenderNode';
-import InlineRenderNode from './InlineRenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
-import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
 
 function getLeafPosition(position: ResolvedPosition): ResolvedPosition {
   if (!position.child) {
@@ -49,7 +49,7 @@ class RenderManager {
     } else if (from > to) {
       from--;
     }
-    const renderManager =  this.editor.getRenderManager();
+    const renderManager = this.editor.getRenderManager();
     let fromInlineRenderNode: InlineRenderNode | null = null;
     while (fromInlineRenderNode === null) {
       const fromPosition = renderManager.resolveSelectableOffset(from);

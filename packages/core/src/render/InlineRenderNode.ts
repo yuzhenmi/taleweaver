@@ -1,8 +1,8 @@
+import InlineElement from '../model/InlineModelNode';
 import BranchNode from '../tree/BranchNode';
-import InlineElement from '../model/InlineElement';
-import RenderNode, { ResolvedPosition } from './RenderNode';
-import BlockRenderNode from './BlockRenderNode';
 import AtomicRenderNode from './AtomicRenderNode';
+import BlockRenderNode from './BlockRenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 
 export type Parent = BlockRenderNode;
 export type Child = AtomicRenderNode;

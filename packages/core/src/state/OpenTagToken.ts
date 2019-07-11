@@ -1,6 +1,9 @@
-import Attributes from './Attributes';
+export interface Attributes {
+  id?: string;
+  [key: string]: any;
+}
 
-class OpenTagToken {
+export default class OpenTagToken {
   protected type: string;
   protected id: string;
   protected attributes: Attributes;
@@ -23,5 +26,3 @@ class OpenTagToken {
     return this.attributes;
   }
 }
-
-export default OpenTagToken;

@@ -1,8 +1,8 @@
 import Editor from '../Editor';
+import Doc from '../model/DocModelNode';
 import RootNode from '../tree/RootNode';
-import Doc from '../model/Doc';
-import RenderNode, { ResolvedPosition } from './RenderNode';
 import BlockRenderNode from './BlockRenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 
 export type Child = BlockRenderNode;
 

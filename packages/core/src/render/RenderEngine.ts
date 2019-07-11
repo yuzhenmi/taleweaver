@@ -1,14 +1,14 @@
-import Editor from '../Editor';
-import TreeSyncer from '../utils/TreeSyncer';
 import { ModelStateUpdatedEvent, RenderStateUpdatedEvent } from '../dispatch/events';
-import Element from '../model/Element';
-import Doc from '../model/Doc';
-import BlockElement from '../model/BlockElement';
-import InlineElement from '../model/InlineElement';
-import RenderNode from './RenderNode';
-import DocRenderNode from './DocRenderNode';
+import Editor from '../Editor';
+import BlockElement from '../model/BlockModelNode';
+import Doc from '../model/DocModelNode';
+import InlineElement from '../model/InlineModelNode';
+import Element from '../model/ModelNode';
+import TreeSyncer from '../utils/TreeSyncer';
 import BlockRenderNode from './BlockRenderNode';
+import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
+import RenderNode from './RenderNode';
 
 class ModelToRenderTreeSyncer extends TreeSyncer<Element, RenderNode> {
   protected editor: Editor;

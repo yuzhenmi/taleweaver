@@ -1,7 +1,7 @@
-import measureText from './utils/measureText';
-import { TextStyle } from '../model/Text';
+import { TextStyle } from '../model/TextModelNode';
 import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
 import AtomicBox from './AtomicBox';
+import measureText from './utils/measureText';
 
 export default class TextAtomicBox extends AtomicBox {
   protected width?: number;

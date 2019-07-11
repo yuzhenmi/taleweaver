@@ -1,8 +1,8 @@
-import Token from '../../token/Token';
-import Operation, { OffsetAdjustment } from '../Operation';
+import Token from '../../state/Token';
 import AppliedOperation from '../AppliedOperation';
+import Operation, { OffsetAdjustment } from '../Operation';
 
-class Insert extends Operation {
+export default class Insert extends Operation {
   protected at: number;
   protected tokens: Token[];
 
@@ -38,7 +38,7 @@ class Insert extends Operation {
   }
 }
 
-class AppliedInsert extends AppliedOperation {
+export class AppliedInsert extends AppliedOperation {
   protected at: number;
   protected tokens: Token[];
 
@@ -56,8 +56,3 @@ class AppliedInsert extends AppliedOperation {
     return this.tokens;
   }
 }
-
-export default Insert;
-export {
-  AppliedInsert,
-};

@@ -1,16 +1,15 @@
 import Editor from '../Editor';
-import Doc from './Doc';
-import Parser from './Parser';
+import Doc from './DocModelNode';
+import ModelEngine from './ModelEngine';
 
 class ModelManager {
   protected editor: Editor;
   protected doc: Doc;
-  protected parser: Parser;
+  protected modelEngine: ModelEngine;
 
   constructor(editor: Editor) {
     this.editor = editor;
-    this.doc = new Doc(editor);
-    this.parser = new Parser(editor, this.doc);
+    this.modelEngine = new ModelEngine(editor);
   }
 
   getDoc() {

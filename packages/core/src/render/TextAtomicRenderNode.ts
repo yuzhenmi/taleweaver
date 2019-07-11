@@ -1,5 +1,5 @@
 import Editor from '../Editor';
-import { TextStyle } from '../model/Text';
+import { TextStyle } from '../model/TextModelNode';
 import AtomicRenderNode from './AtomicRenderNode';
 
 export default class TextAtomicRenderNode extends AtomicRenderNode {

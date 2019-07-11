@@ -1,25 +1,20 @@
-import LeafNode from '../tree/LeafNode';
-import Token from '../token/Token';
-import OpenTagToken from '../token/OpenTagToken';
-import CloseTagToken from '../token/CloseTagToken';
-import Element, { ResolvedPosition } from './Element';
-import BlockElement from './BlockElement';
+import CloseTagToken from '../state/CloseTagToken';
+import OpenTagToken from '../state/OpenTagToken';
+import Token from '../state/Token';
+import BlockModelNode from './BlockModelNode';
+import ModelNode, { ModelPosition } from './ModelNode';
 
-type ParentElement = BlockElement;
+type ParentNode = BlockModelNode<any>;
 
-export default abstract class InlineElement extends Element implements LeafNode {
-  protected parent: ParentElement | null = null;
+export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode, undefined> {
   protected content: string = '';
 
-  setParent(parent: ParentElement | null) {
-    this.parent = parent;
+  isRoot() {
+    return false;
   }
 
-  getParent() {
-    if (!this.parent) {
-      throw new Error('No parent has been set.');
-    }
-    return this.parent;
+  isLeaf() {
+    return true;
   }
 
   setContent(content: string) {
@@ -37,7 +32,7 @@ export default abstract class InlineElement extends Element implements LeafNode 
     }
     return this.size;
   }
-  
+
   toTokens() {
     const tokens: Token[] = [];
     tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
@@ -50,14 +45,12 @@ export default abstract class InlineElement extends Element implements LeafNode 
     if (offset >= this.getSize()) {
       throw new Error(`Offset ${offset} is out of range.`);
     }
-    const resolvedPosition: ResolvedPosition = {
-      element: this,
+    const position: ModelPosition = {
+      node: this,
       depth,
       offset,
-      parent: null,
-      child: null,
     };
-    return resolvedPosition;
+    return position;
   }
 
   clearCache() {

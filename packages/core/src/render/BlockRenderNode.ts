@@ -1,11 +1,11 @@
 import Editor from '../Editor';
-import generateID from '../utils/generateID';
+import BlockElement from '../model/BlockModelNode';
 import BranchNode from '../tree/BranchNode';
-import BlockElement from '../model/BlockElement';
-import RenderNode, { ResolvedPosition } from './RenderNode';
+import generateID from '../utils/generateID';
 import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
+import RenderNode, { ResolvedPosition } from './RenderNode';
 
 export type Parent = DocRenderNode;
 export type Child = InlineRenderNode;

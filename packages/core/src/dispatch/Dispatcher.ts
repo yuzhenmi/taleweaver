@@ -1,17 +1,17 @@
-import Editor from '../Editor';
-import Event from './Event';
 import Command from '../command/Command';
+import Editor from '../Editor';
 import KeySignature from '../key/KeySignature';
+import Event from './Event';
 
 interface EventClass {
   getType(): string;
 }
 
-type Subscriber = (event: Event) => void;
+type Subscriber<E extends Event> = (event: E) => void;
 
 class Dispatcher {
   protected editor: Editor;
-  protected subscribers: Map<string, Subscriber[]>;
+  protected subscribers: Map<string, Subscriber<any>[]>;
 
   constructor(editor: Editor) {
     this.editor = editor;
@@ -27,9 +27,9 @@ class Dispatcher {
     subscribers.forEach(subscriber => subscriber(event));
   }
 
-  on(eventClass: EventClass, subscriber: Subscriber) {
+  on<E extends Event>(eventClass: EventClass, subscriber: Subscriber<E>) {
     const eventType = eventClass.getType();
-    let subscribers: Subscriber[];
+    let subscribers: Subscriber<E>[];
     if (this.subscribers.has(eventType)) {
       subscribers = this.subscribers.get(eventType)!;
     } else {

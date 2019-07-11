@@ -1,7 +1,7 @@
 import Editor from '../Editor';
-import Attributes from '../token/Attributes';
-import { DOMAttributes } from './Element';
-import InlineElement from './InlineElement';
+import { Attributes } from '../state/OpenTagToken';
+import InlineModelNode from './InlineModelNode';
+import { DOMAttributes } from './ModelNode';
 
 export interface TextStyle {
   weight: number | null;
@@ -25,42 +25,26 @@ export interface TextAttributes extends Attributes {
   strikethrough?: boolean;
 }
 
-export default class Text extends InlineElement {
+export default class TextModelNode extends InlineModelNode<TextAttributes> {
   static getDOMNodeNames(): string[] {
     return [
       'SPAN',
     ];
   }
 
-  static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes, content: string): InlineElement | null {
-    const text = new Text(editor);
+  static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes, content: string): TextModelNode | null {
+    const text = new TextModelNode(editor, {});
     text.setContent(content);
     return text;
-  }
-
-  protected attributes: TextAttributes;
-
-  constructor(editor: Editor) {
-    super(editor);
-    this.attributes = {};
   }
 
   getType() {
     return 'Text';
   }
 
-  getAttributes() {
-    return this.attributes;
-  }
-
   toHTML(from: number, to: number) {
     const $element = document.createElement('span');
     $element.innerText = this.content.substring(from - 1, to - 1);
     return $element;
-  }
-
-  onStateUpdated(attributes: Attributes) {
-    this.attributes = attributes;
-    return false;
   }
 }

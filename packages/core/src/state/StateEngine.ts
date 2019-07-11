@@ -1,19 +1,21 @@
+import StateUpdatedEvent from '../dispatch/events/StateUpdatedEvent';
 import Editor from '../Editor';
-import { TokenStateUpdatedEvent } from '../dispatch/events';
-import Token from './Token';
-import Transformation from '../transform/Transformation';
 import AppliedTransformation from '../transform/AppliedTransformation';
 import { OffsetAdjustment } from '../transform/Operation';
-import Insert, { AppliedInsert } from '../transform/operations/Insert';
 import Delete, { AppliedDelete } from '../transform/operations/Delete';
+import Insert, { AppliedInsert } from '../transform/operations/Insert';
+import Transformation from '../transform/Transformation';
+import Token from './Token';
+import Tokenizer from './Tokenizer';
 
-class TokenState {
+export default class StateEngine {
   protected editor: Editor;
   protected tokens: Token[];
 
-  constructor(editor: Editor, tokens: Token[]) {
+  constructor(editor: Editor, markup: string) {
     this.editor = editor;
-    this.tokens = tokens;
+    const tokenizer = new Tokenizer(markup);
+    this.tokens = tokenizer.getTokens();
   }
 
   getTokens(): Token[] {
@@ -22,13 +24,35 @@ class TokenState {
 
   applyTransformations(transformations: Transformation[]): AppliedTransformation[] {
     const appliedTransformations = transformations.map(transformation => this.applyTransformation(transformation));
-    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
+    const {
+      beforeFrom,
+      beforeTo,
+      afterFrom,
+      afterTo
+    } = this.findTransformedRange(appliedTransformations);
+    this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
+      beforeFrom,
+      beforeTo,
+      afterFrom,
+      afterTo,
+    ));
     return appliedTransformations;
   }
 
   unapplyTransformations(appliedTransformations: AppliedTransformation[]) {
     appliedTransformations.slice().reverse().forEach(appliedTransformation => this.unapplyTransformation(appliedTransformation));
-    this.editor.getDispatcher().dispatch(new TokenStateUpdatedEvent());
+    const {
+      beforeFrom,
+      beforeTo,
+      afterFrom,
+      afterTo
+    } = this.findTransformedRange(appliedTransformations);
+    this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
+      afterFrom,
+      afterTo,
+      beforeFrom,
+      beforeTo,
+    ));
   }
 
   protected applyTransformation(transformation: Transformation): AppliedTransformation {
@@ -73,6 +97,32 @@ class TokenState {
       }
     });
   }
-}
 
-export default TokenState;
+  protected findTransformedRange(appliedTransformations: AppliedTransformation[]) {
+    let beforeFrom: number | undefined = undefined;
+    let beforeTo: number | undefined = undefined;
+    let afterFrom: number | undefined = undefined;
+    let afterTo: number | undefined = undefined;
+    appliedTransformations.forEach(appliedTransformation => {
+      const transformedRange = appliedTransformation.getTransformedRange();
+      if (beforeFrom === undefined || transformedRange.beforeFrom < beforeFrom) {
+        beforeFrom = transformedRange.beforeFrom;
+      }
+      if (beforeTo === undefined || transformedRange.beforeTo > beforeTo) {
+        beforeTo = transformedRange.beforeTo;
+      }
+      if (afterFrom === undefined || transformedRange.afterFrom < afterFrom) {
+        afterFrom = transformedRange.afterFrom;
+      }
+      if (afterTo === undefined || transformedRange.afterTo < afterTo) {
+        afterTo = transformedRange.afterTo;
+      }
+    });
+    return {
+      beforeFrom: beforeFrom!,
+      beforeTo: beforeTo!,
+      afterFrom: afterFrom!,
+      afterTo: afterTo!,
+    };
+  }
+}

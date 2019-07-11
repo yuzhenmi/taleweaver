@@ -1,9 +1,11 @@
 import Editor from '../Editor';
-import Attributes from '../token/Attributes';
-import { DOMAttributes } from './Element';
-import BlockElement from './BlockElement';
+import { Attributes } from '../state/OpenTagToken';
+import BlockModelNode from './BlockModelNode';
+import { DOMAttributes } from './ModelNode';
 
-export default class Paragraph extends BlockElement {
+interface ParagraphAttributes extends Attributes { }
+
+export default class ParagraphModelNode extends BlockModelNode<ParagraphAttributes> {
 
   static getDOMNodeNames(): string[] {
     return [
@@ -12,25 +14,19 @@ export default class Paragraph extends BlockElement {
     ];
   }
 
-  static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes): BlockElement | null {
-    return new Paragraph(editor);
+  static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes): ParagraphModelNode | null {
+    return new ParagraphModelNode(editor, {});
   }
 
   getType() {
     return 'Paragraph';
   }
 
-  getAttributes() {
-    return {
-      id: this.id!,
-    };
-  }
-
   toHTML(from: number, to: number) {
     const $element = document.createElement('p');
     let offset = 1;
-    for (let n = 0, nn = this.children.length; n < nn && offset < to; n++) {
-      const child = this.children[n];
+    for (let n = 0, nn = this.children!.length; n < nn && offset < to; n++) {
+      const child = this.children![n];
       const childSize = child.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
@@ -42,14 +38,5 @@ export default class Paragraph extends BlockElement {
       $element.appendChild($childElement);
     }
     return $element;
-  }
-
-  onStateUpdated(attributes: Attributes) {
-    return false;
-  }
-
-  clone() {
-    const paragraph = new Paragraph(this.editor);
-    return paragraph;
   }
 }

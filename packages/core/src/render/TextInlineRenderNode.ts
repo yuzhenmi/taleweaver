@@ -1,9 +1,9 @@
 import Editor from '../Editor';
+import Text, { TextStyle } from '../model/TextModelNode';
 import generateID from '../utils/generateID';
-import breakTextToWords from './utils/breakTextToWords';
-import Text, { TextStyle } from '../model/Text';
 import InlineRenderNode from './InlineRenderNode';
 import TextAtomicRenderNode from './TextAtomicRenderNode';
+import breakTextToWords from './utils/breakTextToWords';
 
 export default class TextInlineRenderNode extends InlineRenderNode {
   protected textStyle?: TextStyle;

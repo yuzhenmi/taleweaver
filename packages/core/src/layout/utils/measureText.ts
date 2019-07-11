@@ -1,4 +1,4 @@
-import { TextStyle } from '../../model/Text';
+import { TextStyle } from '../../model/TextModelNode';
 
 type Measurement = {
   width: number;

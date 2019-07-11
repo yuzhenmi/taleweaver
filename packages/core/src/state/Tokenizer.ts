@@ -1,6 +1,6 @@
-import Token from './Token';
-import OpenTagToken from './OpenTagToken';
 import CloseTagToken from './CloseTagToken';
+import OpenTagToken from './OpenTagToken';
+import Token from './Token';
 
 enum TokenizerState {
   NewToken,
@@ -12,25 +12,22 @@ enum TokenizerState {
   CloseTag,
 }
 
-class Tokenizer {
+export default class Tokenizer {
   protected markup: string;
-  protected tokenizerState: TokenizerState;
-  protected tokens: Token[];
-  protected tagBuffer: string;
-  protected attributesBuffer: string;
-  protected ran: boolean;
+  protected tokenizerState: TokenizerState = TokenizerState.NewToken;
+  protected tokens: Token[] = [];
+  protected tagBuffer: string = '';
+  protected attributesBuffer: string = '';
+  protected ran: boolean = false;
 
   constructor(markup: string) {
     this.markup = markup;
-    this.tokenizerState = TokenizerState.NewToken;
-    this.tokens = [];
-    this.tagBuffer = '';
-    this.attributesBuffer = '';
-    this.ran = false;
   }
 
   getTokens() {
-    this.tokenize();
+    if (!this.ran) {
+      this.tokenize();
+    }
     return this.tokens;
   }
 
@@ -127,7 +124,7 @@ class Tokenizer {
     }
   }
 
-  protected newAttributesString(char: string){
+  protected newAttributesString(char: string) {
     this.attributesBuffer += char;
     this.tokenizerState = TokenizerState.TagAttributesString;
   }
@@ -158,7 +155,7 @@ class Tokenizer {
     this.tokenizerState = TokenizerState.TagAttributes;
   }
 
-  protected escapeNextAttributesStringChar(char: string){
+  protected escapeNextAttributesStringChar(char: string) {
     this.tokenizerState = TokenizerState.TagAttributesStringEscape;
   }
 
@@ -172,5 +169,3 @@ class Tokenizer {
     this.tokenizerState = TokenizerState.NewToken;
   }
 }
-
-export default Tokenizer;

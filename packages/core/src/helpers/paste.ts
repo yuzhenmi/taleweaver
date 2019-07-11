@@ -1,13 +1,13 @@
-import Editor from '../Editor';
-import Token from '../token/Token';
-import OpenTagToken from '../token/OpenTagToken';
-import CloseTagToken from '../token/CloseTagToken';
-import { DOMAttributes, ResolvedPosition } from '../model/Element';
-import BlockElement from '../model/BlockElement';
-import Paragraph from '../model/Paragraph';
-import Text from '../model/Text';
 import { insert } from '../command/commands';
+import Editor from '../Editor';
+import BlockElement from '../model/BlockModelNode';
+import { DOMAttributes, ResolvedPosition } from '../model/ModelNode';
+import Paragraph from '../model/ParagraphModelNode';
+import Text from '../model/TextModelNode';
 import Attributes from '../token/Attributes';
+import CloseTagToken from '../token/CloseTagToken';
+import OpenTagToken from '../token/OpenTagToken';
+import Token from '../token/Token';
 import generateID from '../utils/generateID';
 
 const DOM_NODE_NAMES_TO_IGNORE = [

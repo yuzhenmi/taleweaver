@@ -1,8 +1,8 @@
-import Token from '../../token/Token';
-import Operation, { OffsetAdjustment } from '../Operation';
+import Token from '../../state/Token';
 import AppliedOperation from '../AppliedOperation';
+import Operation, { OffsetAdjustment } from '../Operation';
 
-class Delete extends Operation {
+export default class Delete extends Operation {
   protected from: number;
   protected to: number;
 
@@ -42,7 +42,7 @@ class Delete extends Operation {
   }
 }
 
-class AppliedDelete extends AppliedOperation {
+export class AppliedDelete extends AppliedOperation {
   protected at: number;
   protected tokens: Token[];
 
@@ -60,8 +60,3 @@ class AppliedDelete extends AppliedOperation {
     return this.tokens;
   }
 }
-
-export default Delete;
-export {
-  AppliedDelete,
-};
