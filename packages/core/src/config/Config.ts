@@ -1,16 +1,16 @@
-import ElementConfig from './ElementConfig';
 import KeyBindingConfig from './KeyBindingConfig';
+import NodeConfig from './NodeConfig';
 import PageConfig from './PageConfig';
 import TextConfig from './TextConfig';
 
 class Config {
-  protected elementConfig = new ElementConfig();
+  protected nodeConfig = new NodeConfig();
   protected keyBindingConfig = new KeyBindingConfig();
   protected pageConfig = new PageConfig();
   protected textConfig: TextConfig = new TextConfig();
 
-  getElementConfig() {
-    return this.elementConfig;
+  getNodeConfig() {
+    return this.nodeConfig;
   }
 
   getKeyBindingConfig() {

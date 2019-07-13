@@ -6,7 +6,7 @@ import ModelNode, { ModelPosition } from './ModelNode';
 
 type ParentNode = BlockModelNode<any>;
 
-export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode, undefined> {
+export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode, never> {
   protected content: string = '';
 
   isRoot() {

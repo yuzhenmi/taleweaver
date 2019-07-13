@@ -12,7 +12,7 @@ export type AnyModelNode = ModelNode<any, any, any>;
 
 export type ModelPosition = Position<AnyModelNode>;
 
-export default abstract class ModelNode<A extends Attributes, P extends (AnyModelNode | undefined), C extends (AnyModelNode | undefined)> extends Node<P, C> {
+export default abstract class ModelNode<A extends Attributes, P extends AnyModelNode, C extends AnyModelNode> extends Node<P, C> {
   abstract getType(): string;
   abstract getSize(): number;
   abstract toHTML(from: number, to: number): HTMLElement;
@@ -62,8 +62,25 @@ export default abstract class ModelNode<A extends Attributes, P extends (AnyMode
     this.size = undefined;
   }
 
-  onStateUpdated(attributes: A) {
+  onUpdated(updatedNode: ModelNode<A, P, C>) {
     this.clearCache();
-    this.attributes = attributes;
+    this.attributes = updatedNode.attributes;
+    if (this.childNodes) {
+      const updatedChildNodes = updatedNode.getChildNodes();
+      const childNodes: C[] = [];
+      for (let n = 0; n < updatedChildNodes.length; n++) {
+        const updatedChildNode = updatedChildNodes[n];
+        const childNode = this.childNodes.find((childNode) =>
+          childNode!.getID() === updatedChildNode!.getID()
+        );
+        if (childNode) {
+          childNode.onUpdated(updatedChildNode!);
+          childNodes.push(childNode);
+        } else {
+          childNodes.push(updatedChildNode);
+        }
+      }
+      this.childNodes = childNodes;
+    }
   };
 }

@@ -28,7 +28,7 @@ export default class StateEngine {
       beforeFrom,
       beforeTo,
       afterFrom,
-      afterTo
+      afterTo,
     } = this.findTransformedRange(appliedTransformations);
     this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
       beforeFrom,
@@ -45,13 +45,13 @@ export default class StateEngine {
       beforeFrom,
       beforeTo,
       afterFrom,
-      afterTo
+      afterTo,
     } = this.findTransformedRange(appliedTransformations);
     this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
-      afterFrom,
-      afterTo,
       beforeFrom,
       beforeTo,
+      afterFrom,
+      afterTo,
     ));
   }
 

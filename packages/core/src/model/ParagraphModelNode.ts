@@ -25,16 +25,16 @@ export default class ParagraphModelNode extends BlockModelNode<ParagraphAttribut
   toHTML(from: number, to: number) {
     const $element = document.createElement('p');
     let offset = 1;
-    for (let n = 0, nn = this.children!.length; n < nn && offset < to; n++) {
-      const child = this.children![n];
-      const childSize = child.getSize();
+    for (let n = 0, nn = this.childNodes!.length; n < nn && offset < to; n++) {
+      const childNode = this.childNodes![n];
+      const childSize = childNode.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
       offset += childSize;
       if (childFrom > childSize || childTo < 0) {
         continue;
       }
-      const $childElement = child.toHTML(childFrom, childTo);
+      const $childElement = childNode.toHTML(childFrom, childTo);
       $element.appendChild($childElement);
     }
     return $element;

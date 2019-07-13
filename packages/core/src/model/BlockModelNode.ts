@@ -20,16 +20,16 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
 
   getSize() {
     if (this.size === undefined) {
-      this.size = this.children!.reduce((size, child) => size + child.getSize(), 2);
+      this.size = this.childNodes!.reduce((size, childNode) => size + childNode.getSize(), 2);
     }
-    return this.size;
+    return this.size!;
   }
 
   toTokens() {
     const tokens: Token[] = [];
     tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
-    this.children!.forEach(child => {
-      tokens.push(...child.toTokens());
+    this.childNodes!.forEach(childNode => {
+      tokens.push(...childNode.toTokens());
     });
     tokens.push(new CloseTagToken());
     return tokens;
@@ -37,16 +37,16 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
 
   resolveOffset(offset: number, depth: number) {
     let cumulatedOffset = 1;
-    for (let n = 0, nn = this.children!.length; n < nn; n++) {
-      const child = this.children![n];
-      const childSize = child.getSize();
+    for (let n = 0, nn = this.childNodes!.length; n < nn; n++) {
+      const childNode = this.childNodes![n];
+      const childSize = childNode.getSize();
       if (cumulatedOffset + childSize > offset) {
         const position: ModelPosition = {
           node: this,
           depth,
           offset,
         };
-        const childPosition = child.resolveOffset(offset - cumulatedOffset, depth + 1);
+        const childPosition = childNode.resolveOffset(offset - cumulatedOffset, depth + 1);
         position.child = childPosition;
         childPosition.parent = position;
         return position;

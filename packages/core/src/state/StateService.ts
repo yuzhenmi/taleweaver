@@ -12,6 +12,10 @@ export default class StateService {
     this.stateEngine = stateEngine;
   }
 
+  getTokens() {
+    return this.stateEngine.getTokens();
+  }
+
   applyTransformations(transformations: Transformation[]) {
     return this.stateEngine.applyTransformations(transformations);
   }

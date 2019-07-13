@@ -1,7 +1,10 @@
-import ModelStateUpdatedEvent from '../dispatch/events/ModelStateUpdatedEvent';
+import ModelUpdatedEvent from '../dispatch/events/ModelUpdatedEvent';
 import StateUpdatedEvent from '../dispatch/events/StateUpdatedEvent';
 import Editor from '../Editor';
+import CloseTagToken from '../state/CloseTagToken';
+import OpenTagToken from '../state/OpenTagToken';
 import DocModelNode from './DocModelNode';
+import TokenParser from './StateParser';
 
 export default class ModelEngine {
   protected editor: Editor;
@@ -11,13 +14,26 @@ export default class ModelEngine {
     this.editor = editor;
     this.doc = new DocModelNode(editor);
     editor.getDispatcher().on(StateUpdatedEvent, this.handleStateUpdatedEvent);
-    this.sync();
   }
 
   protected handleStateUpdatedEvent = (event: StateUpdatedEvent) => {
-    // TODO: Get range of tokens that need to be reparsed
-    // TODO: Parse tokens to get new branch of model tree
-    // TODO: Update old branch of model tree with new branch
-    this.editor.getDispatcher().dispatch(new ModelStateUpdatedEvent());
+    const node = this.doc.resolveOffset(event.getBeforeFrom()).parent!.node;
+    const tokens = this.editor.getStateService().getTokens();
+    let from = event.getAfterFrom();
+    while (!(tokens[from] instanceof OpenTagToken)) {
+      from--;
+    }
+    let to = event.getAfterTo();
+    while (!(tokens[to] instanceof CloseTagToken)) {
+      to++;
+    }
+    const parser = new TokenParser(this.editor, tokens);
+    const updatedNode = parser.getRootNode();
+    node.onUpdated(updatedNode);
+    this.editor.getDispatcher().dispatch(new ModelUpdatedEvent(node));
+  }
+
+  getDoc() {
+    return this.doc;
   }
 }
