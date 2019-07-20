@@ -1,7 +1,7 @@
+import InlineBox from '../layout/InlineLayoutNode';
 import LeafNode from '../tree/LeafNode';
-import InlineBox from '../layout/InlineBox';
-import ViewNode from './ViewNode';
 import LineViewNode from './LineViewNode';
+import ViewNode from './ViewNode';
 
 export type Parent = LineViewNode;
 

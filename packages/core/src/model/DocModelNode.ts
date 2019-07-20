@@ -10,9 +10,10 @@ type ChildNode = BlockNode<any>;
 interface DocAttributes extends Attributes { }
 
 export default class DocModelNode extends ModelNode<DocAttributes, never, ChildNode> {
+  protected size?: number;
 
-  constructor(editor: Editor, attributes: DocAttributes = {}) {
-    super(editor, attributes);
+  constructor(editor: Editor) {
+    super(editor, { id: 'Doc' });
   }
 
   isRoot() {
@@ -29,16 +30,21 @@ export default class DocModelNode extends ModelNode<DocAttributes, never, ChildN
 
   getSize() {
     if (this.size === undefined) {
-      this.size = this.childNodes!.reduce((size, childNode) => size + childNode.getSize(), 2);
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 2);
     }
     return this.size!;
+  }
+
+  clearCache() {
+    this.size = undefined;
   }
 
   toHTML(from: number, to: number) {
     const $element = document.createElement('div');
     let offset = 1;
-    for (let n = 0, nn = this.childNodes!.length; n < nn && offset < to; n++) {
-      const child = this.childNodes![n];
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn && offset < to; n++) {
+      const child = childNodes[n];
       const childSize = child.getSize();
       const childFrom = Math.max(0, from - offset);
       const childTo = Math.min(childFrom + childSize, to - offset);
@@ -55,17 +61,18 @@ export default class DocModelNode extends ModelNode<DocAttributes, never, ChildN
   toTokens() {
     const tokens: Token[] = [];
     tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
-    this.childNodes!.forEach(childNode => {
+    this.getChildNodes().forEach(childNode => {
       tokens.push(...childNode.toTokens());
     });
     tokens.push(new CloseTagToken());
     return tokens;
   }
 
-  resolveOffset(offset: number) {
+  resolvePosition(offset: number) {
     let cumulatedOffset = 1;
-    for (let n = 0, nn = this.childNodes!.length; n < nn; n++) {
-      const child = this.childNodes![n];
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const child = childNodes[n];
       const childSize = child.getSize();
       if (cumulatedOffset + childSize > offset) {
         const position: ModelPosition = {
@@ -73,7 +80,7 @@ export default class DocModelNode extends ModelNode<DocAttributes, never, ChildN
           depth: 0,
           offset,
         };
-        const childPosition = child.resolveOffset(offset - cumulatedOffset, 1);
+        const childPosition = child.resolvePosition(offset - cumulatedOffset, 1);
         position.child = childPosition;
         childPosition.parent = position;
         return position;

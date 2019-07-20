@@ -9,6 +9,7 @@ type ParentNode = DocNode;
 type ChildNode = InlineNode<any>;
 
 export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode, ChildNode> {
+  protected size?: number;
 
   isRoot() {
     return false;
@@ -20,7 +21,7 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
 
   getSize() {
     if (this.size === undefined) {
-      this.size = this.childNodes!.reduce((size, childNode) => size + childNode.getSize(), 2);
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 2);
     }
     return this.size!;
   }
@@ -28,17 +29,18 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
   toTokens() {
     const tokens: Token[] = [];
     tokens.push(new OpenTagToken(this.getType(), this.getID(), this.getAttributes()));
-    this.childNodes!.forEach(childNode => {
+    this.getChildNodes().forEach(childNode => {
       tokens.push(...childNode.toTokens());
     });
     tokens.push(new CloseTagToken());
     return tokens;
   }
 
-  resolveOffset(offset: number, depth: number) {
+  resolvePosition(offset: number, depth: number) {
     let cumulatedOffset = 1;
-    for (let n = 0, nn = this.childNodes!.length; n < nn; n++) {
-      const childNode = this.childNodes![n];
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
       const childSize = childNode.getSize();
       if (cumulatedOffset + childSize > offset) {
         const position: ModelPosition = {
@@ -46,7 +48,7 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
           depth,
           offset,
         };
-        const childPosition = childNode.resolveOffset(offset - cumulatedOffset, depth + 1);
+        const childPosition = childNode.resolvePosition(offset - cumulatedOffset, depth + 1);
         position.child = childPosition;
         childPosition.parent = position;
         return position;
@@ -57,9 +59,10 @@ export default abstract class BlockModelNode<A> extends ModelNode<A, ParentNode,
   }
 
   clearCache() {
-    super.clearCache();
-    if (this.parent) {
-      this.parent.clearCache();
+    this.size = undefined;
+    const parent = this.getParent();
+    if (parent) {
+      parent.clearCache();
     }
   }
 };

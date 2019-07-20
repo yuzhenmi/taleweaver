@@ -1,6 +1,6 @@
 import Editor from '../../Editor';
+import AtomicBox from '../../layout/AtomicLayoutNode';
 import Transformation from '../../transform/Transformation';
-import AtomicBox from '../../layout/AtomicBox';
 import Command from '../Command';
 
 export default function moveHeadLeftByWord(): Command {

@@ -1,4 +1,4 @@
-export default interface ViewportBoundingRect {
+export default interface LayoutRect {
   width: number;
   height: number;
   left: number;

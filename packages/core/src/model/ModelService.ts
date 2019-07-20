@@ -18,7 +18,7 @@ export default class ModelService {
     return this.getDoc().toHTML(from, to).outerHTML;
   }
 
-  resolveOffset(offset: number) {
-    return this.getDoc().resolveOffset(offset);
+  resolvePosition(offset: number) {
+    return this.getDoc().resolvePosition(offset);
   }
 }

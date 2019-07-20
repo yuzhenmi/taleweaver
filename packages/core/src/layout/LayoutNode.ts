@@ -1,14 +1,20 @@
 import Editor from '../Editor';
-import Node from '../tree/Node';
+import Node, { Position } from '../tree/Node';
 
-export default abstract class LayoutNode implements Node {
+export type AnyLayoutNode = LayoutNode<any, any>;
+
+export type LayoutPosition = Position<AnyLayoutNode>;
+
+export default abstract class LayoutNode<P extends AnyLayoutNode, C extends AnyLayoutNode> extends Node<P, C> {
+  abstract getType(): string;
+  abstract getSize(): number;
+  abstract clearCache(): void;
+
   protected editor: Editor;
   protected id: string;
-  protected version: number = 0;
-  protected selectableSize?: number;
-  protected deleted: boolean = false;
 
   constructor(editor: Editor, id: string) {
+    super();
     this.editor = editor;
     this.id = id;
   }
@@ -17,37 +23,29 @@ export default abstract class LayoutNode implements Node {
     return this.id;
   }
 
-  getVersion() {
-    return this.version;
-  }
-
-  bumpVersion() {
-    this.version++;
-  }
-
-  markAsDeleted() {
-    this.deleted = true;
-  }
-
-  isDeleted() {
-    return this.deleted;
-  }
-
-  abstract getSelectableSize(): number;
-
-  abstract getWidth(): number;
-
-  abstract getHeight(): number;
-
-  abstract getPaddingTop(): number;
-
-  abstract getPaddingBottom(): number;
-
-  abstract getPaddingLeft(): number;
-
-  abstract getPaddingRight(): number;
-
-  protected clearCache() {
-    this.selectableSize = undefined;
+  onUpdated(updatedNode: LayoutNode<P, C>) {
+    if (!this.isLeaf()) {
+      const updatedChildNodes = updatedNode.getChildNodes();
+      const childNodes: C[] = [];
+      for (let n = 0; n < updatedChildNodes.length; n++) {
+        const updatedChildNode = updatedChildNodes[n];
+        const childNode = this.getChildNodes().find((childNode) =>
+          childNode!.getID() === updatedChildNode!.getID()
+        );
+        if (childNode) {
+          childNode.onUpdated(updatedChildNode!);
+          this.appendChild(childNode);
+        } else {
+          this.appendChild(updatedChildNode);
+        }
+      }
+      this.getChildNodes().forEach(childNode => {
+        this.removeChild(childNode);
+      });
+      childNodes.forEach(childNode => {
+        this.appendChild(childNode);
+      });
+    }
+    this.clearCache();
   }
 }

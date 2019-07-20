@@ -1,48 +1,53 @@
 import Editor from '../Editor';
-import Node from '../tree/Node';
+import Node, { Position } from '../tree/Node';
 
-export interface ResolvedPosition {
-  renderNode: RenderNode;
-  depth: number;
-  offset: number;
-  parent: ResolvedPosition | null;
-  child: ResolvedPosition | null;
-}
+export type AnyRenderNode = RenderNode<any, any>;
 
-export default abstract class RenderNode implements Node {
+export type RenderPosition = Position<AnyRenderNode>;
+
+export default abstract class RenderNode<P extends AnyRenderNode, C extends AnyRenderNode> extends Node<P, C> {
+  abstract getType(): string;
+  abstract getSize(): number;
+  abstract getModelSize(): number;
+  abstract clearCache(): void;
+  abstract convertOffsetToModelOffset(offset: number): number;
+
   protected editor: Editor;
   protected id: string;
-  protected version: number = 0;
-  protected selectableSize?: number;
-  protected modelSize?: number;
 
   constructor(editor: Editor, id: string) {
+    super();
     this.editor = editor;
     this.id = id;
   }
-
-  abstract getType(): string;
 
   getID(): string {
     return this.id;
   }
 
-  getVersion() {
-    return this.version;
-  }
-
-  bumpVersion() {
-    this.version++;
-  }
-
-  abstract getSelectableSize(): number;
-
-  abstract getModelSize(): number;
-
-  abstract convertSelectableOffsetToModelOffset(selectableOffset: number): number;
-
-  protected clearCache() {
-    this.selectableSize = undefined;
-    this.modelSize = undefined;
+  onUpdated(updatedNode: RenderNode<P, C>) {
+    if (!this.isLeaf()) {
+      const updatedChildNodes = updatedNode.getChildNodes();
+      const childNodes: C[] = [];
+      for (let n = 0; n < updatedChildNodes.length; n++) {
+        const updatedChildNode = updatedChildNodes[n];
+        const childNode = this.getChildNodes().find((childNode) =>
+          childNode!.getID() === updatedChildNode!.getID()
+        );
+        if (childNode) {
+          childNode.onUpdated(updatedChildNode!);
+          this.appendChild(childNode);
+        } else {
+          this.appendChild(updatedChildNode);
+        }
+      }
+      this.getChildNodes().forEach(childNode => {
+        this.removeChild(childNode);
+      });
+      childNodes.forEach(childNode => {
+        this.appendChild(childNode);
+      });
+    }
+    this.clearCache();
   }
 }

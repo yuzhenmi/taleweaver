@@ -1,19 +1,19 @@
-import Editor from '../Editor';
 import { LayoutStateUpdatedEvent, ViewStateUpdatedEvent } from '../dispatch/events';
+import Editor from '../Editor';
+import BlockBox from '../layout/BlockLayoutNode';
+import DocBox from '../layout/DocLayoutNode';
+import InlineBox from '../layout/InlineLayoutNode';
 import LayoutNode from '../layout/LayoutNode';
-import DocBox from '../layout/DocBox';
-import PageFlowBox from '../layout/PageFlowBox';
-import BlockBox from '../layout/BlockBox';
-import LineFlowBox from '../layout/LineFlowBox';
-import InlineBox from '../layout/InlineBox';
-import ViewNode from './ViewNode';
-import DocViewNode from './DocViewNode';
-import BlockViewNode from './BlockViewNode';
-import PageViewNode from './PageViewNode';
-import LineViewNode from './LineViewNode';
-import InlineViewNode from './InlineViewNode';
+import LineFlowBox from '../layout/LineLayoutNode';
+import PageFlowBox from '../layout/PageLayoutNode';
 import TreeSyncer from '../utils/TreeSyncer';
 import bindKeys from './bindKeys';
+import BlockViewNode from './BlockViewNode';
+import DocViewNode from './DocViewNode';
+import InlineViewNode from './InlineViewNode';
+import LineViewNode from './LineViewNode';
+import PageViewNode from './PageViewNode';
+import ViewNode from './ViewNode';
 
 class LayoutToViewTreeSyncer extends TreeSyncer<LayoutNode, ViewNode> {
   protected editor: Editor;

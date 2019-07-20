@@ -1,13 +1,28 @@
-import { TextStyle } from '../model/TextModelNode';
-import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
-import AtomicBox from './AtomicBox';
+import Editor from '../Editor';
+import TextWordRenderNode from '../render/TextWordRenderNode';
+import AtomicNode from './AtomicLayoutNode';
 import measureText from './utils/measureText';
 
-export default class TextAtomicBox extends AtomicBox {
+export default class TextWordLayoutNode extends AtomicNode {
+  protected renderNode: TextWordRenderNode;
+  protected content: string;
   protected width?: number;
+  protected widthWithoutTrailingWhitespace?: number;
   protected height?: number;
-  protected content: string = '';
-  protected textStyle?: TextStyle;
+
+  constructor(editor: Editor, renderNode: TextWordRenderNode, content: string) {
+    super(editor, renderNode.getID());
+    this.renderNode = renderNode;
+    this.content = content;
+  }
+
+  getType() {
+    return 'TextWord';
+  }
+
+  getSize() {
+    return this.content.length;
+  }
 
   getWidth() {
     if (this.width === undefined || this.height === undefined) {
@@ -20,8 +35,9 @@ export default class TextAtomicBox extends AtomicBox {
 
   getWidthWithoutTrailingWhitespace() {
     if (this.widthWithoutTrailingWhitespace === undefined) {
-      if (this.breakable) {
-        const measurement = measureText(this.content.substring(0, this.content.length - 1), this.getTextStyle());
+      if (this.renderNode.getBreakable()) {
+        const content = this.content;
+        const measurement = measureText(content.substring(0, content.length - 1), this.getTextStyle());
         this.widthWithoutTrailingWhitespace = measurement.width;
       } else {
         this.widthWithoutTrailingWhitespace = this.getWidth();
@@ -39,40 +55,22 @@ export default class TextAtomicBox extends AtomicBox {
     return this.height;
   }
 
-  getPaddingTop() {
-    return 0;
-  }
-
-  getPaddingBottom() {
-    return 0;
-  }
-
-  getPaddingLeft() {
-    return 0;
-  }
-
-  getPaddingRight() {
-    return 0;
-  }
-
-  setContent(content: string) {
-    this.content = content;
-    this.clearCache();
+  getBreakable() {
+    return this.renderNode.getBreakable();
   }
 
   getContent() {
     return this.content;
   }
 
-  getSelectableSize() {
-    return this.content.length;
+  getTextStyle() {
+    return this.renderNode.getTextStyle();
   }
 
-  onRenderUpdated(renderNode: TextAtomicRenderNode) {
-    this.content = renderNode.getContent();
-    this.breakable = renderNode.getBreakable();
-    this.textStyle = renderNode.getTextStyle();
-    this.clearCache();
+  clearCache() {
+    this.width = undefined;
+    this.widthWithoutTrailingWhitespace = undefined;
+    this.height = undefined;
   }
 
   splitAtWidth(width: number) {
@@ -89,18 +87,14 @@ export default class TextAtomicBox extends AtomicBox {
       }
     }
     const splitAt = min;
-    const newTextAtomicBox = new TextAtomicBox(this.editor, this.renderNodeID);
-    newTextAtomicBox.setContent(this.content.substring(splitAt));
+    const newNode = new TextWordLayoutNode(this.editor, this.renderNode, this.content.substring(splitAt));
     this.content = this.content.substring(0, splitAt);
     this.clearCache();
-    return newTextAtomicBox;
+    return newNode;
   }
 
-  join(textAtomicBox: TextAtomicBox) {
-    if (textAtomicBox.getRenderNodeID() !== this.renderNodeID) {
-      throw new Error('Cannot join atomic boxes with different render node IDs.');
-    }
-    this.content += textAtomicBox.getContent();
+  join(node: TextWordLayoutNode) {
+    this.content += node.getContent();
     this.clearCache();
   }
 
@@ -125,8 +119,8 @@ export default class TextAtomicBox extends AtomicBox {
     return this.content.length;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
-    if (from === 0 && to === this.getSelectableSize()) {
+  resolveLayoutRects(from: number, to: number) {
+    if (from === 0 && to === this.getSize()) {
       return [{
         left: 0,
         right: 0,
@@ -144,14 +138,10 @@ export default class TextAtomicBox extends AtomicBox {
     const toTextMeasurement = measureText(this.content.substring(0, to), this.getTextStyle());
     const width = toTextMeasurement.width - fromTextMeasurement.width;
     const height = this.getHeight();
-    const paddingTop = this.getPaddingTop();
-    const paddingBottom = this.getPaddingBottom();
-    const paddingLeft = this.getPaddingLeft();
-    const paddingRight = this.getPaddingRight();
-    const left = paddingLeft + fromTextMeasurement.width;
-    const right = paddingRight + (this.getWidth() - toTextMeasurement.width);
-    const top = paddingTop;
-    const bottom = paddingBottom;
+    const left = fromTextMeasurement.width;
+    const right = this.getWidth() - toTextMeasurement.width;
+    const top = 0;
+    const bottom = 0;
     return [{
       width,
       height,
@@ -164,18 +154,5 @@ export default class TextAtomicBox extends AtomicBox {
       paddingLeft: 0,
       paddingRight: 0,
     }];
-  }
-
-  protected clearCache() {
-    super.clearCache();
-    this.width = undefined;
-    this.height = undefined;
-  }
-
-  getTextStyle() {
-    if (!this.textStyle) {
-      throw new Error('Text render node has not been initialized with style.');
-    }
-    return this.textStyle;
   }
 }

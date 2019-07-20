@@ -1,12 +1,23 @@
-import TextAtomicRenderNode from '../render/TextAtomicRenderNode';
-import AtomicBox from './AtomicBox';
 import { DEFAULT_STYLE } from '../config/TextConfig';
-import TextAtomicBox from './TextAtomicBox';
+import AtomicNode from './AtomicLayoutNode';
+import TextWordLayoutNode from './TextWordLayoutNode';
 import measureText from './utils/measureText';
 
-export default class LineBreakAtomicBox extends AtomicBox {
+export default class LineBreakAtomicLayoutNode extends AtomicNode {
   protected width?: number;
   protected height?: number;
+
+  getType() {
+    return 'LineBreakAtomic';
+  }
+
+  getSize() {
+    return 1;
+  }
+
+  getBreakable() {
+    return true;
+  }
 
   getWidth() {
     if (this.width === undefined || this.height === undefined) {
@@ -16,10 +27,7 @@ export default class LineBreakAtomicBox extends AtomicBox {
   }
 
   getWidthWithoutTrailingWhitespace() {
-    if (this.widthWithoutTrailingWhitespace === undefined) {
-      this.widthWithoutTrailingWhitespace = 0;
-    }
-    return this.widthWithoutTrailingWhitespace;
+    return 0;
   }
 
   getHeight() {
@@ -29,36 +37,16 @@ export default class LineBreakAtomicBox extends AtomicBox {
     return this.height!;
   }
 
-  getPaddingTop() {
-    return 0;
+  clearCache() {
+    this.width = undefined;
+    this.height = undefined;
   }
 
-  getPaddingBottom() {
-    return 0;
-  }
-
-  getPaddingLeft() {
-    return 0;
-  }
-
-  getPaddingRight() {
-    return 0;
-  }
-
-  getSelectableSize() {
-    return 1;
-  }
-
-  onRenderUpdated(renderNode: TextAtomicRenderNode) {
-    this.breakable = renderNode.getBreakable();
-    this.clearCache();
-  }
-
-  splitAtWidth(width: number): LineBreakAtomicBox {
+  splitAtWidth(width: number): LineBreakAtomicLayoutNode {
     throw new Error('Cannot split line break atomic box.');
   }
 
-  join(lineBreakAtomicBox: LineBreakAtomicBox) {
+  join(node: LineBreakAtomicLayoutNode) {
     throw new Error('Cannot join line break atomic boxes.');
   }
 
@@ -66,7 +54,7 @@ export default class LineBreakAtomicBox extends AtomicBox {
     return 0;
   }
 
-  resolveSelectableOffsetRangeToViewportBoundingRects(from: number, to: number) {
+  resolveLayoutRects(from: number, to: number) {
     if (from === to) {
       return [{
         left: 0,
@@ -95,22 +83,16 @@ export default class LineBreakAtomicBox extends AtomicBox {
     }];
   }
 
-  protected clearCache() {
-    super.clearCache();
-    this.width = undefined;
-    this.height = undefined;
-  }
-
   protected updateBoundingBox() {
     const previousSibling = this.getPreviousSibling();
     let textStyle = DEFAULT_STYLE;
     if (previousSibling) {
-      if (previousSibling instanceof TextAtomicBox) {
+      if (previousSibling instanceof TextWordLayoutNode) {
         textStyle = previousSibling.getTextStyle();
       }
       const measurement = measureText(' ', textStyle);
       this.width = measurement.width;
-      this.height = previousSibling.getHeight();
+      this.height = (previousSibling as AtomicNode).getHeight();
     } else {
       const measurement = measureText(' ', textStyle);
       this.width = measurement.width;

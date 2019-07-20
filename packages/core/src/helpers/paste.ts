@@ -165,7 +165,7 @@ function paste(editor: Editor, data: DataTransfer) {
   const bodyNode = iframeDoc.body;
   const cursorSelectableOffset = Math.min(editor.getCursor().getHead(), editor.getCursor().getAnchor());
   const cursorOffset = editor.getRenderManager().convertSelectableOffsetToModelOffset(cursorSelectableOffset);
-  const cursorPosition = editor.getModelManager().resolveOffset(cursorOffset);
+  const cursorPosition = editor.getModelManager().resolvePosition(cursorOffset);
   let defaultBlockElement: BlockElement;
   if (cursorPosition.child && cursorPosition.child.element instanceof BlockElement) {
     defaultBlockElement = cursorPosition.child.element;

@@ -10,8 +10,8 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
   abstract isRoot(): boolean;
   abstract isLeaf(): boolean;
 
-  protected parent?: P;
-  protected childNodes?: C[];
+  private parent?: P;
+  private childNodes?: C[];
 
   constructor() {
     if (!this.isLeaf()) {
@@ -19,7 +19,7 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
     }
   }
 
-  setParent(parent: P) {
+  setParent(parent: P | undefined) {
     this.parent = parent;
   }
 
@@ -35,6 +35,7 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
       throw new Error('Appending child on leaf node is not allowed.');
     }
     this.childNodes!.push(child);
+    child!.setParent(this);
   }
 
   insertBefore(child: C, beforeChild: C) {
@@ -46,6 +47,7 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
       throw new Error('Error inserting, child to insert before is not found.');
     }
     this.childNodes!.splice(beforeChildIndex, 0, child);
+    child!.setParent(this);
   }
 
   removeChild(child: C) {
@@ -57,6 +59,7 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
       throw new Error('Error removing child, child is not found.');
     }
     this.childNodes!.splice(childIndex, 1);
+    child!.setParent(undefined);
   }
 
   getChildNodes() {

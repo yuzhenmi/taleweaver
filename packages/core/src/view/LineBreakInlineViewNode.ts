@@ -1,7 +1,7 @@
-import Editor from '../Editor';
-import LineBreakInlineBox from '../layout/LineBreakInlineBox';
-import InlineViewNode from './InlineViewNode';
 import { DEFAULT_STYLE } from '../config/TextConfig';
+import Editor from '../Editor';
+import LineBreakInlineBox from '../layout/LineBreakLayoutNode';
+import InlineViewNode from './InlineViewNode';
 
 export default class LineBreakInlineViewNode extends InlineViewNode {
   protected domContainer: HTMLSpanElement;

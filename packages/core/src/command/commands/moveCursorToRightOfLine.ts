@@ -1,6 +1,6 @@
 import Editor from '../../Editor';
+import LineFlowBox from '../../layout/LineLayoutNode';
 import Transformation from '../../transform/Transformation';
-import LineFlowBox from '../../layout/LineFlowBox';
 import Command from '../Command';
 
 export default function moveToRightOfLine(): Command {

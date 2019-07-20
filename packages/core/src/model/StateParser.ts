@@ -97,6 +97,7 @@ export default class StateParser {
       }
     }
     this.rootNode = this.stack.getRootNode();
+    this.ran = true;
   }
 
   protected newNode(token: OpenTagToken) {

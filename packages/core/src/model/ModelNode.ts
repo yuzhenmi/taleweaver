@@ -15,13 +15,13 @@ export type ModelPosition = Position<AnyModelNode>;
 export default abstract class ModelNode<A extends Attributes, P extends AnyModelNode, C extends AnyModelNode> extends Node<P, C> {
   abstract getType(): string;
   abstract getSize(): number;
+  abstract clearCache(): void;
   abstract toHTML(from: number, to: number): HTMLElement;
   abstract toTokens(): Token[];
 
   protected editor: Editor;
   protected id: string;
   protected attributes: A;
-  protected size?: number;
 
   constructor(editor: Editor, attributes: A) {
     super();
@@ -58,29 +58,30 @@ export default abstract class ModelNode<A extends Attributes, P extends AnyModel
     return new (this.constructor(this.editor, attributes));
   }
 
-  clearCache() {
-    this.size = undefined;
-  }
-
   onUpdated(updatedNode: ModelNode<A, P, C>) {
-    this.clearCache();
     this.attributes = updatedNode.attributes;
-    if (this.childNodes) {
+    if (!this.isLeaf()) {
       const updatedChildNodes = updatedNode.getChildNodes();
       const childNodes: C[] = [];
       for (let n = 0; n < updatedChildNodes.length; n++) {
         const updatedChildNode = updatedChildNodes[n];
-        const childNode = this.childNodes.find((childNode) =>
+        const childNode = this.getChildNodes().find((childNode) =>
           childNode!.getID() === updatedChildNode!.getID()
         );
         if (childNode) {
           childNode.onUpdated(updatedChildNode!);
-          childNodes.push(childNode);
+          this.appendChild(childNode);
         } else {
-          childNodes.push(updatedChildNode);
+          this.appendChild(updatedChildNode);
         }
       }
-      this.childNodes = childNodes;
+      this.getChildNodes().forEach(childNode => {
+        this.removeChild(childNode);
+      });
+      childNodes.forEach(childNode => {
+        this.appendChild(childNode);
+      });
     }
+    this.clearCache();
   };
 }

@@ -1,9 +1,9 @@
 import Editor from '../Editor';
+import LineFlowBox from '../layout/LineLayoutNode';
 import BranchNode from '../tree/BranchNode';
-import LineFlowBox from '../layout/LineFlowBox';
-import ViewNode from './ViewNode';
 import BlockViewNode from './BlockViewNode';
 import InlineViewNode from './InlineViewNode';
+import ViewNode from './ViewNode';
 
 type Parent = BlockViewNode;
 type Child = InlineViewNode;

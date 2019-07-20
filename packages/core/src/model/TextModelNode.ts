@@ -3,17 +3,6 @@ import { Attributes } from '../state/OpenTagToken';
 import InlineModelNode from './InlineModelNode';
 import { DOMAttributes } from './ModelNode';
 
-export interface TextStyle {
-  weight: number | null;
-  size: number | null;
-  color: string | null;
-  font: string | null;
-  letterSpacing: number | null;
-  italic: boolean;
-  underline: boolean;
-  strikethrough: boolean;
-}
-
 export interface TextAttributes extends Attributes {
   weight?: number;
   size?: number;

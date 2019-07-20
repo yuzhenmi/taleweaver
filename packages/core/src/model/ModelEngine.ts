@@ -16,8 +16,12 @@ export default class ModelEngine {
     editor.getDispatcher().on(StateUpdatedEvent, this.handleStateUpdatedEvent);
   }
 
+  getDoc() {
+    return this.doc;
+  }
+
   protected handleStateUpdatedEvent = (event: StateUpdatedEvent) => {
-    const node = this.doc.resolveOffset(event.getBeforeFrom()).parent!.node;
+    const node = this.doc.resolvePosition(event.getBeforeFrom()).parent!.node;
     const tokens = this.editor.getStateService().getTokens();
     let from = event.getAfterFrom();
     while (!(tokens[from] instanceof OpenTagToken)) {
@@ -31,9 +35,5 @@ export default class ModelEngine {
     const updatedNode = parser.getRootNode();
     node.onUpdated(updatedNode);
     this.editor.getDispatcher().dispatch(new ModelUpdatedEvent(node));
-  }
-
-  getDoc() {
-    return this.doc;
   }
 }

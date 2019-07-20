@@ -1,20 +1,18 @@
 import Editor from '../Editor';
-import AtomicBox from '../layout/AtomicBox';
-import BlockBox from '../layout/BlockBox';
-import InlineBox from '../layout/InlineBox';
-import LineBreakAtomicBox from '../layout/LineBreakAtomicBox';
-import LineBreakInlineBox from '../layout/LineBreakInlineBox';
-import ParagraphBlockBox from '../layout/ParagraphBlockBox';
-import TextAtomicBox from '../layout/TextAtomicBox';
-import TextInlineBox from '../layout/TextInlineBox';
-import BlockModelNode from '../model/BlockModelNode';
-import InlineModelNode from '../model/InlineModelNode';
+import AtomicBox from '../layout/AtomicLayoutNode';
+import BlockBox from '../layout/BlockLayoutNode';
+import InlineBox from '../layout/InlineLayoutNode';
+import LineBreakAtomicBox from '../layout/LineBreakAtomicLayoutNode';
+import LineBreakInlineBox from '../layout/LineBreakLayoutNode';
+import ParagraphBlockBox from '../layout/ParagraphLayoutNode';
+import TextInlineBox from '../layout/TextLayoutNode';
+import TextAtomicBox from '../layout/TextWordLayoutNode';
+import { AnyModelNode } from '../model/ModelNode';
 import ParagraphModelNode from '../model/ParagraphModelNode';
 import TextModelNode from '../model/TextModelNode';
-import BlockRenderNode from '../render/BlockRenderNode';
-import InlineRenderNode from '../render/InlineRenderNode';
-import ParagraphBlockRenderNode from '../render/ParagraphBlockRenderNode';
-import TextInlineRenderNode from '../render/TextInlineRenderNode';
+import ParagraphRenderNode from '../render/ParagraphRenderNode';
+import { AnyRenderNode } from '../render/RenderNode';
+import TextRenderNode from '../render/TextRenderNode';
 import { Attributes } from '../state/OpenTagToken';
 import BlockViewNode from '../view/BlockViewNode';
 import InlineViewNode from '../view/InlineViewNode';
@@ -22,10 +20,8 @@ import LineBreakInlineViewNode from '../view/LineBreakInlineViewNode';
 import ParagraphBlockViewNode from '../view/ParagraphBlockViewNode';
 import TextInlineViewNode from '../view/TextInlineViewNode';
 
-type BlockModelNodeClass = new (editor: Editor, attributes: Attributes) => BlockModelNode<any>;
-type InlineModelNodeClass = new (editor: Editor, attributes: Attributes) => InlineModelNode<any>;
-type BlockRenderNodeClass = new (editor: Editor, id: string) => BlockRenderNode;
-type InlineRenderNodeClass = new (editor: Editor, id: string) => InlineRenderNode;
+type ModelNodeClass = new (editor: Editor, attributes: Attributes) => AnyModelNode;
+type RenderNodeClass = new (editor: Editor, modelNode: AnyModelNode) => AnyRenderNode;
 type BlockBoxClass = new (editor: Editor, renderNodeId: string) => BlockBox;
 type InlineBoxClass = new (editor: Editor, renderNodeId: string) => InlineBox;
 type AtomicBoxClass = new (editor: Editor, renderNodeId: string) => AtomicBox;
@@ -33,12 +29,9 @@ type BlockViewNodeClass = new (edito: Editor, id: string) => BlockViewNode;
 type InlineViewNodeClass = new (edito: Editor, id: string) => InlineViewNode;
 
 export default class NodeConfig {
-  protected blockModelNodeClasses: Map<string, BlockModelNodeClass> = new Map();
-  protected orderedBlockModelNodeClasses: BlockModelNodeClass[] = [];
-  protected inlineModelNodeClasses: Map<string, InlineModelNodeClass> = new Map();
-  protected orderedInlineModelNodeClasses: InlineModelNodeClass[] = [];
-  protected blockRenderNodeClasses: Map<string, BlockRenderNodeClass> = new Map();
-  protected inlineRenderNodeClasses: Map<string, InlineRenderNodeClass> = new Map();
+  protected modelNodeClasses: Map<string, ModelNodeClass> = new Map();
+  protected orderedModelNodeClasses: ModelNodeClass[] = [];
+  protected renderNodeClasses: Map<string, RenderNodeClass> = new Map();
   protected blockBoxClasses: Map<string, BlockBoxClass> = new Map();
   protected inlineBoxClasses: Map<string, InlineBoxClass> = new Map();
   protected atomicBoxClasses: Map<string, AtomicBoxClass> = new Map();
@@ -46,12 +39,12 @@ export default class NodeConfig {
   protected inlineViewNodeClasses: Map<string, InlineViewNodeClass> = new Map();
 
   constructor() {
-    this.registerBlockModelNodeClass('Paragraph', ParagraphModelNode);
-    this.registerInlineModelNodeClass('Text', TextModelNode);
-    this.registerBlockRenderNodeClass('Paragraph', ParagraphBlockRenderNode);
-    this.registerInlineRenderNodeClass('Text', TextInlineRenderNode);
-    this.registerBlockBoxClass('ParagraphBlockRenderNode', ParagraphBlockBox);
-    this.registerInlineBoxClass('TextInlineRenderNode', TextInlineBox);
+    this.registerModelNodeClass('Paragraph', ParagraphModelNode);
+    this.registerModelNodeClass('Text', TextModelNode);
+    this.registerRenderNodeClass('Paragraph', ParagraphRenderNode);
+    this.registerRenderNodeClass('Text', TextRenderNode);
+    this.registerBlockBoxClass('ParagraphRenderNode', ParagraphBlockBox);
+    this.registerInlineBoxClass('TextRenderNode', TextInlineBox);
     this.registerInlineBoxClass('LineBreakInlineRenderNode', LineBreakInlineBox);
     this.registerAtomicBoxClass('TextAtomicRenderNode', TextAtomicBox);
     this.registerAtomicBoxClass('LineBreakAtomicRenderNode', LineBreakAtomicBox);
@@ -60,68 +53,31 @@ export default class NodeConfig {
     this.registerInlineViewNodeClass('LineBreakInlineBox', LineBreakInlineViewNode);
   }
 
-  registerBlockModelNodeClass(modelNodeType: string, blockModelNodeClass: BlockModelNodeClass) {
-    this.blockModelNodeClasses.set(modelNodeType, blockModelNodeClass);
-    this.orderedBlockModelNodeClasses.push(blockModelNodeClass);
-  }
-
-  getBlockModelNodeClass(modelNodeType: string) {
-    if (!this.blockModelNodeClasses.has(modelNodeType)) {
-      throw new Error(`Block node type ${modelNodeType} is not registered.`);
-    }
-    return this.blockModelNodeClasses.get(modelNodeType)!;
-  }
-
-  getAllBlockModelNodeClasses() {
-    return this.orderedBlockModelNodeClasses;
-  }
-
-  registerInlineModelNodeClass(modelNodeType: string, modelNodeClass: InlineModelNodeClass) {
-    this.inlineModelNodeClasses.set(modelNodeType, modelNodeClass);
-    this.orderedInlineModelNodeClasses.push(modelNodeClass);
-  }
-
-  getInlineModelNodeClass(modelNodeType: string) {
-    if (!this.inlineModelNodeClasses.has(modelNodeType)) {
-      throw new Error(`Inline model node type ${modelNodeType} is not registered.`);
-    }
-    return this.inlineModelNodeClasses.get(modelNodeType)!;
-  }
-
-  getAllInlineModelNodeClasses() {
-    return this.orderedInlineModelNodeClasses;
+  registerModelNodeClass(modelNodeType: string, modelNodeClass: ModelNodeClass) {
+    this.modelNodeClasses.set(modelNodeType, modelNodeClass);
+    this.orderedModelNodeClasses.push(modelNodeClass);
   }
 
   getModelNodeClass(modelNodeType: string) {
-    if (this.blockModelNodeClasses.has(modelNodeType)) {
-      return this.blockModelNodeClasses.get(modelNodeType)!;
+    if (!this.modelNodeClasses.has(modelNodeType)) {
+      throw new Error(`Model node type ${modelNodeType} is not registered.`);
     }
-    if (this.inlineModelNodeClasses.has(modelNodeType)) {
-      return this.inlineModelNodeClasses.get(modelNodeType)!;
-    }
-    throw new Error(`Model node type ${modelNodeType} is not registered.`);
+    return this.modelNodeClasses.get(modelNodeType)!;
   }
 
-  registerBlockRenderNodeClass(modelNodeType: string, renderNodeClass: BlockRenderNodeClass) {
-    this.blockRenderNodeClasses.set(modelNodeType, renderNodeClass);
+  getAllModelNodeClasses() {
+    return this.orderedModelNodeClasses;
   }
 
-  getBlockRenderNodeClass(modelNodeType: string) {
-    if (!this.blockRenderNodeClasses.has(modelNodeType)) {
-      throw new Error(`Block render node for modelNode type ${modelNodeType} is not registered.`);
+  registerRenderNodeClass(modelNodeType: string, renderNodeClass: RenderNodeClass) {
+    this.renderNodeClasses.set(modelNodeType, renderNodeClass);
+  }
+
+  getRenderNodeClass(modelNodeType: string) {
+    if (!this.renderNodeClasses.has(modelNodeType)) {
+      throw new Error(`Render node for model node type ${modelNodeType} is not registered.`);
     }
-    return this.blockRenderNodeClasses.get(modelNodeType)!;
-  }
-
-  registerInlineRenderNodeClass(modelNodeType: string, renderNodeClass: InlineRenderNodeClass) {
-    this.inlineRenderNodeClasses.set(modelNodeType, renderNodeClass);
-  }
-
-  getInlineRenderNodeClass(modelNodeType: string) {
-    if (!this.inlineRenderNodeClasses.has(modelNodeType)) {
-      throw new Error(`Inline render node for modelNode type ${modelNodeType} is not registered.`);
-    }
-    return this.inlineRenderNodeClasses.get(modelNodeType)!;
+    return this.renderNodeClasses.get(modelNodeType)!;
   }
 
   registerBlockBoxClass(renderNodeType: string, boxClass: BlockBoxClass) {

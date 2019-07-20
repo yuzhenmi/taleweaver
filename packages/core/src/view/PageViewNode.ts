@@ -1,9 +1,9 @@
 import Editor from '../Editor';
+import PageFlowBox from '../layout/PageLayoutNode';
 import BranchNode from '../tree/BranchNode';
-import PageFlowBox from '../layout/PageFlowBox';
-import ViewNode from './ViewNode';
-import DocViewNode from './DocViewNode';
 import BlockViewNode from './BlockViewNode';
+import DocViewNode from './DocViewNode';
+import ViewNode from './ViewNode';
 
 type Parent = DocViewNode;
 type Child = BlockViewNode;

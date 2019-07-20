@@ -8,6 +8,7 @@ type ParentNode = BlockModelNode<any>;
 
 export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode, never> {
   protected content: string = '';
+  protected size?: number;
 
   isRoot() {
     return false;
@@ -28,7 +29,7 @@ export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode
 
   getSize() {
     if (this.size === undefined) {
-      this.size = 2 + this.content.length;
+      return 2 + this.content.length;
     }
     return this.size;
   }
@@ -41,7 +42,7 @@ export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode
     return tokens;
   }
 
-  resolveOffset(offset: number, depth: number) {
+  resolvePosition(offset: number, depth: number) {
     if (offset >= this.getSize()) {
       throw new Error(`Offset ${offset} is out of range.`);
     }
@@ -54,9 +55,10 @@ export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode
   }
 
   clearCache() {
-    super.clearCache();
-    if (this.parent) {
-      this.parent.clearCache();
+    this.size = undefined;
+    const parent = this.getParent();
+    if (parent) {
+      parent.clearCache();
     }
   }
 };

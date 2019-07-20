@@ -1,5 +1,5 @@
 import Editor from '../Editor';
-import DocBox from './DocBox';
+import DocBox from './DocLayoutNode';
 import LayoutEngine from './LayoutEngine';
 
 class LayoutManager {

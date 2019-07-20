@@ -1,8 +1,8 @@
+import BlockBox from '../layout/BlockLayoutNode';
 import BranchNode from '../tree/BranchNode';
-import BlockBox from '../layout/BlockBox';
-import ViewNode from './ViewNode';
-import PageViewNode from './PageViewNode';
 import LineViewNode from './LineViewNode';
+import PageViewNode from './PageViewNode';
+import ViewNode from './ViewNode';
 
 export type Parent = PageViewNode;
 export type Child = LineViewNode;

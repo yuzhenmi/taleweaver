@@ -1,4 +1,4 @@
-import { TextStyle } from '../model/TextModelNode';
+import { TextStyle } from '../render/TextRenderNode';
 
 export const DEFAULT_STYLE: TextStyle = {
   weight: 400,

@@ -1,7 +1,7 @@
 import Editor from '../../Editor';
-import Command from '../Command';
+import LineFlowBox from '../../layout/LineLayoutNode';
 import Transformation from '../../transform/Transformation';
-import LineFlowBox from '../../layout/LineFlowBox';
+import Command from '../Command';
 
 export default function moveToLineAbove(): Command {
   return (editor: Editor): Transformation => {

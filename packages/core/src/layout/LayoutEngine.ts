@@ -1,19 +1,19 @@
+import { LayoutStateUpdatedEvent, RenderStateUpdatedEvent } from '../dispatch/events';
 import Editor from '../Editor';
-import TreeSyncer from '../utils/TreeSyncer';
-import { RenderStateUpdatedEvent, LayoutStateUpdatedEvent } from '../dispatch/events';
-import RenderNode from '../render/RenderNode';
-import DocRenderNode from '../render/DocRenderNode';
-import BlockRenderNode from '../render/BlockRenderNode';
-import InlineRenderNode from '../render/InlineRenderNode';
 import AtomicRenderNode from '../render/AtomicRenderNode';
+import BlockRenderNode from '../render/BlockRenderNode';
+import DocRenderNode from '../render/DocRenderNode';
+import InlineRenderNode from '../render/InlineRenderNode';
+import RenderNode from '../render/RenderNode';
+import TreeSyncer from '../utils/TreeSyncer';
+import AtomicBox from './AtomicLayoutNode';
+import BlockBox from './BlockLayoutNode';
 import Box from './Box';
-import DocBox from './DocBox';
-import PageFlowBox from './PageFlowBox';
-import BlockBox from './BlockBox';
-import LineFlowBox from './LineFlowBox';
-import InlineBox from './InlineBox';
-import AtomicBox from './AtomicBox';
+import DocBox from './DocLayoutNode';
+import InlineBox from './InlineLayoutNode';
 import LayoutNode from './LayoutNode';
+import LineFlowBox from './LineLayoutNode';
+import PageFlowBox from './PageLayoutNode';
 
 class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, LayoutNode> {
   protected editor: Editor;
@@ -272,7 +272,7 @@ class RenderToLayoutTreeSyncer extends TreeSyncer<RenderNode, LayoutNode> {
 export default class LayoutEngine {
   protected editor: Editor;
   protected docBox: DocBox;
-  
+
   constructor(editor: Editor, docBox: DocBox) {
     this.editor = editor;
     this.docBox = docBox;

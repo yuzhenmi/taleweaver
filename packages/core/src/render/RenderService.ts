@@ -1,42 +1,37 @@
 import Editor from '../Editor';
 import { TextStyle } from '../model/TextModelNode';
-import DocRenderNode from './DocRenderNode';
 import InlineRenderNode from './InlineRenderNode';
 import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
 import RenderEngine from './RenderEngine';
-import RenderNode, { ResolvedPosition } from './RenderNode';
+import { RenderPosition } from './RenderNode';
 import TextInlineRenderNode from './TextInlineRenderNode';
 
-function getLeafPosition(position: ResolvedPosition): ResolvedPosition {
+function getLeafPosition(position: RenderPosition): RenderPosition {
   if (!position.child) {
     return position
   }
   return getLeafPosition(position.child);
 }
 
-class RenderManager {
+export default class RenderService {
   protected editor: Editor;
-  protected docRenderNode: DocRenderNode;
   protected renderEngine: RenderEngine;
 
   constructor(editor: Editor) {
     this.editor = editor;
-    const modelManager = editor.getModelManager();
-    const doc = modelManager.getDoc();
-    this.docRenderNode = new DocRenderNode(editor, doc.getID());
-    this.renderEngine = new RenderEngine(editor, this.docRenderNode);
+    this.renderEngine = new RenderEngine(editor);
   }
 
-  getDocRenderNode() {
-    return this.docRenderNode;
+  getDoc() {
+    return this.renderEngine.getDoc();
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number): number {
-    return this.docRenderNode.convertSelectableOffsetToModelOffset(selectableOffset);
+  convertOffsetToModelOffset(offset: number): number {
+    return this.renderEngine.getDoc().convertOffsetToModelOffset(offset);
   }
 
-  resolveSelectableOffset(selectableOffset: number) {
-    return this.docRenderNode.resolveSelectableOffset(selectableOffset);
+  resolvePosition(offset: number) {
+    return this.renderEngine.getDoc().resolvePosition(offset);
   }
 
   getTextStyleBetween(from: number, to: number) {
@@ -49,15 +44,14 @@ class RenderManager {
     } else if (from > to) {
       from--;
     }
-    const renderManager = this.editor.getRenderManager();
     let fromInlineRenderNode: InlineRenderNode | null = null;
     while (fromInlineRenderNode === null) {
-      const fromPosition = renderManager.resolveSelectableOffset(from);
+      const fromPosition = this.resolvePosition(from);
       const fromInlinePosition = getLeafPosition(fromPosition).parent!;
-      if (!(fromInlinePosition.renderNode instanceof InlineRenderNode)) {
+      if (!(fromInlinePosition.node instanceof InlineRenderNode)) {
         return null;
       }
-      fromInlineRenderNode = fromInlinePosition.renderNode;
+      fromInlineRenderNode = fromInlinePosition.node;
       if (fromInlineRenderNode instanceof LineBreakInlineRenderNode) {
         fromInlineRenderNode = null;
         if (from === to) {
@@ -73,12 +67,12 @@ class RenderManager {
     }
     let toInlineRenderNode: InlineRenderNode | null = null;
     while (toInlineRenderNode === null) {
-      const toPosition = renderManager.resolveSelectableOffset(to);
+      const toPosition = this.resolvePosition(to);
       const toInlinePosition = getLeafPosition(toPosition).parent!;
-      if (!(toInlinePosition.renderNode instanceof InlineRenderNode)) {
+      if (!(toInlinePosition.node instanceof InlineRenderNode)) {
         return null;
       }
-      toInlineRenderNode = toInlinePosition.renderNode;
+      toInlineRenderNode = toInlinePosition.node;
       if (toInlineRenderNode instanceof LineBreakInlineRenderNode) {
         toInlineRenderNode = null;
         if (from === to) {
@@ -100,7 +94,7 @@ class RenderManager {
       if (!nextSibling) {
         break;
       }
-      inlineRenderNode = nextSibling;
+      inlineRenderNode = nextSibling as InlineRenderNode;
       if (isLastIteration) {
         break;
       }
@@ -128,7 +122,7 @@ class RenderManager {
       return inlineRenderNode.getTextStyle();
     }
     if (inlineRenderNode instanceof LineBreakInlineRenderNode) {
-      const siblings = inlineRenderNode.getParent().getChildren();
+      const siblings = inlineRenderNode.getParent().getChildNodes();
       if (siblings.length > 0) {
         return this.getInlineRenderNodeTextStyle(siblings[siblings.length - 1]);
       }
@@ -156,5 +150,3 @@ class RenderManager {
     return defaultValue;
   }
 }
-
-export default RenderManager;

@@ -1,150 +1,76 @@
-import InlineElement from '../model/InlineModelNode';
-import BranchNode from '../tree/BranchNode';
-import AtomicRenderNode from './AtomicRenderNode';
-import BlockRenderNode from './BlockRenderNode';
-import RenderNode, { ResolvedPosition } from './RenderNode';
+import AtomicNode from './AtomicRenderNode';
+import BlockNode from './BlockRenderNode';
+import RenderNode, { RenderPosition } from './RenderNode';
 
-export type Parent = BlockRenderNode;
-export type Child = AtomicRenderNode;
+export type ParentNode = BlockNode;
+export type ChildNode = AtomicNode;
 
-export default abstract class InlineRenderNode extends RenderNode implements BranchNode {
-  protected parent: Parent | null = null;
-  protected children: Child[] = [];
+export default abstract class InlineRenderNode extends RenderNode<ParentNode, ChildNode> {
+  protected size?: number;
+  protected modelSize?: number;
 
-  getVersion() {
-    return this.version;
+  isRoot() {
+    return false;
   }
 
-  getSelectableSize() {
-    if (this.selectableSize === undefined) {
-      let selectableSize = 0;
-      this.children.forEach(child => {
-        selectableSize += child.getSelectableSize();
-      });
-      this.selectableSize = selectableSize;
-    }
-    return this.selectableSize;
+  isLeaf() {
+    return false;
   }
 
-  setParent(parent: Parent | null) {
-    this.parent = parent;
-  }
-
-  getParent() {
-    if (!this.parent) {
-      throw new Error('No parent has been set.');
+  getSize() {
+    if (this.size === undefined) {
+      this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
     }
-    return this.parent;
-  }
-
-  getChildren() {
-    return this.children;
-  }
-
-  insertChild(child: Child, offset: number | null = null) {
-    child.setParent(this);
-    if (offset === null) {
-      this.children.push(child);
-    } else {
-      this.children.splice(offset, 0, child);
-    }
-    this.clearCache();
-  }
-
-  deleteChild(child: Child) {
-    const childOffset = this.children.indexOf(child);
-    if (childOffset < 0) {
-      throw new Error('Cannot delete child, child not found.');
-    }
-    child.setParent(null);
-    this.children.splice(childOffset, 1);
-    this.clearCache();
-  }
-
-  getPreviousSibling() {
-    const siblings = this.getParent().getChildren();
-    const offset = siblings.indexOf(this);
-    if (offset < 0) {
-      throw new Error(`Inline render node is not found in parent.`);
-    }
-    if (offset > 0) {
-      return siblings[offset - 1];
-    }
-    const parentPreviousSibling = this.getParent().getPreviousSibling();
-    if (!parentPreviousSibling) {
-      return null;
-    }
-    const parentPreviousSiblingChildren = parentPreviousSibling.getChildren();
-    return parentPreviousSiblingChildren[parentPreviousSiblingChildren.length - 1];
-  }
-
-  getNextSibling() {
-    const siblings = this.getParent().getChildren();
-    const offset = siblings.indexOf(this);
-    if (offset < 0) {
-      throw new Error(`Inline render node is not found in parent.`);
-    }
-    if (offset < siblings.length - 1) {
-      return siblings[offset + 1];
-    }
-    const parentNextSibling = this.getParent().getNextSibling();
-    if (!parentNextSibling) {
-      return null;
-    }
-    const parentNextSiblingChildren = parentNextSibling.getChildren();
-    return parentNextSiblingChildren[0];
-  }
-
-  onModelUpdated(element: InlineElement) {
-    this.clearCache();
+    return this.size!;
   }
 
   getModelSize() {
     if (this.modelSize === undefined) {
-      let modelSize = 2;
-      this.children.forEach(child => {
-        modelSize += child.getModelSize();
-      });
-      this.modelSize = modelSize;
+      this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
     }
-    return this.modelSize;
+    return this.modelSize!;
   }
 
-  convertSelectableOffsetToModelOffset(selectableOffset: number) {
-    let cumulatedSelectableOffset = 0;
-    let cumulatedModelOffset = 1;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childSelectableOffset = child.getSelectableSize();
-      if (cumulatedSelectableOffset + childSelectableOffset > selectableOffset) {
-        return cumulatedModelOffset + child.convertSelectableOffsetToModelOffset(selectableOffset - cumulatedSelectableOffset);
+  clearCache() {
+    this.size = undefined;
+    this.modelSize = undefined;
+  }
+
+  convertOffsetToModelOffset(offset: number): number {
+    let cumulatedSize = 0;
+    let cumulatedModelSize = 1;
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
+      const childSize = childNode.getSize();
+      if (cumulatedSize + childSize > offset) {
+        return cumulatedModelSize + childNode.convertOffsetToModelOffset(offset - cumulatedSize);
       }
-      cumulatedSelectableOffset += childSelectableOffset;
-      cumulatedModelOffset += child.getModelSize();
+      cumulatedSize += childSize;
+      cumulatedModelSize += childNode.getModelSize();
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveSelectableOffset(selectableOffset: number, depth: number) {
+  resolvePosition(offset: number, depth: number) {
     let cumulatedOffset = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childSize = child.getSelectableSize();
-      if (cumulatedOffset + childSize > selectableOffset) {
-        const resolvedPosition: ResolvedPosition = {
-          renderNode: this,
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
+      const childSize = childNode.getSize();
+      if (cumulatedOffset + childSize > offset) {
+        const position: RenderPosition = {
+          node: this,
           depth,
-          offset: selectableOffset,
-          parent: null,
-          child: null,
+          offset,
         };
-        const childResolvedPosition = child.resolveSelectableOffset(selectableOffset - cumulatedOffset, depth + 1);
-        resolvedPosition.child = childResolvedPosition;
-        childResolvedPosition.parent = resolvedPosition;
-        return resolvedPosition;
+        const childPosition = childNode.resolvePosition(offset - cumulatedOffset, depth + 1);
+        position.child = childPosition;
+        childPosition.parent = position;
+        return position;
       }
       cumulatedOffset += childSize;
     }
-    throw new Error(`Selectable offset ${selectableOffset} is out of range.`);
+    throw new Error(`Offset ${offset} is out of range.`);
   }
 }

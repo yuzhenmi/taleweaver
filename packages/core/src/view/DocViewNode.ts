@@ -1,8 +1,8 @@
 import Editor from '../Editor';
+import DocBox from '../layout/DocLayoutNode';
 import RootNode from '../tree/RootNode';
-import DocBox from '../layout/DocBox';
-import ViewNode from './ViewNode';
 import PageViewNode from './PageViewNode';
+import ViewNode from './ViewNode';
 
 type Child = PageViewNode;
 
@@ -65,5 +65,5 @@ export default class DocViewNode extends ViewNode implements RootNode {
     this.selectableSize = layoutNode.getSelectableSize();
   }
 
-  onDeleted() {}
+  onDeleted() { }
 }

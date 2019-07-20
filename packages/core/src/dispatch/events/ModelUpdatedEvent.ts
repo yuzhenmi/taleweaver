@@ -1,7 +1,5 @@
-import ModelNode from '../../model/ModelNode';
+import { AnyModelNode } from '../../model/ModelNode';
 import Event from '../Event';
-
-type AnyModelNode = ModelNode<any, any, any>;
 
 class ModelUpdatedEvent extends Event {
   static getType() {
@@ -13,6 +11,10 @@ class ModelUpdatedEvent extends Event {
   constructor(updatedNode: AnyModelNode) {
     super();
     this.updatedNode = updatedNode;
+  }
+
+  getUpdatedNode() {
+    return this.updatedNode;
   }
 }
 

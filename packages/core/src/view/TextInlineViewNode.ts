@@ -1,6 +1,6 @@
 import Editor from '../Editor';
-import TextInlineBox from '../layout/TextInlineBox';
-import TextAtomicBox from '../layout/TextAtomicBox';
+import TextInlineBox from '../layout/TextLayoutNode';
+import TextAtomicBox from '../layout/TextWordLayoutNode';
 import InlineViewNode from './InlineViewNode';
 
 export default class TextInlineViewNode extends InlineViewNode {

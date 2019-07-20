@@ -1,5 +1,5 @@
 import Editor from '../Editor';
-import ParagraphBlockBox from '../layout/ParagraphBlockBox';
+import ParagraphBlockBox from '../layout/ParagraphLayoutNode';
 import BlockViewNode, { Child } from './BlockViewNode';
 
 export default class ParagraphBlockViewNode extends BlockViewNode {
