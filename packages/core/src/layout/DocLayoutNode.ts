@@ -58,14 +58,14 @@ export default class DocLayoutNode extends LayoutNode<never, ChildNode> {
     });
     let offset = 0;
     for (let n = 0, nn = childNodes.length; n < nn && offset <= to; n++) {
-      const child = childNodes[n];
-      const childSize = child.getSize();
+      const childNode = childNodes[n];
+      const childSize = childNode.getSize();
       const minChildOffset = 0;
       const maxChildOffset = childSize;
       const childFrom = Math.max(from - offset, minChildOffset);
       const childTo = Math.min(to - offset, maxChildOffset);
       if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-        const childLayoutRects = child.resolveLayoutRects(childFrom, childTo);
+        const childLayoutRects = childNode.resolveLayoutRects(childFrom, childTo);
         childLayoutRects.forEach(childLayoutRect => {
           layoutRects[n].push(childLayoutRect);
         });

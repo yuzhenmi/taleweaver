@@ -1,16 +1,13 @@
 import Editor from '../Editor';
-import LineFlowBox from '../layout/LineLayoutNode';
-import BranchNode from '../tree/BranchNode';
-import BlockViewNode from './BlockViewNode';
-import InlineViewNode from './InlineViewNode';
+import BlockNode from './BlockViewNode';
+import InlineNode from './InlineViewNode';
 import ViewNode from './ViewNode';
 
-type Parent = BlockViewNode;
-type Child = InlineViewNode;
+export type ParentNode = BlockNode;
+export type ChildNode = InlineNode;
 
-export default class LineViewNode extends ViewNode implements BranchNode {
-  protected parent: Parent | null = null;
-  protected children: Child[] = [];
+export default class LineViewNode extends ViewNode<ParentNode, ChildNode> {
+  protected size?: number;
   protected domContainer: HTMLDivElement;
 
   constructor(editor: Editor, id: string) {
@@ -23,66 +20,30 @@ export default class LineViewNode extends ViewNode implements BranchNode {
     this.domContainer.style.lineHeight = '0';
   }
 
+  isRoot() {
+    return false;
+  }
+
+  isLeaf() {
+    return false;
+  }
+
+  getType() {
+    return 'Page';
+  }
+
+  getSize() {
+    if (this.size === undefined) {
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
+    }
+    return this.size;
+  }
+
+  clearCache() {
+    this.size = undefined;
+  }
+
   getDOMContainer() {
     return this.domContainer;
-  }
-
-  getDOMContentContainer() {
-    return this.domContainer;
-  }
-
-  setParent(parent: Parent | null) {
-    this.parent = parent;
-  }
-
-  getParent(): Parent {
-    if (!this.parent) {
-      throw new Error(`No parent has been set.`);
-    }
-    return this.parent;
-  }
-
-  insertChild(child: Child, offset: number | null = null) {
-    const childDOMContainer = child.getDOMContainer();
-    child.setParent(this);
-    if (offset === null) {
-      this.children.push(child);
-      this.domContainer.appendChild(childDOMContainer);
-    } else {
-      this.children.splice(offset, 0, child);
-      if (offset > this.domContainer.childNodes.length) {
-        throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
-      }
-      if (offset === this.domContainer.childNodes.length) {
-        this.domContainer.appendChild(childDOMContainer);
-      } else {
-        this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
-      }
-    }
-  }
-
-  deleteChild(child: Child) {
-    const childOffset = this.children.indexOf(child);
-    if (childOffset < 0) {
-      throw new Error('Cannot delete child, child not found.');
-    }
-    child.onDeleted();
-    const childDOMContainer = child.getDOMContainer();
-    this.domContainer.removeChild(childDOMContainer);
-    this.children.splice(childOffset, 1);
-  }
-
-  getChildren() {
-    return this.children;
-  }
-
-  onDeleted() {
-    this.children.map(child => {
-      child.onDeleted();
-    });
-  }
-
-  onLayoutUpdated(layoutNode: LineFlowBox) {
-    this.selectableSize = layoutNode.getSelectableSize();
   }
 }

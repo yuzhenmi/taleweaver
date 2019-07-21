@@ -1,32 +1,29 @@
-import BlockBox from '../layout/BlockLayoutNode';
-import BranchNode from '../tree/BranchNode';
-import LineViewNode from './LineViewNode';
-import PageViewNode from './PageViewNode';
+import LineNode from './LineViewNode';
+import PageNode from './PageViewNode';
 import ViewNode from './ViewNode';
 
-export type Parent = PageViewNode;
-export type Child = LineViewNode;
+export type ParentNode = PageNode;
+export type ChildNode = LineNode;
 
-export default abstract class BlockViewNode extends ViewNode implements BranchNode {
-  protected parent: Parent | null = null;
-  protected children: Child[] = [];
+export default abstract class BlockViewNode extends ViewNode<ParentNode, ChildNode> {
+  protected size?: number;
 
-  setParent(parent: Parent | null) {
-    this.parent = parent;
+  isRoot() {
+    return false;
   }
 
-  getParent() {
-    if (!this.parent) {
-      throw new Error(`No parent has been set.`);
+  isLeaf() {
+    return false;
+  }
+
+  getSize() {
+    if (this.size === undefined) {
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
     }
-    return this.parent;
+    return this.size;
   }
 
-  abstract insertChild(child: LineViewNode, offset: number): void;
-
-  abstract deleteChild(child: Child): void;
-
-  abstract getChildren(): Child[];
-
-  abstract onLayoutUpdated(layoutNode: BlockBox): void;
+  clearCache() {
+    this.size = undefined;
+  }
 }

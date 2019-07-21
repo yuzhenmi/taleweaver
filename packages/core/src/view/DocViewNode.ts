@@ -1,13 +1,11 @@
 import Editor from '../Editor';
-import DocBox from '../layout/DocLayoutNode';
-import RootNode from '../tree/RootNode';
-import PageViewNode from './PageViewNode';
+import PageNode from './PageViewNode';
 import ViewNode from './ViewNode';
 
-type Child = PageViewNode;
+export type ChildNode = PageNode;
 
-export default class DocViewNode extends ViewNode implements RootNode {
-  protected children: Child[] = [];
+export default class DocViewNode extends ViewNode<never, ChildNode> {
+  protected size?: number;
   protected domContainer: HTMLDivElement;
 
   constructor(editor: Editor, id: string) {
@@ -22,48 +20,30 @@ export default class DocViewNode extends ViewNode implements RootNode {
     this.domContainer.style.userSelect = 'none';
   }
 
+  isRoot() {
+    return true;
+  }
+
+  isLeaf() {
+    return false;
+  }
+
+  getType() {
+    return 'Doc';
+  }
+
+  getSize() {
+    if (this.size === undefined) {
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
+    }
+    return this.size;
+  }
+
+  clearCache() {
+    this.size = undefined;
+  }
+
   getDOMContainer() {
     return this.domContainer;
   }
-
-  insertChild(child: Child, offset: number | null = null) {
-    const childDOMContainer = child.getDOMContainer();
-    child.setParent(this);
-    if (offset === null) {
-      this.children.push(child);
-      this.domContainer.appendChild(childDOMContainer);
-    } else {
-      this.children.splice(offset, 0, child);
-      if (offset > this.domContainer.childNodes.length) {
-        throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
-      }
-      if (offset === this.domContainer.childNodes.length) {
-        this.domContainer.appendChild(childDOMContainer);
-      } else {
-        this.domContainer.insertBefore(childDOMContainer, this.domContainer.childNodes[offset]);
-      }
-    }
-  }
-
-  deleteChild(child: Child) {
-    const childOffset = this.children.indexOf(child);
-    if (childOffset < 0) {
-      throw new Error('Cannot delete child, child not found.');
-    }
-    const childDOMContainer = child.getDOMContainer();
-    this.domContainer.removeChild(childDOMContainer);
-    child.onDeleted();
-    child.setParent(null);
-    this.children.splice(childOffset, 1);
-  }
-
-  getChildren() {
-    return this.children;
-  }
-
-  onLayoutUpdated(layoutNode: DocBox) {
-    this.selectableSize = layoutNode.getSelectableSize();
-  }
-
-  onDeleted() { }
 }

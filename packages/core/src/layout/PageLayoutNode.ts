@@ -114,30 +114,31 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveViewportPositionToSelectableOffset(x: number, y: number) {
-    let selectableOffset = 0;
+  convertCoordinatesToOffset(x: number, y: number) {
+    let offset = 0;
     let cumulatedHeight = 0;
-    const innerX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getWidth() - this.getPaddingRight());
-    const innerY = Math.min(Math.max(y - this.getPaddingTop(), 0), this.getHeight() - this.getPaddingBottom());
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childHeight = child.getHeight();
+    const innerX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getOuterWidth() - this.getPaddingRight());
+    const innerY = Math.min(Math.max(y - this.getPaddingTop(), 0), this.getOuterHeight() - this.getPaddingBottom());
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
+      const childHeight = childNode.getHeight();
       if (innerY >= cumulatedHeight && innerY <= cumulatedHeight + childHeight) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(innerX, innerY - cumulatedHeight);
+        offset += childNode.convertCoordinatesToOffset(innerX, innerY - cumulatedHeight);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += childNode.getSize();
       cumulatedHeight += childHeight;
     }
-    if (selectableOffset === this.getSelectableSize()) {
-      const lastChild = this.children[this.children.length - 1];
-      selectableOffset -= lastChild.getSelectableSize();
-      selectableOffset += lastChild.resolveViewportPositionToSelectableOffset(innerX, lastChild.getHeight());
+    if (offset === this.getSize()) {
+      const lastChild = childNodes[childNodes.length - 1];
+      offset -= lastChild.getSize();
+      offset += lastChild.convertCoordinatesToOffset(innerX, lastChild.getHeight());
     }
-    if (selectableOffset === this.getSelectableSize()) {
-      selectableOffset--;
+    if (offset === this.getSize()) {
+      offset--;
     }
-    return selectableOffset;
+    return offset;
   }
 
   resolveLayoutRects(from: number, to: number) {

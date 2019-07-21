@@ -98,7 +98,7 @@ export default class TextWordLayoutNode extends AtomicNode {
     this.clearCache();
   }
 
-  resolveViewportPositionToSelectableOffset(x: number) {
+  convertCoordinatesToOffset(x: number) {
     let lastWidth = 0;
     for (let n = 0, nn = this.content.length; n < nn; n++) {
       const textMeasurement = measureText(this.content.substring(0, n), this.getTextStyle());

@@ -90,20 +90,21 @@ export default abstract class InlineLayoutNode extends LayoutNode<ParentNode, Ch
     throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveViewportPositionToSelectableOffset(x: number) {
-    let selectableOffset = 0;
+  convertCoordinatesToOffset(x: number) {
+    let offset = 0;
     let cumulatedWidth = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childWidth = child.getWidth();
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
+      const childWidth = childNode.getWidth();
       if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(x - cumulatedWidth);
+        offset += childNode.convertCoordinatesToOffset(x - cumulatedWidth);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += childNode.getSize();
       cumulatedWidth += childWidth;
     }
-    return selectableOffset;
+    return offset;
   }
 
   resolveLayoutRects(from: number, to: number) {

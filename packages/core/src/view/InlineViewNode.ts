@@ -1,23 +1,15 @@
-import InlineBox from '../layout/InlineLayoutNode';
-import LeafNode from '../tree/LeafNode';
-import LineViewNode from './LineViewNode';
+import LineNode from './LineViewNode';
 import ViewNode from './ViewNode';
 
-export type Parent = LineViewNode;
+export type ParentNode = LineNode;
 
-export default abstract class InlineViewNode extends ViewNode implements LeafNode {
-  protected parent: Parent | null = null;
+export default abstract class InlineViewNode extends ViewNode<ParentNode, never> {
 
-  setParent(parent: Parent | null) {
-    this.parent = parent;
+  isRoot() {
+    return false;
   }
 
-  getParent() {
-    if (!this.parent) {
-      throw new Error(`No parent has been set.`);
-    }
-    return this.parent;
+  isLeaf() {
+    return true;
   }
-
-  abstract onLayoutUpdated(layoutNode: InlineBox): void;
 }

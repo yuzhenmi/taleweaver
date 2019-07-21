@@ -30,7 +30,7 @@ export default function moveHeadToLineAbove(): Command {
         )[0].left;
       }
       transformation.setCursorLockLeft(leftLock);
-      const targetLineSelectableOffset = previousLineFlowBox.resolveViewportPositionToSelectableOffset(leftLock);
+      const targetLineSelectableOffset = previousLineFlowBox.convertCoordinatesToOffset(leftLock);
       transformation.setCursorHead(offset - lineFlowBoxLevelPosition.getSelectableOffset() - previousLineFlowBox.getSelectableSize() + targetLineSelectableOffset);
     }
     return transformation;

@@ -17,8 +17,8 @@ import { Attributes } from '../state/OpenTagToken';
 import BlockViewNode from '../view/BlockViewNode';
 import InlineViewNode from '../view/InlineViewNode';
 import LineBreakInlineViewNode from '../view/LineBreakInlineViewNode';
-import ParagraphBlockViewNode from '../view/ParagraphBlockViewNode';
-import TextInlineViewNode from '../view/TextInlineViewNode';
+import ParagraphBlockViewNode from '../view/ParagraphViewNode';
+import TextInlineViewNode from '../view/TextViewNode';
 
 type ModelNodeClass = new (editor: Editor, attributes: Attributes) => AnyModelNode;
 type RenderNodeClass = new (editor: Editor, modelNode: AnyModelNode) => AnyRenderNode;

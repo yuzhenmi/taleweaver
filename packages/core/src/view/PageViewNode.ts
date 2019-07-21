@@ -1,16 +1,13 @@
 import Editor from '../Editor';
-import PageFlowBox from '../layout/PageLayoutNode';
-import BranchNode from '../tree/BranchNode';
-import BlockViewNode from './BlockViewNode';
-import DocViewNode from './DocViewNode';
+import BlockNode from './BlockViewNode';
+import DocNode from './DocViewNode';
 import ViewNode from './ViewNode';
 
-type Parent = DocViewNode;
-type Child = BlockViewNode;
+export type ParentNode = DocNode;
+export type ChildNode = BlockNode;
 
-export default class PageViewNode extends ViewNode implements BranchNode {
-  protected parent: Parent | null = null;
-  protected children: Child[] = [];
+export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
+  protected size?: number;
   protected domContainer: HTMLDivElement;
   protected domContentContainer: HTMLDivElement;
   protected domContentInnerContainer: HTMLDivElement;
@@ -34,6 +31,29 @@ export default class PageViewNode extends ViewNode implements BranchNode {
     this.domContentContainer.appendChild(this.domContentInnerContainer);
   }
 
+  isRoot() {
+    return false;
+  }
+
+  isLeaf() {
+    return false;
+  }
+
+  getType() {
+    return 'Page';
+  }
+
+  getSize() {
+    if (this.size === undefined) {
+      this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
+    }
+    return this.size;
+  }
+
+  clearCache() {
+    this.size = undefined;
+  }
+
   getDOMContainer() {
     return this.domContainer;
   }
@@ -44,72 +64,5 @@ export default class PageViewNode extends ViewNode implements BranchNode {
 
   getDOMContentInnerContainer() {
     return this.domContentInnerContainer;
-  }
-
-  setParent(parent: Parent | null) {
-    this.parent = parent;
-  }
-
-  getParent() {
-    if (!this.parent) {
-      throw new Error(`No parent has been set.`);
-    }
-    return this.parent;
-  }
-
-  insertChild(child: Child, offset: number | null = null) {
-    const childDOMContainer = child.getDOMContainer();
-    child.setParent(this);
-    if (offset === null) {
-      this.children.push(child);
-      this.domContentInnerContainer.appendChild(childDOMContainer);
-    } else {
-      this.children.splice(offset, 0, child);
-      if (offset > this.domContentInnerContainer.childNodes.length) {
-        throw new Error(`Error inserting child to view, offset ${offset} is out of range.`);
-      }
-      if (offset === this.domContentInnerContainer.childNodes.length) {
-        this.domContentInnerContainer.appendChild(childDOMContainer);
-      } else {
-        this.domContentInnerContainer.insertBefore(childDOMContainer, this.domContentInnerContainer.childNodes[offset]);
-      }
-    }
-  }
-
-  deleteChild(child: Child) {
-    const childOffset = this.children.indexOf(child);
-    if (childOffset < 0) {
-      throw new Error('Cannot delete child, child not found.');
-    }
-    child.onDeleted();
-    const childDOMContainer = child.getDOMContainer();
-    this.domContentInnerContainer.removeChild(childDOMContainer);
-    child.setParent(null);
-    this.children.splice(childOffset, 1);
-  }
-
-  getChildren() {
-    return this.children;
-  }
-
-  onDeleted() {
-    this.children.map(child => {
-      child.onDeleted();
-    });
-  }
-
-  onLayoutUpdated(layoutNode: PageFlowBox) {
-    const pageConfig = this.editor.getConfig().getPageConfig();
-    this.selectableSize = layoutNode.getSelectableSize();
-    this.domContentContainer.style.width = `${layoutNode.getWidth()}px`;
-    if (pageConfig.getShouldTrimPageBottom()) {
-      this.domContentContainer.style.maxHeight = `${layoutNode.getHeight()}px`;
-    } else {
-      this.domContentContainer.style.height = `${layoutNode.getHeight()}px`;
-    }
-    this.domContentContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
-    this.domContentContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
-    this.domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
-    this.domContentContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
   }
 }

@@ -66,20 +66,21 @@ export default abstract class BlockLayoutNode extends LayoutNode<ParentNode, Chi
     throw new Error(`Offset ${offset} is out of range.`);
   }
 
-  resolveViewportPositionToSelectableOffset(x: number, y: number) {
-    let selectableOffset = 0;
+  convertCoordinatesToOffset(x: number, y: number) {
+    let offset = 0;
     let cumulatedHeight = 0;
-    for (let n = 0, nn = this.children.length; n < nn; n++) {
-      const child = this.children[n];
-      const childHeight = child.getHeight();
+    const childNodes = this.getChildNodes();
+    for (let n = 0, nn = childNodes.length; n < nn; n++) {
+      const childNode = childNodes[n];
+      const childHeight = childNode.getHeight();
       if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
-        selectableOffset += child.resolveViewportPositionToSelectableOffset(x);
+        offset += childNode.convertCoordinatesToOffset(x);
         break;
       }
-      selectableOffset += child.getSelectableSize();
+      offset += childNode.getSize();
       cumulatedHeight += childHeight;
     }
-    return selectableOffset;
+    return offset;
   }
 
   resolveLayoutRects(from: number, to: number) {

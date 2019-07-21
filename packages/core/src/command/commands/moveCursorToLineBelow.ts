@@ -30,7 +30,7 @@ export default function moveToLineBelow(): Command {
         )[0].left;
       }
       transformation.setCursorLockLeft(leftLock);
-      const targetLineSelectableOffset = nextLineFlowBox.resolveViewportPositionToSelectableOffset(leftLock);
+      const targetLineSelectableOffset = nextLineFlowBox.convertCoordinatesToOffset(leftLock);
       transformation.setCursor(offset - lineFlowBoxLevelPosition.getSelectableOffset() + lineFlowBox.getSelectableSize() + targetLineSelectableOffset);
     }
     return transformation;

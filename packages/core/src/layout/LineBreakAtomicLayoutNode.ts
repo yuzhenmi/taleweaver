@@ -50,7 +50,7 @@ export default class LineBreakAtomicLayoutNode extends AtomicNode {
     throw new Error('Cannot join line break atomic boxes.');
   }
 
-  resolveViewportPositionToSelectableOffset(x: number) {
+  convertCoordinatesToOffset(x: number) {
     return 0;
   }
 

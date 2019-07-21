@@ -202,7 +202,7 @@ export default class DOMObserver {
         const pageContentBoundingClientRect = pageDOMContentContainer.getBoundingClientRect();
         const relativeX = x - pageContentBoundingClientRect.left;
         const relativeY = y - pageContentBoundingClientRect.top;
-        return cumulatedOffset + pageFlowBox.resolveViewportPositionToSelectableOffset(relativeX, relativeY);
+        return cumulatedOffset + pageFlowBox.convertCoordinatesToOffset(relativeX, relativeY);
       }
       cumulatedOffset += pageFlowBox.getSelectableSize();
     }

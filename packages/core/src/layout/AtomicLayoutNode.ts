@@ -11,7 +11,7 @@ export default abstract class AtomicLayoutNode extends LayoutNode<ParentNode, ne
   abstract getHeight(): number;
   abstract clearCache(): void;
   abstract resolveLayoutRects(from: number, to: number): LayoutRect[];
-  abstract resolveViewportPositionToSelectableOffset(x: number): number;
+  abstract convertCoordinatesToOffset(x: number): number;
   abstract splitAtWidth(width: number): AtomicLayoutNode;
   abstract join(atomicNode: AtomicLayoutNode): void;
 

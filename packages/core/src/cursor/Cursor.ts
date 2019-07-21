@@ -1,5 +1,5 @@
-import Editor from '../Editor';
 import CursorStateUpdatedEvent from '../dispatch/events/CursorStateUpdatedEvent';
+import Editor from '../Editor';
 
 export default class Cursor {
   protected editor: Editor;
