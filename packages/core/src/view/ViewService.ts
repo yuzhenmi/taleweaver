@@ -1,14 +1,14 @@
 import Editor from '../Editor';
-import DocViewNode from './DocViewNode';
 import CursorView from './CursorView';
-import Presenter from './Presenter';
+import DocViewNode from './DocViewNode';
 import DOMObserver from './DOMObserver';
+import ViewEngine from './ViewEngine';
 
 class ViewManager {
   protected editor: Editor;
   protected docViewNode: DocViewNode;
   protected cursorView: CursorView;
-  protected presenter: Presenter;
+  protected viewEngine: ViewEngine;
   protected domObserver: DOMObserver;
 
   constructor(editor: Editor, domWrapper: HTMLElement) {
@@ -16,7 +16,7 @@ class ViewManager {
     const layoutManager = editor.getLayoutManager();
     const docBox = layoutManager.getDocBox();
     this.docViewNode = new DocViewNode(editor, docBox.getID());
-    this.presenter = new Presenter(editor, this.docViewNode, domWrapper);
+    this.viewEngine = new viewEngine(editor, this.docViewNode, domWrapper);
     this.domObserver = new DOMObserver(editor);
     this.domObserver.connect(this.docViewNode);
     this.cursorView = new CursorView(editor);

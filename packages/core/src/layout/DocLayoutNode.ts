@@ -1,3 +1,4 @@
+import Editor from '../Editor';
 import LayoutNode, { LayoutPosition } from './LayoutNode';
 import LayoutRect from './LayoutRect';
 import PageNode from './PageLayoutNode';
@@ -6,6 +7,10 @@ type ChildNode = PageNode;
 
 export default class DocLayoutNode extends LayoutNode<never, ChildNode> {
   protected size?: number;
+
+  constructor(editor: Editor) {
+    super(editor, 'Doc');
+  }
 
   isRoot() {
     return true;

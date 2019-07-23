@@ -1,56 +1,47 @@
 import Editor from '../Editor';
-import AtomicBox from '../layout/AtomicLayoutNode';
-import BlockBox from '../layout/BlockLayoutNode';
-import InlineBox from '../layout/InlineLayoutNode';
-import LineBreakAtomicBox from '../layout/LineBreakAtomicLayoutNode';
-import LineBreakInlineBox from '../layout/LineBreakLayoutNode';
-import ParagraphBlockBox from '../layout/ParagraphLayoutNode';
-import TextInlineBox from '../layout/TextLayoutNode';
-import TextAtomicBox from '../layout/TextWordLayoutNode';
-import { AnyModelNode } from '../model/ModelNode';
+import { AnyLayoutNode } from '../layout/LayoutNode';
+import LineBreakAtomicLayoutNode from '../layout/LineBreakAtomicLayoutNode';
+import LineBreakLayoutNode from '../layout/LineBreakLayoutNode';
+import ParagraphLayoutNode from '../layout/ParagraphLayoutNode';
+import TextLayoutNode from '../layout/TextLayoutNode';
+import TextWordLayoutNode from '../layout/TextWordLayoutNode';
+import ModelNode, { AnyModelNode } from '../model/ModelNode';
 import ParagraphModelNode from '../model/ParagraphModelNode';
 import TextModelNode from '../model/TextModelNode';
 import ParagraphRenderNode from '../render/ParagraphRenderNode';
 import { AnyRenderNode } from '../render/RenderNode';
 import TextRenderNode from '../render/TextRenderNode';
 import { Attributes } from '../state/OpenTagToken';
-import BlockViewNode from '../view/BlockViewNode';
-import InlineViewNode from '../view/InlineViewNode';
-import LineBreakInlineViewNode from '../view/LineBreakInlineViewNode';
-import ParagraphBlockViewNode from '../view/ParagraphViewNode';
-import TextInlineViewNode from '../view/TextViewNode';
+import LineBreakViewNode from '../view/LineBreakViewNode';
+import ParagraphViewNode from '../view/ParagraphViewNode';
+import TextViewNode from '../view/TextViewNode';
+import { AnyViewNode } from '../view/ViewNode';
 
 type ModelNodeClass = new (editor: Editor, attributes: Attributes) => AnyModelNode;
-type RenderNodeClass = new (editor: Editor, modelNode: AnyModelNode) => AnyRenderNode;
-type BlockBoxClass = new (editor: Editor, renderNodeId: string) => BlockBox;
-type InlineBoxClass = new (editor: Editor, renderNodeId: string) => InlineBox;
-type AtomicBoxClass = new (editor: Editor, renderNodeId: string) => AtomicBox;
-type BlockViewNodeClass = new (edito: Editor, id: string) => BlockViewNode;
-type InlineViewNodeClass = new (edito: Editor, id: string) => InlineViewNode;
+type RenderNodeClass<T extends AnyModelNode> = new (editor: Editor, modelNode: T) => AnyRenderNode;
+type LayoutNodeClass<T extends AnyRenderNode> = new (editor: Editor, renderNode: T, ...args: any[]) => AnyLayoutNode;
+type ViewNodeClass<T extends AnyLayoutNode> = new (edito: Editor, layoutNode: T) => AnyViewNode;
 
 export default class NodeConfig {
   protected modelNodeClasses: Map<string, ModelNodeClass> = new Map();
   protected orderedModelNodeClasses: ModelNodeClass[] = [];
-  protected renderNodeClasses: Map<string, RenderNodeClass> = new Map();
-  protected blockBoxClasses: Map<string, BlockBoxClass> = new Map();
-  protected inlineBoxClasses: Map<string, InlineBoxClass> = new Map();
-  protected atomicBoxClasses: Map<string, AtomicBoxClass> = new Map();
-  protected blockViewNodeClasses: Map<string, BlockViewNodeClass> = new Map();
-  protected inlineViewNodeClasses: Map<string, InlineViewNodeClass> = new Map();
+  protected renderNodeClasses: Map<string, RenderNodeClass<any>> = new Map();
+  protected layoutNodeClasses: Map<string, LayoutNodeClass<any>> = new Map();
+  protected viewNodeClasses: Map<string, ViewNodeClass<any>> = new Map();
 
   constructor() {
     this.registerModelNodeClass('Paragraph', ParagraphModelNode);
     this.registerModelNodeClass('Text', TextModelNode);
     this.registerRenderNodeClass('Paragraph', ParagraphRenderNode);
     this.registerRenderNodeClass('Text', TextRenderNode);
-    this.registerBlockBoxClass('ParagraphRenderNode', ParagraphBlockBox);
-    this.registerInlineBoxClass('TextRenderNode', TextInlineBox);
-    this.registerInlineBoxClass('LineBreakInlineRenderNode', LineBreakInlineBox);
-    this.registerAtomicBoxClass('TextAtomicRenderNode', TextAtomicBox);
-    this.registerAtomicBoxClass('LineBreakAtomicRenderNode', LineBreakAtomicBox);
-    this.registerBlockViewNodeClass('ParagraphBlockBox', ParagraphBlockViewNode);
-    this.registerInlineViewNodeClass('TextInlineBox', TextInlineViewNode);
-    this.registerInlineViewNodeClass('LineBreakInlineBox', LineBreakInlineViewNode);
+    this.registerLayoutNodeClass('Paragraph', ParagraphLayoutNode);
+    this.registerLayoutNodeClass('Text', TextLayoutNode);
+    this.registerLayoutNodeClass('TextWord', TextWordLayoutNode);
+    this.registerLayoutNodeClass('LineBreak', LineBreakLayoutNode);
+    this.registerLayoutNodeClass('LineBreakAtomic', LineBreakAtomicLayoutNode);
+    this.registerViewNodeClass('Paragraph', ParagraphViewNode);
+    this.registerViewNodeClass('Text', TextViewNode);
+    this.registerViewNodeClass('LineBreak', LineBreakViewNode);
   }
 
   registerModelNodeClass(modelNodeType: string, modelNodeClass: ModelNodeClass) {
@@ -69,7 +60,7 @@ export default class NodeConfig {
     return this.orderedModelNodeClasses;
   }
 
-  registerRenderNodeClass(modelNodeType: string, renderNodeClass: RenderNodeClass) {
+  registerRenderNodeClass(modelNodeType: string, renderNodeClass: RenderNodeClass<any>) {
     this.renderNodeClasses.set(modelNodeType, renderNodeClass);
   }
 
@@ -80,58 +71,25 @@ export default class NodeConfig {
     return this.renderNodeClasses.get(modelNodeType)!;
   }
 
-  registerBlockBoxClass(renderNodeType: string, boxClass: BlockBoxClass) {
-    this.blockBoxClasses.set(renderNodeType, boxClass);
+  registerLayoutNodeClass(renderNodeType: string, layoutNodeClass: LayoutNodeClass<any>) {
+    this.layoutNodeClasses.set(renderNodeType, layoutNodeClass);
   }
 
-  getBlockBoxClass(renderNodeType: string) {
-    if (!this.blockBoxClasses.has(renderNodeType)) {
-      throw new Error(`Block box for render node type ${renderNodeType} is not registered.`);
+  getLayoutNodeClass(renderNodeType: string) {
+    if (!this.layoutNodeClasses.has(renderNodeType)) {
+      throw new Error(`Layout node for render node type ${renderNodeType} is not registered.`);
     }
-    return this.blockBoxClasses.get(renderNodeType)!;
+    return this.layoutNodeClasses.get(renderNodeType)!;
   }
 
-  registerInlineBoxClass(renderNodeType: string, boxClass: InlineBoxClass) {
-    this.inlineBoxClasses.set(renderNodeType, boxClass);
+  registerViewNodeClass(layoutNodeType: string, viewNodeClass: ViewNodeClass<any>) {
+    this.viewNodeClasses.set(layoutNodeType, viewNodeClass);
   }
 
-  getInlineBoxClass(renderNodeType: string) {
-    if (!this.inlineBoxClasses.has(renderNodeType)) {
-      throw new Error(`Inline box for render node type ${renderNodeType} is not registered.`);
+  getViewNodeClass(layoutNodeType: string) {
+    if (!this.viewNodeClasses.has(layoutNodeType)) {
+      throw new Error(`View node for layout node type ${layoutNodeType} is not registered.`);
     }
-    return this.inlineBoxClasses.get(renderNodeType)!;
-  }
-
-  registerAtomicBoxClass(renderNodeType: string, boxClass: AtomicBoxClass) {
-    this.atomicBoxClasses.set(renderNodeType, boxClass);
-  }
-
-  getAtomicBoxClass(renderNodeType: string) {
-    if (!this.atomicBoxClasses.has(renderNodeType)) {
-      throw new Error(`Atomic box for render node type ${renderNodeType} is not registered.`);
-    }
-    return this.atomicBoxClasses.get(renderNodeType)!;
-  }
-
-  registerBlockViewNodeClass(boxType: string, viewNodeClass: BlockViewNodeClass) {
-    this.blockViewNodeClasses.set(boxType, viewNodeClass);
-  }
-
-  getBlockViewNodeClass(boxType: string) {
-    if (!this.blockViewNodeClasses.has(boxType)) {
-      throw new Error(`Block view node for box type ${boxType} is not registered.`);
-    }
-    return this.blockViewNodeClasses.get(boxType)!;
-  }
-
-  registerInlineViewNodeClass(boxType: string, viewNodeClass: InlineViewNodeClass) {
-    this.inlineViewNodeClasses.set(boxType, viewNodeClass);
-  }
-
-  getInlineViewNodeClass(boxType: string) {
-    if (!this.inlineViewNodeClasses.has(boxType)) {
-      throw new Error(`Inline view node for box type ${boxType} is not registered.`);
-    }
-    return this.inlineViewNodeClasses.get(boxType)!;
+    return this.viewNodeClasses.get(layoutNodeType)!;
   }
 }

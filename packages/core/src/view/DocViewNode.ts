@@ -8,8 +8,8 @@ export default class DocViewNode extends ViewNode<never, ChildNode> {
   protected size?: number;
   protected domContainer: HTMLDivElement;
 
-  constructor(editor: Editor, id: string) {
-    super(editor, id);
+  constructor(editor: Editor) {
+    super(editor, 'Doc');
     this.domContainer = document.createElement('div');
     this.domContainer.className = 'tw--doc';
     this.domContainer.setAttribute('data-tw-instance', editor.getID());

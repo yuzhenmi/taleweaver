@@ -1,10 +1,10 @@
 import Editor from '../Editor';
-import { TextStyle } from '../model/TextModelNode';
 import InlineRenderNode from './InlineRenderNode';
-import LineBreakInlineRenderNode from './LineBreakInlineRenderNode';
+import LineBreakRenderNode from './LineBreakRenderNode';
 import RenderEngine from './RenderEngine';
 import { RenderPosition } from './RenderNode';
-import TextInlineRenderNode from './TextInlineRenderNode';
+import TextRenderNode from './TextRenderNode';
+import TextStyle from './TextStyle';
 
 function getLeafPosition(position: RenderPosition): RenderPosition {
   if (!position.child) {
@@ -52,7 +52,7 @@ export default class RenderService {
         return null;
       }
       fromInlineRenderNode = fromInlinePosition.node;
-      if (fromInlineRenderNode instanceof LineBreakInlineRenderNode) {
+      if (fromInlineRenderNode instanceof LineBreakRenderNode) {
         fromInlineRenderNode = null;
         if (from === to) {
           if (from === 0) {
@@ -73,7 +73,7 @@ export default class RenderService {
         return null;
       }
       toInlineRenderNode = toInlinePosition.node;
-      if (toInlineRenderNode instanceof LineBreakInlineRenderNode) {
+      if (toInlineRenderNode instanceof LineBreakRenderNode) {
         toInlineRenderNode = null;
         if (from === to) {
           return null;
@@ -118,11 +118,11 @@ export default class RenderService {
   }
 
   protected getInlineRenderNodeTextStyle(inlineRenderNode: InlineRenderNode): TextStyle | null {
-    if (inlineRenderNode instanceof TextInlineRenderNode) {
+    if (inlineRenderNode instanceof TextRenderNode) {
       return inlineRenderNode.getTextStyle();
     }
-    if (inlineRenderNode instanceof LineBreakInlineRenderNode) {
-      const siblings = inlineRenderNode.getParent().getChildNodes();
+    if (inlineRenderNode instanceof LineBreakRenderNode) {
+      const siblings = inlineRenderNode.getParent()!.getChildNodes();
       if (siblings.length > 0) {
         return this.getInlineRenderNodeTextStyle(siblings[siblings.length - 1]);
       }
