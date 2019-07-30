@@ -23,36 +23,36 @@ import Transformation from './src/transform/Transformation';
 import generateID from './src/utils/generateID';
 
 export {
-  Editor,
-  Config,
+    Editor,
+    Config,
 
-  OpenTagToken,
-  CloseTagToken,
+    OpenTagToken,
+    CloseTagToken,
 
-  TextStyle,
+    TextStyle,
 
-  Transformation,
-  operations,
+    Transformation,
+    operations,
 
-  Command,
-  commands,
+    Command,
+    commands,
 
-  DocBox,
-  PageFlowBox,
-  BlockBox,
-  LineFlowBox,
-  InlineBox,
-  AtomicBox,
+    DocBox,
+    PageFlowBox,
+    BlockBox,
+    LineFlowBox,
+    InlineBox,
+    AtomicBox,
 
-  ViewStateUpdatedEvent,
+    ViewStateUpdatedEvent,
 
-  Key,
-  ModifierKey,
-  KeySignature,
-  keys,
-  modifierKeys,
+    Key,
+    ModifierKey,
+    KeySignature,
+    keys,
+    modifierKeys,
 
-  Extension,
+    Extension,
 
-  generateID,
+    generateID,
 };

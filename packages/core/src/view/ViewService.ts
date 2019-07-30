@@ -1,50 +1,44 @@
 import Editor from '../Editor';
 import CursorView from './CursorView';
-import DocViewNode from './DocViewNode';
 import DOMObserver from './DOMObserver';
 import ViewEngine from './ViewEngine';
 
 class ViewManager {
-  protected editor: Editor;
-  protected docViewNode: DocViewNode;
-  protected cursorView: CursorView;
-  protected viewEngine: ViewEngine;
-  protected domObserver: DOMObserver;
+    protected editor: Editor;
+    protected viewEngine: ViewEngine;
+    protected domObserver: DOMObserver;
+    protected cursorView: CursorView;
 
-  constructor(editor: Editor, domWrapper: HTMLElement) {
-    this.editor = editor;
-    const layoutManager = editor.getLayoutManager();
-    const docBox = layoutManager.getDocBox();
-    this.docViewNode = new DocViewNode(editor, docBox.getID());
-    this.viewEngine = new viewEngine(editor, this.docViewNode, domWrapper);
-    this.domObserver = new DOMObserver(editor);
-    this.domObserver.connect(this.docViewNode);
-    this.cursorView = new CursorView(editor);
-  }
+    constructor(editor: Editor) {
+        this.editor = editor;
+        this.viewEngine = new ViewEngine(editor);
+        this.domObserver = new DOMObserver(editor);
+        this.cursorView = new CursorView(editor);
+    }
 
-  getDocViewNode() {
-    return this.docViewNode;
-  }
+    getDoc() {
+        return this.viewEngine.getDoc();
+    }
 
-  getCursorView() {
-    return this.cursorView;
-  }
+    getCursorView() {
+        return this.cursorView;
+    }
 
-  getPageViewNodes() {
-    return this.docViewNode.getChildren();
-  }
+    getPageViewNodes() {
+        return this.viewEngine.getDoc().getChildNodes();
+    }
 
-  getIsFocused() {
-    return this.domObserver.getIsFocused();
-  }
+    getIsFocused() {
+        return this.domObserver.getIsFocused();
+    }
 
-  focus() {
-    this.domObserver.focus();
-  }
+    focus() {
+        this.domObserver.focus();
+    }
 
-  blur() {
-    this.domObserver.blur();
-  }
+    blur() {
+        this.domObserver.blur();
+    }
 }
 
 export default ViewManager;

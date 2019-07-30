@@ -3,9 +3,9 @@ import Transformation from '../../transform/Transformation';
 import Command from '../Command';
 
 export default function moveHeadTo(offset: number): Command {
-  return (editor: Editor): Transformation => {
-    const transformation = new Transformation();
+    return (editor: Editor): Transformation => {
+        const transformation = new Transformation();
         transformation.setCursorHead(offset);
-    return transformation;
-  };
+        return transformation;
+    };
 }

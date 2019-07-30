@@ -1,3 +1,3 @@
-abstract class AppliedOperation {}
+abstract class AppliedOperation { }
 
 export default AppliedOperation;

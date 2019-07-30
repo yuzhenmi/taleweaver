@@ -5,36 +5,36 @@ import TextStyle from './TextStyle';
 import { Word } from './utils/breakTextToWords';
 
 export default class TextWordRenderNode extends AtomicRenderNode {
-  protected content: string;
-  protected breakable: boolean;
-  protected textStyle: TextStyle;
+    protected content: string;
+    protected breakable: boolean;
+    protected textStyle: TextStyle;
 
-  constructor(editor: Editor, modelNode: TextModelNode, wordIndex: number, textStyle: TextStyle, word: Word) {
-    super(editor, `${modelNode.getID()}-${wordIndex}`);
-    this.content = word.text;
-    this.breakable = word.breakable;
-    this.textStyle = textStyle;
-  }
+    constructor(editor: Editor, modelNode: TextModelNode, wordIndex: number, textStyle: TextStyle, word: Word) {
+        super(editor, `${modelNode.getID()}-${wordIndex}`);
+        this.content = word.text;
+        this.breakable = word.breakable;
+        this.textStyle = textStyle;
+    }
 
-  getType() {
-    return 'TextWord';
-  }
+    getType() {
+        return 'TextWord';
+    }
 
-  getSize() {
-    return this.content.length;
-  }
+    getSize() {
+        return this.content.length;
+    }
 
-  clearCache() { }
+    clearCache() { }
 
-  getContent() {
-    return this.content;
-  }
+    getContent() {
+        return this.content;
+    }
 
-  getBreakable() {
-    return this.breakable;
-  }
+    getBreakable() {
+        return this.breakable;
+    }
 
-  getTextStyle() {
-    return this.textStyle;
-  }
+    getTextStyle() {
+        return this.textStyle;
+    }
 }

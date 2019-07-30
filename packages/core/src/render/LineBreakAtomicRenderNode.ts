@@ -3,29 +3,29 @@ import AtomicRenderNode from './AtomicRenderNode';
 
 export default class LineBreakAtomicRenderNode extends AtomicRenderNode {
 
-  constructor(editor: Editor, blockNodeID: string) {
-    super(editor, `${blockNodeID}-LineBreakAtomic`);
-  }
+    constructor(editor: Editor, blockNodeID: string) {
+        super(editor, `${blockNodeID}-LineBreakAtomic`);
+    }
 
-  getType() {
-    return 'LineBreakAtomic';
-  }
+    getType() {
+        return 'LineBreakAtomic';
+    }
 
-  getSize() {
-    return 1;
-  }
+    getSize() {
+        return 1;
+    }
 
-  getModelSize() {
-    return 0;
-  }
+    getModelSize() {
+        return 0;
+    }
 
-  getBreakable() {
-    return true;
-  }
+    getBreakable() {
+        return true;
+    }
 
-  clearCache() { }
+    clearCache() { }
 
-  convertOffsetToModelOffset(offset: number) {
-    return 0;
-  }
+    convertOffsetToModelOffset(offset: number) {
+        return 0;
+    }
 }

@@ -16,19 +16,19 @@ $iframe.contentEditable = 'true';
 document.body.appendChild($iframe);
 
 function copy(editor: Editor) {
-  const cursor = editor.getCursor();
-  const anchor = cursor.getAnchor();
-  const head = cursor.getHead();
-  if (anchor === head) {
-    return;
-  }
-  const renderManager = editor.getRenderManager();
-  const from = renderManager.convertSelectableOffsetToModelOffset(Math.min(anchor, head));
-  const to = renderManager.convertSelectableOffsetToModelOffset(Math.max(anchor, head));
-  const html = editor.getModelManager().toHTML(from, to);
-  $iframe.contentDocument!.body.innerHTML = html;
-  $iframe.contentDocument!.execCommand('selectAll');
-  $iframe.contentDocument!.execCommand('copy');
+    const cursor = editor.getCursor();
+    const anchor = cursor.getAnchor();
+    const head = cursor.getHead();
+    if (anchor === head) {
+        return;
+    }
+    const renderManager = editor.getRenderManager();
+    const from = renderManager.convertSelectableOffsetToModelOffset(Math.min(anchor, head));
+    const to = renderManager.convertSelectableOffsetToModelOffset(Math.max(anchor, head));
+    const html = editor.getModelManager().toHTML(from, to);
+    $iframe.contentDocument!.body.innerHTML = html;
+    $iframe.contentDocument!.execCommand('selectAll');
+    $iframe.contentDocument!.execCommand('copy');
 }
 
 export default copy;

@@ -1,67 +1,67 @@
 class PageConfig {
-  protected pageWidth: number = 816;
-  protected pageHeight: number = 1056;
-  protected pagePaddingTop: number = 40;
-  protected pagePaddingBottom: number = 40;
-  protected pagePaddingLeft: number = 40;
-  protected pagePaddingRight: number = 40;
-  protected shouldTrimPageBottom: boolean = false;
+    protected pageWidth: number = 816;
+    protected pageHeight: number = 1056;
+    protected pagePaddingTop: number = 40;
+    protected pagePaddingBottom: number = 40;
+    protected pagePaddingLeft: number = 40;
+    protected pagePaddingRight: number = 40;
+    protected shouldTrimPageBottom: boolean = false;
 
-  setPageWidth(pageWidth: number) {
-    this.pageWidth = pageWidth;
-  }
+    setPageWidth(pageWidth: number) {
+        this.pageWidth = pageWidth;
+    }
 
-  getPageWidth() {
-    return this.pageWidth;
-  }
+    getPageWidth() {
+        return this.pageWidth;
+    }
 
-  setPageHeight(pageHeight: number) {
-    this.pageHeight = pageHeight;
-  }
+    setPageHeight(pageHeight: number) {
+        this.pageHeight = pageHeight;
+    }
 
-  getPageHeight() {
-    return this.pageHeight;
-  }
+    getPageHeight() {
+        return this.pageHeight;
+    }
 
-  setPagePaddingTop(pagePaddingTop: number) {
-    this.pagePaddingTop = pagePaddingTop;
-  }
+    setPagePaddingTop(pagePaddingTop: number) {
+        this.pagePaddingTop = pagePaddingTop;
+    }
 
-  getPagePaddingTop() {
-    return this.pagePaddingTop;
-  }
+    getPagePaddingTop() {
+        return this.pagePaddingTop;
+    }
 
-  setPagePaddingBottom(pagePaddingBottom: number) {
-    this.pagePaddingBottom = pagePaddingBottom;
-  }
+    setPagePaddingBottom(pagePaddingBottom: number) {
+        this.pagePaddingBottom = pagePaddingBottom;
+    }
 
-  getPagePaddingBottom() {
-    return this.pagePaddingBottom;
-  }
+    getPagePaddingBottom() {
+        return this.pagePaddingBottom;
+    }
 
-  setPagePaddingLeft(pagePaddingLeft: number) {
-    this.pagePaddingLeft = pagePaddingLeft;
-  }
+    setPagePaddingLeft(pagePaddingLeft: number) {
+        this.pagePaddingLeft = pagePaddingLeft;
+    }
 
-  getPagePaddingLeft() {
-    return this.pagePaddingLeft;
-  }
+    getPagePaddingLeft() {
+        return this.pagePaddingLeft;
+    }
 
-  setPagePaddingRight(pagePaddingRight: number) {
-    this.pagePaddingRight = pagePaddingRight;
-  }
+    setPagePaddingRight(pagePaddingRight: number) {
+        this.pagePaddingRight = pagePaddingRight;
+    }
 
-  getPagePaddingRight() {
-    return this.pagePaddingRight;
-  }
+    getPagePaddingRight() {
+        return this.pagePaddingRight;
+    }
 
-  setShouldTrimPageBottom(shouldTrimPageBottom: boolean) {
-    this.shouldTrimPageBottom = shouldTrimPageBottom;
-  }
+    setShouldTrimPageBottom(shouldTrimPageBottom: boolean) {
+        this.shouldTrimPageBottom = shouldTrimPageBottom;
+    }
 
-  getShouldTrimPageBottom() {
-    return this.shouldTrimPageBottom;
-  }
+    getShouldTrimPageBottom() {
+        return this.shouldTrimPageBottom;
+    }
 }
 
 export default PageConfig;

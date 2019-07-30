@@ -1,3 +1,3 @@
 import BaseKey from './BaseKey';
 
-export default class Key extends BaseKey {}
+export default class Key extends BaseKey { }

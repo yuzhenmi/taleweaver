@@ -7,18 +7,18 @@ export type ParentNode = BlockNode;
 export type ChildNode = LineBreakAtomicRenderNode;
 
 export default class LineBreakRenderNode extends InlineNode {
-  protected lineBreakAtomicNode: LineBreakAtomicRenderNode;
+    protected lineBreakAtomicNode: LineBreakAtomicRenderNode;
 
-  constructor(editor: Editor, blockNodeID: string) {
-    super(editor, `${blockNodeID}-LineBreak`);
-    this.lineBreakAtomicNode = new LineBreakAtomicRenderNode(editor, blockNodeID);
-  }
+    constructor(editor: Editor, blockNodeID: string) {
+        super(editor, `${blockNodeID}-LineBreak`);
+        this.lineBreakAtomicNode = new LineBreakAtomicRenderNode(editor, blockNodeID);
+    }
 
-  getType(): string {
-    return 'LineBreak';
-  }
+    getType(): string {
+        return 'LineBreak';
+    }
 
-  getModelSize() {
-    return 0;
-  }
+    getModelSize() {
+        return 0;
+    }
 }

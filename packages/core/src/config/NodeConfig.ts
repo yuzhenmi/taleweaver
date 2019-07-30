@@ -23,73 +23,73 @@ type LayoutNodeClass<T extends AnyRenderNode> = new (editor: Editor, renderNode:
 type ViewNodeClass<T extends AnyLayoutNode> = new (edito: Editor, layoutNode: T) => AnyViewNode;
 
 export default class NodeConfig {
-  protected modelNodeClasses: Map<string, ModelNodeClass> = new Map();
-  protected orderedModelNodeClasses: ModelNodeClass[] = [];
-  protected renderNodeClasses: Map<string, RenderNodeClass<any>> = new Map();
-  protected layoutNodeClasses: Map<string, LayoutNodeClass<any>> = new Map();
-  protected viewNodeClasses: Map<string, ViewNodeClass<any>> = new Map();
+    protected modelNodeClasses: Map<string, ModelNodeClass> = new Map();
+    protected orderedModelNodeClasses: ModelNodeClass[] = [];
+    protected renderNodeClasses: Map<string, RenderNodeClass<any>> = new Map();
+    protected layoutNodeClasses: Map<string, LayoutNodeClass<any>> = new Map();
+    protected viewNodeClasses: Map<string, ViewNodeClass<any>> = new Map();
 
-  constructor() {
-    this.registerModelNodeClass('Paragraph', ParagraphModelNode);
-    this.registerModelNodeClass('Text', TextModelNode);
-    this.registerRenderNodeClass('Paragraph', ParagraphRenderNode);
-    this.registerRenderNodeClass('Text', TextRenderNode);
-    this.registerLayoutNodeClass('Paragraph', ParagraphLayoutNode);
-    this.registerLayoutNodeClass('Text', TextLayoutNode);
-    this.registerLayoutNodeClass('TextWord', TextWordLayoutNode);
-    this.registerLayoutNodeClass('LineBreak', LineBreakLayoutNode);
-    this.registerLayoutNodeClass('LineBreakAtomic', LineBreakAtomicLayoutNode);
-    this.registerViewNodeClass('Paragraph', ParagraphViewNode);
-    this.registerViewNodeClass('Text', TextViewNode);
-    this.registerViewNodeClass('LineBreak', LineBreakViewNode);
-  }
-
-  registerModelNodeClass(modelNodeType: string, modelNodeClass: ModelNodeClass) {
-    this.modelNodeClasses.set(modelNodeType, modelNodeClass);
-    this.orderedModelNodeClasses.push(modelNodeClass);
-  }
-
-  getModelNodeClass(modelNodeType: string) {
-    if (!this.modelNodeClasses.has(modelNodeType)) {
-      throw new Error(`Model node type ${modelNodeType} is not registered.`);
+    constructor() {
+        this.registerModelNodeClass('Paragraph', ParagraphModelNode);
+        this.registerModelNodeClass('Text', TextModelNode);
+        this.registerRenderNodeClass('Paragraph', ParagraphRenderNode);
+        this.registerRenderNodeClass('Text', TextRenderNode);
+        this.registerLayoutNodeClass('Paragraph', ParagraphLayoutNode);
+        this.registerLayoutNodeClass('Text', TextLayoutNode);
+        this.registerLayoutNodeClass('TextWord', TextWordLayoutNode);
+        this.registerLayoutNodeClass('LineBreak', LineBreakLayoutNode);
+        this.registerLayoutNodeClass('LineBreakAtomic', LineBreakAtomicLayoutNode);
+        this.registerViewNodeClass('Paragraph', ParagraphViewNode);
+        this.registerViewNodeClass('Text', TextViewNode);
+        this.registerViewNodeClass('LineBreak', LineBreakViewNode);
     }
-    return this.modelNodeClasses.get(modelNodeType)!;
-  }
 
-  getAllModelNodeClasses() {
-    return this.orderedModelNodeClasses;
-  }
-
-  registerRenderNodeClass(modelNodeType: string, renderNodeClass: RenderNodeClass<any>) {
-    this.renderNodeClasses.set(modelNodeType, renderNodeClass);
-  }
-
-  getRenderNodeClass(modelNodeType: string) {
-    if (!this.renderNodeClasses.has(modelNodeType)) {
-      throw new Error(`Render node for model node type ${modelNodeType} is not registered.`);
+    registerModelNodeClass(modelNodeType: string, modelNodeClass: ModelNodeClass) {
+        this.modelNodeClasses.set(modelNodeType, modelNodeClass);
+        this.orderedModelNodeClasses.push(modelNodeClass);
     }
-    return this.renderNodeClasses.get(modelNodeType)!;
-  }
 
-  registerLayoutNodeClass(renderNodeType: string, layoutNodeClass: LayoutNodeClass<any>) {
-    this.layoutNodeClasses.set(renderNodeType, layoutNodeClass);
-  }
-
-  getLayoutNodeClass(renderNodeType: string) {
-    if (!this.layoutNodeClasses.has(renderNodeType)) {
-      throw new Error(`Layout node for render node type ${renderNodeType} is not registered.`);
+    getModelNodeClass(modelNodeType: string) {
+        if (!this.modelNodeClasses.has(modelNodeType)) {
+            throw new Error(`Model node type ${modelNodeType} is not registered.`);
+        }
+        return this.modelNodeClasses.get(modelNodeType)!;
     }
-    return this.layoutNodeClasses.get(renderNodeType)!;
-  }
 
-  registerViewNodeClass(layoutNodeType: string, viewNodeClass: ViewNodeClass<any>) {
-    this.viewNodeClasses.set(layoutNodeType, viewNodeClass);
-  }
-
-  getViewNodeClass(layoutNodeType: string) {
-    if (!this.viewNodeClasses.has(layoutNodeType)) {
-      throw new Error(`View node for layout node type ${layoutNodeType} is not registered.`);
+    getAllModelNodeClasses() {
+        return this.orderedModelNodeClasses;
     }
-    return this.viewNodeClasses.get(layoutNodeType)!;
-  }
+
+    registerRenderNodeClass(modelNodeType: string, renderNodeClass: RenderNodeClass<any>) {
+        this.renderNodeClasses.set(modelNodeType, renderNodeClass);
+    }
+
+    getRenderNodeClass(modelNodeType: string) {
+        if (!this.renderNodeClasses.has(modelNodeType)) {
+            throw new Error(`Render node for model node type ${modelNodeType} is not registered.`);
+        }
+        return this.renderNodeClasses.get(modelNodeType)!;
+    }
+
+    registerLayoutNodeClass(renderNodeType: string, layoutNodeClass: LayoutNodeClass<any>) {
+        this.layoutNodeClasses.set(renderNodeType, layoutNodeClass);
+    }
+
+    getLayoutNodeClass(renderNodeType: string) {
+        if (!this.layoutNodeClasses.has(renderNodeType)) {
+            throw new Error(`Layout node for render node type ${renderNodeType} is not registered.`);
+        }
+        return this.layoutNodeClasses.get(renderNodeType)!;
+    }
+
+    registerViewNodeClass(layoutNodeType: string, viewNodeClass: ViewNodeClass<any>) {
+        this.viewNodeClasses.set(layoutNodeType, viewNodeClass);
+    }
+
+    getViewNodeClass(layoutNodeType: string) {
+        if (!this.viewNodeClasses.has(layoutNodeType)) {
+            throw new Error(`View node for layout node type ${layoutNodeType} is not registered.`);
+        }
+        return this.viewNodeClasses.get(layoutNodeType)!;
+    }
 }

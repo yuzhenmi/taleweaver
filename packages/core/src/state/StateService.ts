@@ -4,23 +4,27 @@ import Transformation from '../transform/Transformation';
 import StateEngine from './StateEngine';
 
 export default class StateService {
-  protected editor: Editor;
-  protected stateEngine: StateEngine;
+    protected editor: Editor;
+    protected stateEngine: StateEngine;
 
-  constructor(editor: Editor, stateEngine: StateEngine) {
-    this.editor = editor;
-    this.stateEngine = stateEngine;
-  }
+    constructor(editor: Editor, markup: string) {
+        this.editor = editor;
+        this.stateEngine = new StateEngine(editor, markup);
+    }
 
-  getTokens() {
-    return this.stateEngine.getTokens();
-  }
+    initialize(markup: string) {
+        this.stateEngine.initialize(markup);
+    }
 
-  applyTransformations(transformations: Transformation[]) {
-    return this.stateEngine.applyTransformations(transformations);
-  }
+    getTokens() {
+        return this.stateEngine.getTokens();
+    }
 
-  unapplyTransformations(appliedTransformations: AppliedTransformation[]) {
-    this.stateEngine.unapplyTransformations(appliedTransformations);
-  }
+    applyTransformations(transformations: Transformation[]) {
+        return this.stateEngine.applyTransformations(transformations);
+    }
+
+    unapplyTransformations(appliedTransformations: AppliedTransformation[]) {
+        this.stateEngine.unapplyTransformations(appliedTransformations);
+    }
 }

@@ -6,71 +6,71 @@ export type ParentNode = BlockNode;
 export type ChildNode = AtomicNode;
 
 export default abstract class InlineRenderNode extends RenderNode<ParentNode, ChildNode> {
-  protected size?: number;
-  protected modelSize?: number;
+    protected size?: number;
+    protected modelSize?: number;
 
-  isRoot() {
-    return false;
-  }
-
-  isLeaf() {
-    return false;
-  }
-
-  getSize() {
-    if (this.size === undefined) {
-      this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
+    isRoot() {
+        return false;
     }
-    return this.size!;
-  }
 
-  getModelSize() {
-    if (this.modelSize === undefined) {
-      this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
+    isLeaf() {
+        return false;
     }
-    return this.modelSize!;
-  }
 
-  clearCache() {
-    this.size = undefined;
-    this.modelSize = undefined;
-  }
-
-  convertOffsetToModelOffset(offset: number): number {
-    let cumulatedSize = 0;
-    let cumulatedModelSize = 1;
-    const childNodes = this.getChildNodes();
-    for (let n = 0, nn = childNodes.length; n < nn; n++) {
-      const childNode = childNodes[n];
-      const childSize = childNode.getSize();
-      if (cumulatedSize + childSize > offset) {
-        return cumulatedModelSize + childNode.convertOffsetToModelOffset(offset - cumulatedSize);
-      }
-      cumulatedSize += childSize;
-      cumulatedModelSize += childNode.getModelSize();
+    getSize() {
+        if (this.size === undefined) {
+            this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
+        }
+        return this.size!;
     }
-    throw new Error(`Offset ${offset} is out of range.`);
-  }
 
-  resolvePosition(offset: number, depth: number) {
-    let cumulatedOffset = 0;
-    const childNodes = this.getChildNodes();
-    for (let n = 0, nn = childNodes.length; n < nn; n++) {
-      const childNode = childNodes[n];
-      const childSize = childNode.getSize();
-      if (cumulatedOffset + childSize > offset) {
-        const position: RenderPosition = {
-          node: this,
-          depth,
-          offset,
-        };
-        const childPosition = childNode.resolvePosition(offset - cumulatedOffset, depth + 1);
-        position.child = childPosition;
-        childPosition.parent = position;
-        return position;
-      }
-      cumulatedOffset += childSize;
+    getModelSize() {
+        if (this.modelSize === undefined) {
+            this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
+        }
+        return this.modelSize!;
     }
-    throw new Error(`Offset ${offset} is out of range.`);
-  }
+
+    clearCache() {
+        this.size = undefined;
+        this.modelSize = undefined;
+    }
+
+    convertOffsetToModelOffset(offset: number): number {
+        let cumulatedSize = 0;
+        let cumulatedModelSize = 1;
+        const childNodes = this.getChildNodes();
+        for (let n = 0, nn = childNodes.length; n < nn; n++) {
+            const childNode = childNodes[n];
+            const childSize = childNode.getSize();
+            if (cumulatedSize + childSize > offset) {
+                return cumulatedModelSize + childNode.convertOffsetToModelOffset(offset - cumulatedSize);
+            }
+            cumulatedSize += childSize;
+            cumulatedModelSize += childNode.getModelSize();
+        }
+        throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    resolvePosition(offset: number, depth: number) {
+        let cumulatedOffset = 0;
+        const childNodes = this.getChildNodes();
+        for (let n = 0, nn = childNodes.length; n < nn; n++) {
+            const childNode = childNodes[n];
+            const childSize = childNode.getSize();
+            if (cumulatedOffset + childSize > offset) {
+                const position: RenderPosition = {
+                    node: this,
+                    depth,
+                    offset,
+                };
+                const childPosition = childNode.resolvePosition(offset - cumulatedOffset, depth + 1);
+                position.child = childPosition;
+                childPosition.parent = position;
+                return position;
+            }
+            cumulatedOffset += childSize;
+        }
+        throw new Error(`Offset ${offset} is out of range.`);
+    }
 }

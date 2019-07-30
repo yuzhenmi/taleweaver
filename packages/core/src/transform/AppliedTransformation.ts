@@ -4,91 +4,91 @@ import { AppliedInsert } from './operations/Insert';
 import Transformation from './Transformation';
 
 export default class AppliedTransformation {
-  protected originalTransformation: Transformation;
-  protected operations: AppliedOperation[] = [];
-  protected originalCursorHead: number;
-  protected originalCursorAnchor: number;
-  protected originalCursorLockLeft: number | null;
-  protected beforeFrom?: number;
-  protected beforeTo?: number;
-  protected afterFrom?: number;
-  protected afterTo?: number;
+    protected originalTransformation: Transformation;
+    protected operations: AppliedOperation[] = [];
+    protected originalCursorHead: number;
+    protected originalCursorAnchor: number;
+    protected originalCursorLockLeft: number | null;
+    protected beforeFrom?: number;
+    protected beforeTo?: number;
+    protected afterFrom?: number;
+    protected afterTo?: number;
 
-  constructor(
-    originalTransformation: Transformation,
-    originalCursorHead: number,
-    originalCursorAnchor: number,
-    originalCursorLockLeft: number | null,
-  ) {
-    this.originalTransformation = originalTransformation;
-    this.originalCursorHead = originalCursorHead;
-    this.originalCursorAnchor = originalCursorAnchor;
-    this.originalCursorLockLeft = originalCursorLockLeft;
-  }
-
-  addOperation(operation: AppliedOperation) {
-    this.operations.push(operation);
-    let beforeFrom: number;
-    let beforeTo: number;
-    let afterFrom: number;
-    let afterTo: number;
-    if (operation instanceof AppliedInsert) {
-      const at = operation.getAt();
-      const insertedTokens = operation.getTokens();
-      beforeFrom = at;
-      beforeTo = at;
-      afterFrom = at;
-      afterTo = at + insertedTokens.length;
-    } else if (operation instanceof AppliedDelete) {
-      const at = operation.getAt();
-      const deletedTokens = operation.getTokens();
-      beforeFrom = at;
-      beforeTo = at + deletedTokens.length;
-      afterFrom = at;
-      afterTo = at;
-    } else {
-      throw new Error('Invalid applied operation encountered.');
+    constructor(
+        originalTransformation: Transformation,
+        originalCursorHead: number,
+        originalCursorAnchor: number,
+        originalCursorLockLeft: number | null,
+    ) {
+        this.originalTransformation = originalTransformation;
+        this.originalCursorHead = originalCursorHead;
+        this.originalCursorAnchor = originalCursorAnchor;
+        this.originalCursorLockLeft = originalCursorLockLeft;
     }
-    if (this.beforeFrom === undefined || beforeFrom < this.beforeFrom) {
-      this.beforeFrom = beforeFrom;
+
+    addOperation(operation: AppliedOperation) {
+        this.operations.push(operation);
+        let beforeFrom: number;
+        let beforeTo: number;
+        let afterFrom: number;
+        let afterTo: number;
+        if (operation instanceof AppliedInsert) {
+            const at = operation.getAt();
+            const insertedTokens = operation.getTokens();
+            beforeFrom = at;
+            beforeTo = at;
+            afterFrom = at;
+            afterTo = at + insertedTokens.length;
+        } else if (operation instanceof AppliedDelete) {
+            const at = operation.getAt();
+            const deletedTokens = operation.getTokens();
+            beforeFrom = at;
+            beforeTo = at + deletedTokens.length;
+            afterFrom = at;
+            afterTo = at;
+        } else {
+            throw new Error('Invalid applied operation encountered.');
+        }
+        if (this.beforeFrom === undefined || beforeFrom < this.beforeFrom) {
+            this.beforeFrom = beforeFrom;
+        }
+        if (this.beforeTo === undefined || beforeTo > this.beforeTo) {
+            this.beforeTo = beforeTo;
+        }
+        if (this.afterFrom === undefined || afterFrom < this.afterFrom) {
+            this.afterFrom = afterFrom;
+        }
+        if (this.afterTo === undefined || afterTo > this.afterTo) {
+            this.afterTo = afterTo;
+        }
     }
-    if (this.beforeTo === undefined || beforeTo > this.beforeTo) {
-      this.beforeTo = beforeTo;
+
+    getOperations() {
+        return this.operations;
     }
-    if (this.afterFrom === undefined || afterFrom < this.afterFrom) {
-      this.afterFrom = afterFrom;
+
+    getOriginalTransformation() {
+        return this.originalTransformation;
     }
-    if (this.afterTo === undefined || afterTo > this.afterTo) {
-      this.afterTo = afterTo;
+
+    getOriginalCursorHead() {
+        return this.originalCursorHead;
     }
-  }
 
-  getOperations() {
-    return this.operations;
-  }
+    getOriginalCursorAnchor() {
+        return this.originalCursorAnchor;
+    }
 
-  getOriginalTransformation() {
-    return this.originalTransformation;
-  }
+    getOriginalCursorLockLeft() {
+        return this.originalCursorLockLeft;
+    }
 
-  getOriginalCursorHead() {
-    return this.originalCursorHead;
-  }
-
-  getOriginalCursorAnchor() {
-    return this.originalCursorAnchor;
-  }
-
-  getOriginalCursorLockLeft() {
-    return this.originalCursorLockLeft;
-  }
-
-  getTransformedRange() {
-    return {
-      beforeFrom: this.beforeFrom!,
-      beforeTo: this.beforeTo!,
-      afterFrom: this.afterFrom!,
-      afterTo: this.afterTo!,
-    };
-  }
+    getTransformedRange() {
+        return {
+            beforeFrom: this.beforeFrom!,
+            beforeTo: this.beforeTo!,
+            afterFrom: this.afterFrom!,
+            afterTo: this.afterTo!,
+        };
+    }
 }

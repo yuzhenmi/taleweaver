@@ -1,16 +1,16 @@
 interface OffsetAdjustment {
-  at: number;
-  delta: number;
+    at: number;
+    delta: number;
 }
 
 abstract class Operation {
 
-  abstract getOffsetAdjustment(): OffsetAdjustment;
+    abstract getOffsetAdjustment(): OffsetAdjustment;
 
-  abstract adjustOffset(adjustments: OffsetAdjustment[]): Operation;
+    abstract adjustOffset(adjustments: OffsetAdjustment[]): Operation;
 }
 
 export default Operation;
 export {
-  OffsetAdjustment,
+    OffsetAdjustment,
 };

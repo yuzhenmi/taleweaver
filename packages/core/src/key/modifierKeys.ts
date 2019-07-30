@@ -6,8 +6,8 @@ const MetaKey = new ModifierKey('Meta');
 const ShiftKey = new ModifierKey('Shift');
 
 export {
-  AltKey,
-  CtrlKey,
-  MetaKey,
-  ShiftKey,
+    AltKey,
+    CtrlKey,
+    MetaKey,
+    ShiftKey,
 };

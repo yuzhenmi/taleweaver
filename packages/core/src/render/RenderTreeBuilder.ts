@@ -1,19 +1,19 @@
 import Editor from '../Editor';
-import { AnyLayoutNode } from '../layout/LayoutNode';
-import { AnyRenderNode } from '../render/RenderNode';
+import { AnyModelNode } from '../model/ModelNode';
+import { AnyRenderNode } from './RenderNode';
 
-export default class LayoutBuilder {
+export default class RenderTreeBuilder {
     protected editor: Editor;
-    protected rootRenderNode: AnyRenderNode;
-    protected rootNode?: AnyLayoutNode;
+    protected rootModelNode: AnyModelNode;
+    protected rootNode?: AnyRenderNode;
     protected ran: boolean = false;
 
-    constructor(editor: Editor, rootRenderNode: AnyRenderNode) {
+    constructor(editor: Editor, rootModelNode: AnyModelNode) {
         this.editor = editor;
-        this.rootRenderNode = rootRenderNode;
+        this.rootModelNode = rootModelNode;
     }
 
-    getRootNode() {
+    run() {
         if (!this.ran) {
             this.render();
         }

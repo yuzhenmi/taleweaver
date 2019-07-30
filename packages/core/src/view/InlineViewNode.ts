@@ -5,11 +5,11 @@ export type ParentNode = LineNode;
 
 export default abstract class InlineViewNode extends ViewNode<ParentNode, never> {
 
-  isRoot() {
-    return false;
-  }
+    isRoot() {
+        return false;
+    }
 
-  isLeaf() {
-    return true;
-  }
+    isLeaf() {
+        return true;
+    }
 }
