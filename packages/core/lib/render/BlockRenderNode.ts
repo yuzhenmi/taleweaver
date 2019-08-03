@@ -84,4 +84,27 @@ export default abstract class BlockRenderNode extends RenderNode<ParentNode, Chi
         }
         throw new Error(`Offset ${offset} is out of range.`);
     }
+
+    onUpdated(updatedNode: BlockRenderNode) {
+        if (!this.isLeaf()) {
+            const updatedChildNodes = updatedNode.getChildNodes();
+            const childNodes = super.getChildNodes().slice();
+            this.getChildNodes().forEach(childNode => {
+                this.removeChild(childNode);
+            });
+            for (let n = 0; n < updatedChildNodes.length; n++) {
+                const updatedChildNode = updatedChildNodes[n];
+                const childNode = childNodes.find((childNode) =>
+                    childNode!.getID() === updatedChildNode!.getID()
+                );
+                if (childNode) {
+                    childNode.onUpdated(updatedChildNode!);
+                    this.appendChild(childNode);
+                } else {
+                    this.appendChild(updatedChildNode);
+                }
+            }
+        }
+        this.clearCache();
+    }
 }

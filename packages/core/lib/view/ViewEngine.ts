@@ -2,8 +2,8 @@ import Editor from '../Editor';
 import LayoutUpdatedEvent from '../events/LayoutUpdatedEvent';
 import ViewUpdatedEvent from '../events/ViewUpdatedEvent';
 import DocViewNode from './DocViewNode';
-import ViewBuilder from './ViewBuilder';
 import { AnyViewNode } from './ViewNode';
+import ViewTreeBuilder from './ViewTreeBuilder';
 
 function findNodeByLayoutID(layoutID: string, node: AnyViewNode): AnyViewNode | null {
     if (node.getID() === layoutID) {
@@ -37,10 +37,10 @@ class ViewEngine {
         return this.doc;
     }
 
-    protected handleLayoutUpdatedEvent(event: LayoutUpdatedEvent) {
+    protected handleLayoutUpdatedEvent = (event: LayoutUpdatedEvent) => {
         const updatedLayoutNode = event.getUpdatedNode();
         const node = this.findNodeByLayoutID(updatedLayoutNode.getID());
-        const builder = new ViewBuilder(this.editor, updatedLayoutNode);
+        const builder = new ViewTreeBuilder(this.editor, updatedLayoutNode);
         const updatedNode = builder.run();
         node.onUpdated(updatedNode);
         this.editor.getDispatcher().dispatch(new ViewUpdatedEvent(node));

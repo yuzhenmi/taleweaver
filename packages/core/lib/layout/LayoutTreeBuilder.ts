@@ -58,6 +58,7 @@ export default class LayoutTreeBuilder {
             throw new Error('Error building layout node, doc render node did not map to doc layout node.');
         }
         const pageNode = new PageNode(this.editor);
+        docNode.appendChild(pageNode);
         docRenderNode.getChildNodes().forEach(blockRenderNode => {
             const blockNode = this.buildBlockNode(blockRenderNode);
             pageNode.appendChild(blockNode);

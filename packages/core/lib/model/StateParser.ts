@@ -35,7 +35,7 @@ class Stack {
 
     getRootNode() {
         if (this.nodes.length === 0) {
-            throw new Error('');
+            throw new Error('Error parsing state.');
         }
         return this.nodes[0];
     }
@@ -96,7 +96,6 @@ export default class StateParser {
                     throw new Error(`Unexpected token at offset ${n}.`);
             }
         }
-        this.rootNode = this.stack.getRootNode();
         this.ran = true;
     }
 
@@ -117,6 +116,9 @@ export default class StateParser {
             parentNode.appendChild(node);
         }
         this.stack.push(node);
+        if (!this.rootNode) {
+            this.rootNode = node;
+        }
     }
 
     protected appendToContent(token: string) {

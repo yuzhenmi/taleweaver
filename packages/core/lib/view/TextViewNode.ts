@@ -38,6 +38,10 @@ export default class TextViewNode extends InlineViewNode {
         return this.domContainer;
     }
 
+    onUpdated(updatedNode: TextViewNode) {
+        this.clearCache();
+    }
+
     protected updateDOM() {
         const layoutNode = this.layoutNode;
         const textStyle = layoutNode.getTextStyle();

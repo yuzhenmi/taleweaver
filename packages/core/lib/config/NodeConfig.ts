@@ -1,18 +1,24 @@
 import Editor from '../Editor';
+import DocLayoutNode from '../layout/DocLayoutNode';
 import { AnyLayoutNode } from '../layout/LayoutNode';
 import LineBreakAtomicLayoutNode from '../layout/LineBreakAtomicLayoutNode';
 import LineBreakLayoutNode from '../layout/LineBreakLayoutNode';
 import ParagraphLayoutNode from '../layout/ParagraphLayoutNode';
 import TextLayoutNode from '../layout/TextLayoutNode';
 import TextWordLayoutNode from '../layout/TextWordLayoutNode';
+import DocModelNode from '../model/DocModelNode';
 import ModelNode, { AnyModelNode } from '../model/ModelNode';
 import ParagraphModelNode from '../model/ParagraphModelNode';
 import TextModelNode from '../model/TextModelNode';
+import DocRenderNode from '../render/DocRenderNode';
 import ParagraphRenderNode from '../render/ParagraphRenderNode';
 import { AnyRenderNode } from '../render/RenderNode';
 import TextRenderNode from '../render/TextRenderNode';
 import { Attributes } from '../state/OpenTagToken';
+import DocViewNode from '../view/DocViewNode';
 import LineBreakViewNode from '../view/LineBreakViewNode';
+import LineViewNode from '../view/LineViewNode';
+import PageViewNode from '../view/PageViewNode';
 import ParagraphViewNode from '../view/ParagraphViewNode';
 import TextViewNode from '../view/TextViewNode';
 import { AnyViewNode } from '../view/ViewNode';
@@ -30,15 +36,21 @@ export default class NodeConfig {
     protected viewNodeClasses: Map<string, ViewNodeClass<any>> = new Map();
 
     constructor() {
+        this.registerModelNodeClass('Doc', DocModelNode);
         this.registerModelNodeClass('Paragraph', ParagraphModelNode);
         this.registerModelNodeClass('Text', TextModelNode);
+        this.registerRenderNodeClass('Doc', DocRenderNode);
         this.registerRenderNodeClass('Paragraph', ParagraphRenderNode);
         this.registerRenderNodeClass('Text', TextRenderNode);
+        this.registerLayoutNodeClass('Doc', DocLayoutNode);
         this.registerLayoutNodeClass('Paragraph', ParagraphLayoutNode);
         this.registerLayoutNodeClass('Text', TextLayoutNode);
         this.registerLayoutNodeClass('TextWord', TextWordLayoutNode);
         this.registerLayoutNodeClass('LineBreak', LineBreakLayoutNode);
         this.registerLayoutNodeClass('LineBreakAtomic', LineBreakAtomicLayoutNode);
+        this.registerViewNodeClass('Doc', DocViewNode);
+        this.registerViewNodeClass('Page', PageViewNode);
+        this.registerViewNodeClass('Line', LineViewNode);
         this.registerViewNodeClass('Paragraph', ParagraphViewNode);
         this.registerViewNodeClass('Text', TextViewNode);
         this.registerViewNodeClass('LineBreak', LineBreakViewNode);

@@ -10,7 +10,6 @@ import PageNode from './PageLayoutNode';
 export default class LayoutReflower {
     protected editor: Editor;
     protected rootNode?: AnyLayoutNode;
-    protected reflowedRootNode?: AnyLayoutNode;
     protected lineNodeQueue: LineNode[] = [];
     protected lineNodeReflowStatuses: Map<string, boolean> = new Map();
     protected pageNodeQueue: PageNode[] = [];
@@ -26,7 +25,7 @@ export default class LayoutReflower {
         if (!this.ran) {
             this.reflow();
         }
-        return this.reflowedRootNode!;
+        return this.rootNode!;
     }
 
     protected reflow() {

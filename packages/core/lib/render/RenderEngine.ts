@@ -33,7 +33,7 @@ export default class RenderEngine {
         return this.doc;
     }
 
-    protected handleModelUpdatedEvent(event: ModelUpdatedEvent) {
+    protected handleModelUpdatedEvent = (event: ModelUpdatedEvent) => {
         const updatedModelNode = event.getUpdatedNode();
         const node = this.findNodeByModelID(updatedModelNode.getID());
         const renderTreeBuilder = new RenderTreeBuilder(this.editor, updatedModelNode);

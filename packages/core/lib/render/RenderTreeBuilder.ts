@@ -28,7 +28,7 @@ export default class RenderTreeBuilder {
     protected buildNode(modelNode: AnyModelNode) {
         const nodeConfig = this.editor.getConfig().getNodeConfig();
         const MatchingRenderNode = nodeConfig.getRenderNodeClass(modelNode.getType());
-        const node = new MatchingRenderNode(this.editor, modelNode.getID());
+        const node = new MatchingRenderNode(this.editor, modelNode);
         if (!modelNode.isLeaf()) {
             modelNode.getChildNodes().forEach(childModelNode => {
                 const childNode = this.buildNode(childModelNode);

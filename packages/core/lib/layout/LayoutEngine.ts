@@ -34,7 +34,7 @@ export default class LayoutEngine {
         return this.doc;
     }
 
-    protected handleRenderUpdatedEvent(event: RenderUpdatedEvent) {
+    protected handleRenderUpdatedEvent = (event: RenderUpdatedEvent) => {
         const updatedRenderNode = event.getUpdatedNode();
         const node = this.findNodeByRenderID(updatedRenderNode.getID());
         const layoutTreeBuilder = new LayoutTreeBuilder(this.editor, updatedRenderNode);

@@ -1,8 +1,9 @@
 import Editor from '../Editor';
+import InlineLayoutNode from '../layout/InlineLayoutNode';
 import { AnyLayoutNode } from '../layout/LayoutNode';
 import { AnyViewNode } from './ViewNode';
 
-export default class ViewBuilder {
+export default class ViewTreeBuilder {
     protected editor: Editor;
     protected rootLayoutNode: AnyLayoutNode;
     protected rootNode?: AnyViewNode;
@@ -29,7 +30,7 @@ export default class ViewBuilder {
         const nodeConfig = this.editor.getConfig().getNodeConfig();
         const MatchingViewNode = nodeConfig.getViewNodeClass(layoutNode.getType());
         const node = new MatchingViewNode(this.editor, layoutNode);
-        if (!layoutNode.isLeaf()) {
+        if (!(layoutNode instanceof InlineLayoutNode)) {
             layoutNode.getChildNodes().forEach(childModelNode => {
                 const childNode = this.buildNode(childModelNode);
                 node.appendChild(childNode);

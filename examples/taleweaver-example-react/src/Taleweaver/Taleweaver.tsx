@@ -64,9 +64,7 @@ export default class Taleweaver extends React.Component<Props, State> {
         const config = new Config();
         const editor = new Editor(config);
         this.setState({ editor });
-        editor.getDispatcher().on(ViewUpdatedEvent, event => {
-            this.onChange();
-        });
+        editor.getDispatcher().on(ViewUpdatedEvent, event => this.onViewChange());
         editor.start(initialMarkup, domElement);
     }
 
@@ -80,7 +78,7 @@ export default class Taleweaver extends React.Component<Props, State> {
         );
     }
 
-    protected onChange() {
+    protected onViewChange() {
         setTimeout(() => {
             const editor = this.state.editor!;
             const cursorService = editor.getCursorService();

@@ -25,10 +25,13 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
     onUpdated(updatedNode: ViewNode<P, C>) {
         if (!this.isLeaf()) {
             const updatedChildNodes = updatedNode.getChildNodes();
-            const childNodes: C[] = [];
+            const childNodes = this.getChildNodes().slice();
+            this.getChildNodes().forEach(childNode => {
+                this.removeChild(childNode);
+            });
             for (let n = 0; n < updatedChildNodes.length; n++) {
                 const updatedChildNode = updatedChildNodes[n];
-                const childNode = this.getChildNodes().find((childNode) =>
+                const childNode = childNodes.find((childNode) =>
                     childNode!.getID() === updatedChildNode!.getID()
                 );
                 if (childNode) {
@@ -38,12 +41,6 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
                     this.appendChild(updatedChildNode);
                 }
             }
-            this.getChildNodes().forEach(childNode => {
-                this.removeChild(childNode);
-            });
-            childNodes.forEach(childNode => {
-                this.appendChild(childNode);
-            });
         }
         this.clearCache();
     }
