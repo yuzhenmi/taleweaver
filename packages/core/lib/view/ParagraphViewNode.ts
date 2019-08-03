@@ -20,6 +20,18 @@ export default class ParagraphViewNode extends BlockViewNode {
         return 'Paragraph';
     }
 
+    appendDOMChild(domChild: HTMLElement) {
+        this.domContainer.appendChild(domChild);
+    }
+
+    insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement) {
+        this.domContainer.insertBefore(domChild, beforeDOMChild);
+    }
+
+    removeDOMChild(domChild: HTMLElement) {
+        this.domContainer.removeChild(domChild);
+    }
+
     getDOMContainer() {
         return this.domContainer;
     }

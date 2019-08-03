@@ -7,6 +7,9 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
     abstract getType(): string;
     abstract getSize(): number;
     abstract clearCache(): void;
+    abstract appendDOMChild(domChild: HTMLElement): void;
+    abstract insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement): void;
+    abstract removeDOMChild(domChild: HTMLElement): void;
     abstract getDOMContainer(): HTMLElement;
 
     protected editor: Editor;
@@ -20,6 +23,21 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
 
     getID() {
         return this.id;
+    }
+
+    appendChild(child: C) {
+        super.appendChild(child);
+        this.appendDOMChild(child.getDOMContainer());
+    }
+
+    insertBefore(child: C, beforeChild: C) {
+        super.insertBefore(child, beforeChild);
+        this.insertDOMBefore(child.getDOMContainer(), beforeChild.getDOMContainer());
+    }
+
+    removeChild(child: C) {
+        super.removeChild(child);
+        this.removeDOMChild(child.getDOMContainer());
     }
 
     onUpdated(updatedNode: ViewNode<P, C>) {

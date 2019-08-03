@@ -43,6 +43,18 @@ export default class LineViewNode extends ViewNode<ParentNode, ChildNode> {
         this.size = undefined;
     }
 
+    appendDOMChild(domChild: HTMLElement) {
+        this.domContainer.appendChild(domChild);
+    }
+
+    insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement) {
+        this.domContainer.insertBefore(domChild, beforeDOMChild);
+    }
+
+    removeDOMChild(domChild: HTMLElement) {
+        this.domContainer.removeChild(domChild);
+    }
+
     getDOMContainer() {
         return this.domContainer;
     }

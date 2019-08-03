@@ -12,4 +12,10 @@ export default abstract class InlineViewNode extends ViewNode<ParentNode, never>
     isLeaf() {
         return true;
     }
+
+    appendDOMChild(domChild: HTMLElement) { }
+
+    insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement) { }
+
+    removeDOMChild(domChild: HTMLElement) { }
 }

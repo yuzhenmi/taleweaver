@@ -45,6 +45,18 @@ export default class DocViewNode extends ViewNode<never, ChildNode> {
         this.size = undefined;
     }
 
+    appendDOMChild(domChild: HTMLElement) {
+        this.domContainer.appendChild(domChild);
+    }
+
+    insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement) {
+        this.domContainer.insertBefore(domChild, beforeDOMChild);
+    }
+
+    removeDOMChild(domChild: HTMLElement) {
+        this.domContainer.removeChild(domChild);
+    }
+
     getDOMContainer() {
         return this.domContainer;
     }
@@ -57,6 +69,7 @@ export default class DocViewNode extends ViewNode<never, ChildNode> {
         if (this.isAttachedToDOM) {
             throw new Error('Taleweaver is already attached to the DOM.');
         }
+        parentDOMContainer.appendChild(this.domContainer);
         this.isAttachedToDOM = true;
         this.parentDOMContainer = parentDOMContainer;
     }

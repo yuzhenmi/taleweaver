@@ -20,7 +20,7 @@ export default abstract class InlineRenderNode extends RenderNode<ParentNode, Ch
 
     getSize() {
         if (this.size === undefined) {
-            this.modelSize = this.getChildNodes().reduce((size, childNode) => size + childNode.getModelSize(), 2);
+            this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
         }
         return this.size!;
     }

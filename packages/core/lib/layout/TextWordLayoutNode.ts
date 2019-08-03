@@ -10,10 +10,10 @@ export default class TextWordLayoutNode extends AtomicNode {
     protected widthWithoutTrailingWhitespace?: number;
     protected height?: number;
 
-    constructor(editor: Editor, renderNode: TextWordRenderNode, content: string) {
+    constructor(editor: Editor, renderNode: TextWordRenderNode, content?: string) {
         super(editor, renderNode.getID());
         this.renderNode = renderNode;
-        this.content = content;
+        this.content = content || renderNode.getContent();
     }
 
     getType() {
