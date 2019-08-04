@@ -156,16 +156,21 @@ export default class LayoutReflower {
         for (let n = 0; n < atomicNodes.length; n++) {
             const atomicNode = atomicNodes[n];
             if (cumulatedWidth + atomicNode.getWidthWithoutTrailingWhitespace() > width) {
-                const newInlineNode = inlineNode.splitAt(n + 1);
-                const atomicNodes = inlineNode.getChildNodes();
-                const trailingAtomicNode = atomicNodes[atomicNodes.length - 1];
-                const newAtomicNode = this.breakAtomicNode(trailingAtomicNode, width - cumulatedWidth);
-                if (newAtomicNode) {
-                    if (newInlineNode.getChildNodes().length > 0) {
-                        newInlineNode.insertBefore(newAtomicNode, newInlineNode.getChildNodes()[0]);
-                    } else {
-                        newInlineNode.appendChild(newAtomicNode);
+                let newInlineNode: InlineNode;
+                if (atomicNode.getWidthWithoutTrailingWhitespace() > width) {
+                    newInlineNode = inlineNode.splitAt(n + 1);
+                    const atomicNodes = inlineNode.getChildNodes();
+                    const trailingAtomicNode = atomicNodes[atomicNodes.length - 1];
+                    const newAtomicNode = this.breakAtomicNode(trailingAtomicNode, width - cumulatedWidth);
+                    if (newAtomicNode) {
+                        if (newInlineNode.getChildNodes().length > 0) {
+                            newInlineNode.insertBefore(newAtomicNode, newInlineNode.getChildNodes()[0]);
+                        } else {
+                            newInlineNode.appendChild(newAtomicNode);
+                        }
                     }
+                } else {
+                    newInlineNode = inlineNode.splitAt(n);
                 }
                 return newInlineNode;
             }
