@@ -99,7 +99,22 @@ export default class LayoutReflower {
         if (this.lineNodeReflowStatuses.get(lineNode.getID())) {
             return;
         }
-        // TODO: Reflow line node
+        const parentNode = lineNode.getParent()!;
+        const maxWidth = parentNode.getWidth();
+        let currentLineNode = lineNode;
+        while (true) {
+            const newLineNode = this.breakLineNode(currentLineNode, maxWidth);
+            if (!newLineNode) {
+                break;
+            }
+            const nextLineNode = currentLineNode.getNextSibling();
+            if (nextLineNode) {
+                parentNode.insertBefore(newLineNode, nextLineNode);
+            } else {
+                parentNode.appendChild(newLineNode);
+            }
+            currentLineNode = newLineNode;
+        }
         this.lineNodeReflowStatuses.set(lineNode.getID(), true);
     }
 
@@ -109,5 +124,60 @@ export default class LayoutReflower {
         }
         // TODO: Reflow page node
         this.pageNodeReflowStatuses.set(pageNode.getID(), true);
+    }
+
+    protected breakLineNode(lineNode: LineNode, width: number) {
+        const inlineNodes = lineNode.getChildNodes();
+        let cumulatedWidth = 0;
+        for (let n = 0; n < inlineNodes.length; n++) {
+            const inlineNode = inlineNodes[n];
+            if (cumulatedWidth + inlineNode.getWidthWithoutTrailingWhitespace() > width) {
+                const newLineNode = lineNode.splitAt(n + 1);
+                const inlineNodes = lineNode.getChildNodes();
+                const trailingInlineNode = inlineNodes[inlineNodes.length - 1];
+                const newInlineNode = this.breakInlineNode(trailingInlineNode, width - cumulatedWidth);
+                if (newInlineNode) {
+                    if (newLineNode.getChildNodes().length > 0) {
+                        newLineNode.insertBefore(newInlineNode, newLineNode.getChildNodes()[0]);
+                    } else {
+                        newLineNode.appendChild(newInlineNode);
+                    }
+                }
+                return newLineNode;
+            }
+            cumulatedWidth += inlineNode.getWidth();
+        }
+        return null;
+    }
+
+    protected breakInlineNode(inlineNode: InlineNode, width: number) {
+        const atomicNodes = inlineNode.getChildNodes();
+        let cumulatedWidth = 0;
+        for (let n = 0; n < atomicNodes.length; n++) {
+            const atomicNode = atomicNodes[n];
+            if (cumulatedWidth + atomicNode.getWidthWithoutTrailingWhitespace() > width) {
+                const newInlineNode = inlineNode.splitAt(n + 1);
+                const atomicNodes = inlineNode.getChildNodes();
+                const trailingAtomicNode = atomicNodes[atomicNodes.length - 1];
+                const newAtomicNode = this.breakAtomicNode(trailingAtomicNode, width - cumulatedWidth);
+                if (newAtomicNode) {
+                    if (newInlineNode.getChildNodes().length > 0) {
+                        newInlineNode.insertBefore(newAtomicNode, newInlineNode.getChildNodes()[0]);
+                    } else {
+                        newInlineNode.appendChild(newAtomicNode);
+                    }
+                }
+                return newInlineNode;
+            }
+            cumulatedWidth += atomicNode.getWidth();
+        }
+        return null;
+    }
+
+    protected breakAtomicNode(atomicNode: AtomicNode, width: number) {
+        if (atomicNode.getWidthWithoutTrailingWhitespace() <= width) {
+            return null;
+        }
+        return atomicNode.splitAtWidth(width);
     }
 }

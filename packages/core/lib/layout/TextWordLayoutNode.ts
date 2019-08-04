@@ -26,11 +26,9 @@ export default class TextWordLayoutNode extends AtomicNode {
 
     getWidth() {
         if (this.width === undefined || this.height === undefined) {
-            const measurement = measureText(this.content, this.getTextStyle());
-            this.width = measurement.width;
-            this.height = measurement.height;
+            this.takeMeasurement();
         }
-        return this.width;
+        return this.width!;
     }
 
     getWidthWithoutTrailingWhitespace() {
@@ -48,11 +46,9 @@ export default class TextWordLayoutNode extends AtomicNode {
 
     getHeight() {
         if (this.width === undefined || this.height === undefined) {
-            const measurement = measureText(this.content, this.getTextStyle());
-            this.width = measurement.width;
-            this.height = measurement.height;
+            this.takeMeasurement();
         }
-        return this.height;
+        return this.height!;
     }
 
     getBreakable() {
@@ -154,5 +150,11 @@ export default class TextWordLayoutNode extends AtomicNode {
             paddingLeft: 0,
             paddingRight: 0,
         }];
+    }
+
+    protected takeMeasurement() {
+        const measurement = measureText(this.content, this.getTextStyle());
+        this.width = measurement.width;
+        this.height = measurement.height;
     }
 }

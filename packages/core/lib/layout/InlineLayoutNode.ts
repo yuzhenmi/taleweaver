@@ -57,7 +57,7 @@ export default abstract class InlineLayoutNode extends LayoutNode<ParentNode, Ch
             this.height = this.getChildNodes().reduce(
                 (height, childNode) => Math.max(height, childNode.getHeight()),
                 0,
-            );
+            ) + this.getPaddingTop() + this.getPaddingBottom();
         }
         return this.height;
     }

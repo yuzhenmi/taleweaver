@@ -44,7 +44,7 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     getHeight() {
         if (this.height === undefined) {
             this.height = this.getChildNodes().reduce(
-                (height, childNode) => height + childNode.getPaddingTop() + childNode.getHeight() + childNode.getPaddingBottom(),
+                (height, childNode) => Math.max(height, childNode.getHeight()),
                 0,
             );
         }

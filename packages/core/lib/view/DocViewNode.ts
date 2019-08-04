@@ -20,6 +20,7 @@ export default class DocViewNode extends ViewNode<never, ChildNode> {
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
+        this.updateDOM();
     }
 
     isRoot() {
@@ -73,4 +74,6 @@ export default class DocViewNode extends ViewNode<never, ChildNode> {
         this.isAttachedToDOM = true;
         this.parentDOMContainer = parentDOMContainer;
     }
+
+    protected updateDOM() { }
 }

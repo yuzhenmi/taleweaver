@@ -1,4 +1,5 @@
 import Editor from '../Editor';
+import LineLayoutNode from '../layout/LineLayoutNode';
 import BlockNode from './BlockViewNode';
 import InlineNode from './InlineViewNode';
 import ViewNode from './ViewNode';
@@ -7,17 +8,20 @@ export type ParentNode = BlockNode;
 export type ChildNode = InlineNode;
 
 export default class LineViewNode extends ViewNode<ParentNode, ChildNode> {
+    protected layoutNode: LineLayoutNode;
     protected size?: number;
     protected domContainer: HTMLDivElement;
 
-    constructor(editor: Editor, id: string) {
-        super(editor, id);
+    constructor(editor: Editor, layoutNode: LineLayoutNode) {
+        super(editor, layoutNode.getID());
+        this.layoutNode = layoutNode;
         this.domContainer = document.createElement('div');
         this.domContainer.className = 'tw--line';
         this.domContainer.setAttribute('data-tw-id', this.id);
         this.domContainer.setAttribute('data-tw-role', 'line');
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '0';
+        this.updateDOM();
     }
 
     isRoot() {
@@ -58,4 +62,6 @@ export default class LineViewNode extends ViewNode<ParentNode, ChildNode> {
     getDOMContainer() {
         return this.domContainer;
     }
+
+    protected updateDOM() { }
 }

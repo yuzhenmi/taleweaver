@@ -15,11 +15,11 @@ export default class LineBreakLayoutNode extends InlineNode {
     }
 
     getPaddingTop() {
-        return 0;
+        return 3;
     }
 
     getPaddingBottom() {
-        return 0;
+        return 6;
     }
 
     splitAt(offset: number): LineBreakLayoutNode {

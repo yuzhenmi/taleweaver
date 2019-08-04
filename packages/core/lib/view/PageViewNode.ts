@@ -1,4 +1,5 @@
 import Editor from '../Editor';
+import PageLayoutNode from '../layout/PageLayoutNode';
 import BlockNode from './BlockViewNode';
 import DocNode from './DocViewNode';
 import ViewNode from './ViewNode';
@@ -7,13 +8,15 @@ export type ParentNode = DocNode;
 export type ChildNode = BlockNode;
 
 export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
+    protected layoutNode: PageLayoutNode;
     protected size?: number;
     protected domContainer: HTMLDivElement;
     protected domContentContainer: HTMLDivElement;
     protected domContentInnerContainer: HTMLDivElement;
 
-    constructor(editor: Editor, id: string) {
-        super(editor, id);
+    constructor(editor: Editor, layoutNode: PageLayoutNode) {
+        super(editor, layoutNode.getID());
+        this.layoutNode = layoutNode;
         this.domContainer = document.createElement('div');
         this.domContainer.className = 'tw--page';
         this.domContainer.setAttribute('data-tw-instance', editor.getID());
@@ -29,6 +32,7 @@ export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
         this.domContentInnerContainer.className = 'tw--page-content';
         this.domContentInnerContainer.setAttribute('data-tw-role', 'page-content');
         this.domContentContainer.appendChild(this.domContentInnerContainer);
+        this.updateDOM();
     }
 
     isRoot() {
@@ -55,15 +59,15 @@ export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
     }
 
     appendDOMChild(domChild: HTMLElement) {
-        this.domContainer.appendChild(domChild);
+        this.domContentInnerContainer.appendChild(domChild);
     }
 
     insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement) {
-        this.domContainer.insertBefore(domChild, beforeDOMChild);
+        this.domContentInnerContainer.insertBefore(domChild, beforeDOMChild);
     }
 
     removeDOMChild(domChild: HTMLElement) {
-        this.domContainer.removeChild(domChild);
+        this.domContentInnerContainer.removeChild(domChild);
     }
 
     getDOMContainer() {
@@ -76,5 +80,14 @@ export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
 
     getDOMContentInnerContainer() {
         return this.domContentInnerContainer;
+    }
+
+    protected updateDOM() {
+        const layoutNode = this.layoutNode;
+        const domContentContainer = this.domContentContainer;
+        domContentContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
+        domContentContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
+        domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;
+        domContentContainer.style.paddingRight = `${layoutNode.getPaddingRight()}px`;
     }
 }

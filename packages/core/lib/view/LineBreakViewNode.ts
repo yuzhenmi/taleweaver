@@ -14,6 +14,7 @@ export default class LineBreakViewNode extends InlineViewNode {
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '1em';
         this.domContainer.innerText = ' ';
+        this.updateDOM();
     }
 
     getType() {
@@ -29,4 +30,6 @@ export default class LineBreakViewNode extends InlineViewNode {
     getDOMContainer() {
         return this.domContainer;
     }
+
+    protected updateDOM() { }
 }

@@ -11,6 +11,7 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
     abstract insertDOMBefore(domChild: HTMLElement, beforeDOMChild: HTMLElement): void;
     abstract removeDOMChild(domChild: HTMLElement): void;
     abstract getDOMContainer(): HTMLElement;
+    protected abstract updateDOM(): void;
 
     protected editor: Editor;
     protected id: string;

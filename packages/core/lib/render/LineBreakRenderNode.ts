@@ -12,6 +12,7 @@ export default class LineBreakRenderNode extends InlineNode {
     constructor(editor: Editor, blockNodeID: string) {
         super(editor, `${blockNodeID}-LineBreak`);
         this.lineBreakAtomicNode = new LineBreakAtomicRenderNode(editor, blockNodeID);
+        this.appendChild(this.lineBreakAtomicNode);
     }
 
     getType(): string {
