@@ -83,8 +83,15 @@ export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
     }
 
     protected updateDOM() {
+        const pageConfig = this.editor.getConfig().getPageConfig();
         const layoutNode = this.layoutNode;
         const domContentContainer = this.domContentContainer;
+        domContentContainer.style.width = `${layoutNode.getOuterWidth()}px`;
+        if (pageConfig.getShouldTrimPageBottom()) {
+            domContentContainer.style.maxHeight = `${layoutNode.getOuterHeight()}px`;
+        } else {
+            domContentContainer.style.height = `${layoutNode.getOuterHeight()}px`;
+        }
         domContentContainer.style.paddingTop = `${layoutNode.getPaddingTop()}px`;
         domContentContainer.style.paddingBottom = `${layoutNode.getPaddingBottom()}px`;
         domContentContainer.style.paddingLeft = `${layoutNode.getPaddingLeft()}px`;

@@ -70,6 +70,7 @@ export default class LayoutReflower {
     protected queueLineNode(lineNode: LineNode) {
         this.lineNodeQueue.push(lineNode);
         this.lineNodeReflowStatuses.set(lineNode.getID(), false);
+        this.queuePageNode(lineNode.getParent()!.getParent()!);
     }
 
     protected queuePageNode(pageNode: PageNode) {
@@ -95,6 +96,29 @@ export default class LayoutReflower {
         this.pageNodeQueue = [];
     }
 
+    protected reflowPageNode(pageNode: PageNode) {
+        if (this.pageNodeReflowStatuses.get(pageNode.getID())) {
+            return;
+        }
+        const parentNode = pageNode.getParent()!;
+        const maxHeight = pageNode.getInnerHeight();
+        let currentPageNode = pageNode;
+        while (true) {
+            const newPageNode = this.breakPageNode(currentPageNode, maxHeight);
+            if (!newPageNode) {
+                break;
+            }
+            const nextPageNode = currentPageNode.getNextSibling();
+            if (nextPageNode) {
+                parentNode.insertBefore(newPageNode, nextPageNode);
+            } else {
+                parentNode.appendChild(newPageNode);
+            }
+            this.pageNodeReflowStatuses.set(pageNode.getID(), true);
+            currentPageNode = newPageNode;
+        }
+    }
+
     protected reflowLineNode(lineNode: LineNode) {
         if (this.lineNodeReflowStatuses.get(lineNode.getID())) {
             return;
@@ -113,23 +137,53 @@ export default class LayoutReflower {
             } else {
                 parentNode.appendChild(newLineNode);
             }
+            this.lineNodeReflowStatuses.set(currentLineNode.getID(), true);
             currentLineNode = newLineNode;
         }
-        this.lineNodeReflowStatuses.set(lineNode.getID(), true);
     }
 
-    protected reflowPageNode(pageNode: PageNode) {
-        if (this.pageNodeReflowStatuses.get(pageNode.getID())) {
-            return;
+    protected breakPageNode(pageNode: PageNode, height: number) {
+        const blockNodes = pageNode.getChildNodes();
+        let cumulatedHeight = 0;
+        for (let n = 0, nn = blockNodes.length; n < nn; n++) {
+            const blockNode = blockNodes[n];
+            if (cumulatedHeight + blockNode.getHeight() > height) {
+                const newPageNode = pageNode.splitAt(n + 1);
+                const blockNodes = pageNode.getChildNodes();
+                const trailingBlockNode = blockNodes[blockNodes.length - 1];
+                const newBlockNode = this.breakBlockNode(trailingBlockNode, height - cumulatedHeight);
+                if (newBlockNode) {
+                    if (newPageNode.getChildNodes().length > 0) {
+                        newPageNode.insertBefore(newBlockNode, newPageNode.getChildNodes()[0]);
+                    } else {
+                        newPageNode.appendChild(newBlockNode);
+                    }
+                }
+                return newPageNode;
+            }
+            cumulatedHeight += blockNode.getHeight();
         }
-        // TODO: Reflow page node
-        this.pageNodeReflowStatuses.set(pageNode.getID(), true);
+        return null;
+    }
+
+    protected breakBlockNode(blockNode: BlockNode, height: number) {
+        const lineNodes = blockNode.getChildNodes();
+        let cumulatedHeight = 0;
+        for (let n = 0, nn = lineNodes.length; n < nn; n++) {
+            const lineNode = lineNodes[n];
+            if (cumulatedHeight + lineNode.getHeight() > height) {
+                const newBlockNode = blockNode.splitAt(n);
+                return newBlockNode;
+            }
+            cumulatedHeight += blockNode.getHeight();
+        }
+        return null;
     }
 
     protected breakLineNode(lineNode: LineNode, width: number) {
         const inlineNodes = lineNode.getChildNodes();
         let cumulatedWidth = 0;
-        for (let n = 0; n < inlineNodes.length; n++) {
+        for (let n = 0, nn = inlineNodes.length; n < nn; n++) {
             const inlineNode = inlineNodes[n];
             if (cumulatedWidth + inlineNode.getWidthWithoutTrailingWhitespace() > width) {
                 const newLineNode = lineNode.splitAt(n + 1);
@@ -153,7 +207,7 @@ export default class LayoutReflower {
     protected breakInlineNode(inlineNode: InlineNode, width: number) {
         const atomicNodes = inlineNode.getChildNodes();
         let cumulatedWidth = 0;
-        for (let n = 0; n < atomicNodes.length; n++) {
+        for (let n = 0, nn = atomicNodes.length; n < nn; n++) {
             const atomicNode = atomicNodes[n];
             if (cumulatedWidth + atomicNode.getWidthWithoutTrailingWhitespace() > width) {
                 let newInlineNode: InlineNode;
