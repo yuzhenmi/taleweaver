@@ -84,6 +84,9 @@ export default class AppliedTransformation {
     }
 
     getTransformedRange() {
+        if (this.beforeFrom === undefined) {
+            return null;
+        }
         return {
             beforeFrom: this.beforeFrom!,
             beforeTo: this.beforeTo!,

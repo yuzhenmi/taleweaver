@@ -46,18 +46,15 @@ export default class StateEngine {
             throw new Error('Error applying transformation, state engine has not been initialized.');
         }
         const appliedTransformations = transformations.map(transformation => this.applyTransformation(transformation));
-        const {
-            beforeFrom,
-            beforeTo,
-            afterFrom,
-            afterTo,
-        } = this.findTransformedRange(appliedTransformations);
-        this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
-            beforeFrom,
-            beforeTo,
-            afterFrom,
-            afterTo,
-        ));
+        const transformedRange = this.findTransformedRange(appliedTransformations);
+        if (transformedRange) {
+            this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
+                transformedRange.beforeFrom,
+                transformedRange.beforeTo,
+                transformedRange.afterFrom,
+                transformedRange.afterTo,
+            ));
+        }
         return appliedTransformations;
     }
 
@@ -66,18 +63,15 @@ export default class StateEngine {
             throw new Error('Error unapplying transformation, state engine has not been initialized.');
         }
         appliedTransformations.slice().reverse().forEach(appliedTransformation => this.unapplyTransformation(appliedTransformation));
-        const {
-            beforeFrom,
-            beforeTo,
-            afterFrom,
-            afterTo,
-        } = this.findTransformedRange(appliedTransformations);
-        this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
-            beforeFrom,
-            beforeTo,
-            afterFrom,
-            afterTo,
-        ));
+        const transformedRange = this.findTransformedRange(appliedTransformations);
+        if (transformedRange) {
+            this.editor.getDispatcher().dispatch(new StateUpdatedEvent(
+                transformedRange.beforeFrom,
+                transformedRange.beforeTo,
+                transformedRange.afterFrom,
+                transformedRange.afterTo,
+            ));
+        }
     }
 
     protected applyTransformation(transformation: Transformation): AppliedTransformation {
@@ -87,6 +81,13 @@ export default class StateEngine {
             cursorService.getAnchor(),
             cursorService.getHead(),
             cursorService.getLeftLock(),
+        );
+        const cursorAnchor = transformation.getCursorAnchor();
+        const cursorHead = transformation.getCursorHead();
+        cursorService.set(
+            cursorAnchor === null ? cursorService.getAnchor() : cursorAnchor,
+            cursorHead === null ? cursorService.getHead() : cursorHead,
+            transformation.getCursorLockLeft(),
         );
         const operations = transformation.getOperations();
         if (operations.length === 0) {
@@ -130,19 +131,24 @@ export default class StateEngine {
         let afterTo: number | undefined = undefined;
         appliedTransformations.forEach(appliedTransformation => {
             const transformedRange = appliedTransformation.getTransformedRange();
-            if (beforeFrom === undefined || transformedRange.beforeFrom < beforeFrom) {
-                beforeFrom = transformedRange.beforeFrom;
-            }
-            if (beforeTo === undefined || transformedRange.beforeTo > beforeTo) {
-                beforeTo = transformedRange.beforeTo;
-            }
-            if (afterFrom === undefined || transformedRange.afterFrom < afterFrom) {
-                afterFrom = transformedRange.afterFrom;
-            }
-            if (afterTo === undefined || transformedRange.afterTo < afterTo) {
-                afterTo = transformedRange.afterTo;
+            if (transformedRange) {
+                if (beforeFrom === undefined || transformedRange.beforeFrom < beforeFrom) {
+                    beforeFrom = transformedRange.beforeFrom;
+                }
+                if (beforeTo === undefined || transformedRange.beforeTo > beforeTo) {
+                    beforeTo = transformedRange.beforeTo;
+                }
+                if (afterFrom === undefined || transformedRange.afterFrom < afterFrom) {
+                    afterFrom = transformedRange.afterFrom;
+                }
+                if (afterTo === undefined || transformedRange.afterTo < afterTo) {
+                    afterTo = transformedRange.afterTo;
+                }
             }
         });
+        if (beforeFrom === undefined) {
+            return null;
+        }
         return {
             beforeFrom: beforeFrom!,
             beforeTo: beforeTo!,
