@@ -23,26 +23,8 @@ export default abstract class RenderNode<P extends AnyRenderNode, C extends AnyR
         return this.id;
     }
 
-    onUpdated(updatedNode: RenderNode<P, C>) {
-        if (!this.isLeaf()) {
-            const updatedChildNodes = updatedNode.getChildNodes();
-            const childNodes = this.getChildNodes().slice();
-            this.getChildNodes().forEach(childNode => {
-                this.removeChild(childNode);
-            });
-            for (let n = 0; n < updatedChildNodes.length; n++) {
-                const updatedChildNode = updatedChildNodes[n];
-                const childNode = childNodes.find((childNode) =>
-                    childNode!.getID() === updatedChildNode!.getID()
-                );
-                if (childNode) {
-                    childNode.onUpdated(updatedChildNode!);
-                    this.appendChild(childNode);
-                } else {
-                    this.appendChild(updatedChildNode);
-                }
-            }
-        }
+    onUpdated(updatedNode: this) {
+        super.onUpdated(updatedNode);
         this.clearCache();
     }
 }

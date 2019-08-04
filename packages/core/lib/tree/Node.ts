@@ -3,6 +3,7 @@ export type AnyNode = Node<any, any>;
 export default abstract class Node<P extends (Node | undefined) = Node<any, any>, C extends (Node | undefined) = Node<any, any>> {
     abstract isRoot(): boolean;
     abstract isLeaf(): boolean;
+    abstract getID(): string;
 
     private parent?: P;
     private childNodes?: C[];
@@ -92,4 +93,26 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
         }
         return siblings[ownIndex + 1] as any;
     }
+
+    onUpdated(updatedNode: this) {
+        if (!this.isLeaf()) {
+            const updatedChildNodes = updatedNode.getChildNodes();
+            const childNodes = this.getChildNodes().slice();
+            this.getChildNodes().forEach(childNode => {
+                this.removeChild(childNode);
+            });
+            for (let n = 0; n < updatedChildNodes.length; n++) {
+                const updatedChildNode = updatedChildNodes[n];
+                const childNode = childNodes.find((childNode) =>
+                    childNode!.getID() === updatedChildNode!.getID()
+                );
+                if (childNode) {
+                    childNode.onUpdated(updatedChildNode!);
+                    this.appendChild(childNode);
+                } else {
+                    this.appendChild(updatedChildNode);
+                }
+            }
+        }
+    };
 }

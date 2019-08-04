@@ -23,11 +23,11 @@ import {
     moveCursorToRightOfLine,
     selectAll,
     split,
-} from '../command/commands';
-import Editor from '../Editor';
-import * as keys from '../key/keys';
-import KeySignature from '../key/KeySignature';
-import * as modifierKeys from '../key/modifierKeys';
+} from '../../command/commands';
+import Editor from '../../Editor';
+import * as keys from '../keys';
+import KeySignature from '../KeySignature';
+import * as modifierKeys from '../modifierKeys';
 
 function bindKeys(editor: Editor) {
     const keyBindingConfig = editor.getConfig().getKeyBindingConfig();

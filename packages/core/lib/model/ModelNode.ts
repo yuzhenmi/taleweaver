@@ -56,27 +56,9 @@ export default abstract class ModelNode<A extends Attributes, P extends AnyModel
         return new (this.constructor(this.editor, attributes));
     }
 
-    onUpdated(updatedNode: ModelNode<A, P, C>) {
+    onUpdated(updatedNode: this) {
         this.attributes = updatedNode.attributes;
-        if (!this.isLeaf()) {
-            const updatedChildNodes = updatedNode.getChildNodes();
-            const childNodes = this.getChildNodes().slice();
-            this.getChildNodes().forEach(childNode => {
-                this.removeChild(childNode);
-            });
-            for (let n = 0; n < updatedChildNodes.length; n++) {
-                const updatedChildNode = updatedChildNodes[n];
-                const childNode = childNodes.find((childNode) =>
-                    childNode!.getID() === updatedChildNode!.getID()
-                );
-                if (childNode) {
-                    childNode.onUpdated(updatedChildNode!);
-                    this.appendChild(childNode);
-                } else {
-                    this.appendChild(updatedChildNode);
-                }
-            }
-        }
+        super.onUpdated(updatedNode);
         this.clearCache();
     };
 }

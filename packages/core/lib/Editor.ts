@@ -2,6 +2,7 @@ import Config from './config/Config';
 import CursorService from './cursor/CursorService';
 import Dispatcher from './dispatch/Dispatcher';
 import HistoryService from './history/HistoryService';
+import bindNavigationKeys from './key/bindings/navigation';
 import LayoutService from './layout/LayoutService';
 import ModelService from './model/ModelService';
 import RenderService from './render/RenderService';
@@ -32,6 +33,7 @@ export default class Editor {
         this.renderService = new RenderService(this);
         this.layoutService = new LayoutService(this);
         this.viewService = new ViewService(this);
+        bindNavigationKeys(this);
     }
 
     getID() {

@@ -90,6 +90,9 @@ export default abstract class BlockRenderNode extends RenderNode<ParentNode, Chi
             const updatedChildNodes = updatedNode.getChildNodes();
             const childNodes = super.getChildNodes().slice();
             this.getChildNodes().forEach(childNode => {
+                if (childNode === this.lineBreakInlineNode) {
+                    return;
+                }
                 this.removeChild(childNode);
             });
             for (let n = 0; n < updatedChildNodes.length; n++) {
