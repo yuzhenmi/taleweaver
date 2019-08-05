@@ -80,7 +80,9 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
         return this.outerHeight - this.paddingTop - this.paddingBottom;
     }
 
-    clearCache() { }
+    clearCache() {
+        this.size = undefined;
+    }
 
     splitAt(offset: number) {
         const newNode = new PageLayoutNode(this.editor);
@@ -89,7 +91,6 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
-        this.clearCache();
         return newNode;
     }
 

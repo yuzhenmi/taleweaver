@@ -14,7 +14,7 @@ export default class DocModelNode extends ModelNode<DocAttributes, never, ChildN
     protected size?: number;
 
     constructor(editor: Editor) {
-        super(editor, { id: 'Doc' });
+        super(editor, 'Doc', {});
     }
 
     isRoot() {

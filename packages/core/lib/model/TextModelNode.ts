@@ -1,5 +1,6 @@
 import Editor from '../Editor';
 import { Attributes } from '../state/OpenTagToken';
+import generateID from '../utils/generateID';
 import InlineModelNode from './InlineModelNode';
 import { DOMAttributes } from './ModelNode';
 
@@ -22,7 +23,7 @@ export default class TextModelNode extends InlineModelNode<TextAttributes> {
     }
 
     static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes, content: string): TextModelNode | null {
-        const text = new TextModelNode(editor, {});
+        const text = new TextModelNode(editor, generateID(), {});
         text.setContent(content);
         return text;
     }

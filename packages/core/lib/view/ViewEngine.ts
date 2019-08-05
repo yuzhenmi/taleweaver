@@ -43,11 +43,23 @@ class ViewEngine {
         const builder = new ViewTreeBuilder(this.editor, updatedLayoutNode);
         const updatedNode = builder.run();
         node.onUpdated(updatedNode);
+        this.clearAncestorsCache(node);
         this.editor.getDispatcher().dispatch(new ViewUpdatedEvent(node));
     }
 
     protected findNodeByLayoutID(layoutID: string) {
         return findNodeByLayoutID(layoutID, this.doc)!;
+    }
+
+    protected clearAncestorsCache(node: AnyViewNode) {
+        let currentNode = node;
+        while (true) {
+            currentNode.clearCache();
+            if (currentNode.isRoot()) {
+                break;
+            }
+            currentNode = currentNode.getParent();
+        }
     }
 }
 

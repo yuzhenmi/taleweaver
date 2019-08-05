@@ -67,7 +67,6 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
-        this.clearCache();
         return newNode;
     }
 

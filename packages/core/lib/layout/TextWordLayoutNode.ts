@@ -69,6 +69,11 @@ export default class TextWordLayoutNode extends AtomicNode {
         this.height = undefined;
     }
 
+    onUpdated(updatedNode: this) {
+        super.onUpdated(updatedNode);
+        this.content = updatedNode.getContent();
+    }
+
     splitAtWidth(width: number) {
         let min = 0;
         let max = this.content.length;

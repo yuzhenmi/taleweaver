@@ -23,7 +23,7 @@ import ParagraphViewNode from '../view/ParagraphViewNode';
 import TextViewNode from '../view/TextViewNode';
 import { AnyViewNode } from '../view/ViewNode';
 
-type ModelNodeClass = new (editor: Editor, attributes: Attributes) => AnyModelNode;
+type ModelNodeClass = new (editor: Editor, id: string, attributes: Attributes) => AnyModelNode;
 type RenderNodeClass<T extends AnyModelNode> = new (editor: Editor, modelNode: T) => AnyRenderNode;
 type LayoutNodeClass<T extends AnyRenderNode> = new (editor: Editor, renderNode: T, ...args: any[]) => AnyLayoutNode;
 type ViewNodeClass<T extends AnyLayoutNode> = new (edito: Editor, layoutNode: T) => AnyViewNode;

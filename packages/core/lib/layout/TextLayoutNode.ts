@@ -29,7 +29,6 @@ export default class TextLayoutNode extends InlineNode {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
-        this.clearCache();
         return newNode;
     }
 
@@ -38,7 +37,6 @@ export default class TextLayoutNode extends InlineNode {
             node.removeChild(childNode);
             this.appendChild(childNode);
         });
-        this.clearCache();
     }
 
     getTextStyle() {

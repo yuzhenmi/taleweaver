@@ -103,7 +103,7 @@ export default class StateParser {
         const parentNode = this.stack.peek();
         const nodeConfig = this.editor.getConfig().getNodeConfig();
         const NodeClass = nodeConfig.getModelNodeClass(token.getType());
-        const node = new NodeClass(this.editor, token.getAttributes());
+        const node = new NodeClass(this.editor, token.getID(), token.getAttributes());
         if (parentNode instanceof DocModelNode) {
             if (!(node instanceof BlockModelNode)) {
                 throw new Error('Unexpected child node for doc.');

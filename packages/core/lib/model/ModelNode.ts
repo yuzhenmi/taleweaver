@@ -2,7 +2,6 @@ import Editor from '../Editor';
 import { Attributes } from '../state/OpenTagToken';
 import Token from '../state/Token';
 import Node from '../tree/Node';
-import generateID from '../utils/generateID';
 
 export interface DOMAttributes {
     [key: string]: any;
@@ -21,10 +20,10 @@ export default abstract class ModelNode<A extends Attributes, P extends AnyModel
     protected id: string;
     protected attributes: A;
 
-    constructor(editor: Editor, attributes: A) {
+    constructor(editor: Editor, id: string, attributes: A) {
         super();
         this.editor = editor;
-        this.id = attributes.id === undefined ? generateID() : attributes.id;
+        this.id = id;
         this.attributes = attributes;
     }
 

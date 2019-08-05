@@ -44,6 +44,7 @@ export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewN
     onUpdated(updatedNode: this) {
         super.onUpdated(updatedNode);
         this.clearCache();
+        this.updateDOM();
     }
 
     onDeleted() {

@@ -96,23 +96,40 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
 
     onUpdated(updatedNode: this) {
         if (!this.isLeaf()) {
-            const updatedChildNodes = updatedNode.getChildNodes();
             const childNodes = this.getChildNodes().slice();
-            this.getChildNodes().forEach(childNode => {
-                this.removeChild(childNode);
-            });
-            for (let n = 0; n < updatedChildNodes.length; n++) {
-                const updatedChildNode = updatedChildNodes[n];
-                const childNode = childNodes.find((childNode) =>
-                    childNode!.getID() === updatedChildNode!.getID()
-                );
-                if (childNode) {
-                    childNode.onUpdated(updatedChildNode!);
-                    this.appendChild(childNode);
+            const updatedChildNodes = updatedNode.getChildNodes();
+            let m = 0;
+            for (let n = 0, nn = updatedChildNodes.length; n < nn; n++) {
+                const updatedChildNode = updatedChildNodes[n]!;
+                let i = -1;
+                for (let o = m, oo = childNodes.length; o < oo; o++) {
+                    if (childNodes[o]!.getID() === updatedChildNode.getID()) {
+                        i = o;
+                        break;
+                    }
+                }
+                if (i >= 0) {
+                    while (m < i) {
+                        this.removeChild(childNodes[m]);
+                        m++;
+                    }
+                    childNodes[m]!.onUpdated(updatedChildNode);
+                    m++;
                 } else {
-                    this.appendChild(updatedChildNode);
+                    if (m < childNodes.length) {
+                        this.insertBefore(updatedChildNode, childNodes[m]);
+                    } else {
+                        this.appendChild(updatedChildNode);
+                    }
                 }
             }
+            while (m < childNodes.length) {
+                this.removeChild(childNodes[m]);
+                m++;
+            }
+            if (updatedChildNodes.slice().length !== this.childNodes!.slice().length) {
+                throw new Error('dafuq');
+            }
         }
-    };
+    }
 }

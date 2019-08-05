@@ -1,5 +1,6 @@
 import Editor from '../Editor';
 import { Attributes } from '../state/OpenTagToken';
+import generateID from '../utils/generateID';
 import BlockModelNode from './BlockModelNode';
 import { DOMAttributes } from './ModelNode';
 
@@ -15,7 +16,7 @@ export default class ParagraphModelNode extends BlockModelNode<ParagraphAttribut
     }
 
     static fromDOM(editor: Editor, nodeName: string, attributes: DOMAttributes): ParagraphModelNode | null {
-        return new ParagraphModelNode(editor, {});
+        return new ParagraphModelNode(editor, generateID(), {});
     }
 
     getType() {

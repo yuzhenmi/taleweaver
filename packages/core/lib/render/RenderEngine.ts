@@ -39,10 +39,22 @@ export default class RenderEngine {
         const renderTreeBuilder = new RenderTreeBuilder(this.editor, updatedModelNode);
         const updatedNode = renderTreeBuilder.run();
         node.onUpdated(updatedNode);
+        this.clearAncestorsCache(node);
         this.editor.getDispatcher().dispatch(new RenderUpdatedEvent(node));
     }
 
     protected findNodeByModelID(modelID: string) {
         return findNodeByModelID(modelID, this.doc)!;
+    }
+
+    protected clearAncestorsCache(node: AnyRenderNode) {
+        let currentNode = node;
+        while (true) {
+            currentNode.clearCache();
+            if (currentNode.isRoot()) {
+                break;
+            }
+            currentNode = currentNode.getParent();
+        }
     }
 }

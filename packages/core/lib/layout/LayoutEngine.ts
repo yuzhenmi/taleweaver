@@ -1,6 +1,10 @@
 import Editor from '../Editor';
 import LayoutUpdatedEvent from '../events/LayoutUpdatedEvent';
 import RenderUpdatedEvent from '../events/RenderUpdatedEvent';
+import AtomicRenderNode from '../render/AtomicRenderNode';
+import BlockRenderNode from '../render/BlockRenderNode';
+import InlineRenderNode from '../render/InlineRenderNode';
+import { AnyRenderNode } from '../render/RenderNode';
 import DocLayoutNode from './DocLayoutNode';
 import { AnyLayoutNode } from './LayoutNode';
 import LayoutReflower from './LayoutReflower';
@@ -35,11 +39,19 @@ export default class LayoutEngine {
     }
 
     protected handleRenderUpdatedEvent = (event: RenderUpdatedEvent) => {
-        const updatedRenderNode = event.getUpdatedNode();
+        let updatedRenderNode: AnyRenderNode = event.getUpdatedNode();
+        if (updatedRenderNode instanceof AtomicRenderNode) {
+            updatedRenderNode = updatedRenderNode.getParent()!.getParent()!;
+        } else if (updatedRenderNode instanceof InlineRenderNode) {
+            updatedRenderNode = updatedRenderNode.getParent()!;
+        } else if (updatedRenderNode instanceof BlockRenderNode) {
+            updatedRenderNode = updatedRenderNode.getParent()!;
+        }
         const node = this.findNodeByRenderID(updatedRenderNode.getID());
         const layoutTreeBuilder = new LayoutTreeBuilder(this.editor, updatedRenderNode);
         const updatedNode = layoutTreeBuilder.run();
         node.onUpdated(updatedNode);
+        this.clearAncestorsCache(node);
         const layoutReflower = new LayoutReflower(this.editor, node);
         const reflowedNode = layoutReflower.run();
         this.editor.getDispatcher().dispatch(new LayoutUpdatedEvent(reflowedNode));
@@ -47,5 +59,16 @@ export default class LayoutEngine {
 
     protected findNodeByRenderID(renderID: string) {
         return findNodeByRenderID(renderID, this.doc)!;
+    }
+
+    protected clearAncestorsCache(node: AnyLayoutNode) {
+        let currentNode = node;
+        while (true) {
+            currentNode.clearCache();
+            if (currentNode.isRoot()) {
+                break;
+            }
+            currentNode = currentNode.getParent();
+        }
     }
 }

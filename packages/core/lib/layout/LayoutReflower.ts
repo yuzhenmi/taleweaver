@@ -9,7 +9,8 @@ import PageNode from './PageLayoutNode';
 
 export default class LayoutReflower {
     protected editor: Editor;
-    protected rootNode?: AnyLayoutNode;
+    protected rootNode: AnyLayoutNode;
+    protected updatedNode: AnyLayoutNode;
     protected lineNodeQueue: LineNode[] = [];
     protected lineNodeReflowStatuses: Map<string, boolean> = new Map();
     protected pageNodeQueue: PageNode[] = [];
@@ -19,13 +20,14 @@ export default class LayoutReflower {
     constructor(editor: Editor, rootNode: AnyLayoutNode) {
         this.editor = editor;
         this.rootNode = rootNode;
+        this.updatedNode = rootNode;
     }
 
     run() {
         if (!this.ran) {
             this.reflow();
         }
-        return this.rootNode!;
+        return this.updatedNode;
     }
 
     protected reflow() {
@@ -80,34 +82,56 @@ export default class LayoutReflower {
 
     protected flushQueuedLineNodes() {
         let lineNode: LineNode;
+        let reflowed = false;
         for (let n = 0; n < this.lineNodeQueue.length; n++) {
             lineNode = this.lineNodeQueue[n];
-            this.reflowLineNode(lineNode);
+            if (this.reflowLineNode(lineNode)) {
+                reflowed = true;
+            }
+        }
+        if (reflowed) {
+            const updatedNode = this.lineNodeQueue[0].getParent();
+            let node = this.updatedNode;
+            while (node && !node.isRoot()) {
+                node = node.getParent();
+                if (node === updatedNode) {
+                    this.updatedNode = node;
+                    break;
+                }
+            }
         }
         this.lineNodeQueue = [];
     }
 
     protected flushQueuedPageNodes() {
         let pageNode: PageNode;
+        let reflowed = false;
         for (let n = 0; n < this.pageNodeQueue.length; n++) {
             pageNode = this.pageNodeQueue[n];
-            this.reflowPageNode(pageNode);
+            if (this.reflowPageNode(pageNode)) {
+                reflowed = true;
+            }
+        }
+        if (reflowed) {
+            this.updatedNode = this.pageNodeQueue[0].getParent()!;
         }
         this.pageNodeQueue = [];
     }
 
     protected reflowPageNode(pageNode: PageNode) {
         if (this.pageNodeReflowStatuses.get(pageNode.getID())) {
-            return;
+            return false;
         }
         const parentNode = pageNode.getParent()!;
         const maxHeight = pageNode.getInnerHeight();
         let currentPageNode = pageNode;
+        let reflowed = false;
         while (true) {
             const newPageNode = this.breakPageNode(currentPageNode, maxHeight);
             if (!newPageNode) {
                 break;
             }
+            reflowed = true;
             const nextPageNode = currentPageNode.getNextSibling();
             if (nextPageNode) {
                 parentNode.insertBefore(newPageNode, nextPageNode);
@@ -117,20 +141,23 @@ export default class LayoutReflower {
             this.pageNodeReflowStatuses.set(pageNode.getID(), true);
             currentPageNode = newPageNode;
         }
+        return reflowed;
     }
 
     protected reflowLineNode(lineNode: LineNode) {
         if (this.lineNodeReflowStatuses.get(lineNode.getID())) {
-            return;
+            return false;
         }
         const parentNode = lineNode.getParent()!;
         const maxWidth = parentNode.getWidth();
         let currentLineNode = lineNode;
+        let reflowed = false;
         while (true) {
             const newLineNode = this.breakLineNode(currentLineNode, maxWidth);
             if (!newLineNode) {
                 break;
             }
+            reflowed = true;
             const nextLineNode = currentLineNode.getNextSibling();
             if (nextLineNode) {
                 parentNode.insertBefore(newLineNode, nextLineNode);
@@ -140,6 +167,7 @@ export default class LayoutReflower {
             this.lineNodeReflowStatuses.set(currentLineNode.getID(), true);
             currentLineNode = newLineNode;
         }
+        return reflowed;
     }
 
     protected breakPageNode(pageNode: PageNode, height: number) {
@@ -153,6 +181,9 @@ export default class LayoutReflower {
                 const trailingBlockNode = blockNodes[blockNodes.length - 1];
                 const newBlockNode = this.breakBlockNode(trailingBlockNode, height - cumulatedHeight);
                 if (newBlockNode) {
+                    if (newBlockNode === blockNode) {
+                        pageNode.removeChild(blockNode);
+                    }
                     if (newPageNode.getChildNodes().length > 0) {
                         newPageNode.insertBefore(newBlockNode, newPageNode.getChildNodes()[0]);
                     } else {
@@ -172,6 +203,9 @@ export default class LayoutReflower {
         for (let n = 0, nn = lineNodes.length; n < nn; n++) {
             const lineNode = lineNodes[n];
             if (cumulatedHeight + lineNode.getHeight() > height) {
+                if (n === 0) {
+                    return blockNode;
+                }
                 const newBlockNode = blockNode.splitAt(n);
                 return newBlockNode;
             }

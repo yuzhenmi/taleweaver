@@ -37,4 +37,11 @@ export default class TextWordRenderNode extends AtomicRenderNode {
     getTextStyle() {
         return this.textStyle;
     }
+
+    onUpdated(updatedNode: this) {
+        this.content = updatedNode.getContent();
+        this.breakable = updatedNode.getBreakable();
+        this.textStyle = updatedNode.getTextStyle();
+        super.onUpdated(updatedNode);
+    }
 }

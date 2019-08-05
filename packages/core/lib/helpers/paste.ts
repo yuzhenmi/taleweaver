@@ -94,7 +94,7 @@ function interpretRootDOMNode(editor: Editor, node: Node, defaultBlockNode: AnyB
             interpretedNode.blockNode = defaultBlockNode.clone();
         }
         const { blockNode, content } = interpretedNode;
-        const inlineNode = new Text(editor, {});
+        const inlineNode = new Text(editor, generateID(), {});
         inlineNode.setContent(content);
         blockNode!.appendChild(inlineNode);
         return blockNode!;
@@ -183,7 +183,7 @@ function paste(editor: Editor, data: DataTransfer) {
         }
     }
     if (!defaultBlockNode) {
-        defaultBlockNode = new Paragraph(editor, {});
+        defaultBlockNode = new Paragraph(editor, generateID(), {});
     }
     const blockNodes = interpretRootDOMNode(editor, bodyNode, defaultBlockNode);
     let tokens: Token[] = [];

@@ -29,7 +29,6 @@ export default class ParagraphLayoutNode extends BlockNode {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
-        this.clearCache();
         return newNode;
     }
 
@@ -38,6 +37,9 @@ export default class ParagraphLayoutNode extends BlockNode {
             node.removeChild(childNode);
             this.appendChild(childNode);
         });
-        this.clearCache();
+    }
+
+    onUpdated(updatedNode: this) {
+        super.onUpdated(updatedNode);
     }
 }

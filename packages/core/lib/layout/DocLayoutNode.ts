@@ -32,7 +32,9 @@ export default class DocLayoutNode extends LayoutNode<never, ChildNode> {
         return this.size;
     }
 
-    clearCache() { }
+    clearCache() {
+        this.size = undefined;
+    }
 
     resolvePosition(offset: number) {
         let cumulatedOffset = 0;

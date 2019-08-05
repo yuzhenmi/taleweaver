@@ -1,6 +1,8 @@
 import Editor from '../Editor';
 import ModelUpdatedEvent from '../events/ModelUpdatedEvent';
 import StateUpdatedEvent from '../events/StateUpdatedEvent';
+import CloseTagToken from '../state/CloseTagToken';
+import OpenTagToken from '../state/OpenTagToken';
 import DocModelNode from './DocModelNode';
 import { AnyModelNode } from './ModelNode';
 import ModelPosition from './ModelPosition';
@@ -23,7 +25,15 @@ export default class ModelEngine {
     protected handleStateUpdatedEvent = (event: StateUpdatedEvent) => {
         const position = this.doc.resolvePosition(event.getBeforeFrom());
         const tokens = this.editor.getStateService().getTokens();
-        const parser = new TokenParser(this.editor, tokens);
+        let from = event.getAfterFrom();
+        let to = event.getAfterTo();
+        while (!(tokens[from] instanceof OpenTagToken)) {
+            from--;
+        }
+        while (!(tokens[to - 1] instanceof CloseTagToken)) {
+            to++;
+        }
+        const parser = new TokenParser(this.editor, tokens.slice(from, to));
         const updatedNode = parser.run();
         let node: AnyModelNode | null = null;
         let currentPosition: ModelPosition | null = position;
@@ -38,6 +48,18 @@ export default class ModelEngine {
             throw new Error('Error identifying updated model node.');
         }
         node.onUpdated(updatedNode);
+        this.clearAncestorsCache(node);
         this.editor.getDispatcher().dispatch(new ModelUpdatedEvent(node));
+    }
+
+    protected clearAncestorsCache(node: AnyModelNode) {
+        let currentNode = node;
+        while (true) {
+            currentNode.clearCache();
+            if (currentNode.isRoot()) {
+                break;
+            }
+            currentNode = currentNode.getParent();
+        }
     }
 }
