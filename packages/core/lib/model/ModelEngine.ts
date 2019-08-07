@@ -3,6 +3,7 @@ import ModelUpdatedEvent from '../events/ModelUpdatedEvent';
 import StateUpdatedEvent from '../events/StateUpdatedEvent';
 import CloseTagToken from '../state/CloseTagToken';
 import OpenTagToken from '../state/OpenTagToken';
+import Token from '../state/Token';
 import DocModelNode from './DocModelNode';
 import { AnyModelNode } from './ModelNode';
 import ModelPosition from './ModelPosition';
@@ -27,11 +28,39 @@ export default class ModelEngine {
         const tokens = this.editor.getStateService().getTokens();
         let from = event.getAfterFrom();
         let to = event.getAfterTo();
-        while (!(tokens[from] instanceof OpenTagToken)) {
+        let depthPeak = 0;
+        let depth = 0;
+        tokens.slice(from, to).forEach(token => {
+            if (token instanceof OpenTagToken) {
+                depth--;
+            } else if (token instanceof CloseTagToken) {
+                depth++;
+            }
+            if (depth > depthPeak) {
+                depthPeak = depth;
+            }
+        });
+        let opensNeeded = depthPeak + 1;
+        let closesNeeded = depthPeak + 1;
+        let token: Token;
+        while (opensNeeded > 0 && from > 0) {
             from--;
+            token = tokens[from];
+            if (token instanceof OpenTagToken) {
+                opensNeeded--;
+            } else if (token instanceof CloseTagToken) {
+                opensNeeded++;
+            }
         }
-        while (!(tokens[to - 1] instanceof CloseTagToken)) {
+        const maxTokenIndex = tokens.length;
+        while (closesNeeded > 0 && to < maxTokenIndex) {
             to++;
+            token = tokens[to - 1];
+            if (token instanceof OpenTagToken) {
+                closesNeeded++;
+            } else if (token instanceof CloseTagToken) {
+                closesNeeded--;
+            }
         }
         const parser = new TokenParser(this.editor, tokens.slice(from, to));
         const updatedNode = parser.run();

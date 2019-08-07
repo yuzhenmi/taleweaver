@@ -22,4 +22,8 @@ export default class LineBreakRenderNode extends InlineNode {
     getModelSize() {
         return 0;
     }
+
+    convertOffsetToModelOffset(offset: number): number {
+        return -1;
+    }
 }

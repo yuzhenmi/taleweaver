@@ -28,6 +28,14 @@ export default class TextRenderNode extends InlineRenderNode {
             const childNode = new TextWordRenderNode(editor, modelNode, wordIndex, this.textStyle, word);
             this.appendChild(childNode);
         });
+        if (this.getChildNodes().length === 0) {
+            const word = {
+                text: '',
+                breakable: false,
+            };
+            const childNode = new TextWordRenderNode(editor, modelNode, 0, this.textStyle, word);
+            this.appendChild(childNode);
+        }
     }
 
     getType(): string {

@@ -10,20 +10,6 @@ import { AnyLayoutNode } from './LayoutNode';
 import LayoutReflower from './LayoutReflower';
 import LayoutTreeBuilder from './LayoutTreeBuilder';
 
-function findNodeByRenderID(renderID: string, node: AnyLayoutNode): AnyLayoutNode | null {
-    if (node.getID() === renderID) {
-        return node;
-    }
-    const childNodes = node.getChildNodes();
-    for (let n = 0, nn = childNodes.length; n < nn; n++) {
-        const foundNode = findNodeByRenderID(renderID, childNodes[n]);
-        if (foundNode) {
-            return foundNode;
-        }
-    }
-    return null;
-}
-
 export default class LayoutEngine {
     protected editor: Editor;
     protected doc: DocLayoutNode;
@@ -47,7 +33,7 @@ export default class LayoutEngine {
         } else if (updatedRenderNode instanceof BlockRenderNode) {
             updatedRenderNode = updatedRenderNode.getParent()!;
         }
-        const node = this.findNodeByRenderID(updatedRenderNode.getID());
+        const node = this.doc.findDescendant(updatedRenderNode.getID()) as AnyLayoutNode;
         const layoutTreeBuilder = new LayoutTreeBuilder(this.editor, updatedRenderNode);
         const updatedNode = layoutTreeBuilder.run();
         node.onUpdated(updatedNode);
@@ -55,10 +41,6 @@ export default class LayoutEngine {
         const layoutReflower = new LayoutReflower(this.editor, node);
         const reflowedNode = layoutReflower.run();
         this.editor.getDispatcher().dispatch(new LayoutUpdatedEvent(reflowedNode));
-    }
-
-    protected findNodeByRenderID(renderID: string) {
-        return findNodeByRenderID(renderID, this.doc)!;
     }
 
     protected clearAncestorsCache(node: AnyLayoutNode) {

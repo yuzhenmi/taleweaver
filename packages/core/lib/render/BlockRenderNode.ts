@@ -32,6 +32,10 @@ export default abstract class BlockRenderNode extends RenderNode<ParentNode, Chi
         return [...childNodes, this.lineBreakInlineNode];
     }
 
+    getChildNodesExcludeLineBreak() {
+        return super.getChildNodes();
+    }
+
     getSize() {
         if (this.size === undefined) {
             this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);
@@ -83,31 +87,5 @@ export default abstract class BlockRenderNode extends RenderNode<ParentNode, Chi
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
-    }
-
-    onUpdated(updatedNode: BlockRenderNode) {
-        if (!this.isLeaf()) {
-            const updatedChildNodes = updatedNode.getChildNodes();
-            const childNodes = super.getChildNodes().slice();
-            this.getChildNodes().forEach(childNode => {
-                if (childNode === this.lineBreakInlineNode) {
-                    return;
-                }
-                this.removeChild(childNode);
-            });
-            for (let n = 0; n < updatedChildNodes.length; n++) {
-                const updatedChildNode = updatedChildNodes[n];
-                const childNode = childNodes.find((childNode) =>
-                    childNode!.getID() === updatedChildNode!.getID()
-                );
-                if (childNode) {
-                    childNode.onUpdated(updatedChildNode!);
-                    this.appendChild(childNode);
-                } else {
-                    this.appendChild(updatedChildNode);
-                }
-            }
-        }
-        this.clearCache();
     }
 }

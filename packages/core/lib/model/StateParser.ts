@@ -67,33 +67,37 @@ export default class StateParser {
         let token: Token;
         for (let n = 0, nn = this.tokens.length; n < nn; n++) {
             token = this.tokens[n];
-            switch (this.parserState) {
-                case ParserState.NewNode:
-                    if (token instanceof OpenTagToken) {
-                        this.newNode(token);
-                        break;
-                    }
-                    if (typeof token === 'string') {
+            try {
+                switch (this.parserState) {
+                    case ParserState.NewNode:
+                        if (token instanceof OpenTagToken) {
+                            this.newNode(token);
+                            break;
+                        }
+                        if (typeof token === 'string') {
+                            this.appendToContent(token);
+                            break;
+                        }
+                        if (token instanceof CloseTagToken) {
+                            this.closeNode(token);
+                            break;
+                        }
                         this.appendToContent(token);
                         break;
-                    }
-                    if (token instanceof CloseTagToken) {
-                        this.closeNode(token);
-                        break;
-                    }
-                    this.appendToContent(token);
-                    break;
-                case ParserState.Content:
-                    if (typeof token === 'string') {
-                        this.appendToContent(token);
-                        break;
-                    }
-                    if (token instanceof CloseTagToken) {
-                        this.closeNode(token);
-                        break;
-                    }
-                default:
-                    throw new Error(`Unexpected token at offset ${n}.`);
+                    case ParserState.Content:
+                        if (typeof token === 'string') {
+                            this.appendToContent(token);
+                            break;
+                        }
+                        if (token instanceof CloseTagToken) {
+                            this.closeNode(token);
+                            break;
+                        }
+                    default:
+                        throw new Error('Unexpected token encountered.');
+                }
+            } catch (error) {
+                throw new Error(`Error at token ${n}: ${error}`);
             }
         }
         this.ran = true;

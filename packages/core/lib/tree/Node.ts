@@ -94,10 +94,28 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
         return siblings[ownIndex + 1] as any;
     }
 
+    findDescendant(id: string): AnyNode | null {
+        if (this.getID() === id) {
+            return this;
+        }
+        if (this.isLeaf()) {
+            return null;
+        }
+        const childNodes = this.getChildNodes();
+        for (let n = 0, nn = childNodes.length; n < nn; n++) {
+            const childNode = childNodes[n]!;
+            const result = childNode.findDescendant(id);
+            if (result) {
+                return result;
+            }
+        }
+        return null;
+    }
+
     onUpdated(updatedNode: this) {
         if (!this.isLeaf()) {
-            const childNodes = this.getChildNodes().slice();
-            const updatedChildNodes = updatedNode.getChildNodes();
+            const childNodes = this.childNodes!.slice();
+            const updatedChildNodes = updatedNode.childNodes!;
             let m = 0;
             for (let n = 0, nn = updatedChildNodes.length; n < nn; n++) {
                 const updatedChildNode = updatedChildNodes[n]!;
@@ -126,9 +144,6 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
             while (m < childNodes.length) {
                 this.removeChild(childNodes[m]);
                 m++;
-            }
-            if (updatedChildNodes.slice().length !== this.childNodes!.slice().length) {
-                throw new Error('dafuq');
             }
         }
     }

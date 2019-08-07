@@ -26,6 +26,6 @@ export default class LineBreakAtomicRenderNode extends AtomicRenderNode {
     clearCache() { }
 
     convertOffsetToModelOffset(offset: number) {
-        return 0;
+        return -1;
     }
 }
