@@ -1,13 +1,13 @@
-import React from 'react';;
-import styled from 'styled-components';
 import { TextStyle } from '@taleweaver/core';
+import React from 'react';
+import styled from 'styled-components';
 
 const DockedPlaceholder = styled.div`
   height: 42px;
 `;
 
 interface WrapperProps {
-  isDocked: boolean;
+    isDocked: boolean;
 }
 
 const Wrapper = styled.div<WrapperProps>`
@@ -58,8 +58,8 @@ const Group = styled.div`
 `;
 
 interface ItemProps {
-  disabled: boolean;
-  active: boolean;
+    disabled: boolean;
+    active: boolean;
 }
 
 const Item = styled.button<ItemProps>`
@@ -72,6 +72,8 @@ const Item = styled.button<ItemProps>`
   font-size: 18px;
   position: relative;
   color: rgba(0, 0, 0, 0.85);
+  background: transparent;
+  padding: 0;
   border: none;
   border-radius: 3px;
   outline: none;
@@ -98,8 +100,8 @@ const Item = styled.button<ItemProps>`
 `;
 
 interface SelectItemProps {
-  disabled: boolean;
-  width: number;
+    disabled: boolean;
+    width: number;
 }
 
 const SelectItem = styled.select<SelectItemProps>`
@@ -125,7 +127,7 @@ const SelectItem = styled.select<SelectItemProps>`
 `;
 
 interface ItemColorLineProps {
-  color: string;
+    color: string;
 }
 
 const ItemColorLine = styled.div<ItemColorLineProps>`
@@ -138,120 +140,120 @@ const ItemColorLine = styled.div<ItemColorLineProps>`
 `;
 
 interface Props {
-  textStyle: TextStyle | null;
+    textStyle: TextStyle | null;
 }
 
 interface State {
-  isDocked: boolean;
+    isDocked: boolean;
 }
 
 class ToolBar extends React.Component<Props, State> {
-  protected top = 0;
-  protected ref = React.createRef<HTMLDivElement>();
-  state = {
-    isDocked: false,
-  };
+    protected top = 0;
+    protected ref = React.createRef<HTMLDivElement>();
+    state = {
+        isDocked: false,
+    };
 
-  componentDidMount() {
-    this.top = this.ref.current!.offsetTop;
-    window.addEventListener('scroll', this.handleScroll);
-  }
-
-  componentWillUnmount() {
-    window.removeEventListener('scroll', this.handleScroll);
-  }
-
-  handleScroll = () => {
-    const isDocked = window.scrollY >= this.top;
-    if (this.state.isDocked !== isDocked) {
-      this.setState({ isDocked });
+    componentDidMount() {
+        this.top = this.ref.current!.offsetTop;
+        window.addEventListener('scroll', this.handleScroll);
     }
-  }
 
-  render () {
-    const { textStyle } = this.props;
-    const { isDocked } = this.state;
-    return (
-      <>
-        {isDocked && <DockedPlaceholder />}
-        <Wrapper ref={this.ref} isDocked={isDocked}>
-          <InnerWrapper>
-            <Group>
-              <SelectItem width={120} value="Normal" disabled={!textStyle}>
-                <option value="Normal">Normal text</option>
-                <option value="Title">Title</option>
-                <option value="Subtitle">Subtitle</option>
-                <option value="Heading 1">Heading 1</option>
-                <option value="Heading 2">Heading 2</option>
-                <option value="Heading 3">Heading 3</option>
-              </SelectItem>
-            </Group>
-            <Group>
-              <SelectItem width={120} value="Arial" disabled={!textStyle}>
-                <option value="Arial">Arial</option>
-                <option value="Calibri">Calibri</option>
-                <option value="Comic Sans">Comic Sans</option>
-                <option value="Open Sans">Open Sans</option>
-                <option value="Roboto">Roboto</option>
-                <option value="Times New Roman">Times New Roman</option>
-                <option value="Verdana">Verdana</option>
-              </SelectItem>
-            </Group>
-            <Group>
-              <SelectItem width={60} value={textStyle ? `${textStyle.size}` : ''} disabled={!textStyle}>
-                <option value="" style={{ display: 'hidden' }} />
-                <option value="10">10</option>
-                <option value="12">12</option>
-                <option value="14">14</option>
-                <option value="16">16</option>
-                <option value="18">18</option>
-                <option value="24">24</option>
-                <option value="30">30</option>
-                <option value="36">36</option>
-                <option value="42">42</option>
-              </SelectItem>
-            </Group>
-            <Group>
-              <Item
-                active={textStyle && textStyle.weight !== null && textStyle.weight > 400 ? true : false}
-                disabled={!textStyle}
-              >
-                <i className="mdi mdi-format-bold" />
-              </Item>
-              <Item
-                active={textStyle && textStyle.italic ? true : false}
-                disabled={!textStyle}
-              >
-                <i className="mdi mdi-format-italic" />
-              </Item>
-              <Item
-                active={textStyle && textStyle.underline ? true : false}
-                disabled={!textStyle}
-              >
-                <i className="mdi mdi-format-underline" />
-              </Item>
-              <Item
-                active={textStyle && textStyle.strikethrough ? true : false}
-                disabled={!textStyle}
-              >
-                <i className="mdi mdi-format-strikethrough-variant" />
-              </Item>
-              <Item
-                active={false}
-                disabled={!textStyle}
-              >
-                <i
-                  className="mdi mdi-format-color-text"
-                  style={{ position: 'relative', top: '-2px' }}
-                />
-                <ItemColorLine color={textStyle && textStyle.color !== null ? textStyle.color : 'transparent'} />
-              </Item>
-            </Group>
-          </InnerWrapper>
-        </Wrapper>
-      </>
-    );
-  }
+    componentWillUnmount() {
+        window.removeEventListener('scroll', this.handleScroll);
+    }
+
+    handleScroll = () => {
+        const isDocked = window.scrollY >= this.top;
+        if (this.state.isDocked !== isDocked) {
+            this.setState({ isDocked });
+        }
+    }
+
+    render() {
+        const { textStyle } = this.props;
+        const { isDocked } = this.state;
+        return (
+            <>
+                {isDocked && <DockedPlaceholder />}
+                <Wrapper ref={this.ref} isDocked={isDocked}>
+                    <InnerWrapper>
+                        <Group>
+                            <SelectItem width={120} value="Normal" disabled={!textStyle}>
+                                <option value="Normal">Normal text</option>
+                                <option value="Title">Title</option>
+                                <option value="Subtitle">Subtitle</option>
+                                <option value="Heading 1">Heading 1</option>
+                                <option value="Heading 2">Heading 2</option>
+                                <option value="Heading 3">Heading 3</option>
+                            </SelectItem>
+                        </Group>
+                        <Group>
+                            <SelectItem width={120} value="Arial" disabled={!textStyle}>
+                                <option value="Arial">Arial</option>
+                                <option value="Calibri">Calibri</option>
+                                <option value="Comic Sans">Comic Sans</option>
+                                <option value="Open Sans">Open Sans</option>
+                                <option value="Roboto">Roboto</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                                <option value="Verdana">Verdana</option>
+                            </SelectItem>
+                        </Group>
+                        <Group>
+                            <SelectItem width={60} value={textStyle ? `${textStyle.size}` : ''} disabled={!textStyle}>
+                                <option value="" style={{ display: 'hidden' }} />
+                                <option value="10">10</option>
+                                <option value="12">12</option>
+                                <option value="14">14</option>
+                                <option value="16">16</option>
+                                <option value="18">18</option>
+                                <option value="24">24</option>
+                                <option value="30">30</option>
+                                <option value="36">36</option>
+                                <option value="42">42</option>
+                            </SelectItem>
+                        </Group>
+                        <Group>
+                            <Item
+                                active={textStyle && textStyle.weight !== null && textStyle.weight > 400 ? true : false}
+                                disabled={!textStyle}
+                            >
+                                <i className="mdi mdi-format-bold" />
+                            </Item>
+                            <Item
+                                active={textStyle && textStyle.italic ? true : false}
+                                disabled={!textStyle}
+                            >
+                                <i className="mdi mdi-format-italic" />
+                            </Item>
+                            <Item
+                                active={textStyle && textStyle.underline ? true : false}
+                                disabled={!textStyle}
+                            >
+                                <i className="mdi mdi-format-underline" />
+                            </Item>
+                            <Item
+                                active={textStyle && textStyle.strikethrough ? true : false}
+                                disabled={!textStyle}
+                            >
+                                <i className="mdi mdi-format-strikethrough-variant" />
+                            </Item>
+                            <Item
+                                active={false}
+                                disabled={!textStyle}
+                            >
+                                <i
+                                    className="mdi mdi-format-color-text"
+                                    style={{ position: 'relative', top: '-2px' }}
+                                />
+                                <ItemColorLine color={textStyle && textStyle.color !== null ? textStyle.color : 'transparent'} />
+                            </Item>
+                        </Group>
+                    </InnerWrapper>
+                </Wrapper>
+            </>
+        );
+    }
 };
 
 export default ToolBar;
