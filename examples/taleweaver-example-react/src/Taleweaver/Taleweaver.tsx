@@ -1,5 +1,6 @@
 import Editor, { Config, TextStyle } from '@taleweaver/core';
-import ViewUpdatedEvent from '@taleweaver/core/lib/events/ViewUpdatedEvent';
+import CursorUpdatedEvent from '@taleweaver/core/lib/events/CursorUpdatedEvent';
+import RenderUpdatedEvent from '@taleweaver/core/lib/events/RenderUpdatedEvent';
 import React from 'react';
 import styled from 'styled-components';
 
@@ -51,6 +52,7 @@ type State = {
 
 export default class Taleweaver extends React.Component<Props, State> {
     protected domRef: React.RefObject<HTMLDivElement>;
+    protected isTextStyleRefreshQueued: boolean = false;
 
     constructor(props: Props) {
         super(props);
@@ -64,7 +66,8 @@ export default class Taleweaver extends React.Component<Props, State> {
         const config = new Config();
         const editor = new Editor(config);
         this.setState({ editor });
-        editor.getDispatcher().on(ViewUpdatedEvent, event => this.onViewChange());
+        editor.getDispatcher().on(RenderUpdatedEvent, event => this.refreshTextStyle());
+        editor.getDispatcher().on(CursorUpdatedEvent, event => this.refreshTextStyle());
         editor.start(initialMarkup, domElement);
     }
 
@@ -78,8 +81,12 @@ export default class Taleweaver extends React.Component<Props, State> {
         );
     }
 
-    protected onViewChange() {
+    protected refreshTextStyle() {
+        this.isTextStyleRefreshQueued = true;
         setTimeout(() => {
+            if (!this.isTextStyleRefreshQueued) {
+                return;
+            }
             const editor = this.state.editor!;
             const cursorService = editor.getCursorService();
             const renderService = editor.getRenderService();
@@ -88,6 +95,7 @@ export default class Taleweaver extends React.Component<Props, State> {
                 cursorService.getHead(),
             );
             this.setState({ textStyle });
+            this.isTextStyleRefreshQueued = false;
         });
     }
 }

@@ -52,7 +52,8 @@ export default abstract class ModelNode<A extends Attributes, P extends AnyModel
 
     clone() {
         const { id, ...attributes } = this.attributes;
-        return new (this.constructor(this.editor, attributes));
+        // @ts-ignore
+        return new this.constructor(this.editor, id, attributes);
     }
 
     onUpdated(updatedNode: this) {

@@ -88,7 +88,7 @@ export default class RenderService {
         while (true) {
             const textStyle = this.getInlineRenderNodeTextStyle(inlineRenderNode);
             textStyles.push(textStyle);
-            const nextSibling = inlineRenderNode.getNextSibling();
+            const nextSibling = inlineRenderNode.getNextSiblingAllowCrossParent();
             if (!nextSibling) {
                 break;
             }
@@ -121,8 +121,8 @@ export default class RenderService {
         }
         if (inlineRenderNode instanceof LineBreakRenderNode) {
             const siblings = inlineRenderNode.getParent()!.getChildNodes();
-            if (siblings.length > 0) {
-                return this.getInlineRenderNodeTextStyle(siblings[siblings.length - 1]);
+            if (siblings.length > 1) {
+                return this.getInlineRenderNodeTextStyle(siblings[siblings.length - 2]);
             }
         }
         return null;
