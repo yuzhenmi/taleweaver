@@ -1,29 +1,33 @@
 import Editor from '../../Editor';
-import AtomicLayoutNode from '../../layout/AtomicLayoutNode';
+import AtomicRenderNode from '../../render/AtomicRenderNode';
 import Transformation from '../../transform/Transformation';
 import Command from '../Command';
 
 export default function moveRightByWord(): Command {
     return (editor: Editor): Transformation => {
         const cursorService = editor.getCursorService();
-        const layoutService = editor.getLayoutService();
+        const renderService = editor.getRenderService();
         const transformation = new Transformation();
         if (!cursorService.hasCursor()) {
             return transformation;
         }
         const head = cursorService.getHead();
-        const position = layoutService.resolvePosition(head);
-        const atomicLayoutPosition = position.getLeaf();
-        const atomicLayoutNode = atomicLayoutPosition.getNode();
-        if (!(atomicLayoutNode instanceof AtomicLayoutNode)) {
-            throw new Error(`Expecting position to be referencing an atomic layout node.`);
+        const position = renderService.resolvePosition(head);
+        const atomicPosition = position.getLeaf();
+        const atomicNode = atomicPosition.getNode();
+        if (!(atomicNode instanceof AtomicRenderNode)) {
+            throw new Error(`Expecting position to be referencing an atomic node.`);
         }
-        if (atomicLayoutPosition.getOffset() < atomicLayoutNode.getSize() - 1) {
-            transformation.setCursor(head - atomicLayoutPosition.getOffset() + atomicLayoutNode.getSize() - 1);
+        if (atomicPosition.getOffset() < atomicNode.getSize() - 1) {
+            transformation.setCursor(head - atomicPosition.getOffset() + atomicNode.getSize() - 1);
         } else {
-            const nextAtomicLayoutNode = atomicLayoutNode.getNextSibling();
-            if (nextAtomicLayoutNode) {
-                transformation.setCursor(head - atomicLayoutPosition.getOffset() + atomicLayoutNode.getSize() - 1 + nextAtomicLayoutNode.getSize());
+            const nextAtomicNode = atomicNode.getNextSiblingAllowCrossParent();
+            if (nextAtomicNode) {
+                let newCursorPosition = head - atomicPosition.getOffset() + atomicNode.getSize() + nextAtomicNode.getSize();
+                if (nextAtomicNode.getBreakable()) {
+                    newCursorPosition--;
+                }
+                transformation.setCursor(newCursorPosition);
             } else {
                 transformation.setCursor(head);
             }

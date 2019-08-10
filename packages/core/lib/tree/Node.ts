@@ -64,11 +64,27 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
         return this.childNodes as C[];
     }
 
+    getFirstChild() {
+        const childNodes = this.getChildNodes();
+        if (childNodes.length === 0) {
+            return null;
+        }
+        return childNodes[0];
+    }
+
+    getLastChild() {
+        const childNodes = this.getChildNodes();
+        if (childNodes.length === 0) {
+            return null;
+        }
+        return childNodes[childNodes.length - 1];
+    }
+
     getPreviousSibling(): this | null {
         if (this.isRoot()) {
             throw new Error('Getting previous sibling on root node is not allowed.');
         }
-        const siblings = this.parent!.getChildNodes();
+        const siblings = this.getParent()!.getChildNodes();
         const ownIndex = siblings.indexOf(this);
         if (ownIndex < 0) {
             throw new Error('Error getting previous sibling, node is not found in parent.');
@@ -83,7 +99,7 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
         if (this.isRoot()) {
             throw new Error('Getting next sibling on root node is not allowed.');
         }
-        const siblings = this.parent!.getChildNodes();
+        const siblings = this.getParent()!.getChildNodes();
         const ownIndex = siblings.indexOf(this);
         if (ownIndex < 0) {
             throw new Error('Error getting next sibling, node is not found in parent.');
@@ -92,6 +108,44 @@ export default abstract class Node<P extends (Node | undefined) = Node<any, any>
             return null;
         }
         return siblings[ownIndex + 1] as any;
+    }
+
+    getPreviousSiblingAllowCrossParent(): this | null {
+        if (this.isRoot()) {
+            throw new Error('Getting previous sibling on root node is not allowed.');
+        }
+        const previousSibling = this.getPreviousSibling();
+        if (previousSibling) {
+            return previousSibling;
+        }
+        const parentNode = this.getParent()!;
+        if (parentNode.isRoot()) {
+            return null;
+        }
+        const parentPreviousSibling = parentNode.getPreviousSiblingAllowCrossParent();
+        if (!parentPreviousSibling) {
+            return null;
+        }
+        return parentPreviousSibling.getLastChild()! as any;
+    }
+
+    getNextSiblingAllowCrossParent(): this | null {
+        if (this.isRoot()) {
+            throw new Error('Getting next sibling on root node is not allowed.');
+        }
+        const nextSibling = this.getNextSibling();
+        if (nextSibling) {
+            return nextSibling;
+        }
+        const parentNode = this.getParent()!;
+        if (parentNode.isRoot()) {
+            return null;
+        }
+        const parentNextSibling = this.getParent()!.getNextSiblingAllowCrossParent();
+        if (!parentNextSibling) {
+            return null;
+        }
+        return parentNextSibling.getFirstChild()! as any;
     }
 
     findDescendant(id: string): AnyNode | null {

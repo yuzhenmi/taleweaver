@@ -8,11 +8,11 @@ export default abstract class AtomicRenderNode extends RenderNode<ParentNode, ne
     abstract getBreakable(): boolean;
 
     isRoot() {
-        return true;
+        return false;
     }
 
     isLeaf() {
-        return false;
+        return true;
     }
 
     getModelSize() {

@@ -13,25 +13,25 @@ export default function moveHeadToLineAbove(): Command {
         }
         const offset = cursorService.getHead();
         const position = layoutService.resolvePosition(offset);
-        const lineLayoutPosition = position.getLeaf().getParent()!.getParent()!;
-        const lineLayoutNode = lineLayoutPosition.getNode();
-        if (!(lineLayoutNode instanceof LineLayoutNode)) {
+        const linePosiiton = position.getLeaf().getParent()!.getParent()!;
+        const lineNode = linePosiiton.getNode();
+        if (!(lineNode instanceof LineLayoutNode)) {
             throw new Error(`Expecting position to be referencing an line node.`);
         }
-        const previousLineLayoutNode = lineLayoutNode.getPreviousSibling();
-        if (!previousLineLayoutNode) {
-            transformation.setCursorHead(offset - lineLayoutPosition.getOffset());
+        const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent();
+        if (!previousLineNode) {
+            transformation.setCursorHead(offset - linePosiiton.getOffset());
         } else {
             let leftLock = cursorService.getLeftLock();
             if (leftLock === null) {
-                leftLock = lineLayoutNode.resolveRects(
-                    lineLayoutPosition.getOffset(),
-                    lineLayoutPosition.getOffset(),
+                leftLock = lineNode.resolveRects(
+                    linePosiiton.getOffset(),
+                    linePosiiton.getOffset(),
                 )[0].left;
             }
             transformation.setCursorLockLeft(leftLock);
-            const targetLineSelectableOffset = previousLineLayoutNode.convertCoordinatesToOffset(leftLock);
-            transformation.setCursorHead(offset - lineLayoutPosition.getOffset() - previousLineLayoutNode.getSize() + targetLineSelectableOffset);
+            const targetLineSelectableOffset = previousLineNode.convertCoordinatesToOffset(leftLock);
+            transformation.setCursorHead(offset - linePosiiton.getOffset() - previousLineNode.getSize() + targetLineSelectableOffset);
         }
         return transformation;
     };

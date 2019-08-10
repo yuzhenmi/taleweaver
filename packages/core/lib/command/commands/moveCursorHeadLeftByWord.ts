@@ -1,29 +1,29 @@
 import Editor from '../../Editor';
-import AtomicLayoutNode from '../../layout/AtomicLayoutNode';
+import AtomicRenderNode from '../../render/AtomicRenderNode';
 import Transformation from '../../transform/Transformation';
 import Command from '../Command';
 
 export default function moveHeadLeftByWord(): Command {
     return (editor: Editor): Transformation => {
         const cursorService = editor.getCursorService();
-        const layoutService = editor.getLayoutService();
+        const renderService = editor.getRenderService();
         const transformation = new Transformation();
         if (!cursorService.hasCursor()) {
             return transformation;
         }
         const head = cursorService.getHead();
-        const position = layoutService.resolvePosition(head);
-        const atomicLayoutPosition = position.getLeaf();
-        const atomicLayoutNode = atomicLayoutPosition.getNode();
-        if (!(atomicLayoutNode instanceof AtomicLayoutNode)) {
-            throw new Error(`Expecting position to be referencing an atomic layout node.`);
+        const position = renderService.resolvePosition(head);
+        const atomicPosition = position.getLeaf();
+        const atomicNode = atomicPosition.getNode();
+        if (!(atomicNode instanceof AtomicRenderNode)) {
+            throw new Error(`Expecting position to be referencing an atomic node.`);
         }
-        if (atomicLayoutPosition.getOffset() > 0) {
-            transformation.setCursorHead(head - atomicLayoutPosition.getOffset());
+        if (atomicPosition.getOffset() > 0) {
+            transformation.setCursorHead(head - atomicPosition.getOffset());
         } else {
-            const previousAtomicLayoutNode = atomicLayoutNode.getPreviousSibling();
-            if (previousAtomicLayoutNode) {
-                transformation.setCursorHead(head - previousAtomicLayoutNode.getSize());
+            const previousAtomicNode = atomicNode.getPreviousSiblingAllowCrossParent();
+            if (previousAtomicNode) {
+                transformation.setCursorHead(head - previousAtomicNode.getSize());
             }
         }
         return transformation;

@@ -13,25 +13,25 @@ export default function moveHeadToLineBelow(): Command {
         }
         const offset = cursorService.getHead();
         const position = layoutService.resolvePosition(offset);
-        const lineLayoutPosition = position.getLeaf().getParent()!.getParent()!;
-        const lineLayoutNode = lineLayoutPosition.getNode();
-        if (!(lineLayoutNode instanceof LineLayoutNode)) {
-            throw new Error(`Expecting position to be referencing an line layout node.`);
+        const linePosition = position.getLeaf().getParent()!.getParent()!;
+        const lineNode = linePosition.getNode();
+        if (!(lineNode instanceof LineLayoutNode)) {
+            throw new Error(`Expecting position to be referencing an line node.`);
         }
-        const nextLineLayoutNode = lineLayoutNode.getNextSibling();
-        if (!nextLineLayoutNode) {
-            transformation.setCursorHead(offset - lineLayoutPosition.getOffset() + lineLayoutNode.getSize() - 1);
+        const nextLineNode = lineNode.getNextSiblingAllowCrossParent();
+        if (!nextLineNode) {
+            transformation.setCursorHead(offset - linePosition.getOffset() + lineNode.getSize() - 1);
         } else {
             let leftLock = cursorService.getLeftLock();
             if (leftLock === null) {
-                leftLock = lineLayoutNode.resolveRects(
-                    lineLayoutPosition.getOffset(),
-                    lineLayoutPosition.getOffset(),
+                leftLock = lineNode.resolveRects(
+                    linePosition.getOffset(),
+                    linePosition.getOffset(),
                 )[0].left;
             }
             transformation.setCursorLockLeft(leftLock);
-            const targetLineSelectableOffset = nextLineLayoutNode.convertCoordinatesToOffset(leftLock);
-            transformation.setCursorHead(offset - lineLayoutPosition.getOffset() + lineLayoutNode.getSize() + targetLineSelectableOffset);
+            const targetLineSelectableOffset = nextLineNode.convertCoordinatesToOffset(leftLock);
+            transformation.setCursorHead(offset - linePosition.getOffset() + lineNode.getSize() + targetLineSelectableOffset);
         }
         return transformation;
     };
