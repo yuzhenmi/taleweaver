@@ -143,6 +143,9 @@ export default class Tokenizer {
         if (!this.tagBuffer) {
             throw new Error('Open tag type cannot be empty.');
         }
+        if (this.tagBuffer === 'Doc') {
+            id = 'Doc';
+        }
         const openTagToken = new OpenTagToken(this.tagBuffer, id, attributes);
         this.tokens.push(openTagToken);
         this.attributesBuffer = '';
