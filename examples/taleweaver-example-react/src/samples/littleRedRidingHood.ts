@@ -1,5 +1,5 @@
 export default `
-<Doc {"id": "{{id}}"}>
+<Doc {"id": "Doc"}>
   <Paragraph {"id": "{{id}}"}>
     <Text {"id": "{{id}}", "weight": 700}>
       Once upon a time there lived in a certain village a little country girl, the prettiest creature was ever seen. Her mother was excessively fond of her; and her grandmother doted on her still more. This good woman had made for her a little red riding-hood; which became the girl so extremely well that everybody called her Little Red Riding-Hood.

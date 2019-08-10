@@ -1,6 +1,8 @@
-import React from 'react';;
+import Editor, { Config, TextStyle } from '@taleweaver/core';
+import CursorUpdatedEvent from '@taleweaver/core/lib/events/CursorUpdatedEvent';
+import RenderUpdatedEvent from '@taleweaver/core/lib/events/RenderUpdatedEvent';
+import React from 'react';
 import styled from 'styled-components';
-import { Editor, Config, TextStyle, ViewStateUpdatedEvent } from '@taleweaver/core';
 
 import ToolBar from './ToolBar';
 
@@ -40,54 +42,60 @@ const EditorWrapper = styled.div`
 `;
 
 type Props = {
-  initialMarkup: string;
+    initialMarkup: string;
 }
 
 type State = {
-  editor: Editor | null;
-  textStyle: TextStyle | null;
+    editor: Editor | null;
+    textStyle: TextStyle | null;
 }
 
 export default class Taleweaver extends React.Component<Props, State> {
-  protected domRef: React.RefObject<HTMLDivElement>;
+    protected domRef: React.RefObject<HTMLDivElement>;
+    protected isTextStyleRefreshQueued: boolean = false;
 
-  constructor(props: Props) {
-    super(props);
-    this.domRef = React.createRef();
-    this.state = { editor: null, textStyle: null };
-  }
+    constructor(props: Props) {
+        super(props);
+        this.domRef = React.createRef();
+        this.state = { editor: null, textStyle: null };
+    }
 
-  componentDidMount() {
-    const { initialMarkup } = this.props;
-    const domElement = this.domRef.current!;
-    const config = new Config();
-    const editor = new Editor(config, initialMarkup, domElement);
-    this.setState({ editor });
-    editor.getDispatcher().on(ViewStateUpdatedEvent, event => {
-      this.onChange();
-    });
-    this.onChange();
-  }
+    componentDidMount() {
+        const { initialMarkup } = this.props;
+        const domElement = this.domRef.current!;
+        const config = new Config();
+        const editor = new Editor(config);
+        this.setState({ editor });
+        editor.getDispatcher().on(RenderUpdatedEvent, event => this.refreshTextStyle());
+        editor.getDispatcher().on(CursorUpdatedEvent, event => this.refreshTextStyle());
+        editor.start(initialMarkup, domElement);
+    }
 
-  render() {
-    const { textStyle } = this.state;
-    return (
-      <Wrapper>
-        <ToolBar textStyle={textStyle} />
-        <EditorWrapper ref={this.domRef} />
-      </Wrapper>
-    );
-  }
+    render() {
+        const { textStyle } = this.state;
+        return (
+            <Wrapper>
+                <ToolBar textStyle={textStyle} />
+                <EditorWrapper ref={this.domRef} />
+            </Wrapper>
+        );
+    }
 
-  protected onChange() {
-    setTimeout(() => {
-      const editor = this.state.editor!;
-      const cursor = editor.getCursor();
-      const textStyle = editor.getRenderManager().getTextStyleBetween(
-        cursor.getAnchor(),
-        cursor.getHead(),
-      );
-      this.setState({ textStyle });
-    });
-  }
+    protected refreshTextStyle() {
+        this.isTextStyleRefreshQueued = true;
+        setTimeout(() => {
+            if (!this.isTextStyleRefreshQueued) {
+                return;
+            }
+            const editor = this.state.editor!;
+            const cursorService = editor.getCursorService();
+            const renderService = editor.getRenderService();
+            const textStyle = renderService.getTextStyleBetween(
+                cursorService.getAnchor(),
+                cursorService.getHead(),
+            );
+            this.setState({ textStyle });
+            this.isTextStyleRefreshQueued = false;
+        });
+    }
 }
