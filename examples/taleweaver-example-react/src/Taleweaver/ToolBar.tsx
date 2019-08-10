@@ -3,7 +3,7 @@ import React from 'react';
 import styled from 'styled-components';
 
 const DockedPlaceholder = styled.div`
-  height: 42px;
+    height: 42px;
 `;
 
 interface WrapperProps {
@@ -11,50 +11,50 @@ interface WrapperProps {
 }
 
 const Wrapper = styled.div<WrapperProps>`
-  padding: 3px 24px;
-  background: white;
-  ${({ isDocked }) => isDocked && `
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 10;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
-  `}
+    padding: 3px 24px;
+    background: white;
+    ${({ isDocked }) => isDocked && `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+    `}
 `;
 
 const InnerWrapper = styled.div`
-  display: flex;
-  width: 816px;
-  margin: 0 auto;
+    display: flex;
+    width: 816px;
+    margin: 0 auto;
 `;
 
 const Group = styled.div`
-  flex: 0 0 auto;
-  display: flex;
-  border-radius: 4px;
-  padding: 0 6px;
-  position: relative;
-  &::before {
-    content: "";
-    position: absolute;
-    top: 9px;
-    bottom: 9px;
-    left: 0;
-    width: 1px;
-    background: rgba(0, 0, 0, 0.15);
-  }
-  &:last-child {
-    &::after {
-      content: "";
-      position: absolute;
-      top: 9px;
-      bottom: 9px;
-      right: 0;
-      width: 1px;
-      background: rgba(0, 0, 0, 0.15);
+    flex: 0 0 auto;
+    display: flex;
+    border-radius: 4px;
+    padding: 0 6px;
+    position: relative;
+    &::before {
+        content: "";
+        position: absolute;
+        top: 9px;
+        bottom: 9px;
+        left: 0;
+        width: 1px;
+        background: rgba(0, 0, 0, 0.15);
     }
-  }
+    &:last-child {
+        &::after {
+            content: "";
+            position: absolute;
+            top: 9px;
+            bottom: 9px;
+            right: 0;
+            width: 1px;
+            background: rgba(0, 0, 0, 0.15);
+        }
+    }
 `;
 
 interface ItemProps {
@@ -63,40 +63,40 @@ interface ItemProps {
 }
 
 const Item = styled.button<ItemProps>`
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
-  position: relative;
-  color: rgba(0, 0, 0, 0.85);
-  background: transparent;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  outline: none;
-  &:after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 3px;
-    right: 3px;
-    height: 3px;
-  }
-  &:hover, &:focus {
-    background: rgba(0, 0, 0, 0.04);
-  }
-  ${({ disabled }) => disabled && `
-    opacity: 0.45;
-  `}
-  ${({ active }) => active && `
-    color: rgba(255, 0, 0, 1);
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+    position: relative;
+    color: rgba(0, 0, 0, 0.85);
+    background: transparent;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    outline: none;
     &:after {
-      background: rgba(255, 0, 0, 1);
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 3px;
+        right: 3px;
+        height: 3px;
     }
-  `}
+    &:hover, &:focus {
+        background: rgba(0, 0, 0, 0.04);
+    }
+    ${({ disabled }) => disabled && `
+        opacity: 0.45;
+    `}
+    ${({ active }) => active && `
+        color: rgba(255, 0, 0, 1);
+        &:after {
+            background: rgba(255, 0, 0, 1);
+        }
+    `}
 `;
 
 interface SelectItemProps {
@@ -105,25 +105,25 @@ interface SelectItemProps {
 }
 
 const SelectItem = styled.select<SelectItemProps>`
-  -webkit-appearance: none;
-  border: none;
-  font-size: 12px;
-  font-weight: 500;
-  width: ${({ width }) => width}px;
-  background: white;
-  border-radius: 3px;
-  padding: 0 9px;
-  outline: none;
-  position: relative;
-  &:hover, &:focus {
-    background: rgba(0, 0, 0, 0.04);
-  }
-  option {
-    color: rgba(0, 0, 0, 0.85);
-  }
-  ${({ disabled }) => disabled && `
-    opacity: 0.45;
-  `}
+    -webkit-appearance: none;
+    border: none;
+    font-size: 12px;
+    font-weight: 500;
+    width: ${({ width }) => width}px;
+    background: white;
+    border-radius: 3px;
+    padding: 0 9px;
+    outline: none;
+    position: relative;
+    &:hover, &:focus {
+        background: rgba(0, 0, 0, 0.04);
+    }
+    option {
+        color: rgba(0, 0, 0, 0.85);
+    }
+    ${({ disabled }) => disabled && `
+        opacity: 0.45;
+    `}
 `;
 
 interface ItemColorLineProps {
@@ -131,12 +131,12 @@ interface ItemColorLineProps {
 }
 
 const ItemColorLine = styled.div<ItemColorLineProps>`
-  position: absolute;
-  bottom: 8px;
-  left: 9px;
-  right: 9px;
-  height: 3px;
-  background: ${({ color }) => color};
+    position: absolute;
+    bottom: 8px;
+    left: 9px;
+    right: 9px;
+    height: 3px;
+    background: ${({ color }) => color};
 `;
 
 interface Props {
