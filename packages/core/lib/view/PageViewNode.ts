@@ -5,9 +5,9 @@ import DocNode from './DocViewNode';
 import ViewNode from './ViewNode';
 
 export type ParentNode = DocNode;
-export type ChildNode = BlockNode<any>;
+export type ChildNode = BlockNode;
 
-export default class PageViewNode extends ViewNode<PageLayoutNode, ParentNode, ChildNode> {
+export default class PageViewNode extends ViewNode<ParentNode, ChildNode> {
     protected layoutNode: PageLayoutNode;
     protected size?: number;
     protected domContainer: HTMLDivElement;
@@ -15,12 +15,12 @@ export default class PageViewNode extends ViewNode<PageLayoutNode, ParentNode, C
     protected domContentInnerContainer: HTMLDivElement;
 
     constructor(editor: Editor, layoutNode: PageLayoutNode) {
-        super(editor, layoutNode);
+        super(editor, layoutNode.getID());
         this.layoutNode = layoutNode;
         this.domContainer = document.createElement('div');
         this.domContainer.className = 'tw--page';
         this.domContainer.setAttribute('data-tw-instance', editor.getID());
-        this.domContainer.setAttribute('data-tw-id', this.getID());
+        this.domContainer.setAttribute('data-tw-id', this.id);
         this.domContainer.setAttribute('data-tw-role', 'page');
         this.domContentContainer = document.createElement('div');
         this.domContentContainer.className = 'tw--page-inner';

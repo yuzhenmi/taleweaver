@@ -1,10 +1,9 @@
 import Editor from '../Editor';
-import { AnyLayoutNode } from '../layout/LayoutNode';
 import Node from '../tree/Node';
 
-export type AnyViewNode = ViewNode<any, any, any>;
+export type AnyViewNode = ViewNode<any, any>;
 
-export default abstract class ViewNode<L extends AnyLayoutNode, P extends AnyViewNode, C extends AnyViewNode> extends Node<P, C> {
+export default abstract class ViewNode<P extends AnyViewNode, C extends AnyViewNode> extends Node<P, C> {
     abstract getType(): string;
     abstract getSize(): number;
     abstract clearCache(): void;
@@ -15,16 +14,16 @@ export default abstract class ViewNode<L extends AnyLayoutNode, P extends AnyVie
     protected abstract updateDOM(): void;
 
     protected editor: Editor;
-    protected layoutNode: L;
+    protected id: string;
 
-    constructor(editor: Editor, layoutNode: L) {
+    constructor(editor: Editor, id: string) {
         super();
         this.editor = editor;
-        this.layoutNode = layoutNode;
+        this.id = id;
     }
 
     getID() {
-        return this.layoutNode.getID();
+        return this.id;
     }
 
     appendChild(child: C) {
@@ -42,13 +41,8 @@ export default abstract class ViewNode<L extends AnyLayoutNode, P extends AnyVie
         this.removeDOMChild(child.getDOMContainer());
     }
 
-    getLayoutNode() {
-        return this.layoutNode;
-    }
-
     onUpdated(updatedNode: this) {
         super.onUpdated(updatedNode);
-        this.layoutNode = updatedNode.getLayoutNode();
         this.clearCache();
         this.updateDOM();
     }

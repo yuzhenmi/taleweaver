@@ -3,13 +3,13 @@ import TextLayoutNode from '../layout/TextLayoutNode';
 import TextWordLayoutNode from '../layout/TextWordLayoutNode';
 import InlineViewNode from './InlineViewNode';
 
-export default class TextViewNode extends InlineViewNode<TextLayoutNode> {
+export default class TextViewNode extends InlineViewNode {
     protected layoutNode: TextLayoutNode;
     protected domContainer: HTMLSpanElement;
     protected domContent: HTMLSpanElement;
 
     constructor(editor: Editor, layoutNode: TextLayoutNode) {
-        super(editor, layoutNode);
+        super(editor, layoutNode.getID());
         this.layoutNode = layoutNode;
         this.domContainer = document.createElement('span');
         this.domContainer.className = 'tw--text-inline';

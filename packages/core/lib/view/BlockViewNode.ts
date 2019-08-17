@@ -1,4 +1,3 @@
-import BlockLayoutNode from '../layout/BlockLayoutNode';
 import LineNode from './LineViewNode';
 import PageNode from './PageViewNode';
 import ViewNode from './ViewNode';
@@ -6,7 +5,7 @@ import ViewNode from './ViewNode';
 export type ParentNode = PageNode;
 export type ChildNode = LineNode;
 
-export default abstract class BlockViewNode<L extends BlockLayoutNode> extends ViewNode<L, ParentNode, ChildNode> {
+export default abstract class BlockViewNode extends ViewNode<ParentNode, ChildNode> {
     protected size?: number;
 
     isRoot() {
