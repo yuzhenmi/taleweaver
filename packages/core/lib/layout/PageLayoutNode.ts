@@ -11,6 +11,7 @@ type ChildNode = BlockNode;
 
 export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     protected size?: number;
+    protected position?: number;
     protected outerWidth: number;
     protected outerHeight: number;
     protected paddingTop: number;
@@ -29,6 +30,13 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
         this.paddingRight = pageConfig.getPagePaddingRight();
     }
 
+    getID() {
+        if (this.position === undefined) {
+            return super.getID();
+        }
+        return `Page${this.position}`;
+    }
+
     isRoot() {
         return false;
     }
@@ -39,6 +47,10 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
 
     getType() {
         return 'Page';
+    }
+
+    setPosition(position: number) {
+        this.position = position;
     }
 
     getSize() {

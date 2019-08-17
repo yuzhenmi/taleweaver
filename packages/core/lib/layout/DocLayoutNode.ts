@@ -25,6 +25,12 @@ export default class DocLayoutNode extends LayoutNode<never, ChildNode> {
         return 'Doc';
     }
 
+    updatePagePositions() {
+        this.getChildNodes().forEach((childNode, position) => {
+            childNode.setPosition(position);
+        });
+    }
+
     getSize() {
         if (this.size === undefined) {
             this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 0);

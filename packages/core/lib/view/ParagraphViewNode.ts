@@ -2,12 +2,12 @@ import Editor from '../Editor';
 import ParagraphLayoutNode from '../layout/ParagraphLayoutNode';
 import BlockViewNode from './BlockViewNode';
 
-export default class ParagraphViewNode extends BlockViewNode {
+export default class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
     protected layoutNode: ParagraphLayoutNode;
     protected domContainer: HTMLDivElement;
 
     constructor(editor: Editor, layoutNode: ParagraphLayoutNode) {
-        super(editor, layoutNode.getID());
+        super(editor, layoutNode);
         this.layoutNode = layoutNode;
         this.domContainer = document.createElement('div');
         this.domContainer.className = 'tw--paragraph-block';

@@ -45,6 +45,11 @@ export default class LayoutReflower {
         }
         this.flushQueuedLineNodes();
         this.flushQueuedPageNodes();
+        if (this.updatedNode instanceof DocNode) {
+            this.refreshPagePositions(this.updatedNode);
+        } else if (this.updatedNode instanceof BlockNode) {
+            this.refreshLinePositions(this.updatedNode);
+        }
     }
 
     protected queueDocNode(docNode: DocNode) {
@@ -272,5 +277,18 @@ export default class LayoutReflower {
             return null;
         }
         return atomicNode.splitAtWidth(width);
+    }
+
+    protected refreshPagePositions(docNode: DocNode) {
+        docNode.updatePagePositions();
+        docNode.getChildNodes().forEach(pageNode => {
+            pageNode.getChildNodes().forEach(blockNode => {
+                blockNode.updateLinePositions();
+            });
+        });
+    }
+
+    protected refreshLinePositions(blockNode: BlockNode) {
+        blockNode.updateLinePositions();
     }
 }

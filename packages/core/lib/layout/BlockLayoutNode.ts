@@ -24,6 +24,12 @@ export default abstract class BlockLayoutNode extends LayoutNode<ParentNode, Chi
         return false;
     }
 
+    updateLinePositions() {
+        this.getChildNodes().forEach((childNode, position) => {
+            childNode.setPosition(position);
+        });
+    }
+
     getWidth() {
         return this.getParent()!.getInnerWidth();
     }

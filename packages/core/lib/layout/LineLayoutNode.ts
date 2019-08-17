@@ -12,10 +12,18 @@ type ChildNode = InlineNode;
 
 export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     protected size?: number;
+    protected position?: number;
     protected height?: number;
 
     constructor(editor: Editor) {
         super(editor, generateID());
+    }
+
+    getID() {
+        if (this.position === undefined) {
+            return super.getID();
+        }
+        return `Line${this.position}`;
     }
 
     isRoot() {
@@ -28,6 +36,10 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
 
     getType() {
         return 'Line';
+    }
+
+    setPosition(position: number) {
+        this.position = position;
     }
 
     getSize() {

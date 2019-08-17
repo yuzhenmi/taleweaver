@@ -1,21 +1,22 @@
 import Editor from '../Editor';
+import DocLayoutNode from '../layout/DocLayoutNode';
 import PageNode from './PageViewNode';
 import ViewNode from './ViewNode';
 
 export type ChildNode = PageNode;
 
-export default class DocViewNode extends ViewNode<never, ChildNode> {
+export default class DocViewNode extends ViewNode<DocLayoutNode, never, ChildNode> {
     protected size?: number;
     protected domContainer: HTMLDivElement;
     protected isAttachedToDOM: boolean = false;
     protected parentDOMContainer?: HTMLElement;
 
     constructor(editor: Editor) {
-        super(editor, 'Doc');
+        super(editor, editor.getLayoutService().getDoc());
         this.domContainer = document.createElement('div');
         this.domContainer.className = 'tw--doc';
         this.domContainer.setAttribute('data-tw-instance', editor.getID());
-        this.domContainer.setAttribute('data-tw-id', this.id);
+        this.domContainer.setAttribute('data-tw-id', this.getID());
         this.domContainer.setAttribute('data-tw-role', 'doc');
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
