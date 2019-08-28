@@ -55,4 +55,4 @@ The render tree describes presentation, whereas the layout tree applies the pres
 The view tree binds the layout tree to the browser viewport. Each element in the view tree maps one-to-one with layout tree elements.
 
 
-## [中文说明](https://github.com/yuzhenmi/taleweaver/blob/master/README_zh.md)
+## [中文说明](./README_zh.md)

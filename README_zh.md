@@ -19,7 +19,7 @@ Taleweaver 拥有排版引擎同时提供了一套API来访问排版信息。它
 
 Taleweaver的工作原理是获取文档状态并将其呈现到屏幕上。当状态发生变化时，这些更改将通过一系列步骤传播到屏幕。
 
-[State] -> [Model Tree] -> [Render Tree] -> [Layout Tree] -> [View Tree]
+[State] -> [Model Tree] -> [Render Tree] -> [Layout Tree] -> [View Tree]  
 [状态] -> [模型树] -> [呈现树] -> [布局树] -> [视图树]
 
 
