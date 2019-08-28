@@ -1,9 +1,9 @@
-# Taleweaver
+# Taleweaver（织书）
 
 说明: 该项目目前处在研发阶段，可以在这里看到示例： https://yuzhenmi.github.io/taleweaver/.
 
-
 该项目是作为[2Tale Writer's Portal](https://writer.2tale.com/)的核心编辑器来开发的。项目的目标是保持编辑器核心的最小化和可扩展性，覆盖必要的功能以便有机会将其扩展到更具体的用例中。
+
 
 ## 又造一款编辑器？
 
