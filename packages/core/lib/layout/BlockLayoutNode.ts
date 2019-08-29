@@ -11,7 +11,7 @@ export default abstract class BlockLayoutNode extends LayoutNode<ParentNode, Chi
     abstract getPaddingTop(): number;
     abstract getPaddingBottom(): number;
     abstract splitAt(offset: number): BlockLayoutNode;
-    abstract join(blockBox: BlockLayoutNode): void;
+    abstract join(blockNode: this): void;
 
     protected size?: number;
     protected height?: number;
@@ -22,12 +22,6 @@ export default abstract class BlockLayoutNode extends LayoutNode<ParentNode, Chi
 
     isLeaf() {
         return false;
-    }
-
-    updateLinePositions() {
-        this.getChildNodes().forEach((childNode, position) => {
-            childNode.setPosition(position);
-        });
     }
 
     getWidth() {
