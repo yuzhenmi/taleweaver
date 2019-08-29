@@ -60,10 +60,6 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
         this.clearCache();
     }
 
-    getContentWidth() {
-        return this.getChildNodes().reduce((width, childNode) => width + childNode.getWidth(), 0);
-    }
-
     splitAt(offset: number) {
         const newNode = new LineLayoutNode(this.editor);
         while (this.getChildNodes().length > offset) {
