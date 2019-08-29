@@ -319,7 +319,8 @@ export default class LayoutReflower {
         let cumulatedHeight = 0;
         for (let n = 0, nn = blockNodes.length; n < nn; n++) {
             const blockNode = blockNodes[n];
-            if (cumulatedHeight + blockNode.getHeight() > height) {
+            // padding-bottom 超出页面不算溢出，like ms word
+            if (cumulatedHeight + (blockNode.getHeight() - blockNode.getPaddingBottom()) > height) {
                 const newPageNode = pageNode.splitAt(n + 1);
                 const blockNodes = pageNode.getChildNodes();
                 const trailingBlockNode = blockNodes[blockNodes.length - 1];
