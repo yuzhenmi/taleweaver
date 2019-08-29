@@ -11,7 +11,7 @@ export default abstract class InlineLayoutNode extends LayoutNode<ParentNode, Ch
     abstract getPaddingTop(): number;
     abstract getPaddingBottom(): number;
     abstract splitAt(offset: number): InlineLayoutNode;
-    abstract join(inlineNode: InlineLayoutNode): void;
+    abstract join(inlineNode: this): void;
 
     protected size?: number;
     protected width?: number;

@@ -26,7 +26,5 @@ export default class LineBreakLayoutNode extends InlineNode {
         throw new Error('Cannot split line break inline box.');
     }
 
-    join(node: LineBreakLayoutNode) {
-        throw new Error('Cannot join line break inline boxes.');
-    }
+    join(lineBreakNode: LineBreakLayoutNode) { }
 }

@@ -46,10 +46,6 @@ export default class LineBreakAtomicLayoutNode extends AtomicNode {
         throw new Error('Cannot split line break atomic box.');
     }
 
-    join(node: LineBreakAtomicLayoutNode) {
-        throw new Error('Cannot join line break atomic boxes.');
-    }
-
     convertCoordinatesToOffset(x: number) {
         return 0;
     }

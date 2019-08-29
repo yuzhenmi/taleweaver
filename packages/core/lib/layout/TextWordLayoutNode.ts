@@ -94,11 +94,6 @@ export default class TextWordLayoutNode extends AtomicNode {
         return newNode;
     }
 
-    join(node: TextWordLayoutNode) {
-        this.content += node.getContent();
-        this.clearCache();
-    }
-
     convertCoordinatesToOffset(x: number) {
         let lastWidth = 0;
         for (let n = 0, nn = this.content.length; n < nn; n++) {
