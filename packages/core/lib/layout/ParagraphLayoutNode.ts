@@ -29,14 +29,18 @@ export default class ParagraphLayoutNode extends BlockNode {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
+        this.clearCache();
         return newNode;
     }
 
-    join(node: ParagraphLayoutNode) {
-        node.getChildNodes().forEach(childNode => {
-            node.removeChild(childNode);
+    join(paragraphNode: ParagraphLayoutNode) {
+        const childNodes = paragraphNode.getChildNodes().slice();
+        childNodes.forEach(childNode => {
+            paragraphNode.removeChild(childNode);
             this.appendChild(childNode);
         });
+        this.clearCache();
+        paragraphNode.clearCache();
     }
 
     onUpdated(updatedNode: this) {

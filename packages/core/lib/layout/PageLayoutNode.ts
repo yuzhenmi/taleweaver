@@ -11,7 +11,6 @@ type ChildNode = BlockNode;
 
 export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     protected size?: number;
-    protected position?: number;
     protected outerWidth: number;
     protected outerHeight: number;
     protected paddingTop: number;
@@ -30,13 +29,6 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
         this.paddingRight = pageConfig.getPagePaddingRight();
     }
 
-    getID() {
-        if (this.position === undefined) {
-            return super.getID();
-        }
-        return `Page${this.position}`;
-    }
-
     isRoot() {
         return false;
     }
@@ -47,10 +39,6 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
 
     getType() {
         return 'Page';
-    }
-
-    setPosition(position: number) {
-        this.position = position;
     }
 
     getSize() {
@@ -103,7 +91,24 @@ export default class PageLayoutNode extends LayoutNode<ParentNode, ChildNode> {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
+        this.clearCache();
         return newNode;
+    }
+
+    join(pageNode: PageLayoutNode) {
+        const thisLastChild = this.getLastChild();
+        const thatFirstChild = pageNode.getFirstChild();
+        if (thisLastChild && thatFirstChild && thisLastChild.getID() === thatFirstChild.getID()) {
+            thisLastChild.join(thatFirstChild);
+            pageNode.removeChild(thatFirstChild);
+        }
+        const childNodes = pageNode.getChildNodes().slice();
+        childNodes.forEach(childNode => {
+            pageNode.removeChild(childNode);
+            this.appendChild(childNode);
+        });
+        this.clearCache();
+        pageNode.clearCache();
     }
 
     resolvePosition(offset: number, depth: number) {

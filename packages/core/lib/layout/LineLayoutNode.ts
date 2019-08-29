@@ -12,18 +12,10 @@ type ChildNode = InlineNode;
 
 export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
     protected size?: number;
-    protected position?: number;
     protected height?: number;
 
     constructor(editor: Editor) {
         super(editor, generateID());
-    }
-
-    getID() {
-        if (this.position === undefined) {
-            return super.getID();
-        }
-        return `Line${this.position}`;
     }
 
     isRoot() {
@@ -36,10 +28,6 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
 
     getType() {
         return 'Line';
-    }
-
-    setPosition(position: number) {
-        this.position = position;
     }
 
     getSize() {
@@ -72,6 +60,10 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
         this.clearCache();
     }
 
+    getContentWidth() {
+        return this.getChildNodes().reduce((width, childNode) => width + childNode.getWidth(), 0);
+    }
+
     splitAt(offset: number) {
         const newNode = new LineLayoutNode(this.editor);
         while (this.getChildNodes().length > offset) {
@@ -79,7 +71,24 @@ export default class LineLayoutNode extends LayoutNode<ParentNode, ChildNode> {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
+        this.clearCache();
         return newNode;
+    }
+
+    join(lineNode: LineLayoutNode) {
+        const thisLastChild = this.getLastChild();
+        const thatFirstChild = lineNode.getFirstChild();
+        if (thisLastChild && thatFirstChild && thisLastChild.getID() === thatFirstChild.getID()) {
+            thisLastChild.join(thatFirstChild);
+            lineNode.removeChild(thatFirstChild);
+        }
+        const childNodes = lineNode.getChildNodes().slice();
+        childNodes.forEach(childNode => {
+            lineNode.removeChild(childNode);
+            this.appendChild(childNode);
+        });
+        this.clearCache();
+        lineNode.clearCache();
     }
 
     resolvePosition(offset: number, depth: number) {

@@ -14,7 +14,6 @@ export default abstract class AtomicLayoutNode extends LayoutNode<ParentNode, ne
     abstract resolveRects(from: number, to: number): Rect[];
     abstract convertCoordinatesToOffset(x: number): number;
     abstract splitAtWidth(width: number): AtomicLayoutNode;
-    abstract join(atomicNode: AtomicLayoutNode): void;
 
     isRoot() {
         return false;

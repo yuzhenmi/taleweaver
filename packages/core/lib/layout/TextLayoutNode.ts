@@ -29,14 +29,18 @@ export default class TextLayoutNode extends InlineNode {
             this.removeChild(childNode);
             newNode.appendChild(childNode);
         }
+        this.clearCache();
         return newNode;
     }
 
-    join(node: TextLayoutNode) {
-        node.getChildNodes().forEach(childNode => {
-            node.removeChild(childNode);
+    join(textNode: TextLayoutNode) {
+        const childNodes = textNode.getChildNodes().slice();
+        childNodes.forEach(childNode => {
+            textNode.removeChild(childNode);
             this.appendChild(childNode);
         });
+        this.clearCache();
+        textNode.clearCache();
     }
 
     getTextStyle() {
