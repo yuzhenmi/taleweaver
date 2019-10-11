@@ -187,6 +187,7 @@ export default class LayoutReflower {
                 const nextLineNode = currentLineNode.getNextSibling()!;
                 currentLineNode.join(nextLineNode);
                 nextLineNode.getParent()!.removeChild(nextLineNode);
+                this.lineNodeReflowStatuses.set(nextLineNode.getID(), true);
             }
             const newLineNode = this.breakLineNode(currentLineNode, maxWidth);
             if (!newLineNode) {
@@ -218,6 +219,7 @@ export default class LayoutReflower {
                 const nextPageNode = currentPageNode.getNextSibling()!;
                 currentPageNode.join(nextPageNode);
                 nextPageNode.getParent()!.removeChild(nextPageNode);
+                this.pageNodeReflowStatuses.set(nextPageNode.getID(), true);
             }
             const newPageNode = this.breakPageNode(currentPageNode, maxHeight);
             if (!newPageNode) {

@@ -37,6 +37,7 @@ export default class LayoutEngine {
         const layoutTreeBuilder = new LayoutTreeBuilder(this.editor, updatedRenderNode);
         const updatedNode = layoutTreeBuilder.run();
         node.onUpdated(updatedNode);
+        this.deduplicateNode(node);
         this.clearAncestorsCache(node);
         const layoutReflower = new LayoutReflower(this.editor, node);
         const reflowedNode = layoutReflower.run();
@@ -51,6 +52,19 @@ export default class LayoutEngine {
                 break;
             }
             currentNode = currentNode.getParent();
+        }
+    }
+
+    protected deduplicateNode(node: AnyLayoutNode) {
+        if (node.isRoot()) {
+            return;
+        }
+        let nextNode = node.getNextSiblingAllowCrossParent();
+        let nodeToDelete: AnyLayoutNode;
+        while (nextNode && nextNode.getID() === node.getID()) {
+            nodeToDelete = nextNode;
+            nextNode = nextNode.getNextSiblingAllowCrossParent();
+            nodeToDelete.getParent()!.removeChild(nodeToDelete);
         }
     }
 }
