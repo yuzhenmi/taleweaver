@@ -20,7 +20,7 @@ export default class CursorView {
         this.blinkState = false;
         this.blinkInterval = null;
         this.domCaret = document.createElement('div');
-        this.domCaret.className = 'tw--cursor-caret'
+        this.domCaret.className = 'tw--cursor-caret';
         this.domCaret.style.position = 'absolute';
         this.domCaret.style.userSelect = 'none';
         this.domCaret.style.pointerEvents = 'none';
@@ -99,7 +99,7 @@ export default class CursorView {
                     return;
                 }
                 const domSelection = document.createElement('div');
-                domSelection.className = 'tw--cursor-selection'
+                domSelection.className = 'tw--cursor-selection';
                 domSelection.style.position = 'absolute';
                 domSelection.style.top = `${layoutRect.top - layoutRect.paddingTop}px`;
                 domSelection.style.left = `${layoutRect.left}px`;

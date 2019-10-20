@@ -80,7 +80,7 @@ export default class LineBreakAtomicLayoutNode extends AtomicNode {
     }
 
     protected updateBoundingBox() {
-        const previousSibling = this.getPreviousSibling();
+        const previousSibling = this.getPreviousSiblingAllowCrossParent();
         let textStyle = DEFAULT_STYLE;
         if (previousSibling) {
             if (previousSibling instanceof TextWordLayoutNode) {
