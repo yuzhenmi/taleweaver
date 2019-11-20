@@ -1,0 +1,52 @@
+import { IConfigService } from 'tw/config/service';
+import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
+import { IEventListener, IOnEvent } from 'tw/event/listener';
+import { IServiceRegistry } from 'tw/service/registry';
+import { IService } from 'tw/service/service';
+import { CommandRegistry, ICommandRegistry } from './registry';
+
+export interface IWillExecuteCommandEvent {
+    readonly commandId: string;
+    readonly args: any[];
+}
+
+export interface IDidExecuteCommandEvent {
+    readonly commandId: string;
+    readonly args: any[];
+}
+
+export interface ICommandService extends IService {
+    onWillExecuteCommand: IOnEvent<IWillExecuteCommandEvent>;
+    onDidExecuteCommand: IOnEvent<IDidExecuteCommandEvent>;
+    executeCommand(commandId: string, ...args: any[]): Promise<void>;
+}
+
+export class CommandService implements ICommandService {
+    protected willExecuteCommandEventEmitter: IEventEmitter<IWillExecuteCommandEvent> = new EventEmitter();
+    protected didExecuteCommandEventEmitter: IEventEmitter<IDidExecuteCommandEvent> = new EventEmitter();
+    protected registry: ICommandRegistry = new CommandRegistry();
+
+    constructor(serviceConfig: IConfigService, protected serviceRegistry: IServiceRegistry) {
+        serviceConfig.getConfig().commands.forEach((commandHandler, commandId) => {
+            this.registry.registerCommand(commandId, commandHandler);
+        });
+    }
+
+    onWillExecuteCommand(listener: IEventListener<IWillExecuteCommandEvent>) {
+        this.willExecuteCommandEventEmitter.on(listener);
+    }
+
+    onDidExecuteCommand(listener: IEventListener<IDidExecuteCommandEvent>) {
+        this.didExecuteCommandEventEmitter.on(listener);
+    }
+
+    async executeCommand(commandId: string, ...args: any[]) {
+        const commandHandler = this.registry.getCommandHandler(commandId);
+        if (!commandHandler) {
+            return;
+        }
+        this.willExecuteCommandEventEmitter.emit({ commandId, args });
+        await commandHandler(this.serviceRegistry, ...args);
+        this.didExecuteCommandEventEmitter.emit({ commandId, args });
+    }
+}

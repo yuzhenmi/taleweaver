@@ -1,19 +1,20 @@
 {
     "compilerOptions": {
-        "target": "es5",
-        "module": "commonjs",
-        "lib": [
-            "es2017",
-            "es7",
-            "es6",
-            "dom"
-        ],
+        "alwaysStrict": true,
+        "baseUrl": "src",
         "declaration": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "lib": ["es2017", "es7", "es6", "dom"],
+        "module": "amd",
+        "moduleResolution": "classic",
+        "noImplicitAny": true,
         "strict": true,
-        "esModuleInterop": true
+        "strictBindCallApply": true,
+        "strictNullChecks": true,
+        "strictPropertyInitialization": true,
+        "target": "es5"
     },
-    "exclude": [
-        "node_modules",
-        "lib"
-    ]
+    "include": ["src/tw"],
+    "exclude": ["node_modules"]
 }

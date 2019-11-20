@@ -1,0 +1,18 @@
+{
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true
+    },
+    "eslint.autoFixOnSave": true,
+    "eslint.validate": [
+        {
+            "language": "typescript",
+            "autoFix": true
+        }
+    ],
+    "files.exclude": {
+        "lib/**/*.js": true,
+        "lib/**/*.d.ts": true,
+        "index.js": true,
+        "index.d.ts": true
+    }
+}

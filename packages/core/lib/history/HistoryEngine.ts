@@ -78,7 +78,10 @@ export default class HistoryEngine {
         }
         const currentItem = this.changes[this.pointer];
         const now = Date.now();
-        if (now - currentItem.getTimestamp() < COLLAPSE_CHANGES_MAX_DURATION && now - currentItem.getLastTimestamp() < COLLAPSE_CHANGES_THRESHOLD) {
+        if (
+            now - currentItem.getTimestamp() < COLLAPSE_CHANGES_MAX_DURATION &&
+            now - currentItem.getLastTimestamp() < COLLAPSE_CHANGES_THRESHOLD
+        ) {
             this.recordAppliedTransformationToLastItem(appliedTransformation);
         } else {
             this.recordAppliedTransformationToNewItem(appliedTransformation);
