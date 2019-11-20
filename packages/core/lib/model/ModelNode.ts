@@ -9,8 +9,11 @@ export interface DOMAttributes {
 
 export type AnyModelNode = ModelNode<any, any, any>;
 
-export default abstract class ModelNode<A extends Attributes, P extends AnyModelNode, C extends AnyModelNode> extends Node<P, C> {
-    abstract getType(): string;
+export default abstract class ModelNode<
+    A extends Attributes,
+    P extends AnyModelNode,
+    C extends AnyModelNode
+> extends Node<P, C> {
     abstract getSize(): number;
     abstract clearCache(): void;
     abstract toHTML(from: number, to: number): HTMLElement;
@@ -60,5 +63,5 @@ export default abstract class ModelNode<A extends Attributes, P extends AnyModel
         this.attributes = updatedNode.attributes;
         super.onUpdated(updatedNode);
         this.clearCache();
-    };
+    }
 }

@@ -1,13 +1,13 @@
-import { IDocModelNode } from 'tw/model/doc-node';
 import { IInlineModelNode } from 'tw/model/inline-node';
 import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
-import { CloseToken, IToken, OpenToken } from 'tw/state/token';
+import { IRootModelNode } from 'tw/model/root-node';
+import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
 export interface IBlockModelNode<TAttributes>
-    extends IModelNode<TAttributes, IDocModelNode<any>, IInlineModelNode<any>> {}
+    extends IModelNode<TAttributes, IRootModelNode<any>, IInlineModelNode<any>> {}
 
 export abstract class BlockModelNode<TAttributes>
-    extends ModelNode<TAttributes, IDocModelNode<any>, IInlineModelNode<any>>
+    extends ModelNode<TAttributes, IRootModelNode<any>, IInlineModelNode<any>>
     implements IBlockModelNode<TAttributes> {
     protected size?: number;
 
@@ -54,11 +54,16 @@ export abstract class BlockModelNode<TAttributes>
 
     toTokens() {
         const tokens: IToken[] = [];
-        tokens.push(new OpenToken(this.getType(), this.getId(), this.getAttributes()));
+        tokens.push({
+            elementId: this.getElementId(),
+            type: this.getType(),
+            id: this.getId(),
+            attributes: this.getAttributes(),
+        });
         this.getChildNodes().forEach(childNode => {
             tokens.push(...childNode.toTokens());
         });
-        tokens.push(new CloseToken());
+        tokens.push(CLOSE_TOKEN);
         return tokens;
     }
 }

@@ -1,6 +1,6 @@
 import { IBlockModelNode } from 'tw/model/block-node';
 import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
-import { CloseToken, IToken, OpenToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
 export interface IInlineModelNode<TAttributes> extends IModelNode<TAttributes, IBlockModelNode<any>, never> {
     setContent(content: string): void;
@@ -53,9 +53,14 @@ export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes
 
     toTokens() {
         const tokens: IToken[] = [];
-        tokens.push(new OpenToken(this.getType(), this.getId(), this.getAttributes()));
+        tokens.push({
+            elementId: this.getElementId(),
+            type: this.getType(),
+            id: this.getId(),
+            attributes: this.getAttributes(),
+        });
         tokens.push(...this.content.split(''));
-        tokens.push(new CloseToken());
+        tokens.push(CLOSE_TOKEN);
         return tokens;
     }
 

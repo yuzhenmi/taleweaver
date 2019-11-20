@@ -2,9 +2,5 @@ import { IModelNode } from 'tw/model/node';
 import { IAttributes } from 'tw/state/token';
 
 export interface IElement {
-    buildModelNode<TAttributes extends IAttributes>(
-        type: string,
-        id: string,
-        attributes: TAttributes,
-    ): IModelNode<TAttributes>;
+    buildModelNode(type: string, id: string, attributes: IAttributes): IModelNode<IAttributes>;
 }

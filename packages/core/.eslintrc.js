@@ -7,7 +7,6 @@ module.exports = {
     },
     rules: {
         '@typescript-eslint/explicit-function-return-type': 'off',
-        '@typescript-eslint/no-explicit-any': 'off',
         '@typescript-eslint/interface-name-prefix': ['error', { prefixWithI: 'always' }],
         '@typescript-eslint/no-empty-interface': 'off',
     },

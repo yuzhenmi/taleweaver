@@ -1,13 +1,11 @@
 import { IBlockModelNode } from 'tw/model/block-node';
 import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
-import { CloseToken, IToken, OpenToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
-export interface IDocModelNode<TAttributes> extends IModelNode<TAttributes, never, IBlockModelNode<any>> {}
+export interface IRootModelNode<TAttributes> extends IModelNode<TAttributes, never, IBlockModelNode<any>> {}
 
-export interface DocAttributes {}
-
-export class DocModelNode extends ModelNode<DocAttributes, never, IBlockModelNode<any>>
-    implements IDocModelNode<DocAttributes> {
+export abstract class RootModelNode<TAttributes> extends ModelNode<TAttributes, never, IBlockModelNode<any>>
+    implements IRootModelNode<TAttributes> {
     protected size?: number;
 
     isRoot() {
@@ -16,10 +14,6 @@ export class DocModelNode extends ModelNode<DocAttributes, never, IBlockModelNod
 
     isLeaf() {
         return false;
-    }
-
-    getType() {
-        return 'Doc';
     }
 
     getSize() {
@@ -56,30 +50,16 @@ export class DocModelNode extends ModelNode<DocAttributes, never, IBlockModelNod
 
     toTokens() {
         const tokens: IToken[] = [];
-        tokens.push(new OpenToken(this.getType(), this.getId(), this.getAttributes()));
+        tokens.push({
+            elementId: this.getElementId(),
+            type: this.getType(),
+            id: this.getId(),
+            attributes: this.getAttributes(),
+        });
         this.getChildNodes().forEach(childNode => {
             tokens.push(...childNode.toTokens());
         });
-        tokens.push(new CloseToken());
+        tokens.push(CLOSE_TOKEN);
         return tokens;
-    }
-
-    toHTML(from: number, to: number) {
-        const $element = document.createElement('div');
-        let offset = 1;
-        const childNodes = this.getChildNodes();
-        for (let n = 0, nn = childNodes.length; n < nn && offset < to; n++) {
-            const child = childNodes[n];
-            const childSize = child.getSize();
-            const childFrom = Math.max(0, from - offset);
-            const childTo = Math.min(childFrom + childSize, to - offset);
-            offset += childSize;
-            if (childFrom > childSize || childTo < 0) {
-                continue;
-            }
-            const $childElement = child.toHTML(childFrom, childTo);
-            $element.appendChild($childElement);
-        }
-        return $element;
     }
 }

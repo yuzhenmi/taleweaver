@@ -1,4 +1,4 @@
-import { CloseToken, IToken, OpenToken } from './token';
+import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
 export interface ITokenizer {
     tokenize(markup: string): IToken[];
@@ -148,8 +148,12 @@ export default class Tokenizer implements ITokenizer {
             id = 'doc';
         }
         const [elementId, type] = this.tagBuffer.split('.', 1);
-        const openToken = new OpenToken(elementId, type || '', id, attributes);
-        this.tokens!.push(openToken);
+        this.tokens!.push({
+            elementId,
+            type: type || '',
+            id,
+            attributes,
+        });
         this.attributesBuffer = '';
         this.tagBuffer = '';
         this.tokenizerState = TokenizerState.NewToken;
@@ -169,8 +173,7 @@ export default class Tokenizer implements ITokenizer {
     }
 
     protected endCloseTag(char: string) {
-        const closeToken = new CloseToken();
-        this.tokens!.push(closeToken);
+        this.tokens!.push(CLOSE_TOKEN);
         this.tokenizerState = TokenizerState.NewToken;
     }
 }

@@ -1,9 +1,9 @@
 import { IElementService } from 'tw/element/service';
 import { InlineModelNode } from 'tw/model/inline-node';
 import { IModelNode } from 'tw/model/node';
-import { CloseToken, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken, OpenToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
 import { BlockModelNode } from './block-node';
-import { DocModelNode } from './doc-node';
+import { RootModelNode } from './root-node';
 
 enum ParserState {
     NewNode,
@@ -37,7 +37,7 @@ class Stack {
     }
 }
 
-export default class StateParser {
+export default class TokenParser {
     protected tokens?: IToken[];
     protected parserState: ParserState = ParserState.NewNode;
     protected rootNode?: IModelNode<any>;
@@ -66,16 +66,16 @@ export default class StateParser {
             try {
                 switch (this.parserState) {
                     case ParserState.NewNode:
-                        if (token instanceof OpenToken) {
-                            this.newNode(token);
-                            break;
-                        }
                         if (typeof token === 'string') {
                             this.appendToContent(token);
                             break;
                         }
-                        if (token instanceof CloseToken) {
+                        if (token === CLOSE_TOKEN) {
                             this.closeNode(token);
+                            break;
+                        }
+                        if (typeof token === 'object') {
+                            this.newNode(token as IOpenToken);
                             break;
                         }
                         throw new Error('Invalid token.');
@@ -84,7 +84,7 @@ export default class StateParser {
                             this.appendToContent(token);
                             break;
                         }
-                        if (token instanceof CloseToken) {
+                        if (token === CLOSE_TOKEN) {
                             this.closeNode(token);
                             break;
                         }
@@ -100,9 +100,9 @@ export default class StateParser {
 
     protected newNode(token: IOpenToken) {
         const parentNode = this.stack.peek();
-        const node = this.buildNode(token.getElementId(), token.getType(), token.getId(), token.getAttributes());
-        if (parentNode instanceof DocModelNode) {
-            const parentDocNode = parentNode as DocModelNode;
+        const node = this.buildNode(token.elementId, token.type, token.id, token.attributes);
+        if (parentNode instanceof RootModelNode) {
+            const parentDocNode = parentNode as RootModelNode<any>;
             if (!(node instanceof BlockModelNode)) {
                 throw new Error('Unexpected node type.');
             }

@@ -1,4 +1,3 @@
-import { IServiceRegistry } from 'tw/service/registry';
 import { IAttributes, IToken } from 'tw/state/token';
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
@@ -12,6 +11,8 @@ export interface IModelNode<
     TParent extends IModelNode<any> | undefined = IModelNode<any, any, any>,
     TChild extends IModelNode<any> | undefined = IModelNode<any, any, any>
 > extends INode<TParent, TChild> {
+    getElementId(): string;
+    getType(): string;
     getAttributes(): TAttributes;
     getSize(): number;
     resolvePosition(offset: number, depth?: number): IModelPosition;
@@ -25,6 +26,7 @@ export abstract class ModelNode<
     TParent extends IModelNode<any> | undefined,
     TChild extends IModelNode<any> | undefined
 > extends Node<TParent, TChild> implements IModelNode<TAttributes, TParent, TChild> {
+    abstract getElementId(): string;
     abstract getType(): string;
     abstract getSize(): number;
     abstract clearCache(): void;
@@ -32,7 +34,7 @@ export abstract class ModelNode<
     abstract toTokens(): IToken[];
     abstract resolvePosition(offset: number, depth?: number): IModelPosition;
 
-    constructor(protected serviceRegistry: IServiceRegistry, protected id: string, protected attributes: TAttributes) {
+    constructor(protected id: string, protected attributes: TAttributes) {
         super();
     }
 

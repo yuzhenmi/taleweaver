@@ -11,9 +11,9 @@ export class ElementService implements IElementService {
     protected registry: IElementRegistry = new ElementRegistry();
 
     constructor(configService: IConfigService) {
-        configService.getConfig().elements.forEach((element, elementId) => {
+        for (let [elementId, element] of Object.entries(configService.getConfig().elements)) {
             this.registry.registerElement(elementId, element);
-        });
+        }
     }
 
     getElement(elementId: string) {
