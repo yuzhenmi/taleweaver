@@ -1,4 +1,3 @@
-import { IConfigService } from 'tw/config/service';
 import { ICursorService } from 'tw/cursor/service';
 import { IEventListener } from 'tw/event/listener';
 import { IService } from 'tw/service/service';
@@ -18,8 +17,7 @@ export interface IStateService extends IService {
 export class StateService implements IStateService {
     protected state: IState;
 
-    constructor(configService: IConfigService, cursorService: ICursorService) {
-        const initialMarkup = configService.getConfig().initialMarkup;
+    constructor(initialMarkup: string, cursorService: ICursorService) {
         this.state = new State(cursorService, initialMarkup);
     }
 

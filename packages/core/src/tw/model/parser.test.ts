@@ -2,15 +2,16 @@ import { DocComponent } from 'tw/component/components/doc';
 import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
 import { TextComponent, TextModelNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
+import { IConfig, IExternalConfig } from 'tw/config/config';
 import { ConfigService } from 'tw/config/service';
-import TokenParser from 'tw/model/parser';
+import { TokenParser } from 'tw/model/parser';
 import { CLOSE_TOKEN } from 'tw/state/token';
 
 describe('TokenParser', () => {
     let parser: TokenParser;
 
     beforeEach(() => {
-        const config = {
+        const config: IConfig = {
             commands: {},
             components: {
                 doc: new DocComponent('doc'),
@@ -18,7 +19,7 @@ describe('TokenParser', () => {
                 text: new TextComponent('text'),
             },
         };
-        const externalConfig = {};
+        const externalConfig: IExternalConfig = {};
         const configService = new ConfigService(config, externalConfig);
         const componentService = new ComponentService(configService);
         parser = new TokenParser(componentService);

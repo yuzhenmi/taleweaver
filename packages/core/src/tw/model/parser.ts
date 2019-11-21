@@ -5,6 +5,10 @@ import { IModelNode } from 'tw/model/node';
 import { IRootModelNode, RootModelNode } from 'tw/model/root-node';
 import { CLOSE_TOKEN, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
 
+export interface ITokenParser {
+    parse(tokens: IToken[]): IModelNode;
+}
+
 enum ParserState {
     NewNode,
     Content,
@@ -37,7 +41,7 @@ class Stack {
     }
 }
 
-export default class TokenParser {
+export class TokenParser implements ITokenParser {
     protected tokens?: IToken[];
     protected parserState: ParserState = ParserState.NewNode;
     protected rootNode?: IModelNode;

@@ -1,5 +1,5 @@
 import { IComponentService } from 'tw/component/service';
-import TokenParser from 'tw/model/parser';
+import { TokenParser } from 'tw/model/parser';
 import { IRootModelNode } from 'tw/model/root-node';
 import { IStateService } from 'tw/state/service';
 import { IDidUpdateStateEvent } from 'tw/state/state';

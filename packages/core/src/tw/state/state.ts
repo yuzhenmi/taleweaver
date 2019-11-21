@@ -2,7 +2,7 @@ import { ICursorService } from 'tw/cursor/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
 import { IToken } from 'tw/state//token';
-import Tokenizer from 'tw/state/tokenizer';
+import { Tokenizer } from 'tw/state/tokenizer';
 import {
     AppliedDelete,
     AppliedInsert,

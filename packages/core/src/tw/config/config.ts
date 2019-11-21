@@ -8,13 +8,11 @@ export interface IConfig {
     components: {
         [key: string]: IComponent;
     };
-    initialMarkup: string;
     disableCursor?: boolean;
 }
 
 export interface IExternalConfig {
     'tw.core'?: {
-        initialMarkup?: string;
         disableCursor?: boolean;
     };
     [extensionId: string]:

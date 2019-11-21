@@ -14,7 +14,7 @@ enum TokenizerState {
     CloseTag,
 }
 
-export default class Tokenizer implements ITokenizer {
+export class Tokenizer implements ITokenizer {
     protected markup?: string;
     protected tokenizerState: TokenizerState = TokenizerState.NewToken;
     protected tokens?: IToken[];
