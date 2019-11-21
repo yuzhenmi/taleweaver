@@ -14,7 +14,7 @@ export class DocModelNode extends RootModelNode<IDocAttributes> {
         return '';
     }
 
-    toHTML(from: number, to: number) {
+    toDOM(from: number, to: number) {
         const $element = document.createElement('div');
         let offset = 1;
         const childNodes = this.getChildNodes();
@@ -27,7 +27,7 @@ export class DocModelNode extends RootModelNode<IDocAttributes> {
             if (childFrom > childSize || childTo < 0) {
                 continue;
             }
-            const $childElement = child.toHTML(childFrom, childTo);
+            const $childElement = child.toDOM(childFrom, childTo);
             $element.appendChild($childElement);
         }
         return $element;

@@ -63,4 +63,4 @@ export default abstract class InlineModelNode<A> extends ModelNode<A, ParentNode
         this.content = updatedNode.getContent();
         super.onUpdated(updatedNode);
     }
-};
+}

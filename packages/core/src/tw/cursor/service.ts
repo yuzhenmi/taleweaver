@@ -1,5 +1,4 @@
-import { IExtensionConfig, IExternalConfig, IInternalConfig } from 'tw/config/config';
-import { IServiceRegistry } from 'tw/service/registry';
+import { IConfigService } from 'tw/config/service';
 import { IService } from 'tw/service/service';
 import { Cursor, ICursor } from './cursor';
 
@@ -18,13 +17,8 @@ export interface ICursorService extends IService {
 export class CursorService implements ICursorService {
     protected cursor?: ICursor;
 
-    constructor(
-        protected serviceRegistry: IServiceRegistry,
-        internalConfig: IInternalConfig,
-        extensionConfigs: IExtensionConfig[],
-        externalConfig: IExternalConfig,
-    ) {
-        if (!externalConfig['tw.core'].disableCursor) {
+    constructor(configService: IConfigService) {
+        if (!configService.getConfig().disableCursor) {
             this.cursor = new Cursor();
         }
     }

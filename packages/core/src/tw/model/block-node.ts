@@ -3,11 +3,9 @@ import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/n
 import { IRootModelNode } from 'tw/model/root-node';
 import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
-export interface IBlockModelNode<TAttributes>
-    extends IModelNode<TAttributes, IRootModelNode<any>, IInlineModelNode<any>> {}
+export interface IBlockModelNode<TAttributes = any> extends IModelNode<TAttributes, IRootModelNode, IInlineModelNode> {}
 
-export abstract class BlockModelNode<TAttributes>
-    extends ModelNode<TAttributes, IRootModelNode<any>, IInlineModelNode<any>>
+export abstract class BlockModelNode<TAttributes> extends ModelNode<TAttributes, IRootModelNode, IInlineModelNode>
     implements IBlockModelNode<TAttributes> {
     protected size?: number;
 

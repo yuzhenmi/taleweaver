@@ -26,10 +26,10 @@ export class CommandService implements ICommandService {
     protected didExecuteCommandEventEmitter: IEventEmitter<IDidExecuteCommandEvent> = new EventEmitter();
     protected registry: ICommandRegistry = new CommandRegistry();
 
-    constructor(serviceConfig: IConfigService, protected serviceRegistry: IServiceRegistry) {
-        serviceConfig.getConfig().commands.forEach((commandHandler, commandId) => {
+    constructor(configService: IConfigService, protected serviceRegistry: IServiceRegistry) {
+        for (let [commandId, commandHandler] of Object.entries(configService.getConfig().commands)) {
             this.registry.registerCommand(commandId, commandHandler);
-        });
+        }
     }
 
     onWillExecuteCommand(listener: IEventListener<IWillExecuteCommandEvent>) {

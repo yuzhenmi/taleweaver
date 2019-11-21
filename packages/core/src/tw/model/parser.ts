@@ -1,9 +1,9 @@
 import { IComponentService } from 'tw/component/service';
-import { InlineModelNode } from 'tw/model/inline-node';
+import { BlockModelNode, IBlockModelNode } from 'tw/model/block-node';
+import { IInlineModelNode, InlineModelNode } from 'tw/model/inline-node';
 import { IModelNode } from 'tw/model/node';
+import { IRootModelNode, RootModelNode } from 'tw/model/root-node';
 import { CLOSE_TOKEN, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
-import { BlockModelNode } from './block-node';
-import { RootModelNode } from './root-node';
 
 enum ParserState {
     NewNode,
@@ -11,21 +11,21 @@ enum ParserState {
 }
 
 class Stack {
-    protected nodes: IModelNode<any>[];
+    protected nodes: IModelNode[];
 
     constructor() {
         this.nodes = [];
     }
 
-    push(node: IModelNode<any>) {
+    push(node: IModelNode) {
         this.nodes.push(node);
     }
 
-    pop(): IModelNode<any> | undefined {
+    pop(): IModelNode | undefined {
         return this.nodes.pop();
     }
 
-    peek(): IModelNode<any> | undefined {
+    peek(): IModelNode | undefined {
         return this.nodes[this.nodes.length - 1];
     }
 
@@ -40,7 +40,7 @@ class Stack {
 export default class TokenParser {
     protected tokens?: IToken[];
     protected parserState: ParserState = ParserState.NewNode;
-    protected rootNode?: IModelNode<any>;
+    protected rootNode?: IModelNode;
     protected stack: Stack = new Stack();
     protected contentBuffer: string = '';
     protected ran: boolean = false;
@@ -102,13 +102,13 @@ export default class TokenParser {
         const parentNode = this.stack.peek();
         const node = this.buildNode(token.componentId, token.partId, token.id, token.attributes);
         if (parentNode instanceof RootModelNode) {
-            const parentDocNode = parentNode as RootModelNode<any>;
+            const parentDocNode = parentNode as IRootModelNode;
             if (!(node instanceof BlockModelNode)) {
                 throw new Error('Unexpected node type.');
             }
             parentDocNode.appendChild(node);
         } else if (parentNode instanceof BlockModelNode) {
-            const parentBlockNode = parentNode as BlockModelNode<any>;
+            const parentBlockNode = parentNode as IBlockModelNode;
             if (!(node instanceof InlineModelNode)) {
                 throw new Error('Unexpected node type.');
             }
@@ -131,7 +131,7 @@ export default class TokenParser {
             throw new Error('Unexpected end of tokens encountered.');
         }
         if (node instanceof InlineModelNode) {
-            const inlineNode = node as InlineModelNode<any>;
+            const inlineNode = node as IInlineModelNode;
             inlineNode.setContent(this.contentBuffer);
         }
         this.contentBuffer = '';

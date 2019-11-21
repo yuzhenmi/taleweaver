@@ -2,12 +2,12 @@ import { IBlockModelNode } from 'tw/model/block-node';
 import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
 import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 
-export interface IInlineModelNode<TAttributes> extends IModelNode<TAttributes, IBlockModelNode<any>, never> {
+export interface IInlineModelNode<TAttributes = any> extends IModelNode<TAttributes, IBlockModelNode, never> {
     setContent(content: string): void;
     getContent(): string;
 }
 
-export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes, IBlockModelNode<any>, never> {
+export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes, IBlockModelNode, never> {
     protected content: string = '';
     protected size?: number;
 

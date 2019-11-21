@@ -1,8 +1,7 @@
 import { ICursorService } from 'tw/cursor/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { IServiceRegistry, Services } from 'tw/service/registry';
-import { CloseToken, IToken, OpenToken } from 'tw/state//token';
+import { IToken } from 'tw/state//token';
 import Tokenizer from 'tw/state/tokenizer';
 import {
     AppliedDelete,
@@ -24,36 +23,22 @@ export interface IDidUpdateStateEvent {
 
 export interface IState {
     onDidUpdateState: IOnEvent<IDidUpdateStateEvent>;
-    initialize(markup: string): void;
     getTokens(): IToken[];
     applyTransformations(transformations: ITransformation[]): IAppliedTransformation[];
     unapplyTransformations(appliedTransformations: IAppliedTransformation[]): void;
 }
 
 export class State implements IState {
-    protected initialized: boolean = false;
-    protected tokens: IToken[] = [new OpenToken('Doc', 'Doc', {}), new CloseToken()];
+    protected tokens: IToken[];
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
 
-    constructor(protected serviceRegistry: IServiceRegistry) {}
+    constructor(protected cursorService: ICursorService, initialMarkup: string) {
+        const tokenizer = new Tokenizer();
+        this.tokens = tokenizer.tokenize(initialMarkup);
+    }
 
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {
         this.didUpdateStateEventEmitter.on(listener);
-    }
-
-    initialize(markup: string) {
-        if (this.initialized) {
-            throw new Error('State already initialized.');
-        }
-        const tokenizer = new Tokenizer();
-        this.tokens = tokenizer.tokenize(markup);
-        this.initialized = true;
-        this.didUpdateStateEventEmitter.emit({
-            beforeFrom: 0,
-            beforeTo: 1,
-            afterFrom: 0,
-            afterTo: this.tokens.length,
-        });
     }
 
     getTokens(): IToken[] {
@@ -93,8 +78,7 @@ export class State implements IState {
     }
 
     protected applyTransformation(transformation: ITransformation): IAppliedTransformation {
-        const cursorService = this.serviceRegistry.getService<ICursorService>(Services.Cursor);
-        const cursorState = cursorService.getCursorState();
+        const cursorState = this.cursorService.getCursorState();
         const appliedTransformation = new AppliedTransformation(
             transformation,
             cursorState.anchor,
@@ -103,7 +87,7 @@ export class State implements IState {
         );
         const cursorAnchor = transformation.getCursorAnchor();
         const cursorHead = transformation.getCursorHead();
-        cursorService.setCursorState({
+        this.cursorService.setCursorState({
             anchor: cursorAnchor === null ? cursorState.anchor : cursorAnchor,
             head: cursorHead === null ? cursorState.head : cursorHead,
             leftLock: transformation.getCursorLockLeft(),

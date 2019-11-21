@@ -14,7 +14,7 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
         return '';
     }
 
-    toHTML(from: number, to: number) {
+    toDOM(from: number, to: number) {
         const $element = document.createElement('p');
         let offset = 1;
         const childNodes = this.getChildNodes();
@@ -27,7 +27,7 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
             if (childFrom > childSize || childTo < 0) {
                 continue;
             }
-            const $childElement = childNode.toHTML(childFrom, childTo);
+            const $childElement = childNode.toDOM(childFrom, childTo);
             $element.appendChild($childElement);
         }
         return $element;

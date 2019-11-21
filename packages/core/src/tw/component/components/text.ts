@@ -14,7 +14,7 @@ export class TextModelNode extends InlineModelNode<ITextAttributes> {
         return '';
     }
 
-    toHTML(from: number, to: number) {
+    toDOM(from: number, to: number) {
         const $component = document.createElement('span');
         $component.innerText = this.content.substring(from - 1, to - 1);
         return $component;
