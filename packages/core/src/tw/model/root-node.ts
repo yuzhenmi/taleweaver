@@ -51,8 +51,8 @@ export abstract class RootModelNode<TAttributes> extends ModelNode<TAttributes, 
     toTokens() {
         const tokens: IToken[] = [];
         tokens.push({
-            elementId: this.getElementId(),
-            type: this.getType(),
+            componentId: this.getComponentId(),
+            partId: this.getPartId(),
             id: this.getId(),
             attributes: this.getAttributes(),
         });

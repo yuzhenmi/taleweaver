@@ -1,6 +1,7 @@
-import { IElement } from 'tw/element/element';
+import { Component, IComponent } from 'tw/component/component';
 import { BlockModelNode } from 'tw/model/block-node';
 import { IAttributes } from 'tw/state/token';
+import { generateId } from 'tw/util/id';
 
 export interface IParagraphAttributes extends IAttributes {}
 
@@ -31,10 +32,14 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
         }
         return $element;
     }
+
+    clone() {
+        return new ParagraphModelNode(this.component, generateId(), this.attributes);
+    }
 }
 
-export const ParagraphElement: IElement = {
-    buildModelNode(type: string, id: string, attributes: IAttributes) {
-        return new ParagraphModelNode(id, attributes);
-    },
-};
+export class ParagraphComponent extends Component implements IComponent {
+    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): ParagraphModelNode {
+        return new ParagraphModelNode(this, id, attributes);
+    }
+}

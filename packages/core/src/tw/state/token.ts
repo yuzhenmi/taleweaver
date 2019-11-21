@@ -3,8 +3,8 @@ export interface IAttributes {
 }
 
 export interface IOpenToken {
-    readonly elementId: string;
-    readonly type: string;
+    readonly componentId: string;
+    readonly partId?: string;
     readonly id: string;
     readonly attributes: IAttributes;
 }

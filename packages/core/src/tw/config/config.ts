@@ -1,12 +1,12 @@
 import { ICommandHandler } from 'tw/command/command';
-import { IElement } from 'tw/element/element';
+import { IComponent } from 'tw/component/component';
 
 export interface IConfig {
     commands: {
         [key: string]: ICommandHandler;
     };
-    elements: {
-        [key: string]: IElement;
+    components: {
+        [key: string]: IComponent;
     };
     disableCursor?: boolean;
 }

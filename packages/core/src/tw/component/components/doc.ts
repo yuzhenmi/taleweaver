@@ -1,12 +1,13 @@
+import { Component, IComponent } from 'tw/component/component';
 import { RootModelNode } from 'tw/model/root-node';
 import { IAttributes } from 'tw/state/token';
-import { IElement } from '../element';
+import { generateId } from 'tw/util/id';
 
 export interface IDocAttributes extends IAttributes {}
 
 export class DocModelNode extends RootModelNode<IDocAttributes> {
-    getElementId() {
-        return 'doc';
+    getPartId() {
+        return undefined;
     }
 
     getType() {
@@ -31,10 +32,14 @@ export class DocModelNode extends RootModelNode<IDocAttributes> {
         }
         return $element;
     }
+
+    clone() {
+        return new DocModelNode(this.component, generateId(), this.attributes);
+    }
 }
 
-export const DocElement: IElement = {
-    buildModelNode(type: string, id: string, attributes: IAttributes) {
-        return new DocModelNode(id, attributes);
-    },
-};
+export class DocComponent extends Component implements IComponent {
+    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): DocModelNode {
+        return new DocModelNode(this, id, attributes);
+    }
+}

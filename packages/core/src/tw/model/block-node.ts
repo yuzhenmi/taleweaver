@@ -55,8 +55,8 @@ export abstract class BlockModelNode<TAttributes>
     toTokens() {
         const tokens: IToken[] = [];
         tokens.push({
-            elementId: this.getElementId(),
-            type: this.getType(),
+            componentId: this.getComponentId(),
+            partId: this.getPartId(),
             id: this.getId(),
             attributes: this.getAttributes(),
         });

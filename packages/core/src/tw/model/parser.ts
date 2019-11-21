@@ -1,4 +1,4 @@
-import { IElementService } from 'tw/element/service';
+import { IComponentService } from 'tw/component/service';
 import { InlineModelNode } from 'tw/model/inline-node';
 import { IModelNode } from 'tw/model/node';
 import { CLOSE_TOKEN, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
@@ -45,7 +45,7 @@ export default class TokenParser {
     protected contentBuffer: string = '';
     protected ran: boolean = false;
 
-    constructor(protected elementService: IElementService) {}
+    constructor(protected componentService: IComponentService) {}
 
     parse(tokens: IToken[]) {
         if (this.ran) {
@@ -100,7 +100,7 @@ export default class TokenParser {
 
     protected newNode(token: IOpenToken) {
         const parentNode = this.stack.peek();
-        const node = this.buildNode(token.elementId, token.type, token.id, token.attributes);
+        const node = this.buildNode(token.componentId, token.partId, token.id, token.attributes);
         if (parentNode instanceof RootModelNode) {
             const parentDocNode = parentNode as RootModelNode<any>;
             if (!(node instanceof BlockModelNode)) {
@@ -138,11 +138,11 @@ export default class TokenParser {
         this.parserState = ParserState.NewNode;
     }
 
-    protected buildNode(elementId: string, type: string, id: string, attributes: IAttributes) {
-        const element = this.elementService.getElement(elementId);
-        if (!element) {
-            throw new Error(`Element ${elementId} is not registered.`);
+    protected buildNode(componentId: string, partId: string | undefined, id: string, attributes: IAttributes) {
+        const component = this.componentService.getComponent(componentId);
+        if (!component) {
+            throw new Error(`Component ${component} is not registered.`);
         }
-        return element.buildModelNode(type, id, attributes);
+        return component.buildModelNode(partId, id, attributes);
     }
 }
