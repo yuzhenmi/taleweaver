@@ -3,7 +3,8 @@ import { BlockModelNode, IBlockModelNode } from 'tw/model/block-node';
 import { IInlineModelNode, InlineModelNode } from 'tw/model/inline-node';
 import { IModelNode } from 'tw/model/node';
 import { IRootModelNode, RootModelNode } from 'tw/model/root-node';
-import { CLOSE_TOKEN, IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
+import { IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
+import { identityTokenType } from 'tw/state/utility';
 
 export interface ITokenParser {
     parse(tokens: IToken[]): IModelNode;
@@ -70,27 +71,25 @@ export class TokenParser implements ITokenParser {
             try {
                 switch (this.parserState) {
                     case ParserState.NewNode:
-                        if (typeof token === 'string') {
-                            this.appendToContent(token);
-                            break;
+                        switch (identityTokenType(token)) {
+                            case 'OpenToken':
+                                this.newNode(token as IOpenToken);
+                                break;
+                            case 'ContentToken':
+                                this.appendToContent(token as IContentToken);
+                                break;
+                            case 'CloseToken':
+                                this.closeNode(token as ICloseToken);
+                                break;
                         }
-                        if (token === CLOSE_TOKEN) {
-                            this.closeNode(token);
-                            break;
-                        }
-                        if (typeof token === 'object') {
-                            this.newNode(token as IOpenToken);
-                            break;
-                        }
-                        throw new Error('Invalid token.');
                     case ParserState.Content:
-                        if (typeof token === 'string') {
-                            this.appendToContent(token);
-                            break;
-                        }
-                        if (token === CLOSE_TOKEN) {
-                            this.closeNode(token);
-                            break;
+                        switch (identityTokenType(token)) {
+                            case 'ContentToken':
+                                this.appendToContent(token as IContentToken);
+                                break;
+                            case 'CloseToken':
+                                this.closeNode(token as ICloseToken);
+                                break;
                         }
                     default:
                         throw new Error('Unexpected token encountered.');

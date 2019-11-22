@@ -6,6 +6,7 @@ export interface INode<
     isRoot(): boolean;
     isLeaf(): boolean;
     setParent(parent: TParent | undefined): void;
+    getParent(): TParent | undefined;
     appendChild(child: TChild): void;
     insertBefore(child: TChild, before: TChild): void;
     removeChild(child: TChild): void;
