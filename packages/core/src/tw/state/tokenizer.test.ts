@@ -1,8 +1,8 @@
 import { CLOSE_TOKEN } from 'tw/state/token';
-import { Tokenizer } from 'tw/state/tokenizer';
+import { ITokenizer, Tokenizer } from 'tw/state/tokenizer';
 
 describe('Tokenizer', () => {
-    let tokenizer: Tokenizer;
+    let tokenizer: ITokenizer;
 
     beforeEach(() => {
         tokenizer = new Tokenizer();

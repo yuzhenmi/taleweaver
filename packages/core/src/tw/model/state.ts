@@ -38,17 +38,20 @@ export class ModelState implements IModelState {
     }
 
     protected handleDidUpdateStateEvent(event: IDidUpdateStateEvent) {
-        const [node, updatedNode] = this.findUpdatedNode(
+        const originalNode = this.findNodeContainingRange(event.beforeFrom, event.beforeTo);
+        const updatedTokens = this.findNodeTokenRange(
             this.stateService.getTokens(),
-            event.beforeFrom,
-            event.beforeTo,
+            originalNode.getId(),
             event.afterFrom,
             event.afterTo,
         );
-        node.onUpdated(updatedNode);
-        this.clearCacheForNodeAncestors(node);
+        const parser = new TokenParser(this.componentService);
+        const updatedNode = parser.parse(updatedTokens);
+        const parentNode = originalNode.getParent()!;
+        parentNode.replaceChild(updatedNode);
+        this.clearCacheForNodeAncestors(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({
-            updatedNode: node,
+            updatedNode,
         });
     }
 
@@ -61,18 +64,24 @@ export class ModelState implements IModelState {
     ) {
         const beforeFromPosition = this.rootNode.resolvePosition(beforeFrom).getLeaf();
         const beforeToPosition = this.rootNode.resolvePosition(beforeTo).getLeaf();
-        const beforeNode = this.findCommonAncestor(beforeFromPosition.getNode(), beforeToPosition.getNode());
+        const beforeNode = this.findCommonLineage(beforeFromPosition.getNode(), beforeToPosition.getNode());
         const afterTokenRange = this.findParentNodeOfTokenRange(tokens, afterFrom, afterTo);
         const afterNodeID = (tokens[afterTokenRange[0]] as IOpenToken).id;
-        const afterNode = this.findAncestorNodeById(beforeFromPosition.getNode(), afterNodeID);
-        const node = this.findCommonAncestor(beforeNode, afterNode);
+        const afterNode = this.findNodeInLineageById(beforeFromPosition.getNode(), afterNodeID);
+        const node = this.findCommonLineage(beforeNode, afterNode);
         const updatedTokens = this.findNodeTokenRange(tokens, node.getId(), afterTokenRange[0], afterTokenRange[1]);
         const parser = new TokenParser(this.componentService);
         const updatedNode = parser.parse(updatedTokens);
         return [node, updatedNode];
     }
 
-    protected findCommonAncestor(node1: IModelNode, node2: IModelNode) {
+    protected findNodeContainingRange(from: number, to: number) {
+        const fromPosition = this.rootNode.resolvePosition(from).getLeaf();
+        const toPosition = this.rootNode.resolvePosition(to).getLeaf();
+        return this.findCommonLineage(fromPosition.getNode(), toPosition.getNode());
+    }
+
+    protected findCommonLineage(node1: IModelNode, node2: IModelNode) {
         const nodeLineage1 = this.getNodeLineage(node1);
         const nodeLineage2 = this.getNodeLineage(node2);
         let index = 0;
@@ -83,7 +92,7 @@ export class ModelState implements IModelState {
             index++;
         }
         if (index === 0) {
-            throw new Error('No common ancestor found.');
+            throw new Error('No common lineage found.');
         }
         return nodeLineage1[index - 1];
     }
@@ -149,14 +158,14 @@ export class ModelState implements IModelState {
         return [from, to];
     }
 
-    protected findAncestorNodeById(node: IModelNode, id: string): IModelNode {
+    protected findNodeInLineageById(node: IModelNode, id: string): IModelNode {
         if (node.getId() === id) {
             return node;
         }
         if (node.isRoot()) {
-            throw new Error(`Ancestor node ${id} cannot be found.`);
+            throw new Error(`Node ${id} is not found in lineage.`);
         }
-        return this.findAncestorNodeById(node.getParent()!, id);
+        return this.findNodeInLineageById(node.getParent()!, id);
     }
 
     protected findNodeTokenRange(tokens: IToken[], nodeId: string, hintFrom: number, hintTo: number) {

@@ -1,6 +1,6 @@
 export type AnyNode = Node<any, any>;
 
-export default abstract class Node<P extends (Node | undefined) = Node<any, any>, C extends (Node | undefined) = Node<any, any>> {
+export default abstract class Node<P extends Node = Node<any, any>, C extends Node = Node<any, any>> {
     abstract isRoot(): boolean;
     abstract isLeaf(): boolean;
     abstract getID(): string;

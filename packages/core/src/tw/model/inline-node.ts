@@ -63,9 +63,4 @@ export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes
         tokens.push(CLOSE_TOKEN);
         return tokens;
     }
-
-    onUpdated(updatedNode: this) {
-        this.content = updatedNode.getContent();
-        super.onUpdated(updatedNode);
-    }
 }

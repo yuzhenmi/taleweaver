@@ -1,16 +1,12 @@
-export interface INode<
-    TParent extends INode | undefined = INode<any, any>,
-    TChild extends INode | undefined = INode<any, any>
-> {
+export interface INode<TParent extends INode = INode<any, any>, TChild extends INode = INode<any, any>> {
     getId(): string;
     isRoot(): boolean;
     isLeaf(): boolean;
     setParent(parent: TParent | undefined): void;
     getParent(): TParent | undefined;
-    appendChild(child: TChild): void;
-    insertBefore(child: TChild, before: TChild): void;
-    removeChild(child: TChild): void;
-    getChildNodes(): TChild[];
+    setChildren(children: TChild[]): void;
+    replaceChild(child: TChild): void;
+    getChildren(): TChild[];
     getFirstChild(): TChild | undefined;
     getLastChild(): TChild | undefined;
     getPreviousSibling(): INode | undefined;
@@ -18,23 +14,15 @@ export interface INode<
     getPreviousSiblingAllowCrossParent(): INode | undefined;
     getNextSiblingAllowCrossParent(): INode | undefined;
     findDescendant(nodeId: string): INode | undefined;
-    onUpdated(updatedNode: this): void;
 }
 
-export abstract class Node<TParent extends INode | undefined, TChild extends INode | undefined>
-    implements INode<TParent, TChild> {
+export abstract class Node<TParent extends INode, TChild extends INode> implements INode<TParent, TChild> {
     private parent?: TParent;
-    private childNodes?: TChild[];
+    private children?: TChild[];
 
     abstract getId(): string;
     abstract isRoot(): boolean;
     abstract isLeaf(): boolean;
-
-    constructor() {
-        if (!this.isLeaf()) {
-            this.childNodes = [];
-        }
-    }
 
     setParent(parent: TParent | undefined) {
         this.parent = parent;
@@ -47,66 +35,48 @@ export abstract class Node<TParent extends INode | undefined, TChild extends INo
         return this.parent;
     }
 
-    appendChild(child: TChild) {
-        if (this.isLeaf()) {
-            throw new Error('Appending child on leaf node is not allowed.');
-        }
-        this.childNodes!.push(child);
-        child!.setParent(this);
+    setChildren(children: TChild[]) {
+        this.children = children;
+        children.forEach(child => child.setParent(this));
     }
 
-    insertBefore(child: TChild, before: TChild) {
-        if (this.isLeaf()) {
-            throw new Error('Inserting on leaf node is not allowed.');
+    replaceChild(child: TChild) {
+        const childId = child.getId();
+        const index = this.children!.findIndex(c => c.getId() === childId);
+        if (index < 0) {
+            throw new Error('Child is not found.');
         }
-        const beforeIndex = this.childNodes!.indexOf(before);
-        if (beforeIndex < 0) {
-            throw new Error('Error inserting, child to insert before is not found.');
-        }
-        this.childNodes!.splice(beforeIndex, 0, child);
-        child!.setParent(this);
+        this.children![index] = child;
     }
 
-    removeChild(child: TChild) {
+    getChildren() {
         if (this.isLeaf()) {
-            throw new Error('Removing child on leaf node is not allowed.');
+            throw new Error('Getting children on leaf node is not allowed.');
         }
-        const childIndex = this.childNodes!.indexOf(child);
-        if (childIndex < 0) {
-            throw new Error('Error removing child, child is not found.');
-        }
-        this.childNodes!.splice(childIndex, 1);
-        child!.setParent(undefined);
-    }
-
-    getChildNodes() {
-        if (this.isLeaf()) {
-            throw new Error('Getting childNodes on leaf node is not allowed.');
-        }
-        return this.childNodes!;
+        return this.children!;
     }
 
     getFirstChild() {
-        const childNodes = this.getChildNodes();
-        if (childNodes.length === 0) {
+        const children = this.children!;
+        if (children.length === 0) {
             return undefined;
         }
-        return childNodes[0];
+        return children[0];
     }
 
     getLastChild() {
-        const childNodes = this.getChildNodes();
-        if (childNodes.length === 0) {
+        const children = this.children!;
+        if (children.length === 0) {
             return undefined;
         }
-        return childNodes[childNodes.length - 1];
+        return children[children.length - 1];
     }
 
     getPreviousSibling(): INode | undefined {
         if (this.isRoot()) {
             throw new Error('Getting previous sibling on root node is not allowed.');
         }
-        const siblings = this.getParent()!.getChildNodes();
+        const siblings = this.getParent()!.getChildren();
         const ownIndex = siblings.indexOf(this);
         if (ownIndex < 0) {
             throw new Error('Error getting previous sibling, node is not found in parent.');
@@ -121,7 +91,7 @@ export abstract class Node<TParent extends INode | undefined, TChild extends INo
         if (this.isRoot()) {
             throw new Error('Getting next sibling on root node is not allowed.');
         }
-        const siblings = this.getParent()!.getChildNodes();
+        const siblings = this.getParent()!.getChildren();
         const ownIndex = siblings.indexOf(this);
         if (ownIndex < 0) {
             throw new Error('Error getting next sibling, node is not found in parent.');
@@ -177,50 +147,14 @@ export abstract class Node<TParent extends INode | undefined, TChild extends INo
         if (this.isLeaf()) {
             return undefined;
         }
-        const childNodes = this.getChildNodes();
-        for (let n = 0, nn = childNodes.length; n < nn; n++) {
-            const childNode = childNodes[n]!;
-            const result = childNode.findDescendant(id);
+        const children = this.children!;
+        for (let n = 0, nn = children.length; n < nn; n++) {
+            const child = children[n]!;
+            const result = child.findDescendant(id);
             if (result) {
                 return result;
             }
         }
         return undefined;
-    }
-
-    onUpdated(updatedNode: this) {
-        if (!this.isLeaf()) {
-            const childNodes = this.childNodes!.slice();
-            const updatedChildNodes = updatedNode.childNodes!;
-            let m = 0;
-            for (let n = 0, nn = updatedChildNodes.length; n < nn; n++) {
-                const updatedChildNode = updatedChildNodes[n]!;
-                let i = -1;
-                for (let o = m, oo = childNodes.length; o < oo; o++) {
-                    if (childNodes[o]!.getId() === updatedChildNode.getId()) {
-                        i = o;
-                        break;
-                    }
-                }
-                if (i >= 0) {
-                    while (m < i) {
-                        this.removeChild(childNodes[m]);
-                        m++;
-                    }
-                    childNodes[m]!.onUpdated(updatedChildNode);
-                    m++;
-                } else {
-                    if (m < childNodes.length) {
-                        this.insertBefore(updatedChildNode, childNodes[m]);
-                    } else {
-                        this.appendChild(updatedChildNode);
-                    }
-                }
-            }
-            while (m < childNodes.length) {
-                this.removeChild(childNodes[m]);
-                m++;
-            }
-        }
     }
 }

@@ -1,13 +1,15 @@
 import { DocComponent } from 'tw/component/components/doc';
 import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
 import { TextComponent, TextModelNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
+import { ComponentService, IComponentService } from 'tw/component/service';
 import { IConfig, IExternalConfig } from 'tw/config/config';
-import { ConfigService } from 'tw/config/service';
+import { ConfigService, IConfigService } from 'tw/config/service';
 import { TokenParser } from 'tw/model/parser';
 import { CLOSE_TOKEN } from 'tw/state/token';
 
 describe('TokenParser', () => {
+    let configService: IConfigService;
+    let componentService: IComponentService;
     let parser: TokenParser;
 
     beforeEach(() => {
@@ -20,8 +22,8 @@ describe('TokenParser', () => {
             },
         };
         const externalConfig: IExternalConfig = {};
-        const configService = new ConfigService(config, externalConfig);
-        const componentService = new ComponentService(configService);
+        configService = new ConfigService(config, externalConfig);
+        componentService = new ComponentService(configService);
         parser = new TokenParser(componentService);
     });
 
@@ -52,13 +54,13 @@ describe('TokenParser', () => {
             expect(doc.getPartId()).toBeUndefined();
             expect(doc.getId()).toEqual('doc');
             expect(doc.getAttributes()).toEqual({});
-            expect(doc.getChildNodes()).toHaveLength(1);
+            expect(doc.getChildren()).toHaveLength(1);
             const paragaph = doc.getFirstChild() as ParagraphModelNode;
             expect(paragaph.getComponentId()).toEqual('paragraph');
             expect(paragaph.getPartId()).toBeUndefined();
             expect(paragaph.getId()).toEqual('1');
             expect(paragaph.getAttributes()).toEqual({});
-            expect(paragaph.getChildNodes()).toHaveLength(2);
+            expect(paragaph.getChildren()).toHaveLength(2);
             const text1 = paragaph.getFirstChild() as TextModelNode;
             expect(text1.getComponentId()).toEqual('text');
             expect(text1.getPartId()).toBeUndefined();

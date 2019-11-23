@@ -19,14 +19,14 @@ export abstract class BlockModelNode<TAttributes> extends ModelNode<TAttributes,
 
     getSize() {
         if (this.size === undefined) {
-            this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 2);
+            this.size = this.getChildren().reduce((size, childNode) => size + childNode.getSize(), 2);
         }
         return this.size!;
     }
 
     resolvePosition(offset: number, depth: number): IModelPosition {
         let cumulatedOffset = 1;
-        const childNodes = this.getChildNodes();
+        const childNodes = this.getChildren();
         for (let n = 0, nn = childNodes.length; n < nn; n++) {
             const childNode = childNodes[n];
             const childSize = childNode.getSize();
@@ -58,7 +58,7 @@ export abstract class BlockModelNode<TAttributes> extends ModelNode<TAttributes,
             id: this.getId(),
             attributes: this.getAttributes(),
         });
-        this.getChildNodes().forEach(childNode => {
+        this.getChildren().forEach(childNode => {
             tokens.push(...childNode.toTokens());
         });
         tokens.push(CLOSE_TOKEN);

@@ -18,16 +18,16 @@ export abstract class RootModelNode<TAttributes> extends ModelNode<TAttributes, 
 
     getSize() {
         if (this.size === undefined) {
-            this.size = this.getChildNodes().reduce((size, childNode) => size + childNode.getSize(), 2);
+            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 2);
         }
         return this.size!;
     }
 
     resolvePosition(offset: number): IModelPosition {
         let cumulatedOffset = 1;
-        const childNodes = this.getChildNodes();
-        for (let n = 0, nn = childNodes.length; n < nn; n++) {
-            const child = childNodes[n];
+        const children = this.getChildren();
+        for (let n = 0, nn = children.length; n < nn; n++) {
+            const child = children[n];
             const childSize = child.getSize();
             if (cumulatedOffset + childSize > offset) {
                 const position = new ModelPosition(this, 0, offset);
@@ -56,8 +56,8 @@ export abstract class RootModelNode<TAttributes> extends ModelNode<TAttributes, 
             id: this.getId(),
             attributes: this.getAttributes(),
         });
-        this.getChildNodes().forEach(childNode => {
-            tokens.push(...childNode.toTokens());
+        this.getChildren().forEach(child => {
+            tokens.push(...child.toTokens());
         });
         tokens.push(CLOSE_TOKEN);
         return tokens;

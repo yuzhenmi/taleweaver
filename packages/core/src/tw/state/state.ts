@@ -4,12 +4,12 @@ import { IEventListener, IOnEvent } from 'tw/event/listener';
 import { IToken } from 'tw/state//token';
 import { Tokenizer } from 'tw/state/tokenizer';
 import {
-    AppliedDelete,
-    AppliedInsert,
+    AppliedDeleteOperation,
+    AppliedInsertOperation,
     AppliedTransformation,
-    Delete,
+    DeleteOperation,
     IAppliedTransformation,
-    Insert,
+    InsertOperation,
     IOffsetAdjustment,
     ITransformation,
 } from 'tw/state/transformation';
@@ -99,13 +99,13 @@ export class State implements IState {
         const offsetAdjustments: IOffsetAdjustment[] = [];
         operations.forEach(unadjustedOperation => {
             const operation = unadjustedOperation.adjustOffset(offsetAdjustments);
-            if (operation instanceof Insert) {
+            if (operation instanceof InsertOperation) {
                 this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());
-                const appliedOperation = new AppliedInsert(operation.getAt(), operation.getTokens());
+                const appliedOperation = new AppliedInsertOperation(operation.getAt(), operation.getTokens());
                 appliedTransformation.addOperation(appliedOperation);
-            } else if (operation instanceof Delete) {
+            } else if (operation instanceof DeleteOperation) {
                 const deletedTokens = this.tokens.splice(operation.getFrom(), operation.getTo() - operation.getFrom());
-                const appliedOperation = new AppliedDelete(operation.getFrom(), deletedTokens);
+                const appliedOperation = new AppliedDeleteOperation(operation.getFrom(), deletedTokens);
                 appliedTransformation.addOperation(appliedOperation);
             } else {
                 throw new Error('Unknown transformation operation encountered.');
@@ -121,9 +121,9 @@ export class State implements IState {
             .slice()
             .reverse()
             .forEach(appliedOperation => {
-                if (appliedOperation instanceof AppliedInsert) {
+                if (appliedOperation instanceof AppliedInsertOperation) {
                     this.tokens.splice(appliedOperation.getAt(), appliedOperation.getTokens().length);
-                } else if (appliedOperation instanceof AppliedDelete) {
+                } else if (appliedOperation instanceof AppliedDeleteOperation) {
                     this.tokens.splice(appliedOperation.getAt(), 0, ...appliedOperation.getTokens());
                 } else {
                     throw new Error('Unknown applied transformation operation encountered.');

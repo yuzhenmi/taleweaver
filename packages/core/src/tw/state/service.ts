@@ -17,7 +17,7 @@ export interface IStateService extends IService {
 export class StateService implements IStateService {
     protected state: IState;
 
-    constructor(initialMarkup: string, cursorService: ICursorService) {
+    constructor(cursorService: ICursorService, initialMarkup: string) {
         this.state = new State(cursorService, initialMarkup);
     }
 

@@ -1,8 +1,6 @@
 import { IComponentService } from 'tw/component/service';
-import { BlockModelNode, IBlockModelNode } from 'tw/model/block-node';
 import { IInlineModelNode, InlineModelNode } from 'tw/model/inline-node';
 import { IModelNode } from 'tw/model/node';
-import { IRootModelNode, RootModelNode } from 'tw/model/root-node';
 import { IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
 import { identityTokenType } from 'tw/state/utility';
 
@@ -15,30 +13,31 @@ enum ParserState {
     Content,
 }
 
+interface IStackObject {
+    node: IModelNode;
+    children: IModelNode[];
+}
+
 class Stack {
-    protected nodes: IModelNode[];
+    protected objects: IStackObject[] = [];
 
-    constructor() {
-        this.nodes = [];
+    push(object: IStackObject) {
+        this.objects.push(object);
     }
 
-    push(node: IModelNode) {
-        this.nodes.push(node);
+    pop(): IStackObject | undefined {
+        return this.objects.pop();
     }
 
-    pop(): IModelNode | undefined {
-        return this.nodes.pop();
+    peek(): IStackObject | undefined {
+        return this.objects[this.objects.length - 1];
     }
 
-    peek(): IModelNode | undefined {
-        return this.nodes[this.nodes.length - 1];
-    }
-
-    getRootNode() {
-        if (this.nodes.length === 0) {
+    getRoot() {
+        if (this.objects.length === 0) {
             throw new Error('Error parsing state.');
         }
-        return this.nodes[0];
+        return this.objects[0];
     }
 }
 
@@ -69,31 +68,7 @@ export class TokenParser implements ITokenParser {
         for (let n = 0, nn = tokens.length; n < nn; n++) {
             token = tokens[n];
             try {
-                switch (this.parserState) {
-                    case ParserState.NewNode:
-                        switch (identityTokenType(token)) {
-                            case 'OpenToken':
-                                this.newNode(token as IOpenToken);
-                                break;
-                            case 'ContentToken':
-                                this.appendToContent(token as IContentToken);
-                                break;
-                            case 'CloseToken':
-                                this.closeNode(token as ICloseToken);
-                                break;
-                        }
-                    case ParserState.Content:
-                        switch (identityTokenType(token)) {
-                            case 'ContentToken':
-                                this.appendToContent(token as IContentToken);
-                                break;
-                            case 'CloseToken':
-                                this.closeNode(token as ICloseToken);
-                                break;
-                        }
-                    default:
-                        throw new Error('Unexpected token encountered.');
-                }
+                this.handleToken(token);
             } catch (error) {
                 throw new Error(`Error at token ${n}: ${error}`);
             }
@@ -101,23 +76,41 @@ export class TokenParser implements ITokenParser {
         this.ran = true;
     }
 
-    protected newNode(token: IOpenToken) {
-        const parentNode = this.stack.peek();
-        const node = this.buildNode(token.componentId, token.partId, token.id, token.attributes);
-        if (parentNode instanceof RootModelNode) {
-            const parentDocNode = parentNode as IRootModelNode;
-            if (!(node instanceof BlockModelNode)) {
-                throw new Error('Unexpected node type.');
-            }
-            parentDocNode.appendChild(node);
-        } else if (parentNode instanceof BlockModelNode) {
-            const parentBlockNode = parentNode as IBlockModelNode;
-            if (!(node instanceof InlineModelNode)) {
-                throw new Error('Unexpected node type.');
-            }
-            parentBlockNode.appendChild(node);
+    protected handleToken(token: IToken) {
+        switch (this.parserState) {
+            case ParserState.NewNode:
+                switch (identityTokenType(token)) {
+                    case 'OpenToken':
+                        this.newNode(token as IOpenToken);
+                        return;
+                    case 'ContentToken':
+                        this.appendToContent(token as IContentToken);
+                        return;
+                    case 'CloseToken':
+                        this.closeNode(token as ICloseToken);
+                        return;
+                }
+            case ParserState.Content:
+                switch (identityTokenType(token)) {
+                    case 'ContentToken':
+                        this.appendToContent(token as IContentToken);
+                        return;
+                    case 'CloseToken':
+                        this.closeNode(token as ICloseToken);
+                        return;
+                }
+            default:
+                throw new Error('Unexpected token encountered.');
         }
-        this.stack.push(node);
+    }
+
+    protected newNode(token: IOpenToken) {
+        const node = this.buildNode(token.componentId, token.partId, token.id, token.attributes);
+        const parentStackObject = this.stack.peek();
+        if (parentStackObject) {
+            parentStackObject.children.push(node);
+        }
+        this.stack.push({ node, children: [] });
         if (!this.rootNode) {
             this.rootNode = node;
         }
@@ -129,13 +122,15 @@ export class TokenParser implements ITokenParser {
     }
 
     protected closeNode(token: ICloseToken) {
-        const node = this.stack.pop();
-        if (!node) {
+        const stackObject = this.stack.pop();
+        if (!stackObject) {
             throw new Error('Unexpected end of tokens encountered.');
         }
-        if (node instanceof InlineModelNode) {
-            const inlineNode = node as IInlineModelNode;
+        if (stackObject.node instanceof InlineModelNode) {
+            const inlineNode = stackObject.node as IInlineModelNode;
             inlineNode.setContent(this.contentBuffer);
+        } else {
+            stackObject.node.setChildren(stackObject.children);
         }
         this.contentBuffer = '';
         this.parserState = ParserState.NewNode;

@@ -40,7 +40,7 @@ export interface IAppliedTransformation {
     getTransformedRange(): ITransformedRange | undefined;
 }
 
-export class Insert implements IOperation {
+export class InsertOperation implements IOperation {
     constructor(protected at: number, protected tokens: IToken[]) {}
 
     getOffsetAdjustment(): IOffsetAdjustment {
@@ -57,7 +57,7 @@ export class Insert implements IOperation {
                 at += adjustment.delta;
             }
         });
-        return new Insert(at, this.tokens);
+        return new InsertOperation(at, this.tokens);
     }
 
     getAt() {
@@ -69,7 +69,7 @@ export class Insert implements IOperation {
     }
 }
 
-export class Delete implements IOperation {
+export class DeleteOperation implements IOperation {
     constructor(protected from: number, protected to: number) {}
 
     getOffsetAdjustment() {
@@ -90,7 +90,7 @@ export class Delete implements IOperation {
                 to += adjustment.delta;
             }
         });
-        return new Delete(from, to);
+        return new DeleteOperation(from, to);
     }
 
     getFrom() {
@@ -102,7 +102,7 @@ export class Delete implements IOperation {
     }
 }
 
-export class AppliedInsert implements IAppliedOperation {
+export class AppliedInsertOperation implements IAppliedOperation {
     constructor(protected at: number, protected tokens: IToken[]) {}
 
     getAt() {
@@ -114,7 +114,7 @@ export class AppliedInsert implements IAppliedOperation {
     }
 }
 
-export class AppliedDelete implements IAppliedOperation {
+export class AppliedDeleteOperation implements IAppliedOperation {
     constructor(protected at: number, protected tokens: IToken[]) {}
 
     getAt() {
@@ -186,14 +186,14 @@ export class AppliedTransformation implements IAppliedTransformation {
         let beforeTo: number;
         let afterFrom: number;
         let afterTo: number;
-        if (operation instanceof AppliedInsert) {
+        if (operation instanceof AppliedInsertOperation) {
             const at = operation.getAt();
             const insertedTokens = operation.getTokens();
             beforeFrom = at;
             beforeTo = at;
             afterFrom = at;
             afterTo = at + insertedTokens.length;
-        } else if (operation instanceof AppliedDelete) {
+        } else if (operation instanceof AppliedDeleteOperation) {
             const at = operation.getAt();
             const deletedTokens = operation.getTokens();
             beforeFrom = at;

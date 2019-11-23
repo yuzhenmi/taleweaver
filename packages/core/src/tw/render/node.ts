@@ -7,8 +7,8 @@ export interface IRenderPosition extends IPosition<IRenderNode> {}
 export class RenderPosition extends Position<IRenderNode> {}
 
 export interface IRenderNode<
-    TParent extends IRenderNode | undefined = IRenderNode<any, any>,
-    TChild extends IRenderNode | undefined = IRenderNode<any, any>
+    TParent extends IRenderNode = IRenderNode<any, any>,
+    TChild extends IRenderNode = IRenderNode<any, any>
 > extends INode<TParent, TChild> {
     getComponentId(): string;
     getPartId(): string | undefined;
@@ -19,8 +19,7 @@ export interface IRenderNode<
     convertOffsetToModelOffset(offset: number): number;
 }
 
-export abstract class RenderNode<TParent extends IRenderNode | undefined, TChild extends IRenderNode | undefined>
-    extends Node<TParent, TChild>
+export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRenderNode> extends Node<TParent, TChild>
     implements IRenderNode<TParent, TChild> {
     abstract getSize(): number;
     abstract getModelSize(): number;

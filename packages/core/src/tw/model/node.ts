@@ -9,8 +9,8 @@ export class ModelPosition extends Position<IModelNode> {}
 
 export interface IModelNode<
     TAttributes extends IAttributes = any,
-    TParent extends IModelNode | undefined = IModelNode<any, any, any>,
-    TChild extends IModelNode | undefined = IModelNode<any, any, any>
+    TParent extends IModelNode = IModelNode<any, any, any>,
+    TChild extends IModelNode = IModelNode<any, any, any>
 > extends INode<TParent, TChild> {
     getComponentId(): string;
     getPartId(): string | undefined;
@@ -23,11 +23,9 @@ export interface IModelNode<
     clone(): ModelNode<TAttributes, TParent, TChild>;
 }
 
-export abstract class ModelNode<
-    TAttributes,
-    TParent extends IModelNode | undefined,
-    TChild extends IModelNode | undefined
-> extends Node<TParent, TChild> implements IModelNode<TAttributes, TParent, TChild> {
+export abstract class ModelNode<TAttributes, TParent extends IModelNode, TChild extends IModelNode>
+    extends Node<TParent, TChild>
+    implements IModelNode<TAttributes, TParent, TChild> {
     abstract getSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IModelPosition;
     abstract clearCache(): void;
@@ -47,32 +45,11 @@ export abstract class ModelNode<
         return undefined;
     }
 
-    appendChild(child: TChild) {
-        super.appendChild(child);
-        this.clearCache();
-    }
-
-    insertBefore(child: TChild, before: TChild) {
-        super.insertBefore(child, before);
-        this.clearCache();
-    }
-
-    removeChild(child: TChild) {
-        super.removeChild(child);
-        this.clearCache();
-    }
-
     getId() {
         return this.id;
     }
 
     getAttributes() {
         return this.attributes;
-    }
-
-    onUpdated(updatedNode: this) {
-        this.attributes = updatedNode.attributes;
-        super.onUpdated(updatedNode);
-        this.clearCache();
     }
 }
