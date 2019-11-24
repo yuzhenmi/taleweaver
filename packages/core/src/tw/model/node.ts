@@ -1,5 +1,5 @@
 import { IComponent } from 'tw/component/component';
-import { IAttributes, IToken } from 'tw/state/token';
+import { IToken } from 'tw/state/token';
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
 
@@ -7,13 +7,17 @@ export interface IModelPosition extends IPosition<IModelNode> {}
 
 export class ModelPosition extends Position<IModelNode> {}
 
+export interface IAttributes {
+    [key: string]: any;
+}
+
 export interface IModelNode<
-    TAttributes extends IAttributes = any,
+    TAttributes extends IAttributes = {},
     TParent extends IModelNode = IModelNode<any, any, any>,
     TChild extends IModelNode = IModelNode<any, any, any>
 > extends INode<TParent, TChild> {
     getComponentId(): string;
-    getPartId(): string | undefined;
+    getPartId(): string;
     getAttributes(): TAttributes;
     getSize(): number;
     resolvePosition(offset: number, depth?: number): IModelPosition;
@@ -23,9 +27,10 @@ export interface IModelNode<
     clone(): ModelNode<TAttributes, TParent, TChild>;
 }
 
-export abstract class ModelNode<TAttributes, TParent extends IModelNode, TChild extends IModelNode>
+export abstract class ModelNode<TAttributes extends IAttributes, TParent extends IModelNode, TChild extends IModelNode>
     extends Node<TParent, TChild>
     implements IModelNode<TAttributes, TParent, TChild> {
+    abstract getPartId(): string;
     abstract getSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IModelPosition;
     abstract toDOM(from: number, to: number): HTMLElement;
@@ -38,10 +43,6 @@ export abstract class ModelNode<TAttributes, TParent extends IModelNode, TChild 
 
     getComponentId() {
         return this.component.getId();
-    }
-
-    getPartId() {
-        return undefined;
     }
 
     getId() {

@@ -1,9 +1,10 @@
 import { IBlockRenderNode } from 'tw/render/block-node';
 import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from 'tw/render/node';
 
-export interface IDocRenderNode extends IRenderNode<never, IBlockRenderNode> {}
+export interface IDocRenderNode<TStyle = {}> extends IRenderNode<TStyle, never, IBlockRenderNode> {}
 
-export abstract class DocRenderNode extends RenderNode<never, IBlockRenderNode> implements IDocRenderNode {
+export abstract class DocRenderNode<TStyle> extends RenderNode<TStyle, never, IBlockRenderNode>
+    implements IDocRenderNode<TStyle> {
     protected size?: number;
     protected modelSize?: number;
 
@@ -17,7 +18,7 @@ export abstract class DocRenderNode extends RenderNode<never, IBlockRenderNode> 
 
     getSize() {
         if (this.size === undefined) {
-            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 2);
+            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
         }
         return this.size!;
     }

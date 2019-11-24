@@ -82,20 +82,32 @@ describe('ModelState', () => {
     it('initializes render tree from model state', () => {
         const docNode = renderState.getDocNode();
         expect(docNode.getComponentId()).toEqual('doc');
+        expect(docNode.getPartId()).toEqual('doc');
         expect(docNode.getId()).toEqual('doc');
         expect(docNode.getChildren()).toHaveLength(1);
         const blockNode = docNode.getFirstChild()!;
         expect(blockNode.getComponentId()).toEqual('paragraph');
+        expect(blockNode.getPartId()).toEqual('paragraph');
         expect(blockNode.getId()).toEqual('1');
         expect(blockNode.getChildren()).toHaveLength(3);
         const inlineNode1 = blockNode.getFirstChild()!;
         expect(inlineNode1.getComponentId()).toEqual('text');
+        expect(inlineNode1.getPartId()).toEqual('text');
         expect(inlineNode1.getId()).toEqual('2');
         expect(inlineNode1.getChildren()).toHaveLength(1);
+        const atomicNode1 = inlineNode1.getFirstChild()!;
+        expect(atomicNode1.getComponentId()).toEqual('text');
+        expect(atomicNode1.getPartId()).toEqual('word');
+        expect(atomicNode1.getId()).toEqual('2-0');
         const inlineNode2 = inlineNode1.getNextSibling()! as IInlineRenderNode;
         expect(inlineNode2.getComponentId()).toEqual('text');
+        expect(inlineNode2.getPartId()).toEqual('text');
         expect(inlineNode2.getId()).toEqual('3');
         expect(inlineNode2.getChildren()).toHaveLength(1);
+        const atomicNode2 = inlineNode2.getFirstChild()!;
+        expect(atomicNode2.getComponentId()).toEqual('text');
+        expect(atomicNode2.getPartId()).toEqual('word');
+        expect(atomicNode2.getId()).toEqual('3-0');
     });
 
     describe('when model state did update', () => {

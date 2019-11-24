@@ -6,26 +6,35 @@ export interface IRenderPosition extends IPosition<IRenderNode> {}
 
 export class RenderPosition extends Position<IRenderNode> {}
 
+export interface IStyle {
+    [key: string]: any;
+}
+
 export interface IRenderNode<
-    TParent extends IRenderNode = IRenderNode<any, any>,
-    TChild extends IRenderNode = IRenderNode<any, any>
+    TStyle extends IStyle = {},
+    TParent extends IRenderNode = IRenderNode<any, any, any>,
+    TChild extends IRenderNode = IRenderNode<any, any, any>
 > extends INode<TParent, TChild> {
     getComponentId(): string;
+    getPartId(): string;
     getSize(): number;
     getModelSize(): number;
+    getStyle(): TStyle;
     resolvePosition(offset: number, depth?: number): IRenderPosition;
     clearCache(): void;
     convertOffsetToModelOffset(offset: number): number;
 }
 
-export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRenderNode> extends Node<TParent, TChild>
-    implements IRenderNode<TParent, TChild> {
+export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderNode, TChild extends IRenderNode>
+    extends Node<TParent, TChild>
+    implements IRenderNode<TStyle, TParent, TChild> {
+    abstract getPartId(): string;
     abstract getSize(): number;
     abstract getModelSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IRenderPosition;
     abstract convertOffsetToModelOffset(offset: number): number;
 
-    constructor(protected component: IComponent, protected id: string) {
+    constructor(protected component: IComponent, protected id: string, protected style: TStyle) {
         super();
     }
 
@@ -35,6 +44,10 @@ export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRe
 
     getId() {
         return this.id;
+    }
+
+    getStyle() {
+        return this.style;
     }
 
     clearCache() {

@@ -2,9 +2,9 @@ import { IAtomicRenderNode } from 'tw/render/atomic-node';
 import { IBlockRenderNode } from 'tw/render/block-node';
 import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from 'tw/render/node';
 
-export interface IInlineRenderNode extends IRenderNode<IBlockRenderNode, IAtomicRenderNode> {}
+export interface IInlineRenderNode<TStyle = {}> extends IRenderNode<TStyle, IBlockRenderNode, IAtomicRenderNode> {}
 
-export abstract class InlineRenderNode extends RenderNode<IBlockRenderNode, IAtomicRenderNode>
+export abstract class InlineRenderNode<TStyle> extends RenderNode<TStyle, IBlockRenderNode, IAtomicRenderNode>
     implements IInlineRenderNode {
     protected size?: number;
     protected modelSize?: number;
@@ -19,7 +19,7 @@ export abstract class InlineRenderNode extends RenderNode<IBlockRenderNode, IAto
 
     getSize() {
         if (this.size === undefined) {
-            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 2);
+            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
         }
         return this.size!;
     }

@@ -1,12 +1,8 @@
-export interface IAttributes {
-    [key: string]: any;
-}
-
 export interface IOpenToken {
     readonly componentId: string;
     readonly partId?: string;
     readonly id: string;
-    readonly attributes: IAttributes;
+    readonly attributes: {};
 }
 
 export interface ICloseToken {}
