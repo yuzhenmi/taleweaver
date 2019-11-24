@@ -1,5 +1,10 @@
 import { DocComponent, DocModelNode } from 'tw/component/components/doc';
-import { ParagraphComponent, ParagraphModelNode, ParagraphRenderNode } from 'tw/component/components/paragraph';
+import {
+    ParagraphComponent,
+    ParagraphLineBreakInlineRenderNode,
+    ParagraphModelNode,
+    ParagraphRenderNode,
+} from 'tw/component/components/paragraph';
 import { TextComponent, TextModelNode, TextRenderNode, WordRenderNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
@@ -42,33 +47,29 @@ describe('RenderTreeBuilder', () => {
         it('builds render tree from model tree', () => {
             const doc = treeBuilder.buildTree(docModelNode);
             expect(doc.getComponentId()).toEqual('doc');
-            expect(doc.getPartId()).toBeUndefined();
             expect(doc.getId()).toEqual('doc');
             expect(doc.getChildren()).toHaveLength(1);
             const paragaph = doc.getFirstChild() as ParagraphRenderNode;
             expect(paragaph.getComponentId()).toEqual('paragraph');
-            expect(paragaph.getPartId()).toBeUndefined();
             expect(paragaph.getId()).toEqual('1');
-            expect(paragaph.getChildren()).toHaveLength(2);
+            expect(paragaph.getChildren()).toHaveLength(3);
             const text1 = paragaph.getFirstChild() as TextRenderNode;
             expect(text1.getComponentId()).toEqual('text');
-            expect(text1.getPartId()).toBeUndefined();
             expect(text1.getId()).toEqual('2');
             expect(text1.getChildren()).toHaveLength(1);
             const word1 = text1.getFirstChild() as WordRenderNode;
             expect(word1.getComponentId()).toEqual('text');
-            expect(word1.getPartId()).toBeUndefined();
             expect(word1.getId()).toEqual('2-0');
             expect(word1.getContent()).toEqual('Hello');
             const text2 = text1.getNextSibling() as TextRenderNode;
             expect(text2.getComponentId()).toEqual('text');
-            expect(text2.getPartId()).toBeUndefined();
             expect(text2.getId()).toEqual('3');
             const word2 = text2.getFirstChild() as WordRenderNode;
             expect(word2.getComponentId()).toEqual('text');
-            expect(word2.getPartId()).toBeUndefined();
             expect(word2.getId()).toEqual('3-0');
             expect(word2.getContent()).toEqual('world');
+            const lineBreak = text2.getNextSibling();
+            expect(lineBreak).toBeInstanceOf(ParagraphLineBreakInlineRenderNode);
         });
     });
 });

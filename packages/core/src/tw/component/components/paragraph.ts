@@ -1,7 +1,9 @@
 import { Component, IComponent } from 'tw/component/component';
 import { BlockModelNode } from 'tw/model/block-node';
 import { IModelNode } from 'tw/model/node';
+import { AtomicRenderNode } from 'tw/render/atomic-node';
 import { BlockRenderNode } from 'tw/render/block-node';
+import { IInlineRenderNode, InlineRenderNode } from 'tw/render/inline-node';
 import { IAttributes } from 'tw/state/token';
 import { generateId } from 'tw/util/id';
 
@@ -32,7 +34,30 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
     }
 }
 
-export class ParagraphRenderNode extends BlockRenderNode {}
+export class ParagraphRenderNode extends BlockRenderNode {
+    setChildren(children: IInlineRenderNode[]) {
+        super.setChildren([...children, this.buildLineBreakNode()]);
+    }
+
+    protected buildLineBreakNode() {
+        const inlineNode = new ParagraphLineBreakInlineRenderNode(this.component, `${this.id}-lineBreak`);
+        const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.component, `${this.id}-lineBreakAtomic`);
+        inlineNode.setChildren([atomicNode]);
+        return inlineNode;
+    }
+}
+
+export class ParagraphLineBreakInlineRenderNode extends InlineRenderNode {}
+
+export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode {
+    getModelSize() {
+        return 0;
+    }
+
+    getSize() {
+        return 0;
+    }
+}
 
 export class ParagraphComponent extends Component implements IComponent {
     buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): ParagraphModelNode {

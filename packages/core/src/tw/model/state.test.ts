@@ -5,16 +5,17 @@ import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener } from 'tw/event/listener';
+import { IInlineModelNode } from 'tw/model/inline-node';
+import { ModelState } from 'tw/model/state';
 import { IStateService } from 'tw/state/service';
 import { IDidUpdateStateEvent } from 'tw/state/state';
 import { CLOSE_TOKEN, IToken } from 'tw/state/token';
 import { IAppliedTransformation, ITransformation } from 'tw/state/transformation';
-import { IInlineModelNode } from './inline-node';
-import { ModelState } from './state';
 
 class MockStateService implements IStateService {
-    protected tokens: IToken[] = [];
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
+
+    constructor(protected tokens: IToken[]) {}
 
     setTokens(tokens: IToken[]) {
         this.tokens = tokens;
@@ -65,8 +66,7 @@ describe('ModelState', () => {
             {},
         );
         componentService = new ComponentService(configService);
-        stateService = new MockStateService();
-        stateService.setTokens([
+        const tokens = [
             { componentId: 'doc', id: 'doc', attributes: {} },
             { componentId: 'paragraph', id: '1', attributes: {} },
             { componentId: 'text', id: '2', attributes: {} },
@@ -85,7 +85,8 @@ describe('ModelState', () => {
             CLOSE_TOKEN,
             CLOSE_TOKEN,
             CLOSE_TOKEN,
-        ]);
+        ];
+        stateService = new MockStateService(tokens);
         modelState = new ModelState(componentService, stateService);
     });
 

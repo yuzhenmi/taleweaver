@@ -11,7 +11,6 @@ export interface IRenderNode<
     TChild extends IRenderNode = IRenderNode<any, any>
 > extends INode<TParent, TChild> {
     getComponentId(): string;
-    getPartId(): string | undefined;
     getSize(): number;
     getModelSize(): number;
     resolvePosition(offset: number, depth?: number): IRenderPosition;
@@ -32,10 +31,6 @@ export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRe
 
     getComponentId() {
         return this.component.getId();
-    }
-
-    getPartId() {
-        return undefined;
     }
 
     getId() {
