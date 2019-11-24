@@ -1,28 +1,28 @@
 import { DocComponent } from 'tw/component/components/doc';
 import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
 import { TextComponent, TextModelNode } from 'tw/component/components/text';
-import { ComponentService, IComponentService } from 'tw/component/service';
-import { IConfig, IExternalConfig } from 'tw/config/config';
-import { ConfigService, IConfigService } from 'tw/config/service';
+import { ComponentService } from 'tw/component/service';
+import { ConfigService } from 'tw/config/service';
 import { TokenParser } from 'tw/model/parser';
 import { CLOSE_TOKEN } from 'tw/state/token';
 
 describe('TokenParser', () => {
-    let configService: IConfigService;
-    let componentService: IComponentService;
+    let configService: ConfigService;
+    let componentService: ComponentService;
     let parser: TokenParser;
 
     beforeEach(() => {
-        const config: IConfig = {
-            commands: {},
-            components: {
-                doc: new DocComponent('doc'),
-                paragraph: new ParagraphComponent('paragraph'),
-                text: new TextComponent('text'),
+        configService = new ConfigService(
+            {
+                commands: {},
+                components: {
+                    doc: new DocComponent('doc'),
+                    paragraph: new ParagraphComponent('paragraph'),
+                    text: new TextComponent('text'),
+                },
             },
-        };
-        const externalConfig: IExternalConfig = {};
-        configService = new ConfigService(config, externalConfig);
+            {},
+        );
         componentService = new ComponentService(configService);
         parser = new TokenParser(componentService);
     });

@@ -1,3 +1,4 @@
+import { IComponent } from 'tw/component/component';
 import { IBlockModelNode } from 'tw/model/block-node';
 import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
 import { CLOSE_TOKEN, IToken } from 'tw/state/token';
@@ -8,8 +9,12 @@ export interface IInlineModelNode<TAttributes = any> extends IModelNode<TAttribu
 }
 
 export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes, IBlockModelNode, never> {
-    protected content: string = '';
+    protected content = '';
     protected size?: number;
+
+    constructor(component: IComponent, id: string, attributes: TAttributes) {
+        super(component, id, attributes);
+    }
 
     isRoot() {
         return false;

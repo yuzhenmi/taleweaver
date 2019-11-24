@@ -1,32 +1,33 @@
 import { DocComponent } from 'tw/component/components/doc';
 import { ParagraphComponent } from 'tw/component/components/paragraph';
 import { TextComponent } from 'tw/component/components/text';
-import { IConfig, IExternalConfig } from 'tw/config/config';
-import { ConfigService, IConfigService } from 'tw/config/service';
-import { CursorService, ICursorService } from 'tw/cursor/service';
-import { IState, State } from 'tw/state/state';
+import { ConfigService } from 'tw/config/service';
+import { CursorService } from 'tw/cursor/service';
+import { State } from 'tw/state/state';
 import { DeleteOperation, InsertOperation, ITransformation, Transformation } from 'tw/state/transformation';
 
 describe('State', () => {
-    let configService: IConfigService;
-    let cursorService: ICursorService;
-    let state: IState;
+    let configService: ConfigService;
+    let cursorService: CursorService;
+    let state: State;
+    let initialMarkup: string;
 
     beforeEach(() => {
-        const config: IConfig = {
-            commands: {},
-            components: {
-                doc: new DocComponent('doc'),
-                paragraph: new ParagraphComponent('paragraph'),
-                text: new TextComponent('text'),
+        configService = new ConfigService(
+            {
+                commands: {},
+                components: {
+                    doc: new DocComponent('doc'),
+                    paragraph: new ParagraphComponent('paragraph'),
+                    text: new TextComponent('text'),
+                },
             },
-        };
-        const externalConfig: IExternalConfig = {};
-        configService = new ConfigService(config, externalConfig);
+            {},
+        );
         cursorService = new CursorService(configService);
-        const markup =
+        initialMarkup =
             '<doc {"id":"doc"}><paragraph {"id":"1"}><text {"id":"2"}>Hello</><text {"id":"3","bold":true}>world</></></>';
-        state = new State(cursorService, markup);
+        state = new State(cursorService, initialMarkup);
     });
 
     describe('when transformation is applied', () => {

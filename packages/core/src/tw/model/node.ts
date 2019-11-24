@@ -28,7 +28,6 @@ export abstract class ModelNode<TAttributes, TParent extends IModelNode, TChild 
     implements IModelNode<TAttributes, TParent, TChild> {
     abstract getSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IModelPosition;
-    abstract clearCache(): void;
     abstract toDOM(from: number, to: number): HTMLElement;
     abstract toTokens(): IToken[];
     abstract clone(): ModelNode<TAttributes, TParent, TChild>;
@@ -51,5 +50,11 @@ export abstract class ModelNode<TAttributes, TParent extends IModelNode, TChild 
 
     getAttributes() {
         return this.attributes;
+    }
+
+    clearCache() {
+        if (!this.isRoot()) {
+            this.getParent()!.clearCache();
+        }
     }
 }

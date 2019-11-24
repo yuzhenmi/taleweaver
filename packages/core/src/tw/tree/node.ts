@@ -46,6 +46,7 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         if (index < 0) {
             throw new Error('Child is not found.');
         }
+        child.setParent(this);
         this.children![index] = child;
     }
 

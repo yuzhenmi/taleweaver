@@ -27,7 +27,7 @@ export default class RenderEngine {
         node.onUpdated(updatedNode);
         this.clearAncestorsCache(node);
         this.editor.getDispatcher().dispatch(new RenderUpdatedEvent(node));
-    }
+    };
 
     protected clearAncestorsCache(node: AnyRenderNode) {
         let currentNode = node;

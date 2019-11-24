@@ -24,7 +24,6 @@ export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRe
     abstract getSize(): number;
     abstract getModelSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IRenderPosition;
-    abstract clearCache(): void;
     abstract convertOffsetToModelOffset(offset: number): number;
 
     constructor(protected component: IComponent, protected id: string) {
@@ -39,27 +38,13 @@ export abstract class RenderNode<TParent extends IRenderNode, TChild extends IRe
         return undefined;
     }
 
-    appendChild(child: TChild) {
-        super.appendChild(child);
-        this.clearCache();
-    }
-
-    insertBefore(child: TChild, before: TChild) {
-        super.insertBefore(child, before);
-        this.clearCache();
-    }
-
-    removeChild(child: TChild) {
-        super.removeChild(child);
-        this.clearCache();
-    }
-
     getId() {
         return this.id;
     }
 
-    onUpdated(updatedNode: this) {
-        super.onUpdated(updatedNode);
-        this.clearCache();
+    clearCache() {
+        if (!this.isRoot()) {
+            this.getParent()!.clearCache();
+        }
     }
 }

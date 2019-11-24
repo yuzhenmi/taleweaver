@@ -33,7 +33,7 @@ class Stack {
         return this.objects[this.objects.length - 1];
     }
 
-    getRoot() {
+    getDoc() {
         if (this.objects.length === 0) {
             throw new Error('Error parsing state.');
         }

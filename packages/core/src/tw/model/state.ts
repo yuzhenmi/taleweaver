@@ -1,8 +1,8 @@
 import { IComponentService } from 'tw/component/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
+import { IDocModelNode } from 'tw/model/doc-node';
 import { TokenParser } from 'tw/model/parser';
-import { IRootModelNode } from 'tw/model/root-node';
 import { IStateService } from 'tw/state/service';
 import { IDidUpdateStateEvent } from 'tw/state/state';
 import { IOpenToken, IToken } from 'tw/state/token';
@@ -15,17 +15,17 @@ export interface IDidUpdateModelStateEvent {
 
 export interface IModelState {
     onDidUpdateModelState: IOnEvent<IDidUpdateModelStateEvent>;
-    getRootNode(): IRootModelNode;
+    getDocNode(): IDocModelNode;
 }
 
 export class ModelState implements IModelState {
-    protected rootNode: IRootModelNode;
+    protected docNode: IDocModelNode;
     protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();
 
     constructor(protected componentService: IComponentService, protected stateService: IStateService) {
         const tokens = stateService.getTokens();
         const parser = new TokenParser(componentService);
-        this.rootNode = parser.parse(tokens) as IRootModelNode;
+        this.docNode = parser.parse(tokens) as IDocModelNode;
         stateService.onDidUpdateState(event => this.handleDidUpdateStateEvent(event));
     }
 
@@ -33,8 +33,8 @@ export class ModelState implements IModelState {
         this.didUpdateModelStateEventEmitter.on(listener);
     }
 
-    getRootNode() {
-        return this.rootNode;
+    getDocNode() {
+        return this.docNode;
     }
 
     protected handleDidUpdateStateEvent(event: IDidUpdateStateEvent) {
@@ -62,8 +62,8 @@ export class ModelState implements IModelState {
         afterFrom: number,
         afterTo: number,
     ) {
-        const beforeFromPosition = this.rootNode.resolvePosition(beforeFrom).getLeaf();
-        const beforeToPosition = this.rootNode.resolvePosition(beforeTo).getLeaf();
+        const beforeFromPosition = this.docNode.resolvePosition(beforeFrom).getLeaf();
+        const beforeToPosition = this.docNode.resolvePosition(beforeTo).getLeaf();
         const beforeNode = this.findCommonLineage(beforeFromPosition.getNode(), beforeToPosition.getNode());
         const afterTokenRange = this.findParentNodeOfTokenRange(tokens, afterFrom, afterTo);
         const afterNodeID = (tokens[afterTokenRange[0]] as IOpenToken).id;
@@ -76,8 +76,8 @@ export class ModelState implements IModelState {
     }
 
     protected findNodeContainingRange(from: number, to: number) {
-        const fromPosition = this.rootNode.resolvePosition(from).getLeaf();
-        const toPosition = this.rootNode.resolvePosition(to).getLeaf();
+        const fromPosition = this.docNode.resolvePosition(from).getLeaf();
+        const toPosition = this.docNode.resolvePosition(to).getLeaf();
         return this.findCommonLineage(fromPosition.getNode(), toPosition.getNode());
     }
 
