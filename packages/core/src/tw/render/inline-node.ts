@@ -49,7 +49,7 @@ export abstract class InlineRenderNode<TStyle> extends RenderNode<TStyle, IBlock
         throw new Error(`Offset ${offset} is out of range.`);
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
     }
 

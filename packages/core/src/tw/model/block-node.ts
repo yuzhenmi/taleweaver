@@ -42,12 +42,8 @@ export abstract class BlockModelNode<TAttributes> extends ModelNode<TAttributes,
         throw new Error(`Offset ${offset} is out of range.`);
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
-        const parent = this.getParent();
-        if (parent) {
-            parent.clearCache();
-        }
     }
 
     toTokens() {

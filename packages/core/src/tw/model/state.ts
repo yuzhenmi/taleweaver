@@ -49,7 +49,6 @@ export class ModelState implements IModelState {
         const updatedNode = parser.parse(updatedTokens);
         const parentNode = originalNode.getParent()!;
         parentNode.replaceChild(updatedNode);
-        this.clearCacheForNodeAncestors(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({
             updatedNode,
         });
@@ -217,16 +216,5 @@ export class ModelState implements IModelState {
             position++;
         }
         return position;
-    }
-
-    protected clearCacheForNodeAncestors(node: IModelNode) {
-        let currentNode = node;
-        while (true) {
-            currentNode.clearCache();
-            if (currentNode.isRoot()) {
-                break;
-            }
-            currentNode = currentNode.getParent()!;
-        }
     }
 }

@@ -49,7 +49,7 @@ export abstract class BlockRenderNode<TStyle> extends RenderNode<TStyle, IDocRen
         throw new Error(`Offset ${offset} is out of range.`);
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
     }
 

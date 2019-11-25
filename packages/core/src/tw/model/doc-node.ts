@@ -44,7 +44,7 @@ export abstract class DocModelNode<TAttributes> extends ModelNode<TAttributes, n
         throw new Error(`Offset ${offset} is out of range.`);
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
     }
 

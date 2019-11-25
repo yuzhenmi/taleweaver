@@ -48,12 +48,8 @@ export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes
         return position;
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
-        const parent = this.getParent();
-        if (parent) {
-            parent.clearCache();
-        }
     }
 
     toTokens() {

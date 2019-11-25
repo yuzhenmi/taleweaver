@@ -48,7 +48,7 @@ export abstract class DocRenderNode<TStyle> extends RenderNode<TStyle, never, IB
         throw new Error(`Offset ${offset} is out of range.`);
     }
 
-    clearCache() {
+    clearOwnCache() {
         this.size = undefined;
     }
 

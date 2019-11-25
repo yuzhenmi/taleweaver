@@ -44,20 +44,8 @@ export class RenderState implements IRenderState {
         }
         const parentNode = originalNode.getParent()!;
         parentNode.replaceChild(updatedNode);
-        this.clearCacheForNodeAncestors(updatedNode);
         this.didUpdateRenderStateEventEmitter.emit({
             updatedNode,
         });
-    }
-
-    protected clearCacheForNodeAncestors(node: IRenderNode) {
-        let currentNode = node;
-        while (true) {
-            currentNode.clearCache();
-            if (currentNode.isRoot()) {
-                break;
-            }
-            currentNode = currentNode.getParent()!;
-        }
     }
 }
