@@ -32,12 +32,12 @@ describe('RenderTreeBuilder', () => {
             {},
         );
         componentService = new ComponentService(configService);
-        docModelNode = new DocModelNode(docComponent, 'doc', {});
-        const paragraphModelNode = new ParagraphModelNode(paragraphComponent, '1', {});
+        docModelNode = new DocModelNode('doc', 'doc', {});
+        const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
         docModelNode.setChildren([paragraphModelNode]);
-        const textModelNode1 = new TextModelNode(textComponent, '2', {});
+        const textModelNode1 = new TextModelNode('text', '2', {});
         textModelNode1.setContent('Hello');
-        const textModelNode2 = new TextModelNode(textComponent, '3', { bold: true });
+        const textModelNode2 = new TextModelNode('text', '3', { bold: true });
         textModelNode2.setContent('world');
         paragraphModelNode.setChildren([textModelNode1, textModelNode2]);
         treeBuilder = new RenderTreeBuilder(componentService);

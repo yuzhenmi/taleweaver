@@ -1,10 +1,12 @@
 import { Component, IComponent } from 'tw/component/component';
+import { BlockLayoutNode } from 'tw/layout/block-node';
+import { InlineLayoutNode } from 'tw/layout/inline-node';
 import { BlockModelNode } from 'tw/model/block-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
 import { AtomicRenderNode } from 'tw/render/atomic-node';
 import { BlockRenderNode } from 'tw/render/block-node';
 import { IInlineRenderNode, InlineRenderNode } from 'tw/render/inline-node';
-import { IStyle } from 'tw/render/node';
+import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
 
 export interface IParagraphAttributes extends IAttributes {}
@@ -34,7 +36,7 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
     }
 
     clone() {
-        return new ParagraphModelNode(this.component, generateId(), this.attributes);
+        return new ParagraphModelNode(this.componentId, generateId(), this.attributes);
     }
 }
 
@@ -50,8 +52,8 @@ export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
     }
 
     protected buildLineBreakNode() {
-        const inlineNode = new ParagraphLineBreakRenderNode(this.component, `${this.id}.line-break`, {});
-        const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.component, `${this.id}.line-break-atomic`, {});
+        const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
+        const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
         inlineNode.setChildren([atomicNode]);
         return inlineNode;
     }
@@ -79,17 +81,45 @@ export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagr
     getSize() {
         return 0;
     }
+
+    clearOwnCache() {}
+}
+
+export class ParagraphLayoutNode extends BlockLayoutNode {
+    getPartId() {
+        return 'paragraph';
+    }
+}
+
+export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
+    getPartId() {
+        return 'line-break';
+    }
+
+    getSize() {
+        return 0;
+    }
 }
 
 export class ParagraphComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: {}): ParagraphModelNode {
-        return new ParagraphModelNode(this, id, attributes);
+    buildModelNode(partId: string | undefined, id: string, attributes: {}) {
+        return new ParagraphModelNode(this.id, id, attributes);
     }
 
-    buildRenderNode(modelNode: IModelNode): ParagraphRenderNode {
-        if (!(modelNode instanceof ParagraphModelNode)) {
-            throw new Error('Invalid paragraph model node.');
+    buildRenderNode(modelNode: IModelNode) {
+        if (modelNode instanceof ParagraphModelNode) {
+            return new ParagraphRenderNode(this.id, modelNode.getId(), {});
         }
-        return new ParagraphRenderNode(this, modelNode.getId(), {});
+        throw new Error('Invalid paragraph model node.');
+    }
+
+    buildLayoutNode(renderNode: IRenderNode) {
+        if (renderNode instanceof ParagraphRenderNode) {
+            return new ParagraphLayoutNode(this.id, renderNode.getId());
+        }
+        if (renderNode instanceof ParagraphLineBreakRenderNode) {
+            return new ParagraphLineBreakLayoutNode(this.id, renderNode.getId());
+        }
+        throw new Error('Invalid paragraph render node.');
     }
 }

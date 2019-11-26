@@ -1,4 +1,3 @@
-import { IComponent } from 'tw/component/component';
 import { IToken } from 'tw/state/token';
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
@@ -38,12 +37,12 @@ export abstract class ModelNode<TAttributes extends IAttributes, TParent extends
     abstract toTokens(): IToken[];
     abstract clone(): ModelNode<TAttributes, TParent, TChild>;
 
-    constructor(protected component: IComponent, protected id: string, protected attributes: TAttributes) {
+    constructor(protected componentId: string, protected id: string, protected attributes: TAttributes) {
         super();
     }
 
     getComponentId() {
-        return this.component.getId();
+        return this.componentId;
     }
 
     getId() {
@@ -57,7 +56,10 @@ export abstract class ModelNode<TAttributes extends IAttributes, TParent extends
     clearCache() {
         this.clearOwnCache();
         if (!this.isRoot()) {
-            this.getParent()!.clearCache();
+            const parent = this.getParent();
+            if (parent) {
+                parent.clearCache();
+            }
         }
     }
 }

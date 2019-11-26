@@ -1,8 +1,9 @@
 import { Component, IComponent } from 'tw/component/component';
+import { DocLayoutNode as AbstractDocLayoutNode } from 'tw/layout/doc-node';
 import { DocModelNode as AbstractDocModelNode } from 'tw/model/doc-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
 import { DocRenderNode as AbstractDocRenderNode } from 'tw/render/doc-node';
-import { IStyle } from 'tw/render/node';
+import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
 
 export interface IDocAttributes extends IAttributes {}
@@ -32,7 +33,7 @@ export class DocModelNode extends AbstractDocModelNode<IDocAttributes> {
     }
 
     clone() {
-        return new DocModelNode(this.component, generateId(), this.attributes);
+        return new DocModelNode(this.componentId, generateId(), this.attributes);
     }
 }
 
@@ -44,15 +45,28 @@ export class DocRenderNode extends AbstractDocRenderNode<IDocStyle> {
     }
 }
 
+export class DocLayoutNode extends AbstractDocLayoutNode {
+    getPartId() {
+        return 'doc';
+    }
+}
+
 export class DocComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): DocModelNode {
-        return new DocModelNode(this, id, attributes);
+    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
+        return new DocModelNode(this.id, id, attributes);
     }
 
-    buildRenderNode(modelNode: IModelNode): DocRenderNode {
-        if (!(modelNode instanceof DocModelNode)) {
-            throw new Error('Invalid doc model node.');
+    buildRenderNode(modelNode: IModelNode) {
+        if (modelNode instanceof DocModelNode) {
+            return new DocRenderNode(this.id, modelNode.getId(), {});
         }
-        return new DocRenderNode(this, modelNode.getId(), {});
+        throw new Error('Invalid doc model node.');
+    }
+
+    buildLayoutNode(renderNode: IRenderNode) {
+        if (renderNode instanceof DocRenderNode) {
+            return new DocLayoutNode(this.id, renderNode.getId());
+        }
+        throw new Error('Invalid doc render node.');
     }
 }

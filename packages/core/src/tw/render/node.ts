@@ -1,4 +1,3 @@
-import { IComponent } from 'tw/component/component';
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
 
@@ -35,12 +34,12 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
     abstract resolvePosition(offset: number, depth?: number): IRenderPosition;
     abstract convertOffsetToModelOffset(offset: number): number;
 
-    constructor(protected component: IComponent, protected id: string, protected style: TStyle) {
+    constructor(protected componentId: string, protected id: string, protected style: TStyle) {
         super();
     }
 
     getComponentId() {
-        return this.component.getId();
+        return this.componentId;
     }
 
     getId() {
@@ -54,7 +53,10 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
     clearCache() {
         this.clearOwnCache();
         if (!this.isRoot()) {
-            this.getParent()!.clearCache();
+            const parent = this.getParent();
+            if (parent) {
+                parent.clearCache();
+            }
         }
     }
 }

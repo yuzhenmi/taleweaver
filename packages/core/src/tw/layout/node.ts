@@ -1,4 +1,3 @@
-import { IComponent } from 'tw/component/component';
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
 
@@ -28,12 +27,12 @@ export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILa
     abstract clearOwnCache(): void;
     abstract resolvePosition(offset: number, depth?: number): ILayoutPosition;
 
-    constructor(protected component: IComponent, protected id: string) {
+    constructor(protected componentId: string, protected id: string) {
         super();
     }
 
     getComponentId() {
-        return this.component.getId();
+        return this.componentId;
     }
 
     getId() {
@@ -43,7 +42,10 @@ export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILa
     clearCache() {
         this.clearOwnCache();
         if (!this.isRoot()) {
-            this.getParent()!.clearCache();
+            const parent = this.getParent();
+            if (parent) {
+                parent.clearCache();
+            }
         }
     }
 }

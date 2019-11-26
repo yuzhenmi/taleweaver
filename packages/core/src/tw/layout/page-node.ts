@@ -4,8 +4,12 @@ import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/lay
 
 export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {}
 
-export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
+export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
     protected size?: number;
+
+    getPartId() {
+        return 'page';
+    }
 
     isRoot() {
         return false;

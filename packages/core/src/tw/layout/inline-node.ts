@@ -12,7 +12,7 @@ export abstract class InlineLayoutNode extends LayoutNode<ILineLayoutNode, never
     }
 
     isLeaf() {
-        return false;
+        return true;
     }
 
     resolvePosition(offset: number, depth: number): ILayoutPosition {

@@ -4,9 +4,12 @@ import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/lay
 
 export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {}
 
-export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode>
-    implements ILineLayoutNode {
+export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode> implements ILineLayoutNode {
     protected size?: number;
+
+    getPartId() {
+        return 'line';
+    }
 
     isRoot() {
         return false;
