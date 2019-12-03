@@ -1,7 +1,7 @@
 import { IComponentService } from 'tw/component/service';
 import { IInlineModelNode, InlineModelNode } from 'tw/model/inline-node';
-import { IModelNode } from 'tw/model/node';
-import { IAttributes, ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
+import { IAttributes, IModelNode } from 'tw/model/node';
+import { ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
 import { identityTokenType } from 'tw/state/utility';
 
 export interface ITokenParser {
@@ -15,7 +15,6 @@ enum ParserState {
 
 interface IStackObject {
     node: IModelNode;
-    children: IModelNode[];
 }
 
 class Stack {
@@ -70,7 +69,8 @@ export class TokenParser implements ITokenParser {
             try {
                 this.handleToken(token);
             } catch (error) {
-                throw new Error(`Error at token ${n}: ${error}`);
+                error.message = `Error at token ${n}: ${error.message}`;
+                throw error;
             }
         }
         this.ran = true;
@@ -108,9 +108,9 @@ export class TokenParser implements ITokenParser {
         const node = this.buildNode(token.componentId, token.partId, token.id, token.attributes);
         const parentStackObject = this.stack.peek();
         if (parentStackObject) {
-            parentStackObject.children.push(node);
+            parentStackObject.node.appendChild(node);
         }
-        this.stack.push({ node, children: [] });
+        this.stack.push({ node });
         if (!this.rootNode) {
             this.rootNode = node;
         }
@@ -129,8 +129,6 @@ export class TokenParser implements ITokenParser {
         if (stackObject.node instanceof InlineModelNode) {
             const inlineNode = stackObject.node as IInlineModelNode;
             inlineNode.setContent(this.contentBuffer);
-        } else {
-            stackObject.node.setChildren(stackObject.children);
         }
         this.contentBuffer = '';
         this.parserState = ParserState.NewNode;

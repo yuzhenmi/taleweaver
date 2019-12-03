@@ -16,6 +16,12 @@ export interface ILayoutNode<
     getComponentId(): string;
     getPartId(): string;
     getSize(): number;
+    getWidth(): number;
+    getHeight(): number;
+    getPaddingTop(): number;
+    getPaddingBottom(): number;
+    getPaddingLeft(): number;
+    getPaddingRight(): number;
     clearCache(): void;
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
 }
@@ -24,6 +30,12 @@ export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILa
     implements ILayoutNode<TParent, TChild> {
     abstract getPartId(): string;
     abstract getSize(): number;
+    abstract getWidth(): number;
+    abstract getHeight(): number;
+    abstract getPaddingTop(): number;
+    abstract getPaddingBottom(): number;
+    abstract getPaddingLeft(): number;
+    abstract getPaddingRight(): number;
     abstract clearOwnCache(): void;
     abstract resolvePosition(offset: number, depth?: number): ILayoutPosition;
 

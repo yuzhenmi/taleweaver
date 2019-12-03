@@ -45,10 +45,15 @@ export class ModelState implements IModelState {
             event.afterFrom,
             event.afterTo,
         );
+        // TODO: When there is block insertion or deletion, it
+        // results in reparse of the full token state. While this
+        // is unnoticeable for small documents, it gets noticeably
+        // slow as the documents grows large. There is much room
+        // for optimization, by only reparsing the part of the token
+        // state that got updated.
         const parser = new TokenParser(this.componentService);
         const updatedNode = parser.parse(updatedTokens);
-        const parentNode = originalNode.getParent()!;
-        parentNode.replaceChild(updatedNode);
+        originalNode.onUpdated(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({
             updatedNode,
         });

@@ -4,8 +4,9 @@ export interface INode<TParent extends INode = INode<any, any>, TChild extends I
     isLeaf(): boolean;
     setParent(parent: TParent | undefined): void;
     getParent(): TParent | undefined;
-    setChildren(children: TChild[]): void;
-    replaceChild(child: TChild): void;
+    appendChild(child: TChild): void;
+    insertChild(child: TChild, beforeChild: TChild): void;
+    removeChild(child: TChild): void;
     getChildren(): TChild[];
     getFirstChild(): TChild | undefined;
     getLastChild(): TChild | undefined;
@@ -14,11 +15,12 @@ export interface INode<TParent extends INode = INode<any, any>, TChild extends I
     getPreviousSiblingAllowCrossParent(): INode | undefined;
     getNextSiblingAllowCrossParent(): INode | undefined;
     findDescendant(nodeId: string): INode | undefined;
+    onUpdated(updatedNode: this): void;
 }
 
 export abstract class Node<TParent extends INode, TChild extends INode> implements INode<TParent, TChild> {
     private parent?: TParent;
-    private children?: TChild[];
+    private children: TChild[] = [];
 
     abstract getId(): string;
     abstract isRoot(): boolean;
@@ -35,42 +37,54 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         return this.parent;
     }
 
-    setChildren(children: TChild[]) {
-        this.children = children;
-        children.forEach(child => child.setParent(this));
+    appendChild(child: TChild) {
+        if (this.isLeaf()) {
+            throw new Error('Appending child to leaf node is not allowed.');
+        }
+        this.children.push(child);
+        child.setParent(this);
     }
 
-    replaceChild(child: TChild) {
-        const childId = child.getId();
-        const index = this.children!.findIndex(c => c.getId() === childId);
-        if (index < 0) {
-            throw new Error('Child is not found.');
+    insertChild(child: TChild, beforeChild: TChild) {
+        if (this.isLeaf()) {
+            throw new Error('Inserting child to leaf node is not allowed.');
         }
+        const beforeChildIndex = this.children.indexOf(beforeChild);
+        if (beforeChildIndex < 0) {
+            throw new Error('Error inserting, child to insert before is not found.');
+        }
+        this.children.splice(beforeChildIndex, 0, child);
         child.setParent(this);
-        this.children![index] = child;
+    }
+
+    removeChild(child: TChild) {
+        if (this.isLeaf()) {
+            throw new Error('Removing child from leaf node is not allowed.');
+        }
+        const childIndex = this.children.indexOf(child);
+        if (childIndex < 0) {
+            throw new Error('Error removing child, child is not found.');
+        }
+        this.children.splice(childIndex, 1);
+        child!.setParent(undefined);
     }
 
     getChildren() {
-        if (this.isLeaf()) {
-            throw new Error('Getting children on leaf node is not allowed.');
-        }
-        return this.children!;
+        return this.children;
     }
 
     getFirstChild() {
-        const children = this.children!;
-        if (children.length === 0) {
+        if (this.children.length === 0) {
             return undefined;
         }
-        return children[0];
+        return this.children[0];
     }
 
     getLastChild() {
-        const children = this.children!;
-        if (children.length === 0) {
+        if (this.children.length === 0) {
             return undefined;
         }
-        return children[children.length - 1];
+        return this.children[this.children.length - 1];
     }
 
     getPreviousSibling(): INode | undefined {
@@ -148,14 +162,49 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         if (this.isLeaf()) {
             return undefined;
         }
-        const children = this.children!;
-        for (let n = 0, nn = children.length; n < nn; n++) {
-            const child = children[n]!;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children[n]!;
             const result = child.findDescendant(id);
             if (result) {
                 return result;
             }
         }
         return undefined;
+    }
+
+    onUpdated(updatedNode: this) {
+        if (!this.isLeaf()) {
+            const children = this.children.slice();
+            const updatedChildren = updatedNode.children;
+            let m = 0;
+            for (let n = 0, nn = updatedChildren.length; n < nn; n++) {
+                const updatedChild = updatedChildren[n]!;
+                let i = -1;
+                for (let o = m, oo = children.length; o < oo; o++) {
+                    if (children[o]!.getId() === updatedChild.getId()) {
+                        i = o;
+                        break;
+                    }
+                }
+                if (i >= 0) {
+                    while (m < i) {
+                        this.removeChild(children[m]);
+                        m++;
+                    }
+                    children[m]!.onUpdated(updatedChild);
+                    m++;
+                } else {
+                    if (m < children.length) {
+                        this.insertChild(updatedChild, children[m]);
+                    } else {
+                        this.appendChild(updatedChild);
+                    }
+                }
+            }
+            while (m < children.length) {
+                this.removeChild(children[m]);
+                m++;
+            }
+        }
     }
 }
