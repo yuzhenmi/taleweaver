@@ -52,12 +52,13 @@ describe('RenderService', () => {
         componentService = new ComponentService(configService);
         const docModelNode = new DocModelNode('doc', 'doc', {});
         const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
-        docModelNode.setChildren([paragraphModelNode]);
+        docModelNode.appendChild(paragraphModelNode);
         const textModelNode1 = new TextModelNode('text', '2', {});
-        textModelNode1.setContent('Hello');
+        textModelNode1.setContent('Hello ');
         const textModelNode2 = new TextModelNode('text', '3', { bold: true });
         textModelNode2.setContent('world');
-        paragraphModelNode.setChildren([textModelNode1, textModelNode2]);
+        paragraphModelNode.appendChild(textModelNode1);
+        paragraphModelNode.appendChild(textModelNode2);
         modelService = new MockModelService(docModelNode);
         service = new RenderService(componentService, modelService);
     });
@@ -70,7 +71,7 @@ describe('RenderService', () => {
                 paragraph: { paragraph: [{}] },
                 text: { text: [{ bold: false }], word: [{}] },
             });
-            const styles2 = service.getStylesBetween(5, 6);
+            const styles2 = service.getStylesBetween(6, 7);
             expect(styles2).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
