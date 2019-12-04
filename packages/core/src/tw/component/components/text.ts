@@ -51,12 +51,8 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
         return 'word';
     }
 
-    getContent() {
-        return this.word.text;
-    }
-
-    isBreakable() {
-        return this.word.breakable;
+    getWord() {
+        return this.word;
     }
 
     getModelSize() {
@@ -68,6 +64,11 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
     }
 
     clearOwnCache() {}
+
+    onUpdated(updatedNode: this) {
+        this.word = updatedNode.getWord();
+        super.onUpdated(updatedNode);
+    }
 }
 
 export class TextLayoutNode extends InlineLayoutNode {
@@ -77,6 +78,30 @@ export class TextLayoutNode extends InlineLayoutNode {
 
     getSize() {
         return 1;
+    }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
     }
 }
 
@@ -91,10 +116,10 @@ export class TextComponent extends Component implements IComponent {
                 bold: !!modelNode.getAttributes().bold,
             });
             const words = breakTextToWords(modelNode.getContent());
-            const children = words.map(
-                (word, wordIndex) => new WordRenderNode(this.id, `${modelNode.getId()}-${wordIndex}`, {}, word),
-            );
-            node.setChildren(children);
+            words.forEach((word, wordIndex) => {
+                const wordRenderNode = new WordRenderNode(this.id, `${modelNode.getId()}-${wordIndex}`, {}, word);
+                node.appendChild(wordRenderNode);
+            });
             return node;
         }
         throw new Error('Invalid text model node.');

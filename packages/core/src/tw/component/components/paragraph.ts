@@ -5,7 +5,7 @@ import { BlockModelNode } from 'tw/model/block-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
 import { AtomicRenderNode } from 'tw/render/atomic-node';
 import { BlockRenderNode } from 'tw/render/block-node';
-import { IInlineRenderNode, InlineRenderNode } from 'tw/render/inline-node';
+import { InlineRenderNode } from 'tw/render/inline-node';
 import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
 
@@ -43,18 +43,25 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
 export interface IParagraphStyle extends IStyle {}
 
 export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
+    protected lineBreakNode: ParagraphLineBreakRenderNode;
+
+    constructor(protected componentId: string, protected id: string, protected style: IParagraphStyle) {
+        super(componentId, id, style);
+        this.lineBreakNode = this.buildLineBreakNode();
+    }
+
     getPartId() {
         return 'paragraph';
     }
 
-    setChildren(children: IInlineRenderNode[]) {
-        super.setChildren([...children, this.buildLineBreakNode()]);
+    getChildren() {
+        return [...super.getChildren(), this.lineBreakNode];
     }
 
     protected buildLineBreakNode() {
         const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
         const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
-        inlineNode.setChildren([atomicNode]);
+        inlineNode.appendChild(atomicNode);
         return inlineNode;
     }
 }
@@ -89,6 +96,30 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
     getPartId() {
         return 'paragraph';
     }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
+    }
 }
 
 export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
@@ -97,6 +128,30 @@ export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
     }
 
     getSize() {
+        return 0;
+    }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
         return 0;
     }
 }

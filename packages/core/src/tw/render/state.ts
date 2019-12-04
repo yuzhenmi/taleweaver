@@ -42,8 +42,7 @@ export class RenderState implements IRenderState {
         if (!originalNode) {
             throw new Error(`Render node ${event.updatedNode.getId()} is not found.`);
         }
-        const parentNode = originalNode.getParent()!;
-        parentNode.replaceChild(updatedNode);
+        originalNode.onUpdated(updatedNode);
         this.didUpdateRenderStateEventEmitter.emit({
             updatedNode,
         });

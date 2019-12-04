@@ -35,8 +35,9 @@ export class RenderTreeBuilder implements IRenderTreeBuilder {
         }
         const renderNode = component.buildRenderNode(modelNode);
         if (!modelNode.isLeaf() && !renderNode.isLeaf()) {
-            const childRenderNodes = modelNode.getChildren().map(childModelNode => this.buildNode(childModelNode));
-            renderNode.setChildren(childRenderNodes);
+            modelNode.getChildren().forEach(childModelNode => {
+                renderNode.appendChild(this.buildNode(childModelNode));
+            });
         }
         return renderNode;
     }
