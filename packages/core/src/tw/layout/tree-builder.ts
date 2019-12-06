@@ -43,14 +43,20 @@ export class LayoutTreeBuilder implements ILayoutTreeBuilder {
             const childLayoutNodes = renderNode.getChildren().map(childRenderNode => this.buildNode(childRenderNode));
             if (layoutNode instanceof DocLayoutNode) {
                 const pageLayoutNode = new PageLayoutNode('', generateId());
-                pageLayoutNode.setChildren(childLayoutNodes as any);
-                layoutNode.setChildren([pageLayoutNode]);
+                childLayoutNodes.forEach(childLayoutNode => {
+                    pageLayoutNode.appendChild(childLayoutNode as any);
+                });
+                layoutNode.appendChild(pageLayoutNode);
             } else if (layoutNode instanceof BlockLayoutNode) {
                 const lineLayoutNode = new LineLayoutNode('', generateId());
-                lineLayoutNode.setChildren(childLayoutNodes as any);
-                layoutNode.setChildren([lineLayoutNode]);
+                childLayoutNodes.forEach(childLayoutNode => {
+                    lineLayoutNode.appendChild(childLayoutNode as any);
+                });
+                layoutNode.appendChild(lineLayoutNode);
             } else {
-                layoutNode.setChildren(childLayoutNodes);
+                childLayoutNodes.forEach(childLayoutNode => {
+                    layoutNode.appendChild(childLayoutNode as any);
+                });
             }
         }
         return layoutNode;

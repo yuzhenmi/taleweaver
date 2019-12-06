@@ -5,11 +5,11 @@ import { IInlineLayoutNode, InlineLayoutNode } from './inline-node';
 import { ILineLayoutNode } from './line-node';
 import { IPageLayoutNode } from './page-node';
 
-export interface ILayoutFlower {
+export interface ILayoutEngine {
     flow(node: ILayoutNode): void;
 }
 
-export class LayoutFlower implements ILayoutFlower {
+export class LayoutEngine implements ILayoutEngine {
     flow(node: ILayoutNode) {
         if (node instanceof DocLayoutNode) {
             this.flowDocNode(node);

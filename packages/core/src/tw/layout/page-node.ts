@@ -2,10 +2,14 @@ import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IDocLayoutNode } from 'tw/layout/doc-node';
 import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 
-export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {}
+export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
+    isFlowed(): boolean;
+    markAsFlowed(): void;
+}
 
 export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
     protected size?: number;
+    protected flowed = false;
 
     getPartId() {
         return 'page';
@@ -24,6 +28,38 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
             this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
         }
         return this.size!;
+    }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
+    }
+
+    isFlowed() {
+        return this.flowed;
+    }
+
+    markAsFlowed() {
+        this.flowed = true;
     }
 
     resolvePosition(offset: number, depth: number): ILayoutPosition {
@@ -46,5 +82,6 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
 
     clearOwnCache() {
         this.size = undefined;
+        this.flowed = false;
     }
 }

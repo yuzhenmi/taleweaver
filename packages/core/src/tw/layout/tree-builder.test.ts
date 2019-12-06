@@ -34,14 +34,15 @@ describe('LayoutTreeBuilder', () => {
         componentService = new ComponentService(configService);
         docRenderNode = new DocRenderNode('doc', 'doc', {});
         const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', {});
-        docRenderNode.setChildren([paragraphRenderNode]);
+        docRenderNode.appendChild(paragraphRenderNode);
         const textRenderNode1 = new TextRenderNode('text', '2', { bold: false });
         const wordRenderNode1 = new WordRenderNode('text', '4', {}, { text: 'Hello ', breakable: true });
-        textRenderNode1.setChildren([wordRenderNode1]);
+        textRenderNode1.appendChild(wordRenderNode1);
         const textRenderNode2 = new TextRenderNode('text', '3', { bold: true });
         const wordRenderNode2 = new WordRenderNode('text', '5', {}, { text: 'world', breakable: false });
-        textRenderNode2.setChildren([wordRenderNode2]);
-        paragraphRenderNode.setChildren([textRenderNode1, textRenderNode2]);
+        textRenderNode2.appendChild(wordRenderNode2);
+        paragraphRenderNode.appendChild(textRenderNode1);
+        paragraphRenderNode.appendChild(textRenderNode2);
         treeBuilder = new LayoutTreeBuilder(componentService);
     });
 

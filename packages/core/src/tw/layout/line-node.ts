@@ -2,10 +2,14 @@ import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IInlineLayoutNode } from 'tw/layout/inline-node';
 import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 
-export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {}
+export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
+    isFlowed(): boolean;
+    markAsFlowed(): void;
+}
 
 export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode> implements ILineLayoutNode {
     protected size?: number;
+    protected flowed = false;
 
     getPartId() {
         return 'line';
@@ -24,6 +28,38 @@ export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNo
             this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
         }
         return this.size!;
+    }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
+    }
+
+    isFlowed() {
+        return this.flowed;
+    }
+
+    markAsFlowed() {
+        this.flowed = true;
     }
 
     resolvePosition(offset: number, depth: number): ILayoutPosition {
@@ -46,5 +82,6 @@ export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNo
 
     clearOwnCache() {
         this.size = undefined;
+        this.flowed = false;
     }
 }
