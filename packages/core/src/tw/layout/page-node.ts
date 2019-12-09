@@ -1,15 +1,30 @@
 import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IDocLayoutNode } from 'tw/layout/doc-node';
 import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { generateId } from 'tw/util/id';
 
 export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
+    getContentHeight(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
+    clone(): IPageLayoutNode;
 }
 
 export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
     protected size?: number;
+    protected contentHeight?: number;
     protected flowed = false;
+
+    constructor(
+        protected width: number,
+        protected height: number,
+        protected paddingTop: number,
+        protected paddingBottom: number,
+        protected paddingLeft: number,
+        protected paddingRight: number,
+    ) {
+        super('', generateId());
+    }
 
     getPartId() {
         return 'page';
@@ -31,27 +46,37 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
     }
 
     getWidth() {
-        return 0;
+        return this.width;
     }
 
     getHeight() {
-        return 0;
+        return this.height;
     }
 
     getPaddingTop() {
-        return 0;
+        return this.paddingTop;
     }
 
     getPaddingBottom() {
-        return 0;
+        return this.paddingBottom;
     }
 
     getPaddingLeft() {
-        return 0;
+        return this.paddingLeft;
     }
 
     getPaddingRight() {
-        return 0;
+        return this.paddingRight;
+    }
+
+    getContentHeight() {
+        if (this.contentHeight === undefined) {
+            this.contentHeight = this.getChildren().reduce(
+                (contentHeight, child) => contentHeight + child.getHeight(),
+                0,
+            );
+        }
+        return this.contentHeight;
     }
 
     isFlowed() {
@@ -82,6 +107,18 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
 
     clearOwnCache() {
         this.size = undefined;
+        this.contentHeight = undefined;
         this.flowed = false;
+    }
+
+    clone() {
+        return new PageLayoutNode(
+            this.width,
+            this.height,
+            this.paddingTop,
+            this.paddingBottom,
+            this.paddingLeft,
+            this.paddingRight,
+        );
     }
 }

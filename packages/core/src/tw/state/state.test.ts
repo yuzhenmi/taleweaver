@@ -3,23 +3,26 @@ import { ParagraphComponent } from 'tw/component/components/paragraph';
 import { TextComponent } from 'tw/component/components/text';
 import { ConfigService } from 'tw/config/service';
 import { CursorService } from 'tw/cursor/service';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 import { State } from 'tw/state/state';
 import { DeleteOperation, InsertOperation, ITransformation, Transformation } from 'tw/state/transformation';
 
 describe('State', () => {
+    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
     let cursorService: CursorService;
     let state: State;
     let initialMarkup: string;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         configService = new ConfigService(
             {
                 commands: {},
                 components: {
                     doc: new DocComponent('doc'),
                     paragraph: new ParagraphComponent('paragraph'),
-                    text: new TextComponent('text'),
+                    text: new TextComponent('text', textMeasurer),
                 },
             },
             {},

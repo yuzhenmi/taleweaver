@@ -3,22 +3,25 @@ import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/
 import { TextComponent, TextModelNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 import { TokenParser } from 'tw/model/parser';
 import { CLOSE_TOKEN } from 'tw/state/token';
 
 describe('TokenParser', () => {
+    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
     let componentService: ComponentService;
     let parser: TokenParser;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         configService = new ConfigService(
             {
                 commands: {},
                 components: {
                     doc: new DocComponent('doc'),
                     paragraph: new ParagraphComponent('paragraph'),
-                    text: new TextComponent('text'),
+                    text: new TextComponent('text', textMeasurer),
                 },
             },
             {},

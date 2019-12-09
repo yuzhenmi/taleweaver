@@ -1,15 +1,24 @@
 import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IInlineLayoutNode } from 'tw/layout/inline-node';
 import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { generateId } from 'tw/util/id';
 
 export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
+    getContentWidth(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
+    clone(): ILineLayoutNode;
 }
 
 export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode> implements ILineLayoutNode {
     protected size?: number;
+    protected height?: number;
+    protected contentWidth?: number;
     protected flowed = false;
+
+    constructor() {
+        super('', generateId());
+    }
 
     getPartId() {
         return 'line';
@@ -31,11 +40,28 @@ export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNo
     }
 
     getWidth() {
-        return 0;
+        const parent = this.getParent();
+        if (!parent) {
+            return 0;
+        }
+        return parent.getWidth();
     }
 
     getHeight() {
-        return 0;
+        if (this.height === undefined) {
+            this.height = this.getChildren().reduce(
+                (height, child) => Math.max(height, child.getHeight()),
+                this.getVerticalPaddng(),
+            );
+        }
+        return this.height;
+    }
+
+    getContentWidth() {
+        if (this.contentWidth === undefined) {
+            this.contentWidth = this.getChildren().reduce((contentWidth, child) => contentWidth + child.getWidth(), 0);
+        }
+        return this.contentWidth;
     }
 
     getPaddingTop() {
@@ -82,6 +108,12 @@ export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNo
 
     clearOwnCache() {
         this.size = undefined;
+        this.height = undefined;
+        this.contentWidth = undefined;
         this.flowed = false;
+    }
+
+    clone() {
+        return new LineLayoutNode();
     }
 }

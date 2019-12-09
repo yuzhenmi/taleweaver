@@ -4,6 +4,7 @@ import { TextComponent, TextModelNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
 import { IEventListener } from 'tw/event/listener';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 import { IDocModelNode } from 'tw/model/doc-node';
 import { IModelPosition } from 'tw/model/node';
 import { IModelService } from 'tw/model/service';
@@ -29,15 +30,17 @@ class MockModelService implements IModelService {
 }
 
 describe('RenderService', () => {
+    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
     let componentService: ComponentService;
     let modelService: MockModelService;
     let service: RenderService;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         const docComponent = new DocComponent('doc');
         const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text');
+        const textComponent = new TextComponent('text', textMeasurer);
         configService = new ConfigService(
             {
                 commands: {},
@@ -55,7 +58,7 @@ describe('RenderService', () => {
         docModelNode.appendChild(paragraphModelNode);
         const textModelNode1 = new TextModelNode('text', '2', {});
         textModelNode1.setContent('Hello ');
-        const textModelNode2 = new TextModelNode('text', '3', { bold: true });
+        const textModelNode2 = new TextModelNode('text', '3', { weight: 700 });
         textModelNode2.setContent('world');
         paragraphModelNode.appendChild(textModelNode1);
         paragraphModelNode.appendChild(textModelNode2);
@@ -69,13 +72,19 @@ describe('RenderService', () => {
             expect(styles1).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
-                text: { text: [{ bold: false }], word: [{}] },
+                text: {
+                    text: [{ weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                    word: [{ weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                },
             });
             const styles2 = service.getStylesBetween(6, 7);
             expect(styles2).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
-                text: { text: [{ bold: true }], word: [{}] },
+                text: {
+                    text: [{ weight: 700, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                    word: [{ weight: 700, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                },
             });
         });
     });

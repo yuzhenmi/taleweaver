@@ -19,7 +19,6 @@ export interface IModelNode<
     getPartId(): string;
     getAttributes(): TAttributes;
     getSize(): number;
-    clearCache(): void;
     resolvePosition(offset: number, depth?: number): IModelPosition;
     toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
@@ -31,7 +30,6 @@ export abstract class ModelNode<TAttributes extends IAttributes, TParent extends
     implements IModelNode<TAttributes, TParent, TChild> {
     abstract getPartId(): string;
     abstract getSize(): number;
-    abstract clearOwnCache(): void;
     abstract resolvePosition(offset: number, depth?: number): IModelPosition;
     abstract toDOM(from: number, to: number): HTMLElement;
     abstract toTokens(): IToken[];
@@ -51,15 +49,5 @@ export abstract class ModelNode<TAttributes extends IAttributes, TParent extends
 
     getAttributes() {
         return this.attributes;
-    }
-
-    clearCache() {
-        this.clearOwnCache();
-        if (!this.isRoot()) {
-            const parent = this.getParent();
-            if (parent) {
-                parent.clearCache();
-            }
-        }
     }
 }

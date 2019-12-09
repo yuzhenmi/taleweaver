@@ -21,6 +21,30 @@ export abstract class DocLayoutNode extends LayoutNode<never, IPageLayoutNode> i
         return this.size!;
     }
 
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
+    }
+
     resolvePosition(offset: number): ILayoutPosition {
         let cumulatedOffset = 0;
         const children = this.getChildren();

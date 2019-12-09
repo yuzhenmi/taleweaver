@@ -18,11 +18,14 @@ export interface ILayoutNode<
     getSize(): number;
     getWidth(): number;
     getHeight(): number;
+    getInnerWidth(): number;
+    getInnerHeight(): number;
     getPaddingTop(): number;
     getPaddingBottom(): number;
     getPaddingLeft(): number;
     getPaddingRight(): number;
-    clearCache(): void;
+    getVerticalPaddng(): number;
+    getHorizontalPaddng(): number;
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
 }
 
@@ -36,7 +39,6 @@ export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILa
     abstract getPaddingBottom(): number;
     abstract getPaddingLeft(): number;
     abstract getPaddingRight(): number;
-    abstract clearOwnCache(): void;
     abstract resolvePosition(offset: number, depth?: number): ILayoutPosition;
 
     constructor(protected componentId: string, protected id: string) {
@@ -51,13 +53,19 @@ export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILa
         return this.id;
     }
 
-    clearCache() {
-        this.clearOwnCache();
-        if (!this.isRoot()) {
-            const parent = this.getParent();
-            if (parent) {
-                parent.clearCache();
-            }
-        }
+    getInnerWidth() {
+        return this.getWidth() - this.getHorizontalPaddng();
+    }
+
+    getInnerHeight() {
+        return this.getHeight() - this.getVerticalPaddng();
+    }
+
+    getVerticalPaddng() {
+        return this.getPaddingTop() + this.getPaddingBottom();
+    }
+
+    getHorizontalPaddng() {
+        return this.getPaddingLeft() + this.getPaddingRight();
     }
 }

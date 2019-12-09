@@ -2,10 +2,15 @@ import { ILineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { IPageLayoutNode } from './page-node';
 
-export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {}
+export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {
+    clone(): IBlockLayoutNode;
+}
 
 export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineLayoutNode> implements IBlockLayoutNode {
+    abstract clone(): IBlockLayoutNode;
+
     protected size?: number;
+    protected height?: number;
 
     isRoot() {
         return false;
@@ -20,6 +25,24 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
             this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
         }
         return this.size!;
+    }
+
+    getWidth() {
+        const parent = this.getParent();
+        if (!parent) {
+            return 0;
+        }
+        return parent.getInnerWidth();
+    }
+
+    getHeight() {
+        if (this.height === undefined) {
+            this.height = this.getChildren().reduce(
+                (height, child) => height + child.getHeight(),
+                this.getVerticalPaddng(),
+            );
+        }
+        return this.height;
     }
 
     resolvePosition(offset: number, depth: number): ILayoutPosition {
@@ -42,5 +65,6 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
 
     clearOwnCache() {
         this.size = undefined;
+        this.height = undefined;
     }
 }

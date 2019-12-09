@@ -1,4 +1,5 @@
 import { Component, IComponent } from 'tw/component/component';
+import { AtomicLayoutNode } from 'tw/layout/atomic-node';
 import { BlockLayoutNode } from 'tw/layout/block-node';
 import { InlineLayoutNode } from 'tw/layout/inline-node';
 import { BlockModelNode } from 'tw/model/block-node';
@@ -97,20 +98,12 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
         return 'paragraph';
     }
 
-    getWidth() {
-        return 0;
-    }
-
-    getHeight() {
-        return 0;
-    }
-
     getPaddingTop() {
         return 0;
     }
 
     getPaddingBottom() {
-        return 0;
+        return 12;
     }
 
     getPaddingLeft() {
@@ -119,6 +112,10 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
 
     getPaddingRight() {
         return 0;
+    }
+
+    clone() {
+        return new ParagraphLayoutNode(this.componentId, this.id);
     }
 }
 
@@ -154,6 +151,48 @@ export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
     getPaddingRight() {
         return 0;
     }
+
+    clone() {
+        return new ParagraphLineBreakLayoutNode(this.componentId, this.id);
+    }
+}
+
+export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
+    getPartId() {
+        return 'line-break-atomic';
+    }
+
+    getSize() {
+        return 0;
+    }
+
+    getWidth() {
+        return 0;
+    }
+
+    getHeight() {
+        return 0;
+    }
+
+    getPaddingTop() {
+        return 0;
+    }
+
+    getPaddingBottom() {
+        return 0;
+    }
+
+    getPaddingLeft() {
+        return 0;
+    }
+
+    getPaddingRight() {
+        return 0;
+    }
+
+    getTailTrimmedWidth() {
+        return 0;
+    }
 }
 
 export class ParagraphComponent extends Component implements IComponent {
@@ -174,6 +213,9 @@ export class ParagraphComponent extends Component implements IComponent {
         }
         if (renderNode instanceof ParagraphLineBreakRenderNode) {
             return new ParagraphLineBreakLayoutNode(this.id, renderNode.getId());
+        }
+        if (renderNode instanceof ParagraphLineBreakAtomicRenderNode) {
+            return new ParagraphLineBreakAtomicLayoutNode(this.id, renderNode.getId());
         }
         throw new Error('Invalid paragraph render node.');
     }

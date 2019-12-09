@@ -8,18 +8,21 @@ import {
 import { TextComponent, TextLayoutNode, TextRenderNode, WordRenderNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
+import { TextMeasurerStub } from './text-measurer.stub';
 import { LayoutTreeBuilder } from './tree-builder';
 
 describe('LayoutTreeBuilder', () => {
+    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
     let componentService: ComponentService;
     let docRenderNode: DocRenderNode;
     let treeBuilder: LayoutTreeBuilder;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         const docComponent = new DocComponent('doc');
         const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text');
+        const textComponent = new TextComponent('text', textMeasurer);
         configService = new ConfigService(
             {
                 commands: {},
@@ -35,11 +38,31 @@ describe('LayoutTreeBuilder', () => {
         docRenderNode = new DocRenderNode('doc', 'doc', {});
         const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', {});
         docRenderNode.appendChild(paragraphRenderNode);
-        const textRenderNode1 = new TextRenderNode('text', '2', { bold: false });
-        const wordRenderNode1 = new WordRenderNode('text', '4', {}, { text: 'Hello ', breakable: true });
+        const textRenderNode1 = new TextRenderNode('text', '2', {
+            weight: 400,
+            size: 14,
+            font: 'sans-serif',
+            letterSpacing: 0,
+        });
+        const wordRenderNode1 = new WordRenderNode(
+            'text',
+            '4',
+            { weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 },
+            { text: 'Hello ', breakable: true },
+        );
         textRenderNode1.appendChild(wordRenderNode1);
-        const textRenderNode2 = new TextRenderNode('text', '3', { bold: true });
-        const wordRenderNode2 = new WordRenderNode('text', '5', {}, { text: 'world', breakable: false });
+        const textRenderNode2 = new TextRenderNode('text', '3', {
+            weight: 400,
+            size: 14,
+            font: 'sans-serif',
+            letterSpacing: 0,
+        });
+        const wordRenderNode2 = new WordRenderNode(
+            'text',
+            '5',
+            { weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 },
+            { text: 'world', breakable: false },
+        );
         textRenderNode2.appendChild(wordRenderNode2);
         paragraphRenderNode.appendChild(textRenderNode1);
         paragraphRenderNode.appendChild(textRenderNode2);

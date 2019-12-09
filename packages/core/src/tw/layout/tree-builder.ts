@@ -5,7 +5,6 @@ import { LineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode } from 'tw/layout/node';
 import { PageLayoutNode } from 'tw/layout/page-node';
 import { IRenderNode } from 'tw/render/node';
-import { generateId } from 'tw/util/id';
 
 export interface ILayoutTreeBuilder {
     buildTree(renderNode: IRenderNode): ILayoutNode;
@@ -42,13 +41,13 @@ export class LayoutTreeBuilder implements ILayoutTreeBuilder {
         if (!renderNode.isLeaf() && !layoutNode.isLeaf()) {
             const childLayoutNodes = renderNode.getChildren().map(childRenderNode => this.buildNode(childRenderNode));
             if (layoutNode instanceof DocLayoutNode) {
-                const pageLayoutNode = new PageLayoutNode('', generateId());
+                const pageLayoutNode = new PageLayoutNode(816, 1056, 40, 40, 40, 40);
                 childLayoutNodes.forEach(childLayoutNode => {
                     pageLayoutNode.appendChild(childLayoutNode as any);
                 });
                 layoutNode.appendChild(pageLayoutNode);
             } else if (layoutNode instanceof BlockLayoutNode) {
-                const lineLayoutNode = new LineLayoutNode('', generateId());
+                const lineLayoutNode = new LineLayoutNode();
                 childLayoutNodes.forEach(childLayoutNode => {
                     lineLayoutNode.appendChild(childLayoutNode as any);
                 });

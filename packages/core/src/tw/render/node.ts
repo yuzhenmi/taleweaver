@@ -18,7 +18,6 @@ export interface IRenderNode<
     getPartId(): string;
     getSize(): number;
     getModelSize(): number;
-    clearCache(): void;
     getStyle(): TStyle;
     resolvePosition(offset: number, depth?: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
@@ -30,7 +29,6 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
     abstract getPartId(): string;
     abstract getSize(): number;
     abstract getModelSize(): number;
-    abstract clearOwnCache(): void;
     abstract resolvePosition(offset: number, depth?: number): IRenderPosition;
     abstract convertOffsetToModelOffset(offset: number): number;
 
@@ -48,15 +46,5 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
 
     getStyle() {
         return this.style;
-    }
-
-    clearCache() {
-        this.clearOwnCache();
-        if (!this.isRoot()) {
-            const parent = this.getParent();
-            if (parent) {
-                parent.clearCache();
-            }
-        }
     }
 }

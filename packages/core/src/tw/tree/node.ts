@@ -4,8 +4,10 @@ export interface INode<TParent extends INode = INode<any, any>, TChild extends I
     isLeaf(): boolean;
     setParent(parent: TParent | undefined): void;
     getParent(): TParent | undefined;
+    insertChild(child: TChild): void;
+    insertChildBefore(child: TChild, beforeChild: TChild): void;
     appendChild(child: TChild): void;
-    insertChild(child: TChild, beforeChild: TChild): void;
+    appendChildAfter(child: TChild, afterChild: TChild): void;
     removeChild(child: TChild): void;
     getChildren(): TChild[];
     getFirstChild(): TChild | undefined;
@@ -15,6 +17,7 @@ export interface INode<TParent extends INode = INode<any, any>, TChild extends I
     getPreviousSiblingAllowCrossParent(): INode | undefined;
     getNextSiblingAllowCrossParent(): INode | undefined;
     findDescendant(nodeId: string): INode | undefined;
+    clearCache(): void;
     onUpdated(updatedNode: this): void;
 }
 
@@ -37,15 +40,16 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         return this.parent;
     }
 
-    appendChild(child: TChild) {
+    insertChild(child: TChild) {
         if (this.isLeaf()) {
             throw new Error('Appending child to leaf node is not allowed.');
         }
-        this.children.push(child);
+        this.children.unshift(child);
         child.setParent(this);
+        this.clearCache();
     }
 
-    insertChild(child: TChild, beforeChild: TChild) {
+    insertChildBefore(child: TChild, beforeChild: TChild) {
         if (this.isLeaf()) {
             throw new Error('Inserting child to leaf node is not allowed.');
         }
@@ -55,6 +59,29 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         }
         this.children.splice(beforeChildIndex, 0, child);
         child.setParent(this);
+        this.clearCache();
+    }
+
+    appendChild(child: TChild) {
+        if (this.isLeaf()) {
+            throw new Error('Appending child to leaf node is not allowed.');
+        }
+        this.children.push(child);
+        child.setParent(this);
+        this.clearCache();
+    }
+
+    appendChildAfter(child: TChild, afterChild: TChild) {
+        if (this.isLeaf()) {
+            throw new Error('Inserting child to leaf node is not allowed.');
+        }
+        const afterChildIndex = this.children.indexOf(afterChild);
+        if (afterChildIndex < 0) {
+            throw new Error('Error inserting, child to insert after is not found.');
+        }
+        this.children.splice(afterChildIndex + 1, 0, child);
+        child.setParent(this);
+        this.clearCache();
     }
 
     removeChild(child: TChild) {
@@ -67,6 +94,7 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         }
         this.children.splice(childIndex, 1);
         child!.setParent(undefined);
+        this.clearCache();
     }
 
     getChildren() {
@@ -172,6 +200,16 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         return undefined;
     }
 
+    clearCache() {
+        this.clearOwnCache();
+        if (!this.isRoot()) {
+            const parent = this.getParent();
+            if (parent) {
+                parent.clearCache();
+            }
+        }
+    }
+
     onUpdated(updatedNode: this) {
         if (!this.isLeaf()) {
             const children = this.children.slice();
@@ -195,7 +233,7 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
                     m++;
                 } else {
                     if (m < children.length) {
-                        this.insertChild(updatedChild, children[m]);
+                        this.insertChildBefore(updatedChild, children[m]);
                     } else {
                         this.appendChild(updatedChild);
                     }
@@ -207,4 +245,6 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
             }
         }
     }
+
+    protected clearOwnCache() {}
 }
