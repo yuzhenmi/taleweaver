@@ -5,6 +5,7 @@ import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener } from 'tw/event/listener';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 import { IDocModelNode } from 'tw/model/doc-node';
 import { IModelPosition } from 'tw/model/node';
 import { IModelService } from 'tw/model/service';
@@ -43,6 +44,7 @@ class MockModelService implements IModelService {
 }
 
 describe('ModelState', () => {
+    let textMeasurer: TextMeasurerStub;
     let docComponent: DocComponent;
     let paragraphComponent: ParagraphComponent;
     let textComponent: TextComponent;
@@ -52,9 +54,10 @@ describe('ModelState', () => {
     let renderState: RenderState;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         docComponent = new DocComponent('doc');
         paragraphComponent = new ParagraphComponent('paragraph');
-        textComponent = new TextComponent('text');
+        textComponent = new TextComponent('text', textMeasurer);
         configService = new ConfigService(
             {
                 commands: {},
@@ -116,7 +119,7 @@ describe('ModelState', () => {
             const textModelNode1 = new TextModelNode('text', '2', {});
             textModelNode1.setContent(' Hello');
             modelService.emitDidUpdateModelStateEvent({
-                updatedNode: textModelNode1,
+                node: textModelNode1,
             });
             const docNode = renderState.getDocNode();
             expect(docNode.getChildren()).toHaveLength(1);

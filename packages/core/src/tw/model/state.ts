@@ -2,15 +2,16 @@ import { IComponentService } from 'tw/component/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
 import { IDocModelNode } from 'tw/model/doc-node';
+import { IModelNode } from 'tw/model/node';
 import { TokenParser } from 'tw/model/parser';
 import { IStateService } from 'tw/state/service';
 import { IDidUpdateStateEvent } from 'tw/state/state';
 import { IOpenToken, IToken } from 'tw/state/token';
 import { identityTokenType } from 'tw/state/utility';
-import { IModelNode } from './node';
+import { findCommonLineage } from 'tw/tree/utility';
 
 export interface IDidUpdateModelStateEvent {
-    readonly updatedNode: IModelNode;
+    readonly node: IModelNode;
 }
 
 export interface IModelState {
@@ -38,10 +39,10 @@ export class ModelState implements IModelState {
     }
 
     protected handleDidUpdateStateEvent(event: IDidUpdateStateEvent) {
-        const originalNode = this.findNodeContainingRange(event.beforeFrom, event.beforeTo);
+        const node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo);
         const updatedTokens = this.findNodeTokenRange(
             this.stateService.getTokens(),
-            originalNode.getId(),
+            node.getId(),
             event.afterFrom,
             event.afterTo,
         );
@@ -53,10 +54,8 @@ export class ModelState implements IModelState {
         // state that got updated.
         const parser = new TokenParser(this.componentService);
         const updatedNode = parser.parse(updatedTokens);
-        originalNode.onUpdated(updatedNode);
-        this.didUpdateModelStateEventEmitter.emit({
-            updatedNode,
-        });
+        node.onUpdated(updatedNode);
+        this.didUpdateModelStateEventEmitter.emit({ node });
     }
 
     protected findUpdatedNode(
@@ -68,11 +67,11 @@ export class ModelState implements IModelState {
     ) {
         const beforeFromPosition = this.docNode.resolvePosition(beforeFrom).getLeaf();
         const beforeToPosition = this.docNode.resolvePosition(beforeTo).getLeaf();
-        const beforeNode = this.findCommonLineage(beforeFromPosition.getNode(), beforeToPosition.getNode());
+        const beforeNode = findCommonLineage(beforeFromPosition.getNode(), beforeToPosition.getNode());
         const afterTokenRange = this.findParentNodeOfTokenRange(tokens, afterFrom, afterTo);
         const afterNodeID = (tokens[afterTokenRange[0]] as IOpenToken).id;
         const afterNode = this.findNodeInLineageById(beforeFromPosition.getNode(), afterNodeID);
-        const node = this.findCommonLineage(beforeNode, afterNode);
+        const node = findCommonLineage(beforeNode, afterNode);
         const updatedTokens = this.findNodeTokenRange(tokens, node.getId(), afterTokenRange[0], afterTokenRange[1]);
         const parser = new TokenParser(this.componentService);
         const updatedNode = parser.parse(updatedTokens);
@@ -82,35 +81,7 @@ export class ModelState implements IModelState {
     protected findNodeContainingRange(from: number, to: number) {
         const fromPosition = this.docNode.resolvePosition(from).getLeaf();
         const toPosition = this.docNode.resolvePosition(to).getLeaf();
-        return this.findCommonLineage(fromPosition.getNode(), toPosition.getNode());
-    }
-
-    protected findCommonLineage(node1: IModelNode, node2: IModelNode) {
-        const nodeLineage1 = this.getNodeLineage(node1);
-        const nodeLineage2 = this.getNodeLineage(node2);
-        let index = 0;
-        while (index < nodeLineage1.length && index < nodeLineage2.length) {
-            if (nodeLineage1[index] !== nodeLineage2[index]) {
-                break;
-            }
-            index++;
-        }
-        if (index === 0) {
-            throw new Error('No common lineage found.');
-        }
-        return nodeLineage1[index - 1];
-    }
-
-    protected getNodeLineage(node: IModelNode) {
-        const lineage: IModelNode[] = [];
-        let currentNode: IModelNode = node;
-        while (true) {
-            lineage.unshift(currentNode);
-            if (currentNode.isRoot()) {
-                return lineage;
-            }
-            currentNode = currentNode.getParent()!;
-        }
+        return findCommonLineage(fromPosition.getNode(), toPosition.getNode()) as IModelNode;
     }
 
     protected findParentNodeOfTokenRange(tokens: IToken[], hintFrom: number, hintTo: number) {

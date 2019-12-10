@@ -1,10 +1,10 @@
 import { DocLayoutNode } from 'tw/component/components/doc';
 import { ParagraphLayoutNode } from 'tw/component/components/paragraph';
 import { TextLayoutNode, WordLayoutNode } from 'tw/component/components/text';
-import { LayoutFlower } from './flower';
-import { LineLayoutNode } from './line-node';
-import { PageLayoutNode } from './page-node';
-import { TextMeasurerStub } from './text-measurer.stub';
+import { LayoutFlower } from 'tw/layout/flower';
+import { LineLayoutNode } from 'tw/layout/line-node';
+import { PageLayoutNode } from 'tw/layout/page-node';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 
 describe('LayoutFlower', () => {
     let textMeasurer: TextMeasurerStub;
@@ -17,8 +17,10 @@ describe('LayoutFlower', () => {
 
     describe('flow', () => {
         describe('when line overflows', () => {
-            it('breaks up line', () => {
-                const docLayoutNode = new DocLayoutNode('doc', 'doc');
+            let docLayoutNode: DocLayoutNode;
+
+            beforeEach(() => {
+                docLayoutNode = new DocLayoutNode('doc', 'doc');
                 const pageLayoutNode = new PageLayoutNode(88, 1056, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
@@ -45,6 +47,9 @@ describe('LayoutFlower', () => {
                     textMeasurer,
                 );
                 textLayoutNode2.appendChild(wordLayoutNode2);
+            });
+
+            it('breaks up line', () => {
                 flower.flow(docLayoutNode);
                 const lineNodes = docLayoutNode
                     .getFirstChild()!
@@ -66,11 +71,23 @@ describe('LayoutFlower', () => {
                 expect(atomicNode2.getWord().text).toEqual('world!');
                 expect(atomicNode2.getWord().breakable).toEqual(false);
             });
+
+            it('marks lines as flowed', () => {
+                flower.flow(docLayoutNode);
+                const lineNodes = docLayoutNode
+                    .getFirstChild()!
+                    .getFirstChild()!
+                    .getChildren();
+                expect(lineNodes[0].isFlowed()).toEqual(true);
+                expect(lineNodes[1].isFlowed()).toEqual(true);
+            });
         });
 
         describe('when page overflows', () => {
-            it('breaks up page', () => {
-                const docLayoutNode = new DocLayoutNode('doc', 'doc');
+            let docLayoutNode: DocLayoutNode;
+
+            beforeEach(() => {
+                docLayoutNode = new DocLayoutNode('doc', 'doc');
                 const pageLayoutNode = new PageLayoutNode(88, 108, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
@@ -97,6 +114,9 @@ describe('LayoutFlower', () => {
                     textMeasurer,
                 );
                 textLayoutNode2.appendChild(wordLayoutNode2);
+            });
+
+            it('breaks up page', () => {
                 flower.flow(docLayoutNode);
                 expect(docLayoutNode.getChildren()).toHaveLength(2);
                 const pageNode1 = docLayoutNode.getFirstChild()!;
@@ -121,6 +141,13 @@ describe('LayoutFlower', () => {
                 const atomicNode2 = inlineNode2.getFirstChild()! as WordLayoutNode;
                 expect(atomicNode2.getWord().text).toEqual('world!');
                 expect(atomicNode2.getWord().breakable).toEqual(false);
+            });
+
+            it('marks pages as flowed', () => {
+                flower.flow(docLayoutNode);
+                const pageNodes = docLayoutNode.getChildren();
+                expect(pageNodes[0].isFlowed()).toEqual(true);
+                expect(pageNodes[1].isFlowed()).toEqual(true);
             });
         });
     });

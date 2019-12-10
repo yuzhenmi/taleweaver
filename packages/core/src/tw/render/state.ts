@@ -8,7 +8,7 @@ import { IRenderNode } from 'tw/render/node';
 import { RenderTreeBuilder } from 'tw/render/tree-builder';
 
 export interface IDidUpdateRenderStateEvent {
-    readonly updatedNode: IRenderNode;
+    readonly node: IRenderNode;
 }
 
 export interface IRenderState {
@@ -37,14 +37,12 @@ export class RenderState implements IRenderState {
 
     protected handleDidUpdateModelStateEvent(event: IDidUpdateModelStateEvent) {
         const treeBuilder = new RenderTreeBuilder(this.componentService);
-        const updatedNode = treeBuilder.buildTree(event.updatedNode);
-        const originalNode = this.docNode.findDescendant(event.updatedNode.getId());
-        if (!originalNode) {
-            throw new Error(`Render node ${event.updatedNode.getId()} is not found.`);
+        const updatedNode = treeBuilder.buildTree(event.node);
+        const node = this.docNode.findDescendant(event.node.getId()) as IRenderNode;
+        if (!node) {
+            throw new Error(`Render node ${event.node.getId()} is not found.`);
         }
-        originalNode.onUpdated(updatedNode);
-        this.didUpdateRenderStateEventEmitter.emit({
-            updatedNode,
-        });
+        node.onUpdated(updatedNode);
+        this.didUpdateRenderStateEventEmitter.emit({ node });
     }
 }

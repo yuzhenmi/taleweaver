@@ -1,11 +1,12 @@
+import { IAtomicLayoutNode } from 'tw/layout/atomic-node';
+import { IBlockLayoutNode } from 'tw/layout/block-node';
+import { IDocLayoutNode } from 'tw/layout/doc-node';
+import { IInlineLayoutNode } from 'tw/layout/inline-node';
+import { ILineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode } from 'tw/layout/node';
-import { IAtomicLayoutNode } from './atomic-node';
-import { IBlockLayoutNode } from './block-node';
-import { IDocLayoutNode } from './doc-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILineLayoutNode } from './line-node';
-import { IPageLayoutNode } from './page-node';
-import { identifyLayoutNodeType } from './utility';
+import { IPageLayoutNode } from 'tw/layout/page-node';
+import { identifyLayoutNodeType } from 'tw/layout/utility';
+import { findCommonLineage } from 'tw/tree/utility';
 
 export interface ILayoutFlower {
     flow(node: ILayoutNode): void;
@@ -269,15 +270,18 @@ export class LayoutFlower implements ILayoutFlower {
     protected nodeQueue = new NodeQueue();
     protected nodeJoiner = new NodeJoiner();
     protected nodeBreaker = new NodeBreaker();
+    protected updatedNode?: ILayoutNode;
     protected ran: boolean = false;
 
     flow(node: ILayoutNode) {
         if (this.ran) {
             throw new Error('Layout flower has already been run.');
         }
+        this.updatedNode = node;
         this.nodeQueue.queue(node);
         this.flushLineNodeQueue();
         this.flushPageNodeQueue();
+        return this.updatedNode;
     }
 
     protected flushLineNodeQueue() {
@@ -307,8 +311,10 @@ export class LayoutFlower implements ILayoutFlower {
         }
         let pageNode: IPageLayoutNode | undefined = node;
         while (pageNode) {
+            this.recordNodeAsUpdated(pageNode);
             const newPageNode = this.nodeBreaker.break(pageNode) as IPageLayoutNode | undefined;
             if (!newPageNode) {
+                pageNode.markAsFlowed();
                 break;
             }
             pageNode.getParent()!.appendChildAfter(newPageNode, pageNode);
@@ -330,8 +336,10 @@ export class LayoutFlower implements ILayoutFlower {
         }
         let lineNode: ILineLayoutNode | undefined = node;
         while (lineNode) {
+            this.recordNodeAsUpdated(lineNode);
             const newLineNode = this.nodeBreaker.break(lineNode) as ILineLayoutNode | undefined;
             if (!newLineNode) {
+                lineNode.markAsFlowed();
                 break;
             }
             lineNode.getParent()!.appendChildAfter(newLineNode, lineNode);
@@ -378,5 +386,21 @@ export class LayoutFlower implements ILayoutFlower {
         }
         this.nodeJoiner.join(node, nextNode);
         return true;
+    }
+
+    protected recordNodeAsUpdated(node: ILayoutNode) {
+        this.updatedNode = findCommonLineage(node, this.updatedNode!) as ILayoutNode;
+    }
+
+    protected getNodeLineage(node: ILayoutNode) {
+        const lineage: ILayoutNode[] = [];
+        let currentNode: ILayoutNode = node;
+        while (true) {
+            lineage.unshift(currentNode);
+            if (currentNode.isRoot()) {
+                return lineage;
+            }
+            currentNode = currentNode.getParent()!;
+        }
     }
 }

@@ -5,6 +5,7 @@ import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener } from 'tw/event/listener';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 import { IInlineModelNode } from 'tw/model/inline-node';
 import { ModelState } from 'tw/model/state';
 import { IStateService } from 'tw/state/service';
@@ -48,19 +49,21 @@ class MockStateService implements IStateService {
 }
 
 describe('ModelState', () => {
+    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
     let componentService: ComponentService;
     let stateService: MockStateService;
     let modelState: ModelState;
 
     beforeEach(() => {
+        textMeasurer = new TextMeasurerStub();
         configService = new ConfigService(
             {
                 commands: {},
                 components: {
                     doc: new DocComponent('doc'),
                     paragraph: new ParagraphComponent('paragraph'),
-                    text: new TextComponent('text'),
+                    text: new TextComponent('text', textMeasurer),
                 },
             },
             {},
