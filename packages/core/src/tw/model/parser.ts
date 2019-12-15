@@ -139,6 +139,14 @@ export class TokenParser implements ITokenParser {
         if (!component) {
             throw new Error(`Component ${componentId} is not registered.`);
         }
-        return component.buildModelNode(partId, id, attributes);
+        const node = component.buildModelNode(partId, id, attributes);
+        if (!node) {
+            throw new Error(
+                `Could not build model node from part ${partId}, id ${id} and attributes ${JSON.stringify(
+                    attributes,
+                )}.`,
+            );
+        }
+        return node;
     }
 }

@@ -1,6 +1,6 @@
 import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IInlineLayoutNode } from 'tw/layout/inline-node';
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { generateId } from 'tw/util/id';
 
 export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
@@ -10,17 +10,20 @@ export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLa
     clone(): ILineLayoutNode;
 }
 
-export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode> implements ILineLayoutNode {
+export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode>
+    implements ILineLayoutNode {
+    abstract clone(): ILineLayoutNode;
+
     protected size?: number;
     protected height?: number;
     protected contentWidth?: number;
     protected flowed = false;
 
-    constructor() {
-        super('', generateId());
+    constructor(componentId: string) {
+        super(componentId, generateId());
     }
 
-    getPartId() {
+    getNodeClass(): ILayoutNodeClass {
         return 'line';
     }
 
@@ -111,9 +114,5 @@ export class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNo
         this.height = undefined;
         this.contentWidth = undefined;
         this.flowed = false;
-    }
-
-    clone() {
-        return new LineLayoutNode();
     }
 }

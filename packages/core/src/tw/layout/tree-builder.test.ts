@@ -76,7 +76,7 @@ describe('LayoutTreeBuilder', () => {
             expect(doc.getId()).toEqual('doc');
             expect(doc.getChildren()).toHaveLength(1);
             const page = doc.getFirstChild()!;
-            expect(page.getComponentId()).toEqual('');
+            expect(page.getComponentId()).toEqual('$page');
             expect(page.getPartId()).toEqual('page');
             expect(page.getChildren()).toHaveLength(1);
             const paragaph = page.getFirstChild() as ParagraphLayoutNode;
@@ -85,7 +85,7 @@ describe('LayoutTreeBuilder', () => {
             expect(paragaph.getId()).toEqual('1');
             expect(paragaph.getChildren()).toHaveLength(1);
             const line = paragaph.getFirstChild()!;
-            expect(line.getComponentId()).toEqual('');
+            expect(line.getComponentId()).toEqual('$line');
             expect(line.getPartId()).toEqual('line');
             expect(line.getChildren()).toHaveLength(3);
             const text1 = line.getFirstChild() as TextLayoutNode;

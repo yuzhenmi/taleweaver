@@ -11,12 +11,21 @@ export interface IViewNode<
     getComponentId(): string;
     getPartId(): string;
     getSize(): number;
+    getDOMContainer(): HTMLElement;
+    insertChildDOM(childDOM: HTMLElement): void;
+    insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement): void;
+    appendChildDOM(childDOM: HTMLElement): void;
+    appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement): void;
+    removeChildDOM(childDOM: HTMLElement): void;
 }
 
 export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends IViewNode, TChild extends IViewNode>
     extends Node<TParent, TChild>
     implements IViewNode<TParent, TChild> {
     abstract getNodeClass(): IViewNodeClass;
+    abstract getDOMContainer(): HTMLElement;
+
+    protected abstract getDOMContentContainer(): HTMLElement;
 
     constructor(protected layoutNode: TLayoutNode) {
         super();
@@ -36,5 +45,30 @@ export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends 
 
     getSize() {
         return this.layoutNode.getSize();
+    }
+
+    insertChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, domContentContainer.firstChild);
+    }
+
+    insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, beforeChildDOM);
+    }
+
+    appendChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.appendChild(childDOM);
+    }
+
+    appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, afterChildDOM.nextSibling);
+    }
+
+    removeChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.removeChild(childDOM);
     }
 }

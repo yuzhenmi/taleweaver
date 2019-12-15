@@ -34,6 +34,9 @@ export class RenderTreeBuilder implements IRenderTreeBuilder {
             throw new Error(`Component ${modelNode.getComponentId()} is not registered.`);
         }
         const renderNode = component.buildRenderNode(modelNode);
+        if (!renderNode) {
+            throw new Error(`Could not build render node from model node ${modelNode.getId()}.`);
+        }
         if (!modelNode.isLeaf() && !renderNode.isLeaf()) {
             modelNode.getChildren().forEach(childModelNode => {
                 renderNode.appendChild(this.buildNode(childModelNode));

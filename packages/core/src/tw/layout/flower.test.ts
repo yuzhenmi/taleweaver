@@ -1,9 +1,9 @@
 import { DocLayoutNode } from 'tw/component/components/doc';
+import { LineLayoutNode } from 'tw/component/components/line';
+import { PageLayoutNode } from 'tw/component/components/page';
 import { ParagraphLayoutNode } from 'tw/component/components/paragraph';
 import { TextLayoutNode, WordLayoutNode } from 'tw/component/components/text';
 import { LayoutFlower } from 'tw/layout/flower';
-import { LineLayoutNode } from 'tw/layout/line-node';
-import { PageLayoutNode } from 'tw/layout/page-node';
 import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
 
 describe('LayoutFlower', () => {
@@ -21,11 +21,11 @@ describe('LayoutFlower', () => {
 
             beforeEach(() => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
-                const pageLayoutNode = new PageLayoutNode(88, 1056, 40, 40, 40, 40);
+                const pageLayoutNode = new PageLayoutNode('$page', 88, 1056, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
                 pageLayoutNode.appendChild(paragraphLayoutNode);
-                const lineLayoutNode = new LineLayoutNode();
+                const lineLayoutNode = new LineLayoutNode('$line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);
                 const textLayoutNode1 = new TextLayoutNode('text', '2');
                 lineLayoutNode.appendChild(textLayoutNode1);
@@ -88,11 +88,11 @@ describe('LayoutFlower', () => {
 
             beforeEach(() => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
-                const pageLayoutNode = new PageLayoutNode(88, 108, 40, 40, 40, 40);
+                const pageLayoutNode = new PageLayoutNode('$page', 88, 108, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
                 pageLayoutNode.appendChild(paragraphLayoutNode);
-                const lineLayoutNode = new LineLayoutNode();
+                const lineLayoutNode = new LineLayoutNode('$line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);
                 const textLayoutNode1 = new TextLayoutNode('text', '2');
                 lineLayoutNode.appendChild(textLayoutNode1);

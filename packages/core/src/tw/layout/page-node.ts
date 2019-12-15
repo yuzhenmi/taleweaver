@@ -1,6 +1,6 @@
 import { IBlockLayoutNode } from 'tw/layout/block-node';
 import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { generateId } from 'tw/util/id';
 
 export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
@@ -10,12 +10,15 @@ export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayou
     clone(): IPageLayoutNode;
 }
 
-export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
+export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
+    abstract clone(): IPageLayoutNode;
+
     protected size?: number;
     protected contentHeight?: number;
     protected flowed = false;
 
     constructor(
+        protected componentId: string,
         protected width: number,
         protected height: number,
         protected paddingTop: number,
@@ -23,10 +26,10 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
         protected paddingLeft: number,
         protected paddingRight: number,
     ) {
-        super('', generateId());
+        super(componentId, generateId());
     }
 
-    getPartId() {
+    getNodeClass(): ILayoutNodeClass {
         return 'page';
     }
 
@@ -109,16 +112,5 @@ export class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode>
         this.size = undefined;
         this.contentHeight = undefined;
         this.flowed = false;
-    }
-
-    clone() {
-        return new PageLayoutNode(
-            this.width,
-            this.height,
-            this.paddingTop,
-            this.paddingBottom,
-            this.paddingLeft,
-            this.paddingRight,
-        );
     }
 }

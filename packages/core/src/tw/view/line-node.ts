@@ -5,8 +5,16 @@ import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 
 export interface ILineViewNode extends IViewNode<IBlockViewNode, IInlineViewNode> {}
 
-export class LineViewNode extends ViewNode<ILineLayoutNode, IBlockViewNode, IInlineViewNode> implements ILineViewNode {
+export class LineViewNode<TLineLayoutNode extends ILineLayoutNode>
+    extends ViewNode<TLineLayoutNode, IBlockViewNode, IInlineViewNode>
+    implements ILineViewNode {
     protected size?: number;
+    protected domContainer: HTMLDivElement;
+
+    constructor(layoutNode: TLineLayoutNode) {
+        super(layoutNode);
+        this.domContainer = document.createElement('div');
+    }
 
     getNodeClass(): IViewNodeClass {
         return 'line';
@@ -29,5 +37,13 @@ export class LineViewNode extends ViewNode<ILineLayoutNode, IBlockViewNode, IInl
 
     clearOwnCache() {
         this.size = undefined;
+    }
+
+    getDOMContainer() {
+        return this.domContainer;
+    }
+
+    getDOMContentContainer() {
+        return this.domContainer;
     }
 }

@@ -1,5 +1,5 @@
 import { ILineLayoutNode } from 'tw/layout/line-node';
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { IPageLayoutNode } from './page-node';
 
 export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {
@@ -11,6 +11,10 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
 
     protected size?: number;
     protected height?: number;
+
+    getNodeClass(): ILayoutNodeClass {
+        return 'block';
+    }
 
     isRoot() {
         return false;

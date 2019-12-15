@@ -1,9 +1,7 @@
 import { IComponentService } from 'tw/component/service';
 import { BlockLayoutNode } from 'tw/layout/block-node';
 import { DocLayoutNode } from 'tw/layout/doc-node';
-import { LineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode } from 'tw/layout/node';
-import { PageLayoutNode } from 'tw/layout/page-node';
 import { IRenderNode } from 'tw/render/node';
 
 export interface ILayoutTreeBuilder {
@@ -38,16 +36,19 @@ export class LayoutTreeBuilder implements ILayoutTreeBuilder {
             throw new Error(`Component ${renderNode.getComponentId()} is not registered.`);
         }
         const layoutNode = component.buildLayoutNode(renderNode);
+        if (!layoutNode) {
+            throw new Error(`Could not build layout node from render node ${renderNode.getId()}.`);
+        }
         if (!renderNode.isLeaf() && !layoutNode.isLeaf()) {
             const childLayoutNodes = renderNode.getChildren().map(childRenderNode => this.buildNode(childRenderNode));
             if (layoutNode instanceof DocLayoutNode) {
-                const pageLayoutNode = new PageLayoutNode(816, 1056, 40, 40, 40, 40);
+                const pageLayoutNode = this.componentService.getPageComponent().buildPageLayoutNode();
                 childLayoutNodes.forEach(childLayoutNode => {
                     pageLayoutNode.appendChild(childLayoutNode as any);
                 });
                 layoutNode.appendChild(pageLayoutNode);
             } else if (layoutNode instanceof BlockLayoutNode) {
-                const lineLayoutNode = new LineLayoutNode();
+                const lineLayoutNode = this.componentService.getLineComponent().buildLineLayoutNode();
                 childLayoutNodes.forEach(childLayoutNode => {
                     lineLayoutNode.appendChild(childLayoutNode as any);
                 });

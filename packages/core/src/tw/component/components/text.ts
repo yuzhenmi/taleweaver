@@ -193,7 +193,22 @@ export class WordLayoutNode extends AtomicLayoutNode {
     }
 }
 
-export class TextViewNode extends InlineViewNode<TextLayoutNode> {}
+export class TextViewNode extends InlineViewNode<TextLayoutNode> {
+    protected domContainer: HTMLDivElement;
+
+    constructor(layoutNode: TextLayoutNode) {
+        super(layoutNode);
+        this.domContainer = document.createElement('div');
+    }
+
+    getDOMContainer() {
+        return this.domContainer;
+    }
+
+    getDOMContentContainer() {
+        return this.domContainer;
+    }
+}
 
 export class TextComponent extends Component implements IComponent {
     constructor(id: string, protected textMeasurer: ITextMeasurer) {

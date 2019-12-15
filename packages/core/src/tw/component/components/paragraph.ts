@@ -198,9 +198,39 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
     }
 }
 
-export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {}
+export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
+    protected domContainer: HTMLDivElement;
 
-export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBreakLayoutNode> {}
+    constructor(layoutNode: ParagraphLayoutNode) {
+        super(layoutNode);
+        this.domContainer = document.createElement('div');
+    }
+
+    getDOMContainer() {
+        return this.domContainer;
+    }
+
+    getDOMContentContainer() {
+        return this.domContainer;
+    }
+}
+
+export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBreakLayoutNode> {
+    protected domContainer: HTMLDivElement;
+
+    constructor(layoutNode: ParagraphLineBreakLayoutNode) {
+        super(layoutNode);
+        this.domContainer = document.createElement('div');
+    }
+
+    getDOMContainer() {
+        return this.domContainer;
+    }
+
+    getDOMContentContainer() {
+        return this.domContainer;
+    }
+}
 
 export class ParagraphComponent extends Component implements IComponent {
     buildModelNode(partId: string | undefined, id: string, attributes: {}) {

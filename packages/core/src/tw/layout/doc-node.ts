@@ -1,10 +1,14 @@
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { IPageLayoutNode } from 'tw/layout/page-node';
 
 export interface IDocLayoutNode extends ILayoutNode<never, IPageLayoutNode> {}
 
 export abstract class DocLayoutNode extends LayoutNode<never, IPageLayoutNode> implements IDocLayoutNode {
     protected size?: number;
+
+    getNodeClass(): ILayoutNodeClass {
+        return 'doc';
+    }
 
     isRoot() {
         return true;

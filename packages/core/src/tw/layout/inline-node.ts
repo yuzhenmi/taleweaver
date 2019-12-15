@@ -1,4 +1,4 @@
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { IAtomicLayoutNode } from './atomic-node';
 import { ILineLayoutNode } from './line-node';
 
@@ -15,6 +15,10 @@ export abstract class InlineLayoutNode extends LayoutNode<ILineLayoutNode, IAtom
     protected width?: number;
     protected height?: number;
     protected tailTrimmedWidth?: number;
+
+    getNodeClass(): ILayoutNodeClass {
+        return 'inline';
+    }
 
     isRoot() {
         return false;

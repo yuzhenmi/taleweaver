@@ -1,12 +1,15 @@
 import { INode, Node } from 'tw/tree/node';
 import { IPosition, Position } from 'tw/tree/position';
 
+export type ILayoutNodeClass = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'atomic';
+
 export interface ILayoutPosition extends IPosition<ILayoutNode> {}
 
 export interface ILayoutNode<
     TParent extends ILayoutNode = ILayoutNode<any, any>,
     TChild extends ILayoutNode = ILayoutNode<any, any>
 > extends INode<TParent, TChild> {
+    getNodeClass(): ILayoutNodeClass;
     getComponentId(): string;
     getPartId(): string;
     getSize(): number;
@@ -27,6 +30,7 @@ export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosi
 
 export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILayoutNode> extends Node<TParent, TChild>
     implements ILayoutNode<TParent, TChild> {
+    abstract getNodeClass(): ILayoutNodeClass;
     abstract getPartId(): string;
     abstract getSize(): number;
     abstract getWidth(): number;

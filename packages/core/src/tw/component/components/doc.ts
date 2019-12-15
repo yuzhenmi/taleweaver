@@ -54,8 +54,19 @@ export class DocLayoutNode extends AbstractDocLayoutNode {
 }
 
 export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
-    getPartId() {
-        return 'doc';
+    protected domContainer: HTMLDivElement;
+
+    constructor(layoutNode: DocLayoutNode) {
+        super(layoutNode);
+        this.domContainer = document.createElement('div');
+    }
+
+    getDOMContainer() {
+        return this.domContainer;
+    }
+
+    getDOMContentContainer() {
+        return this.domContainer;
     }
 }
 

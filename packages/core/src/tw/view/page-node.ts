@@ -5,16 +5,10 @@ import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 
 export interface IPageViewNode extends IViewNode<IDocViewNode, IBlockViewNode> {}
 
-export class PageViewNode extends ViewNode<IPageLayoutNode, IDocViewNode, IBlockViewNode> implements IPageViewNode {
+export abstract class PageViewNode<TPageLayoutNode extends IPageLayoutNode>
+    extends ViewNode<TPageLayoutNode, IDocViewNode, IBlockViewNode>
+    implements IPageViewNode {
     protected size?: number;
-
-    constructor(layoutNode: IPageLayoutNode) {
-        super(layoutNode);
-    }
-
-    getPartId() {
-        return 'page';
-    }
 
     getNodeClass(): IViewNodeClass {
         return 'page';

@@ -1,4 +1,4 @@
-import { ILayoutNode, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
 import { IInlineLayoutNode } from './inline-node';
 
 export interface IAtomicLayoutNode extends ILayoutNode<IInlineLayoutNode, never> {
@@ -7,6 +7,10 @@ export interface IAtomicLayoutNode extends ILayoutNode<IInlineLayoutNode, never>
 
 export abstract class AtomicLayoutNode extends LayoutNode<IInlineLayoutNode, never> implements IAtomicLayoutNode {
     abstract getTailTrimmedWidth(): number;
+
+    getNodeClass(): ILayoutNodeClass {
+        return 'atomic';
+    }
 
     isRoot() {
         return false;

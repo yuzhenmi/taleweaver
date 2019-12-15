@@ -1,13 +1,12 @@
+import { JSDOM } from 'jsdom';
 import { DocComponent, DocLayoutNode } from 'tw/component/components/doc';
+import { LineLayoutNode, LineViewNode } from 'tw/component/components/line';
+import { PageLayoutNode, PageViewNode } from 'tw/component/components/page';
 import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from 'tw/component/components/paragraph';
 import { TextComponent, TextLayoutNode, TextViewNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
-import { LineLayoutNode } from 'tw/layout/line-node';
-import { PageLayoutNode } from 'tw/layout/page-node';
 import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { LineViewNode } from 'tw/view/line-node';
-import { PageViewNode } from 'tw/view/page-node';
 import { ViewTreeBuilder } from 'tw/view/tree-builder';
 
 describe('ViewTreeBuilder', () => {
@@ -16,6 +15,12 @@ describe('ViewTreeBuilder', () => {
     let componentService: ComponentService;
     let docLayoutNode: DocLayoutNode;
     let treeBuilder: ViewTreeBuilder;
+
+    beforeEach(() => {
+        const dom = new JSDOM();
+        // @ts-ignore
+        global.document = dom.window.document;
+    });
 
     beforeEach(() => {
         textMeasurer = new TextMeasurerStub();
@@ -35,11 +40,11 @@ describe('ViewTreeBuilder', () => {
         );
         componentService = new ComponentService(configService);
         docLayoutNode = new DocLayoutNode('doc', 'doc');
-        const pageLayoutNode = new PageLayoutNode(816, 1056, 40, 40, 40, 40);
+        const pageLayoutNode = new PageLayoutNode('$page', 816, 1056, 40, 40, 40, 40);
         docLayoutNode.appendChild(pageLayoutNode);
         const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
         pageLayoutNode.appendChild(paragraphLayoutNode);
-        const lineLayoutNode = new LineLayoutNode();
+        const lineLayoutNode = new LineLayoutNode('$line');
         paragraphLayoutNode.appendChild(lineLayoutNode);
         const textLayoutNode = new TextLayoutNode('text', '2');
         lineLayoutNode.appendChild(textLayoutNode);
