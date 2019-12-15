@@ -3,8 +3,6 @@ import { IPosition, Position } from 'tw/tree/position';
 
 export interface IRenderPosition extends IPosition<IRenderNode> {}
 
-export class RenderPosition extends Position<IRenderNode> {}
-
 export interface IStyle {
     [key: string]: any;
 }
@@ -22,6 +20,8 @@ export interface IRenderNode<
     resolvePosition(offset: number, depth?: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
 }
+
+export class RenderPosition extends Position<IRenderNode> implements IRenderPosition {}
 
 export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderNode, TChild extends IRenderNode>
     extends Node<TParent, TChild>

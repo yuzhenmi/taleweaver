@@ -2,6 +2,7 @@ import { Component, IComponent } from 'tw/component/component';
 import { AtomicLayoutNode } from 'tw/layout/atomic-node';
 import { BlockLayoutNode } from 'tw/layout/block-node';
 import { InlineLayoutNode } from 'tw/layout/inline-node';
+import { ILayoutNode } from 'tw/layout/node';
 import { BlockModelNode } from 'tw/model/block-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
 import { AtomicRenderNode } from 'tw/render/atomic-node';
@@ -9,6 +10,8 @@ import { BlockRenderNode } from 'tw/render/block-node';
 import { InlineRenderNode } from 'tw/render/inline-node';
 import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
+import { BlockViewNode } from 'tw/view/block-node';
+import { InlineViewNode } from 'tw/view/inline-node';
 
 export interface IParagraphAttributes extends IAttributes {}
 
@@ -195,6 +198,10 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
     }
 }
 
+export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {}
+
+export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBreakLayoutNode> {}
+
 export class ParagraphComponent extends Component implements IComponent {
     buildModelNode(partId: string | undefined, id: string, attributes: {}) {
         return new ParagraphModelNode(this.id, id, attributes);
@@ -218,5 +225,15 @@ export class ParagraphComponent extends Component implements IComponent {
             return new ParagraphLineBreakAtomicLayoutNode(this.id, renderNode.getId());
         }
         throw new Error('Invalid paragraph render node.');
+    }
+
+    buildViewNode(layoutNode: ILayoutNode) {
+        if (layoutNode instanceof ParagraphLayoutNode) {
+            return new ParagraphViewNode(layoutNode);
+        }
+        if (layoutNode instanceof ParagraphLineBreakLayoutNode) {
+            return new ParagraphLineBreakViewNode(layoutNode);
+        }
+        throw new Error('Invalid paragraph layout node.');
     }
 }

@@ -35,7 +35,7 @@ export class LayoutTreeBuilder implements ILayoutTreeBuilder {
     protected buildNode(renderNode: IRenderNode) {
         const component = this.componentService.getComponent(renderNode.getComponentId());
         if (!component) {
-            throw new Error(`Component ${component} is not registered.`);
+            throw new Error(`Component ${renderNode.getComponentId()} is not registered.`);
         }
         const layoutNode = component.buildLayoutNode(renderNode);
         if (!renderNode.isLeaf() && !layoutNode.isLeaf()) {

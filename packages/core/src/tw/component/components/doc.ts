@@ -1,10 +1,12 @@
 import { Component, IComponent } from 'tw/component/component';
 import { DocLayoutNode as AbstractDocLayoutNode } from 'tw/layout/doc-node';
+import { ILayoutNode } from 'tw/layout/node';
 import { DocModelNode as AbstractDocModelNode } from 'tw/model/doc-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
 import { DocRenderNode as AbstractDocRenderNode } from 'tw/render/doc-node';
 import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
+import { DocViewNode as AbstractDocViewNode } from 'tw/view/doc-node';
 
 export interface IDocAttributes extends IAttributes {}
 
@@ -51,6 +53,12 @@ export class DocLayoutNode extends AbstractDocLayoutNode {
     }
 }
 
+export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
+    getPartId() {
+        return 'doc';
+    }
+}
+
 export class DocComponent extends Component implements IComponent {
     buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
         return new DocModelNode(this.id, id, attributes);
@@ -68,5 +76,12 @@ export class DocComponent extends Component implements IComponent {
             return new DocLayoutNode(this.id, renderNode.getId());
         }
         throw new Error('Invalid doc render node.');
+    }
+
+    buildViewNode(layoutNode: ILayoutNode) {
+        if (layoutNode instanceof DocLayoutNode) {
+            return new DocViewNode(layoutNode);
+        }
+        throw new Error('Invalid layout render node.');
     }
 }

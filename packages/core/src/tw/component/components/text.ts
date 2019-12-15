@@ -1,6 +1,7 @@
 import { Component, IComponent } from 'tw/component/component';
 import { AtomicLayoutNode } from 'tw/layout/atomic-node';
 import { InlineLayoutNode } from 'tw/layout/inline-node';
+import { ILayoutNode } from 'tw/layout/node';
 import { ITextMeasurer } from 'tw/layout/text-measurer';
 import { InlineModelNode } from 'tw/model/inline-node';
 import { IAttributes, IModelNode } from 'tw/model/node';
@@ -9,6 +10,7 @@ import { InlineRenderNode } from 'tw/render/inline-node';
 import { IRenderNode, IStyle } from 'tw/render/node';
 import { generateId } from 'tw/util/id';
 import { breakTextToWords, IWord } from 'tw/util/language';
+import { InlineViewNode } from 'tw/view/inline-node';
 
 export interface ITextAttributes extends IAttributes {
     weight?: number;
@@ -191,6 +193,8 @@ export class WordLayoutNode extends AtomicLayoutNode {
     }
 }
 
+export class TextViewNode extends InlineViewNode<TextLayoutNode> {}
+
 export class TextComponent extends Component implements IComponent {
     constructor(id: string, protected textMeasurer: ITextMeasurer) {
         super(id);
@@ -233,5 +237,12 @@ export class TextComponent extends Component implements IComponent {
             );
         }
         throw new Error('Invalid text render node.');
+    }
+
+    buildViewNode(layoutNode: ILayoutNode) {
+        if (layoutNode instanceof TextLayoutNode) {
+            return new TextViewNode(layoutNode);
+        }
+        throw new Error('Invalid text layout node');
     }
 }

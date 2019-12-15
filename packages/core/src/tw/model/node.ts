@@ -4,8 +4,6 @@ import { IPosition, Position } from 'tw/tree/position';
 
 export interface IModelPosition extends IPosition<IModelNode> {}
 
-export class ModelPosition extends Position<IModelNode> {}
-
 export interface IAttributes {
     [key: string]: any;
 }
@@ -24,6 +22,8 @@ export interface IModelNode<
     toDOM(from: number, to: number): HTMLElement;
     clone(): ModelNode<TAttributes, TParent, TChild>;
 }
+
+export class ModelPosition extends Position<IModelNode> implements IModelPosition {}
 
 export abstract class ModelNode<TAttributes extends IAttributes, TParent extends IModelNode, TChild extends IModelNode>
     extends Node<TParent, TChild>
