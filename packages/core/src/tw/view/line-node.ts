@@ -3,15 +3,16 @@ import { IBlockViewNode } from 'tw/view/block-node';
 import { IInlineViewNode } from 'tw/view/inline-node';
 import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 
-export interface ILineViewNode extends IViewNode<IBlockViewNode, IInlineViewNode> {}
+export interface ILineViewNode<TLayoutNode extends ILineLayoutNode = ILineLayoutNode>
+    extends IViewNode<TLayoutNode, IBlockViewNode, IInlineViewNode> {}
 
-export class LineViewNode<TLineLayoutNode extends ILineLayoutNode>
-    extends ViewNode<TLineLayoutNode, IBlockViewNode, IInlineViewNode>
-    implements ILineViewNode {
+export class LineViewNode<TLayoutNode extends ILineLayoutNode = ILineLayoutNode>
+    extends ViewNode<TLayoutNode, IBlockViewNode, IInlineViewNode>
+    implements ILineViewNode<TLayoutNode> {
     protected size?: number;
     protected domContainer: HTMLDivElement;
 
-    constructor(layoutNode: TLineLayoutNode) {
+    constructor(layoutNode: TLayoutNode) {
         super(layoutNode);
         this.domContainer = document.createElement('div');
     }

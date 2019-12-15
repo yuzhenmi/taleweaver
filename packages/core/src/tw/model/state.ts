@@ -54,7 +54,7 @@ export class ModelState implements IModelState {
         // state that got updated.
         const parser = new TokenParser(this.componentService);
         const updatedNode = parser.parse(updatedTokens);
-        node.onUpdated(updatedNode);
+        node.onDidUpdate(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({ node });
     }
 

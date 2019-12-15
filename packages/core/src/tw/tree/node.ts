@@ -18,7 +18,7 @@ export interface INode<TParent extends INode = INode<any, any>, TChild extends I
     getNextSiblingAllowCrossParent(): INode | undefined;
     findDescendant(nodeId: string): INode | undefined;
     clearCache(): void;
-    onUpdated(updatedNode: this): void;
+    onDidUpdate(updatedNode: this): void;
 }
 
 export abstract class Node<TParent extends INode, TChild extends INode> implements INode<TParent, TChild> {
@@ -210,7 +210,7 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         }
     }
 
-    onUpdated(updatedNode: this) {
+    onDidUpdate(updatedNode: this) {
         if (!this.isLeaf()) {
             const children = this.children.slice();
             const updatedChildren = updatedNode.children;
@@ -229,7 +229,7 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
                         this.removeChild(children[m]);
                         m++;
                     }
-                    children[m]!.onUpdated(updatedChild);
+                    children[m]!.onDidUpdate(updatedChild);
                     m++;
                 } else {
                     if (m < children.length) {

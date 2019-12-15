@@ -4,8 +4,9 @@ import { INode, Node } from 'tw/tree/node';
 export type IViewNodeClass = 'doc' | 'page' | 'block' | 'line' | 'inline';
 
 export interface IViewNode<
-    TParent extends IViewNode = IViewNode<any, any>,
-    TChild extends IViewNode = IViewNode<any, any>
+    TLayoutNode extends ILayoutNode = ILayoutNode,
+    TParent extends IViewNode = IViewNode<any, any, any>,
+    TChild extends IViewNode = IViewNode<any, any, any>
 > extends INode<TParent, TChild> {
     getNodeClass(): IViewNodeClass;
     getComponentId(): string;
@@ -17,11 +18,12 @@ export interface IViewNode<
     appendChildDOM(childDOM: HTMLElement): void;
     appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement): void;
     removeChildDOM(childDOM: HTMLElement): void;
+    getLayoutNode(): TLayoutNode;
 }
 
 export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends IViewNode, TChild extends IViewNode>
     extends Node<TParent, TChild>
-    implements IViewNode<TParent, TChild> {
+    implements IViewNode<TLayoutNode, TParent, TChild> {
     abstract getNodeClass(): IViewNodeClass;
     abstract getDOMContainer(): HTMLElement;
 
@@ -71,4 +73,16 @@ export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends 
         const domContentContainer = this.getDOMContentContainer();
         domContentContainer.removeChild(childDOM);
     }
+
+    getLayoutNode() {
+        return this.layoutNode;
+    }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        this.layoutNode = updatedNode.getLayoutNode();
+        this.onLayoutDidUpdate();
+    }
+
+    protected onLayoutDidUpdate() {}
 }

@@ -17,6 +17,9 @@ export interface ITextAttributes extends IAttributes {
     size?: number;
     font?: string;
     letterSpacing?: number;
+    underline?: boolean;
+    italic?: boolean;
+    strikethrough?: boolean;
 }
 
 export class TextModelNode extends InlineModelNode<ITextAttributes> {
@@ -42,6 +45,9 @@ export interface ITextStyle extends IStyle {
     size: number;
     font: string;
     letterSpacing: number;
+    underline: boolean;
+    italic: boolean;
+    strikethrough: boolean;
 }
 
 export class TextRenderNode extends InlineRenderNode<ITextStyle> {
@@ -75,13 +81,17 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
 
     clearOwnCache() {}
 
-    onUpdated(updatedNode: this) {
+    onDidUpdate(updatedNode: this) {
         this.word = updatedNode.getWord();
-        super.onUpdated(updatedNode);
+        super.onDidUpdate(updatedNode);
     }
 }
 
 export class TextLayoutNode extends InlineLayoutNode {
+    constructor(componentId: string, id: string, protected style: ITextStyle) {
+        super(componentId, id);
+    }
+
     getPartId() {
         return 'text';
     }
@@ -106,8 +116,12 @@ export class TextLayoutNode extends InlineLayoutNode {
         return 0;
     }
 
+    getStyle() {
+        return this.style;
+    }
+
     clone() {
-        return new TextLayoutNode(this.componentId, this.id);
+        return new TextLayoutNode(this.componentId, this.id, this.style);
     }
 }
 
@@ -194,11 +208,18 @@ export class WordLayoutNode extends AtomicLayoutNode {
 }
 
 export class TextViewNode extends InlineViewNode<TextLayoutNode> {
-    protected domContainer: HTMLDivElement;
+    protected domContainer: HTMLSpanElement;
+    protected domContent: HTMLSpanElement;
 
     constructor(layoutNode: TextLayoutNode) {
         super(layoutNode);
-        this.domContainer = document.createElement('div');
+        this.domContainer = document.createElement('span');
+        this.domContainer.style.display = 'inline-block';
+        this.domContainer.style.whiteSpace = 'pre';
+        this.domContainer.style.lineHeight = '1em';
+        this.domContent = document.createElement('span');
+        this.domContainer.appendChild(this.domContent);
+        this.onLayoutDidUpdate();
     }
 
     getDOMContainer() {
@@ -207,6 +228,30 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
 
     getDOMContentContainer() {
         return this.domContainer;
+    }
+
+    protected onLayoutDidUpdate() {
+        const text = this.layoutNode
+            .getChildren()
+            .map(child => {
+                if (child instanceof WordLayoutNode) {
+                    return child.getWord().text;
+                }
+                return '';
+            })
+            .join('');
+        const style = this.layoutNode.getStyle();
+        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
+        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
+        this.domContainer.style.fontFamily = style.font;
+        this.domContainer.style.fontSize = `${style.size}px`;
+        this.domContainer.style.letterSpacing = `${style.letterSpacing}px`;
+        this.domContainer.style.fontWeight = `${style.weight}`;
+        this.domContainer.style.color = style.color;
+        this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
+        this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
+        this.domContent.style.textDecoration = style.strikethrough ? 'line-through' : '';
+        this.domContent.innerText = text;
     }
 }
 
@@ -221,11 +266,15 @@ export class TextComponent extends Component implements IComponent {
 
     buildRenderNode(modelNode: IModelNode) {
         if (modelNode instanceof TextModelNode) {
+            const attributes = modelNode.getAttributes();
             const style = {
-                weight: modelNode.getAttributes().weight || 400,
-                size: modelNode.getAttributes().size || 14,
-                font: modelNode.getAttributes().font || 'sans-serif',
-                letterSpacing: modelNode.getAttributes().letterSpacing || 0,
+                weight: attributes.weight || 400,
+                size: attributes.size || 14,
+                font: attributes.font || 'sans-serif',
+                letterSpacing: attributes.letterSpacing || 0,
+                underline: !!attributes.underline,
+                italic: !!attributes.italic,
+                strikethrough: !!attributes.strikethrough,
             };
             const node = new TextRenderNode(this.id, modelNode.getId(), style);
             const words = breakTextToWords(modelNode.getContent());
@@ -240,7 +289,7 @@ export class TextComponent extends Component implements IComponent {
 
     buildLayoutNode(renderNode: IRenderNode) {
         if (renderNode instanceof TextRenderNode) {
-            return new TextLayoutNode(this.id, renderNode.getId());
+            return new TextLayoutNode(this.id, renderNode.getId(), renderNode.getStyle());
         }
         if (renderNode instanceof WordRenderNode) {
             return new WordLayoutNode(

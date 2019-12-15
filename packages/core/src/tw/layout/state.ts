@@ -44,7 +44,7 @@ export class LayoutState implements ILayoutState {
             throw new Error(`Render node ${event.node.getId()} is not found.`);
         }
         this.deduplicateNode(node);
-        node.onUpdated(updatedNode);
+        node.onDidUpdate(updatedNode);
         const flower = new LayoutFlower();
         const flowedNode = flower.flow(node);
         this.didUpdateLayoutStateEventEmitter.emit({ node: flowedNode });

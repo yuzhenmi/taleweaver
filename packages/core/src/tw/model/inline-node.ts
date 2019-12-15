@@ -51,9 +51,9 @@ export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes
         this.size = undefined;
     }
 
-    onUpdated(updatedNode: this) {
+    onDidUpdate(updatedNode: this) {
         this.setContent(updatedNode.getContent());
-        super.onUpdated(updatedNode);
+        super.onDidUpdate(updatedNode);
     }
 
     toTokens() {

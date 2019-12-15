@@ -73,8 +73,28 @@ describe('RenderService', () => {
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
                 text: {
-                    text: [{ weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 }],
-                    word: [{ weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                    text: [
+                        {
+                            weight: 400,
+                            size: 14,
+                            font: 'sans-serif',
+                            letterSpacing: 0,
+                            underline: false,
+                            italic: false,
+                            strikethrough: false,
+                        },
+                    ],
+                    word: [
+                        {
+                            weight: 400,
+                            size: 14,
+                            font: 'sans-serif',
+                            letterSpacing: 0,
+                            underline: false,
+                            italic: false,
+                            strikethrough: false,
+                        },
+                    ],
                 },
             });
             const styles2 = service.getStylesBetween(6, 7);
@@ -82,8 +102,28 @@ describe('RenderService', () => {
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
                 text: {
-                    text: [{ weight: 700, size: 14, font: 'sans-serif', letterSpacing: 0 }],
-                    word: [{ weight: 700, size: 14, font: 'sans-serif', letterSpacing: 0 }],
+                    text: [
+                        {
+                            weight: 700,
+                            size: 14,
+                            font: 'sans-serif',
+                            letterSpacing: 0,
+                            underline: false,
+                            italic: false,
+                            strikethrough: false,
+                        },
+                    ],
+                    word: [
+                        {
+                            weight: 700,
+                            size: 14,
+                            font: 'sans-serif',
+                            letterSpacing: 0,
+                            underline: false,
+                            italic: false,
+                            strikethrough: false,
+                        },
+                    ],
                 },
             });
         });

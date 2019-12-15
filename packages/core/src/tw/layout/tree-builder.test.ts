@@ -43,11 +43,22 @@ describe('LayoutTreeBuilder', () => {
             size: 14,
             font: 'sans-serif',
             letterSpacing: 0,
+            underline: false,
+            italic: false,
+            strikethrough: false,
         });
         const wordRenderNode1 = new WordRenderNode(
             'text',
             '4',
-            { weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 },
+            {
+                weight: 400,
+                size: 14,
+                font: 'sans-serif',
+                letterSpacing: 0,
+                underline: false,
+                italic: false,
+                strikethrough: false,
+            },
             { text: 'Hello ', breakable: true },
         );
         textRenderNode1.appendChild(wordRenderNode1);
@@ -56,11 +67,22 @@ describe('LayoutTreeBuilder', () => {
             size: 14,
             font: 'sans-serif',
             letterSpacing: 0,
+            underline: false,
+            italic: false,
+            strikethrough: false,
         });
         const wordRenderNode2 = new WordRenderNode(
             'text',
             '5',
-            { weight: 400, size: 14, font: 'sans-serif', letterSpacing: 0 },
+            {
+                weight: 400,
+                size: 14,
+                font: 'sans-serif',
+                letterSpacing: 0,
+                underline: false,
+                italic: false,
+                strikethrough: false,
+            },
             { text: 'world', breakable: false },
         );
         textRenderNode2.appendChild(wordRenderNode2);

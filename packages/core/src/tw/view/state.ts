@@ -42,7 +42,7 @@ export class ViewState implements IViewState {
         if (!node) {
             throw new Error(`Layout node ${event.node.getId()} is not found.`);
         }
-        node.onUpdated(updatedNode);
+        node.onDidUpdate(updatedNode);
         this.didUpdateViewStateEventEmitter.emit({ node });
     }
 }

@@ -42,7 +42,7 @@ export class RenderState implements IRenderState {
         if (!node) {
             throw new Error(`Render node ${event.node.getId()} is not found.`);
         }
-        node.onUpdated(updatedNode);
+        node.onDidUpdate(updatedNode);
         this.didUpdateRenderStateEventEmitter.emit({ node });
     }
 }

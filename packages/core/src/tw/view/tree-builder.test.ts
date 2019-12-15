@@ -3,7 +3,7 @@ import { DocComponent, DocLayoutNode } from 'tw/component/components/doc';
 import { LineLayoutNode, LineViewNode } from 'tw/component/components/line';
 import { PageLayoutNode, PageViewNode } from 'tw/component/components/page';
 import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from 'tw/component/components/paragraph';
-import { TextComponent, TextLayoutNode, TextViewNode } from 'tw/component/components/text';
+import { TextComponent, TextLayoutNode, TextViewNode, WordLayoutNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
 import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
@@ -46,8 +46,39 @@ describe('ViewTreeBuilder', () => {
         pageLayoutNode.appendChild(paragraphLayoutNode);
         const lineLayoutNode = new LineLayoutNode('$line');
         paragraphLayoutNode.appendChild(lineLayoutNode);
-        const textLayoutNode = new TextLayoutNode('text', '2');
+        const textStyle = {
+            weight: 400,
+            size: 14,
+            font: 'sans-serif',
+            letterSpacing: 0,
+            underline: false,
+            italic: false,
+            strikethrough: false,
+        };
+        const textLayoutNode = new TextLayoutNode('text', '2', textStyle);
         lineLayoutNode.appendChild(textLayoutNode);
+        const wordLayoutNode1 = new WordLayoutNode(
+            'text',
+            '3',
+            {
+                text: 'Hello ',
+                breakable: true,
+            },
+            textStyle,
+            textMeasurer,
+        );
+        textLayoutNode.appendChild(wordLayoutNode1);
+        const wordLayoutNode2 = new WordLayoutNode(
+            'text',
+            '3',
+            {
+                text: 'world!',
+                breakable: false,
+            },
+            textStyle,
+            textMeasurer,
+        );
+        textLayoutNode.appendChild(wordLayoutNode2);
         treeBuilder = new ViewTreeBuilder(componentService);
     });
 
@@ -68,6 +99,8 @@ describe('ViewTreeBuilder', () => {
             const text = line.getFirstChild() as TextViewNode;
             expect(text.getComponentId()).toEqual('text');
             expect(text.getId()).toEqual('2');
+            const textDOM = text.getDOMContentContainer();
+            expect((textDOM.firstChild as HTMLSpanElement).innerText).toEqual('Hello world!');
         });
     });
 });

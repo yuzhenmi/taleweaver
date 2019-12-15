@@ -8,6 +8,7 @@ import { IDidUpdateViewStateEvent, IViewState, ViewState } from 'tw/view/state';
 export interface IViewService extends IService {
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
     getDocNode(): IDocViewNode;
+    attach(domContainer: HTMLElement): void;
 }
 
 export class ViewService implements IViewService {
@@ -23,5 +24,9 @@ export class ViewService implements IViewService {
 
     getDocNode() {
         return this.state.getDocNode();
+    }
+
+    attach(domContainer: HTMLElement) {
+        this.state.getDocNode().attach(domContainer);
     }
 }

@@ -2,12 +2,16 @@ import { IDocLayoutNode } from 'tw/layout/doc-node';
 import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 import { IPageViewNode } from 'tw/view/page-node';
 
-export interface IDocViewNode extends IViewNode<never, IPageViewNode> {}
+export interface IDocViewNode<TLayoutNode extends IDocLayoutNode = IDocLayoutNode>
+    extends IViewNode<TLayoutNode, never, IPageViewNode> {
+    attach(domContainer: HTMLElement): void;
+}
 
-export abstract class DocViewNode<TLayoutNode extends IDocLayoutNode>
+export abstract class DocViewNode<TLayoutNode extends IDocLayoutNode = IDocLayoutNode>
     extends ViewNode<TLayoutNode, never, IPageViewNode>
-    implements IDocViewNode {
+    implements IDocViewNode<TLayoutNode> {
     protected size?: number;
+    protected attached = false;
 
     getNodeClass(): IViewNodeClass {
         return 'doc';
@@ -30,5 +34,17 @@ export abstract class DocViewNode<TLayoutNode extends IDocLayoutNode>
 
     clearOwnCache() {
         this.size = undefined;
+    }
+
+    attach(domContainer: HTMLElement) {
+        if (this.attached) {
+            throw new Error('Already attached to the DOM.');
+        }
+        domContainer.appendChild(this.getDOMContainer());
+        this.attached = true;
+    }
+
+    isAttached() {
+        return this.attached;
     }
 }

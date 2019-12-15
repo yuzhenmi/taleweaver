@@ -3,11 +3,12 @@ import { ILineViewNode } from 'tw/view/line-node';
 import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 import { IPageViewNode } from 'tw/view/page-node';
 
-export interface IBlockViewNode extends IViewNode<IPageViewNode, ILineViewNode> {}
+export interface IBlockViewNode<TLayoutNode extends IBlockLayoutNode = IBlockLayoutNode>
+    extends IViewNode<TLayoutNode, IPageViewNode, ILineViewNode> {}
 
-export abstract class BlockViewNode<TLayoutNode extends IBlockLayoutNode>
+export abstract class BlockViewNode<TLayoutNode extends IBlockLayoutNode = IBlockLayoutNode>
     extends ViewNode<TLayoutNode, IPageViewNode, ILineViewNode>
-    implements IBlockViewNode {
+    implements IBlockViewNode<TLayoutNode> {
     protected size?: number;
 
     getNodeClass(): IViewNodeClass {
