@@ -9,7 +9,7 @@ import { IDocModelNode } from 'tw/model/doc-node';
 import { IModelPosition } from 'tw/model/node';
 import { IModelService } from 'tw/model/service';
 import { IDidUpdateModelStateEvent } from 'tw/model/state';
-import { RenderService } from './service';
+import { RenderService } from 'tw/render/service';
 
 class MockModelService implements IModelService {
     constructor(protected docNode: IDocModelNode) {}

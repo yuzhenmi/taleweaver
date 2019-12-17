@@ -1,9 +1,9 @@
+import { CommandRegistry, ICommandRegistry } from 'tw/command/registry';
 import { IConfigService } from 'tw/config/service';
 import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
 import { IServiceRegistry } from 'tw/service/registry';
 import { IService } from 'tw/service/service';
-import { CommandRegistry, ICommandRegistry } from './registry';
 
 export interface IWillExecuteCommandEvent {
     readonly commandId: string;

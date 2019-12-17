@@ -10,8 +10,8 @@ import { IDocModelNode } from 'tw/model/doc-node';
 import { IModelPosition } from 'tw/model/node';
 import { IModelService } from 'tw/model/service';
 import { IDidUpdateModelStateEvent } from 'tw/model/state';
-import { IInlineRenderNode } from './inline-node';
-import { RenderState } from './state';
+import { IInlineRenderNode } from 'tw/render/inline-node';
+import { RenderState } from 'tw/render/state';
 
 class MockModelService implements IModelService {
     protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();

@@ -1,10 +1,10 @@
-import { AtomicLayoutNode } from './atomic-node';
-import { BlockLayoutNode } from './block-node';
-import { DocLayoutNode } from './doc-node';
-import { InlineLayoutNode } from './inline-node';
-import { LineLayoutNode } from './line-node';
-import { ILayoutNode } from './node';
-import { PageLayoutNode } from './page-node';
+import { AtomicLayoutNode } from 'tw/layout/atomic-node';
+import { BlockLayoutNode } from 'tw/layout/block-node';
+import { DocLayoutNode } from 'tw/layout/doc-node';
+import { InlineLayoutNode } from 'tw/layout/inline-node';
+import { LineLayoutNode } from 'tw/layout/line-node';
+import { ILayoutNode } from 'tw/layout/node';
+import { PageLayoutNode } from 'tw/layout/page-node';
 
 export function identifyLayoutNodeType(node: ILayoutNode) {
     if (node instanceof DocLayoutNode) {

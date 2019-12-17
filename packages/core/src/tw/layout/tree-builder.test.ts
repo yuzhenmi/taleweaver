@@ -8,8 +8,8 @@ import {
 import { TextComponent, TextLayoutNode, TextRenderNode, WordRenderNode } from 'tw/component/components/text';
 import { ComponentService } from 'tw/component/service';
 import { ConfigService } from 'tw/config/service';
-import { TextMeasurerStub } from './text-measurer.stub';
-import { LayoutTreeBuilder } from './tree-builder';
+import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
+import { LayoutTreeBuilder } from 'tw/layout/tree-builder';
 
 describe('LayoutTreeBuilder', () => {
     let textMeasurer: TextMeasurerStub;

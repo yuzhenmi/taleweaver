@@ -1,11 +1,11 @@
 import { IComponent } from 'tw/component/component';
 import { LineComponent } from 'tw/component/components/line';
 import { PageComponent } from 'tw/component/components/page';
+import { ILineComponent } from 'tw/component/line-component';
 import { IPageComponent } from 'tw/component/page-component';
 import { ComponentRegistry, IComponentRegistry } from 'tw/component/registry';
 import { IConfigService } from 'tw/config/service';
 import { IService } from 'tw/service/service';
-import { ILineComponent } from './line-component';
 
 export interface IComponentService extends IService {
     getPageComponent(): IPageComponent;

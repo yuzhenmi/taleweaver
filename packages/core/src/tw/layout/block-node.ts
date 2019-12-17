@@ -1,6 +1,6 @@
 import { ILineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
-import { IPageLayoutNode } from './page-node';
+import { IPageLayoutNode } from 'tw/layout/page-node';
 
 export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {
     convertCoordinatesToOffset(x: number, y: number): number;

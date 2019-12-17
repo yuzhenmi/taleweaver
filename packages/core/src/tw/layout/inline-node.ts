@@ -1,6 +1,6 @@
+import { IAtomicLayoutNode } from 'tw/layout/atomic-node';
+import { ILineLayoutNode } from 'tw/layout/line-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
-import { IAtomicLayoutNode } from './atomic-node';
-import { ILineLayoutNode } from './line-node';
 
 export interface IInlineLayoutNode extends ILayoutNode<ILineLayoutNode, IAtomicLayoutNode> {
     getTailTrimmedWidth(): number;

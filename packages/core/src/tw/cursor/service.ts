@@ -1,6 +1,6 @@
 import { IConfigService } from 'tw/config/service';
+import { Cursor, ICursor } from 'tw/cursor/cursor';
 import { IService } from 'tw/service/service';
-import { Cursor, ICursor } from './cursor';
 
 export interface ICursorState {
     readonly anchor: number;

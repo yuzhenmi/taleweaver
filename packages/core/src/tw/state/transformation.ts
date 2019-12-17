@@ -1,4 +1,4 @@
-import { IToken } from './token';
+import { IToken } from 'tw/state/token';
 
 export interface IOffsetAdjustment {
     at: number;

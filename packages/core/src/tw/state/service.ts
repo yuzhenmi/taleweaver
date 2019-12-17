@@ -1,9 +1,9 @@
 import { ICursorService } from 'tw/cursor/service';
 import { IEventListener } from 'tw/event/listener';
 import { IService } from 'tw/service/service';
+import { IDidUpdateStateEvent, IState, State } from 'tw/state/state';
 import { IToken } from 'tw/state/token';
 import { IAppliedTransformation, ITransformation } from 'tw/state/transformation';
-import { IDidUpdateStateEvent, IState, State } from './state';
 
 export interface IStateService extends IService {
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>): void;
