@@ -4,11 +4,15 @@ import { IDocViewNode } from 'tw/view/doc-node';
 import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
 
 export interface IPageViewNode<TLayoutNode extends IPageLayoutNode = IPageLayoutNode>
-    extends IViewNode<TLayoutNode, IDocViewNode, IBlockViewNode> {}
+    extends IViewNode<TLayoutNode, IDocViewNode, IBlockViewNode> {
+    getDOMContentContainer(): HTMLElement;
+}
 
 export abstract class PageViewNode<TLayoutNode extends IPageLayoutNode = IPageLayoutNode>
     extends ViewNode<TLayoutNode, IDocViewNode, IBlockViewNode>
     implements IPageViewNode<TLayoutNode> {
+    abstract getDOMContentContainer(): HTMLElement;
+
     protected size?: number;
 
     getNodeClass(): IViewNodeClass {

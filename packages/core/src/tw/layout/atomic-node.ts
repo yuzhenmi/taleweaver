@@ -3,10 +3,12 @@ import { IInlineLayoutNode } from './inline-node';
 
 export interface IAtomicLayoutNode extends ILayoutNode<IInlineLayoutNode, never> {
     getTailTrimmedWidth(): number;
+    convertCoordinateToOffset(x: number): number;
 }
 
 export abstract class AtomicLayoutNode extends LayoutNode<IInlineLayoutNode, never> implements IAtomicLayoutNode {
     abstract getTailTrimmedWidth(): number;
+    abstract convertCoordinateToOffset(x: number): number;
 
     getNodeClass(): ILayoutNodeClass {
         return 'atomic';

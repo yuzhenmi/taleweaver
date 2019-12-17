@@ -7,6 +7,7 @@ export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayou
     getContentHeight(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
+    convertCoordinatesToOffset(x: number, y: number): number;
     clone(): IPageLayoutNode;
 }
 
@@ -106,6 +107,33 @@ export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLa
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    convertCoordinatesToOffset(x: number, y: number) {
+        let offset = 0;
+        let cumulatedHeight = 0;
+        const contentX = Math.min(Math.max(x - this.getPaddingLeft(), 0), this.getWidth() - this.getPaddingRight());
+        const contentY = Math.min(Math.max(y - this.getPaddingTop(), 0), this.getHeight() - this.getPaddingBottom());
+        for (let child of this.getChildren()) {
+            const childHeight = child.getHeight();
+            if (contentY >= cumulatedHeight && contentY <= cumulatedHeight + childHeight) {
+                offset += child.convertCoordinatesToOffset(contentX, contentY - cumulatedHeight);
+                break;
+            }
+            offset += child.getSize();
+            cumulatedHeight += childHeight;
+        }
+        if (offset === this.getSize()) {
+            const lastChild = this.getLastChild();
+            if (lastChild) {
+                offset -= lastChild.getSize();
+                offset += lastChild.convertCoordinatesToOffset(contentX, lastChild.getHeight());
+            }
+        }
+        if (offset === this.getSize()) {
+            offset--;
+        }
+        return offset;
     }
 
     clearOwnCache() {

@@ -6,24 +6,35 @@ export interface IDidInsertEvent {
     tokens: IToken[];
 }
 
+export interface IDidPressKeyEvent {
+    key: string;
+}
+
+export interface ICompositionDidStart {}
+
+export interface ICompositionDidEnd {}
+
 export interface IKeyboardObserver {
     onDidInsert(listener: IEventListener<IDidInsertEvent>): void;
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
+    onCompositionDidStart(listener: IEventListener<ICompositionDidStart>): void;
+    onCompositionDidEnd(listener: IEventListener<ICompositionDidEnd>): void;
 }
 
 export class KeyboardObserver implements IKeyboardObserver {
     protected composing: boolean = false;
     protected mutationObserver: MutationObserver;
     protected didInsertEventEmitter: IEventEmitter<IDidInsertEvent> = new EventEmitter();
+    protected didPressKeyEventEmitter: IEventEmitter<IDidPressKeyEvent> = new EventEmitter();
+    protected compositionDidStartEventEmitter: IEventEmitter<ICompositionDidStart> = new EventEmitter();
+    protected compositionDidEndEventEmitter: IEventEmitter<ICompositionDidEnd> = new EventEmitter();
+    protected keyInterpreter = new KeyInterpreter();
 
     constructor(protected $contentEditable: HTMLDivElement) {
         this.mutationObserver = new MutationObserver(this.handleDidMutate);
         $contentEditable.addEventListener('keydown', this.handleKeyDown);
         $contentEditable.addEventListener('compositionstart', this.handleCompositionStart);
         $contentEditable.addEventListener('compositionend', this.handleCompositionEnd);
-        $contentEditable.addEventListener('focus', this.handleFocus);
-        $contentEditable.addEventListener('blur', this.handleBlur);
-        $contentEditable.addEventListener('copy', this.handleCopy);
-        $contentEditable.addEventListener('paste', this.handlePaste);
         this.mutationObserver.observe($contentEditable, {
             subtree: true,
             characterData: true,
@@ -33,6 +44,18 @@ export class KeyboardObserver implements IKeyboardObserver {
 
     onDidInsert(listener: IEventListener<IDidInsertEvent>) {
         this.didInsertEventEmitter.on(listener);
+    }
+
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+        this.didPressKeyEventEmitter.on(listener);
+    }
+
+    onCompositionDidStart(listener: IEventListener<ICompositionDidStart>) {
+        this.compositionDidStartEventEmitter.on(listener);
+    }
+
+    onCompositionDidEnd(listener: IEventListener<ICompositionDidEnd>) {
+        this.compositionDidEndEventEmitter.on(listener);
     }
 
     protected handleDidMutate = () => {
@@ -68,17 +91,26 @@ export class KeyboardObserver implements IKeyboardObserver {
         return tokens;
     }
 
-    protected handleKeyDown(event: KeyboardEvent) {}
+    protected handleKeyDown(event: KeyboardEvent) {
+        const key = this.keyInterpreter.interpretFromKeyboardEvent(event);
+        if (!key) {
+            return;
+        }
+        event.preventDefault();
+        this.didPressKeyEventEmitter.emit({ key });
+    }
 
-    protected handleCompositionStart() {}
+    protected handleCompositionStart() {
+        this.composing = true;
+    }
 
-    protected handleCompositionEnd() {}
+    protected handleCompositionEnd() {
+        this.composing = true;
+    }
+}
 
-    protected handleFocus() {}
-
-    protected handleBlur() {}
-
-    protected handleCopy(event: ClipboardEvent) {}
-
-    protected handlePaste(event: ClipboardEvent) {}
+class KeyInterpreter {
+    interpretFromKeyboardEvent(event: KeyboardEvent) {
+        return 'A';
+    }
 }

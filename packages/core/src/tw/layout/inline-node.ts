@@ -4,6 +4,7 @@ import { ILineLayoutNode } from './line-node';
 
 export interface IInlineLayoutNode extends ILayoutNode<ILineLayoutNode, IAtomicLayoutNode> {
     getTailTrimmedWidth(): number;
+    convertCoordinateToOffset(x: number): number;
     clone(): IInlineLayoutNode;
 }
 
@@ -82,6 +83,21 @@ export abstract class InlineLayoutNode extends LayoutNode<ILineLayoutNode, IAtom
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    convertCoordinateToOffset(x: number) {
+        let offset = 0;
+        let cumulatedWidth = 0;
+        for (let child of this.getChildren()) {
+            const childWidth = child.getWidth();
+            if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
+                offset += child.convertCoordinateToOffset(x - cumulatedWidth);
+                break;
+            }
+            offset += child.getSize();
+            cumulatedWidth += childWidth;
+        }
+        return offset;
     }
 
     clearOwnCache() {

@@ -7,6 +7,7 @@ export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLa
     getContentWidth(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
+    convertCoordinateToOffset(x: number): number;
     clone(): ILineLayoutNode;
 }
 
@@ -107,6 +108,24 @@ export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlin
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    convertCoordinateToOffset(x: number) {
+        let offset = 0;
+        let cumulatedWidth = 0;
+        for (let child of this.getChildren()) {
+            const childWidth = child.getWidth();
+            if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
+                offset += child.convertCoordinateToOffset(x - cumulatedWidth);
+                break;
+            }
+            offset += child.getSize();
+            cumulatedWidth += childWidth;
+        }
+        if (offset === this.getSize()) {
+            return offset - 1;
+        }
+        return offset;
     }
 
     clearOwnCache() {

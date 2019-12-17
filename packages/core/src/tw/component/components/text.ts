@@ -191,6 +191,28 @@ export class WordLayoutNode extends AtomicLayoutNode {
         return this.tailTrimmedWidth;
     }
 
+    convertCoordinateToOffset(x: number) {
+        let lastWidth = 0;
+        const text = this.word.text;
+        for (let n = 0, nn = text.length; n < nn; n++) {
+            const measurement = this.textMeasurer.measure(text.substring(0, n), this.style);
+            const width = measurement.width;
+            if (width < x) {
+                lastWidth = width;
+                continue;
+            }
+            if (x - lastWidth < width - x) {
+                return n - 1;
+            }
+            return n;
+        }
+        const width = this.getWidth();
+        if (x - lastWidth < width - x) {
+            return text.length - 1;
+        }
+        return text.length;
+    }
+
     getWord() {
         return this.word;
     }

@@ -1,12 +1,30 @@
 import { ICommandService } from 'tw/command/service';
-import { IDidInsertEvent, IKeyboardObserver, KeyboardObserver } from './keyboard-observer';
-import { IPointerObserver, PointerObserver } from './pointer-observer';
+import { IEventListener } from 'tw/event/listener';
+import { ClipboardObserver, IClipboardObserver } from 'tw/view/clipboard-observer';
+import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from 'tw/view/focus-observer';
+import {
+    ICompositionDidEnd,
+    ICompositionDidStart,
+    IDidInsertEvent,
+    IDidPressKeyEvent,
+    IKeyboardObserver,
+    KeyboardObserver,
+} from 'tw/view/keyboard-observer';
+import {
+    IPointerDidDownEvent,
+    IPointerDidMoveEvent,
+    IPointerObserver,
+    PointerObserver,
+} from 'tw/view/pointer-observer';
+import { IViewService } from 'tw/view/service';
 
 export interface IDOMController {
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
     connect(): void;
     requestFocus(): void;
     requestBlur(): void;
     isFocused(): boolean;
+    isComposing(): boolean;
 }
 
 export class DOMController {
@@ -14,16 +32,34 @@ export class DOMController {
     protected $contentEditable: HTMLDivElement;
     protected keyboardObserver: IKeyboardObserver;
     protected pointerObserver: IPointerObserver;
-    protected composing: boolean = false;
+    protected focusObserver: IFocusObserver;
+    protected clipboardObserver: IClipboardObserver;
     protected focused: boolean = false;
+    protected composing: boolean = false;
     protected mouseDown: boolean = false;
 
-    constructor(protected instanceId: string, protected commandService: ICommandService) {
+    constructor(
+        protected instanceId: string,
+        protected commandService: ICommandService,
+        protected viewService: IViewService,
+    ) {
         this.$iframe = this.createIframe();
         this.$contentEditable = this.createContentEditable();
         this.keyboardObserver = new KeyboardObserver(this.$contentEditable);
         this.keyboardObserver.onDidInsert(this.handleDidInsert);
-        this.pointerObserver = new PointerObserver();
+        this.keyboardObserver.onCompositionDidStart(this.handleCompositionDidStart);
+        this.keyboardObserver.onCompositionDidEnd(this.handleCompositionDidEnd);
+        this.pointerObserver = new PointerObserver(instanceId, viewService);
+        this.pointerObserver.onPointerDidDown(this.handlePointerDidDown);
+        this.pointerObserver.onPointerDidMove(this.handlePointerDidMove);
+        this.focusObserver = new FocusObserver(this.$contentEditable);
+        this.focusObserver.onDidFocus(this.handleDidFocus);
+        this.focusObserver.onDidBlur(this.handleDidBlur);
+        this.clipboardObserver = new ClipboardObserver(this.$contentEditable);
+    }
+
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+        this.keyboardObserver.onDidPressKey(listener);
     }
 
     connect() {
@@ -45,8 +81,48 @@ export class DOMController {
         return this.focused;
     }
 
+    isComposing() {
+        return this.composing;
+    }
+
     protected handleDidInsert = (event: IDidInsertEvent) => {
         this.commandService.executeCommand('tw.state.insert', event.tokens);
+    };
+
+    protected handleCompositionDidStart = (event: ICompositionDidStart) => {
+        this.composing = true;
+    };
+
+    protected handleCompositionDidEnd = (event: ICompositionDidEnd) => {
+        this.composing = false;
+    };
+
+    protected handlePointerDidDown = (event: IPointerDidDownEvent) => {
+        if (this.focused) {
+            if (event.inPage) {
+                this.commandService.executeCommand('tw.state.moveCursor', event.position);
+            } else {
+                this.commandService.executeCommand('tw.view.blur');
+            }
+        } else {
+            if (event.inPage) {
+                this.commandService.executeCommand('tw.view.focus');
+            }
+        }
+    };
+
+    protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
+        if (event.pointerDown) {
+            this.commandService.executeCommand('tw.state.moveCursorHead', event.position);
+        }
+    };
+
+    protected handleDidFocus = (event: IDidFocusEvent) => {
+        this.focused = true;
+    };
+
+    protected handleDidBlur = (event: IDidBlurEvent) => {
+        this.focused = false;
     };
 
     protected createIframe() {

@@ -3,6 +3,7 @@ import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosit
 import { IPageLayoutNode } from './page-node';
 
 export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {
+    convertCoordinatesToOffset(x: number, y: number): number;
     clone(): IBlockLayoutNode;
 }
 
@@ -65,6 +66,21 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    convertCoordinatesToOffset(x: number, y: number) {
+        let offset = 0;
+        let cumulatedHeight = 0;
+        for (let child of this.getChildren()) {
+            const childHeight = child.getHeight();
+            if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
+                offset += child.convertCoordinateToOffset(x);
+                break;
+            }
+            offset += child.getSize();
+            cumulatedHeight += childHeight;
+        }
+        return offset;
     }
 
     clearOwnCache() {

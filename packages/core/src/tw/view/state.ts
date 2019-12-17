@@ -3,6 +3,7 @@ import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
 import { IEventListener, IOnEvent } from 'tw/event/listener';
 import { ILayoutService } from 'tw/layout/service';
 import { IDidUpdateLayoutStateEvent } from 'tw/layout/state';
+import { generateId } from 'tw/util/id';
 import { IDocViewNode } from 'tw/view/doc-node';
 import { IViewNode } from 'tw/view/node';
 import { ViewTreeBuilder } from 'tw/view/tree-builder';
@@ -17,12 +18,13 @@ export interface IViewState {
 }
 
 export class ViewState implements IViewState {
+    protected instanceId = generateId();
     protected docNode: IDocViewNode;
     protected didUpdateViewStateEventEmitter: IEventEmitter<IDidUpdateViewStateEvent> = new EventEmitter();
 
     constructor(protected componentService: IComponentService, protected layoutService: ILayoutService) {
         const docLayoutNode = layoutService.getDocNode();
-        const treeBuilder = new ViewTreeBuilder(componentService);
+        const treeBuilder = new ViewTreeBuilder(this.instanceId, componentService);
         this.docNode = treeBuilder.buildTree(docLayoutNode) as IDocViewNode;
         layoutService.onDidUpdateLayoutState(event => this.handleDidUpdateLayoutStateEvent(event));
     }
@@ -36,7 +38,7 @@ export class ViewState implements IViewState {
     }
 
     protected handleDidUpdateLayoutStateEvent(event: IDidUpdateLayoutStateEvent) {
-        const treeBuilder = new ViewTreeBuilder(this.componentService);
+        const treeBuilder = new ViewTreeBuilder(this.instanceId, this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
         const node = this.docNode.findDescendant(event.node.getId()) as IViewNode;
         if (!node) {

@@ -11,7 +11,7 @@ export class ViewTreeBuilder implements IViewTreeBuilder {
     protected rootViewNode?: IViewNode;
     protected ran: boolean = false;
 
-    constructor(protected componentService: IComponentService) {}
+    constructor(protected instanceId: string, protected componentService: IComponentService) {}
 
     buildTree(layoutNode: ILayoutNode) {
         if (this.ran) {
@@ -51,8 +51,9 @@ export class ViewTreeBuilder implements IViewTreeBuilder {
         const partId = viewNode.getPartId();
         const id = viewNode.getId();
         domContainer.className = `tw--${componentId}--${partId}`;
-        domContainer.setAttribute('data-tw-id', id);
+        domContainer.setAttribute('data-tw-instance', this.instanceId);
         domContainer.setAttribute('data-tw-component', componentId);
         domContainer.setAttribute('data-tw-part', partId);
+        domContainer.setAttribute('data-tw-id', id);
     }
 }
