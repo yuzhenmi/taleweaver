@@ -91,22 +91,22 @@ export class KeyboardObserver implements IKeyboardObserver {
         return tokens;
     }
 
-    protected handleKeyDown(event: KeyboardEvent) {
+    protected handleKeyDown = (event: KeyboardEvent) => {
         const key = this.keyInterpreter.interpretFromKeyboardEvent(event);
         if (!key) {
             return;
         }
         event.preventDefault();
         this.didPressKeyEventEmitter.emit({ key });
-    }
+    };
 
-    protected handleCompositionStart() {
+    protected handleCompositionStart = () => {
         this.composing = true;
-    }
+    };
 
-    protected handleCompositionEnd() {
+    protected handleCompositionEnd = () => {
         this.composing = true;
-    }
+    };
 }
 
 class KeyInterpreter {

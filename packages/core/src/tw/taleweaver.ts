@@ -1,3 +1,4 @@
+import * as viewCommandHandlers from './command/handlers/view';
 import { CommandService, ICommandService } from './command/service';
 import { DocComponent } from './component/components/doc';
 import { ParagraphComponent } from './component/components/paragraph';
@@ -59,11 +60,22 @@ export class Taleweaver {
 
     protected buildBaseConfig(): IConfig {
         return {
-            commands: {},
+            commands: {
+                'tw.view.focus': viewCommandHandlers.focus,
+                'tw.view.blur': viewCommandHandlers.blur,
+            },
             components: {
                 doc: new DocComponent('doc'),
                 paragraph: new ParagraphComponent('paragraph'),
                 text: new TextComponent('text', new TextMeasurer()),
+            },
+            page: {
+                width: 816,
+                height: 1056,
+                paddingTop: 40,
+                paddingBottom: 40,
+                paddingLeft: 40,
+                paddingRight: 40,
             },
         };
     }

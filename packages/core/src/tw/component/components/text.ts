@@ -400,12 +400,9 @@ export class TextMeasurer implements ITextMeasurer {
 
     measure(text: string, textStyle: ITextStyle) {
         const ctx = this.$canvas.getContext('2d')!;
-        const weight = textStyle.weight!;
-        const size = textStyle.size!;
-        let font = textStyle.font!;
-        if (font.indexOf(' ') >= 0) {
-            font = `'${font}'`;
-        }
+        const weight = textStyle.weight;
+        const size = textStyle.size;
+        const font = this.fixFont(textStyle.font);
         const letterSpacing = textStyle.letterSpacing!;
         ctx.font = `${weight} ${size}px ${font}`;
         const measurement = ctx.measureText(text);
@@ -417,5 +414,12 @@ export class TextMeasurer implements ITextMeasurer {
             width,
             height: size,
         };
+    }
+
+    protected fixFont(font: string) {
+        if (font.indexOf(' ') >= 0) {
+            return `'${font}'`;
+        }
+        return font;
     }
 }

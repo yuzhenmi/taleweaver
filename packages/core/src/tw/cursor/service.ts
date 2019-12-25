@@ -1,5 +1,6 @@
 import { IConfigService } from '../config/service';
-import { Cursor, ICursor } from './cursor';
+import { IEventListener } from '../event/listener';
+import { Cursor, ICursor, IDidUpdateCursorEvent } from './cursor';
 
 export interface ICursorState {
     readonly anchor: number;
@@ -8,6 +9,7 @@ export interface ICursorState {
 }
 
 export interface ICursorService {
+    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>): void;
     hasCursor(): boolean;
     setCursorState(cursorState: ICursorState): void;
     getCursorState(): ICursorState;
@@ -19,6 +21,12 @@ export class CursorService implements ICursorService {
     constructor(configService: IConfigService) {
         if (!configService.getConfig().disableCursor) {
             this.cursor = new Cursor();
+        }
+    }
+
+    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
+        if (this.cursor) {
+            this.cursor.onDidUpdateCursor(listener);
         }
     }
 

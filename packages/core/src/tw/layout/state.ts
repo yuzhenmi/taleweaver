@@ -27,7 +27,7 @@ export class LayoutState implements ILayoutState {
         this.docNode = treeBuilder.buildTree(docRenderNode) as IDocLayoutNode;
         const flower = new LayoutFlower();
         flower.flow(this.docNode);
-        renderService.onDidUpdateRenderState(event => this.handleDidUpdateRenderStateEvent(event));
+        renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
     }
 
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
@@ -38,7 +38,7 @@ export class LayoutState implements ILayoutState {
         return this.docNode;
     }
 
-    protected handleDidUpdateRenderStateEvent(event: IDidUpdateRenderStateEvent) {
+    protected handleDidUpdateRenderStateEvent = (event: IDidUpdateRenderStateEvent) => {
         const treeBuilder = new LayoutTreeBuilder(this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
         const node = this.docNode.findDescendant(event.node.getId()) as ILayoutNode;
@@ -50,7 +50,7 @@ export class LayoutState implements ILayoutState {
         const flower = new LayoutFlower();
         const flowedNode = flower.flow(node);
         this.didUpdateLayoutStateEventEmitter.emit({ node: flowedNode });
-    }
+    };
 
     protected deduplicateNode(node: ILayoutNode) {
         if (node.isRoot()) {

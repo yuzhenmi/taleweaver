@@ -27,7 +27,7 @@ export class ModelState implements IModelState {
         const tokens = stateService.getTokens();
         const parser = new TokenParser(componentService);
         this.docNode = parser.parse(tokens) as IDocModelNode;
-        stateService.onDidUpdateState(event => this.handleDidUpdateStateEvent(event));
+        stateService.onDidUpdateState(this.handleDidUpdateStateEvent);
     }
 
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
@@ -38,7 +38,7 @@ export class ModelState implements IModelState {
         return this.docNode;
     }
 
-    protected handleDidUpdateStateEvent(event: IDidUpdateStateEvent) {
+    protected handleDidUpdateStateEvent = (event: IDidUpdateStateEvent) => {
         const node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo);
         const updatedTokens = this.findNodeTokenRange(
             this.stateService.getTokens(),
@@ -56,7 +56,7 @@ export class ModelState implements IModelState {
         const updatedNode = parser.parse(updatedTokens);
         node.onDidUpdate(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({ node });
-    }
+    };
 
     protected findUpdatedNode(
         tokens: IToken[],

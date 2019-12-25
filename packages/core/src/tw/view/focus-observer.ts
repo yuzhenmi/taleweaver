@@ -27,11 +27,11 @@ export class FocusObserver implements IFocusObserver {
         this.didBlurEventEmitter.on(listener);
     }
 
-    protected handleFocus() {
+    protected handleFocus = () => {
         this.didFocusEventEmitter.emit({});
-    }
+    };
 
-    protected handleBlur() {
+    protected handleBlur = () => {
         this.didBlurEventEmitter.emit({});
-    }
+    };
 }

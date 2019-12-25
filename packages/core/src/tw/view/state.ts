@@ -30,7 +30,7 @@ export class ViewState implements IViewState {
         const docLayoutNode = layoutService.getDocNode();
         const treeBuilder = new ViewTreeBuilder(this.instanceId, componentService);
         this.docNode = treeBuilder.buildTree(docLayoutNode) as IDocViewNode;
-        layoutService.onDidUpdateLayoutState(event => this.handleDidUpdateLayoutStateEvent(event));
+        layoutService.onDidUpdateLayoutState(this.handleDidUpdateLayoutStateEvent);
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
@@ -50,7 +50,7 @@ export class ViewState implements IViewState {
         this.attached = true;
     }
 
-    protected handleDidUpdateLayoutStateEvent(event: IDidUpdateLayoutStateEvent) {
+    protected handleDidUpdateLayoutStateEvent = (event: IDidUpdateLayoutStateEvent) => {
         const treeBuilder = new ViewTreeBuilder(this.instanceId, this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
         const node = this.docNode.findDescendant(event.node.getId()) as IViewNode;
@@ -59,7 +59,7 @@ export class ViewState implements IViewState {
         }
         node.onDidUpdate(updatedNode);
         this.didUpdateViewStateEventEmitter.emit({ node });
-    }
+    };
 
     protected performFirstRender(node: IViewNode) {
         node.onLayoutDidUpdate();

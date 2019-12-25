@@ -1,6 +1,15 @@
 import { ICommandHandler } from '../command/command';
 import { IComponent } from '../component/component';
 
+interface IPageConfig {
+    width: number;
+    height: number;
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+}
+
 export interface IConfig {
     commands: {
         [key: string]: ICommandHandler;
@@ -8,10 +17,12 @@ export interface IConfig {
     components: {
         [key: string]: IComponent;
     };
+    page: IPageConfig;
     disableCursor?: boolean;
 }
 
 export interface ICoreConfig {
+    page?: IPageConfig;
     disableCursor?: boolean;
     ssr?: boolean;
 }

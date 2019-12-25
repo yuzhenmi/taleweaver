@@ -29,11 +29,11 @@ export class ClipboardObserver implements IClipboardObserver {
         this.didPasteEventEmitter.on(listener);
     }
 
-    protected handleCopy(event: ClipboardEvent) {
+    protected handleCopy = (event: ClipboardEvent) => {
         this.didCopyEventEmitter.emit({});
-    }
+    };
 
-    protected handlePaste(event: ClipboardEvent) {
+    protected handlePaste = (event: ClipboardEvent) => {
         this.didCopyEventEmitter.emit({ data: event.clipboardData });
-    }
+    };
 }

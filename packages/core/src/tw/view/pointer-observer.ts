@@ -50,6 +50,8 @@ export class PointerObserver implements IPointerObserver {
         if (position === null) {
             return;
         }
+        // Bypass browser selection
+        event.preventDefault();
         this.pointerDidDownEventEmitter.emit({
             inPage: this.isDOMElementInPage(event.target as HTMLElement),
             position,

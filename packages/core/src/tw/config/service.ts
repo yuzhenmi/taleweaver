@@ -17,6 +17,11 @@ export class ConfigService implements IConfigService {
     }
 
     protected applyExternalConfig(externalConfig: IExternalConfig) {
-        // TODO
+        const coreConfig = externalConfig['tw.core'];
+        if (coreConfig) {
+            if (coreConfig.page) {
+                this.config.page = coreConfig.page;
+            }
+        }
     }
 }

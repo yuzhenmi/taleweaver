@@ -24,7 +24,7 @@ export class RenderState implements IRenderState {
         const docModelNode = modelService.getDocNode();
         const treeBuilder = new RenderTreeBuilder(componentService);
         this.docNode = treeBuilder.buildTree(docModelNode) as IDocRenderNode;
-        modelService.onDidUpdateModelState(event => this.handleDidUpdateModelStateEvent(event));
+        modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
     }
 
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
@@ -35,7 +35,7 @@ export class RenderState implements IRenderState {
         return this.docNode;
     }
 
-    protected handleDidUpdateModelStateEvent(event: IDidUpdateModelStateEvent) {
+    protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
         const treeBuilder = new RenderTreeBuilder(this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
         const node = this.docNode.findDescendant(event.node.getId()) as IRenderNode;
@@ -44,5 +44,5 @@ export class RenderState implements IRenderState {
         }
         node.onDidUpdate(updatedNode);
         this.didUpdateRenderStateEventEmitter.emit({ node });
-    }
+    };
 }

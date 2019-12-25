@@ -39,14 +39,18 @@ const EditorWrapper = styled.div`
 
 interface IProps {
     initialMarkup: string;
-    config?: IConfig;
+    config?: IConfig['tw.core'];
 }
 
 export default function Editor({ initialMarkup, config }: IProps) {
     const domRef = useRef<HTMLDivElement>(null);
     const [taleweaver, setTaleweaver] = useState<Taleweaver>();
     useEffect(() => {
-        setTaleweaver(new Taleweaver(initialMarkup, config || {}));
+        const mergedConfig: IConfig = {};
+        if (config) {
+            mergedConfig['tw.core'] = config;
+        }
+        setTaleweaver(new Taleweaver(initialMarkup, mergedConfig));
     }, []);
     useEffect(() => {
         if (taleweaver && domRef.current) {

@@ -1,3 +1,4 @@
+import { IConfigService } from '../../config/service';
 import { ILayoutNode } from '../../layout/node';
 import { PageLayoutNode as AbstractPageLayoutNode } from '../../layout/page-node';
 import { IAttributes, IModelNode } from '../../model/node';
@@ -57,6 +58,10 @@ export class PageViewNode extends AbstractPageViewNode<PageLayoutNode> {
 }
 
 export class PageComponent extends Component implements IPageComponent {
+    constructor(id: string, protected configService: IConfigService) {
+        super(id);
+    }
+
     buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): IModelNode {
         throw new Error('Page component does not support buildModelNode.');
     }
@@ -70,7 +75,16 @@ export class PageComponent extends Component implements IPageComponent {
     }
 
     buildPageLayoutNode() {
-        return new PageLayoutNode(this.getId(), 816, 1056, 40, 40, 40, 40);
+        const pageConfig = this.configService.getConfig().page;
+        return new PageLayoutNode(
+            this.getId(),
+            pageConfig.width,
+            pageConfig.height,
+            pageConfig.paddingTop,
+            pageConfig.paddingBottom,
+            pageConfig.paddingLeft,
+            pageConfig.paddingRight,
+        );
     }
 
     buildViewNode(layoutNode: ILayoutNode) {

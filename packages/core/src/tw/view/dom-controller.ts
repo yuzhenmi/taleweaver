@@ -15,6 +15,8 @@ import { IViewService } from './service';
 
 export interface IDOMController {
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
+    onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
+    onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     attach(): void;
     requestFocus(): void;
     requestBlur(): void;
@@ -55,6 +57,14 @@ export class DOMController {
 
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
         this.keyboardObserver.onDidPressKey(listener);
+    }
+
+    onDidFocus(listener: IEventListener<IDidFocusEvent>) {
+        this.focusObserver.onDidFocus(listener);
+    }
+
+    onDidBlur(listener: IEventListener<IDidBlurEvent>) {
+        this.focusObserver.onDidBlur(listener);
     }
 
     attach() {

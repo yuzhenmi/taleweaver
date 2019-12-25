@@ -7,13 +7,18 @@ import { IRenderService } from '../render/service';
 import { CursorView, ICursorView } from './cursor';
 import { IDocViewNode } from './doc-node';
 import { DOMController, IDOMController } from './dom-controller';
+import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
 import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
 export interface IViewService {
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
+    onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
+    onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     getDocNode(): IDocViewNode;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
+    requestFocus(): void;
+    requestBlur(): void;
 }
 
 export class ViewService implements IViewService {
@@ -30,12 +35,20 @@ export class ViewService implements IViewService {
         commandService: ICommandService,
     ) {
         this.state = new ViewState(instanceId, componentService, layoutService);
-        this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
         this.domController = new DOMController(instanceId, commandService, this);
+        this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
         this.state.onDidUpdateViewState(listener);
+    }
+
+    onDidFocus(listener: IEventListener<IDidFocusEvent>) {
+        this.domController.onDidFocus(listener);
+    }
+
+    onDidBlur(listener: IEventListener<IDidBlurEvent>) {
+        this.domController.onDidBlur(listener);
     }
 
     getDocNode() {
@@ -50,5 +63,13 @@ export class ViewService implements IViewService {
         this.state.attach(domContainer);
         this.cursor.attach();
         this.domController.attach();
+    }
+
+    requestFocus() {
+        this.domController.requestFocus();
+    }
+
+    requestBlur() {
+        this.domController.requestBlur();
     }
 }

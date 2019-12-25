@@ -12,7 +12,7 @@ const CURSOR_HUE = 213;
 
 export class CursorView implements ICursorView {
     protected blinkInterval: number | null = null;
-    protected blinkState = false;
+    protected blinkState = true;
     protected domCaret: HTMLDivElement;
     protected domSelections: HTMLDivElement[] = [];
     protected attached = false;
@@ -32,6 +32,10 @@ export class CursorView implements ICursorView {
         this.domCaret.style.pointerEvents = 'none';
         this.domCaret.style.width = '2px';
         this.domCaret.style.marginLeft = '-1px';
+        cursorService.onDidUpdateCursor(this.handleDidUpdateCursorState);
+        viewService.onDidUpdateViewState(this.handleDidUpdateViewState);
+        viewService.onDidFocus(this.handleDidFocus);
+        viewService.onDidBlur(this.handleDidBlur);
     }
 
     attach() {
@@ -128,13 +132,10 @@ export class CursorView implements ICursorView {
         if (this.blinkInterval !== null) {
             return;
         }
+        this.blinkState = true;
         this.blinkInterval = window.setInterval(() => {
-            if (this.blinkState) {
-                this.domCaret.style.visibility = 'hidden';
-            } else {
-                this.domCaret.style.visibility = 'visible';
-            }
             this.blinkState = !this.blinkState;
+            this.updateDOMBlink();
         }, 500);
     }
 
@@ -142,10 +143,17 @@ export class CursorView implements ICursorView {
         if (this.blinkInterval === null) {
             return;
         }
-        this.blinkState = true;
         this.domCaret.style.visibility = 'visible';
         clearInterval(this.blinkInterval);
         this.blinkInterval = null;
+    }
+
+    protected updateDOMBlink() {
+        if (this.blinkState) {
+            this.domCaret.style.visibility = 'visible';
+        } else {
+            this.domCaret.style.visibility = 'hidden';
+        }
     }
 
     protected buildDOMSelection(layoutRect: ILayoutRect) {
@@ -165,4 +173,20 @@ export class CursorView implements ICursorView {
     protected boundCursorPosition(offset: number) {
         return Math.min(Math.max(offset, 0), this.renderService.getDocNode().getSize() - 1);
     }
+
+    protected handleDidUpdateCursorState = () => {
+        this.updateView();
+    };
+
+    protected handleDidUpdateViewState = () => {
+        this.updateView();
+    };
+
+    protected handleDidFocus = () => {
+        this.updateView();
+    };
+
+    protected handleDidBlur = () => {
+        this.updateView();
+    };
 }

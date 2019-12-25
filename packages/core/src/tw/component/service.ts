@@ -13,11 +13,13 @@ export interface IComponentService {
 }
 
 export class ComponentService implements IComponentService {
-    protected pageComponent = new PageComponent('page');
-    protected lineComponent = new LineComponent('line');
+    protected pageComponent: IPageComponent;
+    protected lineComponent: ILineComponent;
     protected registry: IComponentRegistry = new ComponentRegistry();
 
     constructor(configService: IConfigService) {
+        this.pageComponent = new PageComponent('page', configService);
+        this.lineComponent = new LineComponent('line');
         for (let [componentId, component] of Object.entries(configService.getConfig().components)) {
             this.registry.registerComponent(componentId, component);
         }

@@ -67,7 +67,7 @@ export class TokenParser implements ITokenParser {
         for (let n = 0, nn = tokens.length; n < nn; n++) {
             token = tokens[n];
             try {
-                this.handleToken(token);
+                this.processToken(token);
             } catch (error) {
                 error.message = `Error at token ${n}: ${error.message}`;
                 throw error;
@@ -76,7 +76,7 @@ export class TokenParser implements ITokenParser {
         this.ran = true;
     }
 
-    protected handleToken(token: IToken) {
+    protected processToken(token: IToken) {
         switch (this.parserState) {
             case ParserState.NewNode:
                 switch (identityTokenType(token)) {
