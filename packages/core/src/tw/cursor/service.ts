@@ -1,5 +1,4 @@
 import { IConfigService } from '../config/service';
-import { IService } from '../service/service';
 import { Cursor, ICursor } from './cursor';
 
 export interface ICursorState {
@@ -8,7 +7,7 @@ export interface ICursorState {
     readonly leftLock: number | null;
 }
 
-export interface ICursorService extends IService {
+export interface ICursorService {
     hasCursor(): boolean;
     setCursorState(cursorState: ICursorState): void;
     getCursorState(): ICursorState;

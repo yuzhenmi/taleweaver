@@ -4,13 +4,12 @@ import { ICursorService } from '../cursor/service';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IRenderService } from '../render/service';
-import { IService } from '../service/service';
 import { CursorView, ICursorView } from './cursor';
 import { IDocViewNode } from './doc-node';
 import { DOMController, IDOMController } from './dom-controller';
 import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
-export interface IViewService extends IService {
+export interface IViewService {
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
     getDocNode(): IDocViewNode;
     isFocused(): boolean;

@@ -2,7 +2,6 @@ import { IConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IServiceRegistry } from '../service/registry';
-import { IService } from '../service/service';
 import { CommandRegistry, ICommandRegistry } from './registry';
 
 export interface IWillExecuteCommandEvent {
@@ -15,7 +14,7 @@ export interface IDidExecuteCommandEvent {
     readonly args: any[];
 }
 
-export interface ICommandService extends IService {
+export interface ICommandService {
     onWillExecuteCommand: IOnEvent<IWillExecuteCommandEvent>;
     onDidExecuteCommand: IOnEvent<IDidExecuteCommandEvent>;
     executeCommand(commandId: string, ...args: any[]): Promise<void>;

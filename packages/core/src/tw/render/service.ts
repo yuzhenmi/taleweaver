@@ -1,7 +1,6 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IModelService } from '../model/service';
-import { IService } from '../service/service';
 import { IDocRenderNode } from './doc-node';
 import { IRenderNode, IRenderPosition, IStyle } from './node';
 import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
@@ -12,7 +11,7 @@ export interface IStyles {
     };
 }
 
-export interface IRenderService extends IService {
+export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDocNode(): IDocRenderNode;
     convertOffsetToModelOffset(offset: number): number;

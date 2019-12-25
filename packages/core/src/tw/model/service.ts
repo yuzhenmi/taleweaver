@@ -1,12 +1,11 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
-import { IService } from '../service/service';
 import { IStateService } from '../state/service';
 import { IDocModelNode } from './doc-node';
 import { IModelPosition } from './node';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
-export interface IModelService extends IService {
+export interface IModelService {
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
     getDocNode(): IDocModelNode;
     toHTML(from: number, to: number): string;

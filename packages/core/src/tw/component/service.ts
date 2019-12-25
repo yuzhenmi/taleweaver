@@ -1,5 +1,4 @@
 import { IConfigService } from '../config/service';
-import { IService } from '../service/service';
 import { IComponent } from './component';
 import { LineComponent } from './components/line';
 import { PageComponent } from './components/page';
@@ -7,7 +6,7 @@ import { ILineComponent } from './line-component';
 import { IPageComponent } from './page-component';
 import { ComponentRegistry, IComponentRegistry } from './registry';
 
-export interface IComponentService extends IService {
+export interface IComponentService {
     getPageComponent(): IPageComponent;
     getLineComponent(): ILineComponent;
     getComponent(componentId: string): IComponent | undefined;
