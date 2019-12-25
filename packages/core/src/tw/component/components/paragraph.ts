@@ -90,7 +90,7 @@ export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagr
     }
 
     getSize() {
-        return 0;
+        return 1;
     }
 
     clearOwnCache() {}

@@ -320,13 +320,6 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
         this.domContent.style.textDecoration = style.strikethrough ? 'line-through' : '';
         this.domContent.innerText = text;
-        this.domContent.setAttribute(
-            'data-content',
-            this.layoutNode
-                .getChildren()
-                .map(c => c.getWidth())
-                .join(' '),
-        );
     }
 }
 

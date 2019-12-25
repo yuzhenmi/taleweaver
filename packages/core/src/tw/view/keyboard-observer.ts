@@ -1,6 +1,7 @@
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IToken } from '../state/token';
+import { detectPlatform } from '../util/platform';
 
 export interface IDidInsertEvent {
     tokens: IToken[];
@@ -133,10 +134,18 @@ class KeyInterpreter {
             default:
                 key = event.key.toLowerCase();
         }
-        // TODO: Handle meta key in platform-specific manner:
-        // cmd for macOS, win for Windows, meta for Linux
         if (event.metaKey) {
-            key = `meta+${key}`;
+            switch (detectPlatform()) {
+                case 'macOS':
+                    key = `cmd+${key}`;
+                    break;
+                case 'Windows':
+                    key = `win+${key}`;
+                    break;
+                case 'Linux':
+                default:
+                    key = `meta+${key}`;
+            }
         }
         if (event.altKey) {
             key = `alt+${key}`;

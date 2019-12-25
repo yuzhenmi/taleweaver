@@ -14,6 +14,7 @@ export interface IStyles {
 export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDocNode(): IDocRenderNode;
+    getDocSize(): number;
     convertOffsetToModelOffset(offset: number): number;
     resolvePosition(offset: number): IRenderPosition;
     getStylesBetween(from: number, to: number): IStyles;
@@ -32,6 +33,10 @@ export class RenderService implements IRenderService {
 
     getDocNode() {
         return this.state.getDocNode();
+    }
+
+    getDocSize() {
+        return this.state.getDocNode().getSize();
     }
 
     convertOffsetToModelOffset(offset: number) {

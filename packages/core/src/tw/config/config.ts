@@ -1,7 +1,7 @@
 import { ICommandHandler } from '../command/command';
 import { IComponent } from '../component/component';
 
-interface IPageConfig {
+export interface IPageConfig {
     width: number;
     height: number;
     paddingTop: number;
@@ -10,15 +10,22 @@ interface IPageConfig {
     paddingRight: number;
 }
 
+export interface IKeyBindingsConfig {
+    [key: string]: {
+        command: string;
+        args?: any[];
+    };
+}
+
 export interface IConfig {
     commands: {
         [key: string]: ICommandHandler;
     };
     keyBindings: {
-        [key: string]: {
-            command: string;
-            args?: any[];
-        };
+        common: IKeyBindingsConfig;
+        macos?: IKeyBindingsConfig;
+        windows?: IKeyBindingsConfig;
+        linux?: IKeyBindingsConfig;
     };
     components: {
         [key: string]: IComponent;

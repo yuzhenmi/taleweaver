@@ -72,21 +72,39 @@ export class Taleweaver {
                 'tw.cursor.moveDown': cursorCommandHandlers.moveDown,
                 'tw.cursor.moveLeft': cursorCommandHandlers.moveLeft,
                 'tw.cursor.moveRight': cursorCommandHandlers.moveRight,
+                'tw.cursor.moveLeftByWord': cursorCommandHandlers.moveLeftByWord,
+                'tw.cursor.moveRightByWord': cursorCommandHandlers.moveRightByWord,
+                'tw.cursor.moveToLineLeft': cursorCommandHandlers.moveToLineLeft,
+                'tw.cursor.moveToLineRight': cursorCommandHandlers.moveToLineRight,
+                'tw.cursor.moveToDocStart': cursorCommandHandlers.moveToDocStart,
+                'tw.cursor.moveToDocEnd': cursorCommandHandlers.moveToDocEnd,
                 'tw.cursor.moveHead': cursorCommandHandlers.moveHead,
                 'tw.cursor.moveHeadUp': cursorCommandHandlers.moveHeadUp,
                 'tw.cursor.moveHeadDown': cursorCommandHandlers.moveHeadDown,
                 'tw.cursor.moveHeadLeft': cursorCommandHandlers.moveHeadLeft,
                 'tw.cursor.moveHeadRight': cursorCommandHandlers.moveHeadRight,
+                'tw.cursor.moveHeadLeftByWord': cursorCommandHandlers.moveHeadLeftByWord,
+                'tw.cursor.moveHeadRightByWord': cursorCommandHandlers.moveHeadRightByWord,
+                'tw.cursor.moveHeadToLineLeft': cursorCommandHandlers.moveHeadToLineLeft,
+                'tw.cursor.moveHeadToLineRight': cursorCommandHandlers.moveHeadToLineRight,
+                'tw.cursor.moveHeadToDocStart': cursorCommandHandlers.moveHeadToDocStart,
+                'tw.cursor.moveHeadToDocEnd': cursorCommandHandlers.moveHeadToDocEnd,
+                'tw.cursor.selectAll': cursorCommandHandlers.selectAll,
             },
             keyBindings: {
-                up: { command: 'tw.cursor.moveUp' },
-                down: { command: 'tw.cursor.moveDown' },
-                left: { command: 'tw.cursor.moveLeft' },
-                right: { command: 'tw.cursor.moveRight' },
-                'shift+up': { command: 'tw.cursor.moveHeadUp' },
-                'shift+down': { command: 'tw.cursor.moveHeadDown' },
-                'shift+left': { command: 'tw.cursor.moveHeadLeft' },
-                'shift+right': { command: 'tw.cursor.moveHeadRight' },
+                common: {
+                    up: { command: 'tw.cursor.moveUp' },
+                    down: { command: 'tw.cursor.moveDown' },
+                    left: { command: 'tw.cursor.moveLeft' },
+                    right: { command: 'tw.cursor.moveRight' },
+                    'shift+up': { command: 'tw.cursor.moveHeadUp' },
+                    'shift+down': { command: 'tw.cursor.moveHeadDown' },
+                    'shift+left': { command: 'tw.cursor.moveHeadLeft' },
+                    'shift+right': { command: 'tw.cursor.moveHeadRight' },
+                },
+                macos: {
+                    'cmd+a': { command: 'tw.cursor.selectAll' },
+                },
             },
             components: {
                 doc: new DocComponent('doc'),
@@ -114,5 +132,6 @@ export class Taleweaver {
         this.serviceRegistry.registerService('render', this.renderService);
         this.serviceRegistry.registerService('layout', this.layoutService);
         this.serviceRegistry.registerService('view', this.viewService);
+        this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
     }
 }
