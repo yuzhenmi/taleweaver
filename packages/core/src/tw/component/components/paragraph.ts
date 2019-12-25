@@ -127,24 +127,20 @@ export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
         return 'line-break';
     }
 
-    getSize() {
-        return 0;
-    }
-
-    getWidth() {
-        return 0;
-    }
-
-    getHeight() {
-        return 0;
-    }
-
     getPaddingTop() {
-        return 0;
+        const previousSibling = this.getPreviousSibling() as ILayoutNode | undefined;
+        if (!previousSibling) {
+            return 0;
+        }
+        return previousSibling.getPaddingTop();
     }
 
     getPaddingBottom() {
-        return 0;
+        const previousSibling = this.getPreviousSibling() as ILayoutNode | undefined;
+        if (!previousSibling) {
+            return 0;
+        }
+        return previousSibling.getPaddingBottom();
     }
 
     getPaddingLeft() {
@@ -161,20 +157,25 @@ export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
 }
 
 export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
+    protected height?: number;
+
     getPartId() {
         return 'line-break-atomic';
     }
 
     getSize() {
-        return 0;
+        return 1;
     }
 
     getWidth() {
-        return 0;
+        return 5;
     }
 
     getHeight() {
-        return 0;
+        if (this.height === undefined) {
+            this.takeMeasurement();
+        }
+        return this.height!;
     }
 
     getPaddingTop() {
@@ -232,6 +233,15 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
                 paddingRight: 0,
             },
         ];
+    }
+
+    protected takeMeasurement() {
+        this.height = 0;
+        const previousSibling = this.getPreviousSiblingAllowCrossParent() as ILayoutNode | undefined;
+        if (!previousSibling) {
+            return;
+        }
+        this.height = previousSibling.getHeight();
     }
 }
 

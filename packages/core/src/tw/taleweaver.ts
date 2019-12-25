@@ -1,3 +1,4 @@
+import * as cursorCommandHandlers from './command/handlers/cursor';
 import * as viewCommandHandlers from './command/handlers/view';
 import { CommandService, ICommandService } from './command/service';
 import { DocComponent } from './component/components/doc';
@@ -7,6 +8,7 @@ import { ComponentService, IComponentService } from './component/service';
 import { IConfig, IExternalConfig } from './config/config';
 import { ConfigService, IConfigService } from './config/service';
 import { CursorService, ICursorService } from './cursor/service';
+import { IKeyBindingService, KeyBindingService } from './key-binding/service';
 import { ILayoutService, LayoutService } from './layout/service';
 import { IModelService, ModelService } from './model/service';
 import { IRenderService, RenderService } from './render/service';
@@ -31,6 +33,7 @@ export class Taleweaver {
     protected renderService: IRenderService;
     protected layoutService: ILayoutService;
     protected viewService: IViewService;
+    protected keyBindingService: IKeyBindingService;
 
     constructor(initialMarkup: string, config: IExternalConfig) {
         this.instanceId = generateId();
@@ -51,6 +54,7 @@ export class Taleweaver {
             this.renderService,
             this.commandService,
         );
+        this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);
         this.registerServices();
     }
 
@@ -63,6 +67,26 @@ export class Taleweaver {
             commands: {
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
+                'tw.cursor.move': cursorCommandHandlers.move,
+                'tw.cursor.moveUp': cursorCommandHandlers.moveUp,
+                'tw.cursor.moveDown': cursorCommandHandlers.moveDown,
+                'tw.cursor.moveLeft': cursorCommandHandlers.moveLeft,
+                'tw.cursor.moveRight': cursorCommandHandlers.moveRight,
+                'tw.cursor.moveHead': cursorCommandHandlers.moveHead,
+                'tw.cursor.moveHeadUp': cursorCommandHandlers.moveHeadUp,
+                'tw.cursor.moveHeadDown': cursorCommandHandlers.moveHeadDown,
+                'tw.cursor.moveHeadLeft': cursorCommandHandlers.moveHeadLeft,
+                'tw.cursor.moveHeadRight': cursorCommandHandlers.moveHeadRight,
+            },
+            keyBindings: {
+                up: { command: 'tw.cursor.moveUp' },
+                down: { command: 'tw.cursor.moveDown' },
+                left: { command: 'tw.cursor.moveLeft' },
+                right: { command: 'tw.cursor.moveRight' },
+                'shift+up': { command: 'tw.cursor.moveHeadUp' },
+                'shift+down': { command: 'tw.cursor.moveHeadDown' },
+                'shift+left': { command: 'tw.cursor.moveHeadLeft' },
+                'shift+right': { command: 'tw.cursor.moveHeadRight' },
             },
             components: {
                 doc: new DocComponent('doc'),

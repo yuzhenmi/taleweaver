@@ -4,13 +4,13 @@ import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
     inPage: boolean;
-    position: number;
+    offset: number;
 }
 
 export interface IPointerDidMoveEvent {
     inPage: boolean;
     pointerDown: boolean;
-    position: number;
+    offset: number;
 }
 
 export interface IPointerDidUpEvent {}
@@ -46,27 +46,28 @@ export class PointerObserver implements IPointerObserver {
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
-        const position = this.resolvePosition(event.clientX, event.clientY);
-        if (position === null) {
+        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        if (offset === null) {
             return;
         }
         // Bypass browser selection
         event.preventDefault();
+        this.pointerDown = true;
         this.pointerDidDownEventEmitter.emit({
             inPage: this.isDOMElementInPage(event.target as HTMLElement),
-            position,
+            offset,
         });
     };
 
     protected handleMouseMove = (event: MouseEvent) => {
-        const position = this.resolvePosition(event.clientX, event.clientY);
-        if (position === null) {
+        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        if (offset === null) {
             return;
         }
         this.pointerDidMoveEventEmitter.emit({
             inPage: this.isDOMElementInPage(event.target as HTMLElement),
             pointerDown: this.pointerDown,
-            position,
+            offset,
         });
     };
 
@@ -75,7 +76,7 @@ export class PointerObserver implements IPointerObserver {
         this.pointerDidUpEventEmitter.emit({});
     };
 
-    protected resolvePosition(x: number, y: number): number | null {
+    protected resolveCoordinates(x: number, y: number): number | null {
         const pageViewNodes = this.viewService.getDocNode().getChildren();
         let cumulatedOffset = 0;
         for (let pageViewNode of pageViewNodes) {
@@ -88,10 +89,8 @@ export class PointerObserver implements IPointerObserver {
                 pageBoundingClientRect.top <= y &&
                 pageBoundingClientRect.bottom >= y
             ) {
-                const pageDOMContentContainer = pageViewNode.getDOMContentContainer();
-                const pageContentBoundingClientRect = pageDOMContentContainer.getBoundingClientRect();
-                const pageX = x - pageContentBoundingClientRect.left;
-                const pageY = y - pageContentBoundingClientRect.top;
+                const pageX = x - pageBoundingClientRect.left;
+                const pageY = y - pageBoundingClientRect.top;
                 return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
             }
             cumulatedOffset += pageLayoutNode.getSize();

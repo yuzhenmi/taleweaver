@@ -106,10 +106,6 @@ export class TextLayoutNode extends InlineLayoutNode {
         return 'text';
     }
 
-    getSize() {
-        return 1;
-    }
-
     getPaddingTop() {
         return 3;
     }
@@ -155,7 +151,7 @@ export class WordLayoutNode extends AtomicLayoutNode {
     }
 
     getSize() {
-        return 1;
+        return this.word.text.length;
     }
 
     getWidth() {

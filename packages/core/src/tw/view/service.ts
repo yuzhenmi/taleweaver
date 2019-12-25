@@ -8,12 +8,14 @@ import { CursorView, ICursorView } from './cursor';
 import { IDocViewNode } from './doc-node';
 import { DOMController, IDOMController } from './dom-controller';
 import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
+import { IDidPressKeyEvent } from './keyboard-observer';
 import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
 export interface IViewService {
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
     onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
     getDocNode(): IDocViewNode;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
@@ -49,6 +51,10 @@ export class ViewService implements IViewService {
 
     onDidBlur(listener: IEventListener<IDidBlurEvent>) {
         this.domController.onDidBlur(listener);
+    }
+
+    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+        this.domController.onDidPressKey(listener);
     }
 
     getDocNode() {

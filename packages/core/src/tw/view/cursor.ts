@@ -50,6 +50,7 @@ export class CursorView implements ICursorView {
         if (!this.attached) {
             return;
         }
+        this.clearDOMSelections();
         const cursorState = this.cursorService.getCursorState();
         const anchor = this.boundCursorPosition(cursorState.anchor);
         const head = this.boundCursorPosition(cursorState.head);
@@ -154,6 +155,15 @@ export class CursorView implements ICursorView {
         } else {
             this.domCaret.style.visibility = 'hidden';
         }
+    }
+
+    protected clearDOMSelections() {
+        this.domSelections.forEach(domSelection => {
+            if (domSelection.parentElement) {
+                domSelection.parentElement.removeChild(domSelection);
+            }
+        });
+        this.domSelections = [];
     }
 
     protected buildDOMSelection(layoutRect: ILayoutRect) {

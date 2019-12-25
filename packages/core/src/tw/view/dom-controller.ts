@@ -103,22 +103,19 @@ export class DOMController {
     };
 
     protected handlePointerDidDown = (event: IPointerDidDownEvent) => {
-        if (this.focused) {
-            if (event.inPage) {
-                this.commandService.executeCommand('tw.state.moveCursor', event.position);
-            } else {
-                this.commandService.executeCommand('tw.view.blur');
-            }
-        } else {
-            if (event.inPage) {
-                this.commandService.executeCommand('tw.view.focus');
-            }
+        if (event.inPage && !this.focused) {
+            this.commandService.executeCommand('tw.view.focus');
+        } else if (!event.inPage && this.focused) {
+            this.commandService.executeCommand('tw.view.blur');
+        }
+        if (event.inPage) {
+            this.commandService.executeCommand('tw.cursor.move', event.offset);
         }
     };
 
     protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
         if (event.pointerDown) {
-            this.commandService.executeCommand('tw.state.moveCursorHead', event.position);
+            this.commandService.executeCommand('tw.cursor.moveHead', event.offset);
         }
     };
 

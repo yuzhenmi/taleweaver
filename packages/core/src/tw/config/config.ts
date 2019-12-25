@@ -14,6 +14,12 @@ export interface IConfig {
     commands: {
         [key: string]: ICommandHandler;
     };
+    keyBindings: {
+        [key: string]: {
+            command: string;
+            args?: any[];
+        };
+    };
     components: {
         [key: string]: IComponent;
     };

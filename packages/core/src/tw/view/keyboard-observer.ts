@@ -111,6 +111,42 @@ export class KeyboardObserver implements IKeyboardObserver {
 
 class KeyInterpreter {
     interpretFromKeyboardEvent(event: KeyboardEvent) {
-        return 'A';
+        let key: string;
+        switch (event.key) {
+            case 'Control':
+            case 'Shift':
+            case 'Alt':
+            case 'Meta':
+                return undefined;
+            case 'ArrowLeft':
+                key = 'left';
+                break;
+            case 'ArrowRight':
+                key = 'right';
+                break;
+            case 'ArrowUp':
+                key = 'up';
+                break;
+            case 'ArrowDown':
+                key = 'down';
+                break;
+            default:
+                key = event.key.toLowerCase();
+        }
+        // TODO: Handle meta key in platform-specific manner:
+        // cmd for macOS, win for Windows, meta for Linux
+        if (event.metaKey) {
+            key = `meta+${key}`;
+        }
+        if (event.altKey) {
+            key = `alt+${key}`;
+        }
+        if (event.shiftKey) {
+            key = `shift+${key}`;
+        }
+        if (event.ctrlKey) {
+            key = `ctrl+${key}`;
+        }
+        return key;
     }
 }
