@@ -2,12 +2,14 @@ import { generateId } from '../util/id';
 import { IBlockLayoutNode } from './block-node';
 import { IDocLayoutNode } from './doc-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutRect } from './rect';
 
 export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
     getContentHeight(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
     convertCoordinatesToOffset(x: number, y: number): number;
+    resolveRects(from: number, to: number): ILayoutRect[];
     clone(): IPageLayoutNode;
 }
 
@@ -134,6 +136,49 @@ export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLa
             offset--;
         }
         return offset;
+    }
+
+    resolveRects(from: number, to: number) {
+        const rects: ILayoutRect[] = [];
+        let offset = 0;
+        let cumulatedHeight = 0;
+        this.getChildren().forEach((child, n) => {
+            const childHeight = child.getHeight();
+            const minChildOffset = 0;
+            const maxChildOffset = child.getSize();
+            const childFrom = Math.max(from - offset, minChildOffset);
+            const childTo = Math.min(to - offset, maxChildOffset);
+            if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
+                const childRects = child.resolveRects(childFrom, childTo);
+                childRects.forEach(childRect => {
+                    const width = childRect.width;
+                    const height = childRect.height;
+                    const paddingTop = this.getPaddingTop();
+                    const paddingBottom = this.getPaddingBottom();
+                    const paddingLeft = this.getPaddingLeft();
+                    const paddingRight = this.getPaddingRight();
+                    const left = paddingLeft + childRect.left;
+                    const right = paddingRight + childRect.right;
+                    const top = cumulatedHeight + paddingTop + childRect.top;
+                    const bottom = this.getHeight() - cumulatedHeight - childHeight - childRect.bottom - paddingBottom;
+                    rects.push({
+                        width,
+                        height,
+                        left,
+                        right,
+                        top,
+                        bottom,
+                        paddingTop: childRect.paddingTop,
+                        paddingBottom: childRect.paddingBottom,
+                        paddingLeft: childRect.paddingLeft,
+                        paddingRight: childRect.paddingRight,
+                    });
+                });
+            }
+            offset += child.getSize();
+            cumulatedHeight += childHeight;
+        });
+        return rects;
     }
 
     clearOwnCache() {

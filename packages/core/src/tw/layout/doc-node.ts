@@ -1,7 +1,10 @@
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
 import { IPageLayoutNode } from './page-node';
+import { IPageLayoutRect } from './rect';
 
-export interface IDocLayoutNode extends ILayoutNode<never, IPageLayoutNode> {}
+export interface IDocLayoutNode extends ILayoutNode<never, IPageLayoutNode> {
+    resolvePageRects(from: number, to: number): IPageLayoutRect[];
+}
 
 export abstract class DocLayoutNode extends LayoutNode<never, IPageLayoutNode> implements IDocLayoutNode {
     protected size?: number;
@@ -65,6 +68,29 @@ export abstract class DocLayoutNode extends LayoutNode<never, IPageLayoutNode> i
             cumulatedOffset += childSize;
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    resolvePageRects(from: number, to: number) {
+        const rects: IPageLayoutRect[] = [];
+        this.getChildren().forEach(() => {
+            rects.push([]);
+        });
+        let offset = 0;
+        this.getChildren().forEach((child, n) => {
+            const childSize = child.getSize();
+            const minChildOffset = 0;
+            const maxChildOffset = childSize;
+            const childFrom = Math.max(from - offset, minChildOffset);
+            const childTo = Math.min(to - offset, maxChildOffset);
+            if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
+                const childRects = child.resolveRects(childFrom, childTo);
+                childRects.forEach(childRect => {
+                    rects[n].push(childRect);
+                });
+            }
+            offset += childSize;
+        });
+        return rects;
     }
 
     clearOwnCache() {

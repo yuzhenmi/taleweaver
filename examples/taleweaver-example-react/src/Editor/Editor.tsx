@@ -50,7 +50,6 @@ export default function Editor({ initialMarkup, config }: IProps) {
     }, []);
     useEffect(() => {
         if (taleweaver && domRef.current) {
-            console.log(taleweaver);
             taleweaver.attach(domRef.current);
         }
     }, [taleweaver, domRef.current]);

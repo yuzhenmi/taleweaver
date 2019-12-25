@@ -1,10 +1,12 @@
 import { IAtomicLayoutNode } from './atomic-node';
 import { ILineLayoutNode } from './line-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutRect } from './rect';
 
 export interface IInlineLayoutNode extends ILayoutNode<ILineLayoutNode, IAtomicLayoutNode> {
     getTailTrimmedWidth(): number;
     convertCoordinateToOffset(x: number): number;
+    resolveRects(from: number, to: number): ILayoutRect[];
     clone(): IInlineLayoutNode;
 }
 
@@ -98,6 +100,47 @@ export abstract class InlineLayoutNode extends LayoutNode<ILineLayoutNode, IAtom
             cumulatedWidth += childWidth;
         }
         return offset;
+    }
+
+    resolveRects(from: number, to: number) {
+        const rects: ILayoutRect[] = [];
+        let offset = 0;
+        let cumulatedWidth = 0;
+        this.getChildren().forEach((child, n) => {
+            const childWidth = child.getWidth();
+            const minChildOffset = 0;
+            const maxChildOffset = child.getSize();
+            const childFrom = Math.max(from - offset, minChildOffset);
+            const childTo = Math.min(to - offset, maxChildOffset);
+            if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
+                const childRects = child.resolveRects(childFrom, childTo);
+                childRects.forEach(childRect => {
+                    const width = childRect.width;
+                    const height = childRect.height;
+                    const paddingTop = this.getPaddingTop();
+                    const paddingBottom = this.getPaddingBottom();
+                    const left = cumulatedWidth + childRect.left;
+                    const right = this.getWidth() - cumulatedWidth - childRect.right;
+                    const top = paddingTop + childRect.top;
+                    const bottom = paddingBottom + childRect.bottom;
+                    rects.push({
+                        width,
+                        height,
+                        left,
+                        right,
+                        top,
+                        bottom,
+                        paddingTop,
+                        paddingBottom,
+                        paddingLeft: 0,
+                        paddingRight: 0,
+                    });
+                });
+            }
+            offset += child.getSize();
+            cumulatedWidth += childWidth;
+        });
+        return rects;
     }
 
     clearOwnCache() {

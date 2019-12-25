@@ -15,7 +15,7 @@ import { IViewService } from './service';
 
 export interface IDOMController {
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    connect(): void;
+    attach(): void;
     requestFocus(): void;
     requestBlur(): void;
     isFocused(): boolean;
@@ -57,7 +57,7 @@ export class DOMController {
         this.keyboardObserver.onDidPressKey(listener);
     }
 
-    connect() {
+    attach() {
         document.body.appendChild(this.$iframe);
         setTimeout(() => {
             this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);

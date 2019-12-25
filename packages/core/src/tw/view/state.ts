@@ -3,7 +3,6 @@ import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IDidUpdateLayoutStateEvent } from '../layout/state';
-import { generateId } from '../util/id';
 import { IDocViewNode } from './doc-node';
 import { IViewNode } from './node';
 import { ViewTreeBuilder } from './tree-builder';
@@ -20,11 +19,14 @@ export interface IViewState {
 
 export class ViewState implements IViewState {
     protected attached = false;
-    protected instanceId = generateId();
     protected docNode: IDocViewNode;
     protected didUpdateViewStateEventEmitter: IEventEmitter<IDidUpdateViewStateEvent> = new EventEmitter();
 
-    constructor(protected componentService: IComponentService, protected layoutService: ILayoutService) {
+    constructor(
+        protected instanceId: string,
+        protected componentService: IComponentService,
+        protected layoutService: ILayoutService,
+    ) {
         const docLayoutNode = layoutService.getDocNode();
         const treeBuilder = new ViewTreeBuilder(this.instanceId, componentService);
         this.docNode = treeBuilder.buildTree(docLayoutNode) as IDocViewNode;

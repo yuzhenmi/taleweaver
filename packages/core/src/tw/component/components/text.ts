@@ -201,6 +201,10 @@ export class WordLayoutNode extends AtomicLayoutNode {
         return this.tailTrimmedWidth;
     }
 
+    getWord() {
+        return this.word;
+    }
+
     convertCoordinateToOffset(x: number) {
         let lastWidth = 0;
         const text = this.word.text;
@@ -223,8 +227,45 @@ export class WordLayoutNode extends AtomicLayoutNode {
         return text.length;
     }
 
-    getWord() {
-        return this.word;
+    resolveRects(from: number, to: number) {
+        if (from === 0 && to === this.getSize()) {
+            return [
+                {
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: this.getWidth(),
+                    height: this.getHeight(),
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    paddingLeft: 0,
+                    paddingRight: 0,
+                },
+            ];
+        }
+        const fromTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, from), this.style);
+        const toTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, to), this.style);
+        const width = toTextMeasurement.width - fromTextMeasurement.width;
+        const height = this.getHeight();
+        const left = fromTextMeasurement.width;
+        const right = this.getWidth() - toTextMeasurement.width;
+        const top = 0;
+        const bottom = 0;
+        return [
+            {
+                width,
+                height,
+                left,
+                right,
+                top,
+                bottom,
+                paddingTop: 0,
+                paddingBottom: 0,
+                paddingLeft: 0,
+                paddingRight: 0,
+            },
+        ];
     }
 
     protected takeMeasurement() {
@@ -283,6 +324,13 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
         this.domContent.style.textDecoration = style.strikethrough ? 'line-through' : '';
         this.domContent.innerText = text;
+        this.domContent.setAttribute(
+            'data-content',
+            this.layoutNode
+                .getChildren()
+                .map(c => c.getWidth())
+                .join(' '),
+        );
     }
 }
 
@@ -354,9 +402,12 @@ export class TextMeasurer implements ITextMeasurer {
         const ctx = this.$canvas.getContext('2d')!;
         const weight = textStyle.weight!;
         const size = textStyle.size!;
-        const font = textStyle.font!;
+        let font = textStyle.font!;
+        if (font.indexOf(' ') >= 0) {
+            font = `'${font}'`;
+        }
         const letterSpacing = textStyle.letterSpacing!;
-        ctx.font = `${weight} ${size}px "${font}"`;
+        ctx.font = `${weight} ${size}px ${font}`;
         const measurement = ctx.measureText(text);
         const width =
             letterSpacing === 0 || text.length <= 1

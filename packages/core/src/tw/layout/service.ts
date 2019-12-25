@@ -4,12 +4,14 @@ import { IRenderService } from '../render/service';
 import { IService } from '../service/service';
 import { IDocLayoutNode } from './doc-node';
 import { ILayoutPosition } from './node';
+import { IPageLayoutRect } from './rect';
 import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 
 export interface ILayoutService extends IService {
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
     getDocNode(): IDocLayoutNode;
     resolvePosition(offset: number): ILayoutPosition;
+    resolvePageRects(from: number, to: number): IPageLayoutRect[];
 }
 
 export class LayoutService implements ILayoutService {
@@ -29,5 +31,9 @@ export class LayoutService implements ILayoutService {
 
     resolvePosition(offset: number) {
         return this.state.getDocNode().resolvePosition(offset);
+    }
+
+    resolvePageRects(from: number, to: number) {
+        return this.state.getDocNode().resolvePageRects(from, to);
     }
 }

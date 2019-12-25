@@ -11,6 +11,7 @@ import { IModelService, ModelService } from './model/service';
 import { IRenderService, RenderService } from './render/service';
 import { IServiceRegistry, ServiceRegistry } from './service/registry';
 import { IStateService, StateService } from './state/service';
+import { generateId } from './util/id';
 import { IViewService, ViewService } from './view/service';
 
 export interface ITaleweaver {
@@ -18,6 +19,7 @@ export interface ITaleweaver {
 }
 
 export class Taleweaver {
+    protected instanceId: string;
     protected serviceRegistry: IServiceRegistry;
     protected configService: IConfigService;
     protected commandService: ICommandService;
@@ -30,6 +32,7 @@ export class Taleweaver {
     protected viewService: IViewService;
 
     constructor(initialMarkup: string, config: IExternalConfig) {
+        this.instanceId = generateId();
         this.serviceRegistry = new ServiceRegistry();
         this.configService = new ConfigService(this.buildBaseConfig(), config);
         this.commandService = new CommandService(this.configService, this.serviceRegistry);
@@ -39,7 +42,14 @@ export class Taleweaver {
         this.modelService = new ModelService(this.componentService, this.stateService);
         this.renderService = new RenderService(this.componentService, this.modelService);
         this.layoutService = new LayoutService(this.componentService, this.renderService);
-        this.viewService = new ViewService(this.componentService, this.layoutService);
+        this.viewService = new ViewService(
+            this.instanceId,
+            this.componentService,
+            this.layoutService,
+            this.cursorService,
+            this.renderService,
+            this.commandService,
+        );
         this.registerServices();
     }
 

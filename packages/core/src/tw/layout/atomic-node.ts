@@ -1,14 +1,17 @@
 import { IInlineLayoutNode } from './inline-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutRect } from './rect';
 
 export interface IAtomicLayoutNode extends ILayoutNode<IInlineLayoutNode, never> {
     getTailTrimmedWidth(): number;
     convertCoordinateToOffset(x: number): number;
+    resolveRects(from: number, to: number): ILayoutRect[];
 }
 
 export abstract class AtomicLayoutNode extends LayoutNode<IInlineLayoutNode, never> implements IAtomicLayoutNode {
     abstract getTailTrimmedWidth(): number;
     abstract convertCoordinateToOffset(x: number): number;
+    abstract resolveRects(from: number, to: number): ILayoutRect[];
 
     getNodeClass(): ILayoutNodeClass {
         return 'atomic';

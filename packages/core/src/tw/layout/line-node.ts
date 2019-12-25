@@ -2,12 +2,14 @@ import { generateId } from '../util/id';
 import { IBlockLayoutNode } from './block-node';
 import { IInlineLayoutNode } from './inline-node';
 import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutRect, mergeLayoutRects } from './rect';
 
 export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
     getContentWidth(): number;
     isFlowed(): boolean;
     markAsFlowed(): void;
     convertCoordinateToOffset(x: number): number;
+    resolveRects(from: number, to: number): ILayoutRect[];
     clone(): ILineLayoutNode;
 }
 
@@ -126,6 +128,50 @@ export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlin
             return offset - 1;
         }
         return offset;
+    }
+
+    resolveRects(from: number, to: number) {
+        const rects: ILayoutRect[] = [];
+        let offset = 0;
+        let cumulatedWidth = 0;
+        this.getChildren().forEach((child, n) => {
+            const childWidth = child.getWidth();
+            const minChildOffset = 0;
+            const maxChildOffset = child.getSize();
+            const childFrom = Math.max(from - offset, minChildOffset);
+            const childTo = Math.min(to - offset, maxChildOffset);
+            if (
+                childFrom <= maxChildOffset &&
+                childTo >= minChildOffset &&
+                !(childFrom === childTo && childTo === maxChildOffset)
+            ) {
+                const childRects = child.resolveRects(childFrom, childTo);
+                childRects.forEach(childRect => {
+                    const width = childRect.width;
+                    const height = childRect.height;
+                    const left = cumulatedWidth + childRect.left;
+                    const right = this.getWidth() - cumulatedWidth - childRect.right;
+                    const top = childRect.top;
+                    const bottom = childRect.bottom;
+                    rects.push({
+                        width,
+                        height,
+                        left,
+                        right,
+                        top,
+                        bottom,
+                        paddingTop: childRect.paddingTop,
+                        paddingBottom: childRect.paddingBottom,
+                        paddingLeft: 0,
+                        paddingRight: 0,
+                    });
+                });
+            }
+            offset += child.getSize();
+            cumulatedWidth += childWidth;
+        });
+        mergeLayoutRects(rects);
+        return rects;
     }
 
     clearOwnCache() {

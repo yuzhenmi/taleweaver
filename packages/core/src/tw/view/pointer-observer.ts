@@ -45,7 +45,7 @@ export class PointerObserver implements IPointerObserver {
         this.pointerDidUpEventEmitter.on(listener);
     }
 
-    protected handleMouseDown(event: MouseEvent) {
+    protected handleMouseDown = (event: MouseEvent) => {
         const position = this.resolvePosition(event.clientX, event.clientY);
         if (position === null) {
             return;
@@ -54,9 +54,9 @@ export class PointerObserver implements IPointerObserver {
             inPage: this.isDOMElementInPage(event.target as HTMLElement),
             position,
         });
-    }
+    };
 
-    protected handleMouseMove(event: MouseEvent) {
+    protected handleMouseMove = (event: MouseEvent) => {
         const position = this.resolvePosition(event.clientX, event.clientY);
         if (position === null) {
             return;
@@ -66,12 +66,12 @@ export class PointerObserver implements IPointerObserver {
             pointerDown: this.pointerDown,
             position,
         });
-    }
+    };
 
-    protected handleMouseUp() {
+    protected handleMouseUp = () => {
         this.pointerDown = false;
         this.pointerDidUpEventEmitter.emit({});
-    }
+    };
 
     protected resolvePosition(x: number, y: number): number | null {
         const pageViewNodes = this.viewService.getDocNode().getChildren();

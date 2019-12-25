@@ -200,6 +200,39 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
     convertCoordinateToOffset(x: number) {
         return 0;
     }
+
+    resolveRects(from: number, to: number) {
+        if (from === to) {
+            return [
+                {
+                    left: 0,
+                    right: this.getWidth(),
+                    top: 0,
+                    bottom: 0,
+                    width: 0,
+                    height: this.getHeight(),
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    paddingLeft: 0,
+                    paddingRight: 0,
+                },
+            ];
+        }
+        return [
+            {
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: this.getWidth(),
+                height: this.getHeight(),
+                paddingTop: 0,
+                paddingBottom: 0,
+                paddingLeft: 0,
+                paddingRight: 0,
+            },
+        ];
+    }
 }
 
 export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
