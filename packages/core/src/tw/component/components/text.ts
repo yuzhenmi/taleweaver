@@ -1,16 +1,15 @@
-import { Component, IComponent } from 'tw/component/component';
-import { AtomicLayoutNode } from 'tw/layout/atomic-node';
-import { InlineLayoutNode } from 'tw/layout/inline-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { ITextMeasurer } from 'tw/layout/text-measurer';
-import { InlineModelNode } from 'tw/model/inline-node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { AtomicRenderNode } from 'tw/render/atomic-node';
-import { InlineRenderNode } from 'tw/render/inline-node';
-import { IRenderNode, IStyle } from 'tw/render/node';
-import { generateId } from 'tw/util/id';
-import { breakTextToWords, IWord } from 'tw/util/language';
-import { InlineViewNode } from 'tw/view/inline-node';
+import { AtomicLayoutNode } from '../../layout/atomic-node';
+import { InlineLayoutNode } from '../../layout/inline-node';
+import { ILayoutNode } from '../../layout/node';
+import { InlineModelNode } from '../../model/inline-node';
+import { IAttributes, IModelNode } from '../../model/node';
+import { AtomicRenderNode } from '../../render/atomic-node';
+import { InlineRenderNode } from '../../render/inline-node';
+import { IRenderNode, IStyle } from '../../render/node';
+import { generateId } from '../../util/id';
+import { breakTextToWords, IWord } from '../../util/language';
+import { InlineViewNode } from '../../view/inline-node';
+import { Component, IComponent } from '../component';
 
 export interface ITextAttributes extends IAttributes {
     weight?: number;
@@ -20,6 +19,7 @@ export interface ITextAttributes extends IAttributes {
     underline?: boolean;
     italic?: boolean;
     strikethrough?: boolean;
+    color?: string;
 }
 
 export class TextModelNode extends InlineModelNode<ITextAttributes> {
@@ -48,6 +48,7 @@ export interface ITextStyle extends IStyle {
     underline: boolean;
     italic: boolean;
     strikethrough: boolean;
+    color: string;
 }
 
 export class TextRenderNode extends InlineRenderNode<ITextStyle> {
@@ -87,6 +88,15 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
     }
 }
 
+export interface ITextMeasurement {
+    width: number;
+    height: number;
+}
+
+export interface ITextMeasurer {
+    measure(text: string, style: ITextStyle): ITextMeasurement;
+}
+
 export class TextLayoutNode extends InlineLayoutNode {
     constructor(componentId: string, id: string, protected style: ITextStyle) {
         super(componentId, id);
@@ -101,11 +111,11 @@ export class TextLayoutNode extends InlineLayoutNode {
     }
 
     getPaddingTop() {
-        return 0;
+        return 3;
     }
 
     getPaddingBottom() {
-        return 0;
+        return 6;
     }
 
     getPaddingLeft() {
@@ -218,12 +228,7 @@ export class WordLayoutNode extends AtomicLayoutNode {
     }
 
     protected takeMeasurement() {
-        const measurement = this.textMeasurer.measure(this.word.text, {
-            weight: 400,
-            size: 16,
-            font: 'sans-serif',
-            letterSpacing: 0,
-        });
+        const measurement = this.textMeasurer.measure(this.word.text, this.style);
         this.width = measurement.width;
         this.height = measurement.height;
     }
@@ -252,7 +257,7 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
         return this.domContainer;
     }
 
-    protected onLayoutDidUpdate() {
+    onLayoutDidUpdate() {
         const text = this.layoutNode
             .getChildren()
             .map(child => {
@@ -263,8 +268,12 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
             })
             .join('');
         const style = this.layoutNode.getStyle();
+        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
+        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
         this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
         this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
+        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
+        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
         this.domContainer.style.fontFamily = style.font;
         this.domContainer.style.fontSize = `${style.size}px`;
         this.domContainer.style.letterSpacing = `${style.letterSpacing}px`;
@@ -291,12 +300,13 @@ export class TextComponent extends Component implements IComponent {
             const attributes = modelNode.getAttributes();
             const style = {
                 weight: attributes.weight || 400,
-                size: attributes.size || 14,
+                size: attributes.size || 16,
                 font: attributes.font || 'sans-serif',
                 letterSpacing: attributes.letterSpacing || 0,
                 underline: !!attributes.underline,
                 italic: !!attributes.italic,
                 strikethrough: !!attributes.strikethrough,
+                color: attributes.color || 'black',
             };
             const node = new TextRenderNode(this.id, modelNode.getId(), style);
             const words = breakTextToWords(modelNode.getContent());
@@ -330,5 +340,31 @@ export class TextComponent extends Component implements IComponent {
             return new TextViewNode(layoutNode);
         }
         throw new Error('Invalid text layout node');
+    }
+}
+
+export class TextMeasurer implements ITextMeasurer {
+    protected $canvas: HTMLCanvasElement;
+
+    constructor() {
+        this.$canvas = document.createElement('canvas');
+    }
+
+    measure(text: string, textStyle: ITextStyle) {
+        const ctx = this.$canvas.getContext('2d')!;
+        const weight = textStyle.weight!;
+        const size = textStyle.size!;
+        const font = textStyle.font!;
+        const letterSpacing = textStyle.letterSpacing!;
+        ctx.font = `${weight} ${size}px "${font}"`;
+        const measurement = ctx.measureText(text);
+        const width =
+            letterSpacing === 0 || text.length <= 1
+                ? measurement.width
+                : measurement.width + (text.length - 1) * letterSpacing;
+        return {
+            width,
+            height: size,
+        };
     }
 }

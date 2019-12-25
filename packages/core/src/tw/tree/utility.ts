@@ -1,4 +1,4 @@
-import { INode } from 'tw/tree/node';
+import { INode } from './node';
 
 export function getNodeLineage(node: INode) {
     const lineage: INode[] = [];

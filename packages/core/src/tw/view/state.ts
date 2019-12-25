@@ -1,12 +1,12 @@
-import { IComponentService } from 'tw/component/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { ILayoutService } from 'tw/layout/service';
-import { IDidUpdateLayoutStateEvent } from 'tw/layout/state';
-import { generateId } from 'tw/util/id';
-import { IDocViewNode } from 'tw/view/doc-node';
-import { IViewNode } from 'tw/view/node';
-import { ViewTreeBuilder } from 'tw/view/tree-builder';
+import { IComponentService } from '../component/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
+import { ILayoutService } from '../layout/service';
+import { IDidUpdateLayoutStateEvent } from '../layout/state';
+import { generateId } from '../util/id';
+import { IDocViewNode } from './doc-node';
+import { IViewNode } from './node';
+import { ViewTreeBuilder } from './tree-builder';
 
 export interface IDidUpdateViewStateEvent {
     readonly node: IViewNode;
@@ -15,9 +15,11 @@ export interface IDidUpdateViewStateEvent {
 export interface IViewState {
     onDidUpdateViewState: IOnEvent<IDidUpdateViewStateEvent>;
     getDocNode(): IDocViewNode;
+    attach(domContainer: HTMLElement): void;
 }
 
 export class ViewState implements IViewState {
+    protected attached = false;
     protected instanceId = generateId();
     protected docNode: IDocViewNode;
     protected didUpdateViewStateEventEmitter: IEventEmitter<IDidUpdateViewStateEvent> = new EventEmitter();
@@ -37,6 +39,15 @@ export class ViewState implements IViewState {
         return this.docNode;
     }
 
+    attach(domContainer: HTMLElement) {
+        if (this.attached) {
+            throw new Error('View is already attached to the DOM.');
+        }
+        this.performFirstRender(this.docNode);
+        this.docNode.attach(domContainer);
+        this.attached = true;
+    }
+
     protected handleDidUpdateLayoutStateEvent(event: IDidUpdateLayoutStateEvent) {
         const treeBuilder = new ViewTreeBuilder(this.instanceId, this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
@@ -46,5 +57,12 @@ export class ViewState implements IViewState {
         }
         node.onDidUpdate(updatedNode);
         this.didUpdateViewStateEventEmitter.emit({ node });
+    }
+
+    protected performFirstRender(node: IViewNode) {
+        node.onLayoutDidUpdate();
+        if (!node.isLeaf()) {
+            node.getChildren().forEach(child => this.performFirstRender(child));
+        }
     }
 }

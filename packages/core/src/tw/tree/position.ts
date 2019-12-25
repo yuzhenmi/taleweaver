@@ -1,4 +1,4 @@
-import { INode } from 'tw/tree/node';
+import { INode } from './node';
 
 export interface IPosition<TNode extends INode> {
     getNode(): TNode;

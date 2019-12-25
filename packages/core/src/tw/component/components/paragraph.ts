@@ -1,17 +1,17 @@
-import { Component, IComponent } from 'tw/component/component';
-import { AtomicLayoutNode } from 'tw/layout/atomic-node';
-import { BlockLayoutNode } from 'tw/layout/block-node';
-import { InlineLayoutNode } from 'tw/layout/inline-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { BlockModelNode } from 'tw/model/block-node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { AtomicRenderNode } from 'tw/render/atomic-node';
-import { BlockRenderNode } from 'tw/render/block-node';
-import { InlineRenderNode } from 'tw/render/inline-node';
-import { IRenderNode, IStyle } from 'tw/render/node';
-import { generateId } from 'tw/util/id';
-import { BlockViewNode } from 'tw/view/block-node';
-import { InlineViewNode } from 'tw/view/inline-node';
+import { AtomicLayoutNode } from '../../layout/atomic-node';
+import { BlockLayoutNode } from '../../layout/block-node';
+import { InlineLayoutNode } from '../../layout/inline-node';
+import { ILayoutNode } from '../../layout/node';
+import { BlockModelNode } from '../../model/block-node';
+import { IAttributes, IModelNode } from '../../model/node';
+import { AtomicRenderNode } from '../../render/atomic-node';
+import { BlockRenderNode } from '../../render/block-node';
+import { InlineRenderNode } from '../../render/inline-node';
+import { IRenderNode, IStyle } from '../../render/node';
+import { generateId } from '../../util/id';
+import { BlockViewNode } from '../../view/block-node';
+import { InlineViewNode } from '../../view/inline-node';
+import { Component, IComponent } from '../component';
 
 export interface IParagraphAttributes extends IAttributes {}
 
@@ -196,6 +196,10 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
     getTailTrimmedWidth() {
         return 0;
     }
+
+    convertCoordinateToOffset(x: number) {
+        return 0;
+    }
 }
 
 export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
@@ -212,6 +216,15 @@ export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
 
     getDOMContentContainer() {
         return this.domContainer;
+    }
+
+    onLayoutDidUpdate() {
+        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
+        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
+        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
+        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
+        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
+        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
     }
 }
 
@@ -230,6 +243,8 @@ export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBrea
     getDOMContentContainer() {
         return this.domContainer;
     }
+
+    onLayoutDidUpdate() {}
 }
 
 export class ParagraphComponent extends Component implements IComponent {

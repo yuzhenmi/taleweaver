@@ -1,5 +1,5 @@
-import { ILayoutNode } from 'tw/layout/node';
-import { INode, Node } from 'tw/tree/node';
+import { ILayoutNode } from '../layout/node';
+import { INode, Node } from '../tree/node';
 
 export type IViewNodeClass = 'doc' | 'page' | 'block' | 'line' | 'inline';
 
@@ -13,12 +13,8 @@ export interface IViewNode<
     getPartId(): string;
     getSize(): number;
     getDOMContainer(): HTMLElement;
-    insertChildDOM(childDOM: HTMLElement): void;
-    insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement): void;
-    appendChildDOM(childDOM: HTMLElement): void;
-    appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement): void;
-    removeChildDOM(childDOM: HTMLElement): void;
     getLayoutNode(): TLayoutNode;
+    onLayoutDidUpdate(): void;
 }
 
 export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends IViewNode, TChild extends IViewNode>
@@ -26,6 +22,7 @@ export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends 
     implements IViewNode<TLayoutNode, TParent, TChild> {
     abstract getNodeClass(): IViewNodeClass;
     abstract getDOMContainer(): HTMLElement;
+    abstract onLayoutDidUpdate(): void;
 
     protected abstract getDOMContentContainer(): HTMLElement;
 
@@ -49,29 +46,29 @@ export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends 
         return this.layoutNode.getSize();
     }
 
-    insertChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, domContentContainer.firstChild);
+    insertChild(child: TChild) {
+        super.insertChild(child);
+        this.insertChildDOM(child.getDOMContainer());
     }
 
-    insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, beforeChildDOM);
+    insertChildBefore(child: TChild, beforeChild: TChild) {
+        super.insertChildBefore(child, beforeChild);
+        this.insertChildDOMBefore(child.getDOMContainer(), beforeChild.getDOMContainer());
     }
 
-    appendChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.appendChild(childDOM);
+    appendChild(child: TChild) {
+        super.appendChild(child);
+        this.appendChildDOM(child.getDOMContainer());
     }
 
-    appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, afterChildDOM.nextSibling);
+    appendChildAfter(child: TChild, afterChild: TChild) {
+        super.appendChildAfter(child, afterChild);
+        this.appendChildDOMAfter(child.getDOMContainer(), afterChild.getDOMContainer());
     }
 
-    removeChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.removeChild(childDOM);
+    removeChild(child: TChild) {
+        super.removeChild(child);
+        this.removeChildDOM(child.getDOMContainer());
     }
 
     getLayoutNode() {
@@ -84,5 +81,28 @@ export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends 
         this.onLayoutDidUpdate();
     }
 
-    protected onLayoutDidUpdate() {}
+    protected insertChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, domContentContainer.firstChild);
+    }
+
+    protected insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, beforeChildDOM);
+    }
+
+    protected appendChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.appendChild(childDOM);
+    }
+
+    protected appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.insertBefore(childDOM, afterChildDOM.nextSibling);
+    }
+
+    protected removeChildDOM(childDOM: HTMLElement) {
+        const domContentContainer = this.getDOMContentContainer();
+        domContentContainer.removeChild(childDOM);
+    }
 }

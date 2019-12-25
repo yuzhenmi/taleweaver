@@ -1,5 +1,5 @@
-import { IComponent } from 'tw/component/component';
-import { ILineLayoutNode } from 'tw/layout/line-node';
+import { ILineLayoutNode } from '../layout/line-node';
+import { IComponent } from './component';
 
 export interface ILineComponent extends IComponent {
     buildLineLayoutNode(): ILineLayoutNode;

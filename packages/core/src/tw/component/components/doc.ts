@@ -1,12 +1,12 @@
-import { Component, IComponent } from 'tw/component/component';
-import { DocLayoutNode as AbstractDocLayoutNode } from 'tw/layout/doc-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { DocModelNode as AbstractDocModelNode } from 'tw/model/doc-node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { DocRenderNode as AbstractDocRenderNode } from 'tw/render/doc-node';
-import { IRenderNode, IStyle } from 'tw/render/node';
-import { generateId } from 'tw/util/id';
-import { DocViewNode as AbstractDocViewNode } from 'tw/view/doc-node';
+import { DocLayoutNode as AbstractDocLayoutNode } from '../../layout/doc-node';
+import { ILayoutNode } from '../../layout/node';
+import { DocModelNode as AbstractDocModelNode } from '../../model/doc-node';
+import { IAttributes, IModelNode } from '../../model/node';
+import { DocRenderNode as AbstractDocRenderNode } from '../../render/doc-node';
+import { IRenderNode, IStyle } from '../../render/node';
+import { generateId } from '../../util/id';
+import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
+import { Component, IComponent } from '../component';
 
 export interface IDocAttributes extends IAttributes {}
 
@@ -59,6 +59,9 @@ export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
     constructor(layoutNode: DocLayoutNode) {
         super(layoutNode);
         this.domContainer = document.createElement('div');
+        this.domContainer.style.textAlign = 'left';
+        this.domContainer.style.cursor = 'text';
+        this.domContainer.style.userSelect = 'none';
     }
 
     getDOMContainer() {
@@ -68,6 +71,8 @@ export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
     getDOMContentContainer() {
         return this.domContainer;
     }
+
+    onLayoutDidUpdate() {}
 }
 
 export class DocComponent extends Component implements IComponent {

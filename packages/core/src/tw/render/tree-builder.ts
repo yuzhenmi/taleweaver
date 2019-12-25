@@ -1,6 +1,6 @@
-import { IComponentService } from 'tw/component/service';
-import { IModelNode } from 'tw/model/node';
-import { IRenderNode } from 'tw/render/node';
+import { IComponentService } from '../component/service';
+import { IModelNode } from '../model/node';
+import { IRenderNode } from './node';
 
 export interface IRenderTreeBuilder {
     buildTree(modelNode: IModelNode): IRenderNode;

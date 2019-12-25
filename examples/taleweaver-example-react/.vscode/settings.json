@@ -3,8 +3,5 @@
         "source.organizeImports": true,
         "source.fixAll.eslint": true
     },
-    "eslint.validate": ["typescript"],
-    "files.exclude": {
-        "dist/": true
-    }
+    "eslint.validate": ["typescript"]
 }

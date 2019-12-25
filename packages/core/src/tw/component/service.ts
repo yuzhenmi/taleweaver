@@ -1,11 +1,11 @@
-import { IComponent } from 'tw/component/component';
-import { LineComponent } from 'tw/component/components/line';
-import { PageComponent } from 'tw/component/components/page';
-import { ILineComponent } from 'tw/component/line-component';
-import { IPageComponent } from 'tw/component/page-component';
-import { ComponentRegistry, IComponentRegistry } from 'tw/component/registry';
-import { IConfigService } from 'tw/config/service';
-import { IService } from 'tw/service/service';
+import { IConfigService } from '../config/service';
+import { IService } from '../service/service';
+import { IComponent } from './component';
+import { LineComponent } from './components/line';
+import { PageComponent } from './components/page';
+import { ILineComponent } from './line-component';
+import { IPageComponent } from './page-component';
+import { ComponentRegistry, IComponentRegistry } from './registry';
 
 export interface IComponentService extends IService {
     getPageComponent(): IPageComponent;
@@ -14,8 +14,8 @@ export interface IComponentService extends IService {
 }
 
 export class ComponentService implements IComponentService {
-    protected pageComponent = new PageComponent('$page');
-    protected lineComponent = new LineComponent('$line');
+    protected pageComponent = new PageComponent('page');
+    protected lineComponent = new LineComponent('line');
     protected registry: IComponentRegistry = new ComponentRegistry();
 
     constructor(configService: IConfigService) {

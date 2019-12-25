@@ -1,11 +1,11 @@
-import { DocComponent } from 'tw/component/components/doc';
-import { ParagraphComponent } from 'tw/component/components/paragraph';
-import { TextComponent } from 'tw/component/components/text';
-import { ConfigService } from 'tw/config/service';
-import { CursorService } from 'tw/cursor/service';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { State } from 'tw/state/state';
-import { DeleteOperation, InsertOperation, ITransformation, Transformation } from 'tw/state/transformation';
+import { DocComponent } from '../component/components/doc';
+import { ParagraphComponent } from '../component/components/paragraph';
+import { TextComponent } from '../component/components/text';
+import { ConfigService } from '../config/service';
+import { CursorService } from '../cursor/service';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { State } from './state';
+import { DeleteOperation, InsertOperation, ITransformation, Transformation } from './transformation';
 
 describe('State', () => {
     let textMeasurer: TextMeasurerStub;

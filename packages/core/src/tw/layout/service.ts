@@ -1,10 +1,10 @@
-import { IComponentService } from 'tw/component/service';
-import { IEventListener } from 'tw/event/listener';
-import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { ILayoutPosition } from 'tw/layout/node';
-import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from 'tw/layout/state';
-import { IRenderService } from 'tw/render/service';
-import { IService } from 'tw/service/service';
+import { IComponentService } from '../component/service';
+import { IEventListener } from '../event/listener';
+import { IRenderService } from '../render/service';
+import { IService } from '../service/service';
+import { IDocLayoutNode } from './doc-node';
+import { ILayoutPosition } from './node';
+import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 
 export interface ILayoutService extends IService {
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;

@@ -1,4 +1,4 @@
-import { IServiceRegistry } from 'tw/service/registry';
+import { IServiceRegistry } from './registry';
 
 export interface IService {}
 

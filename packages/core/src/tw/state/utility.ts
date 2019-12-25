@@ -1,4 +1,4 @@
-import { CLOSE_TOKEN, IToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IToken } from './token';
 
 export function identityTokenType(token: IToken) {
     if (token === CLOSE_TOKEN) {

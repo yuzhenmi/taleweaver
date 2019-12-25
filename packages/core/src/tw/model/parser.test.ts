@@ -1,11 +1,11 @@
-import { DocComponent } from 'tw/component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
-import { TextComponent, TextModelNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { TokenParser } from 'tw/model/parser';
-import { CLOSE_TOKEN } from 'tw/state/token';
+import { DocComponent } from '../component/components/doc';
+import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
+import { TextComponent, TextModelNode } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { CLOSE_TOKEN } from '../state/token';
+import { TokenParser } from './parser';
 
 describe('TokenParser', () => {
     let textMeasurer: TextMeasurerStub;

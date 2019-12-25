@@ -1,6 +1,6 @@
-import { IBlockModelNode } from 'tw/model/block-node';
-import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
-import { CLOSE_TOKEN, IToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IToken } from '../state/token';
+import { IBlockModelNode } from './block-node';
+import { IModelNode, IModelPosition, ModelNode, ModelPosition } from './node';
 
 export interface IInlineModelNode<TAttributes = {}> extends IModelNode<TAttributes, IBlockModelNode, never> {
     setContent(content: string): void;

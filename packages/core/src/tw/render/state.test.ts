@@ -1,17 +1,17 @@
-import { DocComponent, DocModelNode } from 'tw/component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
-import { TextComponent, TextModelNode, WordRenderNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener } from 'tw/event/listener';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { IDocModelNode } from 'tw/model/doc-node';
-import { IModelPosition } from 'tw/model/node';
-import { IModelService } from 'tw/model/service';
-import { IDidUpdateModelStateEvent } from 'tw/model/state';
-import { IInlineRenderNode } from 'tw/render/inline-node';
-import { RenderState } from 'tw/render/state';
+import { DocComponent, DocModelNode } from '../component/components/doc';
+import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
+import { TextComponent, TextModelNode, WordRenderNode } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener } from '../event/listener';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { IDocModelNode } from '../model/doc-node';
+import { IModelPosition } from '../model/node';
+import { IModelService } from '../model/service';
+import { IDidUpdateModelStateEvent } from '../model/state';
+import { IInlineRenderNode } from './inline-node';
+import { RenderState } from './state';
 
 class MockModelService implements IModelService {
     protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();

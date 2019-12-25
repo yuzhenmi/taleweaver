@@ -1,14 +1,14 @@
-import { IComponentService } from 'tw/component/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { IDocModelNode } from 'tw/model/doc-node';
-import { IModelNode } from 'tw/model/node';
-import { TokenParser } from 'tw/model/parser';
-import { IStateService } from 'tw/state/service';
-import { IDidUpdateStateEvent } from 'tw/state/state';
-import { IOpenToken, IToken } from 'tw/state/token';
-import { identityTokenType } from 'tw/state/utility';
-import { findCommonLineage } from 'tw/tree/utility';
+import { IComponentService } from '../component/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
+import { IStateService } from '../state/service';
+import { IDidUpdateStateEvent } from '../state/state';
+import { IOpenToken, IToken } from '../state/token';
+import { identityTokenType } from '../state/utility';
+import { findCommonLineage } from '../tree/utility';
+import { IDocModelNode } from './doc-node';
+import { IModelNode } from './node';
+import { TokenParser } from './parser';
 
 export interface IDidUpdateModelStateEvent {
     readonly node: IModelNode;

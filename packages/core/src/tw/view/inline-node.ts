@@ -1,6 +1,6 @@
-import { IInlineLayoutNode } from 'tw/layout/inline-node';
-import { ILineViewNode } from 'tw/view/line-node';
-import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
+import { IInlineLayoutNode } from '../layout/inline-node';
+import { ILineViewNode } from './line-node';
+import { IViewNode, IViewNodeClass, ViewNode } from './node';
 
 export interface IInlineViewNode<TLayoutNode extends IInlineLayoutNode = IInlineLayoutNode>
     extends IViewNode<TLayoutNode, ILineViewNode, never> {}

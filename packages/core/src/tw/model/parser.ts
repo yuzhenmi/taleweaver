@@ -1,8 +1,8 @@
-import { IComponentService } from 'tw/component/service';
-import { IInlineModelNode, InlineModelNode } from 'tw/model/inline-node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { ICloseToken, IContentToken, IOpenToken, IToken } from 'tw/state/token';
-import { identityTokenType } from 'tw/state/utility';
+import { IComponentService } from '../component/service';
+import { ICloseToken, IContentToken, IOpenToken, IToken } from '../state/token';
+import { identityTokenType } from '../state/utility';
+import { IInlineModelNode, InlineModelNode } from './inline-node';
+import { IAttributes, IModelNode } from './node';
 
 export interface ITokenParser {
     parse(tokens: IToken[]): IModelNode;

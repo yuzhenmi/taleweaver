@@ -1,5 +1,5 @@
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
-import { IPageLayoutNode } from 'tw/layout/page-node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { IPageLayoutNode } from './page-node';
 
 export interface IDocLayoutNode extends ILayoutNode<never, IPageLayoutNode> {}
 

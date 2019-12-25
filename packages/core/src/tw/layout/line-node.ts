@@ -1,7 +1,7 @@
-import { IBlockLayoutNode } from 'tw/layout/block-node';
-import { IInlineLayoutNode } from 'tw/layout/inline-node';
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
-import { generateId } from 'tw/util/id';
+import { generateId } from '../util/id';
+import { IBlockLayoutNode } from './block-node';
+import { IInlineLayoutNode } from './inline-node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
 
 export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
     getContentWidth(): number;
@@ -48,7 +48,7 @@ export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlin
         if (!parent) {
             return 0;
         }
-        return parent.getWidth();
+        return parent.getInnerWidth();
     }
 
     getHeight() {

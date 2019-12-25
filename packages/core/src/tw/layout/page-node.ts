@@ -1,7 +1,7 @@
-import { IBlockLayoutNode } from 'tw/layout/block-node';
-import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from 'tw/layout/node';
-import { generateId } from 'tw/util/id';
+import { generateId } from '../util/id';
+import { IBlockLayoutNode } from './block-node';
+import { IDocLayoutNode } from './doc-node';
+import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
 
 export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
     getContentHeight(): number;

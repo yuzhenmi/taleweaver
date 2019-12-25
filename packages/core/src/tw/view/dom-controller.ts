@@ -1,7 +1,7 @@
-import { ICommandService } from 'tw/command/service';
-import { IEventListener } from 'tw/event/listener';
-import { ClipboardObserver, IClipboardObserver } from 'tw/view/clipboard-observer';
-import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from 'tw/view/focus-observer';
+import { ICommandService } from '../command/service';
+import { IEventListener } from '../event/listener';
+import { ClipboardObserver, IClipboardObserver } from './clipboard-observer';
+import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
 import {
     ICompositionDidEnd,
     ICompositionDidStart,
@@ -9,14 +9,9 @@ import {
     IDidPressKeyEvent,
     IKeyboardObserver,
     KeyboardObserver,
-} from 'tw/view/keyboard-observer';
-import {
-    IPointerDidDownEvent,
-    IPointerDidMoveEvent,
-    IPointerObserver,
-    PointerObserver,
-} from 'tw/view/pointer-observer';
-import { IViewService } from 'tw/view/service';
+} from './keyboard-observer';
+import { IPointerDidDownEvent, IPointerDidMoveEvent, IPointerObserver, PointerObserver } from './pointer-observer';
+import { IViewService } from './service';
 
 export interface IDOMController {
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;

@@ -1,4 +1,4 @@
-import { IEventListener } from 'tw/event/listener';
+import { IEventListener } from './listener';
 
 export interface IEventEmitter<TEvent> {
     on(listener: IEventListener<TEvent>): void;

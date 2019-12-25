@@ -1,17 +1,17 @@
-import { DocComponent } from 'tw/component/components/doc';
-import { ParagraphComponent } from 'tw/component/components/paragraph';
-import { TextComponent } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener } from 'tw/event/listener';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { IInlineModelNode } from 'tw/model/inline-node';
-import { ModelState } from 'tw/model/state';
-import { IStateService } from 'tw/state/service';
-import { IDidUpdateStateEvent } from 'tw/state/state';
-import { CLOSE_TOKEN, IToken } from 'tw/state/token';
-import { IAppliedTransformation, ITransformation } from 'tw/state/transformation';
+import { DocComponent } from '../component/components/doc';
+import { ParagraphComponent } from '../component/components/paragraph';
+import { TextComponent } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener } from '../event/listener';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { IStateService } from '../state/service';
+import { IDidUpdateStateEvent } from '../state/state';
+import { CLOSE_TOKEN, IToken } from '../state/token';
+import { IAppliedTransformation, ITransformation } from '../state/transformation';
+import { IInlineModelNode } from './inline-node';
+import { ModelState } from './state';
 
 class MockStateService implements IStateService {
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();

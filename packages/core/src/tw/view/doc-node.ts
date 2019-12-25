@@ -1,6 +1,6 @@
-import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
-import { IPageViewNode } from 'tw/view/page-node';
+import { IDocLayoutNode } from '../layout/doc-node';
+import { IViewNode, IViewNodeClass, ViewNode } from './node';
+import { IPageViewNode } from './page-node';
 
 export interface IDocViewNode<TLayoutNode extends IDocLayoutNode = IDocLayoutNode>
     extends IViewNode<TLayoutNode, never, IPageViewNode> {

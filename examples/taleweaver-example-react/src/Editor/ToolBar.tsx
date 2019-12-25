@@ -1,4 +1,3 @@
-import { TextStyle } from '@taleweaver/core';
 import React from 'react';
 import styled from 'styled-components';
 
@@ -140,7 +139,7 @@ const ItemColorLine = styled.div<ItemColorLineProps>`
 `;
 
 interface Props {
-    textStyle: TextStyle | null;
+    textStyle: any | null;
 }
 
 interface State {

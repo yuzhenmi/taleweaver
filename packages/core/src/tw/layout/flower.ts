@@ -1,12 +1,12 @@
-import { IAtomicLayoutNode } from 'tw/layout/atomic-node';
-import { IBlockLayoutNode } from 'tw/layout/block-node';
-import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { IInlineLayoutNode } from 'tw/layout/inline-node';
-import { ILineLayoutNode } from 'tw/layout/line-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { IPageLayoutNode } from 'tw/layout/page-node';
-import { identifyLayoutNodeType } from 'tw/layout/utility';
-import { findCommonLineage } from 'tw/tree/utility';
+import { findCommonLineage } from '../tree/utility';
+import { IAtomicLayoutNode } from './atomic-node';
+import { IBlockLayoutNode } from './block-node';
+import { IDocLayoutNode } from './doc-node';
+import { IInlineLayoutNode } from './inline-node';
+import { ILineLayoutNode } from './line-node';
+import { ILayoutNode } from './node';
+import { IPageLayoutNode } from './page-node';
+import { identifyLayoutNodeType } from './utility';
 
 export interface ILayoutFlower {
     flow(node: ILayoutNode): void;

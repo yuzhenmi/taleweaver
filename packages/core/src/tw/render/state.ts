@@ -1,11 +1,11 @@
-import { IComponentService } from 'tw/component/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { IModelService } from 'tw/model/service';
-import { IDidUpdateModelStateEvent } from 'tw/model/state';
-import { IDocRenderNode } from 'tw/render/doc-node';
-import { IRenderNode } from 'tw/render/node';
-import { RenderTreeBuilder } from 'tw/render/tree-builder';
+import { IComponentService } from '../component/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
+import { IModelService } from '../model/service';
+import { IDidUpdateModelStateEvent } from '../model/state';
+import { IDocRenderNode } from './doc-node';
+import { IRenderNode } from './node';
+import { RenderTreeBuilder } from './tree-builder';
 
 export interface IDidUpdateRenderStateEvent {
     readonly node: IRenderNode;

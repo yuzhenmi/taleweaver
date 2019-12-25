@@ -1,10 +1,10 @@
-import { Component } from 'tw/component/component';
-import { ILineComponent } from 'tw/component/line-component';
-import { LineLayoutNode as AbstractLineLayoutNode } from 'tw/layout/line-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { IRenderNode } from 'tw/render/node';
-import { LineViewNode as AbstractLineViewNode } from 'tw/view/line-node';
+import { LineLayoutNode as AbstractLineLayoutNode } from '../../layout/line-node';
+import { ILayoutNode } from '../../layout/node';
+import { IAttributes, IModelNode } from '../../model/node';
+import { IRenderNode } from '../../render/node';
+import { LineViewNode as AbstractLineViewNode } from '../../view/line-node';
+import { Component } from '../component';
+import { ILineComponent } from '../line-component';
 
 export class LineLayoutNode extends AbstractLineLayoutNode {
     getPartId() {
@@ -30,6 +30,15 @@ export class LineViewNode extends AbstractLineViewNode<LineLayoutNode> {
 
     getDOMContentContainer() {
         return this.domContainer;
+    }
+
+    onLayoutDidUpdate() {
+        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
+        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
+        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
+        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
+        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
+        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
     }
 }
 

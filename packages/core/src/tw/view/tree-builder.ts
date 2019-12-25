@@ -1,6 +1,6 @@
-import { IComponentService } from 'tw/component/service';
-import { ILayoutNode } from 'tw/layout/node';
-import { IViewNode } from 'tw/view/node';
+import { IComponentService } from '../component/service';
+import { ILayoutNode } from '../layout/node';
+import { IViewNode } from './node';
 
 export interface IViewTreeBuilder {
     buildTree(layoutNode: ILayoutNode): IViewNode;

@@ -1,4 +1,4 @@
-import { ITextMeasurer, ITextStyle } from 'tw/layout/text-measurer';
+import { ITextMeasurer, ITextStyle } from './text';
 
 export class TextMeasurerStub implements ITextMeasurer {
     measure(text: string, textStyle: ITextStyle) {

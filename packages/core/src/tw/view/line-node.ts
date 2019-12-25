@@ -1,12 +1,12 @@
-import { ILineLayoutNode } from 'tw/layout/line-node';
-import { IBlockViewNode } from 'tw/view/block-node';
-import { IInlineViewNode } from 'tw/view/inline-node';
-import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
+import { ILineLayoutNode } from '../layout/line-node';
+import { IBlockViewNode } from './block-node';
+import { IInlineViewNode } from './inline-node';
+import { IViewNode, IViewNodeClass, ViewNode } from './node';
 
 export interface ILineViewNode<TLayoutNode extends ILineLayoutNode = ILineLayoutNode>
     extends IViewNode<TLayoutNode, IBlockViewNode, IInlineViewNode> {}
 
-export class LineViewNode<TLayoutNode extends ILineLayoutNode = ILineLayoutNode>
+export abstract class LineViewNode<TLayoutNode extends ILineLayoutNode = ILineLayoutNode>
     extends ViewNode<TLayoutNode, IBlockViewNode, IInlineViewNode>
     implements ILineViewNode<TLayoutNode> {
     protected size?: number;

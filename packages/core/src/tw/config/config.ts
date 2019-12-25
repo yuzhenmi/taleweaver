@@ -1,5 +1,5 @@
-import { ICommandHandler } from 'tw/command/command';
-import { IComponent } from 'tw/component/component';
+import { ICommandHandler } from '../command/command';
+import { IComponent } from '../component/component';
 
 export interface IConfig {
     commands: {
@@ -11,13 +11,16 @@ export interface IConfig {
     disableCursor?: boolean;
 }
 
+export interface ICoreConfig {
+    disableCursor?: boolean;
+    ssr?: boolean;
+}
+
+export interface IExtensionConfig {
+    [key: string]: any;
+}
+
 export interface IExternalConfig {
-    'tw.core'?: {
-        disableCursor?: boolean;
-    };
-    [extensionId: string]:
-        | {
-              [key: string]: any;
-          }
-        | undefined;
+    'tw.core'?: ICoreConfig;
+    [extensionId: string]: IExtensionConfig | undefined;
 }

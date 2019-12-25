@@ -1,15 +1,15 @@
-import { DocComponent, DocLayoutNode, DocRenderNode } from 'tw/component/components/doc';
+import { DocComponent, DocLayoutNode, DocRenderNode } from '../component/components/doc';
 import {
     ParagraphComponent,
     ParagraphLayoutNode,
     ParagraphLineBreakLayoutNode,
     ParagraphRenderNode,
-} from 'tw/component/components/paragraph';
-import { TextComponent, TextLayoutNode, TextRenderNode, WordRenderNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { LayoutTreeBuilder } from 'tw/layout/tree-builder';
+} from '../component/components/paragraph';
+import { TextComponent, TextLayoutNode, TextRenderNode, WordRenderNode } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { TextMeasurerStub } from './text-measurer.stub';
+import { LayoutTreeBuilder } from './tree-builder';
 
 describe('LayoutTreeBuilder', () => {
     let textMeasurer: TextMeasurerStub;

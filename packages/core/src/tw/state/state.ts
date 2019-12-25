@@ -1,8 +1,8 @@
-import { ICursorService } from 'tw/cursor/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { IToken } from 'tw/state//token';
-import { Tokenizer } from 'tw/state/tokenizer';
+import { ICursorService } from '../cursor/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
+import { IToken } from './/token';
+import { Tokenizer } from './tokenizer';
 import {
     AppliedDeleteOperation,
     AppliedInsertOperation,
@@ -12,7 +12,7 @@ import {
     InsertOperation,
     IOffsetAdjustment,
     ITransformation,
-} from 'tw/state/transformation';
+} from './transformation';
 
 export interface IDidUpdateStateEvent {
     readonly beforeFrom: number;

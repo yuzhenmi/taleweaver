@@ -1,15 +1,15 @@
-import { DocComponent, DocModelNode } from 'tw/component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from 'tw/component/components/paragraph';
-import { TextComponent, TextModelNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { IEventListener } from 'tw/event/listener';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { IDocModelNode } from 'tw/model/doc-node';
-import { IModelPosition } from 'tw/model/node';
-import { IModelService } from 'tw/model/service';
-import { IDidUpdateModelStateEvent } from 'tw/model/state';
-import { RenderService } from 'tw/render/service';
+import { DocComponent, DocModelNode } from '../component/components/doc';
+import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
+import { TextComponent, TextModelNode } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { IEventListener } from '../event/listener';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { IDocModelNode } from '../model/doc-node';
+import { IModelPosition } from '../model/node';
+import { IModelService } from '../model/service';
+import { IDidUpdateModelStateEvent } from '../model/state';
+import { RenderService } from './service';
 
 class MockModelService implements IModelService {
     constructor(protected docNode: IDocModelNode) {}

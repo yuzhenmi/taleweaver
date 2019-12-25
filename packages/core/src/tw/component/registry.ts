@@ -1,4 +1,4 @@
-import { IComponent } from 'tw/component/component';
+import { IComponent } from './component';
 
 export interface IComponentRegistry {
     registerComponent(componentId: string, component: IComponent): void;

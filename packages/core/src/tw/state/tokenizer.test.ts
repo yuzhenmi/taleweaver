@@ -1,5 +1,5 @@
-import { CLOSE_TOKEN } from 'tw/state/token';
-import { Tokenizer } from 'tw/state/tokenizer';
+import { CLOSE_TOKEN } from './token';
+import { Tokenizer } from './tokenizer';
 
 describe('Tokenizer', () => {
     let tokenizer: Tokenizer;

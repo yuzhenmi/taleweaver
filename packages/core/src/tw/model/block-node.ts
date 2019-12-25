@@ -1,7 +1,7 @@
-import { IDocModelNode } from 'tw/model/doc-node';
-import { IInlineModelNode } from 'tw/model/inline-node';
-import { IModelNode, IModelPosition, ModelNode, ModelPosition } from 'tw/model/node';
-import { CLOSE_TOKEN, IToken } from 'tw/state/token';
+import { CLOSE_TOKEN, IToken } from '../state/token';
+import { IDocModelNode } from './doc-node';
+import { IInlineModelNode } from './inline-node';
+import { IModelNode, IModelPosition, ModelNode, ModelPosition } from './node';
 
 export interface IBlockModelNode<TAttributes = {}> extends IModelNode<TAttributes, IDocModelNode, IInlineModelNode> {}
 

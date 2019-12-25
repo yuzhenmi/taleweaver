@@ -1,10 +1,10 @@
-import { IComponentService } from 'tw/component/service';
-import { IEventListener } from 'tw/event/listener';
-import { IDocModelNode } from 'tw/model/doc-node';
-import { IModelPosition } from 'tw/model/node';
-import { IDidUpdateModelStateEvent, IModelState, ModelState } from 'tw/model/state';
-import { IService } from 'tw/service/service';
-import { IStateService } from 'tw/state/service';
+import { IComponentService } from '../component/service';
+import { IEventListener } from '../event/listener';
+import { IService } from '../service/service';
+import { IStateService } from '../state/service';
+import { IDocModelNode } from './doc-node';
+import { IModelPosition } from './node';
+import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService extends IService {
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;

@@ -1,6 +1,6 @@
-import { IAtomicRenderNode } from 'tw/render/atomic-node';
-import { IBlockRenderNode } from 'tw/render/block-node';
-import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from 'tw/render/node';
+import { IAtomicRenderNode } from './atomic-node';
+import { IBlockRenderNode } from './block-node';
+import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from './node';
 
 export interface IInlineRenderNode<TStyle = {}> extends IRenderNode<TStyle, IBlockRenderNode, IAtomicRenderNode> {}
 

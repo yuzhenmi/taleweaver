@@ -1,5 +1,5 @@
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener } from 'tw/event/listener';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener } from '../event/listener';
 
 export interface IDidCopyEvent {}
 

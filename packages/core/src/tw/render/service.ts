@@ -1,10 +1,10 @@
-import { IComponentService } from 'tw/component/service';
-import { IEventListener } from 'tw/event/listener';
-import { IModelService } from 'tw/model/service';
-import { IDocRenderNode } from 'tw/render/doc-node';
-import { IRenderNode, IRenderPosition, IStyle } from 'tw/render/node';
-import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from 'tw/render/state';
-import { IService } from 'tw/service/service';
+import { IComponentService } from '../component/service';
+import { IEventListener } from '../event/listener';
+import { IModelService } from '../model/service';
+import { IService } from '../service/service';
+import { IDocRenderNode } from './doc-node';
+import { IRenderNode, IRenderPosition, IStyle } from './node';
+import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
 
 export interface IStyles {
     [componentId: string]: {

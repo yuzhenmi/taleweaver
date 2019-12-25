@@ -1,7 +1,7 @@
-import { ILayoutNode } from 'tw/layout/node';
-import { IAttributes, IModelNode } from 'tw/model/node';
-import { IRenderNode } from 'tw/render/node';
-import { IViewNode } from 'tw/view/node';
+import { ILayoutNode } from '../layout/node';
+import { IAttributes, IModelNode } from '../model/node';
+import { IRenderNode } from '../render/node';
+import { IViewNode } from '../view/node';
 
 export interface IComponent {
     getId(): string;

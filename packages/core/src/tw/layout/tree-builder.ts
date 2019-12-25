@@ -1,8 +1,8 @@
-import { IComponentService } from 'tw/component/service';
-import { BlockLayoutNode } from 'tw/layout/block-node';
-import { DocLayoutNode } from 'tw/layout/doc-node';
-import { ILayoutNode } from 'tw/layout/node';
-import { IRenderNode } from 'tw/render/node';
+import { IComponentService } from '../component/service';
+import { IRenderNode } from '../render/node';
+import { BlockLayoutNode } from './block-node';
+import { DocLayoutNode } from './doc-node';
+import { ILayoutNode } from './node';
 
 export interface ILayoutTreeBuilder {
     buildTree(renderNode: IRenderNode): ILayoutNode;

@@ -1,12 +1,12 @@
-import { IComponentService } from 'tw/component/service';
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener, IOnEvent } from 'tw/event/listener';
-import { IDocLayoutNode } from 'tw/layout/doc-node';
-import { LayoutFlower } from 'tw/layout/flower';
-import { ILayoutNode } from 'tw/layout/node';
-import { LayoutTreeBuilder } from 'tw/layout/tree-builder';
-import { IRenderService } from 'tw/render/service';
-import { IDidUpdateRenderStateEvent } from 'tw/render/state';
+import { IComponentService } from '../component/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
+import { IRenderService } from '../render/service';
+import { IDidUpdateRenderStateEvent } from '../render/state';
+import { IDocLayoutNode } from './doc-node';
+import { LayoutFlower } from './flower';
+import { ILayoutNode } from './node';
+import { LayoutTreeBuilder } from './tree-builder';
 
 export interface IDidUpdateLayoutStateEvent {
     readonly node: ILayoutNode;
@@ -25,6 +25,8 @@ export class LayoutState implements ILayoutState {
         const docRenderNode = renderService.getDocNode();
         const treeBuilder = new LayoutTreeBuilder(componentService);
         this.docNode = treeBuilder.buildTree(docRenderNode) as IDocLayoutNode;
+        const flower = new LayoutFlower();
+        flower.flow(this.docNode);
         renderService.onDidUpdateRenderState(event => this.handleDidUpdateRenderStateEvent(event));
     }
 

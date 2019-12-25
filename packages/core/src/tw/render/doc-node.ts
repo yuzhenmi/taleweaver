@@ -1,5 +1,5 @@
-import { IBlockRenderNode } from 'tw/render/block-node';
-import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from 'tw/render/node';
+import { IBlockRenderNode } from './block-node';
+import { IRenderNode, IRenderPosition, RenderNode, RenderPosition } from './node';
 
 export interface IDocRenderNode<TStyle = {}> extends IRenderNode<TStyle, never, IBlockRenderNode> {}
 

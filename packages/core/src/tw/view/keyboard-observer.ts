@@ -1,6 +1,6 @@
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener } from 'tw/event/listener';
-import { IToken } from 'tw/state/token';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener } from '../event/listener';
+import { IToken } from '../state/token';
 
 export interface IDidInsertEvent {
     tokens: IToken[];

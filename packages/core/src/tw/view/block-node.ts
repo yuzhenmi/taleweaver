@@ -1,7 +1,7 @@
-import { IBlockLayoutNode } from 'tw/layout/block-node';
-import { ILineViewNode } from 'tw/view/line-node';
-import { IViewNode, IViewNodeClass, ViewNode } from 'tw/view/node';
-import { IPageViewNode } from 'tw/view/page-node';
+import { IBlockLayoutNode } from '../layout/block-node';
+import { ILineViewNode } from './line-node';
+import { IViewNode, IViewNodeClass, ViewNode } from './node';
+import { IPageViewNode } from './page-node';
 
 export interface IBlockViewNode<TLayoutNode extends IBlockLayoutNode = IBlockLayoutNode>
     extends IViewNode<TLayoutNode, IPageViewNode, ILineViewNode> {}

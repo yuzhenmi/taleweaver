@@ -1,7 +1,6 @@
 {
     "compilerOptions": {
         "alwaysStrict": true,
-        "baseUrl": "src",
         "declaration": true,
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
@@ -9,12 +8,15 @@
         "module": "amd",
         "moduleResolution": "classic",
         "noImplicitAny": true,
+        "noImplicitReturns": true,
+        "noImplicitThis": true,
+        "noUnusedLocals": true,
         "strict": true,
         "strictBindCallApply": true,
         "strictNullChecks": true,
         "strictPropertyInitialization": true,
         "target": "es5"
     },
-    "include": ["src/tw"],
-    "exclude": ["node_modules"]
+    "include": ["./src"],
+    "exclude": ["./node_modules"]
 }

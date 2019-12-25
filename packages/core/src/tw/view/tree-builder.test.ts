@@ -1,13 +1,13 @@
 import { JSDOM } from 'jsdom';
-import { DocComponent, DocLayoutNode } from 'tw/component/components/doc';
-import { LineLayoutNode, LineViewNode } from 'tw/component/components/line';
-import { PageLayoutNode, PageViewNode } from 'tw/component/components/page';
-import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from 'tw/component/components/paragraph';
-import { TextComponent, TextLayoutNode, TextViewNode, WordLayoutNode } from 'tw/component/components/text';
-import { ComponentService } from 'tw/component/service';
-import { ConfigService } from 'tw/config/service';
-import { TextMeasurerStub } from 'tw/layout/text-measurer.stub';
-import { ViewTreeBuilder } from 'tw/view/tree-builder';
+import { DocComponent, DocLayoutNode } from '../component/components/doc';
+import { LineLayoutNode, LineViewNode } from '../component/components/line';
+import { PageLayoutNode, PageViewNode } from '../component/components/page';
+import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from '../component/components/paragraph';
+import { TextComponent, TextLayoutNode, TextViewNode, WordLayoutNode } from '../component/components/text';
+import { ComponentService } from '../component/service';
+import { ConfigService } from '../config/service';
+import { TextMeasurerStub } from '../layout/text-measurer.stub';
+import { ViewTreeBuilder } from './tree-builder';
 
 describe('ViewTreeBuilder', () => {
     let textMeasurer: TextMeasurerStub;
@@ -79,7 +79,7 @@ describe('ViewTreeBuilder', () => {
             textMeasurer,
         );
         textLayoutNode.appendChild(wordLayoutNode2);
-        treeBuilder = new ViewTreeBuilder(componentService);
+        treeBuilder = new ViewTreeBuilder('test', componentService);
     });
 
     describe('buildTree', () => {

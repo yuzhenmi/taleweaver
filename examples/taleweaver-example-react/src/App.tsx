@@ -1,21 +1,19 @@
-import './App.css';
+import "./App.css";
 
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
-import sampleMarkup from './samples/littleRedRidingHood';
-import Taleweaver from './Taleweaver';
+import sampleMarkup from "./samples/littleRedRidingHood";
+import Taleweaver from "./Editor";
 
-const Wrapper = styled.div`
-`;
+const Wrapper = styled.div``;
 
 const Hero = styled.div`
   text-align: center;
-  padding: 90px 60px 30PX;
+  padding: 90px 60px 30px;
 `;
 
-const BrandWrapper = styled.div`
-`;
+const BrandWrapper = styled.div``;
 
 const Brand = styled.span`
   color: rgba(0, 0, 0, 0.65);
@@ -76,26 +74,28 @@ const DemoHint = styled.span`
 `;
 
 class App extends React.Component {
-    render() {
-        return (
-            <Wrapper>
-                <Hero>
-                    <BrandWrapper>
-                        <Brand>Taleweaver</Brand>
-                    </BrandWrapper>
-                    <Tagline>Word processing in your browser.</Tagline>
-                    <SupportingTagline>Open source editor delivering true word processing experience.</SupportingTagline>
-                    <Links>
-                        <Link href="https://github.com/yuzhenmi/taleweaver">GitHub</Link>
-                    </Links>
-                    <DemoHintWrapper>
-                        <DemoHint>&darr; Check it out &darr;</DemoHint>
-                    </DemoHintWrapper>
-                </Hero>
-                <Taleweaver initialMarkup={sampleMarkup} />
-            </Wrapper>
-        );
-    }
+  render() {
+    return (
+      <Wrapper>
+        <Hero>
+          <BrandWrapper>
+            <Brand>Taleweaver</Brand>
+          </BrandWrapper>
+          <Tagline>Word processing in your browser.</Tagline>
+          <SupportingTagline>
+            Open source editor delivering true word processing experience.
+          </SupportingTagline>
+          <Links>
+            <Link href="https://github.com/yuzhenmi/taleweaver">GitHub</Link>
+          </Links>
+          <DemoHintWrapper>
+            <DemoHint>&darr; Check it out &darr;</DemoHint>
+          </DemoHintWrapper>
+        </Hero>
+        <Taleweaver initialMarkup={sampleMarkup} />
+      </Wrapper>
+    );
+  }
 }
 
 export default App;

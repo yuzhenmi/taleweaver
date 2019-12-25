@@ -1,4 +1,4 @@
-import { ICommandHandler } from 'tw/command/command';
+import { ICommandHandler } from './command';
 
 export interface ICommandRegistry {
     registerCommand(commandId: string, handler: ICommandHandler): void;

@@ -1,6 +1,6 @@
-import { EventEmitter, IEventEmitter } from 'tw/event/emitter';
-import { IEventListener } from 'tw/event/listener';
-import { IViewService } from 'tw/view/service';
+import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IEventListener } from '../event/listener';
+import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
     inPage: boolean;

@@ -1,4 +1,4 @@
-import { IConfig, IExternalConfig } from 'tw/config/config';
+import { IConfig, IExternalConfig } from './config';
 
 export interface IConfigService {
     getConfig(): IConfig;

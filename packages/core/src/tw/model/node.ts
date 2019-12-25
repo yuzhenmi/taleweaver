@@ -1,6 +1,6 @@
-import { IToken } from 'tw/state/token';
-import { INode, Node } from 'tw/tree/node';
-import { IPosition, Position } from 'tw/tree/position';
+import { IToken } from '../state/token';
+import { INode, Node } from '../tree/node';
+import { IPosition, Position } from '../tree/position';
 
 export interface IModelPosition extends IPosition<IModelNode> {}
 

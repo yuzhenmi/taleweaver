@@ -1,9 +1,9 @@
-import { IComponentService } from 'tw/component/service';
-import { IEventListener } from 'tw/event/listener';
-import { ILayoutService } from 'tw/layout/service';
-import { IService } from 'tw/service/service';
-import { IDocViewNode } from 'tw/view/doc-node';
-import { IDidUpdateViewStateEvent, IViewState, ViewState } from 'tw/view/state';
+import { IComponentService } from '../component/service';
+import { IEventListener } from '../event/listener';
+import { ILayoutService } from '../layout/service';
+import { IService } from '../service/service';
+import { IDocViewNode } from './doc-node';
+import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
 export interface IViewService extends IService {
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
@@ -27,6 +27,6 @@ export class ViewService implements IViewService {
     }
 
     attach(domContainer: HTMLElement) {
-        this.state.getDocNode().attach(domContainer);
+        this.state.attach(domContainer);
     }
 }
