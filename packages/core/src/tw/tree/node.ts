@@ -102,17 +102,19 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
     }
 
     getFirstChild() {
-        if (this.children.length === 0) {
+        const children = this.getChildren();
+        if (children.length === 0) {
             return undefined;
         }
-        return this.children[0];
+        return children[0];
     }
 
     getLastChild() {
-        if (this.children.length === 0) {
+        const children = this.getChildren();
+        if (children.length === 0) {
             return undefined;
         }
-        return this.children[this.children.length - 1];
+        return children[children.length - 1];
     }
 
     getPreviousSibling(): INode | undefined {
@@ -153,8 +155,8 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         if (previousSibling) {
             return previousSibling;
         }
-        const parentNode = this.getParent()!;
-        if (parentNode.isRoot()) {
+        const parentNode = this.getParent();
+        if (!parentNode || parentNode.isRoot()) {
             return undefined;
         }
         const parentPreviousSibling = parentNode.getPreviousSiblingAllowCrossParent();
@@ -172,11 +174,11 @@ export abstract class Node<TParent extends INode, TChild extends INode> implemen
         if (nextSibling) {
             return nextSibling;
         }
-        const parentNode = this.getParent()!;
-        if (parentNode.isRoot()) {
+        const parentNode = this.getParent();
+        if (!parentNode || parentNode.isRoot()) {
             return undefined;
         }
-        const parentNextSibling = this.getParent()!.getNextSiblingAllowCrossParent();
+        const parentNextSibling = parentNode.getNextSiblingAllowCrossParent();
         if (!parentNextSibling) {
             return undefined;
         }

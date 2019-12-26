@@ -80,6 +80,10 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
         return this.word.text.length;
     }
 
+    isBreakable() {
+        return this.word.breakable;
+    }
+
     clearOwnCache() {}
 
     onDidUpdate(updatedNode: this) {

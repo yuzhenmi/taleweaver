@@ -66,6 +66,7 @@ export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
         const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
         const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
         inlineNode.appendChild(atomicNode);
+        inlineNode.setParent(this);
         return inlineNode;
     }
 }
@@ -91,6 +92,10 @@ export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagr
 
     getSize() {
         return 1;
+    }
+
+    isBreakable() {
+        return true;
     }
 
     clearOwnCache() {}
