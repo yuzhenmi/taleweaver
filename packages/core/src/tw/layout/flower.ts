@@ -281,6 +281,7 @@ export class LayoutFlower implements ILayoutFlower {
         this.nodeQueue.queue(node);
         this.flushLineNodeQueue();
         this.flushPageNodeQueue();
+        console.log(this.updatedNode);
         return this.updatedNode;
     }
 
@@ -345,6 +346,14 @@ export class LayoutFlower implements ILayoutFlower {
             lineNode.getParent()!.appendChildAfter(newLineNode, lineNode);
             lineNode.markAsFlowed();
             lineNode = newLineNode;
+        }
+        let parentNode: ILayoutNode | undefined = node.getParent();
+        while (parentNode) {
+            if (identifyLayoutNodeType(parentNode) === 'Page') {
+                this.nodeQueue.queue(node.getParent()!.getParent()!);
+                break;
+            }
+            parentNode = parentNode.getParent();
         }
     }
 
