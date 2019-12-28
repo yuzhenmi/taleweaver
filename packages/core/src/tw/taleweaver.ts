@@ -1,4 +1,5 @@
 import * as cursorCommandHandlers from './command/handlers/cursor';
+import * as stateCommandHandlers from './command/handlers/state';
 import * as viewCommandHandlers from './command/handlers/view';
 import { CommandService, ICommandService } from './command/service';
 import { DocComponent } from './component/components/doc';
@@ -65,8 +66,6 @@ export class Taleweaver {
     protected buildBaseConfig(): IConfig {
         return {
             commands: {
-                'tw.view.focus': viewCommandHandlers.focus,
-                'tw.view.blur': viewCommandHandlers.blur,
                 'tw.cursor.move': cursorCommandHandlers.move,
                 'tw.cursor.moveUp': cursorCommandHandlers.moveUp,
                 'tw.cursor.moveDown': cursorCommandHandlers.moveDown,
@@ -90,6 +89,11 @@ export class Taleweaver {
                 'tw.cursor.moveHeadToDocStart': cursorCommandHandlers.moveHeadToDocStart,
                 'tw.cursor.moveHeadToDocEnd': cursorCommandHandlers.moveHeadToDocEnd,
                 'tw.cursor.selectAll': cursorCommandHandlers.selectAll,
+                'tw.state.insert': stateCommandHandlers.insert,
+                'tw.state.deleteBackward': stateCommandHandlers.deleteBackward,
+                'tw.state.deleteForward': stateCommandHandlers.deleteForward,
+                'tw.view.focus': viewCommandHandlers.focus,
+                'tw.view.blur': viewCommandHandlers.blur,
             },
             keyBindings: {
                 common: {
@@ -105,6 +109,8 @@ export class Taleweaver {
                     'shift+down': { command: 'tw.cursor.moveHeadDown' },
                     'shift+alt+left': { command: 'tw.cursor.moveHeadLeftByWord' },
                     'shift+alt+right': { command: 'tw.cursor.moveHeadRightByWord' },
+                    backspace: { command: 'tw.state.deleteBackward' },
+                    delete: { command: 'tw.state.deleteForward' },
                 },
                 macos: {
                     'cmd+left': { command: 'tw.cursor.moveToLineStart' },

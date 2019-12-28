@@ -87,8 +87,14 @@ export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
     clearOwnCache() {}
 
     onDidUpdate(updatedNode: this) {
-        this.word = updatedNode.getWord();
         super.onDidUpdate(updatedNode);
+        const oldWord = this.word;
+        const newWord = updatedNode.getWord();
+        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
+            return;
+        }
+        this.word = updatedNode.getWord();
+        this.clearCache();
     }
 }
 
@@ -266,6 +272,23 @@ export class WordLayoutNode extends AtomicLayoutNode {
                 paddingRight: 0,
             },
         ];
+    }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        const oldWord = this.word;
+        const newWord = updatedNode.getWord();
+        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
+            return;
+        }
+        this.word = updatedNode.getWord();
+        this.clearCache();
+    }
+
+    clearOwnCache() {
+        this.width = undefined;
+        this.height = undefined;
+        this.tailTrimmedWidth = undefined;
     }
 
     protected takeMeasurement() {

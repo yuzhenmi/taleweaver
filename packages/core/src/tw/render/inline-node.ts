@@ -33,9 +33,7 @@ export abstract class InlineRenderNode<TStyle> extends RenderNode<TStyle, IBlock
 
     resolvePosition(offset: number, depth: number): IRenderPosition {
         let cumulatedOffset = 0;
-        const children = this.getChildren();
-        for (let n = 0, nn = children.length; n < nn; n++) {
-            const child = children[n];
+        for (let child of this.getChildren()) {
             const childSize = child.getSize();
             if (cumulatedOffset + childSize > offset) {
                 const position = new RenderPosition(this, depth, offset);
@@ -51,14 +49,13 @@ export abstract class InlineRenderNode<TStyle> extends RenderNode<TStyle, IBlock
 
     clearOwnCache() {
         this.size = undefined;
+        this.modelSize = undefined;
     }
 
     convertOffsetToModelOffset(offset: number): number {
         let cumulatedSize = 0;
         let cumulatedModelSize = 1;
-        const children = this.getChildren();
-        for (let n = 0, nn = children.length; n < nn; n++) {
-            const child = children[n];
+        for (let child of this.getChildren()) {
             const childSize = child.getSize();
             if (cumulatedSize + childSize > offset) {
                 return cumulatedModelSize + child.convertOffsetToModelOffset(offset - cumulatedSize);
@@ -67,5 +64,19 @@ export abstract class InlineRenderNode<TStyle> extends RenderNode<TStyle, IBlock
             cumulatedModelSize += child.getModelSize();
         }
         throw new Error(`Offset ${offset} is out of range.`);
+    }
+
+    convertModelOffsetToOffset(modelOffset: number): number {
+        let cumulatedModelSize = 1;
+        let cumulatedSize = 0;
+        for (let child of this.getChildren()) {
+            const childModelSize = child.getModelSize();
+            if (cumulatedModelSize + childModelSize > modelOffset) {
+                return cumulatedSize + child.convertModelOffsetToOffset(modelOffset - cumulatedModelSize);
+            }
+            cumulatedModelSize += childModelSize;
+            cumulatedSize += child.getSize();
+        }
+        throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
 }

@@ -16,6 +16,7 @@ export interface IRenderService {
     getDocNode(): IDocRenderNode;
     getDocSize(): number;
     convertOffsetToModelOffset(offset: number): number;
+    convertModelOffsetToOffset(modelOffset: number): number;
     resolvePosition(offset: number): IRenderPosition;
     getStylesBetween(from: number, to: number): IStyles;
 }
@@ -41,6 +42,10 @@ export class RenderService implements IRenderService {
 
     convertOffsetToModelOffset(offset: number) {
         return this.state.getDocNode().convertOffsetToModelOffset(offset);
+    }
+
+    convertModelOffsetToOffset(modelOffset: number) {
+        return this.state.getDocNode().convertModelOffsetToOffset(modelOffset);
     }
 
     resolvePosition(offset: number) {

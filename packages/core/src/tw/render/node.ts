@@ -19,6 +19,7 @@ export interface IRenderNode<
     getStyle(): TStyle;
     resolvePosition(offset: number, depth?: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
+    convertModelOffsetToOffset(modelOffset: number): number;
 }
 
 export class RenderPosition extends Position<IRenderNode> implements IRenderPosition {}
@@ -31,6 +32,7 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
     abstract getModelSize(): number;
     abstract resolvePosition(offset: number, depth?: number): IRenderPosition;
     abstract convertOffsetToModelOffset(offset: number): number;
+    abstract convertModelOffsetToOffset(modelOffset: number): number;
 
     constructor(protected componentId: string, protected id: string, protected style: TStyle) {
         super();

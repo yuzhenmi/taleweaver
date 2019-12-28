@@ -42,6 +42,7 @@ export class ViewTreeBuilder implements IViewTreeBuilder {
             childViewNodes.forEach(childViewNode => viewNode.appendChild(childViewNode));
         }
         this.applyMetadataToDOMContainer(viewNode);
+        viewNode.onLayoutDidUpdate();
         return viewNode;
     }
 

@@ -52,8 +52,14 @@ export abstract class InlineModelNode<TAttributes> extends ModelNode<TAttributes
     }
 
     onDidUpdate(updatedNode: this) {
-        this.setContent(updatedNode.getContent());
         super.onDidUpdate(updatedNode);
+        const oldContent = this.content;
+        const newContent = updatedNode.getContent();
+        if (oldContent === newContent) {
+            return;
+        }
+        this.content = updatedNode.getContent();
+        this.clearCache();
     }
 
     toTokens() {

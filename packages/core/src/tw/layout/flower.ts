@@ -75,7 +75,7 @@ class NodeQueue {
     }
 }
 
-class NodeJoiner {
+export class NodeJoiner {
     join(thisNode: ILayoutNode, thatNode: ILayoutNode) {
         if (identifyLayoutNodeType(thisNode) !== identifyLayoutNodeType(thatNode)) {
             throw new Error('Nodes to be joined must be of the same type.');

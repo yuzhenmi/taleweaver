@@ -95,9 +95,7 @@ export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLa
 
     resolvePosition(offset: number, depth: number): ILayoutPosition {
         let cumulatedOffset = 0;
-        const children = this.getChildren();
-        for (let n = 0, nn = children.length; n < nn; n++) {
-            const child = children[n];
+        for (let child of this.getChildren()) {
             const childSize = child.getSize();
             if (cumulatedOffset + childSize > offset) {
                 const position = new LayoutPosition(this, depth, offset);

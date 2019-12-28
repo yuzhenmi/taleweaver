@@ -3,10 +3,13 @@ import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
+import { IBlockLayoutNode } from './block-node';
 import { IDocLayoutNode } from './doc-node';
-import { LayoutFlower } from './flower';
+import { LayoutFlower, NodeJoiner } from './flower';
+import { IInlineLayoutNode } from './inline-node';
 import { ILayoutNode } from './node';
 import { LayoutTreeBuilder } from './tree-builder';
+import { identifyLayoutNodeType } from './utility';
 
 export interface IDidUpdateLayoutStateEvent {
     readonly node: ILayoutNode;
@@ -53,15 +56,39 @@ export class LayoutState implements ILayoutState {
     };
 
     protected deduplicateNode(node: ILayoutNode) {
-        if (node.isRoot()) {
-            return;
+        switch (identifyLayoutNodeType(node)) {
+            case 'Inline':
+                this.deduplicateInlineNode(node as IInlineLayoutNode);
+                break;
+            case 'Block':
+                this.deduplicateBlockNode(node as IBlockLayoutNode);
+                break;
         }
-        let nextNode = node.getNextSiblingAllowCrossParent() as ILayoutNode;
-        let nodeToDelete: ILayoutNode;
-        while (nextNode && nextNode.getId() === node.getId()) {
-            nodeToDelete = nextNode;
-            nextNode = nextNode.getNextSiblingAllowCrossParent() as ILayoutNode;
-            nodeToDelete.getParent()!.removeChild(nodeToDelete);
+    }
+
+    protected deduplicateInlineNode(node: IInlineLayoutNode) {
+        const joiner = new NodeJoiner();
+        let nextNode: IInlineLayoutNode | undefined;
+        const lineNode = node.getParent()!;
+        while (
+            (nextNode = node.getNextSiblingAllowCrossParent() as IInlineLayoutNode | undefined) &&
+            nextNode.getId() === node.getId()
+        ) {
+            const nextLineNode = nextNode.getParent()!;
+            joiner.join(lineNode, nextLineNode);
+        }
+    }
+
+    protected deduplicateBlockNode(node: IBlockLayoutNode) {
+        const joiner = new NodeJoiner();
+        let nextNode: IBlockLayoutNode | undefined;
+        const pageNode = node.getParent()!;
+        while (
+            (nextNode = node.getNextSiblingAllowCrossParent() as IBlockLayoutNode | undefined) &&
+            nextNode.getId() === node.getId()
+        ) {
+            const nextPageNode = nextNode.getParent()!;
+            joiner.join(pageNode, nextPageNode);
         }
     }
 }

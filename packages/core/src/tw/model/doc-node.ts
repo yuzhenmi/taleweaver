@@ -25,9 +25,7 @@ export abstract class DocModelNode<TAttributes> extends ModelNode<TAttributes, n
 
     resolvePosition(offset: number): IModelPosition {
         let cumulatedOffset = 1;
-        const children = this.getChildren();
-        for (let n = 0, nn = children.length; n < nn; n++) {
-            const child = children[n];
+        for (let child of this.getChildren()) {
             const childSize = child.getSize();
             if (cumulatedOffset + childSize > offset) {
                 const position = new ModelPosition(this, 0, offset);

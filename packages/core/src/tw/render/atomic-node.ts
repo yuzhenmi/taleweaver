@@ -21,7 +21,11 @@ export abstract class AtomicRenderNode<TStyle> extends RenderNode<TStyle, IInlin
         return new RenderPosition(this, depth, offset);
     }
 
-    convertOffsetToModelOffset(offset: number): number {
+    convertOffsetToModelOffset(offset: number) {
         return offset;
+    }
+
+    convertModelOffsetToOffset(modelOffset: number) {
+        return modelOffset;
     }
 }

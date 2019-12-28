@@ -62,6 +62,20 @@ export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
         return [...super.getChildren(), this.lineBreakNode];
     }
 
+    convertOffsetToModelOffset(offset: number): number {
+        if (offset === this.getSize() - 1) {
+            return this.convertOffsetToModelOffset(offset - 1) + 1;
+        }
+        return super.convertOffsetToModelOffset(offset);
+    }
+
+    convertModelOffsetToOffset(modelOffset: number): number {
+        if (modelOffset === this.getModelSize() - 2) {
+            return this.convertModelOffsetToOffset(modelOffset - 1) + 1;
+        }
+        return super.convertModelOffsetToOffset(modelOffset);
+    }
+
     protected buildLineBreakNode() {
         const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
         const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
@@ -76,6 +90,10 @@ export interface IParagraphLineBreakStyle extends IStyle {}
 export class ParagraphLineBreakRenderNode extends InlineRenderNode<IParagraphLineBreakStyle> {
     getPartId() {
         return 'line-break';
+    }
+
+    getModelSize() {
+        return 0;
     }
 }
 

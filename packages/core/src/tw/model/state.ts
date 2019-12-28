@@ -145,7 +145,7 @@ export class ModelState implements IModelState {
 
     protected findNodeTokenRange(tokens: IToken[], nodeId: string, hintFrom: number, hintTo: number) {
         const [from, depth] = this.findNodeOpenTokenPositionAndDepth(tokens, nodeId, hintFrom);
-        const to = this.findNodeCloseTokenPosition(tokens, nodeId, hintTo, depth);
+        const to = this.findNodeCloseTokenPosition(tokens, hintTo, depth);
         return tokens.slice(from, to);
     }
 
@@ -171,13 +171,14 @@ export class ModelState implements IModelState {
         return [position, depth];
     }
 
-    protected findNodeCloseTokenPosition(tokens: IToken[], nodeId: string, hintPosition: number, depth: number) {
+    protected findNodeCloseTokenPosition(tokens: IToken[], hintPosition: number, depth: number) {
         const tokensLength = tokens.length;
         let position = hintPosition;
         let currentDepth = depth;
         let token: IToken;
         while (position < tokensLength) {
-            token = tokens[position - 1];
+            token = tokens[position];
+            position++;
             switch (identityTokenType(token)) {
                 case 'OpenToken':
                     currentDepth--;
@@ -189,7 +190,6 @@ export class ModelState implements IModelState {
                     }
                     break;
             }
-            position++;
         }
         return position;
     }

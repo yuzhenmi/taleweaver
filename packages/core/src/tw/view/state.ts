@@ -45,7 +45,6 @@ export class ViewState implements IViewState {
         if (this.attached) {
             throw new Error('View is already attached to the DOM.');
         }
-        this.performFirstRender(this.docNode);
         this.docNode.attach(domContainer);
         this.attached = true;
     }
@@ -60,11 +59,4 @@ export class ViewState implements IViewState {
         node.onDidUpdate(updatedNode);
         this.didUpdateViewStateEventEmitter.emit({ node });
     };
-
-    protected performFirstRender(node: IViewNode) {
-        node.onLayoutDidUpdate();
-        if (!node.isLeaf()) {
-            node.getChildren().forEach(child => this.performFirstRender(child));
-        }
-    }
 }

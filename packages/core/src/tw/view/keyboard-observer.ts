@@ -97,7 +97,6 @@ export class KeyboardObserver implements IKeyboardObserver {
         if (!key) {
             return;
         }
-        event.preventDefault();
         this.didPressKeyEventEmitter.emit({ key });
     };
 
