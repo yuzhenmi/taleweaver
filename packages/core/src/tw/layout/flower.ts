@@ -281,7 +281,6 @@ export class LayoutFlower implements ILayoutFlower {
         this.nodeQueue.queue(node);
         this.flushLineNodeQueue();
         this.flushPageNodeQueue();
-        console.log(this.updatedNode);
         return this.updatedNode;
     }
 

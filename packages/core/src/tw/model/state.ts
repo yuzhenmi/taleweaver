@@ -154,6 +154,7 @@ export class ModelState implements IModelState {
         let depth = 0;
         let token: IToken;
         while (position >= 0) {
+            position--;
             token = tokens[position];
             switch (identityTokenType(token)) {
                 case 'OpenToken':
@@ -166,7 +167,6 @@ export class ModelState implements IModelState {
                     depth++;
                     break;
             }
-            position--;
         }
         return [position, depth];
     }
