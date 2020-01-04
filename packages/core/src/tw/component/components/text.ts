@@ -379,7 +379,9 @@ export class TextComponent extends Component implements IComponent {
                 node.appendChild(wordRenderNode);
             });
             if (words.length === 0) {
-                node.appendChild(new WordRenderNode(this.id, `${modelNode.getId()}-0`, style, { text: '', breakable: false });
+                node.appendChild(
+                    new WordRenderNode(this.id, `${modelNode.getId()}-0`, style, { text: '', breakable: false }),
+                );
             }
             return node;
         }
