@@ -1,11 +1,11 @@
 import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { TextMeasurerStub } from '../layout/text-measurer.stub';
 import { IStateService } from '../state/service';
 import { IDidUpdateStateEvent } from '../state/state';
 import { CLOSE_TOKEN, IToken } from '../state/token';
@@ -57,13 +57,27 @@ describe('ModelState', () => {
 
     beforeEach(() => {
         textMeasurer = new TextMeasurerStub();
+        const docComponent = new DocComponent('doc');
+        const paragraphComponent = new ParagraphComponent('paragraph');
+        const textComponent = new TextComponent('text', textMeasurer);
         configService = new ConfigService(
             {
                 commands: {},
+                keyBindings: {
+                    common: {},
+                },
                 components: {
-                    doc: new DocComponent('doc'),
-                    paragraph: new ParagraphComponent('paragraph'),
-                    text: new TextComponent('text', textMeasurer),
+                    doc: docComponent,
+                    paragraph: paragraphComponent,
+                    text: textComponent,
+                },
+                page: {
+                    width: 816,
+                    height: 1056,
+                    paddingTop: 40,
+                    paddingBottom: 40,
+                    paddingLeft: 40,
+                    paddingRight: 40,
                 },
             },
             {},

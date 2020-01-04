@@ -1,11 +1,11 @@
 import { DocComponent, DocModelNode } from '../component/components/doc';
 import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
 import { TextComponent, TextModelNode, WordRenderNode } from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { TextMeasurerStub } from '../layout/text-measurer.stub';
 import { IDocModelNode } from '../model/doc-node';
 import { IModelPosition } from '../model/node';
 import { IModelService } from '../model/service';
@@ -61,10 +61,21 @@ describe('ModelState', () => {
         configService = new ConfigService(
             {
                 commands: {},
+                keyBindings: {
+                    common: {},
+                },
                 components: {
                     doc: docComponent,
                     paragraph: paragraphComponent,
                     text: textComponent,
+                },
+                page: {
+                    width: 816,
+                    height: 1056,
+                    paddingTop: 40,
+                    paddingBottom: 40,
+                    paddingLeft: 40,
+                    paddingRight: 40,
                 },
             },
             {},

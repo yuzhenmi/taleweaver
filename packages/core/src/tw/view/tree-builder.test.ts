@@ -4,9 +4,9 @@ import { LineLayoutNode, LineViewNode } from '../component/components/line';
 import { PageLayoutNode, PageViewNode } from '../component/components/page';
 import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from '../component/components/paragraph';
 import { TextComponent, TextLayoutNode, TextViewNode, WordLayoutNode } from '../component/components/text';
+import { DEFAULT_TEXT_STYLE, TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
-import { TextMeasurerStub } from '../layout/text-measurer.stub';
 import { ViewTreeBuilder } from './tree-builder';
 
 describe('ViewTreeBuilder', () => {
@@ -30,32 +30,34 @@ describe('ViewTreeBuilder', () => {
         configService = new ConfigService(
             {
                 commands: {},
+                keyBindings: {
+                    common: {},
+                },
                 components: {
                     doc: docComponent,
                     paragraph: paragraphComponent,
                     text: textComponent,
+                },
+                page: {
+                    width: 816,
+                    height: 1056,
+                    paddingTop: 40,
+                    paddingBottom: 40,
+                    paddingLeft: 40,
+                    paddingRight: 40,
                 },
             },
             {},
         );
         componentService = new ComponentService(configService);
         docLayoutNode = new DocLayoutNode('doc', 'doc');
-        const pageLayoutNode = new PageLayoutNode('$page', 816, 1056, 40, 40, 40, 40);
+        const pageLayoutNode = new PageLayoutNode('page', 816, 1056, 40, 40, 40, 40);
         docLayoutNode.appendChild(pageLayoutNode);
         const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
         pageLayoutNode.appendChild(paragraphLayoutNode);
-        const lineLayoutNode = new LineLayoutNode('$line');
+        const lineLayoutNode = new LineLayoutNode('line');
         paragraphLayoutNode.appendChild(lineLayoutNode);
-        const textStyle = {
-            weight: 400,
-            size: 14,
-            font: 'sans-serif',
-            letterSpacing: 0,
-            underline: false,
-            italic: false,
-            strikethrough: false,
-        };
-        const textLayoutNode = new TextLayoutNode('text', '2', textStyle);
+        const textLayoutNode = new TextLayoutNode('text', '2', DEFAULT_TEXT_STYLE);
         lineLayoutNode.appendChild(textLayoutNode);
         const wordLayoutNode1 = new WordLayoutNode(
             'text',
@@ -64,7 +66,7 @@ describe('ViewTreeBuilder', () => {
                 text: 'Hello ',
                 breakable: true,
             },
-            textStyle,
+            DEFAULT_TEXT_STYLE,
             textMeasurer,
         );
         textLayoutNode.appendChild(wordLayoutNode1);
@@ -75,7 +77,7 @@ describe('ViewTreeBuilder', () => {
                 text: 'world!',
                 breakable: false,
             },
-            textStyle,
+            DEFAULT_TEXT_STYLE,
             textMeasurer,
         );
         textLayoutNode.appendChild(wordLayoutNode2);

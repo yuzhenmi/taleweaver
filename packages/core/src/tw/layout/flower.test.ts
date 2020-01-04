@@ -3,8 +3,8 @@ import { LineLayoutNode } from '../component/components/line';
 import { PageLayoutNode } from '../component/components/page';
 import { ParagraphLayoutNode } from '../component/components/paragraph';
 import { TextLayoutNode, WordLayoutNode } from '../component/components/text';
+import { DEFAULT_TEXT_STYLE, TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { LayoutFlower } from './flower';
-import { TextMeasurerStub } from './text-measurer.stub';
 
 describe('LayoutFlower', () => {
     let textMeasurer: TextMeasurerStub;
@@ -21,61 +21,29 @@ describe('LayoutFlower', () => {
 
             beforeEach(() => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
-                const pageLayoutNode = new PageLayoutNode('$page', 88, 1056, 40, 40, 40, 40);
+                const pageLayoutNode = new PageLayoutNode('page', 88, 1056, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
                 pageLayoutNode.appendChild(paragraphLayoutNode);
-                const lineLayoutNode = new LineLayoutNode('$line');
+                const lineLayoutNode = new LineLayoutNode('line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);
-                const textLayoutNode1 = new TextLayoutNode('text', '2', {
-                    weight: 400,
-                    size: 14,
-                    font: 'sans-serif',
-                    letterSpacing: 0,
-                    underline: false,
-                    italic: false,
-                    strikethrough: false,
-                });
+                const textLayoutNode1 = new TextLayoutNode('text', '2', DEFAULT_TEXT_STYLE);
                 lineLayoutNode.appendChild(textLayoutNode1);
                 const wordLayoutNode1 = new WordLayoutNode(
                     'text',
                     '4',
                     { text: 'Hello ', breakable: true },
-                    {
-                        weight: 400,
-                        size: 14,
-                        font: 'sans-serif',
-                        letterSpacing: 0,
-                        underline: false,
-                        italic: false,
-                        strikethrough: false,
-                    },
+                    DEFAULT_TEXT_STYLE,
                     textMeasurer,
                 );
                 textLayoutNode1.appendChild(wordLayoutNode1);
-                const textLayoutNode2 = new TextLayoutNode('text', '3', {
-                    weight: 400,
-                    size: 14,
-                    font: 'sans-serif',
-                    letterSpacing: 0,
-                    underline: false,
-                    italic: false,
-                    strikethrough: false,
-                });
+                const textLayoutNode2 = new TextLayoutNode('text', '3', DEFAULT_TEXT_STYLE);
                 lineLayoutNode.appendChild(textLayoutNode2);
                 const wordLayoutNode2 = new WordLayoutNode(
                     'text',
                     '5',
                     { text: 'world!', breakable: false },
-                    {
-                        weight: 400,
-                        size: 14,
-                        font: 'sans-serif',
-                        letterSpacing: 0,
-                        underline: false,
-                        italic: false,
-                        strikethrough: false,
-                    },
+                    DEFAULT_TEXT_STYLE,
                     textMeasurer,
                 );
                 textLayoutNode2.appendChild(wordLayoutNode2);
@@ -120,61 +88,29 @@ describe('LayoutFlower', () => {
 
             beforeEach(() => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
-                const pageLayoutNode = new PageLayoutNode('$page', 88, 108, 40, 40, 40, 40);
+                const pageLayoutNode = new PageLayoutNode('page', 88, 108, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
                 const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
                 pageLayoutNode.appendChild(paragraphLayoutNode);
-                const lineLayoutNode = new LineLayoutNode('$line');
+                const lineLayoutNode = new LineLayoutNode('line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);
-                const textLayoutNode1 = new TextLayoutNode('text', '2', {
-                    weight: 400,
-                    size: 14,
-                    font: 'sans-serif',
-                    letterSpacing: 0,
-                    underline: false,
-                    italic: false,
-                    strikethrough: false,
-                });
+                const textLayoutNode1 = new TextLayoutNode('text', '2', DEFAULT_TEXT_STYLE);
                 lineLayoutNode.appendChild(textLayoutNode1);
                 const wordLayoutNode1 = new WordLayoutNode(
                     'text',
                     '4',
                     { text: 'Hello ', breakable: true },
-                    {
-                        weight: 400,
-                        size: 14,
-                        font: 'sans-serif',
-                        letterSpacing: 0,
-                        underline: false,
-                        italic: false,
-                        strikethrough: false,
-                    },
+                    DEFAULT_TEXT_STYLE,
                     textMeasurer,
                 );
                 textLayoutNode1.appendChild(wordLayoutNode1);
-                const textLayoutNode2 = new TextLayoutNode('text', '3', {
-                    weight: 400,
-                    size: 14,
-                    font: 'sans-serif',
-                    letterSpacing: 0,
-                    underline: false,
-                    italic: false,
-                    strikethrough: false,
-                });
+                const textLayoutNode2 = new TextLayoutNode('text', '3', DEFAULT_TEXT_STYLE);
                 lineLayoutNode.appendChild(textLayoutNode2);
                 const wordLayoutNode2 = new WordLayoutNode(
                     'text',
                     '5',
                     { text: 'world!', breakable: false },
-                    {
-                        weight: 400,
-                        size: 14,
-                        font: 'sans-serif',
-                        letterSpacing: 0,
-                        underline: false,
-                        italic: false,
-                        strikethrough: false,
-                    },
+                    DEFAULT_TEXT_STYLE,
                     textMeasurer,
                 );
                 textLayoutNode2.appendChild(wordLayoutNode2);

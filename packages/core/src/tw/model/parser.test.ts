@@ -1,9 +1,9 @@
 import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
 import { TextComponent, TextModelNode } from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
-import { TextMeasurerStub } from '../layout/text-measurer.stub';
 import { CLOSE_TOKEN } from '../state/token';
 import { TokenParser } from './parser';
 
@@ -15,13 +15,27 @@ describe('TokenParser', () => {
 
     beforeEach(() => {
         textMeasurer = new TextMeasurerStub();
+        const docComponent = new DocComponent('doc');
+        const paragraphComponent = new ParagraphComponent('paragraph');
+        const textComponent = new TextComponent('text', textMeasurer);
         configService = new ConfigService(
             {
                 commands: {},
+                keyBindings: {
+                    common: {},
+                },
                 components: {
-                    doc: new DocComponent('doc'),
-                    paragraph: new ParagraphComponent('paragraph'),
-                    text: new TextComponent('text', textMeasurer),
+                    doc: docComponent,
+                    paragraph: paragraphComponent,
+                    text: textComponent,
+                },
+                page: {
+                    width: 816,
+                    height: 1056,
+                    paddingTop: 40,
+                    paddingBottom: 40,
+                    paddingLeft: 40,
+                    paddingRight: 40,
                 },
             },
             {},

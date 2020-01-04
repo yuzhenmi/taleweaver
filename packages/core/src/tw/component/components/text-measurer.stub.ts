@@ -8,3 +8,14 @@ export class TextMeasurerStub implements ITextMeasurer {
         };
     }
 }
+
+export const DEFAULT_TEXT_STYLE = {
+    weight: 400,
+    size: 14,
+    font: 'sans-serif',
+    letterSpacing: 0,
+    underline: false,
+    italic: false,
+    strikethrough: false,
+    color: 'black',
+};

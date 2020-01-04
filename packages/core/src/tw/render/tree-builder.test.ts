@@ -6,9 +6,9 @@ import {
     ParagraphRenderNode,
 } from '../component/components/paragraph';
 import { TextComponent, TextModelNode, TextRenderNode, WordRenderNode } from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
-import { TextMeasurerStub } from '../layout/text-measurer.stub';
 import { RenderTreeBuilder } from './tree-builder';
 
 describe('RenderTreeBuilder', () => {
@@ -26,10 +26,21 @@ describe('RenderTreeBuilder', () => {
         configService = new ConfigService(
             {
                 commands: {},
+                keyBindings: {
+                    common: {},
+                },
                 components: {
                     doc: docComponent,
                     paragraph: paragraphComponent,
                     text: textComponent,
+                },
+                page: {
+                    width: 816,
+                    height: 1056,
+                    paddingTop: 40,
+                    paddingBottom: 40,
+                    paddingLeft: 40,
+                    paddingRight: 40,
                 },
             },
             {},
