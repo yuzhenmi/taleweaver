@@ -60,6 +60,9 @@ export class RenderService implements IRenderService {
     }
 
     protected extractStyle(styles: IStyles, node: IRenderNode, from: number, to: number) {
+        if (from > to) {
+            return;
+        }
         const componentStyles = (styles[node.getComponentId()] = styles[node.getComponentId()] || {});
         const partStyles = (componentStyles[node.getPartId()] = componentStyles[node.getPartId()] || []);
         partStyles.push(node.getStyle());
@@ -69,9 +72,9 @@ export class RenderService implements IRenderService {
         }
         node.getChildren().forEach(child => {
             const childSize = child.getSize();
-            const childFrom = Math.max(0, Math.min(childSize, from - position));
-            const childTo = Math.max(0, Math.min(childSize, to - position));
-            if (childFrom < childTo) {
+            if (0 <= to - position && from - position <= childSize) {
+                const childFrom = Math.max(0, Math.min(childSize, from - position));
+                const childTo = Math.max(0, Math.min(childSize, to - position));
                 this.extractStyle(styles, child, childFrom, childTo);
             }
             position += childSize;

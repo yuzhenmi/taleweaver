@@ -20,6 +20,7 @@ import { IViewService, ViewService } from './view/service';
 
 export interface ITaleweaver {
     attach(domContainer: HTMLElement): void;
+    getServiceRegistry(): IServiceRegistry;
 }
 
 export class Taleweaver {
@@ -61,6 +62,10 @@ export class Taleweaver {
 
     attach(domContainer: HTMLElement) {
         this.viewService.attach(domContainer);
+    }
+
+    getServiceRegistry() {
+        return this.serviceRegistry;
     }
 
     protected buildBaseConfig(): IConfig {

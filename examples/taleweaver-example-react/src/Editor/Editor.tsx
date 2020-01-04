@@ -44,7 +44,7 @@ interface IProps {
 
 export default function Editor({ initialMarkup, config }: IProps) {
     const domRef = useRef<HTMLDivElement>(null);
-    const [taleweaver, setTaleweaver] = useState<Taleweaver>();
+    const [taleweaver, setTaleweaver] = useState<Taleweaver | null>(null);
     useEffect(() => {
         const mergedConfig: IConfig = {};
         if (config) {
@@ -59,7 +59,7 @@ export default function Editor({ initialMarkup, config }: IProps) {
     }, [taleweaver, domRef.current]);
     return (
         <Wrapper key={1}>
-            <ToolBar textStyle={{}} />
+            <ToolBar taleweaver={taleweaver} />
             <EditorWrapper ref={domRef} />
         </Wrapper>
     );

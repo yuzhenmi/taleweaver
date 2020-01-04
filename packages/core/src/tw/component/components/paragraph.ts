@@ -63,15 +63,20 @@ export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
     }
 
     convertOffsetToModelOffset(offset: number): number {
+        // Handle line break
         if (offset === this.getSize() - 1) {
-            return this.convertOffsetToModelOffset(offset - 1) + 1;
+            return super.convertOffsetToModelOffset(offset - 1) + 1;
         }
         return super.convertOffsetToModelOffset(offset);
     }
 
     convertModelOffsetToOffset(modelOffset: number): number {
-        if (modelOffset === this.getModelSize() - 2) {
-            return this.convertModelOffsetToOffset(modelOffset - 1) + 1;
+        // Handle line break
+        if (this.getSize() === 1) {
+            return 0;
+        }
+        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.getSize() - 1) {
+            return this.getSize() - 1;
         }
         return super.convertModelOffsetToOffset(modelOffset);
     }
