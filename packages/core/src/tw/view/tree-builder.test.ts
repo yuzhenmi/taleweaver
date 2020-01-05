@@ -12,6 +12,7 @@ import {
 } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { ViewTreeBuilder } from './tree-builder';
 
@@ -29,32 +30,12 @@ describe('ViewTreeBuilder', () => {
     });
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         docLayoutNode = new DocLayoutNode('doc', 'doc');
         const pageLayoutNode = new PageLayoutNode('page', 816, 1056, 40, 40, 40, 40);

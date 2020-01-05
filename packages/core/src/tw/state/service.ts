@@ -1,10 +1,11 @@
 import { ICursorService } from '../cursor/service';
 import { IEventListener } from '../event/listener';
-import { IDidUpdateStateEvent, IState, State } from './state';
+import { IDidApplyTransformation, IDidUpdateStateEvent, IState, State } from './state';
 import { IToken } from './token';
 import { IAppliedTransformation, ITransformation } from './transformation';
 
 export interface IStateService {
+    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>): void;
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>): void;
     getTokens(): IToken[];
     applyTransformations(transformations: ITransformation[]): IAppliedTransformation[];
@@ -18,6 +19,10 @@ export class StateService implements IStateService {
 
     constructor(cursorService: ICursorService, initialMarkup: string) {
         this.state = new State(cursorService, initialMarkup);
+    }
+
+    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>) {
+        this.state.onDidApplyTransformation(listener);
     }
 
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {

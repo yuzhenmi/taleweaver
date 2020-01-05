@@ -3,6 +3,7 @@ import { ParagraphComponent, ParagraphModelNode } from '../component/components/
 import { TextComponent, TextModelNode, WordRenderNode } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
@@ -54,32 +55,15 @@ describe('ModelState', () => {
     let renderState: RenderState;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
         docComponent = new DocComponent('doc');
         paragraphComponent = new ParagraphComponent('paragraph');
         textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = docComponent;
+        config.components.paragraph = paragraphComponent;
+        config.components.text = textComponent;
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         const docModelNode = new DocModelNode('doc', 'doc', {});
         const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});

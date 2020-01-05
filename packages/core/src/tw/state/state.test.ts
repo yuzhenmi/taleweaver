@@ -2,6 +2,7 @@ import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { CursorService } from '../cursor/service';
 import { State } from './state';
@@ -15,32 +16,12 @@ describe('State', () => {
     let initialMarkup: string;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         cursorService = new CursorService(configService);
         initialMarkup =
             '<doc {"id":"doc"}><paragraph {"id":"1"}><text {"id":"2"}>Hello</><text {"id":"3","bold":true}>world</></></>';

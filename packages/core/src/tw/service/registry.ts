@@ -2,6 +2,7 @@ import { ICommandService } from '../command/service';
 import { IComponentService } from '../component/service';
 import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
+import { IHistoryService } from '../history/service';
 import { IKeyBindingService } from '../key-binding/service';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
@@ -14,6 +15,7 @@ export interface IServices {
     readonly component: IComponentService;
     readonly config: IConfigService;
     readonly cursor: ICursorService;
+    readonly history: IHistoryService;
     readonly layout: ILayoutService;
     readonly model: IModelService;
     readonly render: IRenderService;

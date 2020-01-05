@@ -34,8 +34,8 @@ export interface IAppliedTransformation {
     addOperation(operation: IAppliedOperation): void;
     getOperations(): IAppliedOperation[];
     getOriginalTransformation(): ITransformation;
-    getOriginalCursorAnchor(): number | null;
-    getOriginalCursorHead(): number | null;
+    getOriginalCursorAnchor(): number;
+    getOriginalCursorHead(): number;
     getOriginalCursorLockLeft(): number | null;
     getTransformedRange(): ITransformedRange | undefined;
 }

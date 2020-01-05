@@ -8,6 +8,7 @@ import {
 import { TextComponent, TextModelNode, TextRenderNode, WordRenderNode } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { RenderTreeBuilder } from './tree-builder';
 
@@ -19,32 +20,12 @@ describe('RenderTreeBuilder', () => {
     let treeBuilder: RenderTreeBuilder;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         docModelNode = new DocModelNode('doc', 'doc', {});
         const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
@@ -64,12 +45,12 @@ describe('RenderTreeBuilder', () => {
             expect(doc.getComponentId()).toEqual('doc');
             expect(doc.getId()).toEqual('doc');
             expect(doc.getChildren()).toHaveLength(1);
-            const paragaph = doc.getFirstChild() as ParagraphRenderNode;
-            expect(paragaph.getComponentId()).toEqual('paragraph');
-            expect(paragaph.getPartId()).toEqual('paragraph');
-            expect(paragaph.getId()).toEqual('1');
-            expect(paragaph.getChildren()).toHaveLength(3);
-            const text1 = paragaph.getFirstChild() as TextRenderNode;
+            const paragraph = doc.getFirstChild() as ParagraphRenderNode;
+            expect(paragraph.getComponentId()).toEqual('paragraph');
+            expect(paragraph.getPartId()).toEqual('paragraph');
+            expect(paragraph.getId()).toEqual('1');
+            expect(paragraph.getChildren()).toHaveLength(3);
+            const text1 = paragraph.getFirstChild() as TextRenderNode;
             expect(text1.getComponentId()).toEqual('text');
             expect(text1.getPartId()).toEqual('text');
             expect(text1.getId()).toEqual('2');

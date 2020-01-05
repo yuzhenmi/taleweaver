@@ -14,6 +14,7 @@ import {
 } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { LayoutTreeBuilder } from './tree-builder';
 
@@ -25,32 +26,12 @@ describe('LayoutTreeBuilder', () => {
     let treeBuilder: LayoutTreeBuilder;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         docRenderNode = new DocRenderNode('doc', 'doc', {});
         const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', {});
@@ -82,12 +63,12 @@ describe('LayoutTreeBuilder', () => {
             expect(page.getComponentId()).toEqual('page');
             expect(page.getPartId()).toEqual('page');
             expect(page.getChildren()).toHaveLength(1);
-            const paragaph = page.getFirstChild() as ParagraphLayoutNode;
-            expect(paragaph.getComponentId()).toEqual('paragraph');
-            expect(paragaph.getPartId()).toEqual('paragraph');
-            expect(paragaph.getId()).toEqual('1');
-            expect(paragaph.getChildren()).toHaveLength(1);
-            const line = paragaph.getFirstChild()!;
+            const paragraph = page.getFirstChild() as ParagraphLayoutNode;
+            expect(paragraph.getComponentId()).toEqual('paragraph');
+            expect(paragraph.getPartId()).toEqual('paragraph');
+            expect(paragraph.getId()).toEqual('1');
+            expect(paragraph.getChildren()).toHaveLength(1);
+            const line = paragraph.getFirstChild()!;
             expect(line.getComponentId()).toEqual('line');
             expect(line.getPartId()).toEqual('line');
             expect(line.getChildren()).toHaveLength(3);

@@ -26,18 +26,19 @@ export abstract class BlockModelNode<TAttributes> extends ModelNode<TAttributes,
 
     resolvePosition(offset: number, depth: number): IModelPosition {
         let cumulatedOffset = 1;
-        const childNodes = this.getChildren();
-        for (let n = 0, nn = childNodes.length; n < nn; n++) {
-            const childNode = childNodes[n];
-            const childSize = childNode.getSize();
+        for (let child of this.getChildren()) {
+            const childSize = child.getSize();
             if (cumulatedOffset + childSize > offset) {
                 const position = new ModelPosition(this, depth, offset);
-                const childPosition = childNode.resolvePosition(offset - cumulatedOffset, depth + 1);
+                const childPosition = child.resolvePosition(offset - cumulatedOffset, depth + 1);
                 position.setChild(childPosition);
                 childPosition.setParent(position);
                 return position;
             }
             cumulatedOffset += childSize;
+        }
+        if (offset < this.getSize()) {
+            return new ModelPosition(this, depth, offset);
         }
         throw new Error(`Offset ${offset} is out of range.`);
     }

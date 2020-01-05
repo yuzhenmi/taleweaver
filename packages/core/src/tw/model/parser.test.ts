@@ -3,6 +3,7 @@ import { ParagraphComponent, ParagraphModelNode } from '../component/components/
 import { TextComponent, TextModelNode } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { CLOSE_TOKEN } from '../state/token';
 import { TokenParser } from './parser';
@@ -14,32 +15,12 @@ describe('TokenParser', () => {
     let parser: TokenParser;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         parser = new TokenParser(componentService);
     });
@@ -72,13 +53,13 @@ describe('TokenParser', () => {
             expect(doc.getId()).toEqual('doc');
             expect(doc.getAttributes()).toEqual({});
             expect(doc.getChildren()).toHaveLength(1);
-            const paragaph = doc.getFirstChild() as ParagraphModelNode;
-            expect(paragaph.getComponentId()).toEqual('paragraph');
-            expect(paragaph.getPartId()).toEqual('paragraph');
-            expect(paragaph.getId()).toEqual('1');
-            expect(paragaph.getAttributes()).toEqual({});
-            expect(paragaph.getChildren()).toHaveLength(2);
-            const text1 = paragaph.getFirstChild() as TextModelNode;
+            const paragraph = doc.getFirstChild() as ParagraphModelNode;
+            expect(paragraph.getComponentId()).toEqual('paragraph');
+            expect(paragraph.getPartId()).toEqual('paragraph');
+            expect(paragraph.getId()).toEqual('1');
+            expect(paragraph.getAttributes()).toEqual({});
+            expect(paragraph.getChildren()).toHaveLength(2);
+            const text1 = paragraph.getFirstChild() as TextModelNode;
             expect(text1.getComponentId()).toEqual('text');
             expect(text1.getPartId()).toEqual('text');
             expect(text1.getId()).toEqual('2');

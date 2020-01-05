@@ -14,6 +14,11 @@ import {
     ITransformation,
 } from './transformation';
 
+export interface IDidApplyTransformation {
+    readonly transformation: ITransformation;
+    readonly appliedTransformation: IAppliedTransformation;
+}
+
 export interface IDidUpdateStateEvent {
     readonly beforeFrom: number;
     readonly beforeTo: number;
@@ -22,6 +27,7 @@ export interface IDidUpdateStateEvent {
 }
 
 export interface IState {
+    onDidApplyTransformation: IOnEvent<IDidApplyTransformation>;
     onDidUpdateState: IOnEvent<IDidUpdateStateEvent>;
     getTokens(): IToken[];
     applyTransformations(transformations: ITransformation[]): IAppliedTransformation[];
@@ -30,11 +36,16 @@ export interface IState {
 
 export class State implements IState {
     protected tokens: IToken[];
+    protected didApplyTransformationEventEmitter: IEventEmitter<IDidApplyTransformation> = new EventEmitter();
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
 
     constructor(protected cursorService: ICursorService, initialMarkup: string) {
         const tokenizer = new Tokenizer();
         this.tokens = tokenizer.tokenize(initialMarkup);
+    }
+
+    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>) {
+        this.didApplyTransformationEventEmitter.on(listener);
     }
 
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {
@@ -47,7 +58,11 @@ export class State implements IState {
 
     applyTransformations(transformations: ITransformation[]): IAppliedTransformation[] {
         this.assertInitialized();
-        const appliedTransformations = transformations.map(transformation => this.applyTransformation(transformation));
+        const appliedTransformations = transformations.map(transformation => {
+            const appliedTransformation = this.applyTransformation(transformation);
+            this.didApplyTransformationEventEmitter.emit({ transformation, appliedTransformation });
+            return appliedTransformation;
+        });
         const transformedRange = this.findTransformedRange(appliedTransformations);
         if (transformedRange) {
             this.didUpdateStateEventEmitter.emit({
@@ -85,17 +100,7 @@ export class State implements IState {
             cursorState.head,
             cursorState.leftLock,
         );
-        const cursorAnchor = transformation.getCursorAnchor();
-        const cursorHead = transformation.getCursorHead();
-        this.cursorService.setCursorState({
-            anchor: cursorAnchor === null ? cursorState.anchor : cursorAnchor,
-            head: cursorHead === null ? cursorState.head : cursorHead,
-            leftLock: transformation.getCursorLockLeft(),
-        });
         const operations = transformation.getOperations();
-        if (operations.length === 0) {
-            return appliedTransformation;
-        }
         const offsetAdjustments: IOffsetAdjustment[] = [];
         operations.forEach(unadjustedOperation => {
             const operation = unadjustedOperation.adjustOffset(offsetAdjustments);
@@ -111,6 +116,13 @@ export class State implements IState {
                 throw new Error('Unknown transformation operation encountered.');
             }
             offsetAdjustments.push(operation.getOffsetAdjustment());
+        });
+        const cursorAnchor = transformation.getCursorAnchor();
+        const cursorHead = transformation.getCursorHead();
+        this.cursorService.setCursorState({
+            anchor: cursorAnchor === null ? cursorState.anchor : cursorAnchor,
+            head: cursorHead === null ? cursorState.head : cursorHead,
+            leftLock: transformation.getCursorLockLeft(),
         });
         return appliedTransformation;
     }
@@ -129,6 +141,11 @@ export class State implements IState {
                     throw new Error('Unknown applied transformation operation encountered.');
                 }
             });
+        this.cursorService.setCursorState({
+            anchor: appliedTransformation.getOriginalCursorAnchor(),
+            head: appliedTransformation.getOriginalCursorHead(),
+            leftLock: appliedTransformation.getOriginalCursorLockLeft(),
+        });
     }
 
     protected findTransformedRange(appliedTransformations: IAppliedTransformation[]) {

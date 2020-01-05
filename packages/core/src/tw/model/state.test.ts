@@ -3,11 +3,12 @@ import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
+import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IStateService } from '../state/service';
-import { IDidUpdateStateEvent } from '../state/state';
+import { IDidApplyTransformation, IDidUpdateStateEvent } from '../state/state';
 import { CLOSE_TOKEN, IToken } from '../state/token';
 import { IAppliedTransformation, ITransformation } from '../state/transformation';
 import { IInlineModelNode } from './inline-node';
@@ -29,6 +30,8 @@ class MockStateService implements IStateService {
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {
         this.didUpdateStateEventEmitter.on(listener);
     }
+
+    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>) {}
 
     getTokens() {
         return this.tokens;
@@ -56,32 +59,12 @@ describe('ModelState', () => {
     let modelState: ModelState;
 
     beforeEach(() => {
+        const config = buildStubConfig();
         textMeasurer = new TextMeasurerStub();
-        const docComponent = new DocComponent('doc');
-        const paragraphComponent = new ParagraphComponent('paragraph');
-        const textComponent = new TextComponent('text', textMeasurer);
-        configService = new ConfigService(
-            {
-                commands: {},
-                keyBindings: {
-                    common: {},
-                },
-                components: {
-                    doc: docComponent,
-                    paragraph: paragraphComponent,
-                    text: textComponent,
-                },
-                page: {
-                    width: 816,
-                    height: 1056,
-                    paddingTop: 40,
-                    paddingBottom: 40,
-                    paddingLeft: 40,
-                    paddingRight: 40,
-                },
-            },
-            {},
-        );
+        config.components.doc = new DocComponent('doc');
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         const tokens = [
             { componentId: 'doc', id: 'doc', attributes: {} },

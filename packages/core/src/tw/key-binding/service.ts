@@ -1,5 +1,5 @@
 import { ICommandService } from '../command/service';
-import { IKeyBindingsConfig } from '../config/config';
+import { IPlatformKeyBindings } from '../config/config';
 import { IConfigService } from '../config/service';
 import { detectPlatform } from '../util/platform';
 import { IDidPressKeyEvent } from '../view/keyboard-observer';
@@ -42,7 +42,7 @@ export class KeyBindingService implements IKeyBindingService {
         viewService.onDidPressKey(this.handleDidPressKey);
     }
 
-    protected bindKeys(config: IKeyBindingsConfig) {
+    protected bindKeys(config: IPlatformKeyBindings) {
         for (let key in config) {
             const binding = config[key];
             this.keyBindings.set(key, {

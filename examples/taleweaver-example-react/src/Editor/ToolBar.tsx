@@ -195,7 +195,7 @@ export default function ToolBar({ taleweaver }: Props) {
         <Wrapper>
             <Container>
                 <Group>
-                    <SelectItem width={120} value={'Normal'} disabled={false}>
+                    <SelectItem width={120} value={'Normal'} disabled={false} onChange={event => null}>
                         <option value="" style={{ display: 'none' }}></option>
                         <option value="Normal">Normal text</option>
                         <option value="Title">Title</option>
@@ -206,13 +206,18 @@ export default function ToolBar({ taleweaver }: Props) {
                     </SelectItem>
                 </Group>
                 <Group>
-                    <SelectItem width={120} value={font || ''} disabled={font === null}>
+                    <SelectItem width={120} value={font || ''} disabled={font === null} onChange={event => null}>
                         <option value="" style={{ display: 'none' }}></option>
                         <option value="sans-serif">sans-serif</option>
                     </SelectItem>
                 </Group>
                 <Group>
-                    <SelectItem width={60} value={size ? size.toString() : ''} disabled={size === null}>
+                    <SelectItem
+                        width={60}
+                        value={size ? size.toString() : ''}
+                        disabled={size === null}
+                        onChange={event => null}
+                    >
                         <option value="" style={{ display: 'hidden' }} />
                         <option value="10">10</option>
                         <option value="12">12</option>
@@ -226,19 +231,19 @@ export default function ToolBar({ taleweaver }: Props) {
                     </SelectItem>
                 </Group>
                 <Group>
-                    <Item active={bold} disabled={false}>
+                    <Item active={bold} disabled={false} onClick={() => null}>
                         <i className="mdi mdi-format-bold" />
                     </Item>
-                    <Item active={italic} disabled={false}>
+                    <Item active={italic} disabled={false} onClick={() => null}>
                         <i className="mdi mdi-format-italic" />
                     </Item>
-                    <Item active={underline} disabled={false}>
+                    <Item active={underline} disabled={false} onClick={() => null}>
                         <i className="mdi mdi-format-underline" />
                     </Item>
-                    <Item active={strikethrough} disabled={false}>
+                    <Item active={strikethrough} disabled={false} onClick={() => null}>
                         <i className="mdi mdi-format-strikethrough-variant" />
                     </Item>
-                    <Item active={false} disabled={color === null}>
+                    <Item active={false} disabled={color === null} onClick={() => null}>
                         <i className="mdi mdi-format-color-text" style={{ position: 'relative', top: '-2px' }} />
                         <ItemColorLine color={color || 'transparent'} />
                     </Item>

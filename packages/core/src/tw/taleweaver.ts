@@ -1,4 +1,5 @@
 import * as cursorCommandHandlers from './command/handlers/cursor';
+import * as historyCommandHandlers from './command/handlers/history';
 import * as stateCommandHandlers from './command/handlers/state';
 import * as viewCommandHandlers from './command/handlers/view';
 import { CommandService, ICommandService } from './command/service';
@@ -9,6 +10,7 @@ import { ComponentService, IComponentService } from './component/service';
 import { IConfig, IExternalConfig } from './config/config';
 import { ConfigService, IConfigService } from './config/service';
 import { CursorService, ICursorService } from './cursor/service';
+import { HistoryService, IHistoryService } from './history/service';
 import { IKeyBindingService, KeyBindingService } from './key-binding/service';
 import { ILayoutService, LayoutService } from './layout/service';
 import { IModelService, ModelService } from './model/service';
@@ -26,16 +28,17 @@ export interface ITaleweaver {
 export class Taleweaver {
     protected instanceId: string;
     protected serviceRegistry: IServiceRegistry;
-    protected configService: IConfigService;
     protected commandService: ICommandService;
     protected componentService: IComponentService;
+    protected configService: IConfigService;
     protected cursorService: ICursorService;
-    protected stateService: IStateService;
+    protected historyService: IHistoryService;
+    protected keyBindingService: IKeyBindingService;
+    protected layoutService: ILayoutService;
     protected modelService: IModelService;
     protected renderService: IRenderService;
-    protected layoutService: ILayoutService;
+    protected stateService: IStateService;
     protected viewService: IViewService;
-    protected keyBindingService: IKeyBindingService;
 
     constructor(initialMarkup: string, config: IExternalConfig) {
         this.instanceId = generateId();
@@ -45,6 +48,7 @@ export class Taleweaver {
         this.componentService = new ComponentService(this.configService);
         this.cursorService = new CursorService(this.configService);
         this.stateService = new StateService(this.cursorService, initialMarkup);
+        this.historyService = new HistoryService(this.configService, this.stateService);
         this.modelService = new ModelService(this.componentService, this.stateService);
         this.renderService = new RenderService(this.componentService, this.modelService);
         this.layoutService = new LayoutService(this.componentService, this.renderService);
@@ -94,11 +98,25 @@ export class Taleweaver {
                 'tw.cursor.moveHeadToDocStart': cursorCommandHandlers.moveHeadToDocStart,
                 'tw.cursor.moveHeadToDocEnd': cursorCommandHandlers.moveHeadToDocEnd,
                 'tw.cursor.selectAll': cursorCommandHandlers.selectAll,
+                'tw.history.undo': historyCommandHandlers.undo,
+                'tw.history.redo': historyCommandHandlers.redo,
                 'tw.state.insert': stateCommandHandlers.insert,
                 'tw.state.deleteBackward': stateCommandHandlers.deleteBackward,
                 'tw.state.deleteForward': stateCommandHandlers.deleteForward,
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
+            },
+            components: {
+                doc: new DocComponent('doc'),
+                paragraph: new ParagraphComponent('paragraph'),
+                text: new TextComponent('text', new TextMeasurer()),
+            },
+            cursor: {
+                disable: false,
+            },
+            history: {
+                collapseThreshold: 500,
+                maxCollapseDuration: 2000,
             },
             keyBindings: {
                 common: {
@@ -127,12 +145,11 @@ export class Taleweaver {
                     'shift+cmd+up': { command: 'tw.cursor.moveHeadToDocStart' },
                     'shift+cmd+down': { command: 'tw.cursor.moveHeadToDocEnd' },
                     'cmd+a': { command: 'tw.cursor.selectAll' },
+                    'cmd+z': { command: 'tw.history.undo' },
+                    'shift+cmd+z': { command: 'tw.history.redo' },
                 },
-            },
-            components: {
-                doc: new DocComponent('doc'),
-                paragraph: new ParagraphComponent('paragraph'),
-                text: new TextComponent('text', new TextMeasurer()),
+                windows: {},
+                linux: {},
             },
             page: {
                 width: 816,
@@ -150,6 +167,7 @@ export class Taleweaver {
         this.serviceRegistry.registerService('command', this.commandService);
         this.serviceRegistry.registerService('component', this.componentService);
         this.serviceRegistry.registerService('cursor', this.cursorService);
+        this.serviceRegistry.registerService('history', this.historyService);
         this.serviceRegistry.registerService('state', this.stateService);
         this.serviceRegistry.registerService('model', this.modelService);
         this.serviceRegistry.registerService('render', this.renderService);

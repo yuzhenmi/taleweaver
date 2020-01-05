@@ -19,7 +19,7 @@ export class CursorService implements ICursorService {
     protected cursor?: ICursor;
 
     constructor(configService: IConfigService) {
-        if (!configService.getConfig().disableCursor) {
+        if (!configService.getConfig().cursor.disable) {
             this.cursor = new Cursor();
         }
     }
