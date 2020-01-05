@@ -226,6 +226,10 @@ export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
         return 0;
     }
 
+    breakAtWidth(width: number): ParagraphLineBreakAtomicLayoutNode {
+        throw new Error('Method should never be called, there is a bug.');
+    }
+
     convertCoordinateToOffset(x: number) {
         return 0;
     }
