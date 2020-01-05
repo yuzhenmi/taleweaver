@@ -2,8 +2,8 @@ import { DocLayoutNode } from '../component/components/doc';
 import { LineLayoutNode } from '../component/components/line';
 import { PageLayoutNode } from '../component/components/page';
 import { ParagraphLayoutNode } from '../component/components/paragraph';
-import { TextLayoutNode, WordLayoutNode } from '../component/components/text';
-import { DEFAULT_TEXT_STYLE, TextMeasurerStub } from '../component/components/text-measurer.stub';
+import { DEFAULT_TEXT_STYLE, TextLayoutNode, WordLayoutNode } from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { LayoutFlower } from './flower';
 
 describe('LayoutFlower', () => {

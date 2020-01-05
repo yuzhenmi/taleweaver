@@ -5,8 +5,14 @@ import {
     ParagraphLineBreakLayoutNode,
     ParagraphRenderNode,
 } from '../component/components/paragraph';
-import { TextComponent, TextLayoutNode, TextRenderNode, WordRenderNode } from '../component/components/text';
-import { DEFAULT_TEXT_STYLE, TextMeasurerStub } from '../component/components/text-measurer.stub';
+import {
+    DEFAULT_TEXT_STYLE,
+    TextComponent,
+    TextLayoutNode,
+    TextRenderNode,
+    WordRenderNode,
+} from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
 import { LayoutTreeBuilder } from './tree-builder';

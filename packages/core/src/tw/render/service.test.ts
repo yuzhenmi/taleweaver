@@ -87,7 +87,7 @@ describe('RenderService', () => {
                     text: [
                         {
                             weight: 400,
-                            size: 16,
+                            size: 14,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -99,7 +99,7 @@ describe('RenderService', () => {
                     word: [
                         {
                             weight: 400,
-                            size: 16,
+                            size: 14,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -118,7 +118,7 @@ describe('RenderService', () => {
                     text: [
                         {
                             weight: 700,
-                            size: 16,
+                            size: 14,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -130,7 +130,7 @@ describe('RenderService', () => {
                     word: [
                         {
                             weight: 700,
-                            size: 16,
+                            size: 14,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,

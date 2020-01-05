@@ -96,10 +96,10 @@ class App extends React.Component {
                         page: {
                             width: 816,
                             height: 1056,
-                            paddingTop: 40,
-                            paddingBottom: 40,
-                            paddingLeft: 40,
-                            paddingRight: 40,
+                            paddingTop: 60,
+                            paddingBottom: 60,
+                            paddingLeft: 60,
+                            paddingRight: 60,
                         },
                     }}
                 />

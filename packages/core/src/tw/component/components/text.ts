@@ -51,6 +51,17 @@ export interface ITextStyle extends IStyle {
     color: string;
 }
 
+export const DEFAULT_TEXT_STYLE: ITextStyle = {
+    weight: 400,
+    size: 14,
+    font: 'sans-serif',
+    letterSpacing: 0,
+    underline: false,
+    italic: false,
+    strikethrough: false,
+    color: 'black',
+};
+
 export class TextRenderNode extends InlineRenderNode<ITextStyle> {
     getPartId() {
         return 'text';
@@ -205,6 +216,28 @@ export class WordLayoutNode extends AtomicLayoutNode {
             }
         }
         return this.tailTrimmedWidth;
+    }
+
+    breakAtWidth(width: number) {
+        const text = this.word.text;
+        let min = 0;
+        let max = text.length;
+        while (max - min > 1) {
+            const offset = Math.floor((max + min) / 2);
+            const substr = text.substring(0, offset);
+            const subwidth = this.textMeasurer.measure(substr, this.style).width;
+            if (subwidth > width) {
+                max = offset;
+            } else {
+                min = offset;
+            }
+        }
+        const splitAt = min;
+        const newWord = { ...this.word, text: text.substring(splitAt) };
+        const newNode = new WordLayoutNode(this.componentId, this.id, newWord, this.style, this.textMeasurer);
+        this.word.text = text.substring(0, splitAt);
+        this.clearCache();
+        return newNode;
     }
 
     getWord() {
@@ -362,15 +395,9 @@ export class TextComponent extends Component implements IComponent {
     buildRenderNode(modelNode: IModelNode) {
         if (modelNode instanceof TextModelNode) {
             const attributes = modelNode.getAttributes();
-            const style = {
-                weight: attributes.weight || 400,
-                size: attributes.size || 16,
-                font: attributes.font || 'sans-serif',
-                letterSpacing: attributes.letterSpacing || 0,
-                underline: !!attributes.underline,
-                italic: !!attributes.italic,
-                strikethrough: !!attributes.strikethrough,
-                color: attributes.color || 'black',
+            const style: ITextStyle = {
+                ...DEFAULT_TEXT_STYLE,
+                ...attributes,
             };
             const node = new TextRenderNode(this.id, modelNode.getId(), style);
             const words = breakTextToWords(modelNode.getContent());

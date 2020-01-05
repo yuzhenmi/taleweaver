@@ -3,8 +3,14 @@ import { DocComponent, DocLayoutNode } from '../component/components/doc';
 import { LineLayoutNode, LineViewNode } from '../component/components/line';
 import { PageLayoutNode, PageViewNode } from '../component/components/page';
 import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from '../component/components/paragraph';
-import { TextComponent, TextLayoutNode, TextViewNode, WordLayoutNode } from '../component/components/text';
-import { DEFAULT_TEXT_STYLE, TextMeasurerStub } from '../component/components/text-measurer.stub';
+import {
+    DEFAULT_TEXT_STYLE,
+    TextComponent,
+    TextLayoutNode,
+    TextViewNode,
+    WordLayoutNode,
+} from '../component/components/text';
+import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { ConfigService } from '../config/service';
 import { ViewTreeBuilder } from './tree-builder';

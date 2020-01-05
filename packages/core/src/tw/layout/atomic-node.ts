@@ -4,12 +4,14 @@ import { ILayoutRect } from './rect';
 
 export interface IAtomicLayoutNode extends ILayoutNode<IInlineLayoutNode, never> {
     getTailTrimmedWidth(): number;
+    breakAtWidth(width: number): IAtomicLayoutNode;
     convertCoordinateToOffset(x: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
 }
 
 export abstract class AtomicLayoutNode extends LayoutNode<IInlineLayoutNode, never> implements IAtomicLayoutNode {
     abstract getTailTrimmedWidth(): number;
+    abstract breakAtWidth(width: number): IAtomicLayoutNode;
     abstract convertCoordinateToOffset(x: number): number;
     abstract resolveRects(from: number, to: number): ILayoutRect[];
 
