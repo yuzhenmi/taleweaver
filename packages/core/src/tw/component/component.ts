@@ -15,7 +15,16 @@ export interface IComponent {
     buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
 }
 
-export abstract class Component {
+export abstract class Component implements IComponent {
+    abstract buildModelNode(
+        partId: string | undefined,
+        id: string,
+        attributes: IAttributes,
+    ): IModelNode<IAttributes> | undefined;
+    abstract buildRenderNode(modelNode: IModelNode): IRenderNode | undefined;
+    abstract buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
+    abstract buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
+
     constructor(protected id: string) {}
 
     getId() {
