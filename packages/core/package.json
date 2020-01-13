@@ -1,13 +1,20 @@
 {
     "name": "@taleweaver/core",
     "version": "0.0.1",
-    "main": "index.js",
-    "types": "index.d.ts",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc",
-        "dev": "tsc --watch"
+        "build": "tsc --p tsconfig.build.json",
+        "dev": "tsc --p tsconfig.build.json --watch",
+        "test": "jest"
     },
     "devDependencies": {
+        "@types/jest": "^24.0.23",
+        "@types/jsdom": "^12.2.4",
+        "jest": "^24.9.0",
+        "jsdom": "^15.2.1",
+        "ts-jest": "^24.1.0",
         "typescript": "3.3.3"
-    }
+    },
+    "dependencies": {}
 }

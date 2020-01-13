@@ -1,5 +1,2 @@
 /node_modules
-/lib/**/*.d.ts
-/lib/**/*.js
-/index.d.ts
-/index.js
+/dist
