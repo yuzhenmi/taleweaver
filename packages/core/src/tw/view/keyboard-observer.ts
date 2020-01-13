@@ -97,6 +97,15 @@ export class KeyboardObserver implements IKeyboardObserver {
         if (!key) {
             return;
         }
+        if (
+            key.includes('cmd+') ||
+            key.includes('win+') ||
+            key.includes('meta+') ||
+            key.includes('ctrl+') ||
+            key.includes('alt+')
+        ) {
+            event.preventDefault();
+        }
         this.didPressKeyEventEmitter.emit({ key });
     };
 
