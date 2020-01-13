@@ -4,7 +4,7 @@ import { IEventListener, IOnEvent } from '../event/listener';
 import { IStateService } from '../state/service';
 import { IDidUpdateStateEvent } from '../state/state';
 import { IOpenToken, IToken } from '../state/token';
-import { identityTokenType } from '../state/utility';
+import { identifyTokenType } from '../state/utility';
 import { findCommonLineage } from '../tree/utility';
 import { IDocModelNode } from './doc-node';
 import { IModelNode } from './node';
@@ -39,7 +39,8 @@ export class ModelState implements IModelState {
     }
 
     protected handleDidUpdateStateEvent = (event: IDidUpdateStateEvent) => {
-        const node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo);
+        const wrappedDepth = this.findWrappedDepth(this.stateService.getTokens(), event.afterFrom, event.afterTo);
+        const node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo, wrappedDepth);
         const updatedTokens = this.findNodeTokenRange(
             this.stateService.getTokens(),
             node.getId(),
@@ -78,9 +79,34 @@ export class ModelState implements IModelState {
         return [node, updatedNode];
     }
 
-    protected findNodeContainingRange(from: number, to: number) {
-        const fromPosition = this.docNode.resolvePosition(from).getLeaf();
-        const toPosition = this.docNode.resolvePosition(to).getLeaf();
+    protected findWrappedDepth(tokens: IToken[], from: number, to: number) {
+        let depth = 0;
+        let maxDepth = 0;
+        let position = from;
+        let token: IToken;
+        while (position < to) {
+            token = tokens[position];
+            position++;
+            switch (identifyTokenType(token)) {
+                case 'OpenToken':
+                    depth--;
+                    break;
+                case 'CloseToken':
+                    depth++;
+                    break;
+            }
+            maxDepth = Math.max(maxDepth, depth);
+        }
+        return maxDepth;
+    }
+
+    protected findNodeContainingRange(from: number, to: number, wrappedDepth: number) {
+        let fromPosition = this.docNode.resolvePosition(from).getLeaf();
+        let toPosition = this.docNode.resolvePosition(to).getLeaf();
+        for (let n = 0; n < wrappedDepth; n++) {
+            fromPosition = fromPosition.getParent()!;
+            toPosition = toPosition.getParent()!;
+        }
         return findCommonLineage(fromPosition.getNode(), toPosition.getNode()) as IModelNode;
     }
 
@@ -88,7 +114,7 @@ export class ModelState implements IModelState {
         let depthPeak = 0;
         let depth = 0;
         tokens.slice(hintFrom, hintTo).forEach(token => {
-            switch (identityTokenType(token)) {
+            switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     depth--;
                     break;
@@ -106,7 +132,7 @@ export class ModelState implements IModelState {
         while (opensNeeded > 0 && from > 0) {
             from--;
             token = tokens[from];
-            switch (identityTokenType(token)) {
+            switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     opensNeeded--;
                     break;
@@ -121,7 +147,7 @@ export class ModelState implements IModelState {
         while (closesNeeded > 0 && to < tokensLength) {
             to++;
             token = tokens[to - 1];
-            switch (identityTokenType(token)) {
+            switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     closesNeeded++;
                     break;
@@ -156,7 +182,7 @@ export class ModelState implements IModelState {
         while (position >= 0) {
             position--;
             token = tokens[position];
-            switch (identityTokenType(token)) {
+            switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     depth--;
                     if ((token as IOpenToken).id === nodeId) {
@@ -179,7 +205,7 @@ export class ModelState implements IModelState {
         while (position < tokensLength) {
             token = tokens[position];
             position++;
-            switch (identityTokenType(token)) {
+            switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     currentDepth--;
                     break;

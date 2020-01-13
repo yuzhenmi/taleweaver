@@ -1,6 +1,9 @@
+import { IModelNode, IModelPosition } from '../../model/node';
+import { identifyModelNodeType } from '../../model/utility';
 import { IServiceRegistry } from '../../service/registry';
-import { IToken } from '../../state/token';
+import { CLOSE_TOKEN, IToken } from '../../state/token';
 import { DeleteOperation, InsertOperation, Transformation } from '../../state/transformation';
+import { generateId } from '../../util/id';
 import { ICommandHandler } from '../command';
 
 function moveCursorByModelOffset(serviceRegistry: IServiceRegistry, modelOffset: number) {
@@ -88,4 +91,35 @@ export const deleteForward: ICommandHandler = async serviceRegistry => {
     moveCursorByModelOffset(serviceRegistry, modelDeleteFrom);
 };
 
-export const splitLine: ICommandHandler = async serviceRegistry => {};
+export const splitLine: ICommandHandler = async serviceRegistry => {
+    const cursorService = serviceRegistry.getService('cursor');
+    const renderService = serviceRegistry.getService('render');
+    const modelService = serviceRegistry.getService('model');
+    if (!cursorService.hasCursor()) {
+        return;
+    }
+    const { anchor } = cursorService.getCursorState();
+    let position: IModelPosition | null = modelService
+        .resolvePosition(renderService.convertOffsetToModelOffset(anchor))
+        .getLeaf();
+    const nodes: IModelNode[] = [];
+    while (position) {
+        const node = position.getNode();
+        nodes.push(node);
+        if (identifyModelNodeType(node) === 'block') {
+            break;
+        }
+        position = position.getParent();
+    }
+    const tokens: IToken[] = [];
+    nodes.reverse().forEach(node => {
+        tokens.unshift(CLOSE_TOKEN);
+        tokens.push({
+            componentId: node.getComponentId(),
+            partId: node.getPartId(),
+            id: generateId(),
+            attributes: node.getAttributes(),
+        });
+    });
+    return insert(serviceRegistry, tokens);
+};

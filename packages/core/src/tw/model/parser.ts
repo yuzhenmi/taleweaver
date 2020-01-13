@@ -1,6 +1,6 @@
 import { IComponentService } from '../component/service';
 import { ICloseToken, IContentToken, IOpenToken, IToken } from '../state/token';
-import { identityTokenType } from '../state/utility';
+import { identifyTokenType } from '../state/utility';
 import { IInlineModelNode, InlineModelNode } from './inline-node';
 import { IAttributes, IModelNode } from './node';
 
@@ -79,7 +79,7 @@ export class TokenParser implements ITokenParser {
     protected processToken(token: IToken) {
         switch (this.parserState) {
             case ParserState.NewNode:
-                switch (identityTokenType(token)) {
+                switch (identifyTokenType(token)) {
                     case 'OpenToken':
                         this.newNode(token as IOpenToken);
                         return;
@@ -91,7 +91,7 @@ export class TokenParser implements ITokenParser {
                         return;
                 }
             case ParserState.Content:
-                switch (identityTokenType(token)) {
+                switch (identifyTokenType(token)) {
                     case 'ContentToken':
                         this.appendToContent(token as IContentToken);
                         return;

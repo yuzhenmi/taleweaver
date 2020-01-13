@@ -103,6 +103,7 @@ export class Taleweaver {
                 'tw.state.insert': stateCommandHandlers.insert,
                 'tw.state.deleteBackward': stateCommandHandlers.deleteBackward,
                 'tw.state.deleteForward': stateCommandHandlers.deleteForward,
+                'tw.state.splitLine': stateCommandHandlers.splitLine,
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
             },
@@ -134,6 +135,7 @@ export class Taleweaver {
                     'shift+alt+right': { command: 'tw.cursor.moveHeadRightByWord' },
                     backspace: { command: 'tw.state.deleteBackward' },
                     delete: { command: 'tw.state.deleteForward' },
+                    enter: { command: 'tw.state.splitLine' },
                 },
                 macos: {
                     'cmd+left': { command: 'tw.cursor.moveToLineStart' },

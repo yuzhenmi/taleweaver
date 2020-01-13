@@ -1,6 +1,6 @@
 import { CLOSE_TOKEN, IToken } from './token';
 
-export function identityTokenType(token: IToken) {
+export function identifyTokenType(token: IToken) {
     if (token === CLOSE_TOKEN) {
         return 'CloseToken';
     }
