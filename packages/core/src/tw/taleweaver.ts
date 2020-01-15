@@ -161,7 +161,7 @@ export class Taleweaver {
                     'ctrl+shift+end': { command: 'tw.cursor.moveHeadToDocEnd' },
                     'ctrl+a': { command: 'tw.cursor.selectAll' },
                     'ctrl+z': { command: 'tw.history.undo' },
-                    'ctrl+shift+z': { command: 'tw.history.undo' },
+                    'ctrl+shift+z': { command: 'tw.history.redo' },
                 },
                 linux: {
                     home: { command: 'tw.cursor.moveToLineStart' },
@@ -174,7 +174,7 @@ export class Taleweaver {
                     'ctrl+shift+end': { command: 'tw.cursor.moveHeadToDocEnd' },
                     'ctrl+a': { command: 'tw.cursor.selectAll' },
                     'ctrl+z': { command: 'tw.history.undo' },
-                    'ctrl+shift+z': { command: 'tw.history.undo' },
+                    'ctrl+shift+z': { command: 'tw.history.redo' },
                 },
             },
             page: {
