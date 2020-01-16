@@ -135,7 +135,7 @@ export const moveLeftByWord: ICommandHandler = async serviceRegistry => {
     }
     const tn = new Transformation();
     const cursorState = cursorService.getCursorState();
-    const offset = cursorState.head;
+    const offset = Math.min(cursorState.anchor, cursorState.head);
     const position = renderService.resolvePosition(offset);
     const atomicPosition = position.getLeaf();
     const atomicNode = atomicPosition.getNode();
@@ -163,7 +163,7 @@ export const moveRightByWord: ICommandHandler = async serviceRegistry => {
     }
     const tn = new Transformation();
     const cursorState = cursorService.getCursorState();
-    const offset = cursorState.head;
+    const offset = Math.max(cursorState.anchor, cursorState.head);
     const position = renderService.resolvePosition(offset);
     const atomicPosition = position.getLeaf();
     const atomicNode = atomicPosition.getNode();
@@ -195,7 +195,7 @@ export const moveToLineStart: ICommandHandler = async serviceRegistry => {
     }
     const tn = new Transformation();
     const cursorState = cursorService.getCursorState();
-    const offset = cursorState.head;
+    const offset = Math.min(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
     const lineBoxLevelPosition = position
         .getLeaf()
@@ -217,7 +217,7 @@ export const moveToLineEnd: ICommandHandler = async serviceRegistry => {
     }
     const tn = new Transformation();
     const cursorState = cursorService.getCursorState();
-    const offset = cursorState.head;
+    const offset = Math.max(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
     const lineLayoutPosition = position
         .getLeaf()
