@@ -10,7 +10,14 @@ import {
     IKeyboardObserver,
     KeyboardObserver,
 } from './keyboard-observer';
-import { IPointerDidDownEvent, IPointerDidMoveEvent, IPointerObserver, PointerObserver } from './pointer-observer';
+import {
+    IPointerDidDownEvent,
+    IPointerDidMoveEvent,
+    IPointerObserver,
+    PointerObserver,
+    IPointerDidDoubleClick,
+    IPointerDidTripleClick,
+} from './pointer-observer';
 import { IViewService } from './service';
 
 export interface IDOMController {
@@ -49,6 +56,8 @@ export class DOMController {
         this.pointerObserver = new PointerObserver(instanceId, viewService);
         this.pointerObserver.onPointerDidDown(this.handlePointerDidDown);
         this.pointerObserver.onPointerDidMove(this.handlePointerDidMove);
+        this.pointerObserver.onPointerDidDoubleClick(this.handlePointerDidDoubleClick);
+        this.pointerObserver.onPointerDidTripleClick(this.handlePointerDidTripleClick);
         this.focusObserver = new FocusObserver(this.$contentEditable);
         this.focusObserver.onDidFocus(this.handleDidFocus);
         this.focusObserver.onDidBlur(this.handleDidBlur);
@@ -116,6 +125,18 @@ export class DOMController {
     protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
         if (event.pointerDown) {
             this.commandService.executeCommand('tw.cursor.moveHead', event.offset);
+        }
+    };
+
+    protected handlePointerDidDoubleClick = (event: IPointerDidDoubleClick) => {
+        if (event.inPage) {
+            this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
+        }
+    };
+
+    protected handlePointerDidTripleClick = (event: IPointerDidTripleClick) => {
+        if (event.inPage) {
+            this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
         }
     };
 

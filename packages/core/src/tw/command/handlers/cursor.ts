@@ -4,6 +4,7 @@ import { IAtomicRenderNode } from '../../render/atomic-node';
 import { identifyRenderNodeType } from '../../render/utility';
 import { Transformation } from '../../state/transformation';
 import { ICommandHandler } from '../command';
+import { IRenderPosition } from '../../render/node';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
     const tn = new Transformation();
@@ -501,3 +502,48 @@ export const selectAll: ICommandHandler = async serviceRegistry => {
     tn.setCursorHead(docSize - 1);
     serviceRegistry.getService('state').applyTransformation(tn);
 };
+
+export const selectWord: ICommandHandler = async (serviceRegistry, offset: number) => {
+    const cursorService = serviceRegistry.getService('cursor');
+    const renderService = serviceRegistry.getService('render');
+    if (!cursorService.hasCursor()) {
+        return;
+    }
+    const tn = new Transformation();
+    const position = renderService.resolvePosition(offset);
+    const atomicPosition = position.getLeaf();
+    const atomicNode = atomicPosition.getNode();
+    tn.setCursor(offset - atomicPosition.getOffset());
+    tn.setCursorHead(offset - atomicPosition.getOffset() + atomicNode.getSize() - 1);
+    serviceRegistry.getService('state').applyTransformation(tn);
+};
+
+export const selectBlock: ICommandHandler = async (serviceRegistry, offset: number) => {
+    const cursorService = serviceRegistry.getService('cursor');
+    const renderService = serviceRegistry.getService('render');
+    if (!cursorService.hasCursor()) {
+        return;
+    }
+    const tn = new Transformation();
+    const position = renderService.resolvePosition(offset);
+    const atomicPosition = position.getLeaf();
+    const blockPosition = searchBlockRenderPositionBottomUp(atomicPosition);
+    if (!blockPosition) {
+        return;
+    }
+    const blockNode = blockPosition.getNode();
+    tn.setCursor(offset - blockPosition.getOffset());
+    tn.setCursorHead(offset - blockPosition.getOffset() + blockNode.getSize() - 1);
+    serviceRegistry.getService('state').applyTransformation(tn);
+};
+
+function searchBlockRenderPositionBottomUp(position: IRenderPosition): IRenderPosition | null {
+    if (identifyRenderNodeType(position.getNode()) === 'block') {
+        return position;
+    }
+    const parent = position.getParent();
+    if (!parent) {
+        return null;
+    }
+    return searchBlockRenderPositionBottomUp(parent);
+}

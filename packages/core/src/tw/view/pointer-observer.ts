@@ -15,10 +15,22 @@ export interface IPointerDidMoveEvent {
 
 export interface IPointerDidUpEvent {}
 
+export interface IPointerDidDoubleClick {
+    inPage: boolean;
+    offset: number;
+}
+
+export interface IPointerDidTripleClick {
+    inPage: boolean;
+    offset: number;
+}
+
 export interface IPointerObserver {
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>): void;
     onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>): void;
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>): void;
+    onPointerDidDoubleClick(listener: IEventListener<IPointerDidDoubleClick>): void;
+    onPointerDidTripleClick(listener: IEventListener<IPointerDidTripleClick>): void;
 }
 
 export class PointerObserver implements IPointerObserver {
@@ -26,11 +38,14 @@ export class PointerObserver implements IPointerObserver {
     protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
     protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
     protected pointerDidUpEventEmitter: IEventEmitter<IPointerDidUpEvent> = new EventEmitter();
+    protected pointerDidDoubleClickEventEmitter: IEventEmitter<IPointerDidDoubleClick> = new EventEmitter();
+    protected pointerDidTripleClickEventEmitter: IEventEmitter<IPointerDidTripleClick> = new EventEmitter();
 
     constructor(protected instanceId: string, protected viewService: IViewService) {
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
+        window.addEventListener('click', this.handleClick);
     }
 
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
@@ -43,6 +58,14 @@ export class PointerObserver implements IPointerObserver {
 
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>) {
         this.pointerDidUpEventEmitter.on(listener);
+    }
+
+    onPointerDidDoubleClick(listener: IEventListener<IPointerDidDoubleClick>) {
+        this.pointerDidDoubleClickEventEmitter.on(listener);
+    }
+
+    onPointerDidTripleClick(listener: IEventListener<IPointerDidTripleClick>) {
+        this.pointerDidTripleClickEventEmitter.on(listener);
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
@@ -74,6 +97,42 @@ export class PointerObserver implements IPointerObserver {
     protected handleMouseUp = () => {
         this.pointerDown = false;
         this.pointerDidUpEventEmitter.emit({});
+    };
+
+    protected handleClick = (event: MouseEvent) => {
+        switch (event.detail) {
+            case 1:
+                break;
+            case 2:
+                this.handleDoubleClick(event);
+                break;
+            case 3:
+            default:
+                this.handleTripleClick(event);
+                break;
+        }
+    };
+
+    protected handleDoubleClick = (event: MouseEvent) => {
+        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        if (offset === null) {
+            return;
+        }
+        this.pointerDidDoubleClickEventEmitter.emit({
+            inPage: this.isDOMElementInPage(event.target as HTMLElement),
+            offset,
+        });
+    };
+
+    protected handleTripleClick = (event: MouseEvent) => {
+        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        if (offset === null) {
+            return;
+        }
+        this.pointerDidTripleClickEventEmitter.emit({
+            inPage: this.isDOMElementInPage(event.target as HTMLElement),
+            offset,
+        });
     };
 
     protected resolveCoordinates(x: number, y: number): number | null {

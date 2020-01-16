@@ -98,6 +98,8 @@ export class Taleweaver {
                 'tw.cursor.moveHeadToDocStart': cursorCommandHandlers.moveHeadToDocStart,
                 'tw.cursor.moveHeadToDocEnd': cursorCommandHandlers.moveHeadToDocEnd,
                 'tw.cursor.selectAll': cursorCommandHandlers.selectAll,
+                'tw.cursor.selectWord': cursorCommandHandlers.selectWord,
+                'tw.cursor.selectBlock': cursorCommandHandlers.selectBlock,
                 'tw.history.undo': historyCommandHandlers.undo,
                 'tw.history.redo': historyCommandHandlers.redo,
                 'tw.state.insert': stateCommandHandlers.insert,
