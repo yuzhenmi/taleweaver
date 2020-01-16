@@ -15,10 +15,17 @@ export interface IPointerDidMoveEvent {
 
 export interface IPointerDidUpEvent {}
 
+export interface IPointerDidClick {
+    inPage: boolean;
+    offset: number;
+    count: number;
+}
+
 export interface IPointerObserver {
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>): void;
     onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>): void;
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>): void;
+    onPointerDidClick(listener: IEventListener<IPointerDidClick>): void;
 }
 
 export class PointerObserver implements IPointerObserver {
@@ -26,11 +33,13 @@ export class PointerObserver implements IPointerObserver {
     protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
     protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
     protected pointerDidUpEventEmitter: IEventEmitter<IPointerDidUpEvent> = new EventEmitter();
+    protected pointerDidClickEventEmitter: IEventEmitter<IPointerDidClick> = new EventEmitter();
 
     constructor(protected instanceId: string, protected viewService: IViewService) {
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
+        window.addEventListener('click', this.handleClick);
     }
 
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
@@ -43,6 +52,10 @@ export class PointerObserver implements IPointerObserver {
 
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>) {
         this.pointerDidUpEventEmitter.on(listener);
+    }
+
+    onPointerDidClick(listener: IEventListener<IPointerDidClick>) {
+        this.pointerDidClickEventEmitter.on(listener);
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
@@ -74,6 +87,18 @@ export class PointerObserver implements IPointerObserver {
     protected handleMouseUp = () => {
         this.pointerDown = false;
         this.pointerDidUpEventEmitter.emit({});
+    };
+
+    protected handleClick = (event: MouseEvent) => {
+        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        if (offset === null) {
+            return;
+        }
+        this.pointerDidClickEventEmitter.emit({
+            inPage: this.isDOMElementInPage(event.target as HTMLElement),
+            offset,
+            count: event.detail,
+        });
     };
 
     protected resolveCoordinates(x: number, y: number): number | null {
