@@ -110,12 +110,10 @@ export class DOMController {
     };
 
     protected handlePointerDidDown = (event: IPointerDidDownEvent) => {
-        if (event.inPage && !this.focused) {
+        if (!this.focused) {
             this.commandService.executeCommand('tw.view.focus');
-        } else if (!event.inPage && this.focused) {
-            this.commandService.executeCommand('tw.view.blur');
         }
-        if (event.inPage) {
+        if (!event.consecutive) {
             this.commandService.executeCommand('tw.cursor.move', event.offset);
         }
     };
@@ -127,18 +125,17 @@ export class DOMController {
     };
 
     protected handlePointerDidClick = (event: IPointerDidClick) => {
-        if (event.inPage) {
-            switch (event.count) {
-                case 1:
-                    break;
-                case 2:
-                    this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
-                    break;
-                case 3:
-                default:
-                    this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
-                    break;
+        switch (event.consecutiveCount) {
+            case 1: {
+                break;
             }
+            case 2:
+                this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
+                break;
+            case 3:
+            default:
+                this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
+                break;
         }
     };
 
