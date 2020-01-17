@@ -45,7 +45,6 @@ export class DOMController {
     constructor(
         protected instanceId: string,
         protected commandService: ICommandService,
-        protected cursorService: ICursorService,
         protected viewService: IViewService,
     ) {
         this.$iframe = this.createIframe();
