@@ -18,6 +18,7 @@ import {
     IPointerDidClick,
 } from './pointer-observer';
 import { IViewService } from './service';
+import { ICursorService } from '../cursor/service';
 
 export interface IDOMController {
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
@@ -44,6 +45,7 @@ export class DOMController {
     constructor(
         protected instanceId: string,
         protected commandService: ICommandService,
+        protected cursorService: ICursorService,
         protected viewService: IViewService,
     ) {
         this.$iframe = this.createIframe();
@@ -110,14 +112,10 @@ export class DOMController {
     };
 
     protected handlePointerDidDown = (event: IPointerDidDownEvent) => {
-        if (event.inPage && !this.focused) {
+        if (!this.focused) {
             this.commandService.executeCommand('tw.view.focus');
-        } else if (!event.inPage && this.focused) {
-            this.commandService.executeCommand('tw.view.blur');
         }
-        if (event.inPage) {
-            this.commandService.executeCommand('tw.cursor.move', event.offset);
-        }
+        this.commandService.executeCommand('tw.cursor.move', event.offset);
     };
 
     protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
@@ -127,18 +125,17 @@ export class DOMController {
     };
 
     protected handlePointerDidClick = (event: IPointerDidClick) => {
-        if (event.inPage) {
-            switch (event.count) {
-                case 1:
-                    break;
-                case 2:
-                    this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
-                    break;
-                case 3:
-                default:
-                    this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
-                    break;
+        switch (event.consecutiveCount) {
+            case 1: {
+                break;
             }
+            case 2:
+                this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
+                break;
+            case 3:
+            default:
+                this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
+                break;
         }
     };
 

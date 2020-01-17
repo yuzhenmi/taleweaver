@@ -3,12 +3,10 @@ import { IEventListener } from '../event/listener';
 import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
-    inPage: boolean;
     offset: number;
 }
 
 export interface IPointerDidMoveEvent {
-    inPage: boolean;
     pointerDown: boolean;
     offset: number;
 }
@@ -16,9 +14,8 @@ export interface IPointerDidMoveEvent {
 export interface IPointerDidUpEvent {}
 
 export interface IPointerDidClick {
-    inPage: boolean;
     offset: number;
-    count: number;
+    consecutiveCount: number;
 }
 
 export interface IPointerObserver {
@@ -29,7 +26,11 @@ export interface IPointerObserver {
 }
 
 export class PointerObserver implements IPointerObserver {
-    protected pointerDown = false;
+    protected clickThreshold = 250;
+    protected consecutiveClickThreshold = 250;
+    protected pointerDownAt: number | null = null;
+    protected clickedAt: number | null = null;
+    protected consecutiveClickCount: number = 0;
     protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
     protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
     protected pointerDidUpEventEmitter: IEventEmitter<IPointerDidUpEvent> = new EventEmitter();
@@ -39,7 +40,6 @@ export class PointerObserver implements IPointerObserver {
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
-        window.addEventListener('click', this.handleClick);
     }
 
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
@@ -65,11 +65,10 @@ export class PointerObserver implements IPointerObserver {
         }
         // Bypass browser selection
         event.preventDefault();
-        this.pointerDown = true;
-        this.pointerDidDownEventEmitter.emit({
-            inPage: this.isDOMElementInPage(event.target as HTMLElement),
-            offset,
-        });
+        this.pointerDownAt = Date.now();
+        if (this.clickedAt === null || Date.now() - this.clickedAt > this.consecutiveClickThreshold) {
+            this.pointerDidDownEventEmitter.emit({ offset });
+        }
     };
 
     protected handleMouseMove = (event: MouseEvent) => {
@@ -78,27 +77,37 @@ export class PointerObserver implements IPointerObserver {
             return;
         }
         this.pointerDidMoveEventEmitter.emit({
-            inPage: this.isDOMElementInPage(event.target as HTMLElement),
-            pointerDown: this.pointerDown,
+            pointerDown: this.pointerDownAt !== null,
             offset,
         });
     };
 
-    protected handleMouseUp = () => {
-        this.pointerDown = false;
+    protected handleMouseUp = (event: MouseEvent) => {
+        if (this.pointerDownAt === null) {
+            return;
+        }
+        const now = Date.now();
+        const clicked = now - this.pointerDownAt < this.clickThreshold;
+        this.pointerDownAt = null;
         this.pointerDidUpEventEmitter.emit({});
-    };
-
-    protected handleClick = (event: MouseEvent) => {
         const offset = this.resolveCoordinates(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
-        this.pointerDidClickEventEmitter.emit({
-            inPage: this.isDOMElementInPage(event.target as HTMLElement),
-            offset,
-            count: event.detail,
-        });
+        if (clicked) {
+            if (this.clickedAt !== null) {
+                const delta = now - this.clickedAt;
+                if (delta > this.consecutiveClickThreshold) {
+                    this.consecutiveClickCount = 0;
+                }
+            }
+            this.consecutiveClickCount++;
+            this.clickedAt = Date.now();
+            this.pointerDidClickEventEmitter.emit({
+                offset,
+                consecutiveCount: this.consecutiveClickCount,
+            });
+        }
     };
 
     protected resolveCoordinates(x: number, y: number): number | null {
@@ -121,19 +130,5 @@ export class PointerObserver implements IPointerObserver {
             cumulatedOffset += pageLayoutNode.getSize();
         }
         return null;
-    }
-
-    protected isDOMElementInPage(domElement: HTMLElement | null) {
-        let current: HTMLElement | null = domElement;
-        while (current) {
-            const instanceId = current.getAttribute('data-tw-instance');
-            const componentId = current.getAttribute('data-tw-component');
-            const partId = current.getAttribute('data-tw-part');
-            if (instanceId === this.instanceId && componentId === 'page' && partId === 'page') {
-                return true;
-            }
-            current = current.parentElement;
-        }
-        return false;
     }
 }
