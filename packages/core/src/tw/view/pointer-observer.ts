@@ -4,6 +4,7 @@ import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
     offset: number;
+    consecutive: boolean;
 }
 
 export interface IPointerDidMoveEvent {
@@ -66,9 +67,8 @@ export class PointerObserver implements IPointerObserver {
         // Bypass browser selection
         event.preventDefault();
         this.pointerDownAt = Date.now();
-        if (this.clickedAt === null || Date.now() - this.clickedAt > this.consecutiveClickThreshold) {
-            this.pointerDidDownEventEmitter.emit({ offset });
-        }
+        const consecutive = this.clickedAt !== null && Date.now() - this.clickedAt < this.consecutiveClickThreshold;
+        this.pointerDidDownEventEmitter.emit({ offset, consecutive });
     };
 
     protected handleMouseMove = (event: MouseEvent) => {

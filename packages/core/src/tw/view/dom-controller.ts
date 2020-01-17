@@ -115,7 +115,9 @@ export class DOMController {
         if (!this.focused) {
             this.commandService.executeCommand('tw.view.focus');
         }
-        this.commandService.executeCommand('tw.cursor.move', event.offset);
+        if (!event.consecutive) {
+            this.commandService.executeCommand('tw.cursor.move', event.offset);
+        }
     };
 
     protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
