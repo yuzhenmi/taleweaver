@@ -18,7 +18,6 @@ import {
     IPointerDidClick,
 } from './pointer-observer';
 import { IViewService } from './service';
-import { ICursorService } from '../cursor/service';
 
 export interface IDOMController {
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
