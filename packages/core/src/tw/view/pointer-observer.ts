@@ -29,8 +29,14 @@ export interface IPointerObserver {
 export class PointerObserver implements IPointerObserver {
     protected clickThreshold = 250;
     protected consecutiveClickThreshold = 250;
-    protected pointerDownAt: number | null = null;
-    protected clickedAt: number | null = null;
+    protected lastPointerDown: {
+        timestamp: number;
+        offset: number;
+    } | null = null;
+    protected lastClick: {
+        timestamp: number;
+        offset: number;
+    } | null = null;
     protected consecutiveClickCount: number = 0;
     protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
     protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
@@ -66,8 +72,12 @@ export class PointerObserver implements IPointerObserver {
         }
         // Bypass browser selection
         event.preventDefault();
-        this.pointerDownAt = Date.now();
-        const consecutive = this.clickedAt !== null && Date.now() - this.clickedAt < this.consecutiveClickThreshold;
+        this.lastPointerDown = {
+            timestamp: Date.now(),
+            offset,
+        };
+        const consecutive =
+            this.lastClick !== null && Date.now() - this.lastClick.timestamp < this.consecutiveClickThreshold;
         this.pointerDidDownEventEmitter.emit({ offset, consecutive });
     };
 
@@ -77,32 +87,36 @@ export class PointerObserver implements IPointerObserver {
             return;
         }
         this.pointerDidMoveEventEmitter.emit({
-            pointerDown: this.pointerDownAt !== null,
+            pointerDown: this.lastPointerDown !== null,
             offset,
         });
     };
 
     protected handleMouseUp = (event: MouseEvent) => {
-        if (this.pointerDownAt === null) {
+        if (this.lastPointerDown === null) {
             return;
         }
-        const now = Date.now();
-        const clicked = now - this.pointerDownAt < this.clickThreshold;
-        this.pointerDownAt = null;
-        this.pointerDidUpEventEmitter.emit({});
+        const lastPointerDown = this.lastPointerDown;
+        this.lastPointerDown = null;
         const offset = this.resolveCoordinates(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
+        const now = Date.now();
+        const clicked = lastPointerDown.offset === offset && now - lastPointerDown.timestamp < this.clickThreshold;
+        this.pointerDidUpEventEmitter.emit({});
         if (clicked) {
-            if (this.clickedAt !== null) {
-                const delta = now - this.clickedAt;
+            if (this.lastClick !== null) {
+                const delta = now - this.lastClick.timestamp;
                 if (delta > this.consecutiveClickThreshold) {
                     this.consecutiveClickCount = 0;
                 }
             }
             this.consecutiveClickCount++;
-            this.clickedAt = Date.now();
+            this.lastClick = {
+                timestamp: Date.now(),
+                offset,
+            };
             this.pointerDidClickEventEmitter.emit({
                 offset,
                 consecutiveCount: this.consecutiveClickCount,
