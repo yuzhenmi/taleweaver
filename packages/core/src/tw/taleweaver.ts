@@ -1,3 +1,4 @@
+import * as clipboardCommandHandlers from './command/handlers/clipboard';
 import * as cursorCommandHandlers from './command/handlers/cursor';
 import * as historyCommandHandlers from './command/handlers/history';
 import * as stateCommandHandlers from './command/handlers/state';
@@ -75,6 +76,8 @@ export class Taleweaver {
     protected buildBaseConfig(): IConfig {
         return {
             commands: {
+                'tw.clipboard.copy': clipboardCommandHandlers.copy,
+                'tw.clipboard.paste': clipboardCommandHandlers.paste,
                 'tw.cursor.move': cursorCommandHandlers.move,
                 'tw.cursor.moveUp': cursorCommandHandlers.moveUp,
                 'tw.cursor.moveDown': cursorCommandHandlers.moveDown,
@@ -151,6 +154,8 @@ export class Taleweaver {
                     'cmd+a': { command: 'tw.cursor.selectAll' },
                     'cmd+z': { command: 'tw.history.undo' },
                     'shift+cmd+z': { command: 'tw.history.redo' },
+                    'cmd+c': { command: 'tw.clipboard.copy' },
+                    'cmd+v': { command: 'tw.clipboard.paste' },
                 },
                 windows: {
                     'ctrl+left': { command: 'tw.cursor.moveLeftByWord' },
@@ -168,6 +173,8 @@ export class Taleweaver {
                     'ctrl+a': { command: 'tw.cursor.selectAll' },
                     'ctrl+z': { command: 'tw.history.undo' },
                     'ctrl+shift+z': { command: 'tw.history.redo' },
+                    'ctrl+c': { command: 'tw.clipboard.copy' },
+                    'ctrl+v': { command: 'tw.clipboard.paste' },
                 },
                 linux: {
                     'ctrl+left': { command: 'tw.cursor.moveLeftByWord' },
@@ -185,6 +192,8 @@ export class Taleweaver {
                     'ctrl+a': { command: 'tw.cursor.selectAll' },
                     'ctrl+z': { command: 'tw.history.undo' },
                     'ctrl+shift+z': { command: 'tw.history.redo' },
+                    'ctrl+c': { command: 'tw.clipboard.copy' },
+                    'ctrl+v': { command: 'tw.clipboard.paste' },
                 },
             },
             page: {
