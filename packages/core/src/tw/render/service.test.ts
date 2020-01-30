@@ -7,7 +7,7 @@ import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
 import { IEventListener } from '../event/listener';
 import { IDocModelNode } from '../model/doc-node';
-import { IModelPosition } from '../model/node';
+import { IModelNode, IModelPosition } from '../model/node';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
 import { RenderService } from './service';
@@ -21,7 +21,11 @@ class MockModelService implements IModelService {
         return this.docNode;
     }
 
-    toHTML(from: number, to: number): string {
+    toDOM(from: number, to: number): HTMLElement {
+        throw new Error('Not implemented.');
+    }
+
+    fromDOM(domNodes: HTMLElement[]): IModelNode[] {
         throw new Error('Not implemented.');
     }
 
@@ -68,7 +72,7 @@ describe('RenderService', () => {
                     text: [
                         {
                             weight: 400,
-                            size: 14,
+                            size: 16,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -80,7 +84,7 @@ describe('RenderService', () => {
                     word: [
                         {
                             weight: 400,
-                            size: 14,
+                            size: 16,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -99,7 +103,7 @@ describe('RenderService', () => {
                     text: [
                         {
                             weight: 700,
-                            size: 14,
+                            size: 16,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
@@ -111,7 +115,7 @@ describe('RenderService', () => {
                     word: [
                         {
                             weight: 700,
-                            size: 14,
+                            size: 16,
                             font: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,

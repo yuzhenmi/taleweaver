@@ -1,10 +1,10 @@
 import { ILineLayoutNode } from '../../layout/line-node';
 import { identifyLayoutNodeType } from '../../layout/utility';
 import { IAtomicRenderNode } from '../../render/atomic-node';
+import { IRenderPosition } from '../../render/node';
 import { identifyRenderNodeType } from '../../render/utility';
 import { Transformation } from '../../state/transformation';
 import { ICommandHandler } from '../command';
-import { IRenderPosition } from '../../render/node';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
     const tn = new Transformation();
@@ -512,9 +512,13 @@ export const selectWord: ICommandHandler = async (serviceRegistry, offset: numbe
     const tn = new Transformation();
     const position = renderService.resolvePosition(offset);
     const atomicPosition = position.getLeaf();
-    const atomicNode = atomicPosition.getNode();
+    const atomicNode = atomicPosition.getNode() as IAtomicRenderNode;
     tn.setCursor(offset - atomicPosition.getOffset());
-    tn.setCursorHead(offset - atomicPosition.getOffset() + atomicNode.getSize() - 1);
+    tn.setCursorHead(
+        offset -
+            atomicPosition.getOffset() +
+            (atomicNode.isBreakable() ? atomicNode.getSize() - 1 : atomicNode.getSize()),
+    );
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 

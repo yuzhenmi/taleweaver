@@ -2,13 +2,14 @@ import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IStateService } from '../state/service';
 import { IDocModelNode } from './doc-node';
-import { IModelPosition } from './node';
+import { IModelNode, IModelPosition } from './node';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
     getDocNode(): IDocModelNode;
-    toHTML(from: number, to: number): string;
+    toDOM(from: number, to: number): HTMLElement;
+    fromDOM(domNodes: HTMLElement[]): IModelNode[];
     resolvePosition(offset: number): IModelPosition;
 }
 
@@ -27,9 +28,12 @@ export class ModelService implements IModelService {
         return this.state.getDocNode();
     }
 
-    toHTML(from: number, to: number) {
-        const domNode = this.state.getDocNode().toDOM(from, to);
-        return domNode.outerHTML;
+    toDOM(from: number, to: number) {
+        return this.state.getDocNode().toDOM(from, to);
+    }
+
+    fromDOM(domNodes: HTMLElement[]) {
+        return [this.getDocNode()];
     }
 
     resolvePosition(offset: number) {

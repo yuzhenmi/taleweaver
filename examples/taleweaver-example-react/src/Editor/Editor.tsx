@@ -58,7 +58,7 @@ export default function Editor({ initialMarkup, config }: IProps) {
         }
     }, [taleweaver, domRef.current]);
     return (
-        <Wrapper key={1}>
+        <Wrapper>
             <ToolBar taleweaver={taleweaver} />
             <EditorWrapper ref={domRef} />
         </Wrapper>

@@ -1,6 +1,8 @@
 import { ICommandService } from '../command/service';
 import { IEventListener } from '../event/listener';
-import { ClipboardObserver, IClipboardObserver } from './clipboard-observer';
+import { IModelService } from '../model/service';
+import { createHiddenIframe } from '../util/dom';
+import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
 import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
 import {
     ICompositionDidEnd,
@@ -11,11 +13,11 @@ import {
     KeyboardObserver,
 } from './keyboard-observer';
 import {
+    IPointerDidClick,
     IPointerDidDownEvent,
     IPointerDidMoveEvent,
     IPointerObserver,
     PointerObserver,
-    IPointerDidClick,
 } from './pointer-observer';
 import { IViewService } from './service';
 
@@ -31,7 +33,7 @@ export interface IDOMController {
 }
 
 export class DOMController {
-    protected $iframe: HTMLIFrameElement;
+    protected iframe: HTMLIFrameElement;
     protected $contentEditable: HTMLDivElement;
     protected keyboardObserver: IKeyboardObserver;
     protected pointerObserver: IPointerObserver;
@@ -44,9 +46,10 @@ export class DOMController {
     constructor(
         protected instanceId: string,
         protected commandService: ICommandService,
+        protected modelService: IModelService,
         protected viewService: IViewService,
     ) {
-        this.$iframe = this.createIframe();
+        this.iframe = createHiddenIframe();
         this.$contentEditable = this.createContentEditable();
         this.keyboardObserver = new KeyboardObserver(this.$contentEditable);
         this.keyboardObserver.onDidInsert(this.handleDidInsert);
@@ -60,6 +63,8 @@ export class DOMController {
         this.focusObserver.onDidFocus(this.handleDidFocus);
         this.focusObserver.onDidBlur(this.handleDidBlur);
         this.clipboardObserver = new ClipboardObserver(this.$contentEditable);
+        this.clipboardObserver.onDidCopy(this.handleCopy);
+        this.clipboardObserver.onDidPaste(this.handlePaste);
     }
 
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
@@ -75,9 +80,9 @@ export class DOMController {
     }
 
     attach() {
-        document.body.appendChild(this.$iframe);
+        document.body.appendChild(this.iframe);
         setTimeout(() => {
-            this.$iframe.contentDocument!.body.appendChild(this.$contentEditable);
+            this.iframe.contentDocument!.body.appendChild(this.$contentEditable);
         });
     }
 
@@ -147,21 +152,23 @@ export class DOMController {
         this.focused = false;
     };
 
-    protected createIframe() {
-        const $iframe = document.createElement('iframe');
-        $iframe.scrolling = 'no';
-        $iframe.src = 'about:blank';
-        $iframe.style.width = '0';
-        $iframe.style.height = '0';
-        $iframe.style.border = 'none';
-        $iframe.style.position = 'fixed';
-        $iframe.style.zIndex = '-1';
-        $iframe.style.opacity = '0';
-        $iframe.style.overflow = 'hidden';
-        $iframe.style.left = '0';
-        $iframe.style.top = '0';
-        return $iframe;
-    }
+    protected handleCopy = (event: IDidCopyEvent) => {
+        this.commandService.executeCommand('tw.clipboard.copy');
+    };
+
+    protected handlePaste = (event: IDidPasteEvent) => {
+        const html = event.data.getData('text/html');
+        const $container = document.createElement('html');
+        $container.innerHTML = html;
+        const $body = $container.querySelector('body');
+        if (!$body) {
+            return;
+        }
+        const domNodes = Array.prototype.slice.call($body.children) as HTMLElement[];
+        const modelNodes = this.modelService.fromDOM(domNodes);
+        // TODO: Insert modelNodes to cursor location
+        console.log(modelNodes);
+    };
 
     protected createContentEditable() {
         const $contentEditable = document.createElement('div');

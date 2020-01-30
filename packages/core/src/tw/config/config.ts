@@ -22,6 +22,7 @@ export interface IPlatformKeyBindings {
     [key: string]: {
         command: string;
         args?: any[];
+        preventDefault?: boolean;
     };
 }
 

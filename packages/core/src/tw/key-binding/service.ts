@@ -8,6 +8,7 @@ import { IViewService } from '../view/service';
 export interface IKeyBinding {
     command: string;
     args: any[];
+    preventDefault: boolean;
 }
 
 export interface IKeyBindingService {}
@@ -48,6 +49,7 @@ export class KeyBindingService implements IKeyBindingService {
             this.keyBindings.set(key, {
                 command: binding.command,
                 args: binding.args || [],
+                preventDefault: binding.preventDefault || false,
             });
         }
     }
@@ -56,6 +58,9 @@ export class KeyBindingService implements IKeyBindingService {
         const keyBinding = this.keyBindings.get(event.key);
         if (!keyBinding) {
             return;
+        }
+        if (keyBinding.preventDefault) {
+            event.originalKeyboardEvent.preventDefault();
         }
         this.commandService.executeCommand(keyBinding.command, ...keyBinding.args);
     };

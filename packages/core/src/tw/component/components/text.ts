@@ -53,7 +53,7 @@ export interface ITextStyle extends IStyle {
 
 export const DEFAULT_TEXT_STYLE: ITextStyle = {
     weight: 400,
-    size: 14,
+    size: 16,
     font: 'sans-serif',
     letterSpacing: 0,
     underline: false,
