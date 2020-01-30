@@ -300,6 +300,7 @@ export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
         this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
         this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
         this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
+        this.domContainer.style.lineHeight = '1em';
     }
 }
 

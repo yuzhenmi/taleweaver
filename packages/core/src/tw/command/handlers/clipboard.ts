@@ -1,26 +1,16 @@
+import { createHiddenIframe, isDOMAvailable } from '../../util/dom';
 import { ICommandHandler } from '../command';
 
-function createIframe() {
-    const $iframe = document.createElement('iframe');
-    $iframe.scrolling = 'no';
-    $iframe.src = 'about:blank';
-    $iframe.style.width = '0';
-    $iframe.style.height = '0';
-    $iframe.style.border = 'none';
-    $iframe.style.position = 'fixed';
-    $iframe.style.zIndex = '-1';
-    $iframe.style.opacity = '0';
-    $iframe.style.overflow = 'hidden';
-    $iframe.style.left = '-1000000px';
-    $iframe.style.top = '-1000000px';
-    $iframe.contentEditable = 'true';
-    return $iframe;
+let iframe: HTMLIFrameElement | undefined;
+if (isDOMAvailable()) {
+    iframe = createHiddenIframe();
+    document.body.appendChild(iframe);
 }
 
-const $iframe = createIframe();
-document.body.appendChild($iframe);
-
 export const copy: ICommandHandler = async serviceRegistry => {
+    if (!iframe) {
+        return;
+    }
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const modelService = serviceRegistry.getService('model');
@@ -31,11 +21,11 @@ export const copy: ICommandHandler = async serviceRegistry => {
     if (anchor === head) {
         return;
     }
-    const html = modelService.toHTML(
+    const html = modelService.toDOM(
         renderService.convertOffsetToModelOffset(Math.min(anchor, head)),
         renderService.convertOffsetToModelOffset(Math.max(anchor, head)),
-    );
-    const iframeDocument = $iframe.contentDocument;
+    ).outerHTML;
+    const iframeDocument = iframe.contentDocument;
     if (!iframeDocument) {
         return;
     }
@@ -44,6 +34,9 @@ export const copy: ICommandHandler = async serviceRegistry => {
     iframeDocument.execCommand('copy');
     iframeDocument.body.innerHTML = '';
 };
+
 export const paste: ICommandHandler = async serviceRegistry => {
-    // TODO
+    // Not yet possible due to browser limitation
+    // Pending development of async clipboard api
+    // https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API
 };

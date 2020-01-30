@@ -8,7 +8,7 @@ import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IDocModelNode } from '../model/doc-node';
-import { IModelPosition } from '../model/node';
+import { IModelNode, IModelPosition } from '../model/node';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
 import { IInlineRenderNode } from './inline-node';
@@ -35,7 +35,11 @@ class MockModelService implements IModelService {
         return this.docNode;
     }
 
-    toHTML(from: number, to: number): string {
+    toDOM(from: number, to: number): HTMLElement {
+        throw new Error('Not implemented.');
+    }
+
+    fromDOM(domNodes: HTMLElement[]): IModelNode[] {
         throw new Error('Not implemented.');
     }
 

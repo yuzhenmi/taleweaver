@@ -4,7 +4,7 @@ import { IEventListener } from '../event/listener';
 export interface IDidCopyEvent {}
 
 export interface IDidPasteEvent {
-    data: string;
+    data: DataTransfer;
 }
 
 export interface IClipboardObserver {
@@ -40,6 +40,6 @@ export class ClipboardObserver implements IClipboardObserver {
         if (!data) {
             return;
         }
-        this.didCopyEventEmitter.emit({ data });
+        this.didPasteEventEmitter.emit({ data });
     };
 }

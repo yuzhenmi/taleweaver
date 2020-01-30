@@ -3,6 +3,7 @@ import { IComponentService } from '../component/service';
 import { ICursorService } from '../cursor/service';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
+import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 import { CursorView, ICursorView } from './cursor';
 import { IDocViewNode } from './doc-node';
@@ -31,13 +32,14 @@ export class ViewService implements IViewService {
     constructor(
         instanceId: string,
         componentService: IComponentService,
+        modelService: IModelService,
         layoutService: ILayoutService,
         cursorService: ICursorService,
         renderService: IRenderService,
         commandService: ICommandService,
     ) {
         this.state = new ViewState(instanceId, componentService, layoutService);
-        this.domController = new DOMController(instanceId, commandService, this);
+        this.domController = new DOMController(instanceId, commandService, modelService, this);
         this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
     }
 
