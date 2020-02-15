@@ -44,8 +44,15 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
     }
 }
 
-export interface IParagraphStyle extends IStyle {}
+export interface IParagraphStyle extends IStyle {
+    textAlign: 'left' | 'right' | 'center'
+    direction: 'rtl' | 'ltr'
+}
 
+export const DEFAULT_PARAGRAPH_STYLE: IParagraphStyle = {
+    textAlign: 'left',
+    direction: 'ltr'
+};
 export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
     protected lineBreakNode: ParagraphLineBreakRenderNode;
 
@@ -125,6 +132,14 @@ export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagr
 }
 
 export class ParagraphLayoutNode extends BlockLayoutNode {
+    constructor(componentId: string, id: string, protected style: IParagraphStyle) {
+        super(componentId, id);
+    }
+
+    getStyle() {
+        return this.style;
+    }
+
     getPartId() {
         return 'paragraph';
     }
@@ -146,7 +161,7 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
     }
 
     clone() {
-        return new ParagraphLayoutNode(this.componentId, this.id);
+        return new ParagraphLayoutNode(this.componentId, this.id, this.style);
     }
 }
 
@@ -294,6 +309,7 @@ export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
     }
 
     onLayoutDidUpdate() {
+        const style = this.layoutNode.getStyle();
         this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
         this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
         this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
@@ -301,6 +317,8 @@ export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
         this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
         this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
         this.domContainer.style.lineHeight = '1em';
+        this.domContainer.style.textAlign = style.textAlign;
+        this.domContainer.style.direction = style.direction;
     }
 }
 
@@ -330,14 +348,19 @@ export class ParagraphComponent extends Component implements IComponent {
 
     buildRenderNode(modelNode: IModelNode) {
         if (modelNode instanceof ParagraphModelNode) {
-            return new ParagraphRenderNode(this.id, modelNode.getId(), {});
+            const attributes = modelNode.getAttributes();
+            const style: IParagraphStyle = {
+                ...DEFAULT_PARAGRAPH_STYLE,
+                ...attributes,
+            };
+            return new ParagraphRenderNode(this.id, modelNode.getId(), style);
         }
         throw new Error('Invalid paragraph model node.');
     }
 
     buildLayoutNode(renderNode: IRenderNode) {
         if (renderNode instanceof ParagraphRenderNode) {
-            return new ParagraphLayoutNode(this.id, renderNode.getId());
+            return new ParagraphLayoutNode(this.id, renderNode.getId(), renderNode.getStyle());
         }
         if (renderNode instanceof ParagraphLineBreakRenderNode) {
             return new ParagraphLineBreakLayoutNode(this.id, renderNode.getId());
