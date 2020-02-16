@@ -1,7 +1,7 @@
 import { ICursorService } from '../cursor/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
-import { IToken } from './/token';
+import { IToken, IOpenToken } from './/token';
 import { Tokenizer } from './tokenizer';
 import {
     AppliedDeleteOperation,
@@ -12,6 +12,8 @@ import {
     InsertOperation,
     IOffsetAdjustment,
     ITransformation,
+    AttributeOperation,
+    AppliedAttributeOperation,
 } from './transformation';
 
 export interface IDidApplyTransformation {
@@ -112,6 +114,17 @@ export class State implements IState {
                 const deletedTokens = this.tokens.splice(operation.getFrom(), operation.getTo() - operation.getFrom());
                 const appliedOperation = new AppliedDeleteOperation(operation.getFrom(), deletedTokens);
                 appliedTransformation.addOperation(appliedOperation);
+            }  else if (operation instanceof AttributeOperation) {
+                const prevToken = (this.tokens[operation.getAt()] as IOpenToken);
+                this.tokens[operation.getAt()] = {
+                    ...prevToken,
+                    attributes: {
+                        ...prevToken.attributes,
+                        ...operation.getAttributes()
+                    }
+                }
+                const appliedOperation = new AppliedAttributeOperation(operation.getAt(), prevToken.attributes);
+                appliedTransformation.addOperation(appliedOperation);
             } else {
                 throw new Error('Unknown transformation operation encountered.');
             }
@@ -137,6 +150,12 @@ export class State implements IState {
                     this.tokens.splice(appliedOperation.getAt(), appliedOperation.getTokens().length);
                 } else if (appliedOperation instanceof AppliedDeleteOperation) {
                     this.tokens.splice(appliedOperation.getAt(), 0, ...appliedOperation.getTokens());
+                }  else if (appliedOperation instanceof AppliedAttributeOperation) {
+                    const token = this.tokens[appliedOperation.getAt()] as IOpenToken;
+                    this.tokens[appliedOperation.getAt()] = {
+                        ...token,
+                        attributes: appliedOperation.getAttributes()
+                    }
                 } else {
                     throw new Error('Unknown applied transformation operation encountered.');
                 }

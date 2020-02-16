@@ -50,4 +50,9 @@ export abstract class ModelNode<TAttributes extends IAttributes, TParent extends
     getAttributes() {
         return this.attributes;
     }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        this.attributes = updatedNode.getAttributes();
+    }
 }

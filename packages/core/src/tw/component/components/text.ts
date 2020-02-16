@@ -150,6 +150,11 @@ export class TextLayoutNode extends InlineLayoutNode {
     clone() {
         return new TextLayoutNode(this.componentId, this.id, this.style);
     }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        this.style = updatedNode.style;
+    }
 }
 
 export class WordLayoutNode extends AtomicLayoutNode {

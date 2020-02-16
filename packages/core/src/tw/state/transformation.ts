@@ -40,6 +40,36 @@ export interface IAppliedTransformation {
     getTransformedRange(): ITransformedRange | undefined;
 }
 
+export class AttributeOperation implements IOperation {
+    constructor(protected at: number, protected attributes: {}) {}
+
+    getOffsetAdjustment(): IOffsetAdjustment {
+        return {
+            at: this.at,
+            delta: 0,
+        };
+    }
+
+    adjustOffset(adjustments: IOffsetAdjustment[]) {
+        let at = this.at;
+        adjustments.forEach(adjustment => {
+            if (at >= adjustment.at) {
+                at += adjustment.delta;
+            }
+        });
+        return new AttributeOperation(at, this.attributes);
+    }
+
+    getAt() {
+        return this.at;
+    }
+
+    getAttributes() {
+        return this.attributes;
+    }
+
+}
+
 export class InsertOperation implements IOperation {
     constructor(protected at: number, protected tokens: IToken[]) {}
 
@@ -99,6 +129,18 @@ export class DeleteOperation implements IOperation {
 
     getTo() {
         return this.to;
+    }
+}
+
+export class AppliedAttributeOperation implements IAppliedOperation {
+    constructor(protected at: number, protected attributes: {}) {}
+
+    getAt() {
+        return this.at;
+    }
+
+    getAttributes() {
+        return this.attributes;
     }
 }
 
@@ -198,6 +240,12 @@ export class AppliedTransformation implements IAppliedTransformation {
             const deletedTokens = operation.getTokens();
             beforeFrom = at;
             beforeTo = at + deletedTokens.length;
+            afterFrom = at;
+            afterTo = at;
+        } else if (operation instanceof AppliedAttributeOperation) {
+            const at = operation.getAt();
+            beforeFrom = at;
+            beforeTo = at;
             afterFrom = at;
             afterTo = at;
         } else {

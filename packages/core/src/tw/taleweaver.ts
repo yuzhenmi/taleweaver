@@ -112,6 +112,7 @@ export class Taleweaver {
                 'tw.state.splitLine': stateCommandHandlers.splitLine,
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
+                'tw.state.alignment': stateCommandHandlers.alignment,
             },
             components: {
                 doc: new DocComponent('doc'),

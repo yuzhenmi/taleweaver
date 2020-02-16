@@ -40,7 +40,12 @@ export class ModelState implements IModelState {
 
     protected handleDidUpdateStateEvent = (event: IDidUpdateStateEvent) => {
         const wrappedDepth = this.findWrappedDepth(this.stateService.getTokens(), event.afterFrom, event.afterTo);
-        const node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo, wrappedDepth);
+        let node
+        if (identifyTokenType(this.stateService.getTokens()[event.beforeFrom]) === 'OpenToken') {
+            node = this.docNode.resolvePosition(event.beforeFrom).getNode()
+        } else {
+            node = this.findNodeContainingRange(event.beforeFrom, event.beforeTo, wrappedDepth);
+        }
         const updatedTokens = this.findNodeTokenRange(
             this.stateService.getTokens(),
             node.getId(),

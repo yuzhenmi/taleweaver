@@ -1,16 +1,39 @@
 import { IModelNode, IModelPosition } from '../../model/node';
 import { identifyModelNodeType } from '../../model/utility';
 import { IServiceRegistry } from '../../service/registry';
-import { CLOSE_TOKEN, IToken } from '../../state/token';
-import { DeleteOperation, InsertOperation, Transformation } from '../../state/transformation';
+import { CLOSE_TOKEN, IToken, IOpenToken } from '../../state/token';
+import { DeleteOperation, InsertOperation, Transformation, AttributeOperation } from '../../state/transformation';
 import { generateId } from '../../util/id';
 import { ICommandHandler } from '../command';
+import { IParagraphStyle } from '../../component/components/paragraph'
 
 function moveCursorByModelOffset(serviceRegistry: IServiceRegistry, modelOffset: number) {
     const renderService = serviceRegistry.getService('render');
     const offset = renderService.convertModelOffsetToOffset(modelOffset);
     const tn = new Transformation();
     tn.setCursor(offset);
+    serviceRegistry.getService('state').applyTransformation(tn);
+}
+
+export const alignment: ICommandHandler = async (serviceRegistry, textAlign: IParagraphStyle["textAlign"]) => {
+    const cursorService = serviceRegistry.getService('cursor');
+    const renderService = serviceRegistry.getService('render');
+    const modelService = serviceRegistry.getService('model');
+    if (!cursorService.hasCursor()) {
+        return;
+    }
+    const tn = new Transformation();
+    const { anchor, head } = cursorService.getCursorState();
+    let node = modelService.resolvePosition(
+        renderService.convertOffsetToModelOffset(Math.min(anchor, head))
+    ).getChild()
+    if (!node) {
+        return;
+    }
+    let collapsedAt = renderService.convertOffsetToModelOffset(Math.min(anchor, head)) - node.getOffset()
+    tn.addOperation(new AttributeOperation(collapsedAt, {
+        textAlign,
+    }));
     serviceRegistry.getService('state').applyTransformation(tn);
 }
 

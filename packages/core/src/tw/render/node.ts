@@ -49,4 +49,9 @@ export abstract class RenderNode<TStyle extends IStyle, TParent extends IRenderN
     getStyle() {
         return this.style;
     }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        this.style = updatedNode.style;
+    }
 }

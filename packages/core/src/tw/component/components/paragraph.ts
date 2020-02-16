@@ -163,6 +163,11 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
     clone() {
         return new ParagraphLayoutNode(this.componentId, this.id, this.style);
     }
+
+    onDidUpdate(updatedNode: this) {
+        super.onDidUpdate(updatedNode);
+        this.style = updatedNode.style;
+    }
 }
 
 export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
