@@ -1,5 +1,6 @@
 import { Taleweaver } from '@taleweaver/core';
 import { ITextStyle } from '@taleweaver/core/dist/tw/component/components/text';
+import { IParagraphStyle } from '@taleweaver/core/dist/tw/component/components/paragraph';
 import React, { useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 
@@ -173,6 +174,14 @@ export default function ToolBar({ taleweaver }: Props) {
         },
         [],
     );
+    function setAlignment(alignment: IParagraphStyle["textAlign"]) {
+        if (!taleweaver) {
+            return;
+        }
+        taleweaver.getServiceRegistry()
+            .getService('command')
+            .executeCommand('tw.state.alignment', alignment)
+    }
     useEffect(() => {
         if (!taleweaver) {
             return;
@@ -246,6 +255,17 @@ export default function ToolBar({ taleweaver }: Props) {
                     <Item active={false} disabled={color === null} onClick={() => null}>
                         <i className="mdi mdi-format-color-text" style={{ position: 'relative', top: '-2px' }} />
                         <ItemColorLine color={color || 'transparent'} />
+                    </Item>
+                </Group>
+                <Group>
+                    <Item active={false} disabled={false} onClick={() => setAlignment('left')}>
+                        <i className="mdi mdi-format-align-left" />
+                    </Item>
+                    <Item active={false} disabled={false} onClick={() => setAlignment('center')}>
+                        <i className="mdi mdi-format-align-center" />
+                    </Item>
+                    <Item active={false} disabled={false} onClick={() => setAlignment('right')}>
+                        <i className="mdi mdi-format-align-right" />
                     </Item>
                 </Group>
             </Container>
