@@ -1,4 +1,4 @@
-import { CLOSE_TOKEN, IToken } from './token';
+import { CLOSE_TOKEN, IToken, IOpenToken } from './token';
 
 export function identifyTokenType(token: IToken) {
     if (token === CLOSE_TOKEN) {
@@ -11,4 +11,11 @@ export function identifyTokenType(token: IToken) {
         return 'OpenToken';
     }
     throw new Error(`Failed to identify token type: ${token}.`);
+}
+
+export function identifyTokenModelType(token: IOpenToken) {
+    if (token.componentId === "paragraph") {
+        return 'Block';
+    }
+    return "Inline";
 }

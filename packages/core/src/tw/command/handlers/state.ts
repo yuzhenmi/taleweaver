@@ -6,6 +6,7 @@ import { DeleteOperation, InsertOperation, Transformation, AttributeOperation } 
 import { generateId } from '../../util/id';
 import { ICommandHandler } from '../command';
 import { IParagraphStyle } from '../../component/components/paragraph'
+import { identifyTokenType, identifyTokenModelType } from '../../state/utility';
 
 function moveCursorByModelOffset(serviceRegistry: IServiceRegistry, modelOffset: number) {
     const renderService = serviceRegistry.getService('render');
@@ -19,6 +20,7 @@ export const alignment: ICommandHandler = async (serviceRegistry, textAlign: IPa
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const modelService = serviceRegistry.getService('model');
+    const stateService = serviceRegistry.getService('state');
     if (!cursorService.hasCursor()) {
         return;
     }
@@ -34,6 +36,26 @@ export const alignment: ICommandHandler = async (serviceRegistry, textAlign: IPa
     tn.addOperation(new AttributeOperation(collapsedAt, {
         textAlign,
     }));
+    let index = renderService.convertOffsetToModelOffset(Math.min(anchor, head))
+    const maxIndex = renderService.convertOffsetToModelOffset(Math.max(anchor, head))
+    console.log({
+        index,
+        maxIndex,
+        anchor,
+        head
+    });
+    
+    while (index < maxIndex) {
+        index += 1;
+        const token = stateService.getTokens()[index];
+        if (identifyTokenType(token) === "OpenToken") {
+            if (identifyTokenModelType(token as IOpenToken) === "Block") {
+                tn.addOperation(new AttributeOperation(index, {
+                    textAlign,
+                }));
+            }
+        }
+    }
     serviceRegistry.getService('state').applyTransformation(tn);
 }
 
