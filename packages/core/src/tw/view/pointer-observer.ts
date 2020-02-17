@@ -66,6 +66,10 @@ export class PointerObserver implements IPointerObserver {
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
+        const page = this.resolvePage(event);
+        if (page === null) {
+            return;
+        }
         const offset = this.resolveCoordinates(event.clientX, event.clientY);
         if (offset === null) {
             return;
@@ -142,6 +146,17 @@ export class PointerObserver implements IPointerObserver {
                 return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
             }
             cumulatedOffset += pageLayoutNode.getSize();
+        }
+        return null;
+    }
+
+    resolvePage(event: MouseEvent) {
+        const path = event.composedPath() as HTMLElement[];
+        for (let element of path) {
+            if (typeof element.getAttribute === "function"
+                && element.getAttribute('data-tw-component') === "page") {
+                return element;
+            }
         }
         return null;
     }
