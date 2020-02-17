@@ -1,7 +1,7 @@
 import { DocLayoutNode } from '../component/components/doc';
 import { LineLayoutNode } from '../component/components/line';
 import { PageLayoutNode } from '../component/components/page';
-import { ParagraphLayoutNode } from '../component/components/paragraph';
+import { ParagraphLayoutNode, DEFAULT_PARAGRAPH_STYLE } from '../component/components/paragraph';
 import { DEFAULT_TEXT_STYLE, TextLayoutNode, WordLayoutNode } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { LayoutFlower } from './flower';
@@ -23,7 +23,7 @@ describe('LayoutFlower', () => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
                 const pageLayoutNode = new PageLayoutNode('page', 88, 1056, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
-                const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
+                const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1', DEFAULT_PARAGRAPH_STYLE);
                 pageLayoutNode.appendChild(paragraphLayoutNode);
                 const lineLayoutNode = new LineLayoutNode('line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);
@@ -90,7 +90,7 @@ describe('LayoutFlower', () => {
                 docLayoutNode = new DocLayoutNode('doc', 'doc');
                 const pageLayoutNode = new PageLayoutNode('page', 88, 108, 40, 40, 40, 40);
                 docLayoutNode.appendChild(pageLayoutNode);
-                const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
+                const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1', DEFAULT_PARAGRAPH_STYLE);
                 pageLayoutNode.appendChild(paragraphLayoutNode);
                 const lineLayoutNode = new LineLayoutNode('line');
                 paragraphLayoutNode.appendChild(lineLayoutNode);

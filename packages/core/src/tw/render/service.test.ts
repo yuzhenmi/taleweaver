@@ -1,5 +1,5 @@
 import { DocComponent, DocModelNode } from '../component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
+import { ParagraphComponent, ParagraphModelNode, DEFAULT_PARAGRAPH_STYLE } from '../component/components/paragraph';
 import { TextComponent, TextModelNode } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
@@ -67,7 +67,7 @@ describe('RenderService', () => {
             const styles1 = service.getStylesBetween(1, 2);
             expect(styles1).toEqual({
                 doc: { doc: [{}] },
-                paragraph: { paragraph: [{}] },
+                paragraph: { paragraph: [DEFAULT_PARAGRAPH_STYLE] },
                 text: {
                     text: [
                         {
@@ -98,7 +98,7 @@ describe('RenderService', () => {
             const styles2 = service.getStylesBetween(7, 8);
             expect(styles2).toEqual({
                 doc: { doc: [{}] },
-                paragraph: { paragraph: [{}] },
+                paragraph: { paragraph: [DEFAULT_PARAGRAPH_STYLE] },
                 text: {
                     text: [
                         {

@@ -4,6 +4,7 @@ import {
     ParagraphLayoutNode,
     ParagraphLineBreakLayoutNode,
     ParagraphRenderNode,
+    DEFAULT_PARAGRAPH_STYLE,
 } from '../component/components/paragraph';
 import {
     DEFAULT_TEXT_STYLE,
@@ -34,7 +35,7 @@ describe('LayoutTreeBuilder', () => {
         configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         docRenderNode = new DocRenderNode('doc', 'doc', {});
-        const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', {});
+        const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', DEFAULT_PARAGRAPH_STYLE);
         docRenderNode.appendChild(paragraphRenderNode);
         const textRenderNode1 = new TextRenderNode('text', '2', DEFAULT_TEXT_STYLE);
         const wordRenderNode1 = new WordRenderNode('text', '4', DEFAULT_TEXT_STYLE, {

@@ -2,7 +2,7 @@ import { JSDOM } from 'jsdom';
 import { DocComponent, DocLayoutNode } from '../component/components/doc';
 import { LineLayoutNode, LineViewNode } from '../component/components/line';
 import { PageLayoutNode, PageViewNode } from '../component/components/page';
-import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode } from '../component/components/paragraph';
+import { ParagraphComponent, ParagraphLayoutNode, ParagraphViewNode, DEFAULT_PARAGRAPH_STYLE } from '../component/components/paragraph';
 import {
     DEFAULT_TEXT_STYLE,
     TextComponent,
@@ -40,7 +40,7 @@ describe('ViewTreeBuilder', () => {
         docLayoutNode = new DocLayoutNode('doc', 'doc');
         const pageLayoutNode = new PageLayoutNode('page', 816, 1056, 40, 40, 40, 40);
         docLayoutNode.appendChild(pageLayoutNode);
-        const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1');
+        const paragraphLayoutNode = new ParagraphLayoutNode('paragraph', '1', DEFAULT_PARAGRAPH_STYLE);
         pageLayoutNode.appendChild(paragraphLayoutNode);
         const lineLayoutNode = new LineLayoutNode('line');
         paragraphLayoutNode.appendChild(lineLayoutNode);
