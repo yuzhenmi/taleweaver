@@ -13,7 +13,10 @@ import { BlockViewNode } from '../../view/block-node';
 import { InlineViewNode } from '../../view/inline-node';
 import { Component, IComponent } from '../component';
 
-export interface IParagraphAttributes extends IAttributes {}
+export interface IParagraphAttributes extends IAttributes {
+    textAlign?: 'left' | 'right' | 'center';
+    direction?: 'rtl' | 'ltr';
+}
 
 export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
     getPartId() {
@@ -45,13 +48,13 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
 }
 
 export interface IParagraphStyle extends IStyle {
-    textAlign: 'left' | 'right' | 'center'
-    direction: 'rtl' | 'ltr'
+    textAlign: 'left' | 'right' | 'center';
+    direction: 'rtl' | 'ltr';
 }
 
 export const DEFAULT_PARAGRAPH_STYLE: IParagraphStyle = {
     textAlign: 'left',
-    direction: 'ltr'
+    direction: 'ltr',
 };
 export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
     protected lineBreakNode: ParagraphLineBreakRenderNode;
