@@ -1,69 +1,39 @@
 import { INode } from './node';
 
-export interface IPosition<TNode extends INode> {
-    getNode(): TNode;
-    getDepth(): number;
-    getOffset(): number;
-    setParent(parent: IPosition<TNode>): void;
-    getParent(): IPosition<TNode> | null;
-    setChild(child: IPosition<TNode>): void;
-    getChild(): IPosition<TNode> | null;
-    getRoot(): IPosition<TNode>;
-    getLeaf(): IPosition<TNode>;
+export interface IPosition<TNode extends INode<TNode>> {
+    readonly node: TNode;
+    readonly depth: number;
+    readonly offset: number;
+    readonly parent: IPosition<TNode> | null;
+    readonly child: IPosition<TNode> | null;
+    readonly root: IPosition<TNode>;
+    readonly leaf: IPosition<TNode>;
 }
 
-export abstract class Position<TNode extends INode> {
-    protected node: TNode;
-    protected depth: number;
-    protected offset: number;
-    protected parent: IPosition<TNode> | null = null;
-    protected child: IPosition<TNode> | null = null;
+export abstract class Position<TNode extends INode<TNode>> implements IPosition<TNode> {
+    readonly child: IPosition<TNode> | null;
 
-    constructor(node: TNode, depth: number, offset: number) {
-        this.node = node;
-        this.depth = depth;
-        this.offset = offset;
+    constructor(
+        readonly node: TNode,
+        readonly depth: number,
+        readonly offset: number,
+        readonly parent: IPosition<TNode> | null,
+        buildChild: (parent: IPosition<TNode>) => IPosition<TNode>,
+    ) {
+        this.child = buildChild(this);
     }
 
-    getNode() {
-        return this.node;
-    }
-
-    getDepth() {
-        return this.depth;
-    }
-
-    getOffset() {
-        return this.offset;
-    }
-
-    setParent(parent: IPosition<TNode>) {
-        this.parent = parent;
-    }
-
-    getParent() {
-        return this.parent;
-    }
-
-    setChild(child: IPosition<TNode>) {
-        this.child = child;
-    }
-
-    getChild() {
-        return this.child;
-    }
-
-    getRoot(): IPosition<TNode> {
-        if (this.parent) {
-            return this.parent.getRoot();
+    get root(): IPosition<TNode> {
+        if (!this.parent) {
+            return this;
         }
-        return this;
+        return this.parent.root;
     }
 
-    getLeaf(): IPosition<TNode> {
-        if (this.child) {
-            return this.child.getLeaf();
+    get leaf(): IPosition<TNode> {
+        if (!this.child) {
+            return this;
         }
-        return this;
+        return this.child.leaf;
     }
 }
