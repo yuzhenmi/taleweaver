@@ -1,7 +1,7 @@
 import { AtomicLayoutNode } from '../../layout/atomic-node';
 import { InlineLayoutNode } from '../../layout/inline-node';
 import { ILayoutNode } from '../../layout/node';
-import { InlineModelNode } from '../../model/inline-node';
+import { InlineModelNode } from '../../model/leaf';
 import { IAttributes, IModelNode } from '../../model/node';
 import { AtomicRenderNode } from '../../render/atomic-node';
 import { InlineRenderNode } from '../../render/inline-node';
@@ -357,7 +357,7 @@ export class TextViewNode extends InlineViewNode<TextLayoutNode> {
     onLayoutDidUpdate() {
         const text = this.layoutNode
             .getChildren()
-            .map(child => {
+            .map((child) => {
                 if (child instanceof WordLayoutNode) {
                     return child.getWord().text;
                 }

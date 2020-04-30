@@ -1,6 +1,6 @@
 export interface IOpenToken {
     readonly componentId: string;
-    readonly partId?: string;
+    readonly partId: string | null;
     readonly id: string;
     readonly attributes: {};
 }

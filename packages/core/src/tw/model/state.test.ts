@@ -11,7 +11,7 @@ import { IStateService } from '../state/service';
 import { IDidApplyTransformation, IDidUpdateStateEvent } from '../state/state';
 import { CLOSE_TOKEN, IToken } from '../state/token';
 import { IAppliedTransformation, ITransformation } from '../state/transformation';
-import { IInlineModelNode } from './inline-node';
+import { IInlineModelNode } from './leaf';
 import { ModelState } from './state';
 
 class MockStateService implements IStateService {

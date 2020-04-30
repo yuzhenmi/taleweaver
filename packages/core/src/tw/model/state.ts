@@ -6,9 +6,9 @@ import { IDidUpdateStateEvent } from '../state/state';
 import { IOpenToken, IToken } from '../state/token';
 import { identifyTokenType } from '../state/utility';
 import { findCommonLineage } from '../tree/utility';
-import { IDocModelNode } from './doc-node';
 import { IModelNode } from './node';
 import { TokenParser } from './parser';
+import { IDocModelNode } from './root';
 
 export interface IDidUpdateModelStateEvent {
     readonly node: IModelNode;
@@ -113,7 +113,7 @@ export class ModelState implements IModelState {
     protected findParentNodeOfTokenRange(tokens: IToken[], hintFrom: number, hintTo: number) {
         let depthPeak = 0;
         let depth = 0;
-        tokens.slice(hintFrom, hintTo).forEach(token => {
+        tokens.slice(hintFrom, hintTo).forEach((token) => {
             switch (identifyTokenType(token)) {
                 case 'OpenToken':
                     depth--;

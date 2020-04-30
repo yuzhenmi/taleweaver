@@ -18,7 +18,7 @@ export abstract class Position<TNode extends INode<TNode>> implements IPosition<
         readonly depth: number,
         readonly offset: number,
         readonly parent: IPosition<TNode> | null,
-        buildChild: (parent: IPosition<TNode>) => IPosition<TNode>,
+        buildChild: (parent: IPosition<TNode>) => IPosition<TNode> | null,
     ) {
         this.child = buildChild(this);
     }

@@ -14,16 +14,16 @@ describe('Tokenizer', () => {
                 '<doc {"id":"doc"}><paragraph {"id":"1"}><text {"id":"2"}>Hello</><text {"id":"3","bold":true}>world</></></>';
             const tokens = tokenizer.tokenize(markup);
             expect(tokens).toEqual([
-                { componentId: 'doc', partId: 'doc', id: 'doc', attributes: {} },
-                { componentId: 'paragraph', partId: 'paragraph', id: '1', attributes: {} },
-                { componentId: 'text', partId: 'text', id: '2', attributes: {} },
+                { componentId: 'doc', partId: null, id: 'doc', attributes: {} },
+                { componentId: 'paragraph', partId: null, id: '1', attributes: {} },
+                { componentId: 'text', partId: null, id: '2', attributes: {} },
                 'H',
                 'e',
                 'l',
                 'l',
                 'o',
                 CLOSE_TOKEN,
-                { componentId: 'text', partId: 'text', id: '3', attributes: { bold: true } },
+                { componentId: 'text', partId: null, id: '3', attributes: { bold: true } },
                 'w',
                 'o',
                 'r',

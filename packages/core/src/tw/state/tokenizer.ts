@@ -148,12 +148,9 @@ export class Tokenizer implements ITokenizer {
             id = 'doc';
         }
         let [componentId, partId] = this.tagBuffer.split('.', 1);
-        if (!partId) {
-            partId = componentId;
-        }
         this.tokens!.push({
             componentId,
-            partId,
+            partId: partId || null,
             id,
             attributes,
         });

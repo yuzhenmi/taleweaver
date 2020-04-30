@@ -1,7 +1,7 @@
 import { DocLayoutNode as AbstractDocLayoutNode } from '../../layout/doc-node';
 import { ILayoutNode } from '../../layout/node';
-import { DocModelNode as AbstractDocModelNode } from '../../model/doc-node';
 import { IAttributes, IModelNode } from '../../model/node';
+import { DocModelNode as AbstractDocModelNode } from '../../model/root';
 import { DocRenderNode as AbstractDocRenderNode } from '../../render/doc-node';
 import { IRenderNode, IStyle } from '../../render/node';
 import { generateId } from '../../util/id';

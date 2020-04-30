@@ -1,18 +1,18 @@
 import { INode } from './node';
 
-export function getNodeLineage(node: INode) {
-    const lineage: INode[] = [];
-    let currentNode: INode = node;
+export function getNodeLineage(node: INode<any>) {
+    const lineage: INode<any>[] = [];
+    let currentNode: INode<any> = node;
     while (true) {
         lineage.unshift(currentNode);
-        if (currentNode.isRoot()) {
+        if (currentNode.root) {
             return lineage;
         }
-        currentNode = currentNode.getParent()!;
+        currentNode = currentNode.parent!;
     }
 }
 
-export function findCommonLineage(node1: INode, node2: INode) {
+export function findCommonLineage(node1: INode<any>, node2: INode<any>) {
     const nodeLineage1 = getNodeLineage(node1);
     const nodeLineage2 = getNodeLineage(node2);
     let index = 0;

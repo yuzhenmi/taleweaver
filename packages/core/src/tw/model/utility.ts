@@ -1,7 +1,7 @@
-import { BlockModelNode } from './block-node';
-import { DocModelNode } from './doc-node';
-import { InlineModelNode } from './inline-node';
+import { BlockModelNode } from './branch';
+import { InlineModelNode } from './leaf';
 import { IModelNode } from './node';
+import { DocModelNode } from './root';
 
 export function identifyModelNodeType(node: IModelNode) {
     if (node instanceof DocModelNode) {

@@ -1,16 +1,12 @@
 import { ILayoutNode } from '../layout/node';
-import { IAttributes, IModelNode } from '../model/node';
+import { IModelNode } from '../model/node';
 import { IRenderNode } from '../render/node';
 import { IViewNode } from '../view/node';
 
 export interface IComponent {
     getId(): string;
-    buildModelNode(
-        partId: string | undefined,
-        id: string,
-        attributes: IAttributes,
-    ): IModelNode<IAttributes> | undefined;
-    buildRenderNode(modelNode: IModelNode): IRenderNode | undefined;
+    buildModelNode(partId: string | null, id: string, attributes: {}, text: string): IModelNode<any> | undefined;
+    buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
     buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
     buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
 }

@@ -1,8 +1,8 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IStateService } from '../state/service';
-import { IDocModelNode } from './doc-node';
 import { IModelNode, IModelPosition } from './node';
+import { IDocModelNode } from './root';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {

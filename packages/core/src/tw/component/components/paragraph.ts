@@ -2,7 +2,7 @@ import { AtomicLayoutNode } from '../../layout/atomic-node';
 import { BlockLayoutNode } from '../../layout/block-node';
 import { InlineLayoutNode } from '../../layout/inline-node';
 import { ILayoutNode } from '../../layout/node';
-import { BlockModelNode } from '../../model/block-node';
+import { BlockModelNode } from '../../model/branch';
 import { IAttributes, IModelNode } from '../../model/node';
 import { AtomicRenderNode } from '../../render/atomic-node';
 import { BlockRenderNode } from '../../render/block-node';
