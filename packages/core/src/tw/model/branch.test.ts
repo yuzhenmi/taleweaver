@@ -1,6 +1,6 @@
-import { Branch } from './branch';
+import { ModelBranch } from './branch';
 
-export class MyBranch extends Branch<{}> {
+export class MyBranch extends ModelBranch<{}> {
     get partId() {
         return 'my-branch';
     }
@@ -14,7 +14,7 @@ export class MyBranch extends Branch<{}> {
     }
 }
 
-describe('Branch', () => {
+describe('ModelBranch', () => {
     let branch: MyBranch;
 
     beforeEach(() => {

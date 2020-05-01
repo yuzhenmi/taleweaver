@@ -2,8 +2,6 @@ import { CLOSE_TOKEN, IToken } from '../state/token';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 
-export interface IModelPosition extends IPosition<IModelNode<any>> {}
-
 export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> {
     readonly componentId: string;
     readonly partId: string | null;
@@ -11,16 +9,15 @@ export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> 
     readonly text: string;
     readonly size: number;
 
-    resolvePosition(offset: number, depth?: number): IModelPosition;
+    resolvePosition(offset: number): IModelPosition;
     toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
     clone(): IModelNode<TAttributes>;
 }
 
-export class ModelPosition extends Position<IModelNode<any>> implements IModelPosition {}
+export interface IModelPosition extends IPosition<IModelNode<any>> {}
 
-export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<TAttributes>>
-    implements IModelNode<TAttributes> {
+export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes>> implements IModelNode<TAttributes> {
     abstract get partId(): string | null;
 
     abstract toDOM(from: number, to: number): HTMLElement;
@@ -32,6 +29,9 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     constructor(readonly componentId: string, id: string, readonly attributes: TAttributes, text: string) {
         super(id);
         this.internalText = text;
+        this.onDidUpdate(() => {
+            this.cachedSize = undefined;
+        });
     }
 
     get text() {
@@ -39,10 +39,13 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     }
 
     get size() {
-        if (this.leaf) {
-            return 2 + this.text.length;
+        if (this.cachedSize === undefined) {
+            if (this.leaf) {
+                this.cachedSize = 2 + this.text.length;
+            }
+            this.cachedSize = this.children.reduce((size, child) => size + child.size, 2);
         }
-        return this.children.reduce((size, child) => size + child.size, 2);
+        return this.cachedSize;
     }
 
     resolvePosition(offset: number): IModelPosition {
@@ -114,3 +117,5 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         return tokens;
     }
 }
+
+export class ModelPosition extends Position<IModelNode<any>> implements IModelPosition {}

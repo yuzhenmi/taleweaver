@@ -2,31 +2,31 @@ import { AtomicLayoutNode } from '../../layout/atomic-node';
 import { BlockLayoutNode } from '../../layout/block-node';
 import { InlineLayoutNode } from '../../layout/inline-node';
 import { ILayoutNode } from '../../layout/node';
-import { BlockModelNode } from '../../model/branch';
-import { IAttributes, IModelNode } from '../../model/node';
-import { AtomicRenderNode } from '../../render/atomic-node';
-import { BlockRenderNode } from '../../render/block-node';
-import { InlineRenderNode } from '../../render/inline-node';
+import { ModelBranch } from '../../model/branch';
+import { IModelNode } from '../../model/node';
+import { RenderAtom } from '../../render/atom';
+import { RenderBlock } from '../../render/block';
+import { RenderInline } from '../../render/inline';
 import { IRenderNode, IStyle } from '../../render/node';
 import { generateId } from '../../util/id';
 import { BlockViewNode } from '../../view/block-node';
 import { InlineViewNode } from '../../view/inline-node';
 import { Component, IComponent } from '../component';
 
-export interface IParagraphAttributes extends IAttributes {}
+export interface IParagraphAttributes {}
 
-export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
-    getPartId() {
+export class ParagraphModelNode extends ModelBranch<IParagraphAttributes> {
+    get partId() {
         return 'paragraph';
     }
 
     toDOM(from: number, to: number) {
         const $element = document.createElement('p');
         let offset = 1;
-        const children = this.getChildren();
+        const children = this.children;
         for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const childNode = children[n];
-            const childSize = childNode.getSize();
+            const childNode = children.at(n);
+            const childSize = childNode.size;
             const childFrom = Math.max(0, from - offset);
             const childTo = Math.min(childFrom + childSize, to - offset);
             offset += childSize;
@@ -40,88 +40,64 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
     }
 
     clone() {
-        return new ParagraphModelNode(this.componentId, generateId(), this.attributes);
+        return new ParagraphModelNode(this.componentId, generateId(), this.attributes, '');
     }
 }
 
 export interface IParagraphStyle extends IStyle {}
 
-export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
-    protected lineBreakNode: ParagraphLineBreakRenderNode;
-
-    constructor(protected componentId: string, protected id: string, protected style: IParagraphStyle) {
+export class RenderParagraph extends RenderBlock<IParagraphStyle> {
+    constructor(componentId: string, id: string, style: IParagraphStyle) {
         super(componentId, id, style);
-        this.lineBreakNode = this.buildLineBreakNode();
+        this.onDidReplaceChildren(() => {
+            this.appendChild(this.buildLineBreakNode());
+        });
     }
 
-    getPartId() {
+    get partId() {
         return 'paragraph';
     }
 
-    getChildren() {
-        return [...super.getChildren(), this.lineBreakNode];
-    }
-
-    convertOffsetToModelOffset(offset: number): number {
-        // Handle line break
-        if (offset === this.getSize() - 1) {
-            return super.convertOffsetToModelOffset(offset - 1) + 1;
-        }
-        return super.convertOffsetToModelOffset(offset);
-    }
-
-    convertModelOffsetToOffset(modelOffset: number): number {
-        // Handle line break
-        if (this.getSize() === 1) {
-            return 0;
-        }
-        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.getSize() - 1) {
-            return this.getSize() - 1;
-        }
-        return super.convertModelOffsetToOffset(modelOffset);
-    }
-
-    protected buildLineBreakNode() {
-        const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
-        const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
-        inlineNode.appendChild(atomicNode);
-        inlineNode.setParent(this);
-        return inlineNode;
-    }
-}
-
-export interface IParagraphLineBreakStyle extends IStyle {}
-
-export class ParagraphLineBreakRenderNode extends InlineRenderNode<IParagraphLineBreakStyle> {
-    getPartId() {
-        return 'line-break';
-    }
-
-    getModelSize() {
-        return 0;
-    }
-}
-
-export interface IParagraphLineBreakAtomicStyle extends IStyle {}
-
-export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagraphLineBreakAtomicStyle> {
-    getPartId() {
-        return 'line-break-atomic';
-    }
-
-    getModelSize() {
-        return 0;
-    }
-
-    getSize() {
-        return 1;
-    }
-
-    isBreakable() {
+    get padModelSize() {
         return true;
     }
 
-    clearOwnCache() {}
+    protected buildLineBreakNode() {
+        return new RenderParagraphLineBreak(this.componentId, `${this.id}.line-break`, {});
+    }
+}
+
+export interface IRenderParagraphLineBreakStyle extends IStyle {}
+
+export class RenderParagraphLineBreak extends RenderInline<IRenderParagraphLineBreakStyle> {
+    constructor(componentId: string, id: string, style: IParagraphStyle) {
+        super(componentId, id, style);
+        this.appendChild(this.buildAtom());
+    }
+
+    get partId() {
+        return 'line-break';
+    }
+
+    get padModelSize() {
+        return false;
+    }
+
+    protected buildAtom() {
+        return new RenderParagraphLineBreakAtom(this.componentId, `${this.id}.line-break-atom`, {});
+    }
+}
+
+export interface IRenderParagraphLineBreakAtomStyle extends IStyle {}
+
+export class RenderParagraphLineBreakAtom extends RenderAtom<IRenderParagraphLineBreakAtomStyle> {
+    get partId() {
+        return 'line-break-atom';
+    }
+
+    get padModelSize() {
+        return false;
+    }
 }
 
 export class ParagraphLayoutNode extends BlockLayoutNode {
@@ -324,13 +300,13 @@ export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBrea
 }
 
 export class ParagraphComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: {}) {
-        return new ParagraphModelNode(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, attributes: {}) {
+        return new ParagraphModelNode(this.id, id, attributes, '');
     }
 
-    buildRenderNode(modelNode: IModelNode) {
+    buildRenderNode(modelNode: IModelNode<any>) {
         if (modelNode instanceof ParagraphModelNode) {
-            return new ParagraphRenderNode(this.id, modelNode.getId(), {});
+            return new ParagraphRenderNode(this.id, modelNode.id, {});
         }
         throw new Error('Invalid paragraph model node.');
     }

@@ -1,17 +1,17 @@
 import { AtomicLayoutNode } from '../../layout/atomic-node';
 import { InlineLayoutNode } from '../../layout/inline-node';
 import { ILayoutNode } from '../../layout/node';
-import { InlineModelNode } from '../../model/leaf';
-import { IAttributes, IModelNode } from '../../model/node';
-import { AtomicRenderNode } from '../../render/atomic-node';
-import { InlineRenderNode } from '../../render/inline-node';
+import { ModelLeaf } from '../../model/leaf';
+import { IModelNode } from '../../model/node';
+import { InlineRenderNode } from '../../render/inline';
 import { IRenderNode, IStyle } from '../../render/node';
+import { AtomicRenderNode } from '../../render/text';
 import { generateId } from '../../util/id';
 import { breakTextToWords, IWord } from '../../util/language';
 import { InlineViewNode } from '../../view/inline-node';
 import { Component, IComponent } from '../component';
 
-export interface ITextAttributes extends IAttributes {
+export interface ITextAttributes {
     weight?: number;
     size?: number;
     font?: string;
@@ -22,21 +22,19 @@ export interface ITextAttributes extends IAttributes {
     color?: string;
 }
 
-export class TextModelNode extends InlineModelNode<ITextAttributes> {
-    getPartId() {
+export class TextModelNode extends ModelLeaf<ITextAttributes> {
+    get partId() {
         return 'text';
     }
 
     toDOM(from: number, to: number) {
         const $component = document.createElement('span');
-        $component.innerText = this.content.substring(from - 1, to - 1);
+        $component.innerText = this.text.substring(from - 1, to - 1);
         return $component;
     }
 
     clone() {
-        const node = new TextModelNode(this.componentId, generateId(), this.attributes);
-        node.setContent(this.getContent());
-        return node;
+        return new TextModelNode(this.componentId, generateId(), this.attributes, this.text);
     }
 }
 

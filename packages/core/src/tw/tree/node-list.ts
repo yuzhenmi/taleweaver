@@ -1,4 +1,8 @@
+import { EventEmitter, IDisposable, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
 import { INode } from './node';
+
+export interface IDidUpdateEvent {}
 
 export interface INodeList<TNode extends INode<TNode>> {
     readonly length: number;
@@ -15,9 +19,14 @@ export interface INodeList<TNode extends INode<TNode>> {
     remove(node: TNode): void;
 
     apply(nodeList: INodeList<TNode>): void;
+
+    onDidUpdate: IOnEvent<IDidUpdateEvent>;
 }
 
 export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
+    protected didUpdateEventEmitter: IEventEmitter<IDidUpdateEvent> = new EventEmitter();
+    protected nodeDidUpdateEventListenerDisposables: IDisposable[] = [];
+
     constructor(protected nodes: TNode[] = []) {}
 
     get length() {
@@ -48,6 +57,10 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             throw new Error('Node is already part of list.');
         }
         this.nodes.unshift(node);
+        const disposable = node.onDidUpdate(() => {
+            this.didUpdateEventEmitter.emit({});
+        });
+        this.nodeDidUpdateEventListenerDisposables.unshift(disposable);
     }
 
     insertBefore(node: TNode, beforeNode: TNode) {
@@ -59,6 +72,10 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             throw new Error('Node to insert before is not found.');
         }
         this.nodes.splice(beforeIndex, 0, node);
+        const disposable = node.onDidUpdate(() => {
+            this.didUpdateEventEmitter.emit({});
+        });
+        this.nodeDidUpdateEventListenerDisposables.splice(beforeIndex, 0, disposable);
     }
 
     append(node: TNode) {
@@ -66,6 +83,10 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             throw new Error('Node is already part of list.');
         }
         this.nodes.push(node);
+        const disposable = node.onDidUpdate(() => {
+            this.didUpdateEventEmitter.emit({});
+        });
+        this.nodeDidUpdateEventListenerDisposables.push(disposable);
     }
 
     appendAfter(node: TNode, afterNode: TNode) {
@@ -77,6 +98,10 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             throw new Error('Node to insert after is not found.');
         }
         this.nodes.splice(afterIndex + 1, 0, node);
+        const disposable = node.onDidUpdate(() => {
+            this.didUpdateEventEmitter.emit({});
+        });
+        this.nodeDidUpdateEventListenerDisposables.splice(afterIndex + 1, 0, disposable);
     }
 
     remove(node: TNode) {
@@ -85,9 +110,11 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             throw new Error('Node is not part of list.');
         }
         this.nodes.splice(index, 1);
+        this.nodeDidUpdateEventListenerDisposables[index].dispose();
+        this.nodeDidUpdateEventListenerDisposables.splice(index, 1);
     }
 
-    apply(nodeList: NodeList<TNode>) {
+    apply(nodeList: INodeList<TNode>) {
         const oldNodes = this.nodes.slice();
         let m = 0;
         for (let n = 0, nn = nodeList.length; n < nn; n++) {
@@ -117,5 +144,9 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
             this.remove(oldNodes[m]);
             m++;
         }
+    }
+
+    onDidUpdate(listener: IEventListener<IDidUpdateEvent>) {
+        return this.didUpdateEventEmitter.on(listener);
     }
 }

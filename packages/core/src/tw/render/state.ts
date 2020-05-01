@@ -3,44 +3,41 @@ import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
-import { IDocRenderNode } from './doc-node';
+import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
 import { RenderTreeBuilder } from './tree-builder';
 
 export interface IDidUpdateRenderStateEvent {
-    readonly node: IRenderNode;
+    readonly node: IRenderNode<any>;
 }
 
 export interface IRenderState {
     onDidUpdateRenderState: IOnEvent<IDidUpdateRenderStateEvent>;
-    getDocNode(): IDocRenderNode;
+    readonly doc: IRenderDoc<any>;
 }
 
 export class RenderState implements IRenderState {
-    protected docNode: IDocRenderNode;
+    readonly doc: IRenderDoc<any>;
+
     protected didUpdateRenderStateEventEmitter: IEventEmitter<IDidUpdateRenderStateEvent> = new EventEmitter();
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
-        const docModelNode = modelService.getDocNode();
+        const modelRoot = modelService.getRoot();
         const treeBuilder = new RenderTreeBuilder(componentService);
-        this.docNode = treeBuilder.buildTree(docModelNode) as IDocRenderNode;
+        this.doc = treeBuilder.buildTree(modelRoot) as IRenderDoc<any>;
         modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
     }
 
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
-        this.didUpdateRenderStateEventEmitter.on(listener);
-    }
-
-    getDocNode() {
-        return this.docNode;
+        return this.didUpdateRenderStateEventEmitter.on(listener);
     }
 
     protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
         const treeBuilder = new RenderTreeBuilder(this.componentService);
         const updatedNode = treeBuilder.buildTree(event.node);
-        const node = this.docNode.findDescendant(event.node.getId()) as IRenderNode;
+        const node = this.doc.findDescendant(event.node.id) as IRenderNode<any>;
         if (!node) {
-            throw new Error(`Render node ${event.node.getId()} is not found.`);
+            throw new Error(`Render node ${event.node.id} is not found.`);
         }
         node.onDidUpdate(updatedNode);
         this.didUpdateRenderStateEventEmitter.emit({ node });

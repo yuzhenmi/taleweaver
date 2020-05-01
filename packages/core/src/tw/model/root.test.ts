@@ -1,6 +1,6 @@
-import { Root } from './root';
+import { ModelRoot } from './root';
 
-export class MyRoot extends Root<{}> {
+export class MyRoot extends ModelRoot<{}> {
     get partId() {
         return 'my-root';
     }
@@ -14,7 +14,7 @@ export class MyRoot extends Root<{}> {
     }
 }
 
-describe('Root', () => {
+describe('ModelRoot', () => {
     let root: MyRoot;
 
     beforeEach(() => {

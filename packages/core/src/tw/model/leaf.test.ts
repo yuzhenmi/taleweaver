@@ -1,6 +1,6 @@
-import { Leaf } from './leaf';
+import { ModelLeaf } from './leaf';
 
-export class MyLeaf extends Leaf<{}> {
+export class MyLeaf extends ModelLeaf<{}> {
     get partId() {
         return 'my-leaf';
     }
@@ -14,7 +14,7 @@ export class MyLeaf extends Leaf<{}> {
     }
 }
 
-describe('Leaf', () => {
+describe('ModelLeaf', () => {
     let leaf: MyLeaf;
 
     beforeEach(() => {

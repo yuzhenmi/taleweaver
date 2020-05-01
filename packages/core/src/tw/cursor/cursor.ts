@@ -18,7 +18,7 @@ export class Cursor implements ICursor {
     protected leftLock: number | null = null;
 
     onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
-        this.didUpdateCursorEventEmitter.on(listener);
+        return this.didUpdateCursorEventEmitter.on(listener);
     }
 
     set(anchor: number, head: number, leftLock: number | null) {

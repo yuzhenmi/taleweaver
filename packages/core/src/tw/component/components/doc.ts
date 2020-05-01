@@ -1,27 +1,27 @@
 import { DocLayoutNode as AbstractDocLayoutNode } from '../../layout/doc-node';
 import { ILayoutNode } from '../../layout/node';
-import { IAttributes, IModelNode } from '../../model/node';
-import { DocModelNode as AbstractDocModelNode } from '../../model/root';
-import { DocRenderNode as AbstractDocRenderNode } from '../../render/doc-node';
+import { IModelNode } from '../../model/node';
+import { ModelRoot } from '../../model/root';
+import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
 import { IRenderNode, IStyle } from '../../render/node';
 import { generateId } from '../../util/id';
 import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
 import { Component, IComponent } from '../component';
 
-export interface IDocAttributes extends IAttributes {}
+export interface IDocAttributes {}
 
-export class DocModelNode extends AbstractDocModelNode<IDocAttributes> {
-    getPartId() {
+export class Doc extends ModelRoot<IDocAttributes> {
+    get partId() {
         return 'doc';
     }
 
     toDOM(from: number, to: number) {
         const $element = document.createElement('div');
         let offset = 1;
-        const children = this.getChildren();
+        const children = this.children;
         for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const child = children[n];
-            const childSize = child.getSize();
+            const child = children.at(n);
+            const childSize = child.size;
             const childFrom = Math.max(0, from - offset);
             const childTo = Math.min(childFrom + childSize, to - offset);
             offset += childSize;
@@ -35,15 +35,19 @@ export class DocModelNode extends AbstractDocModelNode<IDocAttributes> {
     }
 
     clone() {
-        return new DocModelNode(this.componentId, generateId(), this.attributes);
+        return new Doc(this.componentId, generateId(), this.attributes, '');
     }
 }
 
 export interface IDocStyle extends IStyle {}
 
-export class DocRenderNode extends AbstractDocRenderNode<IDocStyle> {
-    getPartId() {
+export class RenderDoc extends AbstractRenderDoc<IDocStyle> {
+    get partId() {
         return 'doc';
+    }
+
+    get padModelSize() {
+        return true;
     }
 }
 
@@ -76,20 +80,20 @@ export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
 }
 
 export class DocComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
-        return new DocModelNode(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, attributes: {}) {
+        return new Doc(this.id, id, attributes, '');
     }
 
-    buildRenderNode(modelNode: IModelNode) {
-        if (modelNode instanceof DocModelNode) {
-            return new DocRenderNode(this.id, modelNode.getId(), {});
+    buildRenderNode(modelNode: IModelNode<any>) {
+        if (modelNode instanceof Doc) {
+            return new RenderDoc(this.id, modelNode.id, {});
         }
         throw new Error('Invalid doc model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof DocRenderNode) {
-            return new DocLayoutNode(this.id, renderNode.getId());
+    buildLayoutNode(renderNode: IRenderNode<any>) {
+        if (renderNode instanceof RenderDoc) {
+            return new DocLayoutNode(this.id, renderNode.id);
         }
         throw new Error('Invalid doc render node.');
     }

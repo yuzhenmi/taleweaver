@@ -13,11 +13,12 @@ export interface IComponent {
 
 export abstract class Component implements IComponent {
     abstract buildModelNode(
-        partId: string | undefined,
+        partId: string | null,
         id: string,
-        attributes: IAttributes,
-    ): IModelNode<IAttributes> | undefined;
-    abstract buildRenderNode(modelNode: IModelNode): IRenderNode | undefined;
+        attributes: {},
+        text: string,
+    ): IModelNode<any> | undefined;
+    abstract buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
     abstract buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
     abstract buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
 

@@ -1,7 +1,7 @@
 import { ILineLayoutNode } from '../../layout/line-node';
 import { identifyLayoutNodeType } from '../../layout/utility';
-import { IAtomicRenderNode } from '../../render/atomic-node';
 import { IRenderPosition } from '../../render/node';
+import { IAtomicRenderNode } from '../../render/text';
 import { identifyRenderNodeType } from '../../render/utility';
 import { Transformation } from '../../state/transformation';
 import { ICommandHandler } from '../command';
@@ -12,7 +12,7 @@ export const move: ICommandHandler = async (serviceRegistry, offset: number) => 
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveLeft: ICommandHandler = async serviceRegistry => {
+export const moveLeft: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     if (!cursorService.hasCursor()) {
         return;
@@ -36,7 +36,7 @@ export const moveLeft: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveRight: ICommandHandler = async serviceRegistry => {
+export const moveRight: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -62,7 +62,7 @@ export const moveRight: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveUp: ICommandHandler = async serviceRegistry => {
+export const moveUp: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -72,10 +72,7 @@ export const moveUp: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = Math.min(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
-    const linePosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const linePosition = position.getLeaf().getParent()!.getParent()!;
     const lineNode = linePosition.getNode() as ILineLayoutNode;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
@@ -95,7 +92,7 @@ export const moveUp: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveDown: ICommandHandler = async serviceRegistry => {
+export const moveDown: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -105,10 +102,7 @@ export const moveDown: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = Math.max(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
-    const linePosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const linePosition = position.getLeaf().getParent()!.getParent()!;
     const lineNode = linePosition.getNode() as ILineLayoutNode;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
@@ -128,7 +122,7 @@ export const moveDown: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveLeftByWord: ICommandHandler = async serviceRegistry => {
+export const moveLeftByWord: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -156,7 +150,7 @@ export const moveLeftByWord: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveRightByWord: ICommandHandler = async serviceRegistry => {
+export const moveRightByWord: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -188,7 +182,7 @@ export const moveRightByWord: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveToLineStart: ICommandHandler = async serviceRegistry => {
+export const moveToLineStart: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -198,10 +192,7 @@ export const moveToLineStart: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = Math.min(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
-    const lineBoxLevelPosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const lineBoxLevelPosition = position.getLeaf().getParent()!.getParent()!;
     if (lineBoxLevelPosition.getOffset() > 0) {
         tn.setCursor(offset - lineBoxLevelPosition.getOffset());
     } else {
@@ -210,7 +201,7 @@ export const moveToLineStart: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveToLineEnd: ICommandHandler = async serviceRegistry => {
+export const moveToLineEnd: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -220,10 +211,7 @@ export const moveToLineEnd: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = Math.max(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
-    const lineLayoutPosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const lineLayoutPosition = position.getLeaf().getParent()!.getParent()!;
     const lineLayoutNode = lineLayoutPosition.getNode();
     if (identifyLayoutNodeType(lineLayoutNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line layout node.`);
@@ -236,7 +224,7 @@ export const moveToLineEnd: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveToDocStart: ICommandHandler = async serviceRegistry => {
+export const moveToDocStart: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     if (!cursorService.hasCursor()) {
         return;
@@ -246,7 +234,7 @@ export const moveToDocStart: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveToDocEnd: ICommandHandler = async serviceRegistry => {
+export const moveToDocEnd: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -264,7 +252,7 @@ export const moveHead: ICommandHandler = async (serviceRegistry, offset: number)
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadLeft: ICommandHandler = async serviceRegistry => {
+export const moveHeadLeft: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     if (!cursorService.hasCursor()) {
         return;
@@ -279,7 +267,7 @@ export const moveHeadLeft: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadRight: ICommandHandler = async serviceRegistry => {
+export const moveHeadRight: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -296,7 +284,7 @@ export const moveHeadRight: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadUp: ICommandHandler = async serviceRegistry => {
+export const moveHeadUp: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -305,10 +293,7 @@ export const moveHeadUp: ICommandHandler = async serviceRegistry => {
     const tn = new Transformation();
     const cursorState = cursorService.getCursorState();
     const position = layoutService.resolvePosition(cursorState.head);
-    const linePosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const linePosition = position.getLeaf().getParent()!.getParent()!;
     const lineNode = linePosition.getNode() as ILineLayoutNode;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
@@ -330,7 +315,7 @@ export const moveHeadUp: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadDown: ICommandHandler = async serviceRegistry => {
+export const moveHeadDown: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -340,10 +325,7 @@ export const moveHeadDown: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = cursorState.head;
     const position = layoutService.resolvePosition(offset);
-    const linePosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const linePosition = position.getLeaf().getParent()!.getParent()!;
     const lineNode = linePosition.getNode() as ILineLayoutNode;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
@@ -363,7 +345,7 @@ export const moveHeadDown: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadLeftByWord: ICommandHandler = async serviceRegistry => {
+export const moveHeadLeftByWord: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -389,7 +371,7 @@ export const moveHeadLeftByWord: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadRightByWord: ICommandHandler = async serviceRegistry => {
+export const moveHeadRightByWord: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -420,7 +402,7 @@ export const moveHeadRightByWord: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadToLineStart: ICommandHandler = async serviceRegistry => {
+export const moveHeadToLineStart: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -430,10 +412,7 @@ export const moveHeadToLineStart: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = cursorState.head;
     const position = layoutService.resolvePosition(offset);
-    const lineLayoutPosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const lineLayoutPosition = position.getLeaf().getParent()!.getParent()!;
     if (lineLayoutPosition.getOffset() > 0) {
         tn.setCursorHead(offset - lineLayoutPosition.getOffset());
     } else {
@@ -442,7 +421,7 @@ export const moveHeadToLineStart: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadToLineEnd: ICommandHandler = async serviceRegistry => {
+export const moveHeadToLineEnd: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
@@ -452,10 +431,7 @@ export const moveHeadToLineEnd: ICommandHandler = async serviceRegistry => {
     const cursorState = cursorService.getCursorState();
     const offset = cursorState.head;
     const position = layoutService.resolvePosition(offset);
-    const lineLayoutPosition = position
-        .getLeaf()
-        .getParent()!
-        .getParent()!;
+    const lineLayoutPosition = position.getLeaf().getParent()!.getParent()!;
     const lineLayoutNode = lineLayoutPosition.getNode();
     if (identifyLayoutNodeType(lineLayoutNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line layout node.`);
@@ -468,7 +444,7 @@ export const moveHeadToLineEnd: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadToDocStart: ICommandHandler = async serviceRegistry => {
+export const moveHeadToDocStart: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     if (!cursorService.hasCursor()) {
         return;
@@ -478,7 +454,7 @@ export const moveHeadToDocStart: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const moveHeadToDocEnd: ICommandHandler = async serviceRegistry => {
+export const moveHeadToDocEnd: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -490,7 +466,7 @@ export const moveHeadToDocEnd: ICommandHandler = async serviceRegistry => {
     serviceRegistry.getService('state').applyTransformation(tn);
 };
 
-export const selectAll: ICommandHandler = async serviceRegistry => {
+export const selectAll: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {

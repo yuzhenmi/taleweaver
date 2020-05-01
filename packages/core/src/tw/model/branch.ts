@@ -1,8 +1,8 @@
 import { IModelNode, ModelNode } from './node';
 
-export interface IBranch<TAttributes> extends IModelNode<TAttributes> {}
+export interface IModelBranch<TAttributes> extends IModelNode<TAttributes> {}
 
-export abstract class Branch<TAttributes> extends ModelNode<TAttributes> implements IBranch<TAttributes> {
+export abstract class ModelBranch<TAttributes> extends ModelNode<TAttributes> implements IModelBranch<TAttributes> {
     get root() {
         return false;
     }

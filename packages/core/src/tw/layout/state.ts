@@ -35,7 +35,7 @@ export class LayoutState implements ILayoutState {
     }
 
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
-        this.didUpdateLayoutStateEventEmitter.on(listener);
+        return this.didUpdateLayoutStateEventEmitter.on(listener);
     }
 
     getDocNode() {

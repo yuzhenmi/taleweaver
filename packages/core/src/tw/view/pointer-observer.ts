@@ -50,19 +50,19 @@ export class PointerObserver implements IPointerObserver {
     }
 
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
-        this.pointerDidDownEventEmitter.on(listener);
+        return this.pointerDidDownEventEmitter.on(listener);
     }
 
     onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>) {
-        this.pointerDidMoveEventEmitter.on(listener);
+        return this.pointerDidMoveEventEmitter.on(listener);
     }
 
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>) {
-        this.pointerDidUpEventEmitter.on(listener);
+        return this.pointerDidUpEventEmitter.on(listener);
     }
 
     onPointerDidClick(listener: IEventListener<IPointerDidClick>) {
-        this.pointerDidClickEventEmitter.on(listener);
+        return this.pointerDidClickEventEmitter.on(listener);
     }
 
     protected handleMouseDown = (event: MouseEvent) => {

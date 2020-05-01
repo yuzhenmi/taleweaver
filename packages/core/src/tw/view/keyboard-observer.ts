@@ -45,19 +45,19 @@ export class KeyboardObserver implements IKeyboardObserver {
     }
 
     onDidInsert(listener: IEventListener<IDidInsertEvent>) {
-        this.didInsertEventEmitter.on(listener);
+        return this.didInsertEventEmitter.on(listener);
     }
 
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
-        this.didPressKeyEventEmitter.on(listener);
+        return this.didPressKeyEventEmitter.on(listener);
     }
 
     onCompositionDidStart(listener: IEventListener<ICompositionDidStart>) {
-        this.compositionDidStartEventEmitter.on(listener);
+        return this.compositionDidStartEventEmitter.on(listener);
     }
 
     onCompositionDidEnd(listener: IEventListener<ICompositionDidEnd>) {
-        this.compositionDidEndEventEmitter.on(listener);
+        return this.compositionDidEndEventEmitter.on(listener);
     }
 
     protected handleDidMutate = () => {
@@ -76,7 +76,7 @@ export class KeyboardObserver implements IKeyboardObserver {
 
     protected parse() {
         const tokens: IToken[] = [];
-        this.$contentEditable.childNodes.forEach(child => {
+        this.$contentEditable.childNodes.forEach((child) => {
             tokens.push(...this.parseNode(child));
         });
         return tokens;
@@ -87,7 +87,7 @@ export class KeyboardObserver implements IKeyboardObserver {
             return node.nodeValue.split('');
         }
         const tokens: IToken[] = [];
-        node.childNodes.forEach(childNode => {
+        node.childNodes.forEach((childNode) => {
             tokens.push(...this.parseNode(childNode));
         });
         return tokens;

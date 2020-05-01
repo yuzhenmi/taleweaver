@@ -32,11 +32,11 @@ export class CommandService implements ICommandService {
     }
 
     onWillExecuteCommand(listener: IEventListener<IWillExecuteCommandEvent>) {
-        this.willExecuteCommandEventEmitter.on(listener);
+        return this.willExecuteCommandEventEmitter.on(listener);
     }
 
     onDidExecuteCommand(listener: IEventListener<IDidExecuteCommandEvent>) {
-        this.didExecuteCommandEventEmitter.on(listener);
+        return this.didExecuteCommandEventEmitter.on(listener);
     }
 
     async executeCommand(commandId: string, ...args: any[]) {

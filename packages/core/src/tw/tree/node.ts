@@ -1,4 +1,10 @@
+import { EventEmitter, IDisposable, IEventEmitter } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
 import { INodeList, NodeList } from './node-list';
+
+export interface IDidReplaceChildrenEvent {}
+
+export interface IDidUpdateEvent {}
 
 export interface INode<TNode extends INode<TNode>> {
     readonly id: string;
@@ -17,6 +23,7 @@ export interface INode<TNode extends INode<TNode>> {
     readonly firstChild: TNode | null;
     readonly lastChild: TNode | null;
     childAt(index: number): TNode;
+    replaceChildren(nodes: TNode[]): void;
     insertChild(child: TNode): void;
     insertChildBefore(child: TNode, beforeChild: TNode): void;
     appendChild(child: TNode): void;
@@ -25,6 +32,8 @@ export interface INode<TNode extends INode<TNode>> {
     findDescendant(descendantId: string): TNode | null;
 
     apply(node: this): void;
+
+    onDidUpdate: IOnEvent<IDidUpdateEvent>;
 }
 
 export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
@@ -32,9 +41,21 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     abstract get leaf(): boolean;
 
     parent: TNode | null = null;
-    readonly children = new NodeList<TNode>();
 
-    constructor(readonly id: string) {}
+    protected internalChildren = new NodeList<TNode>();
+    protected didReplaceChildrenEventEmitter: IEventEmitter<IDidReplaceChildrenEvent> = new EventEmitter();
+    protected didUpdateEventEmitter: IEventEmitter<IDidUpdateEvent> = new EventEmitter();
+    protected childrenDidUpdateEventListenerDisposable: IDisposable;
+
+    constructor(readonly id: string) {
+        this.childrenDidUpdateEventListenerDisposable = this.children.onDidUpdate(() =>
+            this.didUpdateEventEmitter.emit({}),
+        );
+    }
+
+    get children() {
+        return this.internalChildren;
+    }
 
     get previousSibling() {
         if (!this.parent) {
@@ -116,6 +137,14 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
         return this.children.at(index);
     }
 
+    replaceChildren(nodes: TNode[]) {
+        this.internalChildren = new NodeList();
+        for (const node of nodes) {
+            this.internalChildren.append(node);
+        }
+        this.didReplaceChildrenEventEmitter.emit({});
+    }
+
     insertChild(child: TNode) {
         if (this.leaf) {
             throw new Error('Appending child to leaf node is not allowed.');
@@ -178,5 +207,14 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             this.children.at(n).apply(node.children.at(n));
         }
+        this.didUpdateEventEmitter.emit({});
+    }
+
+    onDidReplaceChildren(listener: IEventListener<IDidReplaceChildrenEvent>) {
+        return this.didReplaceChildrenEventEmitter.on(listener);
+    }
+
+    onDidUpdate(listener: IEventListener<IDidUpdateEvent>) {
+        return this.didUpdateEventEmitter.on(listener);
     }
 }

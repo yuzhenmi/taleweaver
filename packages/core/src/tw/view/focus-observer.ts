@@ -20,11 +20,11 @@ export class FocusObserver implements IFocusObserver {
     }
 
     onDidFocus(listener: IEventListener<IDidFocusEvent>) {
-        this.didFocusEventEmitter.on(listener);
+        return this.didFocusEventEmitter.on(listener);
     }
 
     onDidBlur(listener: IEventListener<IDidBlurEvent>) {
-        this.didBlurEventEmitter.on(listener);
+        return this.didBlurEventEmitter.on(listener);
     }
 
     protected handleFocus = () => {

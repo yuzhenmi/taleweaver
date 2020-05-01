@@ -1,6 +1,6 @@
 import { LineLayoutNode as AbstractLineLayoutNode } from '../../layout/line-node';
 import { ILayoutNode } from '../../layout/node';
-import { IAttributes, IModelNode } from '../../model/node';
+import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { LineViewNode as AbstractLineViewNode } from '../../view/line-node';
 import { Component } from '../component';
@@ -43,11 +43,11 @@ export class LineViewNode extends AbstractLineViewNode<LineLayoutNode> {
 }
 
 export class LineComponent extends Component implements ILineComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): IModelNode {
+    buildModelNode(partId: string | null, id: string, attributes: {}): IModelNode<any> {
         throw new Error('Line component does not support buildModelNode.');
     }
 
-    buildRenderNode(modelNode: IModelNode): IRenderNode {
+    buildRenderNode(modelNode: IModelNode<any>): IRenderNode {
         throw new Error('Line component does not support buildRenderNode.');
     }
 

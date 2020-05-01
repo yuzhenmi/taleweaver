@@ -1,7 +1,7 @@
 import { IConfigService } from '../../config/service';
 import { ILayoutNode } from '../../layout/node';
 import { PageLayoutNode as AbstractPageLayoutNode } from '../../layout/page-node';
-import { IAttributes, IModelNode } from '../../model/node';
+import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { PageViewNode as AbstractPageViewNode } from '../../view/page-node';
 import { Component } from '../component';
@@ -62,11 +62,11 @@ export class PageComponent extends Component implements IPageComponent {
         super(id);
     }
 
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): IModelNode {
+    buildModelNode(partId: string | null, id: string, attributes: {}): IModelNode<any> {
         throw new Error('Page component does not support buildModelNode.');
     }
 
-    buildRenderNode(modelNode: IModelNode): IRenderNode {
+    buildRenderNode(modelNode: IModelNode<any>): IRenderNode {
         throw new Error('Page component does not support buildRenderNode.');
     }
 

@@ -8,7 +8,7 @@ import { ConfigService } from '../config/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IModelNode, IModelPosition } from '../model/node';
-import { IDocModelNode } from '../model/root';
+import { IModelRoot } from '../model/root';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
 import { IInlineRenderNode } from './inline-node';
@@ -17,29 +17,25 @@ import { RenderState } from './state';
 class MockModelService implements IModelService {
     protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();
 
-    constructor(protected docNode: IDocModelNode) {}
-
-    setDocNode(docNode: IDocModelNode) {
-        this.docNode = docNode;
-    }
+    constructor(protected root: IModelRoot<any>) {}
 
     emitDidUpdateModelStateEvent(event: IDidUpdateModelStateEvent) {
         this.didUpdateModelStateEventEmitter.emit(event);
     }
 
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        this.didUpdateModelStateEventEmitter.on(listener);
+        return this.didUpdateModelStateEventEmitter.on(listener);
     }
 
-    getDocNode() {
-        return this.docNode;
+    getRoot() {
+        return this.root;
     }
 
     toDOM(from: number, to: number): HTMLElement {
         throw new Error('Not implemented.');
     }
 
-    fromDOM(domNodes: HTMLElement[]): IModelNode[] {
+    fromDOM(domNodes: HTMLElement[]): IModelNode<any>[] {
         throw new Error('Not implemented.');
     }
 

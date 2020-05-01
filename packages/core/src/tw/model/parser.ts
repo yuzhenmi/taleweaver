@@ -163,9 +163,7 @@ export class TokenParser implements ITokenParser {
                 )}.`,
             );
         }
-        for (const child of children) {
-            node.appendChild(child);
-        }
+        node.replaceChildren(children);
         return node;
     }
 }

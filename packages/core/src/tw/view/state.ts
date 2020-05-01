@@ -34,7 +34,7 @@ export class ViewState implements IViewState {
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
-        this.didUpdateViewStateEventEmitter.on(listener);
+        return this.didUpdateViewStateEventEmitter.on(listener);
     }
 
     getDocNode() {

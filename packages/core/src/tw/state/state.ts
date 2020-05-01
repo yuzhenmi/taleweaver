@@ -45,11 +45,11 @@ export class State implements IState {
     }
 
     onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>) {
-        this.didApplyTransformationEventEmitter.on(listener);
+        return this.didApplyTransformationEventEmitter.on(listener);
     }
 
     onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {
-        this.didUpdateStateEventEmitter.on(listener);
+        return this.didUpdateStateEventEmitter.on(listener);
     }
 
     getTokens(): IToken[] {
@@ -58,7 +58,7 @@ export class State implements IState {
 
     applyTransformations(transformations: ITransformation[]): IAppliedTransformation[] {
         this.assertInitialized();
-        const appliedTransformations = transformations.map(transformation => {
+        const appliedTransformations = transformations.map((transformation) => {
             const appliedTransformation = this.applyTransformation(transformation);
             this.didApplyTransformationEventEmitter.emit({ transformation, appliedTransformation });
             return appliedTransformation;
@@ -80,7 +80,7 @@ export class State implements IState {
         appliedTransformations
             .slice()
             .reverse()
-            .forEach(appliedTransformation => this.unapplyTransformation(appliedTransformation));
+            .forEach((appliedTransformation) => this.unapplyTransformation(appliedTransformation));
         const transformedRange = this.findTransformedRange(appliedTransformations);
         if (transformedRange) {
             this.didUpdateStateEventEmitter.emit({
@@ -102,7 +102,7 @@ export class State implements IState {
         );
         const operations = transformation.getOperations();
         const offsetAdjustments: IOffsetAdjustment[] = [];
-        operations.forEach(unadjustedOperation => {
+        operations.forEach((unadjustedOperation) => {
             const operation = unadjustedOperation.adjustOffset(offsetAdjustments);
             if (operation instanceof InsertOperation) {
                 this.tokens.splice(operation.getAt(), 0, ...operation.getTokens());
@@ -132,7 +132,7 @@ export class State implements IState {
             .getOperations()
             .slice()
             .reverse()
-            .forEach(appliedOperation => {
+            .forEach((appliedOperation) => {
                 if (appliedOperation instanceof AppliedInsertOperation) {
                     this.tokens.splice(appliedOperation.getAt(), appliedOperation.getTokens().length);
                 } else if (appliedOperation instanceof AppliedDeleteOperation) {
@@ -153,7 +153,7 @@ export class State implements IState {
         let beforeTo: number | undefined = undefined;
         let afterFrom: number | undefined = undefined;
         let afterTo: number | undefined = undefined;
-        appliedTransformations.forEach(appliedTransformation => {
+        appliedTransformations.forEach((appliedTransformation) => {
             const transformedRange = appliedTransformation.getTransformedRange();
             if (transformedRange) {
                 if (beforeFrom === undefined || transformedRange.beforeFrom < beforeFrom) {
