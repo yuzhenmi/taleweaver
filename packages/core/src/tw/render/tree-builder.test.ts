@@ -1,11 +1,11 @@
 import { DocComponent, DocModelNode } from '../component/components/doc';
 import {
+    ModelParagraph,
     ParagraphComponent,
     ParagraphLineBreakRenderNode,
-    ParagraphModelNode,
     ParagraphRenderNode,
 } from '../component/components/paragraph';
-import { TextComponent, TextModelNode, TextRenderNode, WordRenderNode } from '../component/components/text';
+import { ModelText, RenderText, RenderTextWord, TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { buildStubConfig } from '../config/config.stub';
@@ -28,11 +28,11 @@ describe('RenderTreeBuilder', () => {
         configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         docModelNode = new DocModelNode('doc', 'doc', {});
-        const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
+        const paragraphModelNode = new ModelParagraph('paragraph', '1', {});
         docModelNode.appendChild(paragraphModelNode);
-        const textModelNode1 = new TextModelNode('text', '2', {});
+        const textModelNode1 = new ModelText('text', '2', {});
         textModelNode1.setContent('Hello ');
-        const textModelNode2 = new TextModelNode('text', '3', { bold: true });
+        const textModelNode2 = new ModelText('text', '3', { bold: true });
         textModelNode2.setContent('world');
         paragraphModelNode.appendChild(textModelNode1);
         paragraphModelNode.appendChild(textModelNode2);
@@ -50,22 +50,22 @@ describe('RenderTreeBuilder', () => {
             expect(paragraph.getPartId()).toEqual('paragraph');
             expect(paragraph.getId()).toEqual('1');
             expect(paragraph.getChildren()).toHaveLength(3);
-            const text1 = paragraph.getFirstChild() as TextRenderNode;
+            const text1 = paragraph.getFirstChild() as RenderText;
             expect(text1.getComponentId()).toEqual('text');
             expect(text1.getPartId()).toEqual('text');
             expect(text1.getId()).toEqual('2');
             expect(text1.getChildren()).toHaveLength(1);
-            const word1 = text1.getFirstChild() as WordRenderNode;
+            const word1 = text1.getFirstChild() as RenderTextWord;
             expect(word1.getComponentId()).toEqual('text');
             expect(word1.getPartId()).toEqual('word');
             expect(word1.getId()).toEqual('2-0');
             expect(word1.getWord().text).toEqual('Hello ');
             expect(word1.getWord().breakable).toEqual(true);
-            const text2 = text1.getNextSibling() as TextRenderNode;
+            const text2 = text1.getNextSibling() as RenderText;
             expect(text2.getComponentId()).toEqual('text');
             expect(text2.getPartId()).toEqual('text');
             expect(text2.getId()).toEqual('3');
-            const word2 = text2.getFirstChild() as WordRenderNode;
+            const word2 = text2.getFirstChild() as RenderTextWord;
             expect(word2.getComponentId()).toEqual('text');
             expect(word2.getPartId()).toEqual('word');
             expect(word2.getId()).toEqual('3-0');

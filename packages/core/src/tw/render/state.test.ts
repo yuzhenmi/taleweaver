@@ -1,6 +1,6 @@
 import { DocComponent, DocModelNode } from '../component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
-import { TextComponent, TextModelNode, WordRenderNode } from '../component/components/text';
+import { ModelParagraph, ParagraphComponent } from '../component/components/paragraph';
+import { ModelText, RenderTextWord, TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { buildStubConfig } from '../config/config.stub';
@@ -66,11 +66,11 @@ describe('ModelState', () => {
         configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         const docModelNode = new DocModelNode('doc', 'doc', {});
-        const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
+        const paragraphModelNode = new ModelParagraph('paragraph', '1', {});
         docModelNode.appendChild(paragraphModelNode);
-        const textModelNode1 = new TextModelNode('text', '2', {});
+        const textModelNode1 = new ModelText('text', '2', {});
         textModelNode1.setContent('Hello');
-        const textModelNode2 = new TextModelNode('text', '3', { bold: true });
+        const textModelNode2 = new ModelText('text', '3', { bold: true });
         textModelNode2.setContent('world');
         paragraphModelNode.appendChild(textModelNode1);
         paragraphModelNode.appendChild(textModelNode2);
@@ -111,7 +111,7 @@ describe('ModelState', () => {
 
     describe('when model state did update', () => {
         it('updates render tree', () => {
-            const textModelNode1 = new TextModelNode('text', '2', {});
+            const textModelNode1 = new ModelText('text', '2', {});
             textModelNode1.setContent(' Hello');
             modelService.emitDidUpdateModelStateEvent({
                 node: textModelNode1,
@@ -122,10 +122,10 @@ describe('ModelState', () => {
             expect(blockNode.getChildren()).toHaveLength(3);
             const inlineNode = blockNode.getFirstChild()!;
             expect(inlineNode.getChildren()).toHaveLength(2);
-            const atomicNode1 = inlineNode.getFirstChild() as WordRenderNode;
+            const atomicNode1 = inlineNode.getFirstChild() as RenderTextWord;
             expect(atomicNode1.getWord().text).toEqual(' ');
             expect(atomicNode1.getWord().breakable).toEqual(true);
-            const atomicNode2 = atomicNode1.getNextSibling() as WordRenderNode;
+            const atomicNode2 = atomicNode1.getNextSibling() as RenderTextWord;
             expect(atomicNode2.getWord().text).toEqual('Hello');
             expect(atomicNode2.getWord().breakable).toEqual(false);
         });

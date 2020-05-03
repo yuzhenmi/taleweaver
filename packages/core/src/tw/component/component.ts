@@ -4,7 +4,8 @@ import { IRenderNode } from '../render/node';
 import { IViewNode } from '../view/node';
 
 export interface IComponent {
-    getId(): string;
+    readonly id: string;
+
     buildModelNode(
         partId: string | null,
         id: string,
@@ -12,9 +13,9 @@ export interface IComponent {
         children: IModelNode<any>[],
         text: string,
     ): IModelNode<any> | undefined;
-    buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
-    buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
-    buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]): IRenderNode<any> | undefined;
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]): ILayoutNode<any> | undefined;
+    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]): IViewNode<any> | undefined;
 }
 
 export abstract class Component implements IComponent {
@@ -25,13 +26,9 @@ export abstract class Component implements IComponent {
         children: IModelNode<any>[],
         text: string,
     ): IModelNode<any> | undefined;
-    abstract buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
-    abstract buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
-    abstract buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
+    abstract buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]): IRenderNode<any> | undefined;
+    abstract buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]): ILayoutNode<any> | undefined;
+    abstract buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]): IViewNode<any> | undefined;
 
-    constructor(protected id: string) {}
-
-    getId() {
-        return this.id;
-    }
+    constructor(readonly id: string) {}
 }

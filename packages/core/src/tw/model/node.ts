@@ -52,6 +52,11 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
         return this.cachedSize;
     }
 
+    apply(node: this) {
+        this.internalText = node.text;
+        super.apply(node);
+    }
+
     resolvePosition(offset: number): IModelPosition {
         if (offset < 0 || offset >= this.size) {
             throw new Error(`Offset ${offset} is out of range.`);

@@ -3,13 +3,16 @@ import { ILayoutNode } from '../../layout/node';
 import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
-import { IRenderNode, IStyle } from '../../render/node';
+import { IRenderNode } from '../../render/node';
 import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface IDocAttributes {}
 
-export class Doc extends ModelRoot<IDocAttributes> {
+export interface IDocStyle {}
+
+export class ModelDoc extends ModelRoot<IDocAttributes> {
     get partId() {
         return 'doc';
     }
@@ -33,8 +36,6 @@ export class Doc extends ModelRoot<IDocAttributes> {
         return $element;
     }
 }
-
-export interface IDocStyle extends IStyle {}
 
 export class RenderDoc extends AbstractRenderDoc<IDocStyle> {
     get partId() {
@@ -76,26 +77,26 @@ export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
 
 export class DocComponent extends Component implements IComponent {
     buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
-        return new Doc(this.id, id, attributes, children, '');
+        return new ModelDoc(this.id, id, attributes, children, '');
     }
 
-    buildRenderNode(modelNode: IModelNode<any>) {
-        if (modelNode instanceof Doc) {
-            return new RenderDoc(this.id, modelNode.id, {});
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]) {
+        if (modelNode instanceof ModelDoc) {
+            return new RenderDoc(this.id, modelNode.id, {}, children);
         }
         throw new Error('Invalid doc model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode<any>) {
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
         if (renderNode instanceof RenderDoc) {
-            return new DocLayoutNode(this.id, renderNode.id);
+            return new DocLayoutNode(this.id, renderNode.id, children);
         }
         throw new Error('Invalid doc render node.');
     }
 
-    buildViewNode(layoutNode: ILayoutNode) {
+    buildViewNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
         if (layoutNode instanceof DocLayoutNode) {
-            return new DocViewNode(layoutNode);
+            return new DocViewNode(layoutNode, children);
         }
         throw new Error('Invalid layout render node.');
     }

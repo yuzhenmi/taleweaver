@@ -3,6 +3,7 @@ import { ILayoutNode } from '../../layout/node';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { LineViewNode as AbstractLineViewNode } from '../../view/line-node';
+import { IViewNode } from '../../view/node';
 import { Component } from '../component';
 import { ILineComponent } from '../line-component';
 
@@ -43,23 +44,23 @@ export class LineViewNode extends AbstractLineViewNode<LineLayoutNode> {
 }
 
 export class LineComponent extends Component implements ILineComponent {
-    buildModelNode(partId: string | null, id: string, attributes: {}): IModelNode<any> {
+    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[]): IModelNode<any> {
         throw new Error('Line component does not support buildModelNode.');
     }
 
-    buildRenderNode(modelNode: IModelNode<any>): IRenderNode {
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]): IRenderNode<any> {
         throw new Error('Line component does not support buildRenderNode.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode): ILayoutNode {
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]): ILayoutNode<any> {
         throw new Error('Line component does not support buildLayoutNode.');
     }
 
-    buildLineLayoutNode() {
-        return new LineLayoutNode(this.getId());
+    buildLineLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
+        return new LineLayoutNode(this.id);
     }
 
-    buildViewNode(layoutNode: ILayoutNode) {
+    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
         if (layoutNode instanceof LineLayoutNode) {
             return new LineViewNode(layoutNode);
         }

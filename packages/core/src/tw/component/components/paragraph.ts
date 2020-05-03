@@ -7,14 +7,21 @@ import { IModelNode } from '../../model/node';
 import { RenderAtom } from '../../render/atom';
 import { RenderBlock } from '../../render/block';
 import { RenderInline } from '../../render/inline';
-import { IRenderNode, IStyle } from '../../render/node';
+import { IRenderNode } from '../../render/node';
 import { BlockViewNode } from '../../view/block-node';
 import { InlineViewNode } from '../../view/inline-node';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface IParagraphAttributes {}
 
-export class ParagraphModelNode extends ModelBranch<IParagraphAttributes> {
+export interface IParagraphStyle {}
+
+export interface IRenderParagraphLineBreakStyle {}
+
+export interface IRenderParagraphLineBreakAtomStyle {}
+
+export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
     get partId() {
         return 'paragraph';
     }
@@ -39,11 +46,9 @@ export class ParagraphModelNode extends ModelBranch<IParagraphAttributes> {
     }
 }
 
-export interface IParagraphStyle extends IStyle {}
-
 export class RenderParagraph extends RenderBlock<IParagraphStyle> {
-    constructor(componentId: string, id: string, style: IParagraphStyle) {
-        super(componentId, id, style);
+    constructor(componentId: string, id: string, style: IParagraphStyle, children: IRenderNode<any>[]) {
+        super(componentId, id, style, children);
         this.onDidReplaceChildren(() => {
             this.appendChild(this.buildLineBreakNode());
         });
@@ -62,11 +67,9 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle> {
     }
 }
 
-export interface IRenderParagraphLineBreakStyle extends IStyle {}
-
 export class RenderParagraphLineBreak extends RenderInline<IRenderParagraphLineBreakStyle> {
     constructor(componentId: string, id: string, style: IParagraphStyle) {
-        super(componentId, id, style);
+        super(componentId, id, style, []);
         this.appendChild(this.buildAtom());
     }
 
@@ -83,9 +86,11 @@ export class RenderParagraphLineBreak extends RenderInline<IRenderParagraphLineB
     }
 }
 
-export interface IRenderParagraphLineBreakAtomStyle extends IStyle {}
-
 export class RenderParagraphLineBreakAtom extends RenderAtom<IRenderParagraphLineBreakAtomStyle> {
+    constructor(componentId: string, id: string, style: IRenderParagraphLineBreakAtomStyle) {
+        super(componentId, id, style, true);
+    }
+
     get partId() {
         return 'line-break-atom';
     }
@@ -296,30 +301,30 @@ export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBrea
 
 export class ParagraphComponent extends Component implements IComponent {
     buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
-        return new ParagraphModelNode(this.id, id, attributes, children, '');
+        return new ModelParagraph(this.id, id, attributes, children, '');
     }
 
-    buildRenderNode(modelNode: IModelNode<any>) {
-        if (modelNode instanceof ParagraphModelNode) {
-            return new ParagraphRenderNode(this.id, modelNode.id, {});
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]) {
+        if (modelNode instanceof ModelParagraph) {
+            return new RenderParagraph(this.id, modelNode.id, {}, children);
         }
         throw new Error('Invalid paragraph model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof ParagraphRenderNode) {
-            return new ParagraphLayoutNode(this.id, renderNode.getId());
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
+        if (renderNode instanceof RenderParagraph) {
+            return new ParagraphLayoutNode(this.id, renderNode.id);
         }
-        if (renderNode instanceof ParagraphLineBreakRenderNode) {
-            return new ParagraphLineBreakLayoutNode(this.id, renderNode.getId());
+        if (renderNode instanceof RenderParagraphLineBreak) {
+            return new ParagraphLineBreakLayoutNode(this.id, renderNode.id);
         }
-        if (renderNode instanceof ParagraphLineBreakAtomicRenderNode) {
-            return new ParagraphLineBreakAtomicLayoutNode(this.id, renderNode.getId());
+        if (renderNode instanceof RenderParagraphLineBreakAtom) {
+            return new ParagraphLineBreakAtomicLayoutNode(this.id, renderNode.id);
         }
         throw new Error('Invalid paragraph render node.');
     }
 
-    buildViewNode(layoutNode: ILayoutNode) {
+    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
         if (layoutNode instanceof ParagraphLayoutNode) {
             return new ParagraphViewNode(layoutNode);
         }

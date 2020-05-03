@@ -7,10 +7,10 @@ import {
 } from '../component/components/paragraph';
 import {
     DEFAULT_TEXT_STYLE,
+    RenderText,
+    RenderTextWord,
     TextComponent,
     TextLayoutNode,
-    TextRenderNode,
-    WordRenderNode,
 } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
@@ -36,14 +36,14 @@ describe('LayoutTreeBuilder', () => {
         docRenderNode = new DocRenderNode('doc', 'doc', {});
         const paragraphRenderNode = new ParagraphRenderNode('paragraph', '1', {});
         docRenderNode.appendChild(paragraphRenderNode);
-        const textRenderNode1 = new TextRenderNode('text', '2', DEFAULT_TEXT_STYLE);
-        const wordRenderNode1 = new WordRenderNode('text', '4', DEFAULT_TEXT_STYLE, {
+        const textRenderNode1 = new RenderText('text', '2', DEFAULT_TEXT_STYLE);
+        const wordRenderNode1 = new RenderTextWord('text', '4', DEFAULT_TEXT_STYLE, {
             text: 'Hello ',
             breakable: true,
         });
         textRenderNode1.appendChild(wordRenderNode1);
-        const textRenderNode2 = new TextRenderNode('text', '3', DEFAULT_TEXT_STYLE);
-        const wordRenderNode2 = new WordRenderNode('text', '5', DEFAULT_TEXT_STYLE, {
+        const textRenderNode2 = new RenderText('text', '3', DEFAULT_TEXT_STYLE);
+        const wordRenderNode2 = new RenderTextWord('text', '5', DEFAULT_TEXT_STYLE, {
             text: 'world',
             breakable: false,
         });

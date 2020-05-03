@@ -1,12 +1,15 @@
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderText<TStyle> extends IRenderNode<TStyle> {
+export interface IRenderWord<TStyle> extends IRenderNode<TStyle> {
     readonly breakableAfter: boolean;
 }
 
-export abstract class RenderText<TStyle> extends RenderNode<TStyle> implements IRenderText<TStyle> {
-    constructor(componentId: string, id: string, style: TStyle, text: string, readonly breakableAfter: boolean) {
-        super(componentId, id, style, text);
+export abstract class RenderWord<TStyle> extends RenderNode<TStyle> implements IRenderWord<TStyle> {
+    protected internalBreakableAfter: boolean;
+
+    constructor(componentId: string, id: string, style: TStyle, text: string, breakableAfter: boolean) {
+        super(componentId, id, style, [], text);
+        this.internalBreakableAfter = breakableAfter;
     }
 
     get type(): IRenderNodeType {
@@ -27,5 +30,14 @@ export abstract class RenderText<TStyle> extends RenderNode<TStyle> implements I
 
     get modelTextSize() {
         return 0;
+    }
+
+    get breakableAfter() {
+        return this.internalBreakableAfter;
+    }
+
+    apply(node: this) {
+        this.internalBreakableAfter = node.breakableAfter;
+        super.apply(node);
     }
 }

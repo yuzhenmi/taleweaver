@@ -1,6 +1,6 @@
 import { DocComponent, DocModelNode } from '../component/components/doc';
-import { ParagraphComponent, ParagraphModelNode } from '../component/components/paragraph';
-import { TextComponent, TextModelNode } from '../component/components/text';
+import { ModelParagraph, ParagraphComponent } from '../component/components/paragraph';
+import { ModelText, TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { buildStubConfig } from '../config/config.stub';
@@ -50,11 +50,11 @@ describe('RenderService', () => {
         configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
         const docModelNode = new DocModelNode('doc', 'doc', {});
-        const paragraphModelNode = new ParagraphModelNode('paragraph', '1', {});
+        const paragraphModelNode = new ModelParagraph('paragraph', '1', {});
         docModelNode.appendChild(paragraphModelNode);
-        const textModelNode1 = new TextModelNode('text', '2', {});
+        const textModelNode1 = new ModelText('text', '2', {});
         textModelNode1.setContent('Hello ');
-        const textModelNode2 = new TextModelNode('text', '3', { weight: 700 });
+        const textModelNode2 = new ModelText('text', '3', { weight: 700 });
         textModelNode2.setContent('world');
         paragraphModelNode.appendChild(textModelNode1);
         paragraphModelNode.appendChild(textModelNode2);

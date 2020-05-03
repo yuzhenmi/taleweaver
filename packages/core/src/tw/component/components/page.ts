@@ -3,6 +3,7 @@ import { ILayoutNode } from '../../layout/node';
 import { PageLayoutNode as AbstractPageLayoutNode } from '../../layout/page-node';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
+import { IViewNode } from '../../view/node';
 import { PageViewNode as AbstractPageViewNode } from '../../view/page-node';
 import { Component } from '../component';
 import { IPageComponent } from '../page-component';
@@ -62,22 +63,22 @@ export class PageComponent extends Component implements IPageComponent {
         super(id);
     }
 
-    buildModelNode(partId: string | null, id: string, attributes: {}): IModelNode<any> {
+    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[]): IModelNode<any> {
         throw new Error('Page component does not support buildModelNode.');
     }
 
-    buildRenderNode(modelNode: IModelNode<any>): IRenderNode {
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]): IRenderNode<any> {
         throw new Error('Page component does not support buildRenderNode.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode): ILayoutNode {
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]): ILayoutNode<any> {
         throw new Error('Page component does not support buildLayoutNode.');
     }
 
-    buildPageLayoutNode() {
+    buildPageLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
         const pageConfig = this.configService.getConfig().page;
         return new PageLayoutNode(
-            this.getId(),
+            this.id,
             pageConfig.width,
             pageConfig.height,
             pageConfig.paddingTop,
@@ -87,7 +88,7 @@ export class PageComponent extends Component implements IPageComponent {
         );
     }
 
-    buildViewNode(layoutNode: ILayoutNode) {
+    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
         if (layoutNode instanceof PageLayoutNode) {
             return new PageViewNode(layoutNode);
         }

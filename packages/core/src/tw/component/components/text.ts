@@ -3,11 +3,12 @@ import { InlineLayoutNode } from '../../layout/inline-node';
 import { ILayoutNode } from '../../layout/node';
 import { ModelLeaf } from '../../model/leaf';
 import { IModelNode } from '../../model/node';
-import { InlineRenderNode } from '../../render/inline';
-import { IRenderNode, IStyle } from '../../render/node';
-import { AtomicRenderNode } from '../../render/text';
+import { RenderInline } from '../../render/inline';
+import { IRenderNode } from '../../render/node';
+import { RenderWord } from '../../render/word';
 import { breakTextToWords, IWord } from '../../util/language';
 import { InlineViewNode } from '../../view/inline-node';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface ITextAttributes {
@@ -21,19 +22,7 @@ export interface ITextAttributes {
     color?: string;
 }
 
-export class TextModelNode extends ModelLeaf<ITextAttributes> {
-    get partId() {
-        return 'text';
-    }
-
-    toDOM(from: number, to: number) {
-        const $component = document.createElement('span');
-        $component.innerText = this.text.substring(from - 1, to - 1);
-        return $component;
-    }
-}
-
-export interface ITextStyle extends IStyle {
+export interface ITextStyle {
     weight: number;
     size: number;
     font: string;
@@ -43,6 +32,8 @@ export interface ITextStyle extends IStyle {
     strikethrough: boolean;
     color: string;
 }
+
+export interface IWordStyle extends ITextStyle {}
 
 export const DEFAULT_TEXT_STYLE: ITextStyle = {
     weight: 400,
@@ -55,50 +46,35 @@ export const DEFAULT_TEXT_STYLE: ITextStyle = {
     color: 'black',
 };
 
-export class TextRenderNode extends InlineRenderNode<ITextStyle> {
-    getPartId() {
+export class ModelText extends ModelLeaf<ITextAttributes> {
+    get partId() {
         return 'text';
+    }
+
+    toDOM(from: number, to: number) {
+        const $component = document.createElement('span');
+        $component.innerText = this.text.substring(from - 1, to - 1);
+        return $component;
     }
 }
 
-export interface IWordStyle extends ITextStyle {}
-
-export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
-    constructor(componentId: string, id: string, style: IWordStyle, protected word: IWord) {
-        super(componentId, id, style);
+export class RenderText extends RenderInline<ITextStyle> {
+    get partId() {
+        return 'text';
     }
 
-    getPartId() {
+    get padModelSize() {
+        return true;
+    }
+}
+
+export class RenderTextWord extends RenderWord<ITextStyle> {
+    constructor(componentId: string, id: string, style: ITextStyle, text: string, breakableAfter: boolean) {
+        super(componentId, id, style, text, breakableAfter);
+    }
+
+    get partId() {
         return 'word';
-    }
-
-    getWord() {
-        return this.word;
-    }
-
-    getModelSize() {
-        return this.word.text.length;
-    }
-
-    getSize() {
-        return this.word.text.length;
-    }
-
-    isBreakable() {
-        return this.word.breakable;
-    }
-
-    clearOwnCache() {}
-
-    onDidUpdate(updatedNode: this) {
-        super.onDidUpdate(updatedNode);
-        const oldWord = this.word;
-        const newWord = updatedNode.getWord();
-        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
-            return;
-        }
-        this.word = updatedNode.getWord();
-        this.clearCache();
     }
 }
 
@@ -151,11 +127,11 @@ export class WordLayoutNode extends AtomicLayoutNode {
     protected tailTrimmedWidth?: number;
 
     constructor(
+        protected textMeasurer: ITextMeasurer,
         componentId: string,
         id: string,
         protected word: IWord,
         protected style: ITextStyle,
-        protected textMeasurer: ITextMeasurer,
     ) {
         super(componentId, id);
     }
@@ -227,7 +203,7 @@ export class WordLayoutNode extends AtomicLayoutNode {
         }
         const splitAt = min;
         const newWord = { ...this.word, text: text.substring(splitAt) };
-        const newNode = new WordLayoutNode(this.componentId, this.id, newWord, this.style, this.textMeasurer);
+        const newNode = new WordLayoutNode(this.textMeasurer, this.componentId, this.id, newWord, this.style);
         this.word.text = text.substring(0, splitAt);
         this.clearCache();
         return newNode;
@@ -382,49 +358,54 @@ export class TextComponent extends Component implements IComponent {
     }
 
     buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
-        return new TextModelNode(this.id, id, attributes, children, text);
+        return new ModelText(this.id, id, attributes, children, text);
     }
 
-    buildRenderNode(modelNode: IModelNode) {
-        if (modelNode instanceof TextModelNode) {
-            const attributes = modelNode.getAttributes();
+    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]) {
+        if (modelNode instanceof ModelText) {
+            const attributes = modelNode.attributes;
             const style: ITextStyle = {
                 ...DEFAULT_TEXT_STYLE,
                 ...attributes,
             };
-            const node = new TextRenderNode(this.id, modelNode.getId(), style);
-            const words = breakTextToWords(modelNode.getContent());
+            const node = new RenderText(this.id, modelNode.id, style, children);
+            const words = breakTextToWords(modelNode.text);
             words.forEach((word, wordIndex) => {
-                const wordRenderNode = new WordRenderNode(this.id, `${modelNode.getId()}-${wordIndex}`, style, word);
+                const wordRenderNode = new RenderTextWord(
+                    this.id,
+                    `${modelNode.id}-${wordIndex}`,
+                    style,
+                    word.text,
+                    word.breakable,
+                );
                 node.appendChild(wordRenderNode);
             });
             if (words.length === 0) {
-                node.appendChild(
-                    new WordRenderNode(this.id, `${modelNode.getId()}-0`, style, { text: '', breakable: false }),
-                );
+                node.appendChild(new RenderTextWord(this.id, `${modelNode.id}-0`, style, '', false));
             }
             return node;
         }
         throw new Error('Invalid text model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof TextRenderNode) {
-            return new TextLayoutNode(this.id, renderNode.getId(), renderNode.getStyle());
+    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
+        if (renderNode instanceof RenderText) {
+            return new TextLayoutNode(this.id, renderNode.id, renderNode.style);
         }
-        if (renderNode instanceof WordRenderNode) {
+        if (renderNode instanceof RenderWord) {
             return new WordLayoutNode(
-                this.id,
-                renderNode.getId(),
-                renderNode.getWord(),
-                renderNode.getStyle(),
                 this.textMeasurer,
+                this.id,
+                renderNode.id,
+                renderNode.style,
+                renderNode.text,
+                renderNode.breakableAfter,
             );
         }
         throw new Error('Invalid text render node.');
     }
 
-    buildViewNode(layoutNode: ILayoutNode) {
+    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
         if (layoutNode instanceof TextLayoutNode) {
             return new TextViewNode(layoutNode);
         }

@@ -3,11 +3,7 @@ import { IPosition, Position } from '../tree/position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'inline' | 'text' | 'word' | 'atom';
 
-export interface IStyle {
-    [key: string]: any;
-}
-
-export interface IRenderNode<TStyle extends IStyle> extends INode<IRenderNode<any>> {
+export interface IRenderNode<TStyle> extends INode<IRenderNode<any>> {
     readonly type: IRenderNodeType;
     readonly componentId: string;
     readonly partId: string | null;
@@ -22,8 +18,7 @@ export interface IRenderNode<TStyle extends IStyle> extends INode<IRenderNode<an
 
 export interface IRenderPosition extends IPosition<IRenderNode<any>> {}
 
-export abstract class RenderNode<TStyle extends IStyle> extends Node<IRenderNode<TStyle>>
-    implements IRenderNode<TStyle> {
+export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> implements IRenderNode<TStyle> {
     protected abstract get padModelSize(): boolean;
     protected abstract get modelTextSize(): number;
 
@@ -34,8 +29,14 @@ export abstract class RenderNode<TStyle extends IStyle> extends Node<IRenderNode
     protected cachedChildrenSize?: number;
     protected internalText: string;
 
-    constructor(readonly componentId: string, id: string, readonly style: TStyle, text: string) {
-        super(id);
+    constructor(
+        readonly componentId: string,
+        id: string,
+        readonly style: TStyle,
+        children: IRenderNode<any>[],
+        text: string,
+    ) {
+        super(id, children);
         this.internalText = text;
         this.onDidUpdateNode(() => {
             this.cachedSize = undefined;
@@ -62,6 +63,11 @@ export abstract class RenderNode<TStyle extends IStyle> extends Node<IRenderNode
         }
         const padding = this.padModelSize ? 2 : 0;
         return this.cachedChildrenSize! + padding + this.modelTextSize;
+    }
+
+    apply(node: this) {
+        this.internalText = node.text;
+        super.apply(node);
     }
 
     resolvePosition(offset: number): IRenderPosition {

@@ -23,8 +23,8 @@ export class ComponentService implements IComponentService {
         for (let [componentId, component] of Object.entries(configService.getConfig().components)) {
             this.registry.registerComponent(componentId, component);
         }
-        this.registry.registerComponent(this.pageComponent.getId(), this.pageComponent);
-        this.registry.registerComponent(this.lineComponent.getId(), this.lineComponent);
+        this.registry.registerComponent(this.pageComponent.id, this.pageComponent);
+        this.registry.registerComponent(this.lineComponent.id, this.lineComponent);
     }
 
     getComponent(componentId: string) {
