@@ -1,14 +1,14 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IRenderService } from '../render/service';
-import { IDocLayoutNode } from './doc-node';
+import { ILayoutDoc } from './doc';
 import { ILayoutPosition } from './node';
 import { IPageLayoutRect } from './rect';
 import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 
 export interface ILayoutService {
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
-    getDocNode(): IDocLayoutNode;
+    getDocNode(): ILayoutDoc;
     resolvePosition(offset: number): ILayoutPosition;
     resolvePageRects(from: number, to: number): IPageLayoutRect[];
 }

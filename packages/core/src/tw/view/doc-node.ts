@@ -1,13 +1,13 @@
-import { IDocLayoutNode } from '../layout/doc-node';
+import { ILayoutDoc } from '../layout/doc';
 import { IViewNode, IViewNodeClass, ViewNode } from './node';
 import { IPageViewNode } from './page-node';
 
-export interface IDocViewNode<TLayoutNode extends IDocLayoutNode = IDocLayoutNode>
+export interface IDocViewNode<TLayoutNode extends ILayoutDoc = ILayoutDoc>
     extends IViewNode<TLayoutNode, never, IPageViewNode> {
     attach(domContainer: HTMLElement): void;
 }
 
-export abstract class DocViewNode<TLayoutNode extends IDocLayoutNode = IDocLayoutNode>
+export abstract class DocViewNode<TLayoutNode extends ILayoutDoc = ILayoutDoc>
     extends ViewNode<TLayoutNode, never, IPageViewNode>
     implements IDocViewNode<TLayoutNode> {
     protected size?: number;

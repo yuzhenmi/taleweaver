@@ -14,14 +14,16 @@ export interface INode<TNode extends INode<TNode>> {
 
     parent: TNode | null;
 
+    readonly children: INodeList<TNode>;
+    readonly text: string;
+    readonly firstChild: TNode | null;
+    readonly lastChild: TNode | null;
+
     readonly previousSibling: TNode | null;
     readonly nextSibling: TNode | null;
     readonly previousCrossParentSibling: TNode | null;
     readonly nextCrossParentSibling: TNode | null;
 
-    readonly children: INodeList<TNode>;
-    readonly firstChild: TNode | null;
-    readonly lastChild: TNode | null;
     childAt(index: number): TNode;
     replaceChildren(nodes: TNode[]): void;
     insertChild(child: TNode): void;
@@ -43,11 +45,13 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     parent: TNode | null = null;
 
     protected internalChildren = new NodeList<TNode>();
+    protected internalText: string;
     protected didReplaceChildrenEventEmitter: IEventEmitter<IDidReplaceChildrenEvent> = new EventEmitter();
     protected didUpdateNodeEventEmitter: IEventEmitter<IDidUpdateNodeEvent> = new EventEmitter();
     protected childrenDidUpdateEventListenerDisposable: IDisposable;
 
-    constructor(readonly id: string, children: TNode[]) {
+    constructor(readonly id: string, children: TNode[], text: string) {
+        this.internalText = text;
         for (const child of children) {
             this.children.append(child);
         }
@@ -58,6 +62,24 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
 
     get children() {
         return this.internalChildren;
+    }
+
+    get text() {
+        return this.internalText;
+    }
+
+    get firstChild() {
+        if (this.children.length === 0) {
+            return null;
+        }
+        return this.children.at(0);
+    }
+
+    get lastChild() {
+        if (this.children.length === 0) {
+            return null;
+        }
+        return this.children.at(this.children.length - 1);
     }
 
     get previousSibling() {
@@ -120,20 +142,6 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
             return null;
         }
         return parentNextSibling.firstChild;
-    }
-
-    get firstChild() {
-        if (this.children.length === 0) {
-            return null;
-        }
-        return this.children.at(0);
-    }
-
-    get lastChild() {
-        if (this.children.length === 0) {
-            return null;
-        }
-        return this.children.at(this.children.length - 1);
     }
 
     childAt(index: number) {

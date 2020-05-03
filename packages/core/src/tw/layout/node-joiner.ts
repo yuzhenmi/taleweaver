@@ -1,8 +1,8 @@
-import { IBlockLayoutNode } from './block-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILineLayoutNode } from './line-node';
+import { ILayoutBlock } from './block';
+import { ILayoutInline } from './inline';
+import { ILayoutLine } from './line';
 import { ILayoutNode } from './node';
-import { IPageLayoutNode } from './page-node';
+import { ILayoutPage } from './page';
 import { identifyLayoutNodeType } from './utility';
 
 export class NodeJoiner {
@@ -12,16 +12,16 @@ export class NodeJoiner {
         }
         switch (identifyLayoutNodeType(thisNode)) {
             case 'Page':
-                this.joinPageNodes(thisNode as IPageLayoutNode, thatNode as IPageLayoutNode);
+                this.joinPageNodes(thisNode as ILayoutPage, thatNode as ILayoutPage);
                 break;
             case 'Line':
-                this.joinLineNodes(thisNode as ILineLayoutNode, thatNode as ILineLayoutNode);
+                this.joinLineNodes(thisNode as ILayoutLine, thatNode as ILayoutLine);
                 break;
             default:
         }
     }
 
-    protected joinPageNodes(thisNode: IPageLayoutNode, thatNode: IPageLayoutNode) {
+    protected joinPageNodes(thisNode: ILayoutPage, thatNode: ILayoutPage) {
         const thisLastChild = thisNode.getLastChild();
         const thatFirstChild = thatNode.getFirstChild();
         if (thisLastChild && thatFirstChild && thisLastChild.getId() === thatFirstChild.getId()) {
@@ -30,7 +30,7 @@ export class NodeJoiner {
         thatNode
             .getChildren()
             .slice()
-            .forEach(child => {
+            .forEach((child) => {
                 thatNode.removeChild(child);
                 thisNode.appendChild(child);
             });
@@ -40,11 +40,11 @@ export class NodeJoiner {
         }
     }
 
-    protected joinBlockNodes(thisNode: IBlockLayoutNode, thatNode: IBlockLayoutNode) {
+    protected joinBlockNodes(thisNode: ILayoutBlock, thatNode: ILayoutBlock) {
         thatNode
             .getChildren()
             .slice()
-            .forEach(child => {
+            .forEach((child) => {
                 thatNode.removeChild(child);
                 thisNode.appendChild(child);
             });
@@ -54,7 +54,7 @@ export class NodeJoiner {
         }
     }
 
-    protected joinLineNodes(thisNode: ILineLayoutNode, thatNode: ILineLayoutNode) {
+    protected joinLineNodes(thisNode: ILayoutLine, thatNode: ILayoutLine) {
         const thisLastChild = thisNode.getLastChild();
         const thatFirstChild = thatNode.getFirstChild();
         if (thisLastChild && thatFirstChild && thisLastChild.getId() === thatFirstChild.getId()) {
@@ -63,7 +63,7 @@ export class NodeJoiner {
         thatNode
             .getChildren()
             .slice()
-            .forEach(child => {
+            .forEach((child) => {
                 thatNode.removeChild(child);
                 thisNode.appendChild(child);
             });
@@ -73,11 +73,11 @@ export class NodeJoiner {
         }
     }
 
-    protected joinInlineNodes(thisNode: IInlineLayoutNode, thatNode: IInlineLayoutNode) {
+    protected joinInlineNodes(thisNode: ILayoutInline, thatNode: ILayoutInline) {
         thatNode
             .getChildren()
             .slice()
-            .forEach(child => {
+            .forEach((child) => {
                 thatNode.removeChild(child);
                 thisNode.appendChild(child);
             });

@@ -1,13 +1,13 @@
 import { findCommonLineage } from '../tree/utility';
-import { IAtomicLayoutNode } from './atomic-node';
-import { IBlockLayoutNode } from './block-node';
-import { IDocLayoutNode } from './doc-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILineLayoutNode } from './line-node';
+import { ILayoutAtom } from './atom';
+import { ILayoutBlock } from './block';
+import { ILayoutDoc } from './doc';
+import { ILayoutInline } from './inline';
+import { ILayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { NodeBreaker } from './node-breaker';
 import { NodeJoiner } from './node-joiner';
-import { IPageLayoutNode } from './page-node';
+import { ILayoutPage } from './page';
 import { identifyLayoutNodeType } from './utility';
 
 export interface ILayoutFlower {
@@ -15,28 +15,28 @@ export interface ILayoutFlower {
 }
 
 class NodeQueue {
-    protected lineNodes: ILineLayoutNode[] = [];
-    protected pageNodes: IPageLayoutNode[] = [];
+    protected lineNodes: ILayoutLine[] = [];
+    protected pageNodes: ILayoutPage[] = [];
 
     queue(node: ILayoutNode) {
         switch (identifyLayoutNodeType(node)) {
             case 'Doc':
-                this.queueDocNode(node as IDocLayoutNode);
+                this.queueDocNode(node as ILayoutDoc);
                 break;
             case 'Page':
-                this.queuePageNode(node as IPageLayoutNode);
+                this.queuePageNode(node as ILayoutPage);
                 break;
             case 'Block':
-                this.queueBlockNode(node as IBlockLayoutNode);
+                this.queueBlockNode(node as ILayoutBlock);
                 break;
             case 'Line':
-                this.queueLineNode(node as ILineLayoutNode);
+                this.queueLineNode(node as ILayoutLine);
                 break;
             case 'Inline':
-                this.queueInlineNode(node as IInlineLayoutNode);
+                this.queueInlineNode(node as ILayoutInline);
                 break;
             case 'Atomic':
-                this.queueAtomicNode(node as IAtomicLayoutNode);
+                this.queueAtomicNode(node as ILayoutAtom);
                 break;
             default:
                 throw new Error('Invalid layout node type.');
@@ -51,28 +51,28 @@ class NodeQueue {
         return this.pageNodes.shift();
     }
 
-    protected queueDocNode(node: IDocLayoutNode) {
-        node.getChildren().forEach(child => this.queue(child));
+    protected queueDocNode(node: ILayoutDoc) {
+        node.getChildren().forEach((child) => this.queue(child));
     }
 
-    protected queuePageNode(node: IPageLayoutNode) {
+    protected queuePageNode(node: ILayoutPage) {
         this.pageNodes.push(node);
-        node.getChildren().forEach(child => this.queue(child));
+        node.getChildren().forEach((child) => this.queue(child));
     }
 
-    protected queueBlockNode(node: IBlockLayoutNode) {
-        node.getChildren().forEach(child => this.queue(child));
+    protected queueBlockNode(node: ILayoutBlock) {
+        node.getChildren().forEach((child) => this.queue(child));
     }
 
-    protected queueLineNode(node: ILineLayoutNode) {
+    protected queueLineNode(node: ILayoutLine) {
         this.lineNodes.push(node);
     }
 
-    protected queueInlineNode(node: IInlineLayoutNode) {
+    protected queueInlineNode(node: ILayoutInline) {
         this.queue(node.getParent()!);
     }
 
-    protected queueAtomicNode(node: IAtomicLayoutNode) {
+    protected queueAtomicNode(node: ILayoutAtom) {
         this.queue(node.getParent()!);
     }
 }
@@ -96,20 +96,20 @@ export class LayoutFlower implements ILayoutFlower {
     }
 
     protected flushLineNodeQueue() {
-        let node: ILineLayoutNode | undefined;
+        let node: ILayoutLine | undefined;
         while ((node = this.nodeQueue.popLineNode())) {
             this.flowLineNode(node);
         }
     }
 
     protected flushPageNodeQueue() {
-        let node: IPageLayoutNode | undefined;
+        let node: ILayoutPage | undefined;
         while ((node = this.nodeQueue.popPageNode())) {
             this.flowPageNode(node);
         }
     }
 
-    protected flowPageNode(node: IPageLayoutNode) {
+    protected flowPageNode(node: ILayoutPage) {
         if (node.isFlowed()) {
             return;
         }
@@ -120,10 +120,10 @@ export class LayoutFlower implements ILayoutFlower {
             this.nodeQueue.queue(node);
             return;
         }
-        let pageNode: IPageLayoutNode | undefined = node;
+        let pageNode: ILayoutPage | undefined = node;
         while (pageNode) {
             this.recordNodeAsUpdated(pageNode);
-            const newPageNode = this.nodeBreaker.break(pageNode) as IPageLayoutNode | undefined;
+            const newPageNode = this.nodeBreaker.break(pageNode) as ILayoutPage | undefined;
             if (!newPageNode) {
                 pageNode.markAsFlowed();
                 break;
@@ -134,7 +134,7 @@ export class LayoutFlower implements ILayoutFlower {
         }
     }
 
-    protected flowLineNode(node: ILineLayoutNode) {
+    protected flowLineNode(node: ILayoutLine) {
         if (node.isFlowed()) {
             return;
         }
@@ -145,10 +145,10 @@ export class LayoutFlower implements ILayoutFlower {
             this.nodeQueue.queue(node);
             return;
         }
-        let lineNode: ILineLayoutNode | undefined = node;
+        let lineNode: ILayoutLine | undefined = node;
         while (lineNode) {
             this.recordNodeAsUpdated(lineNode);
-            const newLineNode = this.nodeBreaker.break(lineNode) as ILineLayoutNode | undefined;
+            const newLineNode = this.nodeBreaker.break(lineNode) as ILayoutLine | undefined;
             if (!newLineNode) {
                 lineNode.markAsFlowed();
                 break;
@@ -167,8 +167,8 @@ export class LayoutFlower implements ILayoutFlower {
         }
     }
 
-    protected joinNextPageNode(node: IPageLayoutNode) {
-        const nextNode = node.getNextSibling() as IPageLayoutNode;
+    protected joinNextPageNode(node: ILayoutPage) {
+        const nextNode = node.getNextSibling() as ILayoutPage;
         if (!nextNode) {
             return false;
         }
@@ -187,8 +187,8 @@ export class LayoutFlower implements ILayoutFlower {
         return true;
     }
 
-    protected joinNextLineNode(node: ILineLayoutNode) {
-        const nextNode = node.getNextSibling() as ILineLayoutNode;
+    protected joinNextLineNode(node: ILayoutLine) {
+        const nextNode = node.getNextSibling() as ILayoutLine;
         if (!nextNode) {
             return false;
         }

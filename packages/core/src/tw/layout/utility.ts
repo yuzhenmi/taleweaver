@@ -1,28 +1,28 @@
-import { AtomicLayoutNode } from './atomic-node';
-import { BlockLayoutNode } from './block-node';
-import { DocLayoutNode } from './doc-node';
-import { InlineLayoutNode } from './inline-node';
-import { LineLayoutNode } from './line-node';
+import { LayoutAtom } from './atom';
+import { LayoutBlock } from './block';
+import { LayoutDoc } from './doc';
+import { LayoutInline } from './inline';
+import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
-import { PageLayoutNode } from './page-node';
+import { LayoutPage } from './page';
 
 export function identifyLayoutNodeType(node: ILayoutNode) {
-    if (node instanceof DocLayoutNode) {
+    if (node instanceof LayoutDoc) {
         return 'Doc';
     }
-    if (node instanceof PageLayoutNode) {
+    if (node instanceof LayoutPage) {
         return 'Page';
     }
-    if (node instanceof BlockLayoutNode) {
+    if (node instanceof LayoutBlock) {
         return 'Block';
     }
-    if (node instanceof LineLayoutNode) {
+    if (node instanceof LayoutLine) {
         return 'Line';
     }
-    if (node instanceof InlineLayoutNode) {
+    if (node instanceof LayoutInline) {
         return 'Inline';
     }
-    if (node instanceof AtomicLayoutNode) {
+    if (node instanceof LayoutAtom) {
         return 'Atomic';
     }
     throw new Error('Unknown layout node type.');

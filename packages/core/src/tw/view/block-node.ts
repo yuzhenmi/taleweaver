@@ -1,12 +1,12 @@
-import { IBlockLayoutNode } from '../layout/block-node';
+import { ILayoutBlock } from '../layout/block';
 import { ILineViewNode } from './line-node';
 import { IViewNode, IViewNodeClass, ViewNode } from './node';
 import { IPageViewNode } from './page-node';
 
-export interface IBlockViewNode<TLayoutNode extends IBlockLayoutNode = IBlockLayoutNode>
+export interface IBlockViewNode<TLayoutNode extends ILayoutBlock = ILayoutBlock>
     extends IViewNode<TLayoutNode, IPageViewNode, ILineViewNode> {}
 
-export abstract class BlockViewNode<TLayoutNode extends IBlockLayoutNode = IBlockLayoutNode>
+export abstract class BlockViewNode<TLayoutNode extends ILayoutBlock = ILayoutBlock>
     extends ViewNode<TLayoutNode, IPageViewNode, ILineViewNode>
     implements IBlockViewNode<TLayoutNode> {
     protected size?: number;

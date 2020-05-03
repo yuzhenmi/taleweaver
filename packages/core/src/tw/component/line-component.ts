@@ -1,6 +1,6 @@
-import { ILineLayoutNode } from '../layout/line-node';
+import { ILayoutLine } from '../layout/line';
 import { IComponent } from './component';
 
 export interface ILineComponent extends IComponent {
-    buildLineLayoutNode(): ILineLayoutNode;
+    buildLineLayoutNode(): ILayoutLine;
 }

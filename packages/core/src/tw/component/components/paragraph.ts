@@ -1,6 +1,6 @@
-import { AtomicLayoutNode } from '../../layout/atomic-node';
-import { BlockLayoutNode } from '../../layout/block-node';
-import { InlineLayoutNode } from '../../layout/inline-node';
+import { LayoutAtom } from '../../layout/atom';
+import { LayoutBlock } from '../../layout/block';
+import { LayoutInline } from '../../layout/inline';
 import { ILayoutNode } from '../../layout/node';
 import { ModelBranch } from '../../model/branch';
 import { IModelNode } from '../../model/node';
@@ -100,7 +100,7 @@ export class RenderParagraphLineBreakAtom extends RenderAtom<IRenderParagraphLin
     }
 }
 
-export class ParagraphLayoutNode extends BlockLayoutNode {
+export class ParagraphLayoutNode extends LayoutBlock {
     getPartId() {
         return 'paragraph';
     }
@@ -126,7 +126,7 @@ export class ParagraphLayoutNode extends BlockLayoutNode {
     }
 }
 
-export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
+export class ParagraphLineBreakLayoutNode extends LayoutInline {
     getPartId() {
         return 'line-break';
     }
@@ -160,7 +160,7 @@ export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
     }
 }
 
-export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
+export class ParagraphLineBreakAtomicLayoutNode extends LayoutAtom {
     protected height?: number;
 
     getPartId() {

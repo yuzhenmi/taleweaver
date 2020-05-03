@@ -1,5 +1,5 @@
-import { AtomicLayoutNode } from '../../layout/atomic-node';
-import { InlineLayoutNode } from '../../layout/inline-node';
+import { LayoutAtom } from '../../layout/atom';
+import { LayoutInline } from '../../layout/inline';
 import { ILayoutNode } from '../../layout/node';
 import { ModelLeaf } from '../../model/leaf';
 import { IModelNode } from '../../model/node';
@@ -87,7 +87,7 @@ export interface ITextMeasurer {
     measure(text: string, style: ITextStyle): ITextMeasurement;
 }
 
-export class TextLayoutNode extends InlineLayoutNode {
+export class TextLayoutNode extends LayoutInline {
     constructor(componentId: string, id: string, protected style: ITextStyle) {
         super(componentId, id);
     }
@@ -121,7 +121,7 @@ export class TextLayoutNode extends InlineLayoutNode {
     }
 }
 
-export class WordLayoutNode extends AtomicLayoutNode {
+export class WordLayoutNode extends LayoutAtom {
     protected width?: number;
     protected height?: number;
     protected tailTrimmedWidth?: number;
@@ -146,16 +146,16 @@ export class WordLayoutNode extends AtomicLayoutNode {
 
     getWidth() {
         if (this.width === undefined) {
-            this.takeMeasurement();
+            [this.width, this.height] = this.takeMeasurement();
         }
-        return this.width!;
+        return this.width;
     }
 
     getHeight() {
         if (this.height === undefined) {
-            this.takeMeasurement();
+            [this.width, this.height] = this.takeMeasurement();
         }
-        return this.height!;
+        return this.height;
     }
 
     getPaddingTop() {
@@ -293,10 +293,9 @@ export class WordLayoutNode extends AtomicLayoutNode {
         this.tailTrimmedWidth = undefined;
     }
 
-    protected takeMeasurement() {
+    protected takeMeasurement(): [number, number] {
         const measurement = this.textMeasurer.measure(this.word.text, this.style);
-        this.width = measurement.width;
-        this.height = measurement.height;
+        return [measurement.width, measurement.height];
     }
 }
 

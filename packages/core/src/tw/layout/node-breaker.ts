@@ -1,24 +1,24 @@
-import { IAtomicLayoutNode } from './atomic-node';
-import { IBlockLayoutNode } from './block-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILineLayoutNode } from './line-node';
+import { ILayoutAtom } from './atom';
+import { ILayoutBlock } from './block';
+import { ILayoutInline } from './inline';
+import { ILayoutLine } from './line';
 import { ILayoutNode } from './node';
-import { IPageLayoutNode } from './page-node';
+import { ILayoutPage } from './page';
 import { identifyLayoutNodeType } from './utility';
 
 export class NodeBreaker {
     break(node: ILayoutNode) {
         switch (identifyLayoutNodeType(node)) {
             case 'Page':
-                return this.breakPageNode(node as IPageLayoutNode);
+                return this.breakPageNode(node as ILayoutPage);
             case 'Line':
-                return this.breakLineNode(node as ILineLayoutNode);
+                return this.breakLineNode(node as ILayoutLine);
             default:
                 return undefined;
         }
     }
 
-    protected breakPageNode(node: IPageLayoutNode) {
+    protected breakPageNode(node: ILayoutPage) {
         const height = node.getInnerHeight();
         let cumulatedHeight = 0;
         const blockNodes = node.getChildren();
@@ -47,7 +47,7 @@ export class NodeBreaker {
         return undefined;
     }
 
-    protected breakBlockNode(node: IBlockLayoutNode, height: number) {
+    protected breakBlockNode(node: ILayoutBlock, height: number) {
         let cumulatedHeight = 0;
         const lineNodes = node.getChildren();
         for (let n = 0; n < lineNodes.length; n++) {
@@ -65,7 +65,7 @@ export class NodeBreaker {
         return undefined;
     }
 
-    protected breakLineNode(node: ILineLayoutNode) {
+    protected breakLineNode(node: ILayoutLine) {
         const width = node.getInnerWidth();
         let cumulatedWidth = 0;
         const inlineNodes = node.getChildren();
@@ -94,7 +94,7 @@ export class NodeBreaker {
         return undefined;
     }
 
-    protected breakInlineNode(node: IInlineLayoutNode, width: number, lineWidth: number) {
+    protected breakInlineNode(node: ILayoutInline, width: number, lineWidth: number) {
         let cumulatedWidth = 0;
         const atomicNodes = node.getChildren();
         for (let n = 0; n < atomicNodes.length; n++) {
@@ -119,7 +119,7 @@ export class NodeBreaker {
         return undefined;
     }
 
-    protected breakAtomicNode(node: IAtomicLayoutNode, width: number) {
+    protected breakAtomicNode(node: ILayoutAtom, width: number) {
         if (node.getTailTrimmedWidth() <= width) {
             return null;
         }

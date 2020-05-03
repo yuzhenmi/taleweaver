@@ -1,112 +1,104 @@
 import { generateId } from '../util/id';
-import { IBlockLayoutNode } from './block-node';
-import { IDocLayoutNode } from './doc-node';
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
-export interface IPageLayoutNode extends ILayoutNode<IDocLayoutNode, IBlockLayoutNode> {
-    getContentHeight(): number;
-    isFlowed(): boolean;
+export interface ILayoutPage extends ILayoutNode {
+    readonly contentHeight: number;
+    readonly flowed: boolean;
+
     markAsFlowed(): void;
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): IPageLayoutNode;
+    clone(): ILayoutPage;
 }
 
-export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLayoutNode> implements IPageLayoutNode {
-    abstract clone(): IPageLayoutNode;
+export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
+    abstract clone(): ILayoutPage;
 
-    protected size?: number;
-    protected contentHeight?: number;
-    protected flowed = false;
+    protected internalWidth: number;
+    protected internalHeight: number;
+    protected internalPaddingTop: number;
+    protected internalPaddingBottom: number;
+    protected internalPaddingLeft: number;
+    protected internalPaddingRight: number;
+    protected internalContentHeight?: number;
+    protected internalFlowed = false;
 
     constructor(
-        protected componentId: string,
-        protected width: number,
-        protected height: number,
-        protected paddingTop: number,
-        protected paddingBottom: number,
-        protected paddingLeft: number,
-        protected paddingRight: number,
+        componentId: string,
+        children: ILayoutNode[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
     ) {
-        super(componentId, generateId());
+        super(componentId, generateId(), children, '');
+        this.internalWidth = width;
+        this.internalHeight = height;
+        this.internalPaddingTop = paddingTop;
+        this.internalPaddingBottom = paddingBottom;
+        this.internalPaddingLeft = paddingLeft;
+        this.internalPaddingRight = paddingRight;
+        this.onDidUpdateNode(() => {
+            this.internalContentHeight = undefined;
+            this.internalFlowed = false;
+        });
     }
 
-    getNodeClass(): ILayoutNodeClass {
+    get type(): ILayoutNodeType {
         return 'page';
     }
 
-    isRoot() {
+    get root() {
         return false;
     }
 
-    isLeaf() {
+    get leaf() {
         return false;
     }
 
-    getSize() {
-        if (this.size === undefined) {
-            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
-        }
-        return this.size!;
+    get width() {
+        return this.internalWidth;
     }
 
-    getWidth() {
-        return this.width;
+    get height() {
+        return this.internalHeight;
     }
 
-    getHeight() {
-        return this.height;
+    get paddingTop() {
+        return this.internalPaddingTop;
     }
 
-    getPaddingTop() {
-        return this.paddingTop;
+    get paddingBottom() {
+        return this.internalPaddingBottom;
     }
 
-    getPaddingBottom() {
-        return this.paddingBottom;
+    get paddingLeft() {
+        return this.internalPaddingLeft;
     }
 
-    getPaddingLeft() {
-        return this.paddingLeft;
+    get paddingRight() {
+        return this.internalPaddingRight;
     }
 
-    getPaddingRight() {
-        return this.paddingRight;
-    }
-
-    getContentHeight() {
-        if (this.contentHeight === undefined) {
-            this.contentHeight = this.getChildren().reduce(
-                (contentHeight, child) => contentHeight + child.getHeight(),
+    get contentHeight() {
+        if (this.internalContentHeight === undefined) {
+            this.internalContentHeight = this.children.reduce(
+                (contentHeight, child) => contentHeight + child.height,
                 0,
             );
         }
-        return this.contentHeight;
+        return this.internalContentHeight;
     }
 
-    isFlowed() {
-        return this.flowed;
+    get flowed() {
+        return this.internalFlowed;
     }
 
     markAsFlowed() {
-        this.flowed = true;
-    }
-
-    resolvePosition(offset: number, depth: number): ILayoutPosition {
-        let cumulatedOffset = 0;
-        for (let child of this.getChildren()) {
-            const childSize = child.getSize();
-            if (cumulatedOffset + childSize > offset) {
-                const position = new LayoutPosition(this, depth, offset);
-                const childPosition = child.resolvePosition(offset - cumulatedOffset, depth + 1);
-                position.setChild(childPosition);
-                childPosition.setParent(position);
-                return position;
-            }
-            cumulatedOffset += childSize;
-        }
-        throw new Error(`Offset ${offset} is out of range.`);
+        this.internalFlowed = true;
     }
 
     convertCoordinatesToOffset(x: number, y: number) {
@@ -148,7 +140,7 @@ export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLa
             const childTo = Math.min(to - offset, maxChildOffset);
             if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
                 const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach(childRect => {
+                childRects.forEach((childRect) => {
                     const width = childRect.width;
                     const height = childRect.height;
                     const paddingTop = this.getPaddingTop();
@@ -177,11 +169,5 @@ export abstract class PageLayoutNode extends LayoutNode<IDocLayoutNode, IBlockLa
             cumulatedHeight += childHeight;
         });
         return rects;
-    }
-
-    clearOwnCache() {
-        this.size = undefined;
-        this.contentHeight = undefined;
-        this.flowed = false;
     }
 }

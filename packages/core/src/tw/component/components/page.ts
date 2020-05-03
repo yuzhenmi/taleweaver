@@ -1,6 +1,6 @@
 import { IConfigService } from '../../config/service';
 import { ILayoutNode } from '../../layout/node';
-import { PageLayoutNode as AbstractPageLayoutNode } from '../../layout/page-node';
+import { LayoutPage as AbstractPageLayoutNode } from '../../layout/page';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { IViewNode } from '../../view/node';

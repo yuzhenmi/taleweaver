@@ -1,6 +1,6 @@
-import { IPageLayoutNode } from '../layout/page-node';
+import { ILayoutPage } from '../layout/page';
 import { IComponent } from './component';
 
 export interface IPageComponent extends IComponent {
-    buildPageLayoutNode(): IPageLayoutNode;
+    buildPageLayoutNode(): ILayoutPage;
 }

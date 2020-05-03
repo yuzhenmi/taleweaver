@@ -1,113 +1,84 @@
 import { generateId } from '../util/id';
-import { IBlockLayoutNode } from './block-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect, mergeLayoutRects } from './rect';
 
-export interface ILineLayoutNode extends ILayoutNode<IBlockLayoutNode, IInlineLayoutNode> {
-    getContentWidth(): number;
-    isFlowed(): boolean;
+export interface ILayoutLine extends ILayoutNode {
+    readonly contentWidth: number;
+    readonly flowed: boolean;
+
     markAsFlowed(): void;
     convertCoordinateToOffset(x: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): ILineLayoutNode;
+    clone(): ILayoutLine;
 }
 
-export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlineLayoutNode>
-    implements ILineLayoutNode {
-    abstract clone(): ILineLayoutNode;
+export abstract class LayoutLine extends LayoutNode implements ILayoutLine {
+    abstract clone(): ILayoutLine;
 
-    protected size?: number;
-    protected height?: number;
-    protected contentWidth?: number;
-    protected flowed = false;
+    protected internalHeight?: number;
+    protected internalContentWidth?: number;
+    protected internalFlowed = false;
 
-    constructor(componentId: string) {
-        super(componentId, generateId());
+    constructor(componentId: string, children: ILayoutNode[], readonly width: number) {
+        super(componentId, generateId(), children, '');
+        this.onDidUpdateNode(() => {
+            this.internalHeight = undefined;
+            this.internalContentWidth = undefined;
+            this.internalFlowed = false;
+        });
     }
 
-    getNodeClass(): ILayoutNodeClass {
+    get type(): ILayoutNodeType {
         return 'line';
     }
 
-    isRoot() {
+    get root() {
         return false;
     }
 
-    isLeaf() {
+    get leaf() {
         return false;
     }
 
-    getSize() {
-        if (this.size === undefined) {
-            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
-        }
-        return this.size!;
-    }
-
-    getWidth() {
-        const parent = this.getParent();
-        if (!parent) {
-            return 0;
-        }
-        return parent.getInnerWidth();
-    }
-
-    getHeight() {
-        if (this.height === undefined) {
-            this.height = this.getChildren().reduce(
-                (height, child) => Math.max(height, child.getHeight()),
-                this.getVerticalPaddng(),
+    get height() {
+        if (this.internalHeight === undefined) {
+            this.internalHeight = this.children.reduce(
+                (height, child) => Math.max(height, child.height),
+                this.verticalPaddng,
             );
         }
-        return this.height;
+        return this.internalHeight;
     }
 
-    getContentWidth() {
-        if (this.contentWidth === undefined) {
-            this.contentWidth = this.getChildren().reduce((contentWidth, child) => contentWidth + child.getWidth(), 0);
+    get paddingTop() {
+        return 0;
+    }
+
+    get paddingBottom() {
+        return 0;
+    }
+
+    get paddingLeft() {
+        return 0;
+    }
+
+    get paddingRight() {
+        return 0;
+    }
+
+    get contentWidth() {
+        if (this.internalContentWidth === undefined) {
+            this.internalContentWidth = this.children.reduce((contentWidth, child) => contentWidth + child.width, 0);
         }
-        return this.contentWidth;
+        return this.internalContentWidth;
     }
 
-    getPaddingTop() {
-        return 0;
-    }
-
-    getPaddingBottom() {
-        return 0;
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    isFlowed() {
-        return this.flowed;
+    get flowed() {
+        return this.internalFlowed;
     }
 
     markAsFlowed() {
-        this.flowed = true;
-    }
-
-    resolvePosition(offset: number, depth: number): ILayoutPosition {
-        let cumulatedOffset = 0;
-        for (let child of this.getChildren()) {
-            const childSize = child.getSize();
-            if (cumulatedOffset + childSize > offset) {
-                const position = new LayoutPosition(this, depth, offset);
-                const childPosition = child.resolvePosition(offset - cumulatedOffset, depth + 1);
-                position.setChild(childPosition);
-                childPosition.setParent(position);
-                return position;
-            }
-            cumulatedOffset += childSize;
-        }
-        throw new Error(`Offset ${offset} is out of range.`);
+        this.internalFlowed = true;
     }
 
     convertCoordinateToOffset(x: number) {
@@ -144,7 +115,7 @@ export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlin
                 !(childFrom === childTo && childTo === maxChildOffset)
             ) {
                 const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach(childRect => {
+                childRects.forEach((childRect) => {
                     const width = childRect.width;
                     const height = childRect.height;
                     const left = cumulatedWidth + childRect.left;
@@ -170,12 +141,5 @@ export abstract class LineLayoutNode extends LayoutNode<IBlockLayoutNode, IInlin
         });
         mergeLayoutRects(rects);
         return rects;
-    }
-
-    clearOwnCache() {
-        this.size = undefined;
-        this.height = undefined;
-        this.contentWidth = undefined;
-        this.flowed = false;
     }
 }

@@ -6,7 +6,6 @@ export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> 
     readonly componentId: string;
     readonly partId: string | null;
     readonly attributes: TAttributes;
-    readonly text: string;
     readonly size: number;
 
     resolvePosition(offset: number): IModelPosition;
@@ -21,8 +20,7 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
 
     abstract toDOM(from: number, to: number): HTMLElement;
 
-    protected cachedSize?: number;
-    protected internalText: string;
+    protected internalSize?: number;
 
     constructor(
         readonly componentId: string,
@@ -31,25 +29,20 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
         children: IModelNode<any>[],
         text: string,
     ) {
-        super(id, children);
-        this.internalText = text;
+        super(id, children, text);
         this.onDidUpdateNode(() => {
-            this.cachedSize = undefined;
+            this.internalSize = undefined;
         });
     }
 
-    get text() {
-        return this.internalText;
-    }
-
     get size() {
-        if (this.cachedSize === undefined) {
+        if (this.internalSize === undefined) {
             if (this.leaf) {
-                this.cachedSize = 2 + this.text.length;
+                this.internalSize = 2 + this.text.length;
             }
-            this.cachedSize = this.children.reduce((size, child) => size + child.size, 2);
+            this.internalSize = this.children.reduce((size, child) => size + child.size, 2);
         }
-        return this.cachedSize;
+        return this.internalSize;
     }
 
     apply(node: this) {

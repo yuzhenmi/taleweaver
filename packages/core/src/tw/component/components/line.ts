@@ -1,4 +1,4 @@
-import { LineLayoutNode as AbstractLineLayoutNode } from '../../layout/line-node';
+import { LayoutLine as AbstractLineLayoutNode } from '../../layout/line';
 import { ILayoutNode } from '../../layout/node';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';

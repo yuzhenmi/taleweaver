@@ -1,7 +1,7 @@
 import { IComponentService } from '../component/service';
 import { IRenderNode } from '../render/node';
-import { BlockLayoutNode } from './block-node';
-import { DocLayoutNode } from './doc-node';
+import { LayoutBlock } from './block';
+import { LayoutDoc } from './doc';
 import { ILayoutNode } from './node';
 
 export interface ILayoutTreeBuilder {
@@ -40,21 +40,21 @@ export class LayoutTreeBuilder implements ILayoutTreeBuilder {
             throw new Error(`Could not build layout node from render node ${renderNode.getId()}.`);
         }
         if (!renderNode.isLeaf() && !layoutNode.isLeaf()) {
-            const childLayoutNodes = renderNode.getChildren().map(childRenderNode => this.buildNode(childRenderNode));
-            if (layoutNode instanceof DocLayoutNode) {
+            const childLayoutNodes = renderNode.getChildren().map((childRenderNode) => this.buildNode(childRenderNode));
+            if (layoutNode instanceof LayoutDoc) {
                 const pageLayoutNode = this.componentService.getPageComponent().buildPageLayoutNode();
-                childLayoutNodes.forEach(childLayoutNode => {
+                childLayoutNodes.forEach((childLayoutNode) => {
                     pageLayoutNode.appendChild(childLayoutNode as any);
                 });
                 layoutNode.appendChild(pageLayoutNode);
-            } else if (layoutNode instanceof BlockLayoutNode) {
+            } else if (layoutNode instanceof LayoutBlock) {
                 const lineLayoutNode = this.componentService.getLineComponent().buildLineLayoutNode();
-                childLayoutNodes.forEach(childLayoutNode => {
+                childLayoutNodes.forEach((childLayoutNode) => {
                     lineLayoutNode.appendChild(childLayoutNode as any);
                 });
                 layoutNode.appendChild(lineLayoutNode);
             } else {
-                childLayoutNodes.forEach(childLayoutNode => {
+                childLayoutNodes.forEach((childLayoutNode) => {
                     layoutNode.appendChild(childLayoutNode as any);
                 });
             }

@@ -25,9 +25,8 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
 
-    protected cachedSize?: number;
-    protected cachedChildrenSize?: number;
-    protected internalText: string;
+    protected internalSize?: number;
+    protected internalChildrenModelSize?: number;
 
     constructor(
         readonly componentId: string,
@@ -36,33 +35,28 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
         children: IRenderNode<any>[],
         text: string,
     ) {
-        super(id, children);
-        this.internalText = text;
+        super(id, children, text);
         this.onDidUpdateNode(() => {
-            this.cachedSize = undefined;
+            this.internalSize = undefined;
         });
     }
 
-    get text() {
-        return this.internalText;
-    }
-
     get size() {
-        if (this.cachedSize === undefined) {
+        if (this.internalSize === undefined) {
             if (this.leaf) {
-                this.cachedSize = this.text.length;
+                this.internalSize = this.text.length;
             }
-            this.cachedSize = this.children.reduce((size, child) => size + child.size, 0);
+            this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
         }
-        return this.cachedSize;
+        return this.internalSize;
     }
 
     get modelSize() {
-        if (this.cachedChildrenSize === undefined) {
-            this.cachedChildrenSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 2);
+        if (this.internalChildrenModelSize === undefined) {
+            this.internalChildrenModelSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 2);
         }
         const padding = this.padModelSize ? 2 : 0;
-        return this.cachedChildrenSize! + padding + this.modelTextSize;
+        return this.internalChildrenModelSize! + padding + this.modelTextSize;
     }
 
     apply(node: this) {

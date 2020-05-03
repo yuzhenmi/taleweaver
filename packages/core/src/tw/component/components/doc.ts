@@ -1,4 +1,4 @@
-import { DocLayoutNode as AbstractDocLayoutNode } from '../../layout/doc-node';
+import { LayoutDoc as AbstractDocLayoutNode } from '../../layout/doc';
 import { ILayoutNode } from '../../layout/node';
 import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';

@@ -1,14 +1,14 @@
-import { IPageLayoutNode } from '../layout/page-node';
+import { ILayoutPage } from '../layout/page';
 import { IBlockViewNode } from './block-node';
 import { IDocViewNode } from './doc-node';
 import { IViewNode, IViewNodeClass, ViewNode } from './node';
 
-export interface IPageViewNode<TLayoutNode extends IPageLayoutNode = IPageLayoutNode>
+export interface IPageViewNode<TLayoutNode extends ILayoutPage = ILayoutPage>
     extends IViewNode<TLayoutNode, IDocViewNode, IBlockViewNode> {
     getDOMContentContainer(): HTMLElement;
 }
 
-export abstract class PageViewNode<TLayoutNode extends IPageLayoutNode = IPageLayoutNode>
+export abstract class PageViewNode<TLayoutNode extends ILayoutPage = ILayoutPage>
     extends ViewNode<TLayoutNode, IDocViewNode, IBlockViewNode>
     implements IPageViewNode<TLayoutNode> {
     abstract getDOMContentContainer(): HTMLElement;

@@ -1,4 +1,4 @@
-import { ILineLayoutNode } from '../../layout/line-node';
+import { ILayoutLine } from '../../layout/line';
 import { identifyLayoutNodeType } from '../../layout/utility';
 import { IRenderPosition } from '../../render/node';
 import { IAtomicRenderNode } from '../../render/text';
@@ -73,11 +73,11 @@ export const moveUp: ICommandHandler = async (serviceRegistry) => {
     const offset = Math.min(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
     const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILineLayoutNode;
+    const lineNode = linePosition.getNode() as ILayoutLine;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
     }
-    const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent() as ILineLayoutNode;
+    const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent() as ILayoutLine;
     if (!previousLineNode) {
         tn.setCursor(offset - linePosition.getOffset());
     } else {
@@ -103,11 +103,11 @@ export const moveDown: ICommandHandler = async (serviceRegistry) => {
     const offset = Math.max(cursorState.anchor, cursorState.head);
     const position = layoutService.resolvePosition(offset);
     const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILineLayoutNode;
+    const lineNode = linePosition.getNode() as ILayoutLine;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
     }
-    const nextLineNode = lineNode.getNextSiblingAllowCrossParent() as ILineLayoutNode;
+    const nextLineNode = lineNode.getNextSiblingAllowCrossParent() as ILayoutLine;
     if (!nextLineNode) {
         tn.setCursor(offset - linePosition.getOffset() + lineNode.getSize() - 1);
     } else {
@@ -294,11 +294,11 @@ export const moveHeadUp: ICommandHandler = async (serviceRegistry) => {
     const cursorState = cursorService.getCursorState();
     const position = layoutService.resolvePosition(cursorState.head);
     const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILineLayoutNode;
+    const lineNode = linePosition.getNode() as ILayoutLine;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
     }
-    const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent() as ILineLayoutNode;
+    const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent() as ILayoutLine;
     if (!previousLineNode) {
         tn.setCursorHead(cursorState.head - linePosition.getOffset());
     } else {
@@ -326,11 +326,11 @@ export const moveHeadDown: ICommandHandler = async (serviceRegistry) => {
     const offset = cursorState.head;
     const position = layoutService.resolvePosition(offset);
     const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILineLayoutNode;
+    const lineNode = linePosition.getNode() as ILayoutLine;
     if (identifyLayoutNodeType(lineNode) !== 'Line') {
         throw new Error(`Expecting position to be referencing an line node.`);
     }
-    const nextLineNode = lineNode.getNextSiblingAllowCrossParent() as ILineLayoutNode;
+    const nextLineNode = lineNode.getNextSiblingAllowCrossParent() as ILayoutLine;
     if (!nextLineNode) {
         tn.setCursorHead(offset - linePosition.getOffset() + lineNode.getSize() - 1);
     } else {

@@ -3,10 +3,10 @@ import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
-import { IBlockLayoutNode } from './block-node';
-import { IDocLayoutNode } from './doc-node';
+import { ILayoutBlock } from './block';
+import { ILayoutDoc } from './doc';
 import { LayoutFlower } from './flower';
-import { IInlineLayoutNode } from './inline-node';
+import { ILayoutInline } from './inline';
 import { ILayoutNode } from './node';
 import { NodeJoiner } from './node-joiner';
 import { LayoutTreeBuilder } from './tree-builder';
@@ -18,17 +18,17 @@ export interface IDidUpdateLayoutStateEvent {
 
 export interface ILayoutState {
     onDidUpdateLayoutState: IOnEvent<IDidUpdateLayoutStateEvent>;
-    getDocNode(): IDocLayoutNode;
+    getDocNode(): ILayoutDoc;
 }
 
 export class LayoutState implements ILayoutState {
-    protected docNode: IDocLayoutNode;
+    protected docNode: ILayoutDoc;
     protected didUpdateLayoutStateEventEmitter: IEventEmitter<IDidUpdateLayoutStateEvent> = new EventEmitter();
 
     constructor(protected componentService: IComponentService, protected renderService: IRenderService) {
         const docRenderNode = renderService.getDocNode();
         const treeBuilder = new LayoutTreeBuilder(componentService);
-        this.docNode = treeBuilder.buildTree(docRenderNode) as IDocLayoutNode;
+        this.docNode = treeBuilder.buildTree(docRenderNode) as ILayoutDoc;
         const flower = new LayoutFlower();
         flower.flow(this.docNode);
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
@@ -59,20 +59,20 @@ export class LayoutState implements ILayoutState {
     protected deduplicateNode(node: ILayoutNode) {
         switch (identifyLayoutNodeType(node)) {
             case 'Inline':
-                this.deduplicateInlineNode(node as IInlineLayoutNode);
+                this.deduplicateInlineNode(node as ILayoutInline);
                 break;
             case 'Block':
-                this.deduplicateBlockNode(node as IBlockLayoutNode);
+                this.deduplicateBlockNode(node as ILayoutBlock);
                 break;
         }
     }
 
-    protected deduplicateInlineNode(node: IInlineLayoutNode) {
+    protected deduplicateInlineNode(node: ILayoutInline) {
         const joiner = new NodeJoiner();
-        let nextNode: IInlineLayoutNode | undefined;
+        let nextNode: ILayoutInline | undefined;
         const lineNode = node.getParent()!;
         while (
-            (nextNode = node.getNextSiblingAllowCrossParent() as IInlineLayoutNode | undefined) &&
+            (nextNode = node.getNextSiblingAllowCrossParent() as ILayoutInline | undefined) &&
             nextNode.getId() === node.getId()
         ) {
             const nextLineNode = nextNode.getParent()!;
@@ -80,12 +80,12 @@ export class LayoutState implements ILayoutState {
         }
     }
 
-    protected deduplicateBlockNode(node: IBlockLayoutNode) {
+    protected deduplicateBlockNode(node: ILayoutBlock) {
         const joiner = new NodeJoiner();
-        let nextNode: IBlockLayoutNode | undefined;
+        let nextNode: ILayoutBlock | undefined;
         const pageNode = node.getParent()!;
         while (
-            (nextNode = node.getNextSiblingAllowCrossParent() as IBlockLayoutNode | undefined) &&
+            (nextNode = node.getNextSiblingAllowCrossParent() as ILayoutBlock | undefined) &&
             nextNode.getId() === node.getId()
         ) {
             const nextPageNode = nextNode.getParent()!;

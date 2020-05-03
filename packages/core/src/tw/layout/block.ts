@@ -1,71 +1,41 @@
-import { ILineLayoutNode } from './line-node';
-import { ILayoutNode, ILayoutNodeClass, ILayoutPosition, LayoutNode, LayoutPosition } from './node';
-import { IPageLayoutNode } from './page-node';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
-export interface IBlockLayoutNode extends ILayoutNode<IPageLayoutNode, ILineLayoutNode> {
+export interface ILayoutBlock extends ILayoutNode {
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): IBlockLayoutNode;
+    clone(): ILayoutBlock;
 }
 
-export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineLayoutNode> implements IBlockLayoutNode {
-    abstract clone(): IBlockLayoutNode;
+export abstract class LayoutBlock extends LayoutNode implements ILayoutBlock {
+    abstract clone(): ILayoutBlock;
 
-    protected size?: number;
-    protected height?: number;
+    protected internalHeight?: number;
 
-    getNodeClass(): ILayoutNodeClass {
+    constructor(componentId: string, id: string, children: ILayoutNode[], readonly width: number) {
+        super(componentId, id, children, '');
+        this.onDidUpdateNode(() => {
+            this.internalHeight = undefined;
+        });
+    }
+
+    get type(): ILayoutNodeType {
         return 'block';
     }
 
-    isRoot() {
+    get root() {
         return false;
     }
 
-    isLeaf() {
+    get leaf() {
         return false;
-    }
-
-    getSize() {
-        if (this.size === undefined) {
-            this.size = this.getChildren().reduce((size, child) => size + child.getSize(), 0);
-        }
-        return this.size!;
-    }
-
-    getWidth() {
-        const parent = this.getParent();
-        if (!parent) {
-            return 0;
-        }
-        return parent.getInnerWidth();
     }
 
     getHeight() {
-        if (this.height === undefined) {
-            this.height = this.getChildren().reduce(
-                (height, child) => height + child.getHeight(),
-                this.getVerticalPaddng(),
-            );
+        if (this.internalHeight === undefined) {
+            this.internalHeight = this.children.reduce((height, child) => height + child.height, this.verticalPaddng);
         }
-        return this.height;
-    }
-
-    resolvePosition(offset: number, depth: number): ILayoutPosition {
-        let cumulatedOffset = 0;
-        for (let child of this.getChildren()) {
-            const childSize = child.getSize();
-            if (cumulatedOffset + childSize > offset) {
-                const position = new LayoutPosition(this, depth, offset);
-                const childPosition = child.resolvePosition(offset - cumulatedOffset, depth + 1);
-                position.setChild(childPosition);
-                childPosition.setParent(position);
-                return position;
-            }
-            cumulatedOffset += childSize;
-        }
-        throw new Error(`Offset ${offset} is out of range.`);
+        return this.internalHeight;
     }
 
     convertCoordinatesToOffset(x: number, y: number) {
@@ -95,7 +65,7 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
             const childTo = Math.min(to - offset, maxChildOffset);
             if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
                 const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach(childRect => {
+                childRects.forEach((childRect) => {
                     const width = childRect.width;
                     const height = childRect.height;
                     const paddingTop = this.getPaddingTop();
@@ -122,10 +92,5 @@ export abstract class BlockLayoutNode extends LayoutNode<IPageLayoutNode, ILineL
             cumulatedHeight += childHeight;
         });
         return rects;
-    }
-
-    clearOwnCache() {
-        this.size = undefined;
-        this.height = undefined;
     }
 }
