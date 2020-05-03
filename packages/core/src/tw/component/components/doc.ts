@@ -4,7 +4,6 @@ import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
 import { IRenderNode, IStyle } from '../../render/node';
-import { generateId } from '../../util/id';
 import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
 import { Component, IComponent } from '../component';
 
@@ -32,10 +31,6 @@ export class Doc extends ModelRoot<IDocAttributes> {
             $element.appendChild($childElement);
         }
         return $element;
-    }
-
-    clone() {
-        return new Doc(this.componentId, generateId(), this.attributes, '');
     }
 }
 
@@ -80,8 +75,8 @@ export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
 }
 
 export class DocComponent extends Component implements IComponent {
-    buildModelNode(partId: string | null, id: string, attributes: {}) {
-        return new Doc(this.id, id, attributes, '');
+    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
+        return new Doc(this.id, id, attributes, children, '');
     }
 
     buildRenderNode(modelNode: IModelNode<any>) {

@@ -8,7 +8,6 @@ import { RenderAtom } from '../../render/atom';
 import { RenderBlock } from '../../render/block';
 import { RenderInline } from '../../render/inline';
 import { IRenderNode, IStyle } from '../../render/node';
-import { generateId } from '../../util/id';
 import { BlockViewNode } from '../../view/block-node';
 import { InlineViewNode } from '../../view/inline-node';
 import { Component, IComponent } from '../component';
@@ -37,10 +36,6 @@ export class ParagraphModelNode extends ModelBranch<IParagraphAttributes> {
             $element.appendChild($childElement);
         }
         return $element;
-    }
-
-    clone() {
-        return new ParagraphModelNode(this.componentId, generateId(), this.attributes, '');
     }
 }
 
@@ -300,8 +295,8 @@ export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBrea
 }
 
 export class ParagraphComponent extends Component implements IComponent {
-    buildModelNode(partId: string | null, id: string, attributes: {}) {
-        return new ParagraphModelNode(this.id, id, attributes, '');
+    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
+        return new ParagraphModelNode(this.id, id, attributes, children, '');
     }
 
     buildRenderNode(modelNode: IModelNode<any>) {

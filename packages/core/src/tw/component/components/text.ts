@@ -6,7 +6,6 @@ import { IModelNode } from '../../model/node';
 import { InlineRenderNode } from '../../render/inline';
 import { IRenderNode, IStyle } from '../../render/node';
 import { AtomicRenderNode } from '../../render/text';
-import { generateId } from '../../util/id';
 import { breakTextToWords, IWord } from '../../util/language';
 import { InlineViewNode } from '../../view/inline-node';
 import { Component, IComponent } from '../component';
@@ -31,10 +30,6 @@ export class TextModelNode extends ModelLeaf<ITextAttributes> {
         const $component = document.createElement('span');
         $component.innerText = this.text.substring(from - 1, to - 1);
         return $component;
-    }
-
-    clone() {
-        return new TextModelNode(this.componentId, generateId(), this.attributes, this.text);
     }
 }
 
@@ -386,8 +381,8 @@ export class TextComponent extends Component implements IComponent {
         super(id);
     }
 
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
-        return new TextModelNode(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
+        return new TextModelNode(this.id, id, attributes, children, text);
     }
 
     buildRenderNode(modelNode: IModelNode) {

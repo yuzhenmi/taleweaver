@@ -37,7 +37,7 @@ export abstract class RenderNode<TStyle extends IStyle> extends Node<IRenderNode
     constructor(readonly componentId: string, id: string, readonly style: TStyle, text: string) {
         super(id);
         this.internalText = text;
-        this.onDidUpdate(() => {
+        this.onDidUpdateNode(() => {
             this.cachedSize = undefined;
         });
     }

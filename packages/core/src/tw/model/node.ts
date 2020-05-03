@@ -12,7 +12,6 @@ export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> 
     resolvePosition(offset: number): IModelPosition;
     toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
-    clone(): IModelNode<TAttributes>;
 }
 
 export interface IModelPosition extends IPosition<IModelNode<any>> {}
@@ -21,15 +20,20 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
     abstract get partId(): string | null;
 
     abstract toDOM(from: number, to: number): HTMLElement;
-    abstract clone(): IModelNode<TAttributes>;
 
     protected cachedSize?: number;
     protected internalText: string;
 
-    constructor(readonly componentId: string, id: string, readonly attributes: TAttributes, text: string) {
-        super(id);
+    constructor(
+        readonly componentId: string,
+        id: string,
+        readonly attributes: TAttributes,
+        children: IModelNode<any>[],
+        text: string,
+    ) {
+        super(id, children);
         this.internalText = text;
-        this.onDidUpdate(() => {
+        this.onDidUpdateNode(() => {
             this.cachedSize = undefined;
         });
     }

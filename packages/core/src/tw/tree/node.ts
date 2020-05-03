@@ -4,7 +4,7 @@ import { INodeList, NodeList } from './node-list';
 
 export interface IDidReplaceChildrenEvent {}
 
-export interface IDidUpdateEvent {}
+export interface IDidUpdateNodeEvent {}
 
 export interface INode<TNode extends INode<TNode>> {
     readonly id: string;
@@ -33,7 +33,7 @@ export interface INode<TNode extends INode<TNode>> {
 
     apply(node: this): void;
 
-    onDidUpdate: IOnEvent<IDidUpdateEvent>;
+    onDidUpdateNode: IOnEvent<IDidUpdateNodeEvent>;
 }
 
 export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
@@ -44,12 +44,15 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
 
     protected internalChildren = new NodeList<TNode>();
     protected didReplaceChildrenEventEmitter: IEventEmitter<IDidReplaceChildrenEvent> = new EventEmitter();
-    protected didUpdateEventEmitter: IEventEmitter<IDidUpdateEvent> = new EventEmitter();
+    protected didUpdateNodeEventEmitter: IEventEmitter<IDidUpdateNodeEvent> = new EventEmitter();
     protected childrenDidUpdateEventListenerDisposable: IDisposable;
 
-    constructor(readonly id: string) {
-        this.childrenDidUpdateEventListenerDisposable = this.children.onDidUpdate(() =>
-            this.didUpdateEventEmitter.emit({}),
+    constructor(readonly id: string, children: TNode[]) {
+        for (const child of children) {
+            this.children.append(child);
+        }
+        this.childrenDidUpdateEventListenerDisposable = this.children.onDidUpdateNodeList(() =>
+            this.didUpdateNodeEventEmitter.emit({}),
         );
     }
 
@@ -207,14 +210,14 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             this.children.at(n).apply(node.children.at(n));
         }
-        this.didUpdateEventEmitter.emit({});
+        this.didUpdateNodeEventEmitter.emit({});
     }
 
     onDidReplaceChildren(listener: IEventListener<IDidReplaceChildrenEvent>) {
         return this.didReplaceChildrenEventEmitter.on(listener);
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateEvent>) {
-        return this.didUpdateEventEmitter.on(listener);
+    onDidUpdateNode(listener: IEventListener<IDidUpdateNodeEvent>) {
+        return this.didUpdateNodeEventEmitter.on(listener);
     }
 }

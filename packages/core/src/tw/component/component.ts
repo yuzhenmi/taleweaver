@@ -5,7 +5,13 @@ import { IViewNode } from '../view/node';
 
 export interface IComponent {
     getId(): string;
-    buildModelNode(partId: string | null, id: string, attributes: {}, text: string): IModelNode<any> | undefined;
+    buildModelNode(
+        partId: string | null,
+        id: string,
+        attributes: {},
+        children: IModelNode<any>[],
+        text: string,
+    ): IModelNode<any> | undefined;
     buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
     buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
     buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
@@ -16,6 +22,7 @@ export abstract class Component implements IComponent {
         partId: string | null,
         id: string,
         attributes: {},
+        children: IModelNode<any>[],
         text: string,
     ): IModelNode<any> | undefined;
     abstract buildRenderNode(modelNode: IModelNode<any>): IRenderNode | undefined;
