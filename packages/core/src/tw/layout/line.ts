@@ -1,4 +1,3 @@
-import { generateId } from '../util/id';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect, mergeLayoutRects } from './rect';
 
@@ -19,8 +18,8 @@ export abstract class LayoutLine extends LayoutNode implements ILayoutLine {
     protected internalContentWidth?: number;
     protected internalFlowed = false;
 
-    constructor(componentId: string, children: ILayoutNode[], readonly width: number) {
-        super(componentId, generateId(), children, '');
+    constructor() {
+        super();
         this.onDidUpdateNode(() => {
             this.internalHeight = undefined;
             this.internalContentWidth = undefined;

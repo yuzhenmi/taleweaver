@@ -1,7 +1,9 @@
-import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
+import { IRenderBlock } from '../render/block';
+import { ILayoutNode, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
 export interface ILayoutBlock extends ILayoutNode {
+    readonly type: 'block';
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
     clone(): ILayoutBlock;
@@ -12,14 +14,14 @@ export abstract class LayoutBlock extends LayoutNode implements ILayoutBlock {
 
     protected internalHeight?: number;
 
-    constructor(componentId: string, id: string, children: ILayoutNode[], readonly width: number) {
-        super(componentId, id, children, '');
+    constructor(protected renderNode: IRenderBlock<any>, readonly width: number) {
+        super();
         this.onDidUpdateNode(() => {
             this.internalHeight = undefined;
         });
     }
 
-    get type(): ILayoutNodeType {
+    get type(): 'block' {
         return 'block';
     }
 

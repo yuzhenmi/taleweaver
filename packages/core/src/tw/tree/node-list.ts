@@ -9,8 +9,10 @@ export interface INodeList<TNode extends INode<TNode>> {
 
     at(index: number): TNode;
     indexOf(node: TNode): number;
-    forEach: (callbackFn: (value: TNode) => void) => void;
+    forEach(callbackFn: (value: TNode) => void): void;
+    map: <T>(callbackFn: (value: TNode) => T) => T[];
     reduce: <T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) => T;
+    slice(start?: number, end?: number): TNode[];
 
     insert(node: TNode): void;
     insertBefore(node: TNode, beforeNode: TNode): void;
@@ -48,8 +50,16 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
         return this.nodes.forEach(callbackFn);
     }
 
+    map<T>(callbackFn: (value: TNode) => T) {
+        return this.nodes.map(callbackFn);
+    }
+
     reduce<T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) {
         return this.nodes.reduce(callbackFn, initialValue);
+    }
+
+    slice(start?: number, end?: number) {
+        return this.nodes.slice(start, end);
     }
 
     insert(node: TNode) {

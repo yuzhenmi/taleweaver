@@ -19,86 +19,89 @@ export class NodeBreaker {
     }
 
     protected breakPageNode(node: ILayoutPage) {
-        const height = node.getInnerHeight();
+        const height = node.innerHeight;
         let cumulatedHeight = 0;
-        const blockNodes = node.getChildren();
+        const blockNodes = node.children;
         for (let n = 0; n < blockNodes.length; n++) {
-            const blockNode = blockNodes[n];
-            if (cumulatedHeight + (blockNode.getHeight() - blockNode.getPaddingBottom()) > height) {
+            const blockNode = blockNodes.at(n);
+            if (cumulatedHeight + (blockNode.height - blockNode.paddingBottom) > height) {
                 const newPageNode = node.clone();
-                for (let blockNodeToMove of node.getChildren().slice(n + 1)) {
+                for (const blockNodeToMove of node.children.slice(n + 1)) {
                     node.removeChild(blockNodeToMove);
                     newPageNode.appendChild(blockNodeToMove);
                 }
-                const lastBlockNode = node.getLastChild();
+                const lastBlockNode = node.lastChild;
                 if (lastBlockNode) {
-                    const newBlockNode = this.breakBlockNode(lastBlockNode, height - cumulatedHeight);
+                    if (lastBlockNode.type !== 'block') {
+                        throw new Error('Expected block as child of page.');
+                    }
+                    const newBlockNode = this.breakBlockNode(lastBlockNode as ILayoutBlock, height - cumulatedHeight);
                     if (newBlockNode) {
                         newPageNode.insertChild(newBlockNode);
                     }
-                    if (lastBlockNode.getChildren().length === 0) {
+                    if (lastBlockNode.children.length === 0) {
                         node.removeChild(lastBlockNode);
                     }
                 }
                 return newPageNode;
             }
-            cumulatedHeight += blockNode.getHeight();
+            cumulatedHeight += blockNode.height;
         }
         return undefined;
     }
 
     protected breakBlockNode(node: ILayoutBlock, height: number) {
         let cumulatedHeight = 0;
-        const lineNodes = node.getChildren();
+        const lineNodes = node.children;
         for (let n = 0; n < lineNodes.length; n++) {
-            const lineNode = lineNodes[n];
-            if (cumulatedHeight + lineNode.getHeight() > height) {
+            const lineNode = lineNodes.at(n);
+            if (cumulatedHeight + lineNode.height > height) {
                 const newBlockNode = node.clone();
-                for (let lineNodeToMove of node.getChildren().slice(n)) {
+                for (const lineNodeToMove of node.children.slice(n + 1)) {
                     node.removeChild(lineNodeToMove);
                     newBlockNode.appendChild(lineNodeToMove);
                 }
                 return newBlockNode;
             }
-            cumulatedHeight += lineNode.getHeight();
+            cumulatedHeight += lineNode.height;
         }
         return undefined;
     }
 
     protected breakLineNode(node: ILayoutLine) {
-        const width = node.getInnerWidth();
+        const width = node.innerHeight;
         let cumulatedWidth = 0;
-        const inlineNodes = node.getChildren();
+        const inlineNodes = node.children;
         for (let n = 0; n < inlineNodes.length; n++) {
-            const inlineNode = inlineNodes[n];
-            if (cumulatedWidth + inlineNode.getTailTrimmedWidth() > width) {
+            const inlineNode = inlineNodes.at(n) as ILayoutInline;
+            if (cumulatedWidth + inlineNode.trimmedWidth > width) {
                 const newLineNode = node.clone();
-                for (let inlineNodeToMove of node.getChildren().slice(n + 1)) {
+                for (let inlineNodeToMove of node.children.slice(n + 1)) {
                     node.removeChild(inlineNodeToMove);
                     newLineNode.appendChild(inlineNodeToMove);
                 }
-                const lastInlineNode = node.getLastChild();
+                const lastInlineNode = node.lastChild as ILayoutInline;
                 if (lastInlineNode) {
                     const newInlineNode = this.breakInlineNode(lastInlineNode, width - cumulatedWidth, width);
                     if (newInlineNode) {
                         newLineNode.insertChild(newInlineNode);
                     }
-                    if (lastInlineNode.getChildren().length === 0) {
+                    if (lastInlineNode.children.length === 0) {
                         node.removeChild(lastInlineNode);
                     }
                 }
                 return newLineNode;
             }
-            cumulatedWidth += inlineNode.getWidth();
+            cumulatedWidth += inlineNode.width;
         }
         return undefined;
     }
 
     protected breakInlineNode(node: ILayoutInline, width: number, lineWidth: number) {
         let cumulatedWidth = 0;
-        const atomicNodes = node.getChildren();
+        const atomicNodes = node.children;
         for (let n = 0; n < atomicNodes.length; n++) {
-            const atomicNode = atomicNodes[n];
+            const atomicNode = atomicNodes.at(n);
             if (cumulatedWidth + atomicNode.getTailTrimmedWidth() > width) {
                 const newInlineNode = node.clone();
                 for (let atomicNodeToMove of node.getChildren().slice(n)) {

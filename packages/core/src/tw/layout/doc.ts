@@ -5,11 +5,7 @@ export interface ILayoutDoc extends ILayoutNode {
     resolvePageRects(from: number, to: number): IPageLayoutRect[];
 }
 
-export abstract class LayoutDoc extends LayoutNode implements ILayoutDoc {
-    constructor(componentId: string, id: string, children: ILayoutNode[]) {
-        super(componentId, id, children, '');
-    }
-
+export class LayoutDoc extends LayoutNode implements ILayoutDoc {
     get type(): ILayoutNodeType {
         return 'doc';
     }

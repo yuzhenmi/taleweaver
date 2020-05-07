@@ -52,16 +52,16 @@ class NodeQueue {
     }
 
     protected queueDocNode(node: ILayoutDoc) {
-        node.getChildren().forEach((child) => this.queue(child));
+        node.children.forEach((child) => this.queue(child));
     }
 
     protected queuePageNode(node: ILayoutPage) {
         this.pageNodes.push(node);
-        node.getChildren().forEach((child) => this.queue(child));
+        node.children.forEach((child) => this.queue(child));
     }
 
     protected queueBlockNode(node: ILayoutBlock) {
-        node.getChildren().forEach((child) => this.queue(child));
+        node.children.forEach((child) => this.queue(child));
     }
 
     protected queueLineNode(node: ILayoutLine) {
@@ -69,11 +69,11 @@ class NodeQueue {
     }
 
     protected queueInlineNode(node: ILayoutInline) {
-        this.queue(node.getParent()!);
+        this.queue(node.parent!);
     }
 
     protected queueAtomicNode(node: ILayoutAtom) {
-        this.queue(node.getParent()!);
+        this.queue(node.parent!);
     }
 }
 
@@ -110,77 +110,77 @@ export class LayoutFlower implements ILayoutFlower {
     }
 
     protected flowPageNode(node: ILayoutPage) {
-        if (node.isFlowed()) {
+        if (node.flowed) {
             return;
         }
-        if (!node.getParent()) {
+        if (!node.parent) {
             return;
         }
         if (this.joinNextPageNode(node)) {
             this.nodeQueue.queue(node);
             return;
         }
-        let pageNode: ILayoutPage | undefined = node;
+        let pageNode: ILayoutPage | null = node;
         while (pageNode) {
             this.recordNodeAsUpdated(pageNode);
-            const newPageNode = this.nodeBreaker.break(pageNode) as ILayoutPage | undefined;
+            const newPageNode = this.nodeBreaker.break(pageNode) as ILayoutPage | null;
             if (!newPageNode) {
                 pageNode.markAsFlowed();
                 break;
             }
-            pageNode.getParent()!.appendChildAfter(newPageNode, pageNode);
+            pageNode.parent!.appendChildAfter(newPageNode, pageNode);
             pageNode.markAsFlowed();
             pageNode = newPageNode;
         }
     }
 
     protected flowLineNode(node: ILayoutLine) {
-        if (node.isFlowed()) {
+        if (node.flowed) {
             return;
         }
-        if (!node.getParent()) {
+        if (!node.parent) {
             return;
         }
         if (this.joinNextLineNode(node)) {
             this.nodeQueue.queue(node);
             return;
         }
-        let lineNode: ILayoutLine | undefined = node;
+        let lineNode: ILayoutLine | null = node;
         while (lineNode) {
             this.recordNodeAsUpdated(lineNode);
-            const newLineNode = this.nodeBreaker.break(lineNode) as ILayoutLine | undefined;
+            const newLineNode = this.nodeBreaker.break(lineNode) as ILayoutLine | null;
             if (!newLineNode) {
                 lineNode.markAsFlowed();
                 break;
             }
-            lineNode.getParent()!.appendChildAfter(newLineNode, lineNode);
+            lineNode.parent!.appendChildAfter(newLineNode, lineNode);
             lineNode.markAsFlowed();
             lineNode = newLineNode;
         }
-        let parentNode: ILayoutNode | undefined = node.getParent();
+        let parentNode: ILayoutNode | null = node.parent;
         while (parentNode) {
             if (identifyLayoutNodeType(parentNode) === 'Page') {
-                this.nodeQueue.queue(node.getParent()!.getParent()!);
+                this.nodeQueue.queue(node.parent!.parent!);
                 break;
             }
-            parentNode = parentNode.getParent();
+            parentNode = parentNode.parent;
         }
     }
 
     protected joinNextPageNode(node: ILayoutPage) {
-        const nextNode = node.getNextSibling() as ILayoutPage;
+        const nextNode = node.nextSibling as ILayoutPage;
         if (!nextNode) {
             return false;
         }
-        const nextBlockChild = node.getFirstChild();
+        const nextBlockChild = node.firstChild;
         if (!nextBlockChild) {
             return false;
         }
-        const nextLineNode = nextBlockChild.getFirstChild();
+        const nextLineNode = nextBlockChild.firstChild;
         if (!nextLineNode) {
             return false;
         }
-        if (node.getContentHeight() + nextLineNode.getHeight() > node.getHeight()) {
+        if (node.contentHeight + nextLineNode.height > node.height) {
             return false;
         }
         this.nodeJoiner.join(node, nextNode);
@@ -188,19 +188,19 @@ export class LayoutFlower implements ILayoutFlower {
     }
 
     protected joinNextLineNode(node: ILayoutLine) {
-        const nextNode = node.getNextSibling() as ILayoutLine;
+        const nextNode = node.nextSibling as ILayoutLine;
         if (!nextNode) {
             return false;
         }
-        const nextInlineChild = nextNode.getFirstChild();
+        const nextInlineChild = nextNode.firstChild;
         if (!nextInlineChild) {
             return false;
         }
-        const nextAtomicChild = nextInlineChild.getFirstChild();
+        const nextAtomicChild = nextInlineChild.firstChild;
         if (!nextAtomicChild) {
             return false;
         }
-        if (node.getContentWidth() + nextAtomicChild.getWidth() > node.getWidth()) {
+        if (node.contentWidth + nextAtomicChild.width > node.width) {
             return false;
         }
         this.nodeJoiner.join(node, nextNode);
@@ -216,10 +216,10 @@ export class LayoutFlower implements ILayoutFlower {
         let currentNode: ILayoutNode = node;
         while (true) {
             lineage.unshift(currentNode);
-            if (currentNode.isRoot()) {
+            if (currentNode.root) {
                 return lineage;
             }
-            currentNode = currentNode.getParent()!;
+            currentNode = currentNode.parent!;
         }
     }
 }

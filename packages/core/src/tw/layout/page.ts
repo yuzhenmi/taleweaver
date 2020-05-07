@@ -1,4 +1,3 @@
-import { generateId } from '../util/id';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
@@ -25,8 +24,6 @@ export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
     protected internalFlowed = false;
 
     constructor(
-        componentId: string,
-        children: ILayoutNode[],
         width: number,
         height: number,
         paddingTop: number,
@@ -34,7 +31,7 @@ export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(componentId, generateId(), children, '');
+        super();
         this.internalWidth = width;
         this.internalHeight = height;
         this.internalPaddingTop = paddingTop;

@@ -1,5 +1,7 @@
+import { IRenderInline } from '../render/inline';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
+import { ILayoutText } from './text';
 
 export interface ILayoutInline extends ILayoutNode {
     readonly trimmedWidth: number;
@@ -16,8 +18,8 @@ export abstract class LayoutInline extends LayoutNode implements ILayoutInline {
     protected internalHeight?: number;
     protected internalTrimmedWidth?: number;
 
-    constructor(componentId: string, id: string, children: ILayoutNode[]) {
-        super(componentId, id, children, '');
+    constructor(protected renderNode: IRenderInline<any>) {
+        super();
         this.onDidUpdateNode(() => {
             this.internalWidth = undefined;
             this.internalHeight = undefined;
@@ -56,7 +58,11 @@ export abstract class LayoutInline extends LayoutNode implements ILayoutInline {
         if (this.internalTrimmedWidth === undefined) {
             const lastChild = this.lastChild;
             if (lastChild) {
-                this.internalTrimmedWidth = this.width - lastChild.width + lastChild.trimmedWidth;
+                if (lastChild.type === 'text') {
+                    this.internalTrimmedWidth = this.width - lastChild.width + (lastChild as ILayoutText).trimmedWidth;
+                } else {
+                    this.internalTrimmedWidth = this.width;
+                }
             } else {
                 this.internalTrimmedWidth = 0;
             }

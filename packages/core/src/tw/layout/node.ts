@@ -1,5 +1,6 @@
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
+import { generateId } from '../util/id';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'text' | 'atom';
 
@@ -7,8 +8,6 @@ export interface ILayoutPosition extends IPosition<ILayoutNode> {}
 
 export interface ILayoutNode extends INode<ILayoutNode> {
     readonly type: ILayoutNodeType;
-    readonly componentId: string;
-    readonly partId: string | null;
     readonly size: number;
     readonly width: number;
     readonly height: number;
@@ -27,7 +26,6 @@ export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosi
 
 export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
     abstract get type(): ILayoutNodeType;
-    abstract get partId(): string | null;
     abstract get width(): number;
     abstract get height(): number;
     abstract get paddingTop(): number;
@@ -37,8 +35,8 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
 
     protected internalSize?: number;
 
-    constructor(readonly componentId: string, id: string, children: ILayoutNode[], text: string) {
-        super(id, children, text);
+    constructor() {
+        super(generateId(), [], '');
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
         });
