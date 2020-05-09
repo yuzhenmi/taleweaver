@@ -1,3 +1,4 @@
+import { IModelNode } from '../model/node';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 
@@ -7,13 +8,18 @@ export interface IRenderNode<TStyle> extends INode<IRenderNode<any>> {
     readonly type: IRenderNodeType;
     readonly componentId: string;
     readonly partId: string | null;
+    readonly modelId: string | null;
+    readonly text: string;
     readonly size: number;
     readonly modelSize: number;
+    readonly needLayout: boolean;
     readonly style: TStyle;
 
+    clearNeedLayout(): void;
     resolvePosition(offset: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
     convertModelOffsetToOffset(modelOffset: number): number;
+    updateFromModel(modelNode: IModelNode<any>): void;
 }
 
 export interface IRenderPosition extends IPosition<IRenderNode<any>> {}
@@ -25,20 +31,29 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
 
+    protected internalText: string;
     protected internalSize?: number;
     protected internalChildrenModelSize?: number;
+    protected internalNeedLayout = true;
 
     constructor(
         readonly componentId: string,
+        readonly modelId: string | null,
         id: string,
         readonly style: TStyle,
-        children: IRenderNode<any>[],
         text: string,
     ) {
-        super(id, children, text);
+        super(id);
+        this.internalText = text;
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
+            this.internalChildrenModelSize = undefined;
+            this.internalNeedLayout = true;
         });
+    }
+
+    get text() {
+        return this.internalText;
     }
 
     get size() {
@@ -59,9 +74,17 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
         return this.internalChildrenModelSize! + padding + this.modelTextSize;
     }
 
+    get needLayout() {
+        return this.internalNeedLayout;
+    }
+
     apply(node: this) {
         this.internalText = node.text;
         super.apply(node);
+    }
+
+    clearNeedLayout() {
+        this.internalNeedLayout = false;
     }
 
     resolvePosition(offset: number): IRenderPosition {
@@ -142,6 +165,11 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
             cumulatedSize += child.size;
         }
         throw new Error(`Model offset ${modelOffset} is out of range.`);
+    }
+
+    updateFromModel(modelNode: IModelNode<any>) {
+        this.internalText = modelNode.text;
+        this.didUpdateNodeEventEmitter.emit({});
     }
 }
 

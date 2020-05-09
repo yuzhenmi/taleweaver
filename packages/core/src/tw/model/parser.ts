@@ -155,7 +155,7 @@ export class TokenParser implements ITokenParser {
         if (!component) {
             throw new Error(`Component ${componentId} is not registered.`);
         }
-        const node = component.buildModelNode(partId, id, attributes, children, text);
+        const node = component.buildModelNode(partId, id, attributes, text);
         if (!node) {
             throw new Error(
                 `Could not build node with component ${componentId}, part ${partId}, id ${id} and attributes ${JSON.stringify(
@@ -163,6 +163,7 @@ export class TokenParser implements ITokenParser {
                 )}.`,
             );
         }
+        node.setChildren(children);
         return node;
     }
 }

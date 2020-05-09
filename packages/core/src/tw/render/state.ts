@@ -1,11 +1,11 @@
 import { IComponentService } from '../component/service';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
+import { IModelNode } from '../model/node';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
 import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
-import { RenderTreeBuilder } from './tree-builder';
 
 export interface IDidUpdateRenderStateEvent {
     readonly node: IRenderNode<any>;
@@ -22,9 +22,9 @@ export class RenderState implements IRenderState {
     protected didUpdateRenderStateEventEmitter: IEventEmitter<IDidUpdateRenderStateEvent> = new EventEmitter();
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
-        const modelRoot = modelService.getRoot();
-        const treeBuilder = new RenderTreeBuilder(componentService);
-        this.doc = treeBuilder.buildTree(modelRoot) as IRenderDoc<any>;
+        const modelDoc = modelService.getRoot();
+        this.doc = this.buildNode(modelDoc);
+        this.updateFromModel(this.doc, modelDoc);
         modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
     }
 
@@ -33,13 +33,37 @@ export class RenderState implements IRenderState {
     }
 
     protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
-        const treeBuilder = new RenderTreeBuilder(this.componentService);
-        const updatedNode = treeBuilder.buildTree(event.node);
-        const node = this.doc.findDescendant(event.node.id) as IRenderNode<any>;
-        if (!node) {
-            throw new Error(`Render node ${event.node.id} is not found.`);
-        }
-        node.apply(updatedNode);
-        this.didUpdateRenderStateEventEmitter.emit({ node });
+        const modelDoc = this.modelService.getRoot();
+        this.updateFromModel(this.doc, modelDoc);
     };
+
+    protected updateFromModel(node: IRenderNode<any>, modelNode: IModelNode<any>) {
+        if (!modelNode.needRender) {
+            return;
+        }
+        node.updateFromModel(modelNode);
+        const childrenMap = new Map<string, IRenderNode<any>>();
+        node.children.forEach((child) => childrenMap.set(child.modelId, child));
+        const newChildren: IRenderNode<any>[] = [];
+        modelNode.children.forEach((modelChild) => {
+            let child = childrenMap.get(modelChild.id);
+            if (!child) {
+                child = this.buildNode(modelChild);
+            }
+            newChildren.push(child);
+        });
+        node.setChildren(newChildren);
+    }
+
+    protected buildNode(modelNode: IModelNode<any>) {
+        const component = this.componentService.getComponent(modelNode.componentId);
+        if (!component) {
+            throw new Error(`Component ${modelNode.componentId} is not registered.`);
+        }
+        const node = component.buildRenderNode(modelNode);
+        if (!node) {
+            throw new Error(`Error building render node from model node ${modelNode.id}.`);
+        }
+        return node;
+    }
 }

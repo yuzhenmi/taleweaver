@@ -6,8 +6,11 @@ export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> 
     readonly componentId: string;
     readonly partId: string | null;
     readonly attributes: TAttributes;
+    readonly text: string;
     readonly size: number;
+    readonly needRender: boolean;
 
+    clearNeedRender(): void;
     resolvePosition(offset: number): IModelPosition;
     toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
@@ -20,19 +23,21 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
 
     abstract toDOM(from: number, to: number): HTMLElement;
 
+    protected internalText: string;
     protected internalSize?: number;
+    protected internalNeedRender = true;
 
-    constructor(
-        readonly componentId: string,
-        id: string,
-        readonly attributes: TAttributes,
-        children: IModelNode<any>[],
-        text: string,
-    ) {
-        super(id, children, text);
+    constructor(readonly componentId: string, id: string, readonly attributes: TAttributes, text: string) {
+        super(id);
+        this.internalText = text;
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
+            this.internalNeedRender = true;
         });
+    }
+
+    get text() {
+        return this.internalText;
     }
 
     get size() {
@@ -45,9 +50,17 @@ export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes
         return this.internalSize;
     }
 
+    get needRender() {
+        return this.internalNeedRender;
+    }
+
     apply(node: this) {
         this.internalText = node.text;
         super.apply(node);
+    }
+
+    clearNeedRender() {
+        this.internalNeedRender = false;
     }
 
     resolvePosition(offset: number): IModelPosition {

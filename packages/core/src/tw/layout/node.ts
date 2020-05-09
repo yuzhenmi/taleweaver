@@ -19,6 +19,8 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly paddingRight: number;
     readonly verticalPaddng: number;
     readonly horizontalPadding: number;
+    readonly needView: boolean;
+
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
 }
 
@@ -34,11 +36,13 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     abstract get paddingRight(): number;
 
     protected internalSize?: number;
+    protected internalNeedView = true;
 
     constructor() {
         super(generateId(), [], '');
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
+            this.internalNeedView = true;
         });
     }
 
@@ -66,6 +70,10 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
 
     get horizontalPadding() {
         return this.paddingLeft + this.paddingRight;
+    }
+
+    get needView() {
+        return this.internalNeedView;
     }
 
     resolvePosition(offset: number): ILayoutPosition {
