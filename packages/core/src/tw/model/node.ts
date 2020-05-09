@@ -2,7 +2,7 @@ import { CLOSE_TOKEN, IToken } from '../state/token';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 
-export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> {
+export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAttributes>> {
     readonly componentId: string;
     readonly partId: string | null;
     readonly attributes: TAttributes;
@@ -18,7 +18,8 @@ export interface IModelNode<TAttributes> extends INode<IModelNode<TAttributes>> 
 
 export interface IModelPosition extends IPosition<IModelNode<any>> {}
 
-export abstract class ModelNode<TAttributes> extends Node<IModelNode<TAttributes>> implements IModelNode<TAttributes> {
+export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<TAttributes>>
+    implements IModelNode<TAttributes> {
     abstract get partId(): string | null;
 
     abstract toDOM(from: number, to: number): HTMLElement;

@@ -1,4 +1,4 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 
 export interface IDidFocusEvent {}
@@ -11,8 +11,8 @@ export interface IFocusObserver {
 }
 
 export class FocusObserver implements IFocusObserver {
-    protected didFocusEventEmitter: IEventEmitter<IDidFocusEvent> = new EventEmitter();
-    protected didBlurEventEmitter: IEventEmitter<IDidBlurEvent> = new EventEmitter();
+    protected didFocusEventEmitter = new EventEmitter<IDidFocusEvent>();
+    protected didBlurEventEmitter = new EventEmitter<IDidBlurEvent>();
 
     constructor(protected $contentEditable: HTMLDivElement) {
         $contentEditable.addEventListener('focus', this.handleFocus);

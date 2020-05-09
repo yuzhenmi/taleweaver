@@ -1,4 +1,4 @@
-import { EventEmitter, IDisposable, IEventEmitter } from '../event/emitter';
+import { EventEmitter, IDisposable } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { INodeList, NodeList } from './node-list';
 
@@ -44,8 +44,8 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     parent: TNode | null = null;
 
     protected internalChildren = new NodeList<TNode>();
-    protected didSetChildrenEventEmitter: IEventEmitter<IDidSetChildrenEvent> = new EventEmitter();
-    protected didUpdateNodeEventEmitter: IEventEmitter<IDidUpdateNodeEvent> = new EventEmitter();
+    protected didSetChildrenEventEmitter = new EventEmitter<IDidSetChildrenEvent>();
+    protected didUpdateNodeEventEmitter = new EventEmitter<IDidUpdateNodeEvent>();
     protected childrenDidUpdateEventListenerDisposable: IDisposable;
 
     constructor(readonly id: string) {

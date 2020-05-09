@@ -1,4 +1,4 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 
 export interface IDidUpdateCursorEvent {}
@@ -12,7 +12,7 @@ export interface ICursor {
 }
 
 export class Cursor implements ICursor {
-    protected didUpdateCursorEventEmitter: IEventEmitter<IDidUpdateCursorEvent> = new EventEmitter();
+    protected didUpdateCursorEventEmitter = new EventEmitter<IDidUpdateCursorEvent>();
     protected anchor: number = 0;
     protected head: number = 0;
     protected leftLock: number | null = null;

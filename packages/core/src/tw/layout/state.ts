@@ -1,5 +1,5 @@
 import { IComponentService } from '../component/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
@@ -23,12 +23,12 @@ export interface ILayoutState {
 
 export class LayoutState implements ILayoutState {
     protected docNode: ILayoutDoc;
-    protected didUpdateLayoutStateEventEmitter: IEventEmitter<IDidUpdateLayoutStateEvent> = new EventEmitter();
+    protected didUpdateLayoutStateEventEmitter = new EventEmitter<IDidUpdateLayoutStateEvent>();
 
     constructor(protected componentService: IComponentService, protected renderService: IRenderService) {
-        const docRenderNode = renderService.getDocNode();
+        const renderDoc = renderService.getDoc();
         const treeBuilder = new LayoutTreeBuilder(componentService);
-        this.docNode = treeBuilder.buildTree(docRenderNode) as ILayoutDoc;
+        this.docNode = treeBuilder.buildTree(renderDoc) as ILayoutDoc;
         const flower = new LayoutFlower();
         flower.flow(this.docNode);
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);

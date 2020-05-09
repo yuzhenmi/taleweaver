@@ -1,4 +1,4 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IViewService } from './service';
 
@@ -38,10 +38,10 @@ export class PointerObserver implements IPointerObserver {
         offset: number;
     } | null = null;
     protected consecutiveClickCount: number = 0;
-    protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
-    protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
-    protected pointerDidUpEventEmitter: IEventEmitter<IPointerDidUpEvent> = new EventEmitter();
-    protected pointerDidClickEventEmitter: IEventEmitter<IPointerDidClick> = new EventEmitter();
+    protected pointerDidDownEventEmitter = new EventEmitter<IPointerDidDownEvent>();
+    protected pointerDidMoveEventEmitter = new EventEmitter<IPointerDidMoveEvent>();
+    protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
+    protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
 
     constructor(protected instanceId: string, protected viewService: IViewService) {
         window.addEventListener('mousedown', this.handleMouseDown);

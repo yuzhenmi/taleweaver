@@ -1,5 +1,5 @@
 import { ICursorService } from '../cursor/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IToken } from './/token';
 import { Tokenizer } from './tokenizer';
@@ -36,8 +36,8 @@ export interface IState {
 
 export class State implements IState {
     protected tokens: IToken[];
-    protected didApplyTransformationEventEmitter: IEventEmitter<IDidApplyTransformation> = new EventEmitter();
-    protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
+    protected didApplyTransformationEventEmitter = new EventEmitter<IDidApplyTransformation>();
+    protected didUpdateStateEventEmitter = new EventEmitter<IDidUpdateStateEvent>();
 
     constructor(protected cursorService: ICursorService, initialMarkup: string) {
         const tokenizer = new Tokenizer();

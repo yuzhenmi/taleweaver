@@ -1,5 +1,5 @@
 import { IComponentService } from '../component/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IStateService } from '../state/service';
 import { IDidUpdateStateEvent } from '../state/state';
@@ -22,7 +22,7 @@ export interface IModelState {
 
 export class ModelState implements IModelState {
     readonly root: IModelRoot<any>;
-    protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();
+    protected didUpdateModelStateEventEmitter = new EventEmitter<IDidUpdateModelStateEvent>();
 
     constructor(protected componentService: IComponentService, protected stateService: IStateService) {
         const tokens = stateService.getTokens();

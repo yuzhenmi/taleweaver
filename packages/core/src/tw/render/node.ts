@@ -1,10 +1,9 @@
-import { IModelNode } from '../model/node';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'inline' | 'text' | 'word' | 'atom';
 
-export interface IRenderNode<TStyle> extends INode<IRenderNode<any>> {
+export interface IRenderNode<TStyle extends {}> extends INode<IRenderNode<any>> {
     readonly type: IRenderNodeType;
     readonly componentId: string;
     readonly partId: string | null;
@@ -19,32 +18,28 @@ export interface IRenderNode<TStyle> extends INode<IRenderNode<any>> {
     resolvePosition(offset: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
     convertModelOffsetToOffset(modelOffset: number): number;
-    updateFromModel(modelNode: IModelNode<any>): void;
+    update(attributes: {}, text: string): void;
 }
 
 export interface IRenderPosition extends IPosition<IRenderNode<any>> {}
 
-export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> implements IRenderNode<TStyle> {
+export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TStyle>> implements IRenderNode<TStyle> {
     protected abstract get padModelSize(): boolean;
     protected abstract get modelTextSize(): number;
 
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
 
-    protected internalText: string;
+    protected abstract buildStyle(attributes: {}): TStyle;
+
+    protected internalText?: string;
+    protected internalStyle?: TStyle;
     protected internalSize?: number;
     protected internalChildrenModelSize?: number;
     protected internalNeedLayout = true;
 
-    constructor(
-        readonly componentId: string,
-        readonly modelId: string | null,
-        id: string,
-        readonly style: TStyle,
-        text: string,
-    ) {
+    constructor(readonly componentId: string, readonly modelId: string | null, id: string) {
         super(id);
-        this.internalText = text;
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
             this.internalChildrenModelSize = undefined;
@@ -53,7 +48,17 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
     }
 
     get text() {
+        if (this.internalText === undefined) {
+            throw new Error('Render node text is not initialized.');
+        }
         return this.internalText;
+    }
+
+    get style() {
+        if (this.internalStyle === undefined) {
+            throw new Error('Render node style is not initialized.');
+        }
+        return this.internalStyle;
     }
 
     get size() {
@@ -167,8 +172,9 @@ export abstract class RenderNode<TStyle> extends Node<IRenderNode<TStyle>> imple
         throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
 
-    updateFromModel(modelNode: IModelNode<any>) {
-        this.internalText = modelNode.text;
+    update(attributes: {}, text: string) {
+        this.internalStyle = this.buildStyle(attributes);
+        this.internalText = text;
         this.didUpdateNodeEventEmitter.emit({});
     }
 }

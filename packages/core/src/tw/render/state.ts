@@ -1,5 +1,5 @@
 import { IComponentService } from '../component/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelNode } from '../model/node';
 import { IModelService } from '../model/service';
@@ -19,12 +19,12 @@ export interface IRenderState {
 export class RenderState implements IRenderState {
     readonly doc: IRenderDoc<any>;
 
-    protected didUpdateRenderStateEventEmitter: IEventEmitter<IDidUpdateRenderStateEvent> = new EventEmitter();
+    protected didUpdateRenderStateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
-        const modelDoc = modelService.getRoot();
-        this.doc = this.buildNode(modelDoc);
-        this.updateFromModel(this.doc, modelDoc);
+        const modelRoot = modelService.getRoot();
+        this.doc = this.buildNode(modelRoot);
+        this.updateNode(this.doc, modelRoot);
         modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
     }
 
@@ -33,20 +33,25 @@ export class RenderState implements IRenderState {
     }
 
     protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
-        const modelDoc = this.modelService.getRoot();
-        this.updateFromModel(this.doc, modelDoc);
+        const modelRoot = this.modelService.getRoot();
+        this.updateNode(this.doc, modelRoot);
     };
 
-    protected updateFromModel(node: IRenderNode<any>, modelNode: IModelNode<any>) {
+    protected updateNode(node: IRenderNode<any>, modelNode: IModelNode<any>) {
         if (!modelNode.needRender) {
             return;
         }
-        node.updateFromModel(modelNode);
-        const childrenMap = new Map<string, IRenderNode<any>>();
-        node.children.forEach((child) => childrenMap.set(child.modelId, child));
+        node.update(modelNode.attributes, modelNode.text);
+        const childrenMap: { [key: string]: IRenderNode<any> } = {};
+        node.children.forEach((child) => {
+            if (!child.modelId) {
+                return;
+            }
+            childrenMap[child.modelId] = child;
+        });
         const newChildren: IRenderNode<any>[] = [];
         modelNode.children.forEach((modelChild) => {
-            let child = childrenMap.get(modelChild.id);
+            let child = childrenMap[modelChild.id];
             if (!child) {
                 child = this.buildNode(modelChild);
             }

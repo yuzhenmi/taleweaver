@@ -1,4 +1,4 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IToken } from '../state/token';
 import { detectPlatform } from '../util/platform';
@@ -26,10 +26,10 @@ export interface IKeyboardObserver {
 export class KeyboardObserver implements IKeyboardObserver {
     protected composing: boolean = false;
     protected mutationObserver: MutationObserver;
-    protected didInsertEventEmitter: IEventEmitter<IDidInsertEvent> = new EventEmitter();
-    protected didPressKeyEventEmitter: IEventEmitter<IDidPressKeyEvent> = new EventEmitter();
-    protected compositionDidStartEventEmitter: IEventEmitter<ICompositionDidStart> = new EventEmitter();
-    protected compositionDidEndEventEmitter: IEventEmitter<ICompositionDidEnd> = new EventEmitter();
+    protected didInsertEventEmitter = new EventEmitter<IDidInsertEvent>();
+    protected didPressKeyEventEmitter = new EventEmitter<IDidPressKeyEvent>();
+    protected compositionDidStartEventEmitter = new EventEmitter<ICompositionDidStart>();
+    protected compositionDidEndEventEmitter = new EventEmitter<ICompositionDidEnd>();
     protected keyInterpreter = new KeyInterpreter();
 
     constructor(protected $contentEditable: HTMLDivElement) {

@@ -1,3 +1,4 @@
+import { IRenderNode } from '../render/node';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 import { generateId } from '../util/id';
@@ -6,8 +7,23 @@ export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'te
 
 export interface ILayoutPosition extends IPosition<ILayoutNode> {}
 
+export interface IRenderRange {
+    from: number;
+    to: number;
+}
+
+export interface IBox {
+    width: number;
+    height: number;
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+}
+
 export interface ILayoutNode extends INode<ILayoutNode> {
     readonly type: ILayoutNodeType;
+    readonly renderRange: IRenderRange;
     readonly size: number;
     readonly width: number;
     readonly height: number;
@@ -17,8 +33,6 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly paddingBottom: number;
     readonly paddingLeft: number;
     readonly paddingRight: number;
-    readonly verticalPaddng: number;
-    readonly horizontalPadding: number;
     readonly needView: boolean;
 
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
@@ -28,40 +42,67 @@ export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosi
 
 export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
     abstract get type(): ILayoutNodeType;
-    abstract get width(): number;
-    abstract get height(): number;
-    abstract get paddingTop(): number;
-    abstract get paddingBottom(): number;
-    abstract get paddingLeft(): number;
-    abstract get paddingRight(): number;
 
-    protected internalSize?: number;
+    protected internalRenderNode?: IRenderNode<any>;
+    protected internalRenderRange?: IRenderRange;
+    protected internalBox?: IBox;
     protected internalNeedView = true;
 
-    constructor() {
-        super(generateId(), [], '');
+    constructor(readonly renderId: string) {
+        super(generateId());
         this.onDidUpdateNode(() => {
-            this.internalSize = undefined;
             this.internalNeedView = true;
         });
     }
 
-    get size() {
-        if (this.internalSize === undefined) {
-            if (this.leaf) {
-                this.internalSize = this.text.length;
-            }
-            this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
+    get renderNode() {
+        if (this.internalRenderNode === undefined) {
+            throw new Error('Layout node render node is not initialized.');
         }
-        return this.internalSize;
+        return this.internalRenderNode;
+    }
+
+    get renderRange() {
+        if (this.internalRenderRange === undefined) {
+            throw new Error('Layout node render range is not initialized.');
+        }
+        return this.internalRenderRange;
+    }
+
+    get size() {
+        return this.renderRange.to - this.renderRange.from;
+    }
+
+    get width() {
+        return this.box.width;
+    }
+
+    get height() {
+        return this.box.height;
+    }
+
+    get paddingTop() {
+        return this.box.paddingTop;
+    }
+
+    get paddingBottom() {
+        return this.box.paddingBottom;
+    }
+
+    get paddingLeft() {
+        return this.box.paddingLeft;
+    }
+
+    get paddingRight() {
+        return this.box.paddingRight;
     }
 
     get innerWidth() {
-        return this.width - this.horizontalPadding;
+        return this.box.width - this.horizontalPadding;
     }
 
     get innerHeight() {
-        return this.height - this.verticalPaddng;
+        return this.box.height - this.verticalPaddng;
     }
 
     get verticalPaddng() {
@@ -124,5 +165,19 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
             );
         };
         return buildPosition(null, 0);
+    }
+
+    update(renderNode: IRenderNode<any>, renderRange: IRenderRange, box: IBox) {
+        this.internalRenderNode = renderNode;
+        this.internalRenderRange = renderRange;
+        this.internalBox = box;
+        this.didUpdateNodeEventEmitter.emit({});
+    }
+
+    protected get box() {
+        if (this.internalBox === undefined) {
+            throw new Error('Layout node box is not initialized.');
+        }
+        return this.internalBox;
     }
 }

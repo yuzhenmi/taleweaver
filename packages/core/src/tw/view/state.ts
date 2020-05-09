@@ -1,5 +1,5 @@
 import { IComponentService } from '../component/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IDidUpdateLayoutStateEvent } from '../layout/state';
@@ -20,7 +20,7 @@ export interface IViewState {
 export class ViewState implements IViewState {
     protected attached = false;
     protected docNode: IDocViewNode;
-    protected didUpdateViewStateEventEmitter: IEventEmitter<IDidUpdateViewStateEvent> = new EventEmitter();
+    protected didUpdateViewStateEventEmitter = new EventEmitter<IDidUpdateViewStateEvent>();
 
     constructor(
         protected instanceId: string,
