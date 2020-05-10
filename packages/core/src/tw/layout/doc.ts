@@ -6,8 +6,16 @@ export interface ILayoutDoc extends ILayoutNode {
 }
 
 export class LayoutDoc extends LayoutNode implements ILayoutDoc {
-    constructor(renderId: string | null) {
-        super(renderId, '', 0, 0, 0, 0);
+    constructor(
+        renderId: string | null,
+        readonly width: number,
+        readonly height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
@@ -20,14 +28,6 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
 
     get leaf() {
         return false;
-    }
-
-    get width() {
-        return 0;
-    }
-
-    get height() {
-        return 0;
     }
 
     get paddingTop() {

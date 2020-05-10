@@ -7,7 +7,7 @@ import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
 import { LayoutAtom } from './atom';
 import { LayoutBlock } from './block';
-import { ILayoutDoc } from './doc';
+import { ILayoutDoc, LayoutDoc } from './doc';
 import { LayoutInline } from './inline';
 import { ILayoutNode } from './node';
 import { LayoutText } from './text';
@@ -15,12 +15,25 @@ import { TextMeasurer } from './text-measurer';
 
 export interface ILayoutEngine {
     updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>): void;
+    buildDoc(renderDoc: IRenderDoc<any>): ILayoutDoc;
 }
 
 export class LayoutEngine implements ILayoutEngine {
     protected textMeasurer = new TextMeasurer();
 
     constructor(protected componentService: IComponentService) {}
+
+    buildDoc(renderDoc: IRenderDoc<any>) {
+        return new LayoutDoc(
+            renderDoc.id,
+            renderDoc.width,
+            renderDoc.height,
+            renderDoc.paddingTop,
+            renderDoc.paddingBottom,
+            renderDoc.paddingLeft,
+            renderDoc.paddingRight,
+        );
+    }
 
     updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>) {
         if (!renderDoc.needLayout) {
@@ -40,7 +53,7 @@ export class LayoutEngine implements ILayoutEngine {
         renderDoc.children.forEach((child) => {
             switch (child.type) {
                 case 'block':
-                    newChildren.push(...this.updateBlock(childrenMap[child.id], child));
+                    newChildren.push(...this.updateBlock(childrenMap[child.id], child, doc.innerWidth));
                     break;
                 default:
                     throw new Error(`Child type ${child.type} is invalid.`);
@@ -49,7 +62,7 @@ export class LayoutEngine implements ILayoutEngine {
         // TODO: Reflow pages
     }
 
-    protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any>): ILayoutNode[] {
+    protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any>, width: number): ILayoutNode[] {
         if (!renderBlock.needLayout) {
             if (blocks.length === 0) {
                 throw new Error('Expected layout block to be available.');
@@ -78,8 +91,9 @@ export class LayoutEngine implements ILayoutEngine {
                     throw new Error(`Child type ${child.type} is invalid.`);
             }
         });
+        const block = this.buildBlock(renderBlock, width);
         // TODO: Reflow lines
-        return blocks;
+        return [block];
     }
 
     protected updateInline(inlines: ILayoutNode[], renderInline: IRenderNode<any>): ILayoutNode[] {

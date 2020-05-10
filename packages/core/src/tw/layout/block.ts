@@ -1,9 +1,7 @@
-import { ILayoutNode, LayoutNode } from './node';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
 export interface ILayoutBlock extends ILayoutNode {
-    readonly type: 'block';
-
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
 }
@@ -25,7 +23,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         });
     }
 
-    get type(): 'block' {
+    get type(): ILayoutNodeType {
         return 'block';
     }
 

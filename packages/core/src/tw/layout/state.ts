@@ -3,7 +3,7 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
-import { ILayoutDoc, LayoutDoc } from './doc';
+import { ILayoutDoc } from './doc';
 import { ILayoutEngine, LayoutEngine } from './engine';
 
 export interface IDidUpdateLayoutStateEvent {}
@@ -22,7 +22,7 @@ export class LayoutState implements ILayoutState {
     constructor(protected componentService: IComponentService, protected renderService: IRenderService) {
         this.layoutEngine = new LayoutEngine(componentService);
         const renderDoc = renderService.getDoc();
-        this.doc = new LayoutDoc(renderDoc.id);
+        this.doc = this.layoutEngine.buildDoc(renderDoc);
         this.layoutEngine.updateDoc(this.doc, renderDoc);
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
     }
