@@ -1,4 +1,3 @@
-import { IRenderInline } from '../render/inline';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 import { ILayoutText } from './text';
@@ -8,18 +7,21 @@ export interface ILayoutInline extends ILayoutNode {
 
     convertCoordinateToOffset(x: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): ILayoutInline;
 }
 
-export abstract class LayoutInline extends LayoutNode implements ILayoutInline {
-    abstract clone(): ILayoutInline;
-
+export class LayoutInline extends LayoutNode implements ILayoutInline {
     protected internalWidth?: number;
     protected internalHeight?: number;
     protected internalTrimmedWidth?: number;
 
-    constructor(protected renderNode: IRenderInline<any>) {
-        super();
+    constructor(
+        renderId: string | null,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
         this.onDidUpdateNode(() => {
             this.internalWidth = undefined;
             this.internalHeight = undefined;
@@ -41,7 +43,7 @@ export abstract class LayoutInline extends LayoutNode implements ILayoutInline {
 
     get width() {
         if (this.internalWidth === undefined) {
-            this.internalWidth = this.children.reduce((width, child) => width + child.width, this.horizontalPadding);
+            this.internalWidth = this.children.reduce((width, child) => width + child.width, this.paddingHorizontal);
         }
         return this.internalWidth;
     }
@@ -49,7 +51,7 @@ export abstract class LayoutInline extends LayoutNode implements ILayoutInline {
     get height() {
         if (this.internalHeight === undefined) {
             this.internalHeight =
-                this.children.reduce((height, child) => Math.max(height, child.height), 0) + this.verticalPaddng;
+                this.children.reduce((height, child) => Math.max(height, child.height), 0) + this.paddingVertical;
         }
         return this.internalHeight;
     }

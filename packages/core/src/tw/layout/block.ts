@@ -1,21 +1,25 @@
-import { IRenderBlock } from '../render/block';
 import { ILayoutNode, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
 export interface ILayoutBlock extends ILayoutNode {
     readonly type: 'block';
+
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): ILayoutBlock;
 }
 
-export abstract class LayoutBlock extends LayoutNode implements ILayoutBlock {
-    abstract clone(): ILayoutBlock;
-
+export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     protected internalHeight?: number;
 
-    constructor(protected renderNode: IRenderBlock<any>, readonly width: number) {
-        super();
+    constructor(
+        renderId: string | null,
+        readonly width: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
         this.onDidUpdateNode(() => {
             this.internalHeight = undefined;
         });
@@ -33,9 +37,9 @@ export abstract class LayoutBlock extends LayoutNode implements ILayoutBlock {
         return false;
     }
 
-    getHeight() {
+    get height() {
         if (this.internalHeight === undefined) {
-            this.internalHeight = this.children.reduce((height, child) => height + child.height, this.verticalPaddng);
+            this.internalHeight = this.children.reduce((height, child) => height + child.height, this.paddingVertical);
         }
         return this.internalHeight;
     }

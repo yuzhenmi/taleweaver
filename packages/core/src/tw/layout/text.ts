@@ -1,6 +1,7 @@
-import { IRenderText } from '../render/text';
+import { IFont } from '../render/font';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
+import { ITextMeasurer } from './text-measurer';
 
 export interface ILayoutText extends ILayoutNode {
     readonly trimmedWidth: number;
@@ -10,15 +11,22 @@ export interface ILayoutText extends ILayoutNode {
     resolveRects(from: number, to: number): ILayoutRect[];
 }
 
-export abstract class LayoutText extends LayoutNode implements ILayoutText {
-    abstract get trimmedWidth(): number;
-
+export class LayoutText extends LayoutNode implements ILayoutText {
     abstract breakAtWidth(width: number): ILayoutText;
     abstract convertCoordinateToOffset(x: number): number;
     abstract resolveRects(from: number, to: number): ILayoutRect[];
 
-    constructor(protected renderNode: IRenderText<any>) {
-        super();
+    protected internalWidth?: number;
+    protected internalHeight?: number;
+    protected internalTrimmedWidth?: number;
+
+    constructor(
+        renderId: string | null,
+        text: string,
+        readonly fontConfig: IFont,
+        protected textMeasurer: ITextMeasurer,
+    ) {
+        super(renderId, text, 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {
@@ -31,5 +39,35 @@ export abstract class LayoutText extends LayoutNode implements ILayoutText {
 
     get leaf() {
         return true;
+    }
+
+    get width() {
+        if (this.internalWidth === undefined) {
+            [this.internalWidth, this.internalHeight] = this.measure();
+        }
+        return this.internalWidth;
+    }
+
+    get height() {
+        if (this.internalHeight === undefined) {
+            [this.internalWidth, this.internalHeight] = this.measure();
+        }
+        return this.internalHeight;
+    }
+
+    get trimmedWidth() {
+        if (this.internalTrimmedWidth === undefined) {
+            this.internalTrimmedWidth = this.textMeasurer.measureTrimmed(this.text, this.fontConfig).width;
+        }
+        return this.internalTrimmedWidth;
+    }
+
+    protected get trimmable() {
+        return false;
+    }
+
+    protected measure(): [number, number] {
+        const measurement = this.textMeasurer.measure(this.text, this.fontConfig);
+        return [measurement.width, measurement.height];
     }
 }

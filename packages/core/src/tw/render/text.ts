@@ -1,8 +1,11 @@
+import { IFont } from './font';
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderText<TStyle> extends IRenderNode<TStyle> {}
+export interface IRenderText<TStyle> extends IRenderNode<TStyle> {
+    readonly font: IFont;
+}
 
-export abstract class RenderText<TStyle> extends RenderNode<TStyle> implements IRenderText<TStyle> {
+export abstract class RenderText extends RenderNode<IFont> implements IRenderText<IFont> {
     get type(): IRenderNodeType {
         return 'text';
     }
@@ -21,5 +24,9 @@ export abstract class RenderText<TStyle> extends RenderNode<TStyle> implements I
 
     get modelTextSize() {
         return 0;
+    }
+
+    get font() {
+        return this.style;
     }
 }

@@ -8,7 +8,6 @@ export interface IComponent {
 
     buildModelNode(partId: string | null, id: string, attributes: {}, text: string): IModelNode<any> | undefined;
     buildRenderNode(modelNode: IModelNode<any>): IRenderNode<any> | undefined;
-    buildLayoutNode(renderNode: IRenderNode<any>): ILayoutNode | undefined;
     buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
 }
 
@@ -20,7 +19,6 @@ export abstract class Component implements IComponent {
         text: string,
     ): IModelNode<any> | undefined;
     abstract buildRenderNode(modelNode: IModelNode<any>): IRenderNode<any> | undefined;
-    abstract buildLayoutNode(renderNode: IRenderNode<any>): ILayoutNode | undefined;
     abstract buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
 
     constructor(readonly id: string) {}

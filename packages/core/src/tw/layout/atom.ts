@@ -1,4 +1,3 @@
-import { IRenderAtom } from '../render/atom';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
 
@@ -8,13 +7,13 @@ export interface ILayoutAtom extends ILayoutNode {
     resolveRects(from: number, to: number): ILayoutRect[];
 }
 
-export abstract class LayoutAtom extends LayoutNode implements ILayoutAtom {
+export class LayoutAtom extends LayoutNode implements ILayoutAtom {
     abstract breakAtWidth(width: number): ILayoutAtom;
     abstract convertCoordinateToOffset(x: number): number;
     abstract resolveRects(from: number, to: number): ILayoutRect[];
 
-    constructor(protected renderNode: IRenderAtom<any>) {
-        super();
+    constructor(renderId: string | null, readonly width: number, readonly height: number) {
+        super(renderId, ' ', 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {

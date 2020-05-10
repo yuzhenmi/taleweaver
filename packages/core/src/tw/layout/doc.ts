@@ -6,6 +6,10 @@ export interface ILayoutDoc extends ILayoutNode {
 }
 
 export class LayoutDoc extends LayoutNode implements ILayoutDoc {
+    constructor(renderId: string | null) {
+        super(renderId, '', 0, 0, 0, 0);
+    }
+
     get type(): ILayoutNodeType {
         return 'doc';
     }

@@ -7,9 +7,7 @@ import { IDidUpdateModelStateEvent } from '../model/state';
 import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
 
-export interface IDidUpdateRenderStateEvent {
-    readonly node: IRenderNode<any>;
-}
+export interface IDidUpdateRenderStateEvent {}
 
 export interface IRenderState {
     onDidUpdateRenderState: IOnEvent<IDidUpdateRenderStateEvent>;
@@ -35,12 +33,10 @@ export class RenderState implements IRenderState {
     protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
         const modelRoot = this.modelService.getRoot();
         this.updateNode(this.doc, modelRoot);
+        this.didUpdateRenderStateEventEmitter.emit({});
     };
 
     protected updateNode(node: IRenderNode<any>, modelNode: IModelNode<any>) {
-        if (!modelNode.needRender) {
-            return;
-        }
         node.update(modelNode.attributes, modelNode.text);
         const childrenMap: { [key: string]: IRenderNode<any> } = {};
         node.children.forEach((child) => {
@@ -56,8 +52,12 @@ export class RenderState implements IRenderState {
                 child = this.buildNode(modelChild);
             }
             newChildren.push(child);
+            if (modelChild.needRender) {
+                this.updateNode(child, modelChild);
+            }
         });
         node.setChildren(newChildren);
+        modelNode.clearNeedRender();
     }
 
     protected buildNode(modelNode: IModelNode<any>) {
