@@ -3,27 +3,20 @@ import { ILayoutRect, mergeLayoutRects } from './rect';
 
 export interface ILayoutLine extends ILayoutNode {
     readonly contentWidth: number;
-    readonly flowed: boolean;
 
-    markAsFlowed(): void;
     convertCoordinateToOffset(x: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): ILayoutLine;
 }
 
-export abstract class LayoutLine extends LayoutNode implements ILayoutLine {
-    abstract clone(): ILayoutLine;
-
+export class LayoutLine extends LayoutNode implements ILayoutLine {
     protected internalHeight?: number;
     protected internalContentWidth?: number;
-    protected internalFlowed = false;
 
-    constructor() {
-        super();
+    constructor(readonly width: number) {
+        super(null, '', 0, 0, 0, 0);
         this.onDidUpdateNode(() => {
             this.internalHeight = undefined;
             this.internalContentWidth = undefined;
-            this.internalFlowed = false;
         });
     }
 
@@ -43,7 +36,7 @@ export abstract class LayoutLine extends LayoutNode implements ILayoutLine {
         if (this.internalHeight === undefined) {
             this.internalHeight = this.children.reduce(
                 (height, child) => Math.max(height, child.height),
-                this.verticalPaddng,
+                this.paddingVertical,
             );
         }
         return this.internalHeight;
@@ -70,14 +63,6 @@ export abstract class LayoutLine extends LayoutNode implements ILayoutLine {
             this.internalContentWidth = this.children.reduce((contentWidth, child) => contentWidth + child.width, 0);
         }
         return this.internalContentWidth;
-    }
-
-    get flowed() {
-        return this.internalFlowed;
-    }
-
-    markAsFlowed() {
-        this.internalFlowed = true;
     }
 
     convertCoordinateToOffset(x: number) {

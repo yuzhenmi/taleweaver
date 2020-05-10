@@ -5,11 +5,14 @@ import { IRenderDoc } from '../render/doc';
 import { IRenderInline } from '../render/inline';
 import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
+import { INodeList } from '../tree/node-list';
 import { LayoutAtom } from './atom';
 import { LayoutBlock } from './block';
 import { ILayoutDoc, LayoutDoc } from './doc';
 import { LayoutInline } from './inline';
+import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
+import { LayoutPage } from './page';
 import { LayoutText } from './text';
 import { TextMeasurer } from './text-measurer';
 
@@ -59,7 +62,18 @@ export class LayoutEngine implements ILayoutEngine {
                     throw new Error(`Child type ${child.type} is invalid.`);
             }
         });
-        // TODO: Reflow pages
+        doc.setChildren(
+            this.reflowPages(
+                doc.children,
+                newChildren,
+                doc.width,
+                doc.height,
+                doc.paddingTop,
+                doc.paddingBottom,
+                doc.paddingLeft,
+                doc.paddingRight,
+            ),
+        );
     }
 
     protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any>, width: number): ILayoutNode[] {
@@ -92,7 +106,7 @@ export class LayoutEngine implements ILayoutEngine {
             }
         });
         const block = this.buildBlock(renderBlock, width);
-        // TODO: Reflow lines
+        block.setChildren(this.reflowLines(block.children, newChildren, block.innerWidth));
         return [block];
     }
 
@@ -201,5 +215,60 @@ export class LayoutEngine implements ILayoutEngine {
         }
         const renderAtom = renderNode as IRenderAtom<any>;
         return new LayoutAtom(renderAtom.id, renderAtom.width, renderAtom.height);
+    }
+
+    protected reflowPages(
+        pages: INodeList<ILayoutNode>,
+        nodes: ILayoutNode[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        nodes = nodes.slice();
+        const newPages: ILayoutNode[] = [];
+        pages.forEach((page) => {
+            let reflowNeeded = false;
+            for (let n = 0, nn = page.children.length; n < nn; n++) {
+                const child = page.children.at(n);
+                if (child.id !== nodes[n].id) {
+                    reflowNeeded = true;
+                    break;
+                }
+            }
+            if (!reflowNeeded) {
+                newPages.push(page);
+                return;
+            }
+            const newPage = new LayoutPage(width, height, paddingTop, paddingBottom, paddingLeft, paddingRight);
+            // TODO: Rebuild page content
+            newPages.push(newPage);
+        });
+        return newPages;
+    }
+
+    protected reflowLines(lines: INodeList<ILayoutNode>, nodes: ILayoutNode[], width: number) {
+        nodes = nodes.slice();
+        const newLines: ILayoutNode[] = [];
+        lines.forEach((line) => {
+            let reflowNeeded = false;
+            for (let n = 0, nn = line.children.length; n < nn; n++) {
+                const child = line.children.at(n);
+                if (child.id !== nodes[n].id) {
+                    reflowNeeded = true;
+                    break;
+                }
+            }
+            if (!reflowNeeded) {
+                newLines.push(line);
+                return;
+            }
+            const newLine = new LayoutLine(width);
+            // TODO: Rebuild line content
+            newLines.push(newLine);
+        });
+        return newLines;
     }
 }

@@ -3,44 +3,25 @@ import { ILayoutRect } from './rect';
 
 export interface ILayoutPage extends ILayoutNode {
     readonly contentHeight: number;
-    readonly flowed: boolean;
 
-    markAsFlowed(): void;
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
-    clone(): ILayoutPage;
 }
 
-export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
-    abstract clone(): ILayoutPage;
-
-    protected internalWidth: number;
-    protected internalHeight: number;
-    protected internalPaddingTop: number;
-    protected internalPaddingBottom: number;
-    protected internalPaddingLeft: number;
-    protected internalPaddingRight: number;
+export class LayoutPage extends LayoutNode implements ILayoutPage {
     protected internalContentHeight?: number;
-    protected internalFlowed = false;
 
     constructor(
-        width: number,
-        height: number,
+        readonly width: number,
+        readonly height: number,
         paddingTop: number,
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super();
-        this.internalWidth = width;
-        this.internalHeight = height;
-        this.internalPaddingTop = paddingTop;
-        this.internalPaddingBottom = paddingBottom;
-        this.internalPaddingLeft = paddingLeft;
-        this.internalPaddingRight = paddingRight;
+        super(null, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
         this.onDidUpdateNode(() => {
             this.internalContentHeight = undefined;
-            this.internalFlowed = false;
         });
     }
 
@@ -56,30 +37,6 @@ export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
         return false;
     }
 
-    get width() {
-        return this.internalWidth;
-    }
-
-    get height() {
-        return this.internalHeight;
-    }
-
-    get paddingTop() {
-        return this.internalPaddingTop;
-    }
-
-    get paddingBottom() {
-        return this.internalPaddingBottom;
-    }
-
-    get paddingLeft() {
-        return this.internalPaddingLeft;
-    }
-
-    get paddingRight() {
-        return this.internalPaddingRight;
-    }
-
     get contentHeight() {
         if (this.internalContentHeight === undefined) {
             this.internalContentHeight = this.children.reduce(
@@ -88,14 +45,6 @@ export abstract class LayoutPage extends LayoutNode implements ILayoutPage {
             );
         }
         return this.internalContentHeight;
-    }
-
-    get flowed() {
-        return this.internalFlowed;
-    }
-
-    markAsFlowed() {
-        this.internalFlowed = true;
     }
 
     convertCoordinatesToOffset(x: number, y: number) {
