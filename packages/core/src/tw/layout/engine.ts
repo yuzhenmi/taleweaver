@@ -247,7 +247,7 @@ export class LayoutEngine implements ILayoutEngine {
             const newPage = new LayoutPage(width, height, paddingTop, paddingBottom, paddingLeft, paddingRight);
             const newChildren: ILayoutNode[] = [];
             let currentHeight = 0;
-            // Push whole blocks to page until either no more block or no longer fit
+            // Push whole nodes to page until either no more node or no longer fit
             let node = nodes.shift();
             while (node && currentHeight + node.height <= height) {
                 newChildren.push(node);
@@ -268,8 +268,8 @@ export class LayoutEngine implements ILayoutEngine {
                 if (nodeChildren.length > 0) {
                     switch (node.type) {
                         case 'block':
-                            // Split node to two, one to push to this page, the other goes back
-                            // to the list of nodes to process
+                            // Split block to two, one to push to this page, other goes back
+                            // to list of nodes to process
                             const node1 = new LayoutBlock(
                                 node.renderId,
                                 width,
@@ -321,7 +321,7 @@ export class LayoutEngine implements ILayoutEngine {
             const newLine = new LayoutLine(width);
             const newChildren: ILayoutNode[] = [];
             let currentWidth = 0;
-            // Push whole inlines to line until either no more inline or no longer fit
+            // Push whole nodes to line until either no more node or no longer fit
             let node = nodes.shift();
             while (node && currentWidth + node.width <= width) {
                 newChildren.push(node);
@@ -343,8 +343,8 @@ export class LayoutEngine implements ILayoutEngine {
                 if (nodeChildren.length > 0) {
                     switch (node.type) {
                         case 'text':
-                            // Split node to two, one to push to this line, the other goes back
-                            // to the list of nodes to process
+                            // Split text to two, one to push to this line, other goes back
+                            // to list of nodes to process
                             const text = node as ILayoutText;
                             const node1 = new LayoutText(
                                 text.renderId,

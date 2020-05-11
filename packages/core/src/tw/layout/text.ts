@@ -28,6 +28,11 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         readonly font: IFont,
     ) {
         super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
+        this.onDidUpdateNode(() => {
+            this.internalWidth = undefined;
+            this.internalHeight = undefined;
+            this.internalTrimmedWidth = undefined;
+        });
     }
 
     get type(): ILayoutNodeType {

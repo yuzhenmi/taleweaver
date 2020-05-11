@@ -16,6 +16,11 @@ export abstract class RenderWord extends RenderNode<IFont> implements IRenderWor
 
     constructor(componentId: string, protected textMeasurer: ITextMeasurer) {
         super(componentId, null, generateId());
+        this.onDidUpdateNode(() => {
+            this.internalWidth = undefined;
+            this.internalHeight = undefined;
+            this.internalTrimmedWidth = undefined;
+        });
     }
 
     get type(): IRenderNodeType {
