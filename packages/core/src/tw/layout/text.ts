@@ -1,18 +1,17 @@
 import { IFont } from '../render/font';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutRect } from './rect';
-import { ITextMeasurer } from './text-measurer';
+import { ILayoutWord } from './word';
 
 export interface ILayoutText extends ILayoutNode {
+    readonly font: IFont;
     readonly trimmedWidth: number;
 
-    breakAtWidth(width: number): ILayoutText;
     convertCoordinateToOffset(x: number): number;
     resolveRects(from: number, to: number): ILayoutRect[];
 }
 
 export class LayoutText extends LayoutNode implements ILayoutText {
-    abstract breakAtWidth(width: number): ILayoutText;
     abstract convertCoordinateToOffset(x: number): number;
     abstract resolveRects(from: number, to: number): ILayoutRect[];
 
@@ -22,11 +21,13 @@ export class LayoutText extends LayoutNode implements ILayoutText {
 
     constructor(
         renderId: string | null,
-        text: string,
-        readonly fontConfig: IFont,
-        protected textMeasurer: ITextMeasurer,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+        readonly font: IFont,
     ) {
-        super(renderId, text, 0, 0, 0, 0);
+        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
@@ -43,31 +44,27 @@ export class LayoutText extends LayoutNode implements ILayoutText {
 
     get width() {
         if (this.internalWidth === undefined) {
-            [this.internalWidth, this.internalHeight] = this.measure();
+            this.internalWidth = this.children.reduce((width, child) => width + child.width, 0);
         }
         return this.internalWidth;
     }
 
     get height() {
         if (this.internalHeight === undefined) {
-            [this.internalWidth, this.internalHeight] = this.measure();
+            this.internalHeight = this.children.reduce((height, child) => Math.max(height, child.height), 0);
         }
         return this.internalHeight;
     }
 
     get trimmedWidth() {
         if (this.internalTrimmedWidth === undefined) {
-            this.internalTrimmedWidth = this.textMeasurer.measureTrimmed(this.text, this.fontConfig).width;
+            const lastChild = this.lastChild as ILayoutWord | null;
+            if (!lastChild) {
+                this.internalTrimmedWidth = 0;
+            } else {
+                this.internalTrimmedWidth = this.width - lastChild.width + lastChild.trimmedWidth;
+            }
         }
         return this.internalTrimmedWidth;
-    }
-
-    protected get trimmable() {
-        return false;
-    }
-
-    protected measure(): [number, number] {
-        const measurement = this.textMeasurer.measure(this.text, this.fontConfig);
-        return [measurement.width, measurement.height];
     }
 }

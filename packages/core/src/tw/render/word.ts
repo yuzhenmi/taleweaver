@@ -1,8 +1,23 @@
+import { ITextMeasurer } from '../layout/text-measurer';
+import { generateId } from '../util/id';
+import { IFont } from './font';
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderWord<TStyle> extends IRenderNode<TStyle> {}
+export interface IRenderWord<TStyle> extends IRenderNode<TStyle> {
+    readonly width: number;
+    readonly height: number;
+    readonly trimmedWidth: number;
+}
 
-export abstract class RenderWord<TStyle> extends RenderNode<TStyle> implements IRenderWord<TStyle> {
+export abstract class RenderWord extends RenderNode<IFont> implements IRenderWord<IFont> {
+    protected internalWidth?: number;
+    protected internalHeight?: number;
+    protected internalTrimmedWidth?: number;
+
+    constructor(componentId: string, protected textMeasurer: ITextMeasurer) {
+        super(componentId, null, generateId());
+    }
+
     get type(): IRenderNodeType {
         return 'word';
     }
@@ -21,5 +36,31 @@ export abstract class RenderWord<TStyle> extends RenderNode<TStyle> implements I
 
     get modelTextSize() {
         return 0;
+    }
+
+    get width() {
+        if (this.internalWidth === undefined) {
+            [this.internalWidth, this.internalHeight] = this.measure();
+        }
+        return this.internalWidth;
+    }
+
+    get height() {
+        if (this.internalHeight === undefined) {
+            [this.internalWidth, this.internalHeight] = this.measure();
+        }
+        return this.internalHeight;
+    }
+
+    get trimmedWidth() {
+        if (this.internalTrimmedWidth === undefined) {
+            this.internalTrimmedWidth = this.textMeasurer.measureTrimmed(this.text, this.style).width;
+        }
+        return this.internalTrimmedWidth;
+    }
+
+    protected measure() {
+        const measurement = this.textMeasurer.measure(this.text, this.style);
+        return [measurement.width, measurement.height];
     }
 }

@@ -1,7 +1,7 @@
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 
-export type IRenderNodeType = 'doc' | 'block' | 'inline' | 'text' | 'word' | 'atom';
+export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
 export interface IRenderNode<TStyle extends {}> extends INode<IRenderNode<any>> {
     readonly type: IRenderNodeType;

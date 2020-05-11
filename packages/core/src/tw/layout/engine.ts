@@ -2,19 +2,19 @@ import { IComponentService } from '../component/service';
 import { IRenderAtom } from '../render/atom';
 import { IRenderBlock } from '../render/block';
 import { IRenderDoc } from '../render/doc';
-import { IRenderInline } from '../render/inline';
 import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
+import { IRenderWord } from '../render/word';
 import { INodeList } from '../tree/node-list';
 import { LayoutAtom } from './atom';
 import { LayoutBlock } from './block';
 import { ILayoutDoc, LayoutDoc } from './doc';
-import { LayoutInline } from './inline';
 import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { LayoutPage } from './page';
-import { LayoutText } from './text';
+import { ILayoutText, LayoutText } from './text';
 import { TextMeasurer } from './text-measurer';
+import { LayoutWord } from './word';
 
 export interface ILayoutEngine {
     updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>): void;
@@ -98,8 +98,11 @@ export class LayoutEngine implements ILayoutEngine {
         const newChildren: ILayoutNode[] = [];
         renderBlock.children.forEach((child) => {
             switch (child.type) {
-                case 'inline':
-                    newChildren.push(...this.updateInline(childrenMap[child.id] || [], child));
+                case 'text':
+                    newChildren.push(...this.updateText(childrenMap[child.id] || [], child));
+                    break;
+                case 'atom':
+                    // TODO
                     break;
                 default:
                     throw new Error(`Child type ${child.type} is invalid.`);
@@ -110,16 +113,16 @@ export class LayoutEngine implements ILayoutEngine {
         return [block];
     }
 
-    protected updateInline(inlines: ILayoutNode[], renderInline: IRenderNode<any>): ILayoutNode[] {
-        if (!renderInline.needLayout) {
-            if (inlines.length === 0) {
-                throw new Error('Expected layout inline to be available.');
+    protected updateText(texts: ILayoutNode[], renderText: IRenderNode<any>): ILayoutNode[] {
+        if (!renderText.needLayout) {
+            if (texts.length === 0) {
+                throw new Error('Expected layout text to be available.');
             }
-            return inlines;
+            return texts;
         }
         const childrenMap: { [key: string]: ILayoutNode[] } = {};
-        for (const inline of inlines) {
-            inline.children.forEach((child) => {
+        for (const text of texts) {
+            text.children.forEach((child) => {
                 if (!child.renderId) {
                     throw new Error('Render ID missing on layout node.');
                 }
@@ -128,32 +131,29 @@ export class LayoutEngine implements ILayoutEngine {
             });
         }
         const newChildren: ILayoutNode[] = [];
-        renderInline.children.forEach((child) => {
+        renderText.children.forEach((child) => {
             switch (child.type) {
-                case 'text':
-                    newChildren.push(...this.updateText(childrenMap[child.id] || [], child));
-                    break;
-                case 'atom':
-                    newChildren.push(...this.updateAtom(childrenMap[child.id] || [], child));
+                case 'word':
+                    newChildren.push(...this.updateWord(childrenMap[child.id] || [], child));
                     break;
                 default:
                     throw new Error(`Child type ${child.type} is invalid.`);
             }
         });
-        const inline = this.buildInline(renderInline);
-        inline.setChildren(newChildren);
-        return [inline];
+        const text = this.buildText(renderText);
+        text.setChildren(newChildren);
+        return [text];
     }
 
-    protected updateText(texts: ILayoutNode[], renderText: IRenderNode<any>): ILayoutNode[] {
-        if (!renderText.needLayout) {
-            if (texts.length === 0) {
-                throw new Error('Expected layout text to be available.');
+    protected updateWord(words: ILayoutNode[], renderWord: IRenderNode<any>): ILayoutNode[] {
+        if (!renderWord.needLayout) {
+            if (words.length === 0) {
+                throw new Error('Expected layout word to be available.');
             }
-            return texts;
+            return words;
         }
-        const text = this.buildText(renderText);
-        return [text];
+        const word = this.buildWord(renderWord);
+        return [word];
     }
 
     protected updateAtom(atoms: ILayoutNode[], renderAtom: IRenderNode<any>): ILayoutNode[] {
@@ -182,20 +182,6 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildInline(renderNode: IRenderNode<any>) {
-        if (renderNode.type !== 'inline') {
-            throw new Error('Expected inline.');
-        }
-        const renderInline = renderNode as IRenderInline<any>;
-        return new LayoutInline(
-            renderInline.id,
-            renderInline.paddingTop,
-            renderInline.paddingBottom,
-            renderInline.paddingLeft,
-            renderInline.paddingRight,
-        );
-    }
-
     protected buildText(renderNode: IRenderNode<any>) {
         if (renderNode.type !== 'text') {
             throw new Error('Expected text.');
@@ -203,9 +189,25 @@ export class LayoutEngine implements ILayoutEngine {
         const renderText = renderNode as IRenderText<any>;
         return new LayoutText(
             renderText.id,
-            renderText.children.map((child) => child.text).join(''),
+            renderText.paddingTop,
+            renderText.paddingBottom,
+            renderText.paddingLeft,
+            renderText.paddingRight,
             renderText.font,
-            this.textMeasurer,
+        );
+    }
+
+    protected buildWord(renderNode: IRenderNode<any>) {
+        if (renderNode.type !== 'word') {
+            throw new Error('Expected word.');
+        }
+        const renderWord = renderNode as IRenderWord<any>;
+        return new LayoutWord(
+            renderWord.id,
+            renderWord.text,
+            renderWord.width,
+            renderWord.height,
+            renderWord.trimmedWidth,
         );
     }
 
@@ -243,7 +245,58 @@ export class LayoutEngine implements ILayoutEngine {
                 return;
             }
             const newPage = new LayoutPage(width, height, paddingTop, paddingBottom, paddingLeft, paddingRight);
-            // TODO: Rebuild page content
+            const newChildren: ILayoutNode[] = [];
+            let currentHeight = 0;
+            // Push whole blocks to page until either no more block or no longer fit
+            let node = nodes.shift();
+            while (node && currentHeight + node.height <= height) {
+                newChildren.push(node);
+                currentHeight += node.height;
+                node = nodes.shift();
+            }
+            // If there is remainder node, try to push part of it to page
+            if (node) {
+                const nodeChildren: ILayoutNode[] = [];
+                for (let m = 0, mm = node.children.length; m < mm; m++) {
+                    const nodeChild = node.children.at(m);
+                    if (currentHeight + nodeChild.height > height) {
+                        break;
+                    }
+                    nodeChildren.push(nodeChild);
+                    currentHeight += nodeChild.height;
+                }
+                if (nodeChildren.length > 0) {
+                    switch (node.type) {
+                        case 'block':
+                            // Split node to two, one to push to this page, the other goes back
+                            // to the list of nodes to process
+                            const node1 = new LayoutBlock(
+                                node.renderId,
+                                width,
+                                node.paddingTop,
+                                node.paddingBottom,
+                                node.paddingLeft,
+                                node.paddingRight,
+                            );
+                            node1.setChildren(nodeChildren);
+                            newChildren.push(node1);
+                            currentHeight += node1.height;
+                            const node2 = new LayoutBlock(
+                                node.renderId,
+                                width,
+                                node.paddingTop,
+                                node.paddingBottom,
+                                node.paddingLeft,
+                                node.paddingRight,
+                            );
+                            nodes.unshift(node2);
+                            break;
+                        default:
+                            throw new Error('Invalid node type encountered while reflowing page.');
+                    }
+                }
+            }
+            newPage.setChildren(newChildren);
             newPages.push(newPage);
         });
         return newPages;
@@ -266,7 +319,70 @@ export class LayoutEngine implements ILayoutEngine {
                 return;
             }
             const newLine = new LayoutLine(width);
-            // TODO: Rebuild line content
+            const newChildren: ILayoutNode[] = [];
+            let currentWidth = 0;
+            // Push whole inlines to line until either no more inline or no longer fit
+            let node = nodes.shift();
+            while (node && currentWidth + node.width <= width) {
+                newChildren.push(node);
+                currentWidth += node.width;
+                node = nodes.shift();
+            }
+            // If there is remainder node, try to push part of it to line
+            if (node) {
+                const nodeChildren: ILayoutNode[] = [];
+                for (let m = 0, mm = node.children.length; m < mm; m++) {
+                    // TODO: Handle case where word is wider than line - break word
+                    const nodeChild = node.children.at(m);
+                    if (currentWidth + nodeChild.width > width) {
+                        break;
+                    }
+                    nodeChildren.push(nodeChild);
+                    currentWidth += nodeChild.width;
+                }
+                if (nodeChildren.length > 0) {
+                    switch (node.type) {
+                        case 'text':
+                            // Split node to two, one to push to this line, the other goes back
+                            // to the list of nodes to process
+                            const text = node as ILayoutText;
+                            const node1 = new LayoutText(
+                                text.renderId,
+                                text.paddingTop,
+                                text.paddingBottom,
+                                text.paddingLeft,
+                                text.paddingRight,
+                                text.font,
+                            );
+                            node1.setChildren(nodeChildren);
+                            newChildren.push(node1);
+                            currentWidth += node1.width;
+                            const node2 = new LayoutText(
+                                text.renderId,
+                                text.paddingTop,
+                                text.paddingBottom,
+                                text.paddingLeft,
+                                text.paddingRight,
+                                text.font,
+                            );
+                            nodes.unshift(node2);
+                            break;
+                        case 'atom':
+                            // If atom is wider than line and line is empty, push atom to line
+                            // and let it clip
+                            if (node.width > width && newChildren.length === 0) {
+                                newChildren.push(node);
+                            } else {
+                                // Atom cannot be split, goes back to list of nodes to process
+                                nodes.unshift(node);
+                            }
+                            break;
+                        default:
+                            throw new Error('Invalid node type encountered while reflowing page.');
+                    }
+                }
+            }
+            newLine.setChildren(newChildren);
             newLines.push(newLine);
         });
         return newLines;
