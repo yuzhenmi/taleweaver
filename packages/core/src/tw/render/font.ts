@@ -9,7 +9,7 @@ export interface IFont {
     color?: string;
 }
 
-export interface IFontWithDefault {
+export interface IFontNoOptional {
     weight: number;
     size: number;
     family: string;
@@ -31,7 +31,7 @@ export const DEFAULT_FONT: IFont = {
     color: 'black',
 };
 
-export function applyDefaultFont(fontConfig: IFont): IFontWithDefault {
+export function applyDefaultFont(fontConfig: IFont): IFontNoOptional {
     const fontConfigWithDefault: any = {};
     for (const key in DEFAULT_FONT) {
         if (key in fontConfig && (fontConfig as any)[key] !== undefined) {
@@ -40,5 +40,5 @@ export function applyDefaultFont(fontConfig: IFont): IFontWithDefault {
             fontConfigWithDefault[key] = (DEFAULT_FONT as any)[key];
         }
     }
-    return fontConfigWithDefault as IFontWithDefault;
+    return fontConfigWithDefault as IFontNoOptional;
 }

@@ -1,108 +1,45 @@
-import { ILayoutNode } from '../layout/node';
 import { INode, Node } from '../tree/node';
 
-export type IViewNodeClass = 'doc' | 'page' | 'block' | 'line' | 'inline';
+export type IViewNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'atom';
 
-export interface IViewNode<
-    TLayoutNode extends ILayoutNode = ILayoutNode,
-    TParent extends IViewNode = IViewNode<any, any, any>,
-    TChild extends IViewNode = IViewNode<any, any, any>
-> extends INode<TParent, TChild> {
-    getNodeClass(): IViewNodeClass;
-    getComponentId(): string;
-    getPartId(): string;
-    getSize(): number;
-    getDOMContainer(): HTMLElement;
-    getLayoutNode(): TLayoutNode;
-    onLayoutDidUpdate(): void;
+export interface IViewNode<TStyle> extends INode<IViewNode<TStyle>> {
+    readonly type: IViewNodeType;
+    readonly componentId: string | null;
+    readonly partId: string | null;
+    readonly renderId: string | null;
+    readonly layoutId: string | null;
+    readonly style: TStyle;
+    readonly size: number;
+    readonly domContainer: HTMLElement;
 }
 
-export abstract class ViewNode<TLayoutNode extends ILayoutNode, TParent extends IViewNode, TChild extends IViewNode>
-    extends Node<TParent, TChild>
-    implements IViewNode<TLayoutNode, TParent, TChild> {
-    abstract getNodeClass(): IViewNodeClass;
-    abstract getDOMContainer(): HTMLElement;
-    abstract onLayoutDidUpdate(): void;
+export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implements IViewNode<TStyle> {
+    abstract get type(): IViewNodeType;
+    abstract get partId(): string | null;
+    abstract get domContainer(): HTMLElement;
 
-    protected abstract getDOMContentContainer(): HTMLElement;
+    protected internalSize?: number;
 
-    constructor(protected layoutNode: TLayoutNode) {
-        super();
+    constructor(
+        readonly componentId: string | null,
+        readonly renderId: string | null,
+        readonly layoutId: string,
+        readonly style: TStyle,
+        readonly text: string,
+    ) {
+        super(layoutId);
+        this.onDidUpdateNode(() => {
+            this.internalSize = undefined;
+        });
     }
 
-    getComponentId() {
-        return this.layoutNode.getComponentId();
-    }
-
-    getPartId() {
-        return this.layoutNode.getPartId();
-    }
-
-    getId() {
-        return this.layoutNode.getId();
-    }
-
-    getSize() {
-        return this.layoutNode.getSize();
-    }
-
-    insertChild(child: TChild) {
-        super.insertChild(child);
-        this.insertChildDOM(child.getDOMContainer());
-    }
-
-    insertChildBefore(child: TChild, beforeChild: TChild) {
-        super.insertChildBefore(child, beforeChild);
-        this.insertChildDOMBefore(child.getDOMContainer(), beforeChild.getDOMContainer());
-    }
-
-    appendChild(child: TChild) {
-        super.appendChild(child);
-        this.appendChildDOM(child.getDOMContainer());
-    }
-
-    appendChildAfter(child: TChild, afterChild: TChild) {
-        super.appendChildAfter(child, afterChild);
-        this.appendChildDOMAfter(child.getDOMContainer(), afterChild.getDOMContainer());
-    }
-
-    removeChild(child: TChild) {
-        super.removeChild(child);
-        this.removeChildDOM(child.getDOMContainer());
-    }
-
-    getLayoutNode() {
-        return this.layoutNode;
-    }
-
-    onDidUpdate(updatedNode: this) {
-        super.onDidUpdate(updatedNode);
-        this.layoutNode = updatedNode.getLayoutNode();
-        this.onLayoutDidUpdate();
-    }
-
-    protected insertChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, domContentContainer.firstChild);
-    }
-
-    protected insertChildDOMBefore(childDOM: HTMLElement, beforeChildDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, beforeChildDOM);
-    }
-
-    protected appendChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.appendChild(childDOM);
-    }
-
-    protected appendChildDOMAfter(childDOM: HTMLElement, afterChildDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.insertBefore(childDOM, afterChildDOM.nextSibling);
-    }
-
-    protected removeChildDOM(childDOM: HTMLElement) {
-        const domContentContainer = this.getDOMContentContainer();
-        domContentContainer.removeChild(childDOM);
+    get size() {
+        if (this.internalSize === undefined) {
+            if (this.leaf) {
+                this.internalSize = this.text.length;
+            }
+            this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
+        }
+        return this.internalSize;
     }
 }

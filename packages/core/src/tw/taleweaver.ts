@@ -52,7 +52,7 @@ export class Taleweaver {
         this.historyService = new HistoryService(this.configService, this.stateService);
         this.modelService = new ModelService(this.componentService, this.stateService);
         this.renderService = new RenderService(this.componentService, this.modelService);
-        this.layoutService = new LayoutService(this.componentService, this.renderService);
+        this.layoutService = new LayoutService(this.renderService);
         this.viewService = new ViewService(
             this.instanceId,
             this.componentService,

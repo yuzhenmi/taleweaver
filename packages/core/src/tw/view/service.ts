@@ -6,7 +6,7 @@ import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 import { CursorView, ICursorView } from './cursor';
-import { IDocViewNode } from './doc-node';
+import { IDocViewNode } from './doc';
 import { DOMController, IDOMController } from './dom-controller';
 import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
 import { IDidPressKeyEvent } from './keyboard-observer';

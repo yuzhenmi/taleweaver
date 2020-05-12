@@ -1,7 +1,7 @@
-import { ITextMeasurer } from '../layout/text-measurer';
 import { generateId } from '../util/id';
 import { IFont } from './font';
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
+import { ITextMeasurer } from './text-measurer';
 
 export interface IRenderWord<TStyle> extends IRenderNode<TStyle> {
     readonly width: number;

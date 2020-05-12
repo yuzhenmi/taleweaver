@@ -7,8 +7,8 @@ import { RenderInline } from '../../render/inline';
 import { IRenderNode } from '../../render/node';
 import { RenderWord } from '../../render/word';
 import { breakTextToWords, IWord } from '../../util/language';
-import { InlineViewNode } from '../../view/inline-node';
 import { IViewNode } from '../../view/node';
+import { InlineViewNode } from '../../view/text';
 import { Component, IComponent } from '../component';
 
 export interface ITextAttributes {

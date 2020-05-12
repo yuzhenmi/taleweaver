@@ -2,7 +2,7 @@ import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 import { generateId } from '../util/id';
 
-export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'text' | 'atom';
+export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'text' | 'word' | 'atom';
 
 export interface ILayoutPosition extends IPosition<ILayoutNode> {}
 

@@ -1,4 +1,3 @@
-import { IComponentService } from '../component/service';
 import { IRenderAtom } from '../render/atom';
 import { IRenderBlock } from '../render/block';
 import { IRenderDoc } from '../render/doc';
@@ -13,7 +12,6 @@ import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { LayoutPage } from './page';
 import { ILayoutText, LayoutText } from './text';
-import { TextMeasurer } from './text-measurer';
 import { LayoutWord } from './word';
 
 export interface ILayoutEngine {
@@ -22,12 +20,8 @@ export interface ILayoutEngine {
 }
 
 export class LayoutEngine implements ILayoutEngine {
-    protected textMeasurer = new TextMeasurer();
-
-    constructor(protected componentService: IComponentService) {}
-
     buildDoc(renderDoc: IRenderDoc<any>) {
-        return new LayoutDoc(
+        const doc = new LayoutDoc(
             renderDoc.id,
             renderDoc.width,
             renderDoc.height,
@@ -36,6 +30,8 @@ export class LayoutEngine implements ILayoutEngine {
             renderDoc.paddingLeft,
             renderDoc.paddingRight,
         );
+        this.updateDoc(doc, renderDoc);
+        return doc;
     }
 
     updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>) {
@@ -332,7 +328,7 @@ export class LayoutEngine implements ILayoutEngine {
             if (node) {
                 const nodeChildren: ILayoutNode[] = [];
                 for (let m = 0, mm = node.children.length; m < mm; m++) {
-                    // TODO: Handle case where word is wider than line - break word
+                    // TODO: If word is wider than line, break word
                     const nodeChild = node.children.at(m);
                     if (currentWidth + nodeChild.width > width) {
                         break;

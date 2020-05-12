@@ -4,7 +4,7 @@ import { LayoutPage as AbstractPageLayoutNode } from '../../layout/page';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { IViewNode } from '../../view/node';
-import { PageViewNode as AbstractPageViewNode } from '../../view/page-node';
+import { PageViewNode as AbstractPageViewNode } from '../../view/page';
 import { Component } from '../component';
 import { IPageComponent } from '../page-component';
 

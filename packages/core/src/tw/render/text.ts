@@ -1,4 +1,4 @@
-import { IFont } from './font';
+import { IFontNoOptional } from './font';
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
 export interface IRenderText<TStyle> extends IRenderNode<TStyle> {
@@ -6,10 +6,10 @@ export interface IRenderText<TStyle> extends IRenderNode<TStyle> {
     readonly paddingBottom: number;
     readonly paddingLeft: number;
     readonly paddingRight: number;
-    readonly font: IFont;
+    readonly font: IFontNoOptional;
 }
 
-export abstract class RenderText extends RenderNode<IFont> implements IRenderText<IFont> {
+export abstract class RenderText extends RenderNode<IFontNoOptional> implements IRenderText<IFontNoOptional> {
     abstract get paddingTop(): number;
     abstract get paddingBottom(): number;
     abstract get paddingLeft(): number;

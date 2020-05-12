@@ -30,7 +30,7 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
 
-    protected abstract buildStyle(attributes: {}): TStyle;
+    protected abstract buildStyle(attributes: any): TStyle;
 
     protected internalText?: string;
     protected internalStyle?: TStyle;

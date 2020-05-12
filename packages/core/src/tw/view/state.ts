@@ -3,7 +3,7 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IDidUpdateLayoutStateEvent } from '../layout/state';
-import { IDocViewNode } from './doc-node';
+import { IDocViewNode } from './doc';
 import { IViewNode } from './node';
 import { ViewTreeBuilder } from './tree-builder';
 

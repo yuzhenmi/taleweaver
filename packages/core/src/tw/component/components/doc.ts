@@ -4,13 +4,20 @@ import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
 import { IRenderNode } from '../../render/node';
-import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
+import { DocViewNode as AbstractDocViewNode } from '../../view/doc';
 import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface IDocAttributes {}
 
-export interface IDocStyle {}
+export interface IDocStyle {
+    width: number;
+    height: number;
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+}
 
 export class ModelDoc extends ModelRoot<IDocAttributes> {
     get partId() {
@@ -44,6 +51,41 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle> {
 
     get padModelSize() {
         return true;
+    }
+
+    get width() {
+        return this.style.width;
+    }
+
+    get height() {
+        return this.style.height;
+    }
+
+    get paddingTop() {
+        return this.style.paddingTop;
+    }
+
+    get paddingBottom() {
+        return this.style.paddingBottom;
+    }
+
+    get paddingLeft() {
+        return this.style.paddingLeft;
+    }
+
+    get paddingRight() {
+        return this.style.paddingRight;
+    }
+
+    protected buildStyle(attributes: any) {
+        return {
+            width: attributes.width,
+            height: attributes.height,
+            paddingTop: attributes.paddingTop,
+            paddingBottom: attributes.paddingBottom,
+            paddingLeft: attributes.paddingLeft,
+            paddingRight: attributes.paddingRight,
+        };
     }
 }
 

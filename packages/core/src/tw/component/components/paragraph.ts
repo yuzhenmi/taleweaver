@@ -8,9 +8,9 @@ import { RenderAtom } from '../../render/atom';
 import { RenderBlock } from '../../render/block';
 import { RenderInline } from '../../render/inline';
 import { IRenderNode } from '../../render/node';
-import { BlockViewNode } from '../../view/block-node';
-import { InlineViewNode } from '../../view/inline-node';
+import { BlockViewNode } from '../../view/block';
 import { IViewNode } from '../../view/node';
+import { InlineViewNode } from '../../view/text';
 import { Component, IComponent } from '../component';
 
 export interface IParagraphAttributes {}

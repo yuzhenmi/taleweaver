@@ -1,4 +1,4 @@
-import { applyDefaultFont, IFont } from '../render/font';
+import { applyDefaultFont, IFont } from './font';
 
 export interface ITextMeasurement {
     width: number;

@@ -2,7 +2,7 @@ import { LayoutLine as AbstractLineLayoutNode } from '../../layout/line';
 import { ILayoutNode } from '../../layout/node';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
-import { LineViewNode as AbstractLineViewNode } from '../../view/line-node';
+import { LineViewNode as AbstractLineViewNode } from '../../view/line';
 import { IViewNode } from '../../view/node';
 import { Component } from '../component';
 import { ILineComponent } from '../line-component';

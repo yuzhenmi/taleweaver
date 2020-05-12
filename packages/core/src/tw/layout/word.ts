@@ -23,7 +23,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     }
 
     get type(): ILayoutNodeType {
-        return 'text';
+        return 'word';
     }
 
     get root() {

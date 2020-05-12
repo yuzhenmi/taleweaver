@@ -1,4 +1,3 @@
-import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { ILayoutDoc } from './doc';
@@ -16,8 +15,8 @@ export interface ILayoutService {
 export class LayoutService implements ILayoutService {
     protected state: ILayoutState;
 
-    constructor(componentService: IComponentService, renderService: IRenderService) {
-        this.state = new LayoutState(componentService, renderService);
+    constructor(renderService: IRenderService) {
+        this.state = new LayoutState(renderService);
     }
 
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
@@ -25,14 +24,14 @@ export class LayoutService implements ILayoutService {
     }
 
     getDocNode() {
-        return this.state.getDocNode();
+        return this.state.doc;
     }
 
     resolvePosition(offset: number) {
-        return this.state.getDocNode().resolvePosition(offset);
+        return this.state.doc.resolvePosition(offset);
     }
 
     resolvePageRects(from: number, to: number) {
-        return this.state.getDocNode().resolvePageRects(from, to);
+        return this.state.doc.resolvePageRects(from, to);
     }
 }
