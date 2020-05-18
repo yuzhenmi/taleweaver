@@ -2,9 +2,9 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
+import { ITextService } from '../text/service';
 import { ILayoutDoc } from './doc';
 import { ILayoutEngine, LayoutEngine } from './engine';
-import { ITextService } from './text-service';
 
 export interface IDidUpdateLayoutStateEvent {}
 

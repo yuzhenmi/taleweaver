@@ -19,6 +19,13 @@ export class LayoutAtom extends LayoutNode implements ILayoutAtom {
         return true;
     }
 
+    convertCoordinatesToOffset(x: number, y: number) {
+        if (x < this.innerWidth / 2) {
+            return 0;
+        }
+        return 1;
+    }
+
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
         if (from < 0 || to >= this.size || from > to) {
             throw new Error('Invalid range.');

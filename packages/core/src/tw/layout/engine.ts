@@ -3,6 +3,7 @@ import { IRenderBlock } from '../render/block';
 import { IRenderDoc } from '../render/doc';
 import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
+import { ITextService } from '../text/service';
 import { INodeList } from '../tree/node-list';
 import { LayoutAtom } from './atom';
 import { LayoutBlock } from './block';
@@ -11,7 +12,6 @@ import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { LayoutPage } from './page';
 import { ILayoutText, LayoutText } from './text';
-import { ITextService } from './text-service';
 import { LayoutWord } from './word';
 
 export interface ILayoutEngine {

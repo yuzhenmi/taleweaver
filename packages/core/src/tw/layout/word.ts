@@ -1,6 +1,6 @@
 import { IFont } from '../render/font';
+import { ITextService } from '../text/service';
 import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
-import { ITextService } from './text-service';
 
 export interface ILayoutWord extends ILayoutNode {
     readonly trimmedWidth: number;
@@ -47,6 +47,28 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
             this.internalTrimmedWidth = this.textService.measure(trimmedText, this.font).width;
         }
         return this.internalTrimmedWidth;
+    }
+
+    convertCoordinatesToOffset(x: number, y: number) {
+        let lastWidth = 0;
+        const text = this.text;
+        for (let n = 0, nn = text.length; n < nn; n++) {
+            const measurement = this.textService.measure(text.substring(0, n), this.font);
+            const width = measurement.width;
+            if (width < x) {
+                lastWidth = width;
+                continue;
+            }
+            if (x - lastWidth < width - x) {
+                return n - 1;
+            }
+            return n;
+        }
+        const width = this.width;
+        if (x - lastWidth < width - x) {
+            return text.length - 1;
+        }
+        return text.length;
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {

@@ -66,6 +66,24 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         return this.internalTrimmedWidth;
     }
 
+    convertCoordinatesToOffset(x: number, y: number) {
+        let offset = 0;
+        let cumulatedWidth = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childWidth = child.width;
+            if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
+                offset += child.convertCoordinatesToOffset(x, 0);
+            }
+            offset += child.size;
+            cumulatedWidth += childWidth;
+        }
+        if (offset === this.size) {
+            return offset - 1;
+        }
+        return offset;
+    }
+
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
         if (from < 0 || to >= this.size || from > to) {
             throw new Error('Invalid range.');
