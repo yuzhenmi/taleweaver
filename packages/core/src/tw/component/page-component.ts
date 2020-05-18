@@ -3,7 +3,7 @@ import { IViewPage } from '../view/page';
 export interface IPageComponent {
     readonly id: string;
 
-    buildViewNode(renderId: string, layoutId: string): IViewPage<any>;
+    buildViewNode(layoutId: string): IViewPage<any>;
 }
 
 export abstract class PageComponent {

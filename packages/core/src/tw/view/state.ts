@@ -60,47 +60,70 @@ export class ViewState implements IViewState {
         this.didUpdateViewStateEventEmitter.emit({});
     };
 
-    protected updateNode(node: IViewNode<any>, layoutNode: ILayoutNode, renderNode?: IRenderNode<any>) {
-        node.update(layoutNode.text, renderNode?.style);
-        const childrenMap: { [key: string]: IViewNode<any> } = {};
-        node.children.forEach((child) => {
-            if (!child.layoutId) {
-                return;
-            }
-            childrenMap[child.layoutId] = child;
-        });
-        const renderChildrenMap: { [key: string]: IRenderNode<any> } = {};
-        if (renderNode) {
-            renderNode.children.forEach((renderChild) => {
-                renderChildrenMap[renderChild.id] = renderChild;
+    protected updateNode(node: IViewNode<any>, layoutNode: ILayoutNode, renderNode?: IRenderNode<any, any>) {
+        if (node.type === 'text') {
+            const text = layoutNode.children.map((layoutChild) => layoutChild.text).join('');
+            node.update(
+                text,
+                renderNode && renderNode.style,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
+        } else {
+            node.update(
+                layoutNode.text,
+                renderNode && renderNode.style,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
+            const childrenMap: { [key: string]: IViewNode<any> } = {};
+            node.children.forEach((child) => {
+                if (!child.layoutId) {
+                    return;
+                }
+                childrenMap[child.layoutId] = child;
             });
+            const renderChildrenMap: { [key: string]: IRenderNode<any, any> } = {};
+            if (renderNode) {
+                renderNode.children.forEach((renderChild) => {
+                    renderChildrenMap[renderChild.id] = renderChild;
+                });
+            }
+            const newChildren: IViewNode<any>[] = [];
+            layoutNode.children.forEach((layoutChild) => {
+                let child = childrenMap[layoutChild.id];
+                let renderChild: IRenderNode<any, any> | undefined;
+                if (layoutChild.renderId) {
+                    renderChild = renderChildrenMap[layoutChild.renderId];
+                    if (!renderChild) {
+                        throw new Error('Render node not found.');
+                    }
+                }
+                if (!child) {
+                    if (!layoutNode) {
+                        throw new Error('Layout node not found.');
+                    }
+                    child = this.buildNode(layoutNode, renderNode);
+                }
+                newChildren.push(child);
+                if (layoutChild.needView) {
+                    this.updateNode(child, layoutChild, renderChild);
+                }
+            });
+            node.setChildren(newChildren);
         }
-        const newChildren: IViewNode<any>[] = [];
-        layoutNode.children.forEach((layoutChild) => {
-            let child = childrenMap[layoutChild.id];
-            let renderChild: IRenderNode<any> | undefined;
-            if (layoutChild.renderId) {
-                renderChild = renderChildrenMap[layoutChild.renderId];
-                if (!renderChild) {
-                    throw new Error('Render node not found.');
-                }
-            }
-            if (!child) {
-                if (!layoutNode) {
-                    throw new Error('Layout node not found.');
-                }
-                child = this.buildNode(layoutNode, renderNode);
-            }
-            newChildren.push(child);
-            if (layoutChild.needView) {
-                this.updateNode(child, layoutChild, renderChild);
-            }
-        });
-        node.setChildren(newChildren);
         layoutNode.clearNeedView();
     }
 
-    protected buildNode(layoutNode: ILayoutNode, renderNode?: IRenderNode<any>) {
+    protected buildNode(layoutNode: ILayoutNode, renderNode?: IRenderNode<any, any>) {
         if (!renderNode) {
             switch (layoutNode.type) {
                 case 'page':

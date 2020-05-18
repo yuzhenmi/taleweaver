@@ -100,7 +100,6 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         this.domContainer.style.paddingLeft = `${paddingLeft}px`;
         this.domContainer.style.paddingRight = `${paddingRight}px`;
         this.domContainer.style.fontFamily = style.family;
-        // TODO
         this.domContainer.style.fontSize = `${style.size}px`;
         this.domContainer.style.letterSpacing = `${style.letterSpacing}px`;
         this.domContainer.style.fontWeight = `${style.weight}`;

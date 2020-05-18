@@ -40,6 +40,7 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly innerHeight: number;
     readonly needView: boolean;
 
+    clearNeedView(): void;
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
     convertCoordinatesToOffset(x: number, y: number): number;
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
@@ -100,6 +101,10 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
 
     get needView() {
         return this.internalNeedView;
+    }
+
+    clearNeedView() {
+        this.internalNeedView = false;
     }
 
     resolvePosition(offset: number): ILayoutPosition {
