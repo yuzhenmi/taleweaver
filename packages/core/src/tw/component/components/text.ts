@@ -1,14 +1,7 @@
-import { LayoutAtom } from '../../layout/atom';
-import { LayoutInline } from '../../layout/inline';
-import { ILayoutNode } from '../../layout/node';
 import { ModelLeaf } from '../../model/leaf';
-import { IModelNode } from '../../model/node';
-import { RenderInline } from '../../render/inline';
-import { IRenderNode } from '../../render/node';
-import { RenderWord } from '../../render/word';
-import { breakTextToWords, IWord } from '../../util/language';
-import { IViewNode } from '../../view/node';
-import { InlineViewNode } from '../../view/text';
+import { RenderText as AbstractRenderText } from '../../render/text';
+import { IFont, ITextService } from '../../text/service';
+import { ViewText as AbstractViewText } from '../../view/text';
 import { Component, IComponent } from '../component';
 
 export interface ITextAttributes {
@@ -22,29 +15,7 @@ export interface ITextAttributes {
     color?: string;
 }
 
-export interface ITextStyle {
-    weight: number;
-    size: number;
-    font: string;
-    letterSpacing: number;
-    underline: boolean;
-    italic: boolean;
-    strikethrough: boolean;
-    color: string;
-}
-
-export interface IWordStyle extends ITextStyle {}
-
-export const DEFAULT_TEXT_STYLE: ITextStyle = {
-    weight: 400,
-    size: 16,
-    font: 'sans-serif',
-    letterSpacing: 0,
-    underline: false,
-    italic: false,
-    strikethrough: false,
-    color: 'black',
-};
+export interface ITextStyle extends IFont {}
 
 export class ModelText extends ModelLeaf<ITextAttributes> {
     get partId() {
@@ -58,7 +29,11 @@ export class ModelText extends ModelLeaf<ITextAttributes> {
     }
 }
 
-export class RenderText extends RenderInline<ITextStyle> {
+export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> {
+    constructor(componentId: string, modelId: string | null, protected textService: ITextService) {
+        super(componentId, modelId);
+    }
+
     get partId() {
         return 'text';
     }
@@ -66,359 +41,101 @@ export class RenderText extends RenderInline<ITextStyle> {
     get padModelSize() {
         return true;
     }
-}
 
-export class RenderTextWord extends RenderWord<ITextStyle> {
-    constructor(componentId: string, id: string, style: ITextStyle, text: string, breakableAfter: boolean) {
-        super(componentId, id, style, text, breakableAfter);
-    }
-
-    get partId() {
-        return 'word';
-    }
-}
-
-export interface ITextMeasurement {
-    width: number;
-    height: number;
-}
-
-export interface ITextMeasurer {
-    measure(text: string, style: ITextStyle): ITextMeasurement;
-}
-
-export class TextLayoutNode extends LayoutInline {
-    constructor(componentId: string, id: string, protected style: ITextStyle) {
-        super(componentId, id);
-    }
-
-    getPartId() {
-        return 'text';
-    }
-
-    getPaddingTop() {
-        return 3;
-    }
-
-    getPaddingBottom() {
-        return 6;
-    }
-
-    getPaddingLeft() {
+    get paddingTop() {
         return 0;
     }
 
-    getPaddingRight() {
+    get paddingBottom() {
         return 0;
     }
 
-    getStyle() {
+    get paddingLeft() {
+        return 0;
+    }
+
+    get paddingRight() {
+        return 0;
+    }
+
+    get style() {
+        return this.textService.applyDefaultFont(this.attributes);
+    }
+
+    get font() {
         return this.style;
     }
-
-    clone() {
-        return new TextLayoutNode(this.componentId, this.id, this.style);
-    }
 }
 
-export class WordLayoutNode extends LayoutAtom {
-    protected width?: number;
-    protected height?: number;
-    protected tailTrimmedWidth?: number;
+export class ViewText extends AbstractViewText<ITextStyle> {
+    readonly domContainer = document.createElement('span');
+    readonly domContentContainer = document.createElement('span');
 
-    constructor(
-        protected textMeasurer: ITextMeasurer,
-        componentId: string,
-        id: string,
-        protected word: IWord,
-        protected style: ITextStyle,
-    ) {
-        super(componentId, id);
-    }
-
-    getPartId() {
-        return 'word';
-    }
-
-    getSize() {
-        return this.word.text.length;
-    }
-
-    getWidth() {
-        if (this.width === undefined) {
-            [this.width, this.height] = this.takeMeasurement();
-        }
-        return this.width;
-    }
-
-    getHeight() {
-        if (this.height === undefined) {
-            [this.width, this.height] = this.takeMeasurement();
-        }
-        return this.height;
-    }
-
-    getPaddingTop() {
-        return 0;
-    }
-
-    getPaddingBottom() {
-        return 0;
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    getTailTrimmedWidth() {
-        if (this.tailTrimmedWidth === undefined) {
-            if (this.word.breakable) {
-                const text = this.word.text;
-                const measurement = this.textMeasurer.measure(text.substring(0, text.length - 1), this.style);
-                this.tailTrimmedWidth = measurement.width;
-            } else {
-                this.tailTrimmedWidth = this.getWidth();
-            }
-        }
-        return this.tailTrimmedWidth;
-    }
-
-    getWord() {
-        return this.word;
-    }
-
-    convertCoordinateToOffset(x: number) {
-        let lastWidth = 0;
-        const text = this.word.text;
-        for (let n = 0, nn = text.length; n < nn; n++) {
-            const measurement = this.textMeasurer.measure(text.substring(0, n), this.style);
-            const width = measurement.width;
-            if (width < x) {
-                lastWidth = width;
-                continue;
-            }
-            if (x - lastWidth < width - x) {
-                return n - 1;
-            }
-            return n;
-        }
-        const width = this.getWidth();
-        if (x - lastWidth < width - x) {
-            return text.length - 1;
-        }
-        return text.length;
-    }
-
-    resolveRects(from: number, to: number) {
-        if (from === 0 && to === this.getSize()) {
-            return [
-                {
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: this.getWidth(),
-                    height: this.getHeight(),
-                    paddingTop: 0,
-                    paddingBottom: 0,
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                },
-            ];
-        }
-        const fromTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, from), this.style);
-        const toTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, to), this.style);
-        const width = toTextMeasurement.width - fromTextMeasurement.width;
-        const height = this.getHeight();
-        const left = fromTextMeasurement.width;
-        const right = this.getWidth() - toTextMeasurement.width;
-        const top = 0;
-        const bottom = 0;
-        return [
-            {
-                width,
-                height,
-                left,
-                right,
-                top,
-                bottom,
-                paddingTop: 0,
-                paddingBottom: 0,
-                paddingLeft: 0,
-                paddingRight: 0,
-            },
-        ];
-    }
-
-    onDidUpdate(updatedNode: this) {
-        super.onDidUpdate(updatedNode);
-        const oldWord = this.word;
-        const newWord = updatedNode.getWord();
-        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
-            return;
-        }
-        this.word = updatedNode.getWord();
-        this.clearCache();
-    }
-
-    clearOwnCache() {
-        this.width = undefined;
-        this.height = undefined;
-        this.tailTrimmedWidth = undefined;
-    }
-
-    protected takeMeasurement(): [number, number] {
-        const measurement = this.textMeasurer.measure(this.word.text, this.style);
-        return [measurement.width, measurement.height];
-    }
-}
-
-export class TextViewNode extends InlineViewNode<TextLayoutNode> {
-    protected domContainer: HTMLSpanElement;
-    protected domContent: HTMLSpanElement;
-
-    constructor(layoutNode: TextLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('span');
+    constructor(componentId: string | null, renderId: string | null, layoutId: string) {
+        super(componentId, renderId, layoutId);
         this.domContainer.style.display = 'inline-block';
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '1em';
-        this.domContent = document.createElement('span');
-        this.domContainer.appendChild(this.domContent);
-        this.onLayoutDidUpdate();
+        this.domContainer.appendChild(this.domContentContainer);
     }
 
-    getDOMContainer() {
-        return this.domContainer;
+    get partId() {
+        return 'text';
     }
 
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {
-        const text = this.layoutNode
-            .getChildren()
-            .map((child) => {
-                if (child instanceof WordLayoutNode) {
-                    return child.getWord().text;
-                }
-                return '';
-            })
-            .join('');
-        const style = this.layoutNode.getStyle();
-        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
-        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
-        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
-        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
-        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
-        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
-        this.domContainer.style.fontFamily = style.font;
+    update(
+        text: string,
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+        style: ITextStyle,
+    ) {
+        this.domContainer.style.width = `${width}px`;
+        this.domContainer.style.height = `${height}px`;
+        this.domContainer.style.paddingTop = `${paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${paddingRight}px`;
+        this.domContainer.style.fontFamily = style.family;
+        // TODO
         this.domContainer.style.fontSize = `${style.size}px`;
         this.domContainer.style.letterSpacing = `${style.letterSpacing}px`;
         this.domContainer.style.fontWeight = `${style.weight}`;
         this.domContainer.style.color = style.color;
         this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
-        this.domContent.style.textDecoration = style.strikethrough ? 'line-through' : '';
-        this.domContent.innerText = text;
+        this.domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
+        this.domContentContainer.innerText = text;
     }
 }
 
 export class TextComponent extends Component implements IComponent {
-    constructor(id: string, protected textMeasurer: ITextMeasurer) {
+    constructor(id: string, protected textService: ITextService) {
         super(id);
     }
 
-    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
-        return new ModelText(this.id, id, attributes, children, text);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
+        return new ModelText(this.id, id, text, attributes);
     }
 
-    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]) {
-        if (modelNode instanceof ModelText) {
-            const attributes = modelNode.attributes;
-            const style: ITextStyle = {
-                ...DEFAULT_TEXT_STYLE,
-                ...attributes,
-            };
-            const node = new RenderText(this.id, modelNode.id, style, children);
-            const words = breakTextToWords(modelNode.text);
-            words.forEach((word, wordIndex) => {
-                const wordRenderNode = new RenderTextWord(
-                    this.id,
-                    `${modelNode.id}-${wordIndex}`,
-                    style,
-                    word.text,
-                    word.breakable,
-                );
-                node.appendChild(wordRenderNode);
-            });
-            if (words.length === 0) {
-                node.appendChild(new RenderTextWord(this.id, `${modelNode.id}-0`, style, '', false));
-            }
-            return node;
+    buildRenderNode(partId: string | null, modelId: string) {
+        switch (partId) {
+            case 'text':
+                return new RenderText(this.id, modelId, this.textService);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid text model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
-        if (renderNode instanceof RenderText) {
-            return new TextLayoutNode(this.id, renderNode.id, renderNode.style);
+    buildViewNode(partId: string | null, renderId: string, layoutId: string) {
+        switch (partId) {
+            case 'doc':
+                return new ViewText(this.id, renderId, layoutId);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        if (renderNode instanceof RenderWord) {
-            return new WordLayoutNode(
-                this.textMeasurer,
-                this.id,
-                renderNode.id,
-                renderNode.style,
-                renderNode.text,
-                renderNode.breakableAfter,
-            );
-        }
-        throw new Error('Invalid text render node.');
-    }
-
-    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
-        if (layoutNode instanceof TextLayoutNode) {
-            return new TextViewNode(layoutNode);
-        }
-        throw new Error('Invalid text layout node');
-    }
-}
-
-export class TextMeasurer implements ITextMeasurer {
-    protected $canvas: HTMLCanvasElement;
-
-    constructor() {
-        this.$canvas = document.createElement('canvas');
-    }
-
-    measure(text: string, textStyle: ITextStyle) {
-        const ctx = this.$canvas.getContext('2d')!;
-        const weight = textStyle.weight;
-        const size = textStyle.size;
-        const font = this.fixFont(textStyle.font);
-        const letterSpacing = textStyle.letterSpacing!;
-        ctx.font = `${weight} ${size}px ${font}`;
-        const measurement = ctx.measureText(text);
-        const width =
-            letterSpacing === 0 || text.length <= 1
-                ? measurement.width
-                : measurement.width + (text.length - 1) * letterSpacing;
-        return {
-            width,
-            height: size,
-        };
-    }
-
-    protected fixFont(font: string) {
-        if (font.indexOf(' ') >= 0) {
-            return `'${font}'`;
-        }
-        return font;
     }
 }

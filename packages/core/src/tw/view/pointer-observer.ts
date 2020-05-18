@@ -125,7 +125,7 @@ export class PointerObserver implements IPointerObserver {
     };
 
     protected resolveCoordinates(x: number, y: number): number | null {
-        const pageViewNodes = this.viewService.getDocNode().getChildren();
+        const pageViewNodes = this.viewService.getDoc().getChildren();
         let cumulatedOffset = 0;
         for (let pageViewNode of pageViewNodes) {
             const pageLayoutNode = pageViewNode.getLayoutNode();

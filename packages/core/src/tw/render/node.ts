@@ -1,45 +1,46 @@
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
+import { generateId } from '../util/id';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
-export interface IRenderNode<TStyle extends {}> extends INode<IRenderNode<any>> {
+export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TStyle, TAttributes>> {
     readonly type: IRenderNodeType;
     readonly componentId: string;
     readonly partId: string | null;
     readonly modelId: string | null;
     readonly text: string;
+    readonly style: TStyle;
     readonly size: number;
     readonly modelSize: number;
     readonly needLayout: boolean;
-    readonly style: TStyle;
 
     clearNeedLayout(): void;
     resolvePosition(offset: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
     convertModelOffsetToOffset(modelOffset: number): number;
-    update(attributes: {}, text: string): void;
+    update(text: string, attributes: TAttributes): void;
 }
 
-export interface IRenderPosition extends IPosition<IRenderNode<any>> {}
+export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
 
-export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TStyle>> implements IRenderNode<TStyle> {
+export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
+    implements IRenderNode<TStyle, TAttributes> {
     protected abstract get padModelSize(): boolean;
     protected abstract get modelTextSize(): number;
 
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
-
-    protected abstract buildStyle(attributes: any): TStyle;
+    abstract get style(): TStyle;
 
     protected internalText?: string;
-    protected internalStyle?: TStyle;
+    protected internalAttributes?: TAttributes;
     protected internalSize?: number;
     protected internalChildrenModelSize?: number;
     protected internalNeedLayout = true;
 
-    constructor(readonly componentId: string, readonly modelId: string | null, id: string) {
-        super(id);
+    constructor(readonly componentId: string, readonly modelId: string | null) {
+        super(generateId());
         this.onDidUpdateNode(() => {
             this.internalSize = undefined;
             this.internalChildrenModelSize = undefined;
@@ -52,13 +53,6 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
             throw new Error('Render node text is not initialized.');
         }
         return this.internalText;
-    }
-
-    get style() {
-        if (this.internalStyle === undefined) {
-            throw new Error('Render node style is not initialized.');
-        }
-        return this.internalStyle;
     }
 
     get size() {
@@ -83,9 +77,11 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
         return this.internalNeedLayout;
     }
 
-    apply(node: this) {
-        this.internalText = node.text;
-        super.apply(node);
+    protected get attributes() {
+        if (this.internalAttributes === undefined) {
+            throw new Error('Render node attributes is not initialized.');
+        }
+        return this.internalAttributes;
     }
 
     clearNeedLayout() {
@@ -97,11 +93,11 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
             throw new Error(`Offset ${offset} is out of range.`);
         }
         const layers: Array<{
-            node: IRenderNode<any>;
+            node: IRenderNode<any, any>;
             offset: number;
         }> = [{ node: this, offset }];
         {
-            let node: IRenderNode<any> = this;
+            let node: IRenderNode<any, any> = this;
             let parent = this.parent;
             while (parent) {
                 let parentOffset = 0;
@@ -116,11 +112,11 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
             }
         }
         {
-            let node: IRenderNode<any> | null = this;
+            let node: IRenderNode<any, any> | null = this;
             while (node && !node.leaf) {
                 const lastLayer = layers[layers.length - 1];
                 let cumulatedOffset = 0;
-                let child: IRenderNode<any> | null = null;
+                let child: IRenderNode<any, any> | null = null;
                 for (let n = 0, nn = node.children.length; n < nn; n++) {
                     child = node.children.at(n);
                     const childSize = child.size;
@@ -172,11 +168,11 @@ export abstract class RenderNode<TStyle extends {}> extends Node<IRenderNode<TSt
         throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
 
-    update(attributes: {}, text: string) {
-        this.internalStyle = this.buildStyle(attributes);
+    update(text: string, attributes: any) {
+        this.internalAttributes = attributes;
         this.internalText = text;
         this.didUpdateNodeEventEmitter.emit({});
     }
 }
 
-export class RenderPosition extends Position<IRenderNode<any>> implements IRenderPosition {}
+export class RenderPosition extends Position<IRenderNode<any, any>> implements IRenderPosition {}

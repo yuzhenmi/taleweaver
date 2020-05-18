@@ -1,69 +1,38 @@
-import { LayoutLine as AbstractLineLayoutNode } from '../../layout/line';
-import { ILayoutNode } from '../../layout/node';
-import { IModelNode } from '../../model/node';
-import { IRenderNode } from '../../render/node';
-import { LineViewNode as AbstractLineViewNode } from '../../view/line';
-import { IViewNode } from '../../view/node';
-import { Component } from '../component';
-import { ILineComponent } from '../line-component';
+import { ViewLine as AbstractViewLine } from '../../view/line';
+import { ILineComponent, LineComponent as AbstractLineComponent } from '../line-component';
 
-export class LineLayoutNode extends AbstractLineLayoutNode {
-    getPartId() {
-        return 'line';
+export class ViewLine extends AbstractViewLine<null> {
+    readonly domContainer = document.createElement('div');
+
+    get partId() {
+        return 'doc';
     }
 
-    clone() {
-        return new LineLayoutNode(this.getComponentId());
-    }
-}
-
-export class LineViewNode extends AbstractLineViewNode<LineLayoutNode> {
-    protected domContainer: HTMLDivElement;
-
-    constructor(layoutNode: LineLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
-    }
-
-    getDOMContainer() {
+    get domContentContainer() {
         return this.domContainer;
     }
 
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {
-        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
-        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
-        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
-        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
-        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
-        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
+    update(
+        text: string,
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        super.update(text, width, height, paddingTop, paddingBottom, paddingLeft, paddingRight, null);
+        this.domContainer.style.width = `${width}px`;
+        this.domContainer.style.height = `${height}px`;
+        this.domContainer.style.paddingTop = `${paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${paddingRight}px`;
     }
 }
 
-export class LineComponent extends Component implements ILineComponent {
-    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[]): IModelNode<any> {
-        throw new Error('Line component does not support buildModelNode.');
-    }
-
-    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]): IRenderNode<any> {
-        throw new Error('Line component does not support buildRenderNode.');
-    }
-
-    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]): ILayoutNode<any> {
-        throw new Error('Line component does not support buildLayoutNode.');
-    }
-
-    buildLineLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
-        return new LineLayoutNode(this.id);
-    }
-
-    buildViewNode(layoutNode: ILayoutNode<any>, children: IViewNode<any>[]) {
-        if (layoutNode instanceof LineLayoutNode) {
-            return new LineViewNode(layoutNode);
-        }
-        throw new Error('Invalid layout render node.');
+export class LineComponent extends AbstractLineComponent implements ILineComponent {
+    buildViewNode(layoutId: string) {
+        return new ViewLine(this.id, layoutId);
     }
 }

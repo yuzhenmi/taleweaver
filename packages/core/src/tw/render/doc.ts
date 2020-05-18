@@ -1,6 +1,6 @@
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderDoc<TStyle> extends IRenderNode<TStyle> {
+export interface IRenderDoc<TStyle, TAttributes> extends IRenderNode<TStyle, TAttributes> {
     readonly width: number;
     readonly height: number;
     readonly paddingTop: number;
@@ -9,7 +9,8 @@ export interface IRenderDoc<TStyle> extends IRenderNode<TStyle> {
     readonly paddingRight: number;
 }
 
-export abstract class RenderDoc<TStyle> extends RenderNode<TStyle> implements RenderDoc<TStyle> {
+export abstract class RenderDoc<TStyle, TAttributes> extends RenderNode<TStyle, TAttributes>
+    implements RenderDoc<TStyle, TAttributes> {
     abstract get width(): number;
     abstract get height(): number;
     abstract get paddingTop(): number;

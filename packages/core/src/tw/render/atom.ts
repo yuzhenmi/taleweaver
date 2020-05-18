@@ -1,11 +1,12 @@
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderAtom<TStyle> extends IRenderNode<TStyle> {
+export interface IRenderAtom<TStyle, TAttributes> extends IRenderNode<TStyle, TAttributes> {
     readonly width: number;
     readonly height: number;
 }
 
-export abstract class RenderAtom<TStyle> extends RenderNode<TStyle> implements IRenderAtom<TStyle> {
+export abstract class RenderAtom<TStyle, TAttributes> extends RenderNode<TStyle, TAttributes>
+    implements IRenderAtom<TStyle, TAttributes> {
     abstract get width(): number;
     abstract get height(): number;
 

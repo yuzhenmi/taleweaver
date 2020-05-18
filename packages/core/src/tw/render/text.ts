@@ -1,19 +1,21 @@
-import { IFontNoOptional } from './font';
+import { IFont } from '../text/service';
 import { IRenderNode, IRenderNodeType, RenderNode } from './node';
 
-export interface IRenderText<TStyle> extends IRenderNode<TStyle> {
+export interface IRenderText<TStyle, TAttributes> extends IRenderNode<TStyle, TAttributes> {
     readonly paddingTop: number;
     readonly paddingBottom: number;
     readonly paddingLeft: number;
     readonly paddingRight: number;
-    readonly font: IFontNoOptional;
+    readonly font: IFont;
 }
 
-export abstract class RenderText extends RenderNode<IFontNoOptional> implements IRenderText<IFontNoOptional> {
+export abstract class RenderText<TStyle, TAttributes> extends RenderNode<TStyle, TAttributes>
+    implements IRenderText<TStyle, TAttributes> {
     abstract get paddingTop(): number;
     abstract get paddingBottom(): number;
     abstract get paddingLeft(): number;
     abstract get paddingRight(): number;
+    abstract get font(): IFont;
 
     get type(): IRenderNodeType {
         return 'text';
@@ -33,9 +35,5 @@ export abstract class RenderText extends RenderNode<IFontNoOptional> implements 
 
     get modelTextSize() {
         return 0;
-    }
-
-    get font() {
-        return this.style;
     }
 }

@@ -1,16 +1,48 @@
-import { applyDefaultFont, IFont } from '../render/font';
+export interface IFontOptional {
+    weight?: number;
+    size?: number;
+    family?: string;
+    letterSpacing?: number;
+    underline?: boolean;
+    italic?: boolean;
+    strikethrough?: boolean;
+    color?: string;
+}
 
-const BREAKABLE_CHARS = [' ', '\n', '\t'];
+export interface IFont {
+    weight: number;
+    size: number;
+    family: string;
+    letterSpacing: number;
+    underline: boolean;
+    italic: boolean;
+    strikethrough: boolean;
+    color: string;
+}
 
 export interface ITextMeasurement {
     width: number;
     height: number;
 }
 
+const DEFAULT_FONT: IFont = {
+    weight: 400,
+    size: 14,
+    family: 'sans-serif',
+    letterSpacing: 0,
+    underline: false,
+    italic: false,
+    strikethrough: false,
+    color: 'black',
+};
+
+const BREAKABLE_CHARS = [' ', '\n', '\t'];
+
 export interface ITextService {
     measure(text: string, font: IFont): ITextMeasurement;
     trim(text: string): string;
     breakIntoWords(text: string): string[];
+    applyDefaultFont(font: IFontOptional): IFont;
 }
 
 export class TextMeasurer implements ITextService {
@@ -21,7 +53,7 @@ export class TextMeasurer implements ITextService {
     }
 
     measure(text: string, font: IFont) {
-        const fontWithDefault = applyDefaultFont(font);
+        const fontWithDefault = this.applyDefaultFont(font);
         const ctx = this.$canvas.getContext('2d')!;
         const weight = fontWithDefault.weight;
         const size = fontWithDefault.size;
@@ -61,6 +93,18 @@ export class TextMeasurer implements ITextService {
             words.push(word);
         }
         return words;
+    }
+
+    applyDefaultFont(font: IFontOptional): IFont {
+        const fontConfigWithDefault: any = {};
+        for (const key in DEFAULT_FONT) {
+            if (key in font && (font as any)[key] !== undefined) {
+                fontConfigWithDefault[key] = (font as any)[key];
+            } else {
+                fontConfigWithDefault[key] = (DEFAULT_FONT as any)[key];
+            }
+        }
+        return fontConfigWithDefault as IFont;
     }
 
     protected fixFontFamily(fontFamily: string) {

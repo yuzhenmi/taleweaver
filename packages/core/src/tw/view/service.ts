@@ -17,7 +17,7 @@ export interface IViewService {
     onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    getDocNode(): IDocViewNode;
+    getDoc(): IDocViewNode;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
     requestFocus(): void;
@@ -38,7 +38,7 @@ export class ViewService implements IViewService {
         renderService: IRenderService,
         commandService: ICommandService,
     ) {
-        this.state = new ViewState(instanceId, componentService, layoutService);
+        this.state = new ViewState(instanceId, componentService, layoutService, renderService);
         this.domController = new DOMController(instanceId, commandService, modelService, this);
         this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
     }
@@ -59,8 +59,8 @@ export class ViewService implements IViewService {
         this.domController.onDidPressKey(listener);
     }
 
-    getDocNode() {
-        return this.state.getDocNode();
+    getDoc() {
+        return this.state.getDoc();
     }
 
     isFocused() {

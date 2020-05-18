@@ -5,32 +5,32 @@ import { IViewNode } from '../view/node';
 export interface IComponent {
     readonly id: string;
 
-    buildModelNode(partId: string | null, id: string, attributes: {}, text: string): IModelNode<any> | undefined;
-    buildRenderNode(partId: string | null, modelId: string): IRenderNode<any> | undefined;
+    buildModelNode(partId: string | null, id: string, text: string, attributes: {}): IModelNode<any> | undefined;
+    buildRenderNode(partId: string | null, modelId: string): IRenderNode<any, any> | undefined;
     buildViewNode(
         partId: string | null,
         renderId: string,
         layoutId: string,
-        style: any,
         text: string,
-    ): IViewNode | undefined;
+        style: any,
+    ): IViewNode<any> | undefined;
 }
 
 export abstract class Component implements IComponent {
     abstract buildModelNode(
         partId: string | null,
         id: string,
-        attributes: any,
         text: string,
+        attributes: any,
     ): IModelNode<any> | undefined;
-    abstract buildRenderNode(partId: string | null, modelId: string): IRenderNode<any> | undefined;
+    abstract buildRenderNode(partId: string | null, modelId: string): IRenderNode<any, any> | undefined;
     abstract buildViewNode(
         partId: string | null,
         renderId: string,
         layoutId: string,
-        style: any,
         text: string,
-    ): IViewNode | undefined;
+        style: any,
+    ): IViewNode<any> | undefined;
 
     constructor(readonly id: string) {}
 }

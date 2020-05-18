@@ -1,23 +1,12 @@
-import { LayoutDoc as AbstractDocLayoutNode } from '../../layout/doc';
-import { ILayoutNode } from '../../layout/node';
-import { IModelNode } from '../../model/node';
+import { IConfigService } from '../../config/service';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
-import { IRenderNode } from '../../render/node';
-import { DocViewNode as AbstractDocViewNode } from '../../view/doc';
-import { IViewNode } from '../../view/node';
+import { ViewDoc as AbstractViewDoc } from '../../view/doc';
 import { Component, IComponent } from '../component';
 
 export interface IDocAttributes {}
 
-export interface IDocStyle {
-    width: number;
-    height: number;
-    paddingTop: number;
-    paddingBottom: number;
-    paddingLeft: number;
-    paddingRight: number;
-}
+export interface IDocStyle {}
 
 export class ModelDoc extends ModelRoot<IDocAttributes> {
     get partId() {
@@ -44,7 +33,20 @@ export class ModelDoc extends ModelRoot<IDocAttributes> {
     }
 }
 
-export class RenderDoc extends AbstractRenderDoc<IDocStyle> {
+export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
+    constructor(
+        componentId: string,
+        modelId: string | null,
+        readonly width: number,
+        readonly height: number,
+        readonly paddingTop: number,
+        readonly paddingBottom: number,
+        readonly paddingLeft: number,
+        readonly paddingRight: number,
+    ) {
+        super(componentId, modelId);
+    }
+
     get partId() {
         return 'doc';
     }
@@ -53,93 +55,64 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle> {
         return true;
     }
 
-    get width() {
-        return this.style.width;
-    }
-
-    get height() {
-        return this.style.height;
-    }
-
-    get paddingTop() {
-        return this.style.paddingTop;
-    }
-
-    get paddingBottom() {
-        return this.style.paddingBottom;
-    }
-
-    get paddingLeft() {
-        return this.style.paddingLeft;
-    }
-
-    get paddingRight() {
-        return this.style.paddingRight;
-    }
-
-    protected buildStyle(attributes: any) {
-        return {
-            width: attributes.width,
-            height: attributes.height,
-            paddingTop: attributes.paddingTop,
-            paddingBottom: attributes.paddingBottom,
-            paddingLeft: attributes.paddingLeft,
-            paddingRight: attributes.paddingRight,
-        };
+    get style() {
+        return {};
     }
 }
 
-export class DocLayoutNode extends AbstractDocLayoutNode {
-    getPartId() {
-        return 'doc';
-    }
-}
+export class ViewDoc extends AbstractViewDoc<IDocStyle> {
+    readonly domContainer = document.createElement('div');
 
-export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
-    protected domContainer: HTMLDivElement;
-
-    constructor(layoutNode: DocLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
+    constructor(componentId: string | null, renderId: string | null, layoutId: string) {
+        super(componentId, renderId, layoutId);
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
     }
 
-    getDOMContainer() {
-        return this.domContainer;
+    get partId() {
+        return 'doc';
     }
 
-    getDOMContentContainer() {
+    get domContentContainer() {
         return this.domContainer;
     }
-
-    onLayoutDidUpdate() {}
 }
 
 export class DocComponent extends Component implements IComponent {
-    buildModelNode(partId: string | null, id: string, attributes: {}, children: IModelNode<any>[], text: string) {
-        return new ModelDoc(this.id, id, attributes, children, '');
+    constructor(id: string, protected configService: IConfigService) {
+        super(id);
     }
 
-    buildRenderNode(modelNode: IModelNode<any>, children: IRenderNode<any>[]) {
-        if (modelNode instanceof ModelDoc) {
-            return new RenderDoc(this.id, modelNode.id, {}, children);
-        }
-        throw new Error('Invalid doc model node.');
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
+        return new ModelDoc(this.id, id, '', attributes);
     }
 
-    buildLayoutNode(renderNode: IRenderNode<any>, children: ILayoutNode<any>[]) {
-        if (renderNode instanceof RenderDoc) {
-            return new DocLayoutNode(this.id, renderNode.id, children);
+    buildRenderNode(partId: string | null, modelId: string) {
+        switch (partId) {
+            case 'doc':
+                const pageConfig = this.configService.getConfig().page;
+                return new RenderDoc(
+                    this.id,
+                    modelId,
+                    pageConfig.width,
+                    pageConfig.height,
+                    pageConfig.paddingTop,
+                    pageConfig.paddingBottom,
+                    pageConfig.paddingLeft,
+                    pageConfig.paddingRight,
+                );
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid doc render node.');
     }
 
-    buildViewNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
-        if (layoutNode instanceof DocLayoutNode) {
-            return new DocViewNode(layoutNode, children);
+    buildViewNode(partId: string | null, renderId: string, layoutId: string) {
+        switch (partId) {
+            case 'doc':
+                return new ViewDoc(this.id, renderId, layoutId);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid layout render node.');
     }
 }

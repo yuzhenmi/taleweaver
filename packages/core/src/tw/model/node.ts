@@ -28,7 +28,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     protected internalSize?: number;
     protected internalNeedRender = true;
 
-    constructor(readonly componentId: string, id: string, readonly attributes: TAttributes, text: string) {
+    constructor(readonly componentId: string, id: string, text: string, readonly attributes: TAttributes) {
         super(id);
         this.internalText = text;
         this.onDidUpdateNode(() => {
@@ -53,11 +53,6 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
 
     get needRender() {
         return this.internalNeedRender;
-    }
-
-    apply(node: this) {
-        this.internalText = node.text;
-        super.apply(node);
     }
 
     clearNeedRender() {

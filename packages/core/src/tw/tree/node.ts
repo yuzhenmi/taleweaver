@@ -25,15 +25,9 @@ export interface INode<TNode extends INode<TNode>> {
 
     childAt(index: number): TNode;
     setChildren(nodes: TNode[]): void;
-    insertChild(child: TNode): void;
-    insertChildBefore(child: TNode, beforeChild: TNode): void;
-    appendChild(child: TNode): void;
-    appendChildAfter(child: TNode, afterChild: TNode): void;
-    removeChild(child: TNode): void;
     findDescendant(descendantId: string): TNode | null;
 
-    apply(node: this): void;
-
+    onDidSetChildren: IOnEvent<IDidSetChildrenEvent>;
     onDidUpdateNode: IOnEvent<IDidUpdateNodeEvent>;
 }
 
@@ -139,51 +133,8 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     }
 
     setChildren(nodes: TNode[]) {
-        this.internalChildren = new NodeList();
-        for (const node of nodes) {
-            this.internalChildren.append(node);
-        }
+        this.internalChildren = new NodeList(nodes);
         this.didSetChildrenEventEmitter.emit({});
-    }
-
-    insertChild(child: TNode) {
-        if (this.leaf) {
-            throw new Error('Appending child to leaf node is not allowed.');
-        }
-        this.children.insert(child);
-        child.parent = this as any;
-    }
-
-    insertChildBefore(child: TNode, beforeChild: TNode) {
-        if (this.leaf) {
-            throw new Error('Inserting child to leaf node is not allowed.');
-        }
-        this.children.insertBefore(child, beforeChild);
-        child.parent = this as any;
-    }
-
-    appendChild(child: TNode) {
-        if (this.leaf) {
-            throw new Error('Appending child to leaf node is not allowed.');
-        }
-        this.children.append(child);
-        child.parent = this as any;
-    }
-
-    appendChildAfter(child: TNode, afterChild: TNode) {
-        if (this.leaf) {
-            throw new Error('Inserting child to leaf node is not allowed.');
-        }
-        this.children.appendAfter(child, afterChild);
-        child.parent = this as any;
-    }
-
-    removeChild(child: TNode) {
-        if (this.leaf) {
-            throw new Error('Removing child from leaf node is not allowed.');
-        }
-        this.children.remove(child);
-        child.parent = null;
     }
 
     findDescendant(id: string): TNode | null {
@@ -201,14 +152,6 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
             }
         }
         return null;
-    }
-
-    apply(node: this) {
-        this.children.apply(node.children);
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            this.children.at(n).apply(node.children.at(n));
-        }
-        this.didUpdateNodeEventEmitter.emit({});
     }
 
     onDidSetChildren(listener: IEventListener<IDidSetChildrenEvent>) {

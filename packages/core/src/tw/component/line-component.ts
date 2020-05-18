@@ -1,6 +1,13 @@
-import { ILayoutLine } from '../layout/line';
-import { IComponent } from './component';
+import { IViewLine } from '../view/line';
 
-export interface ILineComponent extends IComponent {
-    buildLineLayoutNode(): ILayoutLine;
+export interface ILineComponent {
+    readonly id: string;
+
+    buildViewNode(layoutId: string): IViewLine<any>;
+}
+
+export abstract class LineComponent {
+    abstract buildViewNode(layoutId: string): IViewLine<any>;
+
+    constructor(readonly id: string) {}
 }

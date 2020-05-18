@@ -57,7 +57,7 @@ export class CursorView implements ICursorView {
         const from = Math.min(anchor, head);
         const to = Math.max(anchor, head);
         const pageRects = this.layoutService.resolveBoundingBoxes(from, to);
-        const pageViewNodes = this.viewService.getDocNode().getChildren();
+        const pageViewNodes = this.viewService.getDoc().getChildren();
         const focused = this.viewService.isFocused();
         let firstPageOffset: number = -1;
         let firstLayoutRectOffset: number = -1;

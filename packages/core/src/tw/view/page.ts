@@ -1,11 +1,11 @@
 import { IViewNode, IViewNodeType, ViewNode } from './node';
 
-export interface IViewPage<TStyle> extends IViewNode<TStyle> {
-    readonly domContentContainer: HTMLElement;
-}
+export interface IViewPage<TStyle> extends IViewNode<TStyle> {}
 
 export abstract class ViewPage<TStyle> extends ViewNode<TStyle> implements IViewPage<TStyle> {
-    abstract get domContentContainer(): HTMLElement;
+    constructor(componentId: string | null, readonly layoutId: string) {
+        super(componentId, null, layoutId);
+    }
 
     get type(): IViewNodeType {
         return 'page';
