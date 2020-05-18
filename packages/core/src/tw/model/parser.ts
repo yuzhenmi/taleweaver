@@ -152,9 +152,6 @@ export class TokenParser implements ITokenParser {
 
     protected buildNode({ componentId, partId, id, attributes, children }: INodeDescription, text: string) {
         const component = this.componentService.getComponent(componentId);
-        if (!component) {
-            throw new Error(`Component ${componentId} is not registered.`);
-        }
         const node = component.buildModelNode(partId, id, attributes, text);
         if (!node) {
             throw new Error(

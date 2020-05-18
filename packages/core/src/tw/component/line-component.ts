@@ -6,7 +6,7 @@ export interface ILineComponent {
     buildViewNode(layoutId: string): IViewLine<any>;
 }
 
-export abstract class LineComponent {
+export abstract class LineComponent implements ILineComponent {
     abstract buildViewNode(layoutId: string): IViewLine<any>;
 
     constructor(readonly id: string) {}

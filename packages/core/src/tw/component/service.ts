@@ -7,24 +7,20 @@ import { IPageComponent } from './page-component';
 import { ComponentRegistry, IComponentRegistry } from './registry';
 
 export interface IComponentService {
+    getComponent(componentId: string): IComponent;
     getPageComponent(): IPageComponent;
     getLineComponent(): ILineComponent;
-    getComponent(componentId: string): IComponent | undefined;
 }
 
 export class ComponentService implements IComponentService {
-    protected pageComponent: IPageComponent;
-    protected lineComponent: ILineComponent;
     protected registry: IComponentRegistry = new ComponentRegistry();
 
     constructor(configService: IConfigService) {
-        this.pageComponent = new PageComponent('page', configService);
-        this.lineComponent = new LineComponent('line');
         for (let [componentId, component] of Object.entries(configService.getConfig().components)) {
             this.registry.registerComponent(componentId, component);
         }
-        this.registry.registerComponent(this.pageComponent.id, this.pageComponent);
-        this.registry.registerComponent(this.lineComponent.id, this.lineComponent);
+        this.registry.registerPageComponent(new PageComponent('page', configService));
+        this.registry.registerLineComponent(new LineComponent('line'));
     }
 
     getComponent(componentId: string) {
@@ -32,10 +28,10 @@ export class ComponentService implements IComponentService {
     }
 
     getPageComponent() {
-        return this.pageComponent;
+        return this.registry.getPageComponent();
     }
 
     getLineComponent() {
-        return this.lineComponent;
+        return this.registry.getLineComponent();
     }
 }

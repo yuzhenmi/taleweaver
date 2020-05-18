@@ -112,9 +112,6 @@ export class ViewState implements IViewState {
             }
         }
         const component = this.componentService.getComponent(renderNode.componentId);
-        if (!component) {
-            throw new Error(`Component ${renderNode.componentId} is not registered.`);
-        }
         const node = component.buildViewNode(
             renderNode.partId,
             renderNode.id,

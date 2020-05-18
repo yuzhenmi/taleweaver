@@ -62,9 +62,6 @@ export class RenderState implements IRenderState {
 
     protected buildNode(modelNode: IModelNode<any>) {
         const component = this.componentService.getComponent(modelNode.componentId);
-        if (!component) {
-            throw new Error(`Component ${modelNode.componentId} is not registered.`);
-        }
         const node = component.buildRenderNode(modelNode.partId, modelNode.id);
         if (!node) {
             throw new Error(`Error building render node from model node ${modelNode.id}.`);

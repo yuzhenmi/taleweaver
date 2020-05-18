@@ -30,16 +30,13 @@ export class ViewTreeBuilder implements IViewTreeBuilder {
 
     protected buildNode(layoutNode: ILayoutNode) {
         const component = this.componentService.getComponent(layoutNode.getComponentId());
-        if (!component) {
-            throw new Error(`Component ${layoutNode.getComponentId()} is not registered.`);
-        }
         const viewNode = component.buildViewNode(layoutNode);
         if (!viewNode) {
             throw new Error(`Could not build view node from layout node ${layoutNode.getId()}.`);
         }
         if (!viewNode.isLeaf() && !viewNode.isLeaf()) {
-            const childViewNodes = layoutNode.getChildren().map(childLayoutNode => this.buildNode(childLayoutNode));
-            childViewNodes.forEach(childViewNode => viewNode.appendChild(childViewNode));
+            const childViewNodes = layoutNode.getChildren().map((childLayoutNode) => this.buildNode(childLayoutNode));
+            childViewNodes.forEach((childViewNode) => viewNode.appendChild(childViewNode));
         }
         this.applyMetadataToDOMContainer(viewNode);
         viewNode.onLayoutDidUpdate();
