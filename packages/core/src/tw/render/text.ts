@@ -24,7 +24,7 @@ export abstract class RenderText extends RenderNode<IFontNoOptional> implements 
     }
 
     get leaf() {
-        return false;
+        return true;
     }
 
     get padModelSize() {

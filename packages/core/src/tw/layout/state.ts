@@ -4,6 +4,7 @@ import { IRenderService } from '../render/service';
 import { IDidUpdateRenderStateEvent } from '../render/state';
 import { ILayoutDoc } from './doc';
 import { ILayoutEngine, LayoutEngine } from './engine';
+import { ITextService } from './text-service';
 
 export interface IDidUpdateLayoutStateEvent {}
 
@@ -18,8 +19,8 @@ export class LayoutState implements ILayoutState {
     protected engine: ILayoutEngine;
     protected didUpdateLayoutStateEventEmitter = new EventEmitter<IDidUpdateLayoutStateEvent>();
 
-    constructor(protected renderService: IRenderService) {
-        this.engine = new LayoutEngine();
+    constructor(protected renderService: IRenderService, protected textService: ITextService) {
+        this.engine = new LayoutEngine(textService);
         this.doc = this.engine.buildDoc(renderService.getDoc());
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
     }

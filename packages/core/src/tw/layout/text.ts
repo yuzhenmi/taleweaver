@@ -1,20 +1,13 @@
 import { IFont } from '../render/font';
-import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
-import { ILayoutRect } from './rect';
+import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 import { ILayoutWord } from './word';
 
 export interface ILayoutText extends ILayoutNode {
     readonly font: IFont;
     readonly trimmedWidth: number;
-
-    convertCoordinateToOffset(x: number): number;
-    resolveRects(from: number, to: number): ILayoutRect[];
 }
 
 export class LayoutText extends LayoutNode implements ILayoutText {
-    abstract convertCoordinateToOffset(x: number): number;
-    abstract resolveRects(from: number, to: number): ILayoutRect[];
-
     protected internalWidth?: number;
     protected internalHeight?: number;
     protected internalTrimmedWidth?: number;
@@ -71,5 +64,49 @@ export class LayoutText extends LayoutNode implements ILayoutText {
             }
         }
         return this.internalTrimmedWidth;
+    }
+
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+        if (from < 0 || to >= this.size || from > to) {
+            throw new Error('Invalid range.');
+        }
+        const childResults: IResolveBoundingBoxesResult[] = [];
+        let cumulatedOffset = 0;
+        let cumulatedWidth = 0;
+        let left1: number;
+        let left2: number;
+        this.children.forEach((child) => {
+            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+                const childFrom = Math.max(0, from - cumulatedOffset);
+                const childTo = Math.min(child.size, to - cumulatedOffset);
+                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
+                childResults.push(childResult);
+                if (left1 === undefined) {
+                    left1 = cumulatedWidth + childResult.boundingBoxes[0].left;
+                }
+                left2 =
+                    cumulatedWidth +
+                    childResult.boundingBoxes.reduce((width, boundingBox) => width + boundingBox.width, 0) -
+                    childResult.boundingBoxes[childResult.boundingBoxes.length - 1].right;
+            }
+            cumulatedOffset += child.size;
+            cumulatedWidth += child.width;
+        });
+        return {
+            node: this,
+            boundingBoxes: [
+                {
+                    from,
+                    to,
+                    width: left2! - left1!,
+                    height: this.innerHeight,
+                    left: this.paddingLeft + left1!,
+                    right: this.width - this.paddingLeft - left2!,
+                    top: this.paddingTop,
+                    bottom: this.paddingBottom,
+                },
+            ],
+            children: childResults,
+        };
     }
 }

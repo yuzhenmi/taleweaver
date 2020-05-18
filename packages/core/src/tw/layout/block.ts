@@ -1,10 +1,6 @@
-import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
-import { ILayoutRect } from './rect';
+import { IBoundingBox, ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 
-export interface ILayoutBlock extends ILayoutNode {
-    convertCoordinatesToOffset(x: number, y: number): number;
-    resolveRects(from: number, to: number): ILayoutRect[];
-}
+export interface ILayoutBlock extends ILayoutNode {}
 
 export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     protected internalHeight?: number;
@@ -45,56 +41,52 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     convertCoordinatesToOffset(x: number, y: number) {
         let offset = 0;
         let cumulatedHeight = 0;
-        for (let child of this.getChildren()) {
-            const childHeight = child.getHeight();
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childHeight = child.height;
             if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
-                offset += child.convertCoordinateToOffset(x);
-                break;
+                offset += child.convertCoordinatesToOffset(x, 0);
             }
-            offset += child.getSize();
+            offset += child.size;
             cumulatedHeight += childHeight;
         }
         return offset;
     }
 
-    resolveRects(from: number, to: number) {
-        const rects: ILayoutRect[] = [];
-        let offset = 0;
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+        if (from < 0 || to >= this.size || from > to) {
+            throw new Error('Invalid range.');
+        }
+        const childResults: IResolveBoundingBoxesResult[] = [];
+        const boundingBoxes: IBoundingBox[] = [];
+        let cumulatedOffset = 0;
         let cumulatedHeight = 0;
-        this.getChildren().forEach((child, n) => {
-            const childHeight = child.getHeight();
-            const minChildOffset = 0;
-            const maxChildOffset = child.getSize();
-            const childFrom = Math.max(from - offset, minChildOffset);
-            const childTo = Math.min(to - offset, maxChildOffset);
-            if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-                const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach((childRect) => {
-                    const width = childRect.width;
-                    const height = childRect.height;
-                    const paddingTop = this.getPaddingTop();
-                    const paddingBottom = this.getPaddingBottom();
-                    const left = childRect.left;
-                    const right = childRect.right;
-                    const top = cumulatedHeight + paddingTop + childRect.top;
-                    const bottom = this.getHeight() - cumulatedHeight - childHeight - childRect.bottom - paddingBottom;
-                    rects.push({
-                        width,
-                        height,
-                        left,
-                        right,
-                        top,
-                        bottom,
-                        paddingTop: childRect.paddingTop,
-                        paddingBottom: childRect.paddingBottom,
-                        paddingLeft: childRect.paddingLeft,
-                        paddingRight: childRect.paddingRight,
+        this.children.forEach((child) => {
+            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+                const childFrom = Math.max(0, from - cumulatedOffset);
+                const childTo = Math.min(child.size, to - cumulatedOffset);
+                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
+                childResults.push(childResult);
+                childResult.boundingBoxes.forEach((boundingBox) => {
+                    boundingBoxes.push({
+                        from: cumulatedOffset + childFrom,
+                        to: cumulatedOffset + childTo,
+                        width: boundingBox.width,
+                        height: boundingBox.height,
+                        top: cumulatedHeight + this.paddingTop + boundingBox.top,
+                        bottom: this.height - this.paddingTop - cumulatedHeight - child.height + boundingBox.bottom,
+                        left: boundingBox.left,
+                        right: boundingBox.right,
                     });
                 });
             }
-            offset += child.getSize();
-            cumulatedHeight += childHeight;
+            cumulatedOffset += child.size;
+            cumulatedHeight += child.height;
         });
-        return rects;
+        return {
+            node: this,
+            boundingBoxes,
+            children: childResults,
+        };
     }
 }

@@ -1,11 +1,7 @@
-import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
-import { ILayoutRect, mergeLayoutRects } from './rect';
+import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 
 export interface ILayoutLine extends ILayoutNode {
     readonly contentWidth: number;
-
-    convertCoordinateToOffset(x: number): number;
-    resolveRects(from: number, to: number): ILayoutRect[];
 }
 
 export class LayoutLine extends LayoutNode implements ILayoutLine {
@@ -65,65 +61,65 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
         return this.internalContentWidth;
     }
 
-    convertCoordinateToOffset(x: number) {
+    convertCoordinatesToOffset(x: number, y: number) {
         let offset = 0;
         let cumulatedWidth = 0;
-        for (let child of this.getChildren()) {
-            const childWidth = child.getWidth();
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childWidth = child.width;
             if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
-                offset += child.convertCoordinateToOffset(x - cumulatedWidth);
-                break;
+                offset += child.convertCoordinatesToOffset(x, 0);
             }
-            offset += child.getSize();
+            offset += child.size;
             cumulatedWidth += childWidth;
         }
-        if (offset === this.getSize()) {
+        if (offset === this.size) {
             return offset - 1;
         }
         return offset;
     }
 
-    resolveRects(from: number, to: number) {
-        const rects: ILayoutRect[] = [];
-        let offset = 0;
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+        if (from < 0 || to >= this.size || from > to) {
+            throw new Error('Invalid range.');
+        }
+        const childResults: IResolveBoundingBoxesResult[] = [];
+        let cumulatedOffset = 0;
         let cumulatedWidth = 0;
-        this.getChildren().forEach((child, n) => {
-            const childWidth = child.getWidth();
-            const minChildOffset = 0;
-            const maxChildOffset = child.getSize();
-            const childFrom = Math.max(from - offset, minChildOffset);
-            const childTo = Math.min(to - offset, maxChildOffset);
-            if (
-                childFrom <= maxChildOffset &&
-                childTo >= minChildOffset &&
-                !(childFrom === childTo && childTo === maxChildOffset)
-            ) {
-                const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach((childRect) => {
-                    const width = childRect.width;
-                    const height = childRect.height;
-                    const left = cumulatedWidth + childRect.left;
-                    const right = this.getWidth() - cumulatedWidth - childRect.right;
-                    const top = childRect.top;
-                    const bottom = childRect.bottom;
-                    rects.push({
-                        width,
-                        height,
-                        left,
-                        right,
-                        top,
-                        bottom,
-                        paddingTop: childRect.paddingTop,
-                        paddingBottom: childRect.paddingBottom,
-                        paddingLeft: 0,
-                        paddingRight: 0,
-                    });
-                });
+        let left1: number;
+        let left2: number;
+        this.children.forEach((child) => {
+            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+                const childFrom = Math.max(0, from - cumulatedOffset);
+                const childTo = Math.min(child.size, to - cumulatedOffset);
+                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
+                childResults.push(childResult);
+                if (left1 === undefined) {
+                    left1 = cumulatedWidth + childResult.boundingBoxes[0].left;
+                }
+                left2 =
+                    cumulatedWidth +
+                    childResult.boundingBoxes.reduce((width, boundingBox) => width + boundingBox.width, 0) -
+                    childResult.boundingBoxes[childResult.boundingBoxes.length - 1].right;
             }
-            offset += child.getSize();
-            cumulatedWidth += childWidth;
+            cumulatedOffset += child.size;
+            cumulatedWidth += child.width;
         });
-        mergeLayoutRects(rects);
-        return rects;
+        return {
+            node: this,
+            boundingBoxes: [
+                {
+                    from,
+                    to,
+                    width: left2! - left1!,
+                    height: this.innerHeight,
+                    left: this.paddingLeft + left1!,
+                    right: this.width - this.paddingLeft - left2!,
+                    top: this.paddingTop,
+                    bottom: this.paddingBottom,
+                },
+            ],
+            children: childResults,
+        };
     }
 }

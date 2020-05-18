@@ -187,28 +187,6 @@ export class WordLayoutNode extends LayoutAtom {
         return this.tailTrimmedWidth;
     }
 
-    breakAtWidth(width: number) {
-        const text = this.word.text;
-        let min = 0;
-        let max = text.length;
-        while (max - min > 1) {
-            const offset = Math.floor((max + min) / 2);
-            const substr = text.substring(0, offset);
-            const subwidth = this.textMeasurer.measure(substr, this.style).width;
-            if (subwidth > width) {
-                max = offset;
-            } else {
-                min = offset;
-            }
-        }
-        const splitAt = min;
-        const newWord = { ...this.word, text: text.substring(splitAt) };
-        const newNode = new WordLayoutNode(this.textMeasurer, this.componentId, this.id, newWord, this.style);
-        this.word.text = text.substring(0, splitAt);
-        this.clearCache();
-        return newNode;
-    }
-
     getWord() {
         return this.word;
     }

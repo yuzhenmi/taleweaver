@@ -1,19 +1,4 @@
-export interface ILayoutRect {
-    width: number;
-    height: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    paddingTop: number;
-    paddingBottom: number;
-    paddingLeft: number;
-    paddingRight: number;
-}
-
-export type IPageLayoutRect = ILayoutRect[];
-
-export function mergeLayoutRects(rects: ILayoutRect[]) {
+export function mergeLayoutRects(rects: IBoundingBox[]) {
     // Assume rects are sorted top to bottom, left to right
     for (let n = 0; n < rects.length; n++) {
         const rect = rects[n];

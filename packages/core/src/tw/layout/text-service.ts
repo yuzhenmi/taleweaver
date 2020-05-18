@@ -1,16 +1,19 @@
-import { applyDefaultFont, IFont } from './font';
+import { applyDefaultFont, IFont } from '../render/font';
+
+const BREAKABLE_CHARS = [' ', '\n', '\t'];
 
 export interface ITextMeasurement {
     width: number;
     height: number;
 }
 
-export interface ITextMeasurer {
+export interface ITextService {
     measure(text: string, font: IFont): ITextMeasurement;
-    measureTrimmed(text: string, font: IFont): ITextMeasurement;
+    trim(text: string): string;
+    breakIntoWords(text: string): string[];
 }
 
-export class TextMeasurer implements ITextMeasurer {
+export class TextMeasurer implements ITextService {
     protected $canvas: HTMLCanvasElement;
 
     constructor() {
@@ -36,11 +39,28 @@ export class TextMeasurer implements ITextMeasurer {
         };
     }
 
-    measureTrimmed(text: string, font: IFont) {
+    trim(text: string) {
         if (!this.testTrimmable(text)) {
-            return this.measure(text, font);
+            return text;
         }
-        return this.measure(text.substring(0, text.length - 1), font);
+        return text.substring(0, text.length - 1);
+    }
+
+    breakIntoWords(text: string) {
+        const words: string[] = [];
+        let word = '';
+        for (let n = 0, nn = text.length; n < nn; n++) {
+            const char = text[n];
+            word += char;
+            if (BREAKABLE_CHARS.includes(char)) {
+                words.push(word);
+                word = '';
+            }
+        }
+        if (word.length > 0) {
+            words.push(word);
+        }
+        return words;
     }
 
     protected fixFontFamily(fontFamily: string) {
@@ -51,6 +71,9 @@ export class TextMeasurer implements ITextMeasurer {
     }
 
     protected testTrimmable(text: string) {
-        return false;
+        if (text.length === 0) {
+            return false;
+        }
+        return BREAKABLE_CHARS.includes(text[text.length - 1]);
     }
 }

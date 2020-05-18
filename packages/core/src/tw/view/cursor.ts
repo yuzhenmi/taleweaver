@@ -1,5 +1,5 @@
 import { ICursorService } from '../cursor/service';
-import { ILayoutRect } from '../layout/rect';
+import { IBoundingBox } from '../layout/bounding-box';
 import { ILayoutService } from '../layout/service';
 import { IRenderService } from '../render/service';
 import { IViewService } from './service';
@@ -158,7 +158,7 @@ export class CursorView implements ICursorView {
     }
 
     protected clearDOMSelections() {
-        this.domSelections.forEach(domSelection => {
+        this.domSelections.forEach((domSelection) => {
             if (domSelection.parentElement) {
                 domSelection.parentElement.removeChild(domSelection);
             }
@@ -166,7 +166,7 @@ export class CursorView implements ICursorView {
         this.domSelections = [];
     }
 
-    protected buildDOMSelection(layoutRect: ILayoutRect) {
+    protected buildDOMSelection(layoutRect: IBoundingBox) {
         const domSelection = document.createElement('div');
         domSelection.className = 'tw--cursor--selection';
         domSelection.setAttribute('data-tw-instance', this.instanceId);

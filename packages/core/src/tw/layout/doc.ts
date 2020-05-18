@@ -1,9 +1,6 @@
-import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
-import { IPageLayoutRect } from './rect';
+import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 
-export interface ILayoutDoc extends ILayoutNode {
-    resolvePageRects(from: number, to: number): IPageLayoutRect[];
-}
+export interface ILayoutDoc extends ILayoutNode {}
 
 export class LayoutDoc extends LayoutNode implements ILayoutDoc {
     constructor(
@@ -46,26 +43,29 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         return 0;
     }
 
-    resolvePageRects(from: number, to: number) {
-        const rects: IPageLayoutRect[] = [];
-        this.getChildren().forEach(() => {
-            rects.push([]);
-        });
-        let offset = 0;
-        this.getChildren().forEach((child, n) => {
-            const childSize = child.getSize();
-            const minChildOffset = 0;
-            const maxChildOffset = childSize;
-            const childFrom = Math.max(from - offset, minChildOffset);
-            const childTo = Math.min(to - offset, maxChildOffset);
-            if (childFrom <= maxChildOffset && childTo >= minChildOffset) {
-                const childRects = child.resolveRects(childFrom, childTo);
-                childRects.forEach((childRect) => {
-                    rects[n].push(childRect);
-                });
+    convertCoordinatesToOffset(x: number, y: number): number {
+        throw new Error('Use page to convert coordinates to offset.');
+    }
+
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+        if (from < 0 || to >= this.size || from > to) {
+            throw new Error('Invalid range.');
+        }
+        const childResults: IResolveBoundingBoxesResult[] = [];
+        let cumulatedOffset = 0;
+        this.children.forEach((child) => {
+            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+                const childFrom = Math.max(0, from - cumulatedOffset);
+                const childTo = Math.min(child.size, to - cumulatedOffset);
+                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
+                childResults.push(childResult);
             }
-            offset += childSize;
+            cumulatedOffset += child.size;
         });
-        return rects;
+        return {
+            node: this,
+            boundingBoxes: [],
+            children: childResults,
+        };
     }
 }

@@ -2,13 +2,25 @@ import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 import { generateId } from '../util/id';
 
-export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'text' | 'word' | 'atom';
+export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
 
 export interface ILayoutPosition extends IPosition<ILayoutNode> {}
 
-export interface IRenderRange {
+export interface IBoundingBox {
     from: number;
     to: number;
+    width: number;
+    height: number;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+}
+
+export interface IResolveBoundingBoxesResult {
+    node: ILayoutNode;
+    boundingBoxes: IBoundingBox[];
+    children: IResolveBoundingBoxesResult[];
 }
 
 export interface ILayoutNode extends INode<ILayoutNode> {
@@ -29,6 +41,8 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly needView: boolean;
 
     resolvePosition(offset: number, depth?: number): ILayoutPosition;
+    convertCoordinatesToOffset(x: number, y: number): number;
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
 }
 
 export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {}
@@ -37,6 +51,9 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     abstract get type(): ILayoutNodeType;
     abstract get width(): number;
     abstract get height(): number;
+
+    abstract resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
+    abstract convertCoordinatesToOffset(x: number, y: number): number;
 
     protected internalSize?: number;
     protected internalNeedView = true;

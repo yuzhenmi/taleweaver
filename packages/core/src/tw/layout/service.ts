@@ -1,8 +1,8 @@
 import { IEventListener } from '../event/listener';
 import { IRenderService } from '../render/service';
+import { IPageLayoutRect } from './bounding-box';
 import { ILayoutDoc } from './doc';
 import { ILayoutPosition } from './node';
-import { IPageLayoutRect } from './rect';
 import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 
 export interface ILayoutService {

@@ -3,7 +3,6 @@ import { IRenderBlock } from '../render/block';
 import { IRenderDoc } from '../render/doc';
 import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
-import { IRenderWord } from '../render/word';
 import { INodeList } from '../tree/node-list';
 import { LayoutAtom } from './atom';
 import { LayoutBlock } from './block';
@@ -12,6 +11,7 @@ import { LayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { LayoutPage } from './page';
 import { ILayoutText, LayoutText } from './text';
+import { ITextService } from './text-service';
 import { LayoutWord } from './word';
 
 export interface ILayoutEngine {
@@ -20,6 +20,8 @@ export interface ILayoutEngine {
 }
 
 export class LayoutEngine implements ILayoutEngine {
+    constructor(protected textService: ITextService) {}
+
     buildDoc(renderDoc: IRenderDoc<any>) {
         const doc = new LayoutDoc(
             renderDoc.id,
@@ -98,7 +100,7 @@ export class LayoutEngine implements ILayoutEngine {
                     newChildren.push(...this.updateText(childrenMap[child.id] || [], child));
                     break;
                 case 'atom':
-                    // TODO
+                    newChildren.push(...this.updateAtom(childrenMap[child.id] || [], child));
                     break;
                 default:
                     throw new Error(`Child type ${child.type} is invalid.`);
@@ -116,40 +118,13 @@ export class LayoutEngine implements ILayoutEngine {
             }
             return texts;
         }
-        const childrenMap: { [key: string]: ILayoutNode[] } = {};
-        for (const text of texts) {
-            text.children.forEach((child) => {
-                if (!child.renderId) {
-                    throw new Error('Render ID missing on layout node.');
-                }
-                childrenMap[child.renderId] = childrenMap[child.renderId] || [];
-                childrenMap[child.renderId].push(child);
-            });
-        }
         const newChildren: ILayoutNode[] = [];
-        renderText.children.forEach((child) => {
-            switch (child.type) {
-                case 'word':
-                    newChildren.push(...this.updateWord(childrenMap[child.id] || [], child));
-                    break;
-                default:
-                    throw new Error(`Child type ${child.type} is invalid.`);
-            }
+        this.textService.breakIntoWords(renderText.text).forEach((wordText) => {
+            newChildren.push(this.buildWord(renderText, wordText));
         });
         const text = this.buildText(renderText);
         text.setChildren(newChildren);
         return [text];
-    }
-
-    protected updateWord(words: ILayoutNode[], renderWord: IRenderNode<any>): ILayoutNode[] {
-        if (!renderWord.needLayout) {
-            if (words.length === 0) {
-                throw new Error('Expected layout word to be available.');
-            }
-            return words;
-        }
-        const word = this.buildWord(renderWord);
-        return [word];
     }
 
     protected updateAtom(atoms: ILayoutNode[], renderAtom: IRenderNode<any>): ILayoutNode[] {
@@ -193,18 +168,12 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildWord(renderNode: IRenderNode<any>) {
-        if (renderNode.type !== 'word') {
-            throw new Error('Expected word.');
+    protected buildWord(renderNode: IRenderNode<any>, word: string) {
+        if (renderNode.type !== 'text') {
+            throw new Error('Expected text.');
         }
-        const renderWord = renderNode as IRenderWord<any>;
-        return new LayoutWord(
-            renderWord.id,
-            renderWord.text,
-            renderWord.width,
-            renderWord.height,
-            renderWord.trimmedWidth,
-        );
+        const renderText = renderNode as IRenderText<any>;
+        return new LayoutWord(renderText.id, word, renderText.font, this.textService);
     }
 
     protected buildAtom(renderNode: IRenderNode<any>) {
