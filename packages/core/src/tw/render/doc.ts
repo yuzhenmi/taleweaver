@@ -29,8 +29,4 @@ export abstract class RenderDoc<TStyle, TAttributes> extends RenderNode<TStyle, 
     get leaf() {
         return false;
     }
-
-    get modelTextSize() {
-        return 0;
-    }
 }

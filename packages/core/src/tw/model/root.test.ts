@@ -18,7 +18,7 @@ describe('ModelRoot', () => {
     let root: MyRoot;
 
     beforeEach(() => {
-        root = new MyRoot('my-root', 'my-root', {}, '');
+        root = new MyRoot('my-root', 'my-root', '', {});
     });
 
     describe('root', () => {

@@ -135,6 +135,7 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     setChildren(nodes: TNode[]) {
         this.internalChildren = new NodeList(nodes);
         this.didSetChildrenEventEmitter.emit({});
+        this.didUpdateNodeEventEmitter.emit({});
     }
 
     findDescendant(id: string): TNode | null {

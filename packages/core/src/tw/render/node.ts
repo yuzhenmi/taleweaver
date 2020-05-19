@@ -27,7 +27,6 @@ export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
     protected abstract get padModelSize(): boolean;
-    protected abstract get modelTextSize(): number;
 
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
@@ -70,7 +69,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             this.internalChildrenModelSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 2);
         }
         const padding = this.padModelSize ? 2 : 0;
-        return this.internalChildrenModelSize! + padding + this.modelTextSize;
+        return this.internalChildrenModelSize! + padding + this.text.length;
     }
 
     get needLayout() {

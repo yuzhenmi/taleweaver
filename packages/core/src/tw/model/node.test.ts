@@ -7,7 +7,7 @@ describe('ModelNode', () => {
 
     describe('text', () => {
         beforeEach(() => {
-            node = new MyLeaf('my-leaf', 'my-leaf', {}, 'My text.');
+            node = new MyLeaf('my-leaf', 'my-leaf', 'My text.', {});
         });
 
         it('equals text', () => {
@@ -18,19 +18,21 @@ describe('ModelNode', () => {
     describe('size', () => {
         describe('not leaf', () => {
             beforeEach(() => {
-                node = new MyBranch('my-branch', 'my-branch', {}, '');
-                node.appendChild(new MyLeaf('my-leaf', 'my-leaf', {}, 'My text.'));
-                node.appendChild(new MyLeaf('my-leaf', 'my-other-leaf', {}, 'My other text.'));
+                node = new MyBranch('my-branch', 'my-branch', '', {});
+                node.setChildren([
+                    new MyLeaf('my-leaf', 'my-leaf', 'My text.', {}),
+                    new MyLeaf('my-leaf', 'my-other-leaf', 'My other text.', {}),
+                ]);
             });
 
             it('equals sum of size of children plus padding', () => {
-                expect(node.size).toEqual(24);
+                expect(node.size).toEqual(28);
             });
         });
 
         describe('leaf', () => {
             beforeEach(() => {
-                node = new MyLeaf('my-leaf', 'my-leaf', {}, 'My text.');
+                node = new MyLeaf('my-leaf', 'my-leaf', 'My text.', {});
             });
 
             it('equals length of text plus padding', () => {
@@ -39,11 +41,24 @@ describe('ModelNode', () => {
         });
     });
 
-    describe('resolvePosition', () => {
-        // TODO
-    });
+    describe('needRender', () => {
+        it('initializes to true', () => {
+            expect(node.needRender).toEqual(true);
+        });
 
-    describe('toTokens', () => {
-        // TODO
+        describe('clearNeedRender called', () => {
+            it('clears needRender flag', () => {
+                node.clearNeedRender();
+                expect(node.needRender).toEqual(false);
+            });
+        });
+
+        describe('children updated', () => {
+            it('sets needRender flag to true', () => {
+                node.clearNeedRender();
+                node.setChildren([]);
+                expect(node.needRender).toEqual(true);
+            });
+        });
     });
 });

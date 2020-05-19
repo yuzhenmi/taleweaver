@@ -26,7 +26,7 @@ export abstract class RenderAtom<TStyle, TAttributes> extends RenderNode<TStyle,
         return false;
     }
 
-    get modelTextSize() {
-        return 1;
+    get text() {
+        return ' ';
     }
 }

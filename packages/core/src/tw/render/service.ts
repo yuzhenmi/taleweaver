@@ -2,18 +2,18 @@ import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IModelService } from '../model/service';
 import { IRenderDoc } from './doc';
-import { IRenderNode, IRenderPosition, IStyle } from './node';
+import { IRenderNode, IRenderPosition } from './node';
 import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
 
 export interface IStyles {
     [componentId: string]: {
-        [partId: string]: IStyle[];
+        [partId: string]: any[];
     };
 }
 
 export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
-    getDoc(): IRenderDoc<any>;
+    getDoc(): IRenderDoc<any, any>;
     getDocSize(): number;
     convertOffsetToModelOffset(offset: number): number;
     convertModelOffsetToOffset(modelOffset: number): number;
@@ -59,7 +59,7 @@ export class RenderService implements IRenderService {
         return styles;
     }
 
-    protected extractStyle(styles: IStyles, node: IRenderNode<any>, from: number, to: number) {
+    protected extractStyle(styles: IStyles, node: IRenderNode<any, any>, from: number, to: number) {
         if (from > to) {
             return;
         }

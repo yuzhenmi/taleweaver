@@ -18,7 +18,7 @@ describe('ModelBranch', () => {
     let branch: MyBranch;
 
     beforeEach(() => {
-        branch = new MyBranch('my-branch', 'my-branch', {}, '');
+        branch = new MyBranch('my-branch', 'my-branch', '', {});
     });
 
     describe('root', () => {

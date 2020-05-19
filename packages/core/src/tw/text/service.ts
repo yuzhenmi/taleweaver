@@ -25,7 +25,7 @@ export interface ITextMeasurement {
     height: number;
 }
 
-const DEFAULT_FONT: IFont = {
+export const DEFAULT_FONT: IFont = {
     weight: 400,
     size: 14,
     family: 'sans-serif',
@@ -36,7 +36,7 @@ const DEFAULT_FONT: IFont = {
     color: 'black',
 };
 
-const BREAKABLE_CHARS = [' ', '\n', '\t'];
+export const BREAKABLE_CHARS = [' ', '\n', '\t'];
 
 export interface ITextService {
     measure(text: string, font: IFont): ITextMeasurement;

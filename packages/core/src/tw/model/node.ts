@@ -45,8 +45,9 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         if (this.internalSize === undefined) {
             if (this.leaf) {
                 this.internalSize = 2 + this.text.length;
+            } else {
+                this.internalSize = this.children.reduce((size, child) => size + child.size, 2);
             }
-            this.internalSize = this.children.reduce((size, child) => size + child.size, 2);
         }
         return this.internalSize;
     }

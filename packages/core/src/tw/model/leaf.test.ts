@@ -18,7 +18,7 @@ describe('ModelLeaf', () => {
     let leaf: MyLeaf;
 
     beforeEach(() => {
-        leaf = new MyLeaf('my-leaf', 'my-leaf', {}, '');
+        leaf = new MyLeaf('my-leaf', 'my-leaf', '', {});
     });
 
     describe('root', () => {

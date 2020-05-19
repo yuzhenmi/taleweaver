@@ -32,8 +32,4 @@ export abstract class RenderText<TStyle, TAttributes> extends RenderNode<TStyle,
     get padModelSize() {
         return false;
     }
-
-    get modelTextSize() {
-        return 0;
-    }
 }

@@ -11,17 +11,17 @@ export interface IDidUpdateRenderStateEvent {}
 
 export interface IRenderState {
     onDidUpdateRenderState: IOnEvent<IDidUpdateRenderStateEvent>;
-    readonly doc: IRenderDoc<any>;
+    readonly doc: IRenderDoc<any, any>;
 }
 
 export class RenderState implements IRenderState {
-    readonly doc: IRenderDoc<any>;
+    readonly doc: IRenderDoc<any, any>;
 
     protected didUpdateRenderStateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
         const modelRoot = modelService.getRoot();
-        this.doc = this.buildNode(modelRoot) as IRenderDoc<any>;
+        this.doc = this.buildNode(modelRoot) as IRenderDoc<any, any>;
         this.updateNode(this.doc, modelRoot);
         modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
     }
@@ -36,16 +36,16 @@ export class RenderState implements IRenderState {
         this.didUpdateRenderStateEventEmitter.emit({});
     };
 
-    protected updateNode(node: IRenderNode<any>, modelNode: IModelNode<any>) {
+    protected updateNode(node: IRenderNode<any, any>, modelNode: IModelNode<any>) {
         node.update(modelNode.attributes, modelNode.text);
-        const childrenMap: { [key: string]: IRenderNode<any> } = {};
+        const childrenMap: { [key: string]: IRenderNode<any, any> } = {};
         node.children.forEach((child) => {
             if (!child.modelId) {
                 return;
             }
             childrenMap[child.modelId] = child;
         });
-        const newChildren: IRenderNode<any>[] = [];
+        const newChildren: IRenderNode<any, any>[] = [];
         modelNode.children.forEach((modelChild) => {
             let child = childrenMap[modelChild.id];
             if (!child) {

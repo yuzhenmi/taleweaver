@@ -1,7 +1,6 @@
 import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
-import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
 import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
@@ -11,10 +10,25 @@ import { IStateService } from '../state/service';
 import { IDidApplyTransformation, IDidUpdateStateEvent } from '../state/state';
 import { CLOSE_TOKEN, IToken } from '../state/token';
 import { IAppliedTransformation, ITransformation } from '../state/transformation';
-import { IInlineModelNode } from './leaf';
+import { DEFAULT_FONT, IFont, IFontOptional, ITextMeasurement, ITextService } from '../text/service';
 import { ModelState } from './state';
 
-class MockStateService implements IStateService {
+class TextServiceStub implements ITextService {
+    measure(text: string, font: IFont): ITextMeasurement {
+        return { width: 10, height: 10 };
+    }
+    trim(text: string): string {
+        return text;
+    }
+    breakIntoWords(text: string): string[] {
+        return text.split(' ');
+    }
+    applyDefaultFont(font: IFontOptional): IFont {
+        return DEFAULT_FONT;
+    }
+}
+
+class StateServiceStub implements IStateService {
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
 
     constructor(protected tokens: IToken[]) {}
@@ -52,19 +66,19 @@ class MockStateService implements IStateService {
 }
 
 describe('ModelState', () => {
-    let textMeasurer: TextMeasurerStub;
     let configService: ConfigService;
+    let textService: TextServiceStub;
     let componentService: ComponentService;
-    let stateService: MockStateService;
+    let stateService: StateServiceStub;
     let modelState: ModelState;
 
     beforeEach(() => {
         const config = buildStubConfig();
-        textMeasurer = new TextMeasurerStub();
-        config.components.doc = new DocComponent('doc');
-        config.components.paragraph = new ParagraphComponent('paragraph');
-        config.components.text = new TextComponent('text', textMeasurer);
         configService = new ConfigService(config, {});
+        textService = new TextServiceStub();
+        config.components.doc = new DocComponent('doc', configService);
+        config.components.paragraph = new ParagraphComponent('paragraph');
+        config.components.text = new TextComponent('text', textService);
         componentService = new ComponentService(configService);
         const tokens = [
             { componentId: 'doc', id: 'doc', attributes: {} },
@@ -86,28 +100,28 @@ describe('ModelState', () => {
             CLOSE_TOKEN,
             CLOSE_TOKEN,
         ];
-        stateService = new MockStateService(tokens);
+        stateService = new StateServiceStub(tokens);
         modelState = new ModelState(componentService, stateService);
     });
 
     it('initializes model tree from token state', () => {
-        const docNode = modelState.getDocNode();
-        expect(docNode.getComponentId()).toEqual('doc');
-        expect(docNode.getId()).toEqual('doc');
-        expect(docNode.getChildren()).toHaveLength(1);
-        const blockNode = docNode.getFirstChild()!;
-        expect(blockNode.getComponentId()).toEqual('paragraph');
-        expect(blockNode.getId()).toEqual('1');
-        expect(blockNode.getChildren()).toHaveLength(2);
-        const inlineNode1 = blockNode.getFirstChild()!;
-        expect(inlineNode1.getComponentId()).toEqual('text');
-        expect(inlineNode1.getId()).toEqual('2');
-        expect(inlineNode1.getContent()).toEqual('Hello');
-        const inlineNode2 = inlineNode1.getNextSibling()! as IInlineModelNode;
-        expect(inlineNode2.getComponentId()).toEqual('text');
-        expect(inlineNode2.getId()).toEqual('3');
-        expect(inlineNode2.getAttributes()).toEqual({ bold: true });
-        expect(inlineNode2.getContent()).toEqual('world');
+        const doc = modelState.root;
+        expect(doc.componentId).toEqual('doc');
+        expect(doc.id).toEqual('doc');
+        expect(doc.children).toHaveLength(1);
+        const block = doc.firstChild!;
+        expect(block.componentId).toEqual('paragraph');
+        expect(block.id).toEqual('1');
+        expect(block.children).toHaveLength(2);
+        const text1 = block.firstChild!;
+        expect(text1.componentId).toEqual('text');
+        expect(text1.id).toEqual('2');
+        expect(text1.text).toEqual('Hello');
+        const text2 = text1.nextSibling!;
+        expect(text2.componentId).toEqual('text');
+        expect(text2.id).toEqual('3');
+        expect(text2.attributes).toEqual({ bold: true });
+        expect(text2.text).toEqual('world');
     });
 
     describe('when token state did update', () => {
@@ -139,14 +153,14 @@ describe('ModelState', () => {
                 afterFrom: 3,
                 afterTo: 4,
             });
-            const docNode = modelState.getDocNode();
-            expect(docNode.getChildren()).toHaveLength(1);
-            const blockNode = docNode.getFirstChild()!;
-            expect(blockNode.getChildren()).toHaveLength(2);
-            const inlineNode1 = blockNode.getFirstChild()!;
-            expect(inlineNode1.getContent()).toEqual(' Hello');
-            const inlineNode2 = inlineNode1.getNextSibling()! as IInlineModelNode;
-            expect(inlineNode2.getContent()).toEqual('world');
+            const doc = modelState.root;
+            expect(doc.children).toHaveLength(1);
+            const block = doc.firstChild!;
+            expect(block.children).toHaveLength(2);
+            const text1 = block.firstChild!;
+            expect(text1.text).toEqual(' Hello');
+            const text2 = text1.nextSibling!;
+            expect(text2.text).toEqual('world');
         });
     });
 });
