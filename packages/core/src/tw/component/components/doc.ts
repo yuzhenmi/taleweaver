@@ -85,7 +85,7 @@ export class DocComponent extends Component implements IComponent {
     }
 
     buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
-        return new ModelDoc(this.id, id, '', attributes);
+        return new ModelDoc(this.id, id, attributes);
     }
 
     buildRenderNode(partId: string | null, modelId: string) {

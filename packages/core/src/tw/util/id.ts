@@ -7,5 +7,5 @@ function generateRandomBytes16() {
 }
 
 export function generateId() {
-    return window.btoa(String.fromCharCode(...Array.from(generateRandomBytes16())));
+    return Buffer.from(String.fromCharCode(...Array.from(generateRandomBytes16()))).toString('base64');
 }

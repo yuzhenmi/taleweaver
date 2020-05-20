@@ -37,7 +37,7 @@ export class RenderState implements IRenderState {
     };
 
     protected updateNode(node: IRenderNode<any, any>, modelNode: IModelNode<any>) {
-        node.update(modelNode.attributes, modelNode.text);
+        node.update(modelNode.text, modelNode.attributes);
         const childrenMap: { [key: string]: IRenderNode<any, any> } = {};
         node.children.forEach((child) => {
             if (!child.modelId) {

@@ -1,133 +1,81 @@
-import { DocComponent, DocModelNode } from '../component/components/doc';
+import { DocComponent, ModelDoc } from '../component/components/doc';
 import { ModelParagraph, ParagraphComponent } from '../component/components/paragraph';
-import { ModelText, RenderTextWord, TextComponent } from '../component/components/text';
-import { TextMeasurerStub } from '../component/components/text-measurer.stub';
+import { ModelText, TextComponent } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
-import { IEventListener } from '../event/listener';
-import { IModelNode, IModelPosition } from '../model/node';
-import { IModelRoot } from '../model/root';
-import { IModelService } from '../model/service';
-import { IDidUpdateModelStateEvent } from '../model/state';
-import { IInlineRenderNode } from './inline-node';
+import { ModelServiceStub } from '../model/service.stub';
+import { TextServiceStub } from '../text/service.stub';
 import { RenderState } from './state';
 
-class MockModelService implements IModelService {
-    protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();
-
-    constructor(protected root: IModelRoot<any>) {}
-
-    emitDidUpdateModelStateEvent(event: IDidUpdateModelStateEvent) {
-        this.didUpdateModelStateEventEmitter.emit(event);
-    }
-
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        return this.didUpdateModelStateEventEmitter.on(listener);
-    }
-
-    getRoot() {
-        return this.root;
-    }
-
-    toDOM(from: number, to: number): HTMLElement {
-        throw new Error('Not implemented.');
-    }
-
-    fromDOM(domNodes: HTMLElement[]): IModelNode<any>[] {
-        throw new Error('Not implemented.');
-    }
-
-    resolvePosition(offset: number): IModelPosition {
-        throw new Error('Not implemented.');
-    }
-}
-
 describe('ModelState', () => {
-    let textMeasurer: TextMeasurerStub;
+    let configService: ConfigService;
+    let textService: TextServiceStub;
     let docComponent: DocComponent;
     let paragraphComponent: ParagraphComponent;
     let textComponent: TextComponent;
-    let configService: ConfigService;
     let componentService: ComponentService;
-    let modelService: MockModelService;
+    let modelService: ModelServiceStub;
     let renderState: RenderState;
+    let modelDoc: ModelDoc;
+    let modelParagraph: ModelParagraph;
+    let modelText1: ModelText;
+    let modelText2: ModelText;
 
     beforeEach(() => {
         const config = buildStubConfig();
-        textMeasurer = new TextMeasurerStub();
-        docComponent = new DocComponent('doc');
+        configService = new ConfigService(config, {});
+        textService = new TextServiceStub();
+        docComponent = new DocComponent('doc', configService);
         paragraphComponent = new ParagraphComponent('paragraph');
-        textComponent = new TextComponent('text', textMeasurer);
+        textComponent = new TextComponent('text', textService);
         config.components.doc = docComponent;
         config.components.paragraph = paragraphComponent;
         config.components.text = textComponent;
-        configService = new ConfigService(config, {});
         componentService = new ComponentService(configService);
-        const docModelNode = new DocModelNode('doc', 'doc', {});
-        const paragraphModelNode = new ModelParagraph('paragraph', '1', {});
-        docModelNode.appendChild(paragraphModelNode);
-        const textModelNode1 = new ModelText('text', '2', {});
-        textModelNode1.setContent('Hello');
-        const textModelNode2 = new ModelText('text', '3', { bold: true });
-        textModelNode2.setContent('world');
-        paragraphModelNode.appendChild(textModelNode1);
-        paragraphModelNode.appendChild(textModelNode2);
-        modelService = new MockModelService(docModelNode);
+        modelDoc = new ModelDoc('doc', 'doc', {});
+        modelParagraph = new ModelParagraph('paragraph', '1', {});
+        modelDoc.setChildren([modelParagraph]);
+        modelText1 = new ModelText('text', '2', 'Hello ', {});
+        modelText2 = new ModelText('text', '3', 'world', { weight: 700 });
+        modelParagraph.setChildren([modelText1, modelText2]);
+        modelService = new ModelServiceStub(modelDoc);
         renderState = new RenderState(componentService, modelService);
     });
 
     it('initializes render tree from model state', () => {
-        const docNode = renderState.getDocNode();
-        expect(docNode.getComponentId()).toEqual('doc');
-        expect(docNode.getPartId()).toEqual('doc');
-        expect(docNode.getId()).toEqual('doc');
-        expect(docNode.getChildren()).toHaveLength(1);
-        const blockNode = docNode.getFirstChild()!;
-        expect(blockNode.getComponentId()).toEqual('paragraph');
-        expect(blockNode.getPartId()).toEqual('paragraph');
-        expect(blockNode.getId()).toEqual('1');
-        expect(blockNode.getChildren()).toHaveLength(3);
-        const inlineNode1 = blockNode.getFirstChild()!;
-        expect(inlineNode1.getComponentId()).toEqual('text');
-        expect(inlineNode1.getPartId()).toEqual('text');
-        expect(inlineNode1.getId()).toEqual('2');
-        expect(inlineNode1.getChildren()).toHaveLength(1);
-        const atomicNode1 = inlineNode1.getFirstChild()!;
-        expect(atomicNode1.getComponentId()).toEqual('text');
-        expect(atomicNode1.getPartId()).toEqual('word');
-        expect(atomicNode1.getId()).toEqual('2-0');
-        const inlineNode2 = inlineNode1.getNextSibling()! as IInlineRenderNode;
-        expect(inlineNode2.getComponentId()).toEqual('text');
-        expect(inlineNode2.getPartId()).toEqual('text');
-        expect(inlineNode2.getId()).toEqual('3');
-        expect(inlineNode2.getChildren()).toHaveLength(1);
-        const atomicNode2 = inlineNode2.getFirstChild()!;
-        expect(atomicNode2.getComponentId()).toEqual('text');
-        expect(atomicNode2.getPartId()).toEqual('word');
-        expect(atomicNode2.getId()).toEqual('3-0');
+        const doc = renderState.doc;
+        expect(doc.componentId).toEqual('doc');
+        expect(doc.partId).toEqual('doc');
+        expect(doc.modelId).toEqual('doc');
+        expect(doc.children).toHaveLength(1);
+        const paragraph = doc.firstChild!;
+        expect(paragraph.componentId).toEqual('paragraph');
+        expect(paragraph.partId).toEqual('paragraph');
+        expect(paragraph.modelId).toEqual('1');
+        expect(paragraph.children).toHaveLength(3);
+        const text1 = paragraph.firstChild!;
+        expect(text1.componentId).toEqual('text');
+        expect(text1.partId).toEqual('text');
+        expect(text1.modelId).toEqual('2');
+        expect(text1.text).toEqual('Hello ');
+        const text2 = text1.nextSibling!;
+        expect(text2.componentId).toEqual('text');
+        expect(text2.partId).toEqual('text');
+        expect(text2.modelId).toEqual('3');
+        expect(text2.text).toEqual('world');
     });
 
     describe('when model state did update', () => {
         it('updates render tree', () => {
-            const textModelNode1 = new ModelText('text', '2', {});
-            textModelNode1.setContent(' Hello');
-            modelService.emitDidUpdateModelStateEvent({
-                node: textModelNode1,
-            });
-            const docNode = renderState.getDocNode();
-            expect(docNode.getChildren()).toHaveLength(1);
-            const blockNode = docNode.getFirstChild()!;
-            expect(blockNode.getChildren()).toHaveLength(3);
-            const inlineNode = blockNode.getFirstChild()!;
-            expect(inlineNode.getChildren()).toHaveLength(2);
-            const atomicNode1 = inlineNode.getFirstChild() as RenderTextWord;
-            expect(atomicNode1.getWord().text).toEqual(' ');
-            expect(atomicNode1.getWord().breakable).toEqual(true);
-            const atomicNode2 = atomicNode1.getNextSibling() as RenderTextWord;
-            expect(atomicNode2.getWord().text).toEqual('Hello');
-            expect(atomicNode2.getWord().breakable).toEqual(false);
+            modelParagraph.setChildren([modelText1]);
+            modelService.emitDidUpdateModelStateEvent({ node: modelParagraph });
+            const doc = renderState.doc;
+            expect(doc.children).toHaveLength(1);
+            const paragraph = doc.firstChild!;
+            expect(paragraph.children).toHaveLength(2);
+            const text = paragraph.firstChild!;
+            expect(text.text).toEqual('Hello ');
         });
     });
 });

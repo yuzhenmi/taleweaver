@@ -1,7 +1,8 @@
 import { ModelBranch } from '../../model/branch';
-import { RenderAtom } from '../../render/atom';
 import { RenderBlock } from '../../render/block';
 import { IRenderNode } from '../../render/node';
+import { IRenderText, RenderText } from '../../render/text';
+import { DEFAULT_FONT } from '../../text/service';
 import { NodeList } from '../../tree/node-list';
 import { ViewAtom } from '../../view/atom';
 import { ViewBlock } from '../../view/block';
@@ -42,8 +43,9 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     constructor(componentId: string, modelId: string | null) {
         super(componentId, modelId);
         this.onDidSetChildren(() => {
-            const children = this.children.map((child) => child);
-            this.internalChildren = new NodeList<IRenderNode<any, any>>([...children, this.buildLineBreakNode()]);
+            const children = [...this.children.map((child) => child), this.buildLineBreakNode()];
+            this.internalChildren = new NodeList<IRenderNode<any, any>>(children);
+            children.forEach((child) => (child.parent = this));
         });
     }
 
@@ -80,7 +82,7 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     }
 }
 
-export class RenderParagraphLineBreak extends RenderAtom<IParagraphLineBreakStyle, null> {
+export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyle, null> {
     get partId() {
         return 'line-break';
     }
@@ -89,16 +91,35 @@ export class RenderParagraphLineBreak extends RenderAtom<IParagraphLineBreakStyl
         return false;
     }
 
-    get width() {
+    get paddingTop() {
         return 0;
     }
 
-    get height() {
+    get paddingBottom() {
+        return 0;
+    }
+
+    get paddingLeft() {
+        return 0;
+    }
+
+    get paddingRight() {
         return 0;
     }
 
     get style() {
         return {};
+    }
+
+    get font() {
+        let node: IRenderNode<any, any> | null = this;
+        while (node) {
+            if (node.type === 'text') {
+                return (node as IRenderText<any, any>).font;
+            }
+            node = node.previousSibling;
+        }
+        return DEFAULT_FONT;
     }
 }
 
@@ -147,7 +168,7 @@ export class ViewParagraphLineBreak extends ViewAtom<IParagraphLineBreakStyle> {
 
 export class ParagraphComponent extends Component implements IComponent {
     buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
-        return new ModelParagraph(this.id, id, '', attributes);
+        return new ModelParagraph(this.id, id, attributes);
     }
 
     buildRenderNode(partId: string | null, modelId: string) {
