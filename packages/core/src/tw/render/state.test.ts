@@ -1,19 +1,13 @@
-import { DocComponent, ModelDoc } from '../component/components/doc';
-import { ModelParagraph, ParagraphComponent } from '../component/components/paragraph';
-import { ModelText, TextComponent } from '../component/components/text';
+import { ModelDoc } from '../component/components/doc';
+import { ModelParagraph } from '../component/components/paragraph';
+import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
-import { buildStubConfig } from '../config/config.stub';
-import { ConfigService } from '../config/service';
+import { ConfigServiceStub } from '../config/service.stub';
 import { ModelServiceStub } from '../model/service.stub';
-import { TextServiceStub } from '../text/service.stub';
 import { RenderState } from './state';
 
 describe('ModelState', () => {
-    let configService: ConfigService;
-    let textService: TextServiceStub;
-    let docComponent: DocComponent;
-    let paragraphComponent: ParagraphComponent;
-    let textComponent: TextComponent;
+    let configService: ConfigServiceStub;
     let componentService: ComponentService;
     let modelService: ModelServiceStub;
     let renderState: RenderState;
@@ -23,15 +17,7 @@ describe('ModelState', () => {
     let modelText2: ModelText;
 
     beforeEach(() => {
-        const config = buildStubConfig();
-        configService = new ConfigService(config, {});
-        textService = new TextServiceStub();
-        docComponent = new DocComponent('doc', configService);
-        paragraphComponent = new ParagraphComponent('paragraph');
-        textComponent = new TextComponent('text', textService);
-        config.components.doc = docComponent;
-        config.components.paragraph = paragraphComponent;
-        config.components.text = textComponent;
+        configService = new ConfigServiceStub();
         componentService = new ComponentService(configService);
         modelDoc = new ModelDoc('doc', 'doc', {});
         modelParagraph = new ModelParagraph('paragraph', '1', {});

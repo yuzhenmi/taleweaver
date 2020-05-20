@@ -12,8 +12,8 @@ import {
 } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
 import { ComponentService } from '../component/service';
-import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
+import { buildStubConfig } from '../config/service.stub';
 import { ViewTreeBuilder } from './tree-builder';
 
 describe('ViewTreeBuilder', () => {

@@ -1,32 +1,12 @@
-import { DocComponent } from '../component/components/doc';
-import { ParagraphComponent } from '../component/components/paragraph';
-import { TextComponent } from '../component/components/text';
 import { ComponentService } from '../component/service';
-import { buildStubConfig } from '../config/config.stub';
-import { ConfigService } from '../config/service';
+import { ConfigServiceStub } from '../config/service.stub';
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IStateService } from '../state/service';
 import { IDidApplyTransformation, IDidUpdateStateEvent } from '../state/state';
 import { CLOSE_TOKEN, IToken } from '../state/token';
 import { IAppliedTransformation, ITransformation } from '../state/transformation';
-import { DEFAULT_FONT, IFont, IFontOptional, ITextMeasurement, ITextService } from '../text/service';
 import { ModelState } from './state';
-
-class TextServiceStub implements ITextService {
-    measure(text: string, font: IFont): ITextMeasurement {
-        return { width: 10, height: 10 };
-    }
-    trim(text: string): string {
-        return text;
-    }
-    breakIntoWords(text: string): string[] {
-        return text.split(' ');
-    }
-    applyDefaultFont(font: IFontOptional): IFont {
-        return DEFAULT_FONT;
-    }
-}
 
 class StateServiceStub implements IStateService {
     protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
@@ -66,19 +46,13 @@ class StateServiceStub implements IStateService {
 }
 
 describe('ModelState', () => {
-    let configService: ConfigService;
-    let textService: TextServiceStub;
+    let configService: ConfigServiceStub;
     let componentService: ComponentService;
     let stateService: StateServiceStub;
     let modelState: ModelState;
 
     beforeEach(() => {
-        const config = buildStubConfig();
-        configService = new ConfigService(config, {});
-        textService = new TextServiceStub();
-        config.components.doc = new DocComponent('doc', configService);
-        config.components.paragraph = new ParagraphComponent('paragraph');
-        config.components.text = new TextComponent('text', textService);
+        configService = new ConfigServiceStub();
         componentService = new ComponentService(configService);
         const tokens = [
             { componentId: 'doc', id: 'doc', attributes: {} },

@@ -152,7 +152,7 @@ export class TokenParser implements ITokenParser {
 
     protected buildNode({ componentId, partId, id, attributes, children }: INodeDescription, text: string) {
         const component = this.componentService.getComponent(componentId);
-        const node = component.buildModelNode(partId, id, attributes, text);
+        const node = component.buildModelNode(partId, id, text, attributes);
         if (!node) {
             throw new Error(
                 `Could not build node with component ${componentId}, part ${partId}, id ${id} and attributes ${JSON.stringify(

@@ -2,8 +2,8 @@ import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
 import { TextMeasurerStub } from '../component/components/text-measurer.stub';
-import { buildStubConfig } from '../config/config.stub';
 import { ConfigService } from '../config/service';
+import { buildStubConfig } from '../config/service.stub';
 import { CursorService } from '../cursor/service';
 import { State } from './state';
 import { DeleteOperation, InsertOperation, ITransformation, Transformation } from './transformation';
@@ -60,7 +60,7 @@ describe('State', () => {
         describe('when transformation contains operation', () => {
             it('emits didUpdateStateEvent', () => {
                 let isEventEmitted = false;
-                state.onDidUpdateState(event => {
+                state.onDidUpdateState((event) => {
                     isEventEmitted = true;
                     expect(event.beforeFrom).toEqual(3);
                     expect(event.beforeTo).toEqual(3);
@@ -76,7 +76,7 @@ describe('State', () => {
         describe('when transformation does not contain any operation', () => {
             it('does not emit didUpdateStateEvent', () => {
                 let isEventEmitted = false;
-                state.onDidUpdateState(event => {
+                state.onDidUpdateState((event) => {
                     isEventEmitted = true;
                 });
                 state.applyTransformations([transformation]);
