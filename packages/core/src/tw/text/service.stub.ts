@@ -11,6 +11,6 @@ export class TextServiceStub implements ITextService {
         return text.split(' ');
     }
     applyDefaultFont(font: IFontOptional): IFont {
-        return DEFAULT_FONT;
+        return { ...DEFAULT_FONT, ...font };
     }
 }

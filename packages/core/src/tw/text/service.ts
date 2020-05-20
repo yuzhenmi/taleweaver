@@ -27,7 +27,7 @@ export interface ITextMeasurement {
 
 export const DEFAULT_FONT: IFont = {
     weight: 400,
-    size: 14,
+    size: 16,
     family: 'sans-serif',
     letterSpacing: 0,
     underline: false,

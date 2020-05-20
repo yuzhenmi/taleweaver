@@ -1,7 +1,9 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IStateService } from '../state/service';
+import { IToken } from '../state/token';
 import { IModelNode, IModelPosition } from './node';
+import { TokenParser } from './parser';
 import { IModelRoot } from './root';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
@@ -11,13 +13,14 @@ export interface IModelService {
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
     resolvePosition(offset: number): IModelPosition;
+    parseTokens(tokens: IToken[]): IModelNode<any>;
 }
 
 export class ModelService implements IModelService {
     protected state: IModelState;
 
-    constructor(componentService: IComponentService, stateService: IStateService) {
-        this.state = new ModelState(componentService, stateService);
+    constructor(protected componentService: IComponentService, protected stateService: IStateService) {
+        this.state = new ModelState(componentService, stateService, this);
     }
 
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
@@ -38,5 +41,10 @@ export class ModelService implements IModelService {
 
     resolvePosition(offset: number) {
         return this.state.root.resolvePosition(offset);
+    }
+
+    parseTokens(tokens: IToken[]) {
+        const parser = new TokenParser(this.componentService);
+        return parser.parse(tokens);
     }
 }

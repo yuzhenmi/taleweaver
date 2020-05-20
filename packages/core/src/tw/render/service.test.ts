@@ -1,38 +1,27 @@
-import { DocComponent, DocModelNode } from '../component/components/doc';
-import { ModelParagraph, ParagraphComponent } from '../component/components/paragraph';
-import { ModelText, TextComponent } from '../component/components/text';
-import { TextMeasurerStub } from '../component/components/text-measurer.stub';
+import { ModelDoc } from '../component/components/doc';
+import { ModelParagraph } from '../component/components/paragraph';
+import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
-import { ConfigService } from '../config/service';
-import { buildStubConfig } from '../config/service.stub';
+import { ConfigServiceStub } from '../config/service.stub';
 import { ModelServiceStub } from '../model/service.stub';
 import { RenderService } from './service';
 
 describe('RenderService', () => {
-    let textMeasurer: TextMeasurerStub;
-    let configService: ConfigService;
+    let configService: ConfigServiceStub;
     let componentService: ComponentService;
     let modelService: ModelServiceStub;
     let service: RenderService;
 
     beforeEach(() => {
-        const config = buildStubConfig();
-        configService = new ConfigService(config, {});
-        textMeasurer = new TextMeasurerStub();
-        config.components.doc = new DocComponent('doc');
-        config.components.paragraph = new ParagraphComponent('paragraph');
-        config.components.text = new TextComponent('text', textMeasurer);
+        configService = new ConfigServiceStub();
         componentService = new ComponentService(configService);
-        const docModelNode = new DocModelNode('doc', 'doc', {});
-        const paragraphModelNode = new ModelParagraph('paragraph', '1', {});
-        docModelNode.appendChild(paragraphModelNode);
-        const textModelNode1 = new ModelText('text', '2', {});
-        textModelNode1.setContent('Hello ');
-        const textModelNode2 = new ModelText('text', '3', { weight: 700 });
-        textModelNode2.setContent('world');
-        paragraphModelNode.appendChild(textModelNode1);
-        paragraphModelNode.appendChild(textModelNode2);
-        modelService = new MockModelService(docModelNode);
+        const modelDoc = new ModelDoc('doc', 'doc', {});
+        const modelParagraph = new ModelParagraph('paragraph', '1', {});
+        modelDoc.setChildren([modelParagraph]);
+        const modelText1 = new ModelText('text', '2', 'Hello ', {});
+        const modelText2 = new ModelText('text', '3', 'world', { weight: 700 });
+        modelParagraph.setChildren([modelText1, modelText2]);
+        modelService = new ModelServiceStub(modelDoc);
         service = new RenderService(componentService, modelService);
     });
 
@@ -47,19 +36,7 @@ describe('RenderService', () => {
                         {
                             weight: 400,
                             size: 16,
-                            font: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                    ],
-                    word: [
-                        {
-                            weight: 400,
-                            size: 16,
-                            font: 'sans-serif',
+                            family: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
                             italic: false,
@@ -78,19 +55,7 @@ describe('RenderService', () => {
                         {
                             weight: 700,
                             size: 16,
-                            font: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                    ],
-                    word: [
-                        {
-                            weight: 700,
-                            size: 16,
-                            font: 'sans-serif',
+                            family: 'sans-serif',
                             letterSpacing: 0,
                             underline: false,
                             italic: false,

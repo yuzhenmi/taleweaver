@@ -87,6 +87,10 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
         return 'line-break';
     }
 
+    get text() {
+        return ' ';
+    }
+
     get padModelSize() {
         return false;
     }

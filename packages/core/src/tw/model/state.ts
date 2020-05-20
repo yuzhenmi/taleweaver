@@ -7,8 +7,8 @@ import { IOpenToken, IToken } from '../state/token';
 import { identifyTokenType } from '../state/utility';
 import { findCommonLineage } from '../tree/utility';
 import { IModelNode } from './node';
-import { TokenParser } from './parser';
 import { IModelRoot } from './root';
+import { IModelService } from './service';
 
 export interface IDidUpdateModelStateEvent {
     readonly node: IModelNode<any>;
@@ -24,10 +24,13 @@ export class ModelState implements IModelState {
     readonly root: IModelRoot<any>;
     protected didUpdateModelStateEventEmitter = new EventEmitter<IDidUpdateModelStateEvent>();
 
-    constructor(protected componentService: IComponentService, protected stateService: IStateService) {
+    constructor(
+        protected componentService: IComponentService,
+        protected stateService: IStateService,
+        protected modelService: IModelService,
+    ) {
         const tokens = stateService.getTokens();
-        const parser = new TokenParser(componentService);
-        this.root = parser.parse(tokens) as IModelRoot<any>;
+        this.root = this.modelService.parseTokens(tokens) as IModelRoot<any>;
         stateService.onDidUpdateState(this.handleDidUpdateStateEvent);
     }
 
@@ -50,8 +53,7 @@ export class ModelState implements IModelState {
         // slow as the documents grows large. There is much room
         // for optimization, by only reparsing the part of the token
         // state that got updated.
-        const parser = new TokenParser(this.componentService);
-        const updatedNode = parser.parse(updatedTokens);
+        const updatedNode = this.modelService.parseTokens(updatedTokens);
         node.apply(updatedNode);
         this.didUpdateModelStateEventEmitter.emit({ node });
     };
@@ -71,8 +73,7 @@ export class ModelState implements IModelState {
         const afterNode = this.findNodeInLineageById(beforeFromPosition.node, afterNodeID);
         const node = findCommonLineage(beforeNode, afterNode);
         const updatedTokens = this.findNodeTokenRange(tokens, node.id, afterTokenRange[0], afterTokenRange[1]);
-        const parser = new TokenParser(this.componentService);
-        const updatedNode = parser.parse(updatedTokens);
+        const updatedNode = this.modelService.parseTokens(updatedTokens);
         return [node, updatedNode];
     }
 

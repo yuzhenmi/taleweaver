@@ -15,14 +15,14 @@ import { ILayoutText, LayoutText } from './text';
 import { LayoutWord } from './word';
 
 export interface ILayoutEngine {
-    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>): void;
-    buildDoc(renderDoc: IRenderDoc<any>): ILayoutDoc;
+    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any, any>): void;
+    buildDoc(renderDoc: IRenderDoc<any, any>): ILayoutDoc;
 }
 
 export class LayoutEngine implements ILayoutEngine {
     constructor(protected textService: ITextService) {}
 
-    buildDoc(renderDoc: IRenderDoc<any>) {
+    buildDoc(renderDoc: IRenderDoc<any, any>) {
         const doc = new LayoutDoc(
             renderDoc.id,
             renderDoc.width,
@@ -36,7 +36,7 @@ export class LayoutEngine implements ILayoutEngine {
         return doc;
     }
 
-    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any>) {
+    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any, any>) {
         if (!renderDoc.needLayout) {
             return;
         }
@@ -74,7 +74,7 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any>, width: number): ILayoutNode[] {
+    protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any, any>, width: number): ILayoutNode[] {
         if (!renderBlock.needLayout) {
             if (blocks.length === 0) {
                 throw new Error('Expected layout block to be available.');
@@ -111,7 +111,7 @@ export class LayoutEngine implements ILayoutEngine {
         return [block];
     }
 
-    protected updateText(texts: ILayoutNode[], renderText: IRenderNode<any>): ILayoutNode[] {
+    protected updateText(texts: ILayoutNode[], renderText: IRenderNode<any, any>): ILayoutNode[] {
         if (!renderText.needLayout) {
             if (texts.length === 0) {
                 throw new Error('Expected layout text to be available.');
@@ -127,7 +127,7 @@ export class LayoutEngine implements ILayoutEngine {
         return [text];
     }
 
-    protected updateAtom(atoms: ILayoutNode[], renderAtom: IRenderNode<any>): ILayoutNode[] {
+    protected updateAtom(atoms: ILayoutNode[], renderAtom: IRenderNode<any, any>): ILayoutNode[] {
         if (!renderAtom.needLayout) {
             if (atoms.length === 0) {
                 throw new Error('Expected layout atom to be available.');
@@ -138,11 +138,11 @@ export class LayoutEngine implements ILayoutEngine {
         return [atom];
     }
 
-    protected buildBlock(renderNode: IRenderNode<any>, width: number) {
+    protected buildBlock(renderNode: IRenderNode<any, any>, width: number) {
         if (renderNode.type !== 'block') {
             throw new Error('Expected block.');
         }
-        const renderBlock = renderNode as IRenderBlock<any>;
+        const renderBlock = renderNode as IRenderBlock<any, any>;
         return new LayoutBlock(
             renderBlock.id,
             width,
@@ -153,11 +153,11 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildText(renderNode: IRenderNode<any>) {
+    protected buildText(renderNode: IRenderNode<any, any>) {
         if (renderNode.type !== 'text') {
             throw new Error('Expected text.');
         }
-        const renderText = renderNode as IRenderText<any>;
+        const renderText = renderNode as IRenderText<any, any>;
         return new LayoutText(
             renderText.id,
             renderText.paddingTop,
@@ -168,19 +168,19 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildWord(renderNode: IRenderNode<any>, word: string) {
+    protected buildWord(renderNode: IRenderNode<any, any>, word: string) {
         if (renderNode.type !== 'text') {
             throw new Error('Expected text.');
         }
-        const renderText = renderNode as IRenderText<any>;
+        const renderText = renderNode as IRenderText<any, any>;
         return new LayoutWord(renderText.id, word, renderText.font, this.textService);
     }
 
-    protected buildAtom(renderNode: IRenderNode<any>) {
+    protected buildAtom(renderNode: IRenderNode<any, any>) {
         if (renderNode.type !== 'atom') {
             throw new Error('Expected atom.');
         }
-        const renderAtom = renderNode as IRenderAtom<any>;
+        const renderAtom = renderNode as IRenderAtom<any, any>;
         return new LayoutAtom(renderAtom.id, renderAtom.width, renderAtom.height);
     }
 

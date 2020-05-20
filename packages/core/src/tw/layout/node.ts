@@ -77,8 +77,9 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         if (this.internalSize === undefined) {
             if (this.leaf) {
                 this.internalSize = this.text.length;
+            } else {
+                this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
             }
-            this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
         }
         return this.internalSize;
     }

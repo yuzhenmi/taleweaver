@@ -67,9 +67,6 @@ export class RenderService implements IRenderService {
         const partStyles = (componentStyles[node.partId || ''] = componentStyles[node.partId || ''] || []);
         partStyles.push(node.style);
         let position = 0;
-        if (node.leaf) {
-            return;
-        }
         node.children.forEach((child) => {
             const childSize = child.size;
             if (0 <= to - position && from - position <= childSize) {
