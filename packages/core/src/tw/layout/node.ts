@@ -68,9 +68,6 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         readonly paddingRight: number,
     ) {
         super(generateId());
-        this.onDidUpdateNode(() => {
-            this.internalNeedView = true;
-        });
     }
 
     get size() {

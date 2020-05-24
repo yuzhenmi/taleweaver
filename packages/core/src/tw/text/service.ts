@@ -1,14 +1,3 @@
-export interface IFontOptional {
-    weight?: number;
-    size?: number;
-    family?: string;
-    letterSpacing?: number;
-    underline?: boolean;
-    italic?: boolean;
-    strikethrough?: boolean;
-    color?: string;
-}
-
 export interface IFont {
     weight: number;
     size: number;
@@ -42,7 +31,7 @@ export interface ITextService {
     measure(text: string, font: IFont): ITextMeasurement;
     trim(text: string): string;
     breakIntoWords(text: string): string[];
-    applyDefaultFont(font: IFontOptional): IFont;
+    applyDefaultFont(font: Partial<IFont>): IFont;
 }
 
 export class TextMeasurer implements ITextService {
@@ -95,7 +84,7 @@ export class TextMeasurer implements ITextService {
         return words;
     }
 
-    applyDefaultFont(font: IFontOptional): IFont {
+    applyDefaultFont(font: Partial<IFont>): IFont {
         const fontConfigWithDefault: any = {};
         for (const key in DEFAULT_FONT) {
             if (key in font && (font as any)[key] !== undefined) {

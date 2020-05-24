@@ -14,9 +14,6 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         paddingRight: number,
     ) {
         super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
-        this.onDidUpdateNode(() => {
-            this.internalHeight = undefined;
-        });
     }
 
     get type(): ILayoutNodeType {

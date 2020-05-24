@@ -1,4 +1,4 @@
-import { DEFAULT_FONT, IFont, IFontOptional, ITextMeasurement, ITextService } from './service';
+import { DEFAULT_FONT, IFont, ITextMeasurement, ITextService } from './service';
 
 export class TextServiceStub implements ITextService {
     measure(text: string, font: IFont): ITextMeasurement {
@@ -10,7 +10,7 @@ export class TextServiceStub implements ITextService {
     breakIntoWords(text: string): string[] {
         return text.split(' ');
     }
-    applyDefaultFont(font: IFontOptional): IFont {
+    applyDefaultFont(font: Partial<IFont>): IFont {
         return { ...DEFAULT_FONT, ...font };
     }
 }

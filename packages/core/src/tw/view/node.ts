@@ -1,4 +1,5 @@
 import { INode, Node } from '../tree/node';
+import { NodeList } from '../tree/node-list';
 
 export type IViewNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'atom';
 
@@ -8,21 +9,9 @@ export interface IViewNode<TStyle> extends INode<IViewNode<TStyle>> {
     readonly partId: string | null;
     readonly renderId: string | null;
     readonly layoutId: string | null;
-    readonly style: TStyle;
     readonly size: number;
     readonly domContainer: HTMLElement;
     readonly domContentContainer: HTMLElement;
-
-    update(
-        text: string,
-        width: number,
-        height: number,
-        paddingTop: number,
-        paddingBottom: number,
-        paddingLeft: number,
-        paddingRight: number,
-        style: TStyle,
-    ): void;
 }
 
 export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implements IViewNode<TStyle> {
@@ -31,29 +20,18 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
     abstract get domContainer(): HTMLElement;
     abstract get domContentContainer(): HTMLElement;
 
-    protected internalText?: string;
-    protected internalStyle?: TStyle;
     protected internalSize?: number;
 
-    constructor(readonly componentId: string | null, readonly renderId: string | null, readonly layoutId: string) {
+    constructor(
+        readonly componentId: string | null,
+        readonly renderId: string | null,
+        readonly layoutId: string,
+        protected readonly text: string,
+        protected readonly style: TStyle,
+        children: IViewNode<any>[],
+    ) {
         super(layoutId);
-        this.onDidUpdateNode(() => {
-            this.internalSize = undefined;
-        });
-    }
-
-    get text() {
-        if (this.internalText === undefined) {
-            throw new Error('View node text is not initialized.');
-        }
-        return this.internalText;
-    }
-
-    get style() {
-        if (this.internalStyle === undefined) {
-            throw new Error('View node style is not initialized.');
-        }
-        return this.internalStyle;
+        this.internalChildren = new NodeList(children);
     }
 
     get size() {
@@ -67,18 +45,7 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
         return this.internalSize;
     }
 
-    update(
-        text: string,
-        width: number,
-        height: number,
-        paddingTop: number,
-        paddingBottom: number,
-        paddingLeft: number,
-        paddingRight: number,
-        style: TStyle,
-    ) {
-        this.internalText = text;
-        this.internalStyle = style;
-        this.didUpdateNodeEventEmitter.emit({});
-    }
+    protected handleChildDidUpdate = () => {
+        this.didUpdateEventEmitter.emit({});
+    };
 }

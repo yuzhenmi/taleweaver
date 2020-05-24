@@ -32,8 +32,6 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     abstract get partId(): string | null;
     abstract get style(): TStyle;
 
-    protected internalText?: string;
-    protected internalAttributes?: TAttributes;
     protected internalSize?: number;
     protected internalChildrenModelSize?: number;
     protected internalNeedLayout = true;
@@ -41,22 +39,12 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     constructor(
         readonly componentId: string,
         readonly modelId: string | null,
-        text: string,
-        attributes: TAttributes,
+        readonly text: string,
+        protected readonly attributes: TAttributes,
         children: IRenderNode<any, any>[],
     ) {
         super(generateId());
-        this.internalText = text;
-        this.internalAttributes = attributes;
         this.internalChildren = new NodeList(children);
-        children.forEach((child) => child.onDidUpdateNode(this.handleChildDidUpdate));
-    }
-
-    get text() {
-        if (this.internalText === undefined) {
-            throw new Error('Render node text is not initialized.');
-        }
-        return this.internalText;
     }
 
     get size() {
@@ -84,13 +72,6 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
 
     clearNeedLayout() {
         this.internalNeedLayout = false;
-    }
-
-    protected get attributes() {
-        if (this.internalAttributes === undefined) {
-            throw new Error('Render node attributes is not initialized.');
-        }
-        return this.internalAttributes;
     }
 
     resolvePosition(offset: number): IRenderPosition {
@@ -174,7 +155,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     }
 
     protected handleChildDidUpdate = () => {
-        this.didUpdateNodeEventEmitter.emit({});
+        this.didUpdateEventEmitter.emit({});
     };
 }
 

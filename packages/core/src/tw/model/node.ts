@@ -1,7 +1,11 @@
 import { IDisposable } from '../event/emitter';
+import { IEventListener, IOnEvent } from '../event/listener';
 import { INode, Node } from '../tree/node';
+import { NodeList } from '../tree/node-list';
 import { IPosition, Position } from '../tree/position';
 import { ISlice } from './slice';
+
+export interface IDidUpdateModelNodeEvent {}
 
 export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAttributes>> {
     readonly componentId: string;
@@ -12,9 +16,11 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     readonly needRender: boolean;
 
     clearNeedRender(): void;
-    replace(from: number, to: number, slice: ISlice): void;
+    replaceChildren(from: number, to: number, slice: ISlice): void;
+    replaceText(text: string): void;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
+    onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
 }
 
 export interface IModelPosition extends IPosition<IModelNode<any>> {}
@@ -33,7 +39,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     constructor(readonly componentId: string, id: string, text: string, readonly attributes: TAttributes) {
         super(id);
         this.internalText = text;
-        this.onDidUpdateNode(() => {
+        this.onDidUpdate(() => {
             this.internalSize = undefined;
             this.internalNeedRender = true;
         });
@@ -62,15 +68,21 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         this.internalNeedRender = false;
     }
 
-    replace(from: number, to: number, slice: ISlice) {
-        // TODO: Replace children
-        // TODO: Cleanup old / bind new in childDidUpdateDisposableMap
-        this.didUpdateNodeEventEmitter.emit({});
+    replaceChildren(from: number, to: number, slice: ISlice) {
+        const childNodes = this.children.map((node) => node);
+        const sliceNodes = slice.content.map((node) => node);
+        this.internalChildren = new NodeList([...childNodes.slice(0, from), ...sliceNodes, ...childNodes.slice(to)]);
+        const replacedChildNodes = childNodes.slice(from, to);
+        replacedChildNodes.forEach((node) => this.childDidUpdateDisposableMap.get(node.id)?.dispose());
+        sliceNodes.forEach((node) =>
+            this.childDidUpdateDisposableMap.set(node.id, node.onDidUpdate(this.handleChildDidUpdate)),
+        );
+        this.didUpdateEventEmitter.emit({});
     }
 
     replaceText(text: string) {
         this.internalText = text;
-        this.didUpdateNodeEventEmitter.emit({});
+        this.didUpdateEventEmitter.emit({});
     }
 
     resolvePosition(offset: number): IModelPosition {
@@ -122,6 +134,12 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         };
         return buildPosition(null, 0);
     }
+
+    onDidUpdate(listener: IEventListener<IDidUpdateModelNodeEvent>) {
+        return this.didUpdateEventEmitter.on(listener);
+    }
+
+    protected handleChildDidUpdate = () => {};
 }
 
 export class ModelPosition extends Position<IModelNode<any>> implements IModelPosition {}

@@ -22,7 +22,6 @@ export class RenderState implements IRenderState {
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
         const modelRoot = modelService.getRoot();
         this.doc = this.updateNode(null, modelRoot) as IRenderDoc<any, any>;
-        this.updateNode(this.doc, modelRoot);
         modelService.onDidTransformModelState(this.handleDidTransformModelStateEvent);
     }
 

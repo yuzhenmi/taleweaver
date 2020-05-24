@@ -19,6 +19,13 @@ export interface IComponent {
         layoutId: string,
         text: string,
         style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
     ): IViewNode<any> | undefined;
 }
 
@@ -42,6 +49,13 @@ export abstract class Component implements IComponent {
         layoutId: string,
         text: string,
         style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
     ): IViewNode<any> | undefined;
 
     constructor(readonly id: string) {}

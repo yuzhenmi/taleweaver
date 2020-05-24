@@ -16,9 +16,6 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         paddingRight: number,
     ) {
         super(null, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
-        this.onDidUpdateNode(() => {
-            this.internalContentHeight = undefined;
-        });
     }
 
     get type(): ILayoutNodeType {

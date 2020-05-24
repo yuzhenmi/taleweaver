@@ -1,4 +1,4 @@
-import { IFont } from '../render/font';
+import { IFont } from '../text/service';
 import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 import { ILayoutWord } from './word';
 
@@ -21,11 +21,6 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         readonly font: IFont,
     ) {
         super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
-        this.onDidUpdateNode(() => {
-            this.internalWidth = undefined;
-            this.internalHeight = undefined;
-            this.internalTrimmedWidth = undefined;
-        });
     }
 
     get type(): ILayoutNodeType {

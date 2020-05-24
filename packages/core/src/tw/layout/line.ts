@@ -10,10 +10,6 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
 
     constructor(readonly width: number) {
         super(null, '', 0, 0, 0, 0);
-        this.onDidUpdateNode(() => {
-            this.internalHeight = undefined;
-            this.internalContentWidth = undefined;
-        });
     }
 
     get type(): ILayoutNodeType {

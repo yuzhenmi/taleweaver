@@ -32,8 +32,7 @@ export class ViewState implements IViewState {
     ) {
         const layoutDoc = layoutService.getDoc();
         const renderDoc = renderService.getDoc();
-        this.doc = this.buildNode(layoutDoc, renderDoc) as IViewDoc<any>;
-        this.updateNode(this.doc, layoutDoc, renderDoc);
+        this.doc = this.updateNode(null, layoutDoc, renderDoc) as IViewDoc<any>;
         layoutService.onDidUpdateLayoutState(this.handleDidUpdateLayoutStateEvent);
     }
 
@@ -60,70 +59,49 @@ export class ViewState implements IViewState {
         this.didUpdateViewStateEventEmitter.emit({});
     };
 
-    protected updateNode(node: IViewNode<any>, layoutNode: ILayoutNode, renderNode?: IRenderNode<any, any>) {
-        if (node.type === 'text') {
-            const text = layoutNode.children.map((layoutChild) => layoutChild.text).join('');
-            node.update(
-                text,
-                renderNode && renderNode.style,
-                layoutNode.width,
-                layoutNode.height,
-                layoutNode.paddingTop,
-                layoutNode.paddingBottom,
-                layoutNode.paddingLeft,
-                layoutNode.paddingRight,
-            );
-        } else {
-            node.update(
-                layoutNode.text,
-                renderNode && renderNode.style,
-                layoutNode.width,
-                layoutNode.height,
-                layoutNode.paddingTop,
-                layoutNode.paddingBottom,
-                layoutNode.paddingLeft,
-                layoutNode.paddingRight,
-            );
-            const childrenMap: { [key: string]: IViewNode<any> } = {};
+    protected updateNode(
+        node: IViewNode<any> | null,
+        layoutNode: ILayoutNode,
+        renderNode: IRenderNode<any, any> | null,
+    ) {
+        if (!layoutNode.needView) {
+            if (!node) {
+                throw new Error('Expected view node to be available.');
+            }
+            return node;
+        }
+        const childrenMap: { [key: string]: IViewNode<any> } = {};
+        if (node) {
             node.children.forEach((child) => {
                 if (!child.layoutId) {
                     return;
                 }
                 childrenMap[child.layoutId] = child;
             });
-            const renderChildrenMap: { [key: string]: IRenderNode<any, any> } = {};
-            if (renderNode) {
-                renderNode.children.forEach((renderChild) => {
-                    renderChildrenMap[renderChild.id] = renderChild;
-                });
-            }
-            const newChildren: IViewNode<any>[] = [];
-            layoutNode.children.forEach((layoutChild) => {
-                let child = childrenMap[layoutChild.id];
-                let renderChild: IRenderNode<any, any> | undefined;
-                if (layoutChild.renderId) {
-                    renderChild = renderChildrenMap[layoutChild.renderId];
-                    if (!renderChild) {
-                        throw new Error('Render node not found.');
-                    }
-                }
-                if (!child) {
-                    if (!layoutNode) {
-                        throw new Error('Layout node not found.');
-                    }
-                    child = this.buildNode(layoutNode, renderNode);
-                }
-                newChildren.push(child);
-                if (layoutChild.needView) {
-                    this.updateNode(child, layoutChild, renderChild);
-                }
-            });
-            node.setChildren(newChildren);
         }
+        const renderChildrenMap: { [key: string]: IRenderNode<any, any> } = {};
+        if (renderNode) {
+            renderNode.children.forEach((renderChild) => {
+                renderChildrenMap[renderChild.id] = renderChild;
+            });
+        }
+        const newChildren: IViewNode<any>[] = [];
+        layoutNode.children.forEach((layoutChild) => {
+            let child = childrenMap[layoutChild.id] || null;
+            let renderChild: IRenderNode<any, any> | null = null;
+            if (layoutChild.renderId) {
+                renderChild = renderChildrenMap[layoutChild.renderId] || null;
+                if (!renderChild) {
+                    throw new Error('Render node not found.');
+                }
+            }
+            newChildren.push(this.updateNode(child, layoutChild, renderChild));
+        });
         layoutNode.clearNeedView();
+        return this.buildNode(layoutNode, renderNode, newChildren);
     }
 
-    protected buildNode(layoutNode: ILayoutNode, renderNode?: IRenderNode<any, any>) {
+    protected buildNode(layoutNode: ILayoutNode, renderNode: IRenderNode<any, any> | null, children: IViewNode<any>[]) {
         if (!renderNode) {
             switch (layoutNode.type) {
                 case 'page':
@@ -135,13 +113,39 @@ export class ViewState implements IViewState {
             }
         }
         const component = this.componentService.getComponent(renderNode.componentId);
-        const node = component.buildViewNode(
-            renderNode.partId,
-            renderNode.id,
-            layoutNode.id,
-            layoutNode.text,
-            renderNode.style,
-        );
+        let node: IViewNode<any> | undefined;
+        if (layoutNode.type === 'text') {
+            const text = layoutNode.children.map((child) => child.text).join('');
+            node = component.buildViewNode(
+                renderNode.partId,
+                renderNode.id,
+                layoutNode.id,
+                text,
+                renderNode.style,
+                children,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
+        } else {
+            node = component.buildViewNode(
+                renderNode.partId,
+                renderNode.id,
+                layoutNode.id,
+                layoutNode.text,
+                renderNode.style,
+                children,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
+        }
         if (!node) {
             throw new Error(`Error building view node from render node ${renderNode.id}.`);
         }
