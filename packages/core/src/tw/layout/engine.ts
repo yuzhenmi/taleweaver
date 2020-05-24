@@ -26,9 +26,11 @@ export class LayoutEngine implements ILayoutEngine {
             }
             return doc;
         }
+        const pages: ILayoutPage[] = [];
         const childrenMap: { [key: string]: ILayoutNode[] } = {};
         if (doc) {
             doc.children.forEach((page) => {
+                pages.push(page as ILayoutPage);
                 page.children.forEach((child) => {
                     if (!child.renderId) {
                         throw new Error('Render ID missing on layout node.');
@@ -55,7 +57,19 @@ export class LayoutEngine implements ILayoutEngine {
             }
         });
         renderDoc.clearNeedLayout();
-        return this.buildDoc(renderDoc, newChildren);
+        return this.buildDoc(
+            renderDoc,
+            this.reflowPages(
+                pages,
+                newChildren,
+                renderDoc.width,
+                renderDoc.height,
+                renderDoc.paddingTop,
+                renderDoc.paddingBottom,
+                renderDoc.paddingLeft,
+                renderDoc.paddingRight,
+            ),
+        );
     }
 
     protected updateBlock(blocks: ILayoutBlock[], renderBlock: IRenderBlock<any, any>, width: number): ILayoutBlock[] {
@@ -205,6 +219,7 @@ export class LayoutEngine implements ILayoutEngine {
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const innerHeight = height - paddingTop - paddingBottom;
         nodes = nodes.slice();
         const newPages: ILayoutNode[] = [];
         pages.forEach((page) => {
@@ -224,7 +239,7 @@ export class LayoutEngine implements ILayoutEngine {
             let currentHeight = 0;
             // Push whole nodes to page until either no more node or no longer fit
             let node = nodes.shift();
-            while (node && currentHeight + node.height <= height) {
+            while (node && currentHeight + node.height <= innerHeight) {
                 newChildren.push(node);
                 currentHeight += node.height;
                 node = nodes.shift();
@@ -234,7 +249,7 @@ export class LayoutEngine implements ILayoutEngine {
                 const nodeChildren: ILayoutNode[] = [];
                 for (let m = 0, mm = node.children.length; m < mm; m++) {
                     const nodeChild = node.children.at(m);
-                    if (currentHeight + nodeChild.height > height) {
+                    if (currentHeight + nodeChild.height > innerHeight) {
                         break;
                     }
                     nodeChildren.push(nodeChild);
