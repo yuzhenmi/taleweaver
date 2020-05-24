@@ -105,9 +105,9 @@ export class ViewState implements IViewState {
         if (!renderNode) {
             switch (layoutNode.type) {
                 case 'page':
-                    return this.buildPageNode(layoutNode);
+                    return this.buildPageNode(layoutNode, children);
                 case 'line':
-                    return this.buildLineNode(layoutNode);
+                    return this.buildLineNode(layoutNode, children);
                 default:
                     throw new Error('Missing render node.');
             }
@@ -152,11 +152,33 @@ export class ViewState implements IViewState {
         return node;
     }
 
-    protected buildPageNode(layoutNode: ILayoutNode) {
-        return this.componentService.getPageComponent().buildViewNode(layoutNode.id);
+    protected buildPageNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
+        return this.componentService
+            .getPageComponent()
+            .buildViewNode(
+                layoutNode.id,
+                children,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
     }
 
-    protected buildLineNode(layoutNode: ILayoutNode) {
-        return this.componentService.getLineComponent().buildViewNode(layoutNode.id);
+    protected buildLineNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
+        return this.componentService
+            .getLineComponent()
+            .buildViewNode(
+                layoutNode.id,
+                children,
+                layoutNode.width,
+                layoutNode.height,
+                layoutNode.paddingTop,
+                layoutNode.paddingBottom,
+                layoutNode.paddingLeft,
+                layoutNode.paddingRight,
+            );
     }
 }
