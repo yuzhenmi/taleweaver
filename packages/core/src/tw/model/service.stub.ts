@@ -1,6 +1,5 @@
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { IToken } from '../transform/token';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
 import { IModelService } from './service';
@@ -32,10 +31,6 @@ export class ModelServiceStub implements IModelService {
     }
 
     resolvePosition(offset: number): IModelPosition {
-        throw new Error('Not implemented.');
-    }
-
-    parseTokens(tokens: IToken[]): IModelNode<any> {
         throw new Error('Not implemented.');
     }
 }

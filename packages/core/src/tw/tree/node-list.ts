@@ -1,5 +1,3 @@
-import { EventEmitter, IDisposable } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
 import { INode } from './node';
 
 export interface IDidUpdateNodeListEvent {}
@@ -12,14 +10,9 @@ export interface INodeList<TNode extends INode<TNode>> {
     forEach(callbackFn: (value: TNode) => void): void;
     map: <T>(callbackFn: (value: TNode) => T) => T[];
     reduce: <T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) => T;
-
-    onDidUpdateNodeList: IOnEvent<IDidUpdateNodeListEvent>;
 }
 
 export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
-    protected didUpdateNodeListEventEmitter = new EventEmitter<IDidUpdateNodeListEvent>();
-    protected nodeDidUpdateEventListenerDisposables: IDisposable[] = [];
-
     constructor(protected nodes: TNode[] = []) {}
 
     get length() {
@@ -47,9 +40,5 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
 
     reduce<T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) {
         return this.nodes.reduce(callbackFn, initialValue);
-    }
-
-    onDidUpdateNodeList(listener: IEventListener<IDidUpdateNodeListEvent>) {
-        return this.didUpdateNodeListEventEmitter.on(listener);
     }
 }

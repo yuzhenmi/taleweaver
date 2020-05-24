@@ -1,4 +1,4 @@
-import { EventEmitter, IDisposable } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { INodeList, NodeList } from './node-list';
 
@@ -26,7 +26,6 @@ export interface INode<TNode extends INode<TNode>> {
     childAt(index: number): TNode;
     findDescendant(descendantId: string): TNode | null;
 
-    onDidSetChildren: IOnEvent<IDidSetChildrenEvent>;
     onDidUpdateNode: IOnEvent<IDidUpdateNodeEvent>;
 }
 
@@ -37,15 +36,9 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     parent: TNode | null = null;
 
     protected internalChildren = new NodeList<TNode>();
-    protected didSetChildrenEventEmitter = new EventEmitter<IDidSetChildrenEvent>();
     protected didUpdateNodeEventEmitter = new EventEmitter<IDidUpdateNodeEvent>();
-    protected childrenDidUpdateEventListenerDisposable: IDisposable;
 
-    constructor(readonly id: string) {
-        this.childrenDidUpdateEventListenerDisposable = this.children.onDidUpdateNodeList(() =>
-            this.didUpdateNodeEventEmitter.emit({}),
-        );
-    }
+    constructor(readonly id: string) {}
 
     get children() {
         return this.internalChildren;
@@ -146,10 +139,6 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
             }
         }
         return null;
-    }
-
-    onDidSetChildren(listener: IEventListener<IDidSetChildrenEvent>) {
-        return this.didSetChildrenEventEmitter.on(listener);
     }
 
     onDidUpdateNode(listener: IEventListener<IDidUpdateNodeEvent>) {

@@ -1,4 +1,4 @@
-import { CLOSE_TOKEN, IToken } from '../transform/token';
+import { IDisposable } from '../event/emitter';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
 import { ISlice } from './slice';
@@ -14,7 +14,6 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     clearNeedRender(): void;
     replace(from: number, to: number, slice: ISlice): void;
     resolvePosition(offset: number): IModelPosition;
-    toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
 }
 
@@ -29,6 +28,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     protected internalText: string;
     protected internalSize?: number;
     protected internalNeedRender = true;
+    protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
 
     constructor(readonly componentId: string, id: string, text: string, readonly attributes: TAttributes) {
         super(id);
@@ -63,7 +63,14 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     }
 
     replace(from: number, to: number, slice: ISlice) {
-        // TODO
+        // TODO: Replace children
+        // TODO: Cleanup old / bind new in childDidUpdateDisposableMap
+        this.didUpdateNodeEventEmitter.emit({});
+    }
+
+    replaceText(text: string) {
+        this.internalText = text;
+        this.didUpdateNodeEventEmitter.emit({});
     }
 
     resolvePosition(offset: number): IModelPosition {
@@ -114,25 +121,6 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             );
         };
         return buildPosition(null, 0);
-    }
-
-    toTokens() {
-        const tokens: IToken[] = [];
-        tokens.push({
-            componentId: this.componentId,
-            partId: this.partId,
-            id: this.id,
-            attributes: this.attributes,
-        });
-        if (this.leaf) {
-            tokens.push(...this.text.split(''));
-        } else {
-            this.children.forEach((child) => {
-                tokens.push(...child.toTokens());
-            });
-        }
-        tokens.push(CLOSE_TOKEN);
-        return tokens;
     }
 }
 
