@@ -5,6 +5,7 @@ export interface ILayoutDoc extends ILayoutNode {}
 export class LayoutDoc extends LayoutNode implements ILayoutDoc {
     constructor(
         renderId: string | null,
+        children: ILayoutNode[],
         readonly width: number,
         readonly height: number,
         paddingTop: number,
@@ -12,7 +13,7 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

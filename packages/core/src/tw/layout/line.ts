@@ -8,8 +8,8 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
     protected internalHeight?: number;
     protected internalContentWidth?: number;
 
-    constructor(readonly width: number) {
-        super(null, '', 0, 0, 0, 0);
+    constructor(children: ILayoutNode[], readonly width: number) {
+        super(null, '', children, 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {

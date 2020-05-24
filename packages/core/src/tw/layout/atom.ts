@@ -4,7 +4,7 @@ export interface ILayoutAtom extends ILayoutNode {}
 
 export class LayoutAtom extends LayoutNode implements ILayoutAtom {
     constructor(renderId: string | null, readonly width: number, readonly height: number) {
-        super(renderId, ' ', 0, 0, 0, 0);
+        super(renderId, ' ', [], 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {

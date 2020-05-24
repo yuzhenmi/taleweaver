@@ -14,13 +14,14 @@ export class LayoutText extends LayoutNode implements ILayoutText {
 
     constructor(
         renderId: string | null,
+        children: ILayoutNode[],
         paddingTop: number,
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
         readonly font: IFont,
     ) {
-        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

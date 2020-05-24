@@ -8,6 +8,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
     protected internalContentHeight?: number;
 
     constructor(
+        children: ILayoutNode[],
         readonly width: number,
         readonly height: number,
         paddingTop: number,
@@ -15,7 +16,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(null, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(null, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

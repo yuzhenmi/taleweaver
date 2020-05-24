@@ -1,5 +1,4 @@
-import { IFont } from '../render/font';
-import { ITextService } from '../text/service';
+import { IFont, ITextService } from '../text/service';
 import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 
 export interface ILayoutWord extends ILayoutNode {
@@ -12,7 +11,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     protected internalTrimmedWidth?: number;
 
     constructor(renderId: string | null, text: string, readonly font: IFont, protected textService: ITextService) {
-        super(renderId, text, 0, 0, 0, 0);
+        super(renderId, text, [], 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {

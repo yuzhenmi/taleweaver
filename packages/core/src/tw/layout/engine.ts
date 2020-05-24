@@ -1,89 +1,75 @@
 import { IRenderAtom } from '../render/atom';
 import { IRenderBlock } from '../render/block';
 import { IRenderDoc } from '../render/doc';
-import { IRenderNode } from '../render/node';
 import { IRenderText } from '../render/text';
 import { ITextService } from '../text/service';
-import { INodeList } from '../tree/node-list';
-import { LayoutAtom } from './atom';
-import { LayoutBlock } from './block';
+import { ILayoutAtom, LayoutAtom } from './atom';
+import { ILayoutBlock, LayoutBlock } from './block';
 import { ILayoutDoc, LayoutDoc } from './doc';
-import { LayoutLine } from './line';
+import { ILayoutLine, LayoutLine } from './line';
 import { ILayoutNode } from './node';
-import { LayoutPage } from './page';
+import { ILayoutPage, LayoutPage } from './page';
 import { ILayoutText, LayoutText } from './text';
 import { LayoutWord } from './word';
 
 export interface ILayoutEngine {
-    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any, any>): void;
-    buildDoc(renderDoc: IRenderDoc<any, any>): ILayoutDoc;
+    updateDoc(doc: ILayoutDoc | null, renderDoc: IRenderDoc<any, any>): ILayoutDoc;
 }
 
 export class LayoutEngine implements ILayoutEngine {
     constructor(protected textService: ITextService) {}
 
-    buildDoc(renderDoc: IRenderDoc<any, any>) {
-        const doc = new LayoutDoc(
-            renderDoc.id,
-            renderDoc.width,
-            renderDoc.height,
-            renderDoc.paddingTop,
-            renderDoc.paddingBottom,
-            renderDoc.paddingLeft,
-            renderDoc.paddingRight,
-        );
-        this.updateDoc(doc, renderDoc);
-        return doc;
-    }
-
-    updateDoc(doc: ILayoutDoc, renderDoc: IRenderDoc<any, any>) {
+    updateDoc(doc: ILayoutDoc | null, renderDoc: IRenderDoc<any, any>) {
         if (!renderDoc.needLayout) {
-            return;
+            if (!doc) {
+                throw new Error('Expected doc to be available.');
+            }
+            return doc;
         }
         const childrenMap: { [key: string]: ILayoutNode[] } = {};
-        doc.children.forEach((page) => {
-            page.children.forEach((child) => {
-                if (!child.renderId) {
-                    throw new Error('Render ID missing on layout node.');
-                }
-                childrenMap[child.renderId] = childrenMap[child.renderId] || [];
-                childrenMap[child.renderId].push(child);
+        if (doc) {
+            doc.children.forEach((page) => {
+                page.children.forEach((child) => {
+                    if (!child.renderId) {
+                        throw new Error('Render ID missing on layout node.');
+                    }
+                    childrenMap[child.renderId] = childrenMap[child.renderId] || [];
+                    childrenMap[child.renderId].push(child);
+                });
             });
-        });
+        }
         const newChildren: ILayoutNode[] = [];
         renderDoc.children.forEach((child) => {
             switch (child.type) {
                 case 'block':
-                    newChildren.push(...this.updateBlock(childrenMap[child.id], child, doc.innerWidth));
+                    newChildren.push(
+                        ...this.updateBlock(
+                            childrenMap[child.id] as ILayoutBlock[],
+                            child as IRenderBlock<any, any>,
+                            renderDoc.width - renderDoc.paddingLeft - renderDoc.paddingRight,
+                        ),
+                    );
                     break;
                 default:
                     throw new Error(`Child type ${child.type} is invalid.`);
             }
         });
-        doc.setChildren(
-            this.reflowPages(
-                doc.children,
-                newChildren,
-                doc.width,
-                doc.height,
-                doc.paddingTop,
-                doc.paddingBottom,
-                doc.paddingLeft,
-                doc.paddingRight,
-            ),
-        );
+        renderDoc.clearNeedLayout();
+        return this.buildDoc(renderDoc, newChildren);
     }
 
-    protected updateBlock(blocks: ILayoutNode[], renderBlock: IRenderNode<any, any>, width: number): ILayoutNode[] {
+    protected updateBlock(blocks: ILayoutBlock[], renderBlock: IRenderBlock<any, any>, width: number): ILayoutBlock[] {
         if (!renderBlock.needLayout) {
             if (blocks.length === 0) {
                 throw new Error('Expected layout block to be available.');
             }
             return blocks;
         }
+        const lines: ILayoutLine[] = [];
         const childrenMap: { [key: string]: ILayoutNode[] } = {};
         for (const block of blocks) {
             block.children.forEach((line) => {
+                lines.push(line as ILayoutLine);
                 line.children.forEach((child) => {
                     if (!child.renderId) {
                         throw new Error('Render ID missing on layout node.');
@@ -97,21 +83,36 @@ export class LayoutEngine implements ILayoutEngine {
         renderBlock.children.forEach((renderChild) => {
             switch (renderChild.type) {
                 case 'text':
-                    newChildren.push(...this.updateText(childrenMap[renderChild.id] || [], renderChild));
+                    newChildren.push(
+                        ...this.updateText(
+                            (childrenMap[renderChild.id] as ILayoutText[]) || [],
+                            renderChild as IRenderText<any, any>,
+                        ),
+                    );
                     break;
                 case 'atom':
-                    newChildren.push(...this.updateAtom(childrenMap[renderChild.id] || [], renderChild));
+                    newChildren.push(
+                        ...this.updateAtom(
+                            (childrenMap[renderChild.id] as ILayoutAtom[]) || [],
+                            renderChild as IRenderAtom<any, any>,
+                        ),
+                    );
                     break;
                 default:
                     throw new Error(`Child type ${renderChild.type} is invalid.`);
             }
         });
-        const block = this.buildBlock(renderBlock, width);
-        block.setChildren(this.reflowLines(block.children, newChildren, block.innerWidth));
-        return [block];
+        renderBlock.clearNeedLayout();
+        return [
+            this.buildBlock(
+                renderBlock,
+                this.reflowLines(lines, newChildren, width - renderBlock.paddingLeft - renderBlock.paddingRight),
+                width,
+            ),
+        ];
     }
 
-    protected updateText(texts: ILayoutNode[], renderText: IRenderNode<any, any>): ILayoutNode[] {
+    protected updateText(texts: ILayoutText[], renderText: IRenderText<any, any>): ILayoutText[] {
         if (!renderText.needLayout) {
             if (texts.length === 0) {
                 throw new Error('Expected layout text to be available.');
@@ -122,29 +123,41 @@ export class LayoutEngine implements ILayoutEngine {
         this.textService.breakIntoWords(renderText.text).forEach((wordText) => {
             newChildren.push(this.buildWord(renderText, wordText));
         });
-        const text = this.buildText(renderText);
-        text.setChildren(newChildren);
-        return [text];
+        renderText.clearNeedLayout();
+        return [this.buildText(renderText, newChildren)];
     }
 
-    protected updateAtom(atoms: ILayoutNode[], renderAtom: IRenderNode<any, any>): ILayoutNode[] {
+    protected updateAtom(atoms: ILayoutAtom[], renderAtom: IRenderAtom<any, any>): ILayoutAtom[] {
         if (!renderAtom.needLayout) {
             if (atoms.length === 0) {
                 throw new Error('Expected layout atom to be available.');
             }
             return atoms;
         }
-        const atom = this.buildAtom(renderAtom);
-        return [atom];
+        renderAtom.clearNeedLayout();
+        return [this.buildAtom(renderAtom)];
     }
 
-    protected buildBlock(renderNode: IRenderNode<any, any>, width: number) {
-        if (renderNode.type !== 'block') {
+    protected buildDoc(renderDoc: IRenderDoc<any, any>, children: ILayoutNode[]) {
+        return new LayoutDoc(
+            renderDoc.id,
+            children,
+            renderDoc.width,
+            renderDoc.height,
+            renderDoc.paddingTop,
+            renderDoc.paddingBottom,
+            renderDoc.paddingLeft,
+            renderDoc.paddingRight,
+        );
+    }
+
+    protected buildBlock(renderBlock: IRenderBlock<any, any>, children: ILayoutNode[], width: number) {
+        if (renderBlock.type !== 'block') {
             throw new Error('Expected block.');
         }
-        const renderBlock = renderNode as IRenderBlock<any, any>;
         return new LayoutBlock(
             renderBlock.id,
+            children,
             width,
             renderBlock.paddingTop,
             renderBlock.paddingBottom,
@@ -153,13 +166,13 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildText(renderNode: IRenderNode<any, any>) {
-        if (renderNode.type !== 'text') {
+    protected buildText(renderText: IRenderText<any, any>, children: ILayoutNode[]) {
+        if (renderText.type !== 'text') {
             throw new Error('Expected text.');
         }
-        const renderText = renderNode as IRenderText<any, any>;
         return new LayoutText(
             renderText.id,
+            children,
             renderText.paddingTop,
             renderText.paddingBottom,
             renderText.paddingLeft,
@@ -168,24 +181,22 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildWord(renderNode: IRenderNode<any, any>, word: string) {
-        if (renderNode.type !== 'text') {
+    protected buildWord(renderText: IRenderText<any, any>, word: string) {
+        if (renderText.type !== 'text') {
             throw new Error('Expected text.');
         }
-        const renderText = renderNode as IRenderText<any, any>;
         return new LayoutWord(renderText.id, word, renderText.font, this.textService);
     }
 
-    protected buildAtom(renderNode: IRenderNode<any, any>) {
-        if (renderNode.type !== 'atom') {
+    protected buildAtom(renderAtom: IRenderAtom<any, any>) {
+        if (renderAtom.type !== 'atom') {
             throw new Error('Expected atom.');
         }
-        const renderAtom = renderNode as IRenderAtom<any, any>;
         return new LayoutAtom(renderAtom.id, renderAtom.width, renderAtom.height);
     }
 
     protected reflowPages(
-        pages: INodeList<ILayoutNode>,
+        pages: ILayoutPage[],
         nodes: ILayoutNode[],
         width: number,
         height: number,
@@ -209,7 +220,6 @@ export class LayoutEngine implements ILayoutEngine {
                 newPages.push(page);
                 return;
             }
-            const newPage = new LayoutPage(width, height, paddingTop, paddingBottom, paddingLeft, paddingRight);
             const newChildren: ILayoutNode[] = [];
             let currentHeight = 0;
             // Push whole nodes to page until either no more node or no longer fit
@@ -237,17 +247,18 @@ export class LayoutEngine implements ILayoutEngine {
                             // to list of nodes to process
                             const node1 = new LayoutBlock(
                                 node.renderId,
+                                nodeChildren,
                                 width,
                                 node.paddingTop,
                                 node.paddingBottom,
                                 node.paddingLeft,
                                 node.paddingRight,
                             );
-                            node1.setChildren(nodeChildren);
                             newChildren.push(node1);
                             currentHeight += node1.height;
                             const node2 = new LayoutBlock(
                                 node.renderId,
+                                node.children.map((child) => child).slice(nodeChildren.length),
                                 width,
                                 node.paddingTop,
                                 node.paddingBottom,
@@ -261,13 +272,21 @@ export class LayoutEngine implements ILayoutEngine {
                     }
                 }
             }
-            newPage.setChildren(newChildren);
+            const newPage = new LayoutPage(
+                newChildren,
+                width,
+                height,
+                paddingTop,
+                paddingBottom,
+                paddingLeft,
+                paddingRight,
+            );
             newPages.push(newPage);
         });
         return newPages;
     }
 
-    protected reflowLines(lines: INodeList<ILayoutNode>, nodes: ILayoutNode[], width: number) {
+    protected reflowLines(lines: ILayoutLine[], nodes: ILayoutNode[], width: number) {
         nodes = nodes.slice();
         const newLines: ILayoutNode[] = [];
         lines.forEach((line) => {
@@ -283,7 +302,6 @@ export class LayoutEngine implements ILayoutEngine {
                 newLines.push(line);
                 return;
             }
-            const newLine = new LayoutLine(width);
             const newChildren: ILayoutNode[] = [];
             let currentWidth = 0;
             // Push whole nodes to line until either no more node or no longer fit
@@ -313,17 +331,18 @@ export class LayoutEngine implements ILayoutEngine {
                             const text = node as ILayoutText;
                             const node1 = new LayoutText(
                                 text.renderId,
+                                nodeChildren,
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,
                                 text.paddingRight,
                                 text.font,
                             );
-                            node1.setChildren(nodeChildren);
                             newChildren.push(node1);
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
                                 text.renderId,
+                                node.children.map((child) => child).slice(nodeChildren.length),
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,
@@ -347,7 +366,7 @@ export class LayoutEngine implements ILayoutEngine {
                     }
                 }
             }
-            newLine.setChildren(newChildren);
+            const newLine = new LayoutLine(newChildren, width);
             newLines.push(newLine);
         });
         return newLines;

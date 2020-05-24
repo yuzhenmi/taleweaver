@@ -1,4 +1,5 @@
 import { INode, Node } from '../tree/node';
+import { NodeList } from '../tree/node-list';
 import { IPosition, Position } from '../tree/position';
 import { generateId } from '../util/id';
 
@@ -62,12 +63,14 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     constructor(
         readonly renderId: string | null,
         readonly text: string,
+        children: ILayoutNode[],
         readonly paddingTop: number,
         readonly paddingBottom: number,
         readonly paddingLeft: number,
         readonly paddingRight: number,
     ) {
         super(generateId());
+        this.internalChildren = new NodeList(children);
     }
 
     get size() {

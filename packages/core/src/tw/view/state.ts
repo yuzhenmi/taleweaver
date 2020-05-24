@@ -113,39 +113,22 @@ export class ViewState implements IViewState {
             }
         }
         const component = this.componentService.getComponent(renderNode.componentId);
-        let node: IViewNode<any> | undefined;
-        if (layoutNode.type === 'text') {
-            const text = layoutNode.children.map((child) => child.text).join('');
-            node = component.buildViewNode(
-                renderNode.partId,
-                renderNode.id,
-                layoutNode.id,
-                text,
-                renderNode.style,
-                children,
-                layoutNode.width,
-                layoutNode.height,
-                layoutNode.paddingTop,
-                layoutNode.paddingBottom,
-                layoutNode.paddingLeft,
-                layoutNode.paddingRight,
-            );
-        } else {
-            node = component.buildViewNode(
-                renderNode.partId,
-                renderNode.id,
-                layoutNode.id,
-                layoutNode.text,
-                renderNode.style,
-                children,
-                layoutNode.width,
-                layoutNode.height,
-                layoutNode.paddingTop,
-                layoutNode.paddingBottom,
-                layoutNode.paddingLeft,
-                layoutNode.paddingRight,
-            );
-        }
+        const text =
+            layoutNode.type === 'text' ? layoutNode.children.map((child) => child.text).join('') : layoutNode.text;
+        const node = component.buildViewNode(
+            renderNode.partId,
+            renderNode.id,
+            layoutNode.id,
+            text,
+            renderNode.style,
+            children,
+            layoutNode.width,
+            layoutNode.height,
+            layoutNode.paddingTop,
+            layoutNode.paddingBottom,
+            layoutNode.paddingLeft,
+            layoutNode.paddingRight,
+        );
         if (!node) {
             throw new Error(`Error building view node from render node ${renderNode.id}.`);
         }

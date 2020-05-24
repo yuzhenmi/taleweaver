@@ -7,13 +7,14 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
 
     constructor(
         renderId: string | null,
+        children: ILayoutNode[],
         readonly width: number,
         paddingTop: number,
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(renderId, '', paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
