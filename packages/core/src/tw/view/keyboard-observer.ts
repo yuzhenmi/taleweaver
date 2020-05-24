@@ -1,6 +1,6 @@
 import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { IToken } from '../state/token';
+import { IToken } from '../transform/token';
 import { detectPlatform } from '../util/platform';
 
 export interface IDidInsertEvent {

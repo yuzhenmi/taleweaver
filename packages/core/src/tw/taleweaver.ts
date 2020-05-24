@@ -17,7 +17,7 @@ import { ILayoutService, LayoutService } from './layout/service';
 import { IModelService, ModelService } from './model/service';
 import { IRenderService, RenderService } from './render/service';
 import { IServiceRegistry, ServiceRegistry } from './service/registry';
-import { IStateService, StateService } from './state/service';
+import { IStateService, StateService } from './transform/service';
 import { generateId } from './util/id';
 import { IViewService, ViewService } from './view/service';
 

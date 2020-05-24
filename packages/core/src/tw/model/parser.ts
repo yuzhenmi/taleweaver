@@ -1,6 +1,6 @@
 import { IComponentService } from '../component/service';
-import { ICloseToken, IContentToken, IOpenToken, IToken } from '../state/token';
-import { identifyTokenType } from '../state/utility';
+import { ICloseToken, IContentToken, IOpenToken, IToken } from '../transform/token';
+import { identifyTokenType } from '../transform/utility';
 import { IModelNode } from './node';
 
 export interface ITokenParser {

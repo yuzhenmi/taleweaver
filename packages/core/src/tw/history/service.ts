@@ -1,5 +1,5 @@
 import { IConfigService } from '../config/service';
-import { IStateService } from '../state/service';
+import { IStateService } from '../transform/service';
 import { HistoryState, IHistoryState } from './state';
 
 export interface IHistoryService {

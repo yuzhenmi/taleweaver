@@ -1,8 +1,8 @@
 import { IModelNode, IModelPosition } from '../../model/node';
+import { DeleteOperation, InsertOperation, Transformation } from '../../model/transformation';
 import { identifyModelNodeType } from '../../model/utility';
 import { IServiceRegistry } from '../../service/registry';
-import { CLOSE_TOKEN, IToken } from '../../state/token';
-import { DeleteOperation, InsertOperation, Transformation } from '../../state/transformation';
+import { CLOSE_TOKEN, IToken } from '../../transform/token';
 import { generateId } from '../../util/id';
 import { ICommandHandler } from '../command';
 
@@ -37,7 +37,7 @@ export const insert: ICommandHandler = async (serviceRegistry, tokens: IToken[])
     moveCursorByModelOffset(serviceRegistry, modelCollapsedAt + tokens.length);
 };
 
-export const deleteBackward: ICommandHandler = async serviceRegistry => {
+export const deleteBackward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -64,7 +64,7 @@ export const deleteBackward: ICommandHandler = async serviceRegistry => {
     moveCursorByModelOffset(serviceRegistry, modelDeleteFrom);
 };
 
-export const deleteForward: ICommandHandler = async serviceRegistry => {
+export const deleteForward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
@@ -91,7 +91,7 @@ export const deleteForward: ICommandHandler = async serviceRegistry => {
     moveCursorByModelOffset(serviceRegistry, modelDeleteFrom);
 };
 
-export const splitLine: ICommandHandler = async serviceRegistry => {
+export const splitLine: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const modelService = serviceRegistry.getService('model');
@@ -112,7 +112,7 @@ export const splitLine: ICommandHandler = async serviceRegistry => {
         position = position.getParent();
     }
     const tokens: IToken[] = [];
-    nodes.reverse().forEach(node => {
+    nodes.reverse().forEach((node) => {
         tokens.unshift(CLOSE_TOKEN);
         tokens.push({
             componentId: node.getComponentId(),

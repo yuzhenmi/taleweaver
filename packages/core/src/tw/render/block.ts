@@ -14,6 +14,15 @@ export abstract class RenderBlock<TStyle, TAttributes> extends RenderNode<TStyle
     abstract get paddingLeft(): number;
     abstract get paddingRight(): number;
 
+    constructor(
+        componentId: string,
+        modelId: string | null,
+        attributes: TAttributes,
+        children: IRenderNode<any, any>[],
+    ) {
+        super(componentId, modelId, '', attributes, children);
+    }
+
     get type(): IRenderNodeType {
         return 'block';
     }

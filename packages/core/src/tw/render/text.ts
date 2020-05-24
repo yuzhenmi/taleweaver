@@ -17,6 +17,10 @@ export abstract class RenderText<TStyle, TAttributes> extends RenderNode<TStyle,
     abstract get paddingRight(): number;
     abstract get font(): IFont;
 
+    constructor(componentId: string, modelId: string | null, text: string, attributes: TAttributes) {
+        super(componentId, modelId, text, attributes, []);
+    }
+
     get type(): IRenderNodeType {
         return 'text';
     }

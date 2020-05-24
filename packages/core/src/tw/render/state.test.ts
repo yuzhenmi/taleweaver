@@ -55,7 +55,7 @@ describe('ModelState', () => {
     describe('when model state did update', () => {
         it('updates render tree', () => {
             modelParagraph.setChildren([modelText1]);
-            modelService.emitDidUpdateModelStateEvent({ node: modelParagraph });
+            modelService.emitDidTransformModelStateEvent({ node: modelParagraph });
             const doc = renderState.doc;
             expect(doc.children).toHaveLength(1);
             const paragraph = doc.firstChild!;

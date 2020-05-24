@@ -1,14 +1,14 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
-import { IStateService } from '../state/service';
-import { IToken } from '../state/token';
+import { IStateService } from '../transform/service';
+import { IToken } from '../transform/token';
 import { IModelNode, IModelPosition } from './node';
 import { TokenParser } from './parser';
 import { IModelRoot } from './root';
-import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
+import { IDidTransformModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
+    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>): void;
     getRoot(): IModelRoot<any>;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
@@ -23,8 +23,8 @@ export class ModelService implements IModelService {
         this.state = new ModelState(componentService, stateService, this);
     }
 
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        this.state.onDidUpdateModelState(listener);
+    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
+        this.state.onDidTransformModelState(listener);
     }
 
     getRoot() {

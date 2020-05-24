@@ -1,54 +1,16 @@
+import { ModelDoc } from '../component/components/doc';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
-import { IEventListener } from '../event/listener';
-import { IStateService } from '../state/service';
-import { IDidApplyTransformation, IDidUpdateStateEvent } from '../state/state';
-import { CLOSE_TOKEN, IToken } from '../state/token';
-import { IAppliedTransformation, ITransformation } from '../state/transformation';
+import { StateServiceStub } from '../transform/service.stub';
+import { CLOSE_TOKEN } from '../transform/token';
+import { ModelServiceStub } from './service.stub';
 import { ModelState } from './state';
-
-class StateServiceStub implements IStateService {
-    protected didUpdateStateEventEmitter: IEventEmitter<IDidUpdateStateEvent> = new EventEmitter();
-
-    constructor(protected tokens: IToken[]) {}
-
-    setTokens(tokens: IToken[]) {
-        this.tokens = tokens;
-    }
-
-    emitDidUpdateStateEvent(event: IDidUpdateStateEvent) {
-        this.didUpdateStateEventEmitter.emit(event);
-    }
-
-    onDidUpdateState(listener: IEventListener<IDidUpdateStateEvent>) {
-        this.didUpdateStateEventEmitter.on(listener);
-    }
-
-    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformation>) {}
-
-    getTokens() {
-        return this.tokens;
-    }
-
-    applyTransformations(transformations: ITransformation[]): IAppliedTransformation[] {
-        throw new Error('Not implemented.');
-    }
-    applyTransformation(transformation: ITransformation): IAppliedTransformation {
-        throw new Error('Not implemented.');
-    }
-    unapplyTransformations(appliedTransformations: IAppliedTransformation[]): void {
-        throw new Error('Not implemented.');
-    }
-    unapplyTransformation(appliedTransformation: IAppliedTransformation): void {
-        throw new Error('Not implemented.');
-    }
-}
 
 describe('ModelState', () => {
     let configService: ConfigServiceStub;
     let componentService: ComponentService;
     let stateService: StateServiceStub;
+    let modelService: ModelServiceStub;
     let modelState: ModelState;
 
     beforeEach(() => {
@@ -75,7 +37,8 @@ describe('ModelState', () => {
             CLOSE_TOKEN,
         ];
         stateService = new StateServiceStub(tokens);
-        modelState = new ModelState(componentService, stateService);
+        modelService = new ModelServiceStub(new ModelDoc('doc', 'doc', {}));
+        modelState = new ModelState(componentService, stateService, modelService);
     });
 
     it('initializes model tree from token state', () => {

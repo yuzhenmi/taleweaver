@@ -7,7 +7,6 @@ import { IKeyBindingService } from '../key-binding/service';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
-import { IStateService } from '../state/service';
 import { IViewService } from '../view/service';
 
 export interface IServices {
@@ -19,7 +18,6 @@ export interface IServices {
     readonly layout: ILayoutService;
     readonly model: IModelService;
     readonly render: IRenderService;
-    readonly state: IStateService;
     readonly view: IViewService;
     readonly keyBinding: IKeyBindingService;
 }

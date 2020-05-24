@@ -3,7 +3,6 @@ import { RenderBlock } from '../../render/block';
 import { IRenderNode } from '../../render/node';
 import { IRenderText, RenderText } from '../../render/text';
 import { DEFAULT_FONT } from '../../text/service';
-import { NodeList } from '../../tree/node-list';
 import { ViewAtom } from '../../view/atom';
 import { ViewBlock } from '../../view/block';
 import { Component, IComponent } from '../component';
@@ -40,13 +39,11 @@ export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
 }
 
 export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttributes> {
-    constructor(componentId: string, modelId: string | null) {
-        super(componentId, modelId);
-        this.onDidSetChildren(() => {
-            const children = [...this.children.map((child) => child), this.buildLineBreakNode()];
-            this.internalChildren = new NodeList<IRenderNode<any, any>>(children);
-            children.forEach((child) => (child.parent = this));
-        });
+    constructor(componentId: string, modelId: string | null, attributes: any, children: IRenderNode<any, any>[]) {
+        super(componentId, modelId, attributes, [
+            ...children,
+            new RenderParagraphLineBreak(componentId, `${modelId}.line-break`, ' ', null),
+        ]);
     }
 
     get partId() {
@@ -75,10 +72,6 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
 
     get style() {
         return {};
-    }
-
-    protected buildLineBreakNode() {
-        return new RenderParagraphLineBreak(this.componentId, `${this.id}.line-break`);
     }
 }
 
@@ -175,10 +168,16 @@ export class ParagraphComponent extends Component implements IComponent {
         return new ModelParagraph(this.id, id, attributes);
     }
 
-    buildRenderNode(partId: string | null, modelId: string) {
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
         switch (partId) {
             case 'paragraph':
-                return new RenderParagraph(this.id, modelId);
+                return new RenderParagraph(this.id, modelId, attributes, children);
             default:
                 throw new Error('Invalid part ID.');
         }

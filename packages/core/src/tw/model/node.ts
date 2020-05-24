@@ -1,6 +1,7 @@
-import { CLOSE_TOKEN, IToken } from '../state/token';
+import { CLOSE_TOKEN, IToken } from '../transform/token';
 import { INode, Node } from '../tree/node';
 import { IPosition, Position } from '../tree/position';
+import { ISlice } from './slice';
 
 export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAttributes>> {
     readonly componentId: string;
@@ -11,6 +12,7 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     readonly needRender: boolean;
 
     clearNeedRender(): void;
+    replace(from: number, to: number, slice: ISlice): void;
     resolvePosition(offset: number): IModelPosition;
     toTokens(): IToken[];
     toDOM(from: number, to: number): HTMLElement;
@@ -58,6 +60,10 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
 
     clearNeedRender() {
         this.internalNeedRender = false;
+    }
+
+    replace(from: number, to: number, slice: ISlice) {
+        // TODO
     }
 
     resolvePosition(offset: number): IModelPosition {

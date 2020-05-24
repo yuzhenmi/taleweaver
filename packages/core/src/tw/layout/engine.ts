@@ -94,16 +94,16 @@ export class LayoutEngine implements ILayoutEngine {
             });
         }
         const newChildren: ILayoutNode[] = [];
-        renderBlock.children.forEach((child) => {
-            switch (child.type) {
+        renderBlock.children.forEach((renderChild) => {
+            switch (renderChild.type) {
                 case 'text':
-                    newChildren.push(...this.updateText(childrenMap[child.id] || [], child));
+                    newChildren.push(...this.updateText(childrenMap[renderChild.id] || [], renderChild));
                     break;
                 case 'atom':
-                    newChildren.push(...this.updateAtom(childrenMap[child.id] || [], child));
+                    newChildren.push(...this.updateAtom(childrenMap[renderChild.id] || [], renderChild));
                     break;
                 default:
-                    throw new Error(`Child type ${child.type} is invalid.`);
+                    throw new Error(`Child type ${renderChild.type} is invalid.`);
             }
         });
         const block = this.buildBlock(renderBlock, width);

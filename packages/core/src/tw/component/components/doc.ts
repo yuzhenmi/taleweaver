@@ -1,6 +1,7 @@
 import { IConfigService } from '../../config/service';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
+import { IRenderNode } from '../../render/node';
 import { ViewDoc as AbstractViewDoc } from '../../view/doc';
 import { Component, IComponent } from '../component';
 
@@ -37,6 +38,8 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
     constructor(
         componentId: string,
         modelId: string | null,
+        attributes: IDocAttributes,
+        children: IRenderNode<any, any>[],
         readonly width: number,
         readonly height: number,
         readonly paddingTop: number,
@@ -44,7 +47,7 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
         readonly paddingLeft: number,
         readonly paddingRight: number,
     ) {
-        super(componentId, modelId);
+        super(componentId, modelId, attributes, children);
     }
 
     get partId() {
@@ -88,13 +91,21 @@ export class DocComponent extends Component implements IComponent {
         return new ModelDoc(this.id, id, attributes);
     }
 
-    buildRenderNode(partId: string | null, modelId: string) {
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
         switch (partId) {
             case 'doc':
                 const pageConfig = this.configService.getConfig().page;
                 return new RenderDoc(
                     this.id,
                     modelId,
+                    attributes,
+                    children,
                     pageConfig.width,
                     pageConfig.height,
                     pageConfig.paddingTop,

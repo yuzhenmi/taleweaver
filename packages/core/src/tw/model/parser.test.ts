@@ -1,7 +1,7 @@
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
-import { CLOSE_TOKEN } from '../state/token';
+import { CLOSE_TOKEN } from '../transform/token';
 import { TokenParser } from './parser';
 
 describe('TokenParser', () => {

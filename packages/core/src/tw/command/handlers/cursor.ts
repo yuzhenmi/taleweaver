@@ -1,9 +1,9 @@
 import { ILayoutLine } from '../../layout/line';
 import { identifyLayoutNodeType } from '../../layout/utility';
+import { Transformation } from '../../model/transformation';
 import { IRenderPosition } from '../../render/node';
 import { IAtomicRenderNode } from '../../render/text';
 import { identifyRenderNodeType } from '../../render/utility';
-import { Transformation } from '../../state/transformation';
 import { ICommandHandler } from '../command';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {

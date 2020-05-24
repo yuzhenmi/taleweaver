@@ -1,4 +1,5 @@
 import { INode, Node } from '../tree/node';
+import { NodeList } from '../tree/node-list';
 import { IPosition, Position } from '../tree/position';
 import { generateId } from '../util/id';
 
@@ -19,7 +20,6 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     resolvePosition(offset: number): IRenderPosition;
     convertOffsetToModelOffset(offset: number): number;
     convertModelOffsetToOffset(modelOffset: number): number;
-    update(text: string, attributes: TAttributes): void;
 }
 
 export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
@@ -38,13 +38,17 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     protected internalChildrenModelSize?: number;
     protected internalNeedLayout = true;
 
-    constructor(readonly componentId: string, readonly modelId: string | null) {
+    constructor(
+        readonly componentId: string,
+        readonly modelId: string | null,
+        text: string,
+        attributes: TAttributes,
+        children: IRenderNode<any, any>[],
+    ) {
         super(generateId());
-        this.onDidUpdateNode(() => {
-            this.internalSize = undefined;
-            this.internalChildrenModelSize = undefined;
-            this.internalNeedLayout = true;
-        });
+        this.internalText = text;
+        this.internalAttributes = attributes;
+        this.internalChildren = new NodeList(children);
     }
 
     get text() {
@@ -77,15 +81,15 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         return this.internalNeedLayout;
     }
 
+    clearNeedLayout() {
+        this.internalNeedLayout = false;
+    }
+
     protected get attributes() {
         if (this.internalAttributes === undefined) {
             throw new Error('Render node attributes is not initialized.');
         }
         return this.internalAttributes;
-    }
-
-    clearNeedLayout() {
-        this.internalNeedLayout = false;
     }
 
     resolvePosition(offset: number): IRenderPosition {
@@ -166,12 +170,6 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             cumulatedSize += child.size;
         }
         throw new Error(`Model offset ${modelOffset} is out of range.`);
-    }
-
-    update(text: string, attributes: any) {
-        this.internalAttributes = attributes;
-        this.internalText = text;
-        this.didUpdateNodeEventEmitter.emit({});
     }
 }
 

@@ -24,7 +24,6 @@ export interface INode<TNode extends INode<TNode>> {
     readonly nextCrossParentSibling: TNode | null;
 
     childAt(index: number): TNode;
-    setChildren(nodes: TNode[]): void;
     findDescendant(descendantId: string): TNode | null;
 
     onDidSetChildren: IOnEvent<IDidSetChildrenEvent>;
@@ -130,13 +129,6 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
 
     childAt(index: number) {
         return this.children.at(index);
-    }
-
-    setChildren(nodes: TNode[]) {
-        this.internalChildren = new NodeList(nodes);
-        nodes.forEach((node) => (node.parent = this as any));
-        this.didSetChildrenEventEmitter.emit({});
-        this.didUpdateNodeEventEmitter.emit({});
     }
 
     findDescendant(id: string): TNode | null {

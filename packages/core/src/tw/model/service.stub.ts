@@ -1,22 +1,22 @@
 import { EventEmitter, IEventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { IToken } from '../state/token';
+import { IToken } from '../transform/token';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
 import { IModelService } from './service';
-import { IDidUpdateModelStateEvent } from './state';
+import { IDidTransformModelStateEvent } from './state';
 
 export class ModelServiceStub implements IModelService {
-    protected didUpdateModelStateEventEmitter: IEventEmitter<IDidUpdateModelStateEvent> = new EventEmitter();
+    protected didTransformModelStateEventEmitter: IEventEmitter<IDidTransformModelStateEvent> = new EventEmitter();
 
     constructor(protected root: IModelRoot<any>) {}
 
-    emitDidUpdateModelStateEvent(event: IDidUpdateModelStateEvent) {
-        this.didUpdateModelStateEventEmitter.emit(event);
+    emitDidTransformModelStateEvent(event: IDidTransformModelStateEvent) {
+        this.didTransformModelStateEventEmitter.emit(event);
     }
 
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        return this.didUpdateModelStateEventEmitter.on(listener);
+    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
+        return this.didTransformModelStateEventEmitter.on(listener);
     }
 
     getRoot() {

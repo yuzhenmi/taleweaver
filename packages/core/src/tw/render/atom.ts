@@ -10,6 +10,10 @@ export abstract class RenderAtom<TStyle, TAttributes> extends RenderNode<TStyle,
     abstract get width(): number;
     abstract get height(): number;
 
+    constructor(componentId: string, modelId: string | null, attributes: TAttributes) {
+        super(componentId, modelId, ' ', attributes, []);
+    }
+
     get type(): IRenderNodeType {
         return 'atom';
     }

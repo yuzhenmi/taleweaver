@@ -1,7 +1,7 @@
 import { IConfigService } from '../config/service';
-import { IStateService } from '../state/service';
-import { IDidApplyTransformation } from '../state/state';
-import { IAppliedTransformation } from '../state/transformation';
+import { IAppliedTransformation } from '../model/transformation';
+import { IStateService } from '../transform/service';
+import { IDidApplyTransformation } from '../transform/state';
 import { HistoryAction, IHistoryAction } from './action';
 
 export interface IHistoryState {
@@ -41,7 +41,7 @@ export class HistoryState implements IHistoryState {
         }
         const transformations = action
             .getAppliedTransformations()
-            .map(appliedTransformation => appliedTransformation.getOriginalTransformation());
+            .map((appliedTransformation) => appliedTransformation.getOriginalTransformation());
         this.stateService.applyTransformations(transformations);
     }
 
@@ -93,7 +93,7 @@ export class HistoryState implements IHistoryState {
             this.offset >= 0 &&
             this.actions[this.offset]
                 .getAppliedTransformations()
-                .some(appliedTn => appliedTn.getOriginalTransformation() === transformation)
+                .some((appliedTn) => appliedTn.getOriginalTransformation() === transformation)
         ) {
             return;
         }

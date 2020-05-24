@@ -1,4 +1,5 @@
 import { ModelLeaf } from '../../model/leaf';
+import { IRenderNode } from '../../render/node';
 import { RenderText as AbstractRenderText } from '../../render/text';
 import { IFont, ITextService } from '../../text/service';
 import { ViewText as AbstractViewText } from '../../view/text';
@@ -30,8 +31,14 @@ export class ModelText extends ModelLeaf<ITextAttributes> {
 }
 
 export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> {
-    constructor(componentId: string, modelId: string | null, protected textService: ITextService) {
-        super(componentId, modelId);
+    constructor(
+        componentId: string,
+        modelId: string | null,
+        protected textService: ITextService,
+        text: string,
+        attributes: any,
+    ) {
+        super(componentId, modelId, text, attributes);
     }
 
     get partId() {
@@ -120,10 +127,16 @@ export class TextComponent extends Component implements IComponent {
         return new ModelText(this.id, id, text, attributes);
     }
 
-    buildRenderNode(partId: string | null, modelId: string) {
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
         switch (partId) {
             case 'text':
-                return new RenderText(this.id, modelId, this.textService);
+                return new RenderText(this.id, modelId, this.textService, text, attributes);
             default:
                 throw new Error('Invalid part ID.');
         }
