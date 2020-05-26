@@ -1,8 +1,10 @@
 import { IConfigService } from '../../config/service';
+import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
 import { IRenderNode } from '../../render/node';
 import { ViewDoc as AbstractViewDoc } from '../../view/doc';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface IDocAttributes {}
@@ -66,8 +68,14 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
 export class ViewDoc extends AbstractViewDoc<IDocStyle> {
     readonly domContainer = document.createElement('div');
 
-    constructor(componentId: string | null, renderId: string | null, layoutId: string) {
-        super(componentId, renderId, layoutId);
+    constructor(
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: IDocStyle,
+        children: IViewNode<any>[],
+    ) {
+        super(componentId, renderId, layoutId, style, children);
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
@@ -87,8 +95,8 @@ export class DocComponent extends Component implements IComponent {
         super(id);
     }
 
-    buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
-        return new ModelDoc(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
+        return new ModelDoc(this.id, id, attributes, children);
     }
 
     buildRenderNode(
@@ -118,10 +126,23 @@ export class DocComponent extends Component implements IComponent {
         }
     }
 
-    buildViewNode(partId: string | null, renderId: string, layoutId: string) {
+    buildViewNode(
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
         switch (partId) {
             case 'doc':
-                return new ViewDoc(this.id, renderId, layoutId);
+                return new ViewDoc(this.id, renderId, layoutId, style, children);
             default:
                 throw new Error('Invalid part ID.');
         }

@@ -44,8 +44,4 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
         }
         return this.internalSize;
     }
-
-    protected handleChildDidUpdate = () => {
-        this.didUpdateEventEmitter.emit({});
-    };
 }

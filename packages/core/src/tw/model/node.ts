@@ -1,4 +1,4 @@
-import { IDisposable } from '../event/emitter';
+import { EventEmitter, IDisposable } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
@@ -16,8 +16,7 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     readonly needRender: boolean;
 
     clearNeedRender(): void;
-    replaceChildren(from: number, to: number, slice: ISlice): void;
-    replaceText(text: string): void;
+    replace(from: number, to: number, slice: ISlice): void;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
@@ -35,10 +34,21 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     protected internalSize?: number;
     protected internalNeedRender = true;
     protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateModelNodeEvent>();
 
-    constructor(readonly componentId: string, id: string, text: string, readonly attributes: TAttributes) {
+    constructor(
+        readonly componentId: string,
+        id: string,
+        text: string,
+        readonly attributes: TAttributes,
+        children: IModelNode<any>[],
+    ) {
         super(id);
         this.internalText = text;
+        this.internalChildren = new NodeList(children);
+        children.forEach((child) =>
+            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate)),
+        );
         this.onDidUpdate(() => {
             this.internalSize = undefined;
             this.internalNeedRender = true;
@@ -68,20 +78,27 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         this.internalNeedRender = false;
     }
 
-    replaceChildren(from: number, to: number, slice: ISlice) {
-        const childNodes = this.children.map((node) => node);
-        const sliceNodes = slice.content.map((node) => node);
-        this.internalChildren = new NodeList([...childNodes.slice(0, from), ...sliceNodes, ...childNodes.slice(to)]);
-        const replacedChildNodes = childNodes.slice(from, to);
-        replacedChildNodes.forEach((node) => this.childDidUpdateDisposableMap.get(node.id)?.dispose());
-        sliceNodes.forEach((node) =>
-            this.childDidUpdateDisposableMap.set(node.id, node.onDidUpdate(this.handleChildDidUpdate)),
-        );
-        this.didUpdateEventEmitter.emit({});
-    }
-
-    replaceText(text: string) {
-        this.internalText = text;
+    replace(from: number, to: number, slice: ISlice) {
+        if (from < 1 || from > this.size - 1 || to < 1 || to > this.size - 1) {
+            throw new Error('Range is invalid.');
+        }
+        if (typeof slice.content === 'string') {
+            this.internalText = this.internalText.slice(0, from) + slice.content + this.internalText.slice(to);
+        } else {
+            // TODO
+            const childNodes = this.children.map((node) => node);
+            const sliceNodes = slice.content.map((node) => node);
+            this.internalChildren = new NodeList([
+                ...childNodes.slice(0, from),
+                ...sliceNodes,
+                ...childNodes.slice(to),
+            ]);
+            const replacedChildNodes = childNodes.slice(from, to);
+            replacedChildNodes.forEach((node) => this.childDidUpdateDisposableMap.get(node.id)?.dispose());
+            sliceNodes.forEach((node) =>
+                this.childDidUpdateDisposableMap.set(node.id, node.onDidUpdate(this.handleChildDidUpdate)),
+            );
+        }
         this.didUpdateEventEmitter.emit({});
     }
 

@@ -7,6 +7,16 @@ export interface IViewDoc<TStyle> extends IViewNode<TStyle> {
 export abstract class ViewDoc<TStyle> extends ViewNode<TStyle> implements IViewDoc<TStyle> {
     protected attached = false;
 
+    constructor(
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: TStyle,
+        children: IViewNode<any>[],
+    ) {
+        super(componentId, renderId, layoutId, '', style, children);
+    }
+
     get type(): IViewNodeType {
         return 'doc';
     }

@@ -1,10 +1,12 @@
 import { ModelBranch } from '../../model/branch';
+import { IModelNode } from '../../model/node';
 import { RenderBlock } from '../../render/block';
 import { IRenderNode } from '../../render/node';
 import { IRenderText, RenderText } from '../../render/text';
 import { DEFAULT_FONT } from '../../text/service';
 import { ViewAtom } from '../../view/atom';
 import { ViewBlock } from '../../view/block';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
 export interface IParagraphAttributes {}
@@ -123,24 +125,20 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
 export class ViewParagraph extends ViewBlock<IParagraphStyle> {
     readonly domContainer = document.createElement('div');
 
-    get partId() {
-        return 'paragraph';
-    }
-
-    get domContentContainer() {
-        return this.domContainer;
-    }
-
-    update(
-        text: string,
+    constructor(
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: IParagraphStyle,
+        children: IViewNode<any>[],
         width: number,
         height: number,
         paddingTop: number,
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-        style: IParagraphStyle,
     ) {
+        super(componentId, renderId, layoutId, style, children);
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -148,6 +146,14 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
         this.domContainer.style.paddingLeft = `${paddingLeft}px`;
         this.domContainer.style.paddingRight = `${paddingRight}px`;
         this.domContainer.style.lineHeight = '1em';
+    }
+
+    get partId() {
+        return 'paragraph';
+    }
+
+    get domContentContainer() {
+        return this.domContainer;
     }
 }
 
@@ -164,8 +170,8 @@ export class ViewParagraphLineBreak extends ViewAtom<IParagraphLineBreakStyle> {
 }
 
 export class ParagraphComponent extends Component implements IComponent {
-    buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
-        return new ModelParagraph(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
+        return new ModelParagraph(this.id, id, attributes, children);
     }
 
     buildRenderNode(
@@ -183,12 +189,37 @@ export class ParagraphComponent extends Component implements IComponent {
         }
     }
 
-    buildViewNode(partId: string | null, renderId: string, layoutId: string) {
+    buildViewNode(
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
         switch (partId) {
             case 'paragraph':
-                return new ViewParagraph(this.id, renderId, layoutId);
+                return new ViewParagraph(
+                    this.id,
+                    renderId,
+                    layoutId,
+                    style,
+                    children,
+                    width,
+                    height,
+                    paddingTop,
+                    paddingBottom,
+                    paddingLeft,
+                    paddingRight,
+                );
             case 'line-break':
-                return new ViewParagraphLineBreak(this.id, renderId, layoutId);
+                return new ViewParagraphLineBreak(this.id, renderId, layoutId, style);
             default:
                 throw new Error('Invalid part ID.');
         }

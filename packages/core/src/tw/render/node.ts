@@ -153,10 +153,6 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         }
         throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
-
-    protected handleChildDidUpdate = () => {
-        this.didUpdateEventEmitter.emit({});
-    };
 }
 
 export class RenderPosition extends Position<IRenderNode<any, any>> implements IRenderPosition {}

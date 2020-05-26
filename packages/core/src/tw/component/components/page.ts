@@ -3,7 +3,7 @@ import { IViewNode } from '../../view/node';
 import { ViewPage as AbstractViewPage } from '../../view/page';
 import { IPageComponent, PageComponent as AbstractPageComponent } from '../page-component';
 
-export class ViewPage extends AbstractViewPage<null> {
+export class ViewPage extends AbstractViewPage {
     readonly domContainer = document.createElement('div');
     readonly domContentContainer = document.createElement('div');
 

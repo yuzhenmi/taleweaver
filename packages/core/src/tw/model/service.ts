@@ -2,13 +2,15 @@ import { IEventListener } from '../event/listener';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
 import { IDidTransformModelStateEvent, IModelState, ModelState } from './state';
+import { ITransformation, ITransformationResult } from './transformation';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
-    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>): void;
+    applyTransformation(transformation: ITransformation): ITransformationResult;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
+    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>): void;
 }
 
 export class ModelService implements IModelService {
@@ -22,8 +24,8 @@ export class ModelService implements IModelService {
         return this.state.root;
     }
 
-    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
-        this.state.onDidTransformModelState(listener);
+    applyTransformation(transformation: ITransformation) {
+        return this.state.applyTransformation(transformation);
     }
 
     resolvePosition(offset: number) {
@@ -36,5 +38,9 @@ export class ModelService implements IModelService {
 
     fromDOM(domNodes: HTMLElement[]) {
         return [this.getRoot()];
+    }
+
+    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
+        this.state.onDidTransformModelState(listener);
     }
 }

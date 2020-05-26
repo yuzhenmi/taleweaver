@@ -2,7 +2,7 @@ import { ViewLine as AbstractViewLine } from '../../view/line';
 import { IViewNode } from '../../view/node';
 import { ILineComponent, LineComponent as AbstractLineComponent } from '../line-component';
 
-export class ViewLine extends AbstractViewLine<null> {
+export class ViewLine extends AbstractViewLine {
     readonly domContainer = document.createElement('div');
 
     constructor(

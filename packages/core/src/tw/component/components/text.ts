@@ -1,7 +1,9 @@
 import { ModelLeaf } from '../../model/leaf';
+import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
 import { RenderText as AbstractRenderText } from '../../render/text';
 import { IFont, ITextService } from '../../text/service';
+import { IViewNode } from '../../view/node';
 import { ViewText as AbstractViewText } from '../../view/text';
 import { Component, IComponent } from '../component';
 
@@ -78,28 +80,23 @@ export class ViewText extends AbstractViewText<ITextStyle> {
     readonly domContainer = document.createElement('span');
     readonly domContentContainer = document.createElement('span');
 
-    constructor(componentId: string | null, renderId: string | null, layoutId: string) {
-        super(componentId, renderId, layoutId);
-        this.domContainer.style.display = 'inline-block';
-        this.domContainer.style.whiteSpace = 'pre';
-        this.domContainer.style.lineHeight = '1em';
-        this.domContainer.appendChild(this.domContentContainer);
-    }
-
-    get partId() {
-        return 'text';
-    }
-
-    update(
+    constructor(
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
         text: string,
+        style: ITextStyle,
         width: number,
         height: number,
         paddingTop: number,
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-        style: ITextStyle,
     ) {
+        super(componentId, renderId, layoutId, text, style);
+        this.domContainer.style.display = 'inline-block';
+        this.domContainer.style.whiteSpace = 'pre';
+        this.domContainer.style.lineHeight = '1em';
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -115,6 +112,11 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
         this.domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
         this.domContentContainer.innerText = text;
+        this.domContainer.appendChild(this.domContentContainer);
+    }
+
+    get partId() {
+        return 'text';
     }
 }
 
@@ -123,7 +125,7 @@ export class TextComponent extends Component implements IComponent {
         super(id);
     }
 
-    buildModelNode(partId: string | null, id: string, text: string, attributes: any) {
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
         return new ModelText(this.id, id, text, attributes);
     }
 
@@ -142,10 +144,35 @@ export class TextComponent extends Component implements IComponent {
         }
     }
 
-    buildViewNode(partId: string | null, renderId: string, layoutId: string) {
+    buildViewNode(
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
         switch (partId) {
             case 'doc':
-                return new ViewText(this.id, renderId, layoutId);
+                return new ViewText(
+                    this.id,
+                    renderId,
+                    layoutId,
+                    text,
+                    style,
+                    width,
+                    height,
+                    paddingTop,
+                    paddingBottom,
+                    paddingLeft,
+                    paddingRight,
+                );
             default:
                 throw new Error('Invalid part ID.');
         }

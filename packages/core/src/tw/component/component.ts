@@ -5,7 +5,13 @@ import { IViewNode } from '../view/node';
 export interface IComponent {
     readonly id: string;
 
-    buildModelNode(partId: string | null, id: string, text: string, attributes: {}): IModelNode<any> | undefined;
+    buildModelNode(
+        partId: string | null,
+        id: string,
+        text: string,
+        attributes: {},
+        children: IModelNode<any>[],
+    ): IModelNode<any> | undefined;
     buildRenderNode(
         partId: string | null,
         modelId: string,
@@ -35,6 +41,7 @@ export abstract class Component implements IComponent {
         id: string,
         text: string,
         attributes: any,
+        children: IModelNode<any>[],
     ): IModelNode<any> | undefined;
     abstract buildRenderNode(
         partId: string | null,
