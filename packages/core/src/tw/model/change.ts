@@ -15,14 +15,13 @@ export class Replace implements IChange {
     apply(root: IModelRoot<any>): IChangeResult {
         const fromPosition = root.resolvePosition(this.from);
         const toPosition = root.resolvePosition(this.to);
-        if (this.slice.open >= fromPosition.depth || this.slice.open >= toPosition.depth) {
+        if (
+            fromPosition.depth - this.slice.startOpen !== toPosition.depth - this.slice.endOpen ||
+            fromPosition.depth - this.slice.startOpen <= 0
+        ) {
             throw new Error('Slice does not fit in range.');
         }
         // TODO
-        return new ReplaceResult(this);
+        return { change: this };
     }
-}
-
-export class ReplaceResult implements IChangeResult {
-    constructor(readonly change: IChange) {}
 }
