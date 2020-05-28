@@ -3,22 +3,21 @@ import { IModelNode } from './node';
 
 export interface ISlice {
     readonly content: INodeList<IModelNode<any>> | string;
-    readonly startOpen: number;
-    readonly endOpen: number;
+    readonly open: number;
 }
 
 export class Slice implements ISlice {
     readonly content: INodeList<IModelNode<any>> | string;
 
-    constructor(content: IModelNode<any>[] | string, readonly startOpen: number, readonly endOpen: number) {
+    constructor(content: IModelNode<any>[] | string, readonly open: number) {
         if (Array.isArray(content)) {
-            if (startOpen === 0 || endOpen === 0) {
-                throw new Error('Slice of nodes cannot have start or end open of zero.');
+            if (open === 0) {
+                throw new Error('Slice of nodes cannot have open of zero.');
             }
             this.content = new NodeList(content);
         } else {
-            if (startOpen !== 0 || endOpen !== 0) {
-                throw new Error('Slice of text must have start and end open of zero.');
+            if (open !== 0) {
+                throw new Error('Slice of text must have open of zero.');
             }
             this.content = content;
         }

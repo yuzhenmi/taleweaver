@@ -1,8 +1,8 @@
+import { IChange, IChangeResult } from './change';
 import { IModelRoot } from './root';
-import { IUpdate, IUpdateResult } from './update';
 
 export interface ITransformation {
-    readonly updates: IUpdate[];
+    readonly changes: IChange[];
     readonly cursorAnchor: number | null;
     readonly cursorHead: number | null;
     readonly cursorLeftLock: number | null;
@@ -12,7 +12,7 @@ export interface ITransformation {
 
 export interface ITransformationResult {
     readonly transformation: ITransformation;
-    readonly updateResults: IUpdateResult[];
+    readonly changeResults: IChangeResult[];
     readonly beforeCursorAnchor: number;
     readonly beforeCursorHead: number;
     readonly beforeCursorLeftLock: number | null;
@@ -20,23 +20,23 @@ export interface ITransformationResult {
 
 export class Transformation implements ITransformation {
     constructor(
-        readonly updates: IUpdate[],
+        readonly changes: IChange[],
         readonly cursorAnchor: number | null,
         readonly cursorHead: number | null,
         readonly cursorLeftLock: number | null,
     ) {}
 
     apply(root: IModelRoot<any>): ITransformationResult {
-        const updateResults = this.updates.map((update) => update.apply(root));
+        const changeResults = this.changes.map((change) => change.apply(root));
         // TODO: Build result properly
-        return new TransformationResult(this, updateResults, 0, 0, 0);
+        return new TransformationResult(this, changeResults, 0, 0, 0);
     }
 }
 
 export class TransformationResult implements ITransformationResult {
     constructor(
         readonly transformation: ITransformation,
-        readonly updateResults: IUpdateResult[],
+        readonly changeResults: IChangeResult[],
         readonly beforeCursorAnchor: number,
         readonly beforeCursorHead: number,
         readonly beforeCursorLeftLock: number | null,

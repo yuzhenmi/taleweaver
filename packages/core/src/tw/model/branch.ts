@@ -1,5 +1,4 @@
 import { IModelNode, ModelNode } from './node';
-import { ISlice } from './slice';
 
 export interface IModelBranch<TAttributes> extends IModelNode<TAttributes> {}
 
@@ -17,12 +16,5 @@ export abstract class ModelBranch<TAttributes> extends ModelNode<TAttributes> im
 
     get leaf() {
         return false;
-    }
-
-    replace(from: number, to: number, slice: ISlice) {
-        super.replace(from, to, slice);
-        if (this.children.length === 0) {
-            throw new Error('Branch node must have children.');
-        }
     }
 }
