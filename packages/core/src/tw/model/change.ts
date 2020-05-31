@@ -8,6 +8,7 @@ export interface IChange {
 
 export interface IChangeResult {
     readonly change: IChange;
+    readonly reverseChange: IChange;
 }
 
 export class Replace implements IChange {
@@ -17,16 +18,17 @@ export class Replace implements IChange {
 
     apply(root: IModelRoot<any>): IChangeResult {
         this.validateFit(root);
-        const fromPosition = root.resolvePosition(this.from);
-        const fromPositionLastDepth = fromPosition.atDepth(fromPosition.depth - 1);
-        const removedFragments = this.remove(
-            this.from,
-            this.to,
-            fromPositionLastDepth.node,
-            this.from - fromPositionLastDepth.offset,
-        );
-        // TODO: Insert new content
-        return { change: this };
+        const removedFragments = new Remover(root, this.from, this.to).run();
+        new Inserter(root, this.from, this.fragments).run();
+        return {
+            change: this,
+            reverseChange: new Replace(
+                this.from,
+                // TODO: Take depths into account when determining fragments size
+                this.from + this.fragments.reduce((size, fragment) => size + fragment.size, 0),
+                removedFragments,
+            ),
+        };
     }
 
     protected validateInput() {
@@ -67,73 +69,138 @@ export class Replace implements IChange {
             throw new Error('Fragments do not fit in range.');
         }
     }
+}
 
-    protected remove(from: number, to: number, node: IModelNode<any>, nodeFrom: number) {
-        const removedFragments: IFragment[] = [];
-        const nodeTo = nodeFrom + node.size;
-        if (nodeFrom > to) {
-            // Past range, break
-            return removedFragments;
+class Remover {
+    readonly removedFragments: IFragment[] = [];
+
+    protected ran = false;
+    protected currentOffset: number;
+    protected currentNode: { node: IModelNode<any>; offset: number; depth: number } | null;
+
+    constructor(protected root: IModelRoot<any>, protected from: number, protected to: number) {
+        const fromPosition = root.resolvePosition(this.from);
+        const fromPositionLastDepth = fromPosition.atDepth(fromPosition.depth - 1);
+        this.currentOffset = from;
+        this.currentNode = {
+            node: fromPositionLastDepth.node,
+            offset: fromPositionLastDepth.offset,
+            depth: 0,
+        };
+    }
+
+    run() {
+        if (this.ran) {
+            throw new Error('Remover can only be run once.');
         }
-        // Assume nodeFrom <= from <= nodeTo, nodeFrom <= from <= to
-        if (from === nodeFrom && to >= nodeTo) {
+        while (this.currentNode) {
+            this.step();
+        }
+        this.ran = true;
+        return this.removedFragments;
+    }
+
+    protected step() {
+        if (!this.currentNode) {
+            return;
+        }
+
+        if (this.currentOffset >= this.to) {
+            // End reached, break
+            this.currentNode = null;
+            return;
+        }
+
+        const currentNodeFrom = this.currentOffset - this.currentNode.offset;
+        const currentNodeTo = currentNodeFrom + this.currentNode.node.size;
+
+        if (currentNodeFrom === this.from && currentNodeTo <= this.to) {
             // Node should be fully removed, delegate to parent
-            removedFragments.push(
-                ...this.remove(from, to, node.parent!, nodeFrom - this.getNodeOffsetRelativeToParent(node)),
-            );
-        } else {
-            if (from < nodeTo) {
-                // Part of this node should be removed
-                const removeFrom = from - nodeFrom;
-                const removeTo = Math.min(to - nodeFrom, node.size);
-                if (node.leaf) {
-                    removedFragments.push(new Fragment(node.text.slice(removeFrom, removeTo), 0));
-                    node.replace(removeFrom, removeTo, '');
-                } else {
-                    // Remove full nodes, delegate partial removal
-                    let offset = nodeFrom;
-                    let removeFrom = node.children.length;
-                    let removeTo = -1;
-                    for (let n = 0, nn = node.children.length; n < nn; n++) {
-                        const child = node.children.at(n);
-                        if (offset + child.size > from) {
-                            if (offset + child.size <= to) {
-                                removeFrom = Math.min(n, removeFrom);
-                                removeTo = Math.max(n, removeTo);
-                            } else {
-                                removedFragments.push(...this.remove(offset, to, child, offset));
-                                break;
-                            }
+            this.currentNode = {
+                node: this.currentNode.node.parent!,
+                offset: getNodeOffsetRelativeToParent(this.currentNode.node),
+                depth: this.currentNode.depth + 1,
+            };
+            return;
+        }
+
+        if (currentNodeTo > this.from) {
+            // Part of this node should be removed
+            if (this.currentNode.node.leaf) {
+                // Remove text
+                const removeFrom = this.from - currentNodeFrom;
+                const removeTo = Math.min(this.to - currentNodeFrom, this.currentNode.node.size);
+                this.removedFragments.push(new Fragment(this.currentNode.node.text.slice(removeFrom, removeTo), 0));
+                this.currentNode.node.replace(removeFrom, removeTo, '');
+            } else {
+                // Remove full nodes, delegate partial removal
+                let offset = this.currentOffset;
+                let removeFrom = this.currentNode.node.children.length;
+                let removeTo = -1;
+                let nextOffset: number | null = null;
+                let nextNode: { node: IModelNode<any>; offset: number; depth: number } | null = null;
+                for (let n = 0, nn = this.currentNode.node.children.length; n < nn; n++) {
+                    const child = this.currentNode.node.children.at(n);
+                    if (offset + child.size > this.from) {
+                        removeFrom = Math.min(n, removeFrom);
+                        if (offset + child.size <= this.to) {
+                            removeTo = Math.max(n, removeTo);
+                        } else {
+                            // Partial removal
+                            nextOffset = offset;
+                            nextNode = {
+                                node: child,
+                                offset: offset - this.currentOffset,
+                                depth: this.currentNode.offset - 1,
+                            };
+                            break;
                         }
-                        offset += child.size;
                     }
-                    node.replace(removeFrom, removeTo, []);
+                    offset += child.size;
+                }
+                this.removedFragments.push(new Fragment(this.currentNode.node.children.slice(removeFrom, removeTo), 0));
+                this.currentNode.node.replace(removeFrom, removeTo, []);
+                if (nextOffset !== null && nextNode) {
+                    this.currentOffset = nextOffset;
+                    this.currentNode = nextNode;
+                    return;
                 }
             }
-            // Move on to next sibling if available, else parent
-            if (node.nextSibling) {
-                removedFragments.push(...this.remove(nodeFrom + node.size, to, node.nextSibling, nodeFrom + node.size));
-            } else {
-                removedFragments.push(
-                    ...this.remove(
-                        nodeFrom + node.size,
-                        to,
-                        node.parent!,
-                        nodeFrom - this.getNodeOffsetRelativeToParent(node),
-                    ),
-                );
-            }
         }
-        return removedFragments;
-    }
 
-    protected getNodeOffsetRelativeToParent(node: IModelNode<any>) {
-        let offset = 0;
-        let previousSibling = node.previousSibling;
-        while (previousSibling) {
-            offset += previousSibling.size;
-            previousSibling = previousSibling.previousSibling;
+        this.currentOffset = this.currentOffset + this.currentNode.node.size;
+        if (this.currentNode.node.nextSibling) {
+            this.currentNode = { node: this.currentNode.node.nextSibling, offset: 0, depth: this.currentNode.depth };
+        } else {
+            this.currentNode = {
+                node: this.currentNode.node.parent!,
+                offset: getNodeOffsetRelativeToParent(this.currentNode.node) + this.currentNode.node.size,
+                depth: this.currentNode.depth + 1,
+            };
         }
-        return offset;
     }
+}
+
+class Inserter {
+    protected ran = false;
+
+    constructor(protected root: IModelRoot<any>, protected from: number, protected fragments: IFragment[]) {}
+
+    run() {
+        if (this.ran) {
+            throw new Error('Inserter can only be run once.');
+        }
+        // TODO
+        this.ran = true;
+    }
+}
+
+function getNodeOffsetRelativeToParent(node: IModelNode<any>) {
+    let offset = 0;
+    let previousSibling = node.previousSibling;
+    while (previousSibling) {
+        offset += previousSibling.size;
+        previousSibling = previousSibling.previousSibling;
+    }
+    return offset;
 }
