@@ -273,7 +273,7 @@ export class LayoutEngine implements ILayoutEngine {
                             currentHeight += node1.height;
                             const node2 = new LayoutBlock(
                                 node.renderId,
-                                node.children.map((child) => child).slice(nodeChildren.length),
+                                node.children.slice(nodeChildren.length),
                                 width,
                                 node.paddingTop,
                                 node.paddingBottom,
@@ -357,7 +357,7 @@ export class LayoutEngine implements ILayoutEngine {
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
                                 text.renderId,
-                                node.children.map((child) => child).slice(nodeChildren.length),
+                                node.slice(nodeChildren.length),
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,

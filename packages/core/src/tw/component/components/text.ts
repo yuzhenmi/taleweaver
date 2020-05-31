@@ -25,6 +25,19 @@ export class ModelText extends ModelLeaf<ITextAttributes> {
         return 'text';
     }
 
+    canJoin(node: IModelNode<any>) {
+        if (this.componentId !== node.componentId) {
+            return false;
+        }
+        if (this.partId !== node.partId) {
+            return false;
+        }
+        if (JSON.stringify(this.attributes) !== JSON.stringify(node.attributes)) {
+            return false;
+        }
+        return true;
+    }
+
     toDOM(from: number, to: number) {
         const $component = document.createElement('span');
         $component.innerText = this.text.substring(from - 1, to - 1);

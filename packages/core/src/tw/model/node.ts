@@ -14,6 +14,7 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     readonly size: number;
     readonly needRender: boolean;
 
+    canJoin(node: IModelNode<any>): boolean;
     clearNeedRender(): void;
     replace(from: number, to: number, content: IModelNode<any>[] | string): void;
     resolvePosition(offset: number): IModelPosition;
@@ -74,6 +75,10 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         return this.internalNeedRender;
     }
 
+    canJoin(node: IModelNode<any>) {
+        return false;
+    }
+
     clearNeedRender() {
         this.internalNeedRender = false;
     }
@@ -86,51 +91,31 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             if (typeof content !== 'string') {
                 throw new Error('Leaf node content must be string.');
             }
+            if (from < 0 || to >= this.text.length) {
+                throw new Error('Range is invalid.');
+            }
         } else {
             if (typeof content === 'string') {
                 throw new Error('Non-leaf node content must not be string.');
+            }
+            if (from < 0 || to >= this.children.length) {
+                throw new Error('Range is invalid.');
             }
         }
         if (typeof content === 'string') {
             this.internalText = this.internalText.slice(0, from) + content + this.internalText.slice(to);
         } else {
-            // Remove replaced nodes
-            const fromPosition = this.resolvePosition(from);
-            const toPosition = this.resolvePosition(to);
-            const fromChild = fromPosition.atDepth(1).node;
-            const toChild = toPosition.atDepth(1).node;
-            const fromChildOffset = this.children.indexOf(fromChild);
-            const toChildOffset = this.children.indexOf(toChild);
-            if (fromChild === toChild) {
-                // Range is in same child, we just need to remove
-                // the range in the child
-                cutNode(fromChild, fromPosition.atDepth(1).offset, toPosition.atDepth(1).offset);
-            } else {
-                // Cut off ends
-                cutNode(fromChild, fromPosition.atDepth(1).offset, fromChild.size - 1);
-                cutNode(toChild, 1, toPosition.atDepth(1).offset);
-                // Remove full nodes
-                const removeFrom = fromChildOffset + 1;
-                const removeTo = toChildOffset;
-                const childNodes = this.children.map((node) => node);
-                this.internalChildren = new NodeList([
-                    ...childNodes.slice(0, removeFrom),
-                    ...childNodes.slice(removeTo),
-                ]);
-                const removedNodes = childNodes.slice(removeFrom, removeTo);
-                removedNodes.forEach((node) => this.childDidUpdateDisposableMap.get(node.id)?.dispose());
-            }
-            // Insert new nodes
-            const childNodes = this.children.map((node) => node);
-            const insertAt = fromChildOffset + 1;
             this.internalChildren = new NodeList([
-                ...childNodes.slice(0, insertAt),
+                ...this.children.slice(0, from),
                 ...content,
-                ...childNodes.slice(insertAt),
+                ...this.children.slice(to),
             ]);
-            content.forEach((node) =>
-                this.childDidUpdateDisposableMap.set(node.id, node.onDidUpdate(this.handleChildDidUpdate)),
-            );
+            const removedNodes = this.children.slice(from, to);
+            removedNodes.forEach((node) => this.childDidUpdateDisposableMap.get(node.id)?.dispose());
+            content.forEach((node) => {
+                node.parent = this;
+                this.childDidUpdateDisposableMap.set(node.id, node.onDidUpdate(this.handleChildDidUpdate));
+            });
         }
         this.didUpdateEventEmitter.emit({});
     }
@@ -169,11 +154,3 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
 }
 
 export class ModelPosition extends Position<IModelNode<any>> implements IModelPosition {}
-
-function cutNode(node: IModelNode<any>, from: number, to: number) {
-    if (node.leaf) {
-        node.replace(from, to, '');
-    } else {
-        node.replace(from, to, []);
-    }
-}

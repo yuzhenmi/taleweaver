@@ -17,7 +17,6 @@ export interface INode<TNode extends INode<TNode>> {
     readonly previousCrossParentSibling: TNode | null;
     readonly nextCrossParentSibling: TNode | null;
 
-    childAt(index: number): TNode;
     findDescendant(descendantId: string): TNode | null;
 }
 
@@ -109,10 +108,6 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
             return null;
         }
         return parentNextSibling.firstChild;
-    }
-
-    childAt(index: number) {
-        return this.children.at(index);
     }
 
     findDescendant(id: string): TNode | null {
