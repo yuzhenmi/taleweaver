@@ -1,4 +1,4 @@
-import { IChange, IChangeResult } from './change';
+import { IChange, IChangeResult } from './change/change';
 import { IModelRoot } from './root';
 
 export interface ITransformation {

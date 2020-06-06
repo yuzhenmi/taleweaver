@@ -125,7 +125,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             throw new Error(`Offset ${offset} is out of range.`);
         }
         if (this.leaf) {
-            return new ModelPosition([{ node: this, offset }]);
+            return new ModelPosition([{ node: this, offset, index: offset }]);
         }
         let cumulatedOffset = 1;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -133,7 +133,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             const childSize = child.size;
             if (cumulatedOffset + childSize > offset) {
                 const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: IModelPositionDepth[] = [{ node: this, offset }];
+                const depths: IModelPositionDepth[] = [{ node: this, offset, index: n }];
                 for (let m = 0; m < childPosition.depth; m++) {
                     depths.push(childPosition.atDepth(m));
                 }

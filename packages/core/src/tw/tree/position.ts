@@ -3,6 +3,7 @@ import { INode } from './node';
 export interface IPositionDepth<TNode extends INode<TNode>> {
     readonly node: TNode;
     readonly offset: number;
+    readonly index: number;
 }
 
 export interface IPosition<TNode extends INode<TNode>> {

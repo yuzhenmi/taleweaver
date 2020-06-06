@@ -11,14 +11,14 @@ export interface IComponent {
         text: string,
         attributes: {},
         children: IModelNode<any>[],
-    ): IModelNode<any> | undefined;
+    ): IModelNode<any>;
     buildRenderNode(
         partId: string | null,
         modelId: string,
         text: string,
         attributes: any,
         children: IRenderNode<any, any>[],
-    ): IRenderNode<any, any> | undefined;
+    ): IRenderNode<any, any>;
     buildViewNode(
         partId: string | null,
         renderId: string,
@@ -32,7 +32,7 @@ export interface IComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewNode<any> | undefined;
+    ): IViewNode<any>;
 }
 
 export abstract class Component implements IComponent {
@@ -42,14 +42,14 @@ export abstract class Component implements IComponent {
         text: string,
         attributes: any,
         children: IModelNode<any>[],
-    ): IModelNode<any> | undefined;
+    ): IModelNode<any>;
     abstract buildRenderNode(
         partId: string | null,
         modelId: string,
         text: string,
         attributes: any,
         children: IRenderNode<any, any>[],
-    ): IRenderNode<any, any> | undefined;
+    ): IRenderNode<any, any>;
     abstract buildViewNode(
         partId: string | null,
         renderId: string,
@@ -63,7 +63,7 @@ export abstract class Component implements IComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewNode<any> | undefined;
+    ): IViewNode<any>;
 
     constructor(readonly id: string) {}
 }
