@@ -1,30 +1,34 @@
+import { IComponentService } from '../../component/service';
 import { IFragment } from '../fragment';
-import { Inserter } from '../mutator/inserter';
-import { Remover } from '../mutator/remover';
 import { IModelRoot } from '../root';
 import { IChange, IChangeResult } from './change';
+import { Inserter } from './inserter';
+import { IMapping, Mapping } from './mapping';
+import { Remover } from './remover';
 
 export class ReplaceChange implements IChange {
-    constructor(readonly from: number, readonly to: number, readonly fragments: IFragment[]) {
+    constructor(protected from: number, protected to: number, protected fragments: IFragment[]) {
         this.validateInput();
     }
 
-    apply(root: IModelRoot<any>): IChangeResult {
+    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IChangeResult {
         this.validateFit(root);
-        const remover = new Remover(root, this.from, this.to);
+        const { from, to } = this.map(mappings);
+        const remover = new Remover(root, from, to);
         remover.run();
-        const removedFragments = remover.removedFragments;
-        const inserter = new Inserter(root, this.from, this.fragments);
+        const inserter = new Inserter(root, from, this.fragments, componentService);
         inserter.run();
         return {
             change: this,
-            reverseChange: new ReplaceChange(
-                this.from,
-                // TODO: Take depths into account when determining fragments size
-                this.from + this.fragments.reduce((size, fragment) => size + fragment.size, 0),
-                removedFragments,
-            ),
+            reverseChange: new ReplaceChange(from, inserter.insertedSize, remover.removedFragments),
+            mapping: new Mapping(from, to - from, inserter.insertedSize),
         };
+    }
+
+    protected map(mappings: IMapping[]) {
+        const from = mappings.reduce((from, mapping) => mapping.map(from), this.from);
+        const to = mappings.reduce((to, mapping) => mapping.map(to), this.to);
+        return { from, to };
     }
 
     protected validateInput() {

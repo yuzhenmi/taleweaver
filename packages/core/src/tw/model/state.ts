@@ -1,3 +1,5 @@
+import { IComponentService } from '../component/service';
+import { ICursorService } from '../cursor/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelRoot } from './root';
@@ -17,10 +19,14 @@ export interface IModelState {
 export class ModelState implements IModelState {
     protected didTransformModelStateEventEmitter = new EventEmitter<IDidTransformModelStateEvent>();
 
-    constructor(readonly root: IModelRoot<any>) {}
+    constructor(
+        readonly root: IModelRoot<any>,
+        protected componentService: IComponentService,
+        protected cursorService: ICursorService,
+    ) {}
 
     applyTransformation(transformation: ITransformation) {
-        const result = transformation.apply(this.root);
+        const result = transformation.apply(this.root, this.componentService, this.cursorService);
         this.didTransformModelStateEventEmitter.emit({ result });
         return result;
     }

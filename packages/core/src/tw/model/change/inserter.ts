@@ -10,6 +10,7 @@ type IInserterState = 'text' | 'split' | 'node' | 'end';
 export class Inserter extends Mutator<IInserterState> {
     protected currentOffset: number;
     protected currentIndex = 0;
+    protected internalInsertedSize = 0;
 
     constructor(
         protected root: IModelRoot<any>,
@@ -19,6 +20,10 @@ export class Inserter extends Mutator<IInserterState> {
     ) {
         super();
         this.currentOffset = offset;
+    }
+
+    get insertedSize() {
+        return this.internalInsertedSize;
     }
 
     protected next() {
@@ -43,12 +48,14 @@ export class Inserter extends Mutator<IInserterState> {
         const { node, index } = position.atDepth(position.depth - 1);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as string;
+        this.internalInsertedSize += currentFragment.size;
         node.replace(index, index, content);
     }
 
     protected handleSplit() {
         const position = this.root.resolvePosition(this.currentOffset);
         const { node, offset } = position.atDepth(position.depth - this.currentFragment!.depth);
+        this.internalInsertedSize += 2;
         this.splitNode(node, offset);
     }
 
@@ -57,6 +64,7 @@ export class Inserter extends Mutator<IInserterState> {
         const { node, index } = position.atDepth(position.depth - 1 - this.currentFragment!.depth);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
+        this.internalInsertedSize += currentFragment.size;
         node.replace(index, index, content);
         this.joinNodeWithNextSibling(content[content.length - 1]);
         this.joinNodeWithPreviousSibling(content[0]);
