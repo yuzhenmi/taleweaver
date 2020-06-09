@@ -13,7 +13,7 @@ export interface ILineComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewLine<any>;
+    ): IViewLine;
 }
 
 export abstract class LineComponent implements ILineComponent {
@@ -26,7 +26,7 @@ export abstract class LineComponent implements ILineComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewLine<any>;
+    ): IViewLine;
 
     constructor(readonly id: string) {}
 }

@@ -10,6 +10,7 @@ type IInserterState = 'text' | 'split' | 'node' | 'end';
 export class Inserter extends Mutator<IInserterState> {
     protected currentOffset: number;
     protected currentIndex = 0;
+    protected currentSplitDepth = 0;
     protected internalInsertedSize = 0;
 
     constructor(
@@ -48,26 +49,33 @@ export class Inserter extends Mutator<IInserterState> {
         const { node, index } = position.atDepth(position.depth - 1);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as string;
-        this.internalInsertedSize += currentFragment.size;
         node.replace(index, index, content);
+        this.currentOffset += currentFragment.size;
+        this.currentIndex++;
+        this.internalInsertedSize += currentFragment.size;
     }
 
     protected handleSplit() {
         const position = this.root.resolvePosition(this.currentOffset);
         const { node, offset } = position.atDepth(position.depth - this.currentFragment!.depth);
-        this.internalInsertedSize += 2;
-        this.splitNode(node, offset);
+        const insertedSize = this.splitNode(node, offset);
+        this.currentOffset += insertedSize / 2;
+        this.internalInsertedSize += insertedSize;
+        this.currentSplitDepth = insertedSize / 2;
     }
 
     protected handleNode() {
         const position = this.root.resolvePosition(this.currentOffset);
-        const { node, index } = position.atDepth(position.depth - 1 - this.currentFragment!.depth);
+        const { node, index } = position.atDepth(position.depth - 2);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
-        this.internalInsertedSize += currentFragment.size;
         node.replace(index, index, content);
         this.joinNodeWithNextSibling(content[content.length - 1]);
         this.joinNodeWithPreviousSibling(content[0]);
+        this.currentOffset += currentFragment.size + this.currentSplitDepth;
+        this.currentIndex++;
+        this.internalInsertedSize += currentFragment.size;
+        this.currentSplitDepth = 0;
     }
 
     protected handleEnd() {
@@ -82,7 +90,7 @@ export class Inserter extends Mutator<IInserterState> {
             return 'text';
         }
         const position = this.root.resolvePosition(this.currentOffset);
-        if (position.atDepth(position.depth - 1).offset === 0) {
+        if (position.atDepth(position.depth - 1).offset !== 0) {
             return 'split';
         }
         return 'node';
@@ -96,8 +104,9 @@ export class Inserter extends Mutator<IInserterState> {
     }
 
     protected splitNode(node: IModelNode<any>, offset: number) {
+        let insertedSize = 0;
         const component = this.componentService.getComponent(node.componentId);
-        const position = node.resolvePosition(offset);
+        let position = node.resolvePosition(offset);
         let node1: IModelNode<any>;
         let node2: IModelNode<any>;
         if (position.depth === 1) {
@@ -117,17 +126,28 @@ export class Inserter extends Mutator<IInserterState> {
             );
         } else {
             if (position.atDepth(1).offset !== 0) {
-                this.splitNode(position.atDepth(1).node, position.atDepth(1).offset);
+                insertedSize += this.splitNode(position.atDepth(1).node, position.atDepth(1).offset);
             }
-            node1 = component.buildModelNode(node.partId, node.id, '', node.attributes, node.children.slice(0, offset));
+            position = node.resolvePosition(offset + insertedSize / 2);
+            node1 = component.buildModelNode(
+                node.partId,
+                node.id,
+                '',
+                node.attributes,
+                node.children.slice(0, position.atDepth(0).index),
+            );
             node2 = component.buildModelNode(
                 node.partId,
                 generateId(),
                 '',
                 node.attributes,
-                node.children.slice(offset),
+                node.children.slice(position.atDepth(0).index),
             );
         }
-        node.replace(position.atDepth(1).index, position.atDepth(1).index + 1, [node1, node2]);
+        const parent = node.parent!;
+        const index = parent.children.indexOf(node);
+        parent.replace(index, index + 1, [node1, node2]);
+        insertedSize += 2;
+        return insertedSize;
     }
 }

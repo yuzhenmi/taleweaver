@@ -1,9 +1,10 @@
 import { IComponentService } from '../component/service';
-import { ICursorService } from '../cursor/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
+import { IChange, IChangeResult } from './change/change';
+import { IMapping } from './change/mapping';
 import { IModelRoot } from './root';
-import { ITransformation, ITransformationResult } from './transformation';
+import { ITransformationResult } from './transformation';
 
 export interface IDidTransformModelStateEvent {
     result: ITransformationResult;
@@ -12,23 +13,24 @@ export interface IDidTransformModelStateEvent {
 export interface IModelState {
     readonly root: IModelRoot<any>;
 
-    applyTransformation(transformation: ITransformation): ITransformationResult;
+    applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]];
     onDidTransformModelState: IOnEvent<IDidTransformModelStateEvent>;
 }
 
 export class ModelState implements IModelState {
     protected didTransformModelStateEventEmitter = new EventEmitter<IDidTransformModelStateEvent>();
 
-    constructor(
-        readonly root: IModelRoot<any>,
-        protected componentService: IComponentService,
-        protected cursorService: ICursorService,
-    ) {}
+    constructor(readonly root: IModelRoot<any>, protected componentService: IComponentService) {}
 
-    applyTransformation(transformation: ITransformation) {
-        const result = transformation.apply(this.root, this.componentService, this.cursorService);
-        this.didTransformModelStateEventEmitter.emit({ result });
-        return result;
+    applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]] {
+        const changeResults: IChangeResult[] = [];
+        const mappings: IMapping[] = [];
+        changes.forEach((change) => {
+            const changeResult = change.apply(this.root, mappings, this.componentService);
+            changeResults.push(changeResult);
+            mappings.push(changeResult.mapping);
+        });
+        return [changeResults, mappings];
     }
 
     onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {

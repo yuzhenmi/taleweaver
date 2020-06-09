@@ -1,12 +1,14 @@
+import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
+import { IChange, IChangeResult } from './change/change';
+import { IMapping } from './change/mapping';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
 import { IDidTransformModelStateEvent, IModelState, ModelState } from './state';
-import { ITransformation, ITransformationResult } from './transformation';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
-    applyTransformation(transformation: ITransformation): ITransformationResult;
+    applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]];
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
@@ -16,16 +18,16 @@ export interface IModelService {
 export class ModelService implements IModelService {
     protected state: IModelState;
 
-    constructor(root: IModelRoot<any>) {
-        this.state = new ModelState(root);
+    constructor(root: IModelRoot<any>, componentService: IComponentService) {
+        this.state = new ModelState(root, componentService);
     }
 
     getRoot() {
         return this.state.root;
     }
 
-    applyTransformation(transformation: ITransformation) {
-        return this.state.applyTransformation(transformation);
+    applyChanges(changes: IChange[]) {
+        return this.state.applyChanges(changes);
     }
 
     resolvePosition(offset: number) {

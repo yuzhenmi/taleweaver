@@ -16,7 +16,7 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
 
     canJoin(node: IModelNode<any>): boolean;
     clearNeedRender(): void;
-    replace(from: number, to: number, content: IModelNode<any>[] | string): void;
+    replace(from: number, to: number, content: IModelNode<any>[] | string): IModelNode<any>[] | string;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
@@ -47,9 +47,10 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         super(id);
         this.internalText = text;
         this.internalChildren = new NodeList(children);
-        children.forEach((child) =>
-            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate)),
-        );
+        children.forEach((child) => {
+            child.parent = this;
+            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate));
+        });
         this.onDidUpdate(() => {
             this.internalSize = undefined;
             this.internalNeedRender = true;
@@ -84,27 +85,30 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
     }
 
     replace(from: number, to: number, content: IModelNode<any>[] | string) {
-        if (from < 1 || from > this.size - 1 || to < 1 || to > this.size - 1) {
+        if (from > to) {
             throw new Error('Range is invalid.');
         }
         if (this.leaf) {
             if (typeof content !== 'string') {
                 throw new Error('Leaf node content must be string.');
             }
-            if (from < 0 || to >= this.text.length) {
+            if (from < 0 || to > this.text.length) {
                 throw new Error('Range is invalid.');
             }
         } else {
             if (typeof content === 'string') {
                 throw new Error('Non-leaf node content must not be string.');
             }
-            if (from < 0 || to >= this.children.length) {
+            if (from < 0 || to > this.children.length) {
                 throw new Error('Range is invalid.');
             }
         }
+        let replacedContent: IModelNode<any>[] | string;
         if (typeof content === 'string') {
+            replacedContent = this.internalText.substring(from, to);
             this.internalText = this.internalText.slice(0, from) + content + this.internalText.slice(to);
         } else {
+            replacedContent = this.children.slice(from, to);
             this.internalChildren = new NodeList([
                 ...this.children.slice(0, from),
                 ...content,
@@ -118,14 +122,18 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             });
         }
         this.didUpdateEventEmitter.emit({});
+        return replacedContent;
     }
 
     resolvePosition(offset: number): IModelPosition {
         if (offset < 0 || offset >= this.size) {
             throw new Error(`Offset ${offset} is out of range.`);
         }
+        if (offset === 0) {
+            return new ModelPosition([{ node: this, offset, index: -1 }]);
+        }
         if (this.leaf) {
-            return new ModelPosition([{ node: this, offset, index: offset }]);
+            return new ModelPosition([{ node: this, offset, index: offset - 1 }]);
         }
         let cumulatedOffset = 1;
         for (let n = 0, nn = this.children.length; n < nn; n++) {

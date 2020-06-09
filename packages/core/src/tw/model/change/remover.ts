@@ -13,11 +13,8 @@ export class Remover extends Mutator<IRemoverState> {
     constructor(protected root: IModelRoot<any>, protected from: number, protected to: number) {
         super();
         const position = root.resolvePosition(from);
-        const { node } = position.atDepth(position.depth - 1);
-        let nodeFrom = 0;
-        for (let n = 0; n < position.depth; n++) {
-            nodeFrom += position.atDepth(n).offset;
-        }
+        const { node, offset: nodeOffset } = position.atDepth(position.depth - 1);
+        const nodeFrom = position.atDepth(0).offset - nodeOffset;
         const nodeTo = nodeFrom + node.size;
         this.current = {
             offset: from,
@@ -71,10 +68,11 @@ export class Remover extends Mutator<IRemoverState> {
     }
 
     protected handleText() {
-        const removeFrom = this.from - this.current.nodeFrom;
-        const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size);
-        this.recordRemovedText(this.current.node.text.substring(removeFrom, removeTo));
-        this.current.node.replace(removeFrom, removeTo, '');
+        const removeFrom = this.from - this.current.nodeFrom - 1;
+        const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size) - 1;
+        const removedText = this.current.node.replace(removeFrom, removeTo, '') as string;
+        this.recordRemovedText(removedText);
+        this.stepForward();
     }
 
     protected handleEnd() {

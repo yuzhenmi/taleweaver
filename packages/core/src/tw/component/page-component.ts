@@ -13,7 +13,7 @@ export interface IPageComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewPage<any>;
+    ): IViewPage;
 }
 
 export abstract class PageComponent {
@@ -26,7 +26,7 @@ export abstract class PageComponent {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
-    ): IViewPage<any>;
+    ): IViewPage;
 
     constructor(readonly id: string) {}
 }

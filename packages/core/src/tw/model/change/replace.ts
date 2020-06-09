@@ -20,7 +20,7 @@ export class ReplaceChange implements IChange {
         inserter.run();
         return {
             change: this,
-            reverseChange: new ReplaceChange(from, inserter.insertedSize, remover.removedFragments),
+            reverseChange: new ReplaceChange(from, from + inserter.insertedSize, remover.removedFragments),
             mapping: new Mapping(from, to - from, inserter.insertedSize),
         };
     }
