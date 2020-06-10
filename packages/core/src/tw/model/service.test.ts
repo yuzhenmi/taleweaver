@@ -16,7 +16,8 @@ describe('ModelService', () => {
         const configService = new ConfigServiceStub();
         componentService = new ComponentService(configService);
         doc = new ModelDoc('doc', 'doc', {}, [
-            new ModelParagraph('paragraph', 'paragraph', {}, [new ModelText('text', 'text', 'Hello world', {})]),
+            new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
+            new ModelParagraph('paragraph', 'paragraph2', {}, [new ModelText('text', 'text2', 'Hello test', {})]),
         ]);
         modelService = new ModelService(doc, componentService);
     });
@@ -36,7 +37,12 @@ describe('ModelService', () => {
             });
 
             it('works', () => {
-                expect(doc.firstChild!.firstChild!.text).toEqual('Hi world');
+                const paragraph1 = doc.firstChild!;
+                const paragraph2 = paragraph1.nextSibling!;
+                const text1 = paragraph1.firstChild!;
+                const text2 = paragraph2.firstChild!;
+                expect(text1.text).toEqual('Hi world');
+                expect(text2.text).toEqual('Hello test');
             });
         });
 
@@ -46,8 +52,54 @@ describe('ModelService', () => {
                     new Fragment('Hi', 0),
                     new Fragment(
                         [
-                            new ModelParagraph('paragraph', 'paragraph2', {}, [
-                                new ModelText('text', 'text2', ' big', {}),
+                            new ModelParagraph('paragraph', 'paragraph3', {}, [
+                                new ModelText('text', 'text3', ' big', {}),
+                            ]),
+                        ],
+                        2,
+                    ),
+                    new Fragment(' beautiful', 0),
+                ]);
+                modelService.applyChanges([change]);
+            });
+
+            it('works', () => {
+                const paragraph1 = doc.firstChild!;
+                const paragraph2 = paragraph1.nextSibling!;
+                const paragraph3 = paragraph2.nextSibling!;
+                const paragraph4 = paragraph3.nextSibling!;
+                const text1 = paragraph1.firstChild!;
+                const text2 = paragraph2.firstChild!;
+                const text3 = paragraph3.firstChild!;
+                const text4 = paragraph4.firstChild!;
+                expect(text1.text).toEqual('Hi');
+                expect(text2.text).toEqual(' big');
+                expect(text3.text).toEqual(' beautiful world');
+                expect(text4.text).toEqual('Hello test');
+            });
+        });
+
+        describe('when replace text and node with text', () => {
+            beforeEach(() => {
+                const change = new ReplaceChange(3, 23, [new Fragment('Hi', 0)]);
+                modelService.applyChanges([change]);
+            });
+
+            it('works', () => {
+                const paragraph1 = doc.firstChild!;
+                const text1 = paragraph1.firstChild!;
+                expect(text1.text).toEqual('Hi test');
+            });
+        });
+
+        describe('when replace text and node with text and node', () => {
+            beforeEach(() => {
+                const change = new ReplaceChange(3, 23, [
+                    new Fragment('Hi', 0),
+                    new Fragment(
+                        [
+                            new ModelParagraph('paragraph', 'paragraph3', {}, [
+                                new ModelText('text', 'text3', ' big', {}),
                             ]),
                         ],
                         2,
@@ -66,16 +118,8 @@ describe('ModelService', () => {
                 const text3 = paragraph3.firstChild!;
                 expect(text1.text).toEqual('Hi');
                 expect(text2.text).toEqual(' big');
-                expect(text3.text).toEqual(' beautiful world');
+                expect(text3.text).toEqual(' beautiful test');
             });
-        });
-
-        describe('when replace text and node with text', () => {
-            // TODO
-        });
-
-        describe('when replace text and node with text and node', () => {
-            // TODO
         });
 
         describe('when multiple replace changes', () => {

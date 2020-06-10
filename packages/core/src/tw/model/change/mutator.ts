@@ -19,37 +19,17 @@ export abstract class Mutator<TState> {
         this.ran = true;
     }
 
-    protected joinNodeWithNextSibling(node: IModelNode<any>) {
-        const nextSibling = node.nextSibling;
-        if (!nextSibling) {
-            return;
+    protected joinNodes(node1: IModelNode<any>, node2: IModelNode<any>) {
+        if (node1.leaf) {
+            node1.replace(0, node1.text.length, node1.text + node2.text);
+        } else {
+            node1.replace(0, node1.children.length, [...node1.children.slice(), ...node2.children.slice()]);
         }
-        if (!node.canJoin(nextSibling)) {
-            return;
-        }
-        node.replace(0, node.children.length, [...node.children.slice(), ...nextSibling.children.slice()]);
-        const parent = node.parent!;
+        const parent = node1.parent!;
         parent.replace(
             0,
             parent.children.length,
-            parent.children.filter((child) => child !== nextSibling),
-        );
-    }
-
-    protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
-        const previousSibling = node.previousSibling;
-        if (!previousSibling) {
-            return;
-        }
-        if (!previousSibling.canJoin(node)) {
-            return;
-        }
-        node.replace(0, node.children.length, [...previousSibling.children.slice(), ...node.children.slice()]);
-        const parent = node.parent!;
-        parent.replace(
-            0,
-            parent.children.length,
-            parent.children.filter((child) => child !== node),
+            parent.children.filter((child) => child !== node2),
         );
     }
 }

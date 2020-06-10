@@ -150,4 +150,26 @@ export class Inserter extends Mutator<IInserterState> {
         insertedSize += 2;
         return insertedSize;
     }
+
+    protected joinNodeWithNextSibling(node: IModelNode<any>) {
+        const nextSibling = node.nextSibling;
+        if (!nextSibling) {
+            return;
+        }
+        if (!node.canJoin(nextSibling)) {
+            return;
+        }
+        this.joinNodes(node, nextSibling);
+    }
+
+    protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
+        const previousSibling = node.previousSibling;
+        if (!previousSibling) {
+            return;
+        }
+        if (!previousSibling.canJoin(node)) {
+            return;
+        }
+        this.joinNodes(previousSibling, node);
+    }
 }

@@ -3,7 +3,7 @@ import { IModelNode } from '../node';
 import { IModelRoot } from '../root';
 import { Mutator } from './mutator';
 
-type IRemoverState = 'end' | 'fullNode' | 'text' | 'partialNode';
+type IRemoverState = 'end' | 'forward' | 'enter' | 'fullNode' | 'text' | 'partialNode';
 
 export class Remover extends Mutator<IRemoverState> {
     readonly removedFragments: Fragment[] = [];
@@ -35,6 +35,12 @@ export class Remover extends Mutator<IRemoverState> {
             case 'text':
                 this.handleText();
                 break;
+            case 'forward':
+                this.handleForward();
+                break;
+            case 'enter':
+                this.handleEnter();
+                break;
             case 'end':
                 this.handleEnd();
                 break;
@@ -53,7 +59,7 @@ export class Remover extends Mutator<IRemoverState> {
             const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size);
             let offset = position.atDepth(0).offset;
             let node: IModelNode<any> | null = position.atDepth(1).node;
-            while (offset < removeTo && node) {
+            while (node && offset + node.size <= removeTo) {
                 nodesToRemove.push(node);
                 offset += node.size;
                 node = node.nextSibling;
@@ -68,11 +74,18 @@ export class Remover extends Mutator<IRemoverState> {
     }
 
     protected handleText() {
-        const removeFrom = this.from - this.current.nodeFrom - 1;
-        const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size) - 1;
+        const removeFrom = this.current.offset - this.current.nodeFrom - 1;
+        const removeTo = Math.min(this.to - this.current.nodeFrom - 1, this.current.node.size - 2);
         const removedText = this.current.node.replace(removeFrom, removeTo, '') as string;
         this.recordRemovedText(removedText);
+    }
+
+    protected handleForward() {
         this.stepForward();
+    }
+
+    protected handleEnter() {
+        this.current.offset++;
     }
 
     protected handleEnd() {
@@ -108,20 +121,23 @@ export class Remover extends Mutator<IRemoverState> {
     protected stepForward() {
         const nextNode = this.current.node.nextSibling;
         if (nextNode) {
+            const nextNodeFrom = this.current.nodeTo + 1;
+            const nextNodeTo = nextNodeFrom + nextNode.size;
             this.current = {
-                offset: this.current.nodeTo,
+                offset: nextNodeFrom,
                 node: nextNode,
-                nodeFrom: this.current.nodeTo,
-                nodeTo: this.current.nodeTo + nextNode.size,
+                nodeFrom: nextNodeFrom,
+                nodeTo: nextNodeTo,
             };
         } else {
             const parentNode = this.current.node.parent!;
             const parentNodeFrom = this.current.nodeFrom - this.getOffsetToParent(this.current.node);
+            const parentNodeTo = parentNodeFrom + parentNode.size;
             this.current = {
                 offset: this.current.nodeTo,
                 node: parentNode,
                 nodeFrom: parentNodeFrom,
-                nodeTo: parentNodeFrom + parentNode.size,
+                nodeTo: parentNodeTo,
             };
         }
     }
@@ -130,8 +146,14 @@ export class Remover extends Mutator<IRemoverState> {
         if (this.current.offset >= this.to) {
             return 'end';
         }
+        if (this.current.nodeTo - this.current.offset === 1) {
+            return 'forward';
+        }
         if (this.current.offset === this.current.nodeFrom && this.current.nodeTo <= this.to) {
             return 'fullNode';
+        }
+        if (this.current.offset === this.current.nodeFrom) {
+            return 'enter';
         }
         if (this.current.node.leaf) {
             return 'text';
@@ -143,20 +165,41 @@ export class Remover extends Mutator<IRemoverState> {
         this.removedFragments.push(new Fragment(nodes, depth));
         const size = nodes.reduce((size, node) => size + node.size, 0);
         this.current.nodeTo -= size;
+        this.to -= size;
     }
 
     protected recordRemovedText(text: string) {
         this.removedFragments.push(new Fragment(text, 0));
         this.current.nodeTo -= text.length;
+        this.to -= text.length;
     }
 
     protected getOffsetToParent(node: IModelNode<any>) {
-        let offset = 0;
+        let offset = 1;
         let previousSibling = node.previousSibling;
         while (previousSibling) {
             offset += previousSibling.size;
             previousSibling = previousSibling.previousSibling;
         }
         return offset;
+    }
+
+    protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
+        let previousSibling = node.previousSibling;
+        if (!previousSibling && node.parent) {
+            this.joinNodeWithPreviousSibling(node.parent);
+        }
+        previousSibling = node.previousSibling;
+        if (!previousSibling) {
+            return;
+        }
+        this.current.offset -= 2;
+        this.to -= 2;
+        if (this.current.node === node) {
+            this.current.node = previousSibling;
+            this.current.nodeTo = this.current.nodeFrom - 1;
+            this.current.nodeFrom = this.current.nodeTo - previousSibling.size;
+        }
+        this.joinNodes(previousSibling, node);
     }
 }
