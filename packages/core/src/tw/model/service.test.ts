@@ -123,7 +123,20 @@ describe('ModelService', () => {
         });
 
         describe('when multiple replace changes', () => {
-            // TODO
+            beforeEach(() => {
+                const change1 = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
+                const change2 = new ReplaceChange(18, 23, [new Fragment('Hi', 0)]);
+                modelService.applyChanges([change1, change2]);
+            });
+
+            it('works', () => {
+                const paragraph1 = doc.firstChild!;
+                const paragraph2 = paragraph1.nextSibling!;
+                const text1 = paragraph1.firstChild!;
+                const text2 = paragraph2.firstChild!;
+                expect(text1.text).toEqual('Hi world');
+                expect(text2.text).toEqual('Hi test');
+            });
         });
     });
 
