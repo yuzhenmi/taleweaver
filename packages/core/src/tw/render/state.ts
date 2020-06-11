@@ -3,7 +3,7 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelNode } from '../model/node';
 import { IModelService } from '../model/service';
-import { IDidTransformModelStateEvent } from '../model/state';
+import { IDidUpdateModelStateEvent } from '../model/state';
 import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
 
@@ -15,23 +15,26 @@ export interface IRenderState {
 }
 
 export class RenderState implements IRenderState {
-    readonly doc: IRenderDoc<any, any>;
-
     protected didUpdateRenderStateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
+    protected internalDoc: IRenderDoc<any, any>;
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
         const modelRoot = modelService.getRoot();
-        this.doc = this.updateNode(null, modelRoot) as IRenderDoc<any, any>;
-        modelService.onDidTransformModelState(this.handleDidTransformModelStateEvent);
+        this.internalDoc = this.updateNode(null, modelRoot) as IRenderDoc<any, any>;
+        modelService.onDidUpdateModelState(this.handleDidUpdateModelState);
     }
 
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
         return this.didUpdateRenderStateEventEmitter.on(listener);
     }
 
-    protected handleDidTransformModelStateEvent = (event: IDidTransformModelStateEvent) => {
+    get doc() {
+        return this.internalDoc;
+    }
+
+    protected handleDidUpdateModelState = (event: IDidUpdateModelStateEvent) => {
         const modelRoot = this.modelService.getRoot();
-        this.updateNode(this.doc, modelRoot);
+        this.internalDoc = this.updateNode(this.doc, modelRoot) as IRenderDoc<any, any>;
         this.didUpdateRenderStateEventEmitter.emit({});
     };
 

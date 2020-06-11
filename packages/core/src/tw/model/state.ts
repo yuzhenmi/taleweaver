@@ -4,21 +4,21 @@ import { IEventListener, IOnEvent } from '../event/listener';
 import { IChange, IChangeResult } from './change/change';
 import { IMapping } from './change/mapping';
 import { IModelRoot } from './root';
-import { ITransformationResult } from './transformation';
 
-export interface IDidTransformModelStateEvent {
-    result: ITransformationResult;
+export interface IDidUpdateModelStateEvent {
+    changeResults: IChangeResult[];
+    mappings: IMapping[];
 }
 
 export interface IModelState {
     readonly root: IModelRoot<any>;
 
     applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]];
-    onDidTransformModelState: IOnEvent<IDidTransformModelStateEvent>;
+    onDidUpdateModelState: IOnEvent<IDidUpdateModelStateEvent>;
 }
 
 export class ModelState implements IModelState {
-    protected didTransformModelStateEventEmitter = new EventEmitter<IDidTransformModelStateEvent>();
+    protected didUpdateModelStateEventEmitter = new EventEmitter<IDidUpdateModelStateEvent>();
 
     constructor(readonly root: IModelRoot<any>, protected componentService: IComponentService) {}
 
@@ -30,10 +30,11 @@ export class ModelState implements IModelState {
             changeResults.push(changeResult);
             mappings.push(changeResult.mapping);
         });
+        this.didUpdateModelStateEventEmitter.emit({ changeResults, mappings });
         return [changeResults, mappings];
     }
 
-    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
-        return this.didTransformModelStateEventEmitter.on(listener);
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
+        return this.didUpdateModelStateEventEmitter.on(listener);
     }
 }

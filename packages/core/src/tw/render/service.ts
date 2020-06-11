@@ -69,7 +69,7 @@ export class RenderService implements IRenderService {
         let position = 0;
         node.children.forEach((child) => {
             const childSize = child.size;
-            if (0 <= to - position && from - position <= childSize) {
+            if (to - position >= 0 && from - position < childSize) {
                 const childFrom = Math.max(0, Math.min(childSize, from - position));
                 const childTo = Math.max(0, Math.min(childSize, to - position));
                 this.extractStyle(styles, child, childFrom, childTo);

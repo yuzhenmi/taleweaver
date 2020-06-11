@@ -42,10 +42,7 @@ export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
 
 export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttributes> {
     constructor(componentId: string, modelId: string | null, attributes: any, children: IRenderNode<any, any>[]) {
-        super(componentId, modelId, attributes, [
-            ...children,
-            new RenderParagraphLineBreak(componentId, `${modelId}.line-break`, ' ', null),
-        ]);
+        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId, modelId)]);
     }
 
     get partId() {
@@ -78,12 +75,12 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
 }
 
 export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyle, null> {
-    get partId() {
-        return 'line-break';
+    constructor(readonly componentId: string, readonly paragraphModelId: string | null) {
+        super(componentId, `${paragraphModelId}.line-break`, ' ', null);
     }
 
-    get text() {
-        return ' ';
+    get partId() {
+        return 'line-break';
     }
 
     get padModelSize() {

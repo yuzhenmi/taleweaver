@@ -22,13 +22,6 @@ describe('ModelService', () => {
         modelService = new ModelService(doc, componentService);
     });
 
-    describe('getRoot', () => {
-        it('returns root node', () => {
-            const root = modelService.getRoot();
-            expect(root).toEqual(doc);
-        });
-    });
-
     describe('applyTransformation', () => {
         describe('when replace text with text', () => {
             beforeEach(() => {
@@ -140,9 +133,20 @@ describe('ModelService', () => {
         });
     });
 
-    describe('onDidTransformModelState', () => {
-        it('listens to DidTransformModelState event', () => {
-            // TODO
+    describe('getRoot', () => {
+        it('returns root node', () => {
+            const root = modelService.getRoot();
+            expect(root).toEqual(doc);
+        });
+    });
+
+    describe('onDidUpdateModelState', () => {
+        it('listens to DidUpdateModelState event', () => {
+            let notified = false;
+            modelService.onDidUpdateModelState(() => (notified = true));
+            const change = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
+            modelService.applyChanges([change]);
+            expect(notified).toEqual(true);
         });
     });
 });

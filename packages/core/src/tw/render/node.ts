@@ -1,6 +1,6 @@
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, Position } from '../tree/position';
+import { IPosition, IPositionDepth, Position } from '../tree/position';
 import { generateId } from '../util/id';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
@@ -23,6 +23,7 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
 }
 
 export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
+export interface IRenderPositionDepth extends IPositionDepth<IRenderNode<any, any>> {}
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
@@ -45,6 +46,9 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     ) {
         super(generateId());
         this.internalChildren = new NodeList(children);
+        children.forEach((child) => {
+            child.parent = this;
+        });
     }
 
     get size() {
@@ -78,50 +82,27 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         if (offset < 0 || offset >= this.size) {
             throw new Error(`Offset ${offset} is out of range.`);
         }
-        const layers: Array<{
-            node: IRenderNode<any, any>;
-            offset: number;
-        }> = [{ node: this, offset }];
-        {
-            let node: IRenderNode<any, any> = this;
-            let parent = this.parent;
-            while (parent) {
-                let parentOffset = 0;
-                let previousSibling = node.previousSibling;
-                while (previousSibling) {
-                    parentOffset += previousSibling.size;
-                    previousSibling = node.previousSibling;
-                }
-                layers.unshift({ node: parent, offset: parentOffset + layers[0].offset });
-                node = parent;
-                parent = node.parent;
-            }
+        if (offset === 0) {
+            return new RenderPosition([{ node: this, offset, index: -1 }]);
         }
-        {
-            let node: IRenderNode<any, any> | null = this;
-            while (node && !node.leaf) {
-                const lastLayer = layers[layers.length - 1];
-                let cumulatedOffset = 0;
-                let child: IRenderNode<any, any> | null = null;
-                for (let n = 0, nn = node.children.length; n < nn; n++) {
-                    child = node.children.at(n);
-                    const childSize = child.size;
-                    if (cumulatedOffset + childSize > lastLayer.offset) {
-                        layers.push({ node: child, offset: lastLayer.offset - cumulatedOffset });
-                        break;
-                    }
-                    cumulatedOffset += childSize;
-                    node = child;
-                }
-            }
+        if (this.leaf) {
+            return new RenderPosition([{ node: this, offset, index: offset }]);
         }
-        const buildPosition = (parent: IRenderPosition | null, depth: number): IRenderPosition => {
-            const { node, offset } = layers[depth];
-            return new RenderPosition(node, depth, offset, parent, (parent) =>
-                depth < layers.length ? buildPosition(parent, depth + 1) : null,
-            );
-        };
-        return buildPosition(null, 0);
+        let cumulatedOffset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (cumulatedOffset + childSize > offset) {
+                const childPosition = child.resolvePosition(offset - cumulatedOffset);
+                const depths: IRenderPositionDepth[] = [{ node: this, offset, index: n }];
+                for (let m = 0; m < childPosition.depth; m++) {
+                    depths.push(childPosition.atDepth(m));
+                }
+                return new RenderPosition(depths);
+            }
+            cumulatedOffset += childSize;
+        }
+        throw new Error('Offset cannot be resolved.');
     }
 
     convertOffsetToModelOffset(offset: number): number {

@@ -4,7 +4,7 @@ import { IChange, IChangeResult } from './change/change';
 import { IMapping } from './change/mapping';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
-import { IDidTransformModelStateEvent, IModelState, ModelState } from './state';
+import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
@@ -12,7 +12,7 @@ export interface IModelService {
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
-    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>): void;
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
 }
 
 export class ModelService implements IModelService {
@@ -42,7 +42,7 @@ export class ModelService implements IModelService {
         return [this.getRoot()];
     }
 
-    onDidTransformModelState(listener: IEventListener<IDidTransformModelStateEvent>) {
-        this.state.onDidTransformModelState(listener);
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
+        this.state.onDidUpdateModelState(listener);
     }
 }
