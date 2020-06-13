@@ -40,7 +40,7 @@ export class ViewService implements IViewService {
         renderService: IRenderService,
         commandService: ICommandService,
     ) {
-        this.state = new ViewState(instanceId, componentService, layoutService, renderService);
+        this.state = new ViewState(instanceId, componentService, layoutService, renderService, domService);
         this.domController = new DOMController(instanceId, domService, commandService, modelService, this);
         this.cursor = new CursorView(instanceId, domService, cursorService, renderService, layoutService, this);
     }

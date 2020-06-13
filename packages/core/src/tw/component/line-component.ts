@@ -6,6 +6,7 @@ export interface ILineComponent {
     readonly id: string;
 
     buildViewNode(
+        domContainer: HTMLElement,
         layoutId: string,
         children: IViewNode<any>[],
         width: number,
@@ -19,6 +20,7 @@ export interface ILineComponent {
 
 export abstract class LineComponent implements ILineComponent {
     abstract buildViewNode(
+        domContainer: HTMLElement,
         layoutId: string,
         children: IViewNode<any>[],
         width: number,

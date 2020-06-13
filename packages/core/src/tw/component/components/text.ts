@@ -91,10 +91,10 @@ export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> 
 }
 
 export class ViewText extends AbstractViewText<ITextStyle> {
-    readonly domContainer: HTMLSpanElement;
     readonly domContentContainer: HTMLSpanElement;
 
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -108,8 +108,7 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         paddingRight: number,
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, text, style, domService);
-        this.domContainer = domService.createElement('span');
+        super(domContainer, componentId, renderId, layoutId, text, style, domService);
         this.domContainer.style.display = 'inline-block';
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '1em';
@@ -126,14 +125,25 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         this.domContainer.style.color = style.color;
         this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
-        this.domContentContainer = domService.createElement('span');
+        this.domContentContainer = this.findOrCreateDOMContentContainer();
+        this.domContentContainer.setAttribute('data-tw-role', 'content-container');
         this.domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
-        this.domContentContainer.innerText = text;
+        this.domContentContainer.innerHTML = text;
         this.domContainer.appendChild(this.domContentContainer);
     }
 
     get partId() {
         return 'text';
+    }
+
+    protected findOrCreateDOMContentContainer() {
+        for (let n = 0, nn = this.domContainer.children.length; n < nn; n++) {
+            const child = this.domContainer.children[n];
+            if (child.getAttribute('data-tw-role') === 'content-container') {
+                return child as HTMLSpanElement;
+            }
+        }
+        return this.domService.createElement('span');
     }
 }
 
@@ -162,6 +172,7 @@ export class TextComponent extends Component implements IComponent {
     }
 
     buildViewNode(
+        domContainer: HTMLElement,
         partId: string | null,
         renderId: string,
         layoutId: string,
@@ -178,6 +189,7 @@ export class TextComponent extends Component implements IComponent {
         switch (partId) {
             case 'text':
                 return new ViewText(
+                    domContainer,
                     this.id,
                     renderId,
                     layoutId,

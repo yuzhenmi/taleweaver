@@ -5,6 +5,7 @@ export interface IViewBlock<TStyle> extends IViewNode<TStyle> {}
 
 export abstract class ViewBlock<TStyle> extends ViewNode<TStyle> implements IViewBlock<TStyle> {
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -12,7 +13,7 @@ export abstract class ViewBlock<TStyle> extends ViewNode<TStyle> implements IVie
         children: IViewNode<any>[],
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, '', style, children, domService);
+        super(domContainer, componentId, renderId, layoutId, '', style, children, domService);
     }
 
     get type(): IViewNodeType {

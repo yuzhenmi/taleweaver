@@ -121,9 +121,8 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
 }
 
 export class ViewParagraph extends ViewBlock<IParagraphStyle> {
-    readonly domContainer: HTMLDivElement;
-
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -137,8 +136,7 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
         paddingRight: number,
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, style, children, domService);
-        this.domContainer = domService.createElement('div');
+        super(domContainer, componentId, renderId, layoutId, style, children, domService);
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -158,19 +156,6 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
 }
 
 export class ViewParagraphLineBreak extends ViewAtom<IParagraphLineBreakStyle> {
-    readonly domContainer: HTMLDivElement;
-
-    constructor(
-        componentId: string | null,
-        renderId: string | null,
-        layoutId: string,
-        style: IParagraphLineBreakStyle,
-        domService: IDOMService,
-    ) {
-        super(componentId, renderId, layoutId, style, domService);
-        this.domContainer = domService.createElement('div');
-    }
-
     get partId() {
         return 'line-break';
     }
@@ -201,6 +186,7 @@ export class ParagraphComponent extends Component implements IComponent {
     }
 
     buildViewNode(
+        domContainer: HTMLElement,
         partId: string | null,
         renderId: string,
         layoutId: string,
@@ -217,6 +203,7 @@ export class ParagraphComponent extends Component implements IComponent {
         switch (partId) {
             case 'paragraph':
                 return new ViewParagraph(
+                    domContainer,
                     this.id,
                     renderId,
                     layoutId,
@@ -231,7 +218,7 @@ export class ParagraphComponent extends Component implements IComponent {
                     this.domService,
                 );
             case 'line-break':
-                return new ViewParagraphLineBreak(this.id, renderId, layoutId, style, this.domService);
+                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, style, this.domService);
             default:
                 throw new Error('Invalid part ID.');
         }

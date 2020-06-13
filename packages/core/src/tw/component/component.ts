@@ -21,6 +21,7 @@ export interface IComponent {
         children: IRenderNode<any, any>[],
     ): IRenderNode<any, any>;
     buildViewNode(
+        domContainer: HTMLElement,
         partId: string | null,
         renderId: string,
         layoutId: string,
@@ -52,6 +53,7 @@ export abstract class Component implements IComponent {
         children: IRenderNode<any, any>[],
     ): IRenderNode<any, any>;
     abstract buildViewNode(
+        domContainer: HTMLElement,
         partId: string | null,
         renderId: string,
         layoutId: string,

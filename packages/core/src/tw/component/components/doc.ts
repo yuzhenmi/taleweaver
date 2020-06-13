@@ -67,9 +67,8 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
 }
 
 export class ViewDoc extends AbstractViewDoc<IDocStyle> {
-    readonly domContainer: HTMLDivElement;
-
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -77,8 +76,7 @@ export class ViewDoc extends AbstractViewDoc<IDocStyle> {
         children: IViewNode<any>[],
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, style, children, domService);
-        this.domContainer = domService.createElement('div');
+        super(domContainer, componentId, renderId, layoutId, style, children, domService);
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
@@ -130,6 +128,7 @@ export class DocComponent extends Component implements IComponent {
     }
 
     buildViewNode(
+        domContainer: HTMLElement,
         partId: string | null,
         renderId: string,
         layoutId: string,
@@ -145,7 +144,7 @@ export class DocComponent extends Component implements IComponent {
     ) {
         switch (partId) {
             case 'doc':
-                return new ViewDoc(this.id, renderId, layoutId, style, children, this.domService);
+                return new ViewDoc(domContainer, this.id, renderId, layoutId, style, children, this.domService);
             default:
                 throw new Error('Invalid part ID.');
         }

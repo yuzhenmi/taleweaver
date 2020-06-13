@@ -70,36 +70,34 @@ describe('ViewService', () => {
             const line2 = paragraph2.firstChild!;
             const line3 = paragraph3.firstChild!;
             const text1 = line1.firstChild!;
-            const lineBreak1 = text1.nextSibling!;
             const text2 = line2.firstChild!;
-            const lineBreak2 = text2.nextSibling!;
             const text3 = line3.firstChild!;
+            const lineBreak1 = text1.nextSibling!;
+            const lineBreak2 = text2.nextSibling!;
             const lineBreak3 = text3.nextSibling!;
-            // const word1 = text1.firstChild!;
-            // const word2 = text2.firstChild!;
-            // const word3 = text3.firstChild!;
-            // const word4 = word3.nextSibling!;
+            expect(text1.domContentContainer.innerHTML).toEqual('Hi');
+            expect(text2.domContentContainer.innerHTML).toEqual('big');
+            expect(text3.domContentContainer.innerHTML).toEqual('beautiful test');
             expect(lineBreak1).not.toBeNull();
             expect(lineBreak2).not.toBeNull();
             expect(lineBreak3).not.toBeNull();
-            // expect(word1.text).toEqual('Hi');
-            // expect(word2.text).toEqual('big');
-            // expect(word3.text).toEqual('beautiful ');
-            // expect(word4.text).toEqual('test');
         });
     });
 
     describe('getDoc', () => {
-        it.only('returns doc', () => {
-            const doc = renderService.getDoc();
-            const paragraph1 = doc.firstChild!;
+        it('returns doc', () => {
+            const doc = viewService.getDoc();
+            const page = doc.firstChild!;
+            const paragraph1 = page.firstChild!;
             const paragraph2 = paragraph1.nextSibling!;
-            const text1 = paragraph1.firstChild!;
-            const text2 = paragraph2.firstChild!;
+            const line1 = paragraph1.firstChild!;
+            const line2 = paragraph2.firstChild!;
+            const text1 = line1.firstChild!;
+            const text2 = line2.firstChild!;
             const lineBreak1 = text1.nextSibling!;
             const lineBreak2 = text2.nextSibling!;
-            expect(text1.text).toEqual('Hello world');
-            expect(text2.text).toEqual('Hello test');
+            expect(text1.domContentContainer.innerHTML).toEqual('Hello world');
+            expect(text2.domContentContainer.innerHTML).toEqual('Hello test');
             expect(lineBreak1).not.toBeNull();
             expect(lineBreak2).not.toBeNull();
         });

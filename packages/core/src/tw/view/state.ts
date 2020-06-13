@@ -1,4 +1,5 @@
 import { IComponentService } from '../component/service';
+import { IDOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { ILayoutNode } from '../layout/node';
@@ -29,6 +30,7 @@ export class ViewState implements IViewState {
         protected componentService: IComponentService,
         protected layoutService: ILayoutService,
         protected renderService: IRenderService,
+        protected domService: IDOMService,
     ) {
         const layoutDoc = layoutService.getDoc();
         const renderDoc = renderService.getDoc();
@@ -96,16 +98,22 @@ export class ViewState implements IViewState {
             });
         }
         layoutNode.clearNeedView();
-        return this.buildNode(layoutNode, renderNode, newChildren);
+        const domContainer = node ? node.domContainer : this.domService.createContainer();
+        return this.buildNode(domContainer, layoutNode, renderNode, newChildren);
     }
 
-    protected buildNode(layoutNode: ILayoutNode, renderNode: IRenderNode<any, any> | null, children: IViewNode<any>[]) {
+    protected buildNode(
+        domContainer: HTMLElement,
+        layoutNode: ILayoutNode,
+        renderNode: IRenderNode<any, any> | null,
+        children: IViewNode<any>[],
+    ) {
         if (!renderNode) {
             switch (layoutNode.type) {
                 case 'page':
-                    return this.buildPageNode(layoutNode, children);
+                    return this.buildPageNode(domContainer, layoutNode, children);
                 case 'line':
-                    return this.buildLineNode(layoutNode, children);
+                    return this.buildLineNode(domContainer, layoutNode, children);
                 default:
                     throw new Error('Missing render node.');
             }
@@ -114,6 +122,7 @@ export class ViewState implements IViewState {
         const text =
             layoutNode.type === 'text' ? layoutNode.children.map((child) => child.text).join('') : layoutNode.text;
         const node = component.buildViewNode(
+            domContainer,
             renderNode.partId,
             renderNode.id,
             layoutNode.id,
@@ -134,10 +143,11 @@ export class ViewState implements IViewState {
         return node;
     }
 
-    protected buildPageNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
+    protected buildPageNode(domContainer: HTMLElement, layoutNode: ILayoutNode, children: IViewNode<any>[]) {
         const node = this.componentService
             .getPageComponent()
             .buildViewNode(
+                domContainer,
                 layoutNode.id,
                 children,
                 layoutNode.width,
@@ -151,10 +161,11 @@ export class ViewState implements IViewState {
         return node;
     }
 
-    protected buildLineNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
+    protected buildLineNode(domContainer: HTMLElement, layoutNode: ILayoutNode, children: IViewNode<any>[]) {
         const node = this.componentService
             .getLineComponent()
             .buildViewNode(
+                domContainer,
                 layoutNode.id,
                 children,
                 layoutNode.width,

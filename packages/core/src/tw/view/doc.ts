@@ -9,6 +9,7 @@ export abstract class ViewDoc<TStyle> extends ViewNode<TStyle> implements IViewD
     protected attached = false;
 
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -16,7 +17,7 @@ export abstract class ViewDoc<TStyle> extends ViewNode<TStyle> implements IViewD
         children: IViewNode<any>[],
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, '', style, children, domService);
+        super(domContainer, componentId, renderId, layoutId, '', style, children, domService);
     }
 
     get type(): IViewNodeType {

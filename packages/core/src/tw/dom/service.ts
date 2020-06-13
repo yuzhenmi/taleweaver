@@ -4,7 +4,7 @@ export interface IDOMService {
     getBody(): HTMLElement;
     createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName): HTMLElementTagNameMap[TTagName];
     createHiddenIframe(): HTMLIFrameElement;
-    createContainer(): HTMLDivElement;
+    createContainer(): HTMLElement;
     createMutationObserver(callback: MutationCallback): MutationObserver;
 }
 
@@ -26,7 +26,9 @@ export class DOMService implements IDOMService {
     }
 
     createContainer() {
-        return this.createElement('div');
+        const container = this.createElement('div');
+        container.setAttribute('data-tw-role', 'container');
+        return container;
     }
 
     createHiddenIframe() {

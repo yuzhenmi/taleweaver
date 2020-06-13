@@ -6,6 +6,7 @@ export interface IPageComponent {
     readonly id: string;
 
     buildViewNode(
+        domContainer: HTMLElement,
         layoutId: string,
         children: IViewNode<any>[],
         width: number,
@@ -19,6 +20,7 @@ export interface IPageComponent {
 
 export abstract class PageComponent {
     abstract buildViewNode(
+        domContainer: HTMLElement,
         layoutId: string,
         children: IViewNode<any>[],
         width: number,

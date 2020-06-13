@@ -5,12 +5,13 @@ export interface IViewLine extends IViewNode<null> {}
 
 export abstract class ViewLine extends ViewNode<null> implements IViewLine {
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         readonly layoutId: string,
         children: IViewNode<any>[],
         domService: IDOMService,
     ) {
-        super(componentId, null, layoutId, '', null, children, domService);
+        super(domContainer, componentId, null, layoutId, '', null, children, domService);
     }
 
     get type(): IViewNodeType {

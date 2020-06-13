@@ -4,9 +4,8 @@ import { IViewNode } from '../../view/node';
 import { ILineComponent, LineComponent as AbstractLineComponent } from '../line-component';
 
 export class ViewLine extends AbstractViewLine {
-    readonly domContainer: HTMLDivElement;
-
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         layoutId: string,
         children: IViewNode<any>[],
@@ -18,8 +17,7 @@ export class ViewLine extends AbstractViewLine {
         protected paddingRight: number,
         domService: IDOMService,
     ) {
-        super(componentId, layoutId, children, domService);
-        this.domContainer = domService.createElement('div');
+        super(domContainer, componentId, layoutId, children, domService);
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -39,6 +37,7 @@ export class ViewLine extends AbstractViewLine {
 
 export class LineComponent extends AbstractLineComponent implements ILineComponent {
     buildViewNode(
+        domContainer: HTMLElement,
         layoutId: string,
         children: IViewNode<any>[],
         width: number,
@@ -49,6 +48,7 @@ export class LineComponent extends AbstractLineComponent implements ILineCompone
         paddingRight: number,
     ) {
         return new ViewLine(
+            domContainer,
             this.id,
             layoutId,
             children,

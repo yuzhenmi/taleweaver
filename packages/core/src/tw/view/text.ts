@@ -5,6 +5,7 @@ export interface IViewText<TStyle> extends IViewNode<TStyle> {}
 
 export abstract class ViewText<TStyle> extends ViewNode<TStyle> implements IViewText<TStyle> {
     constructor(
+        domContainer: HTMLElement,
         componentId: string | null,
         renderId: string | null,
         layoutId: string,
@@ -12,7 +13,7 @@ export abstract class ViewText<TStyle> extends ViewNode<TStyle> implements IView
         style: TStyle,
         domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, text, style, [], domService);
+        super(domContainer, componentId, renderId, layoutId, text, style, [], domService);
     }
 
     get type(): IViewNodeType {
