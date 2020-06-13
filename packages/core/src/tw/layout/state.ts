@@ -14,28 +14,27 @@ export interface ILayoutState {
 }
 
 export class LayoutState implements ILayoutState {
-    readonly doc: ILayoutDoc;
-
     protected engine: ILayoutEngine;
+    protected internalDoc: ILayoutDoc;
     protected didUpdateLayoutStateEventEmitter = new EventEmitter<IDidUpdateLayoutStateEvent>();
 
     constructor(protected renderService: IRenderService, protected textService: ITextService) {
         this.engine = new LayoutEngine(textService);
-        this.doc = this.engine.buildDoc(renderService.getDoc());
+        this.internalDoc = this.engine.updateDoc(null, renderService.getDoc());
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
+    }
+
+    get doc() {
+        return this.internalDoc;
     }
 
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
         return this.didUpdateLayoutStateEventEmitter.on(listener);
     }
 
-    getDocNode() {
-        return this.doc;
-    }
-
     protected handleDidUpdateRenderStateEvent = (event: IDidUpdateRenderStateEvent) => {
         const renderDoc = this.renderService.getDoc();
-        this.engine.updateDoc(this.doc, renderDoc);
+        this.internalDoc = this.engine.updateDoc(this.doc, renderDoc);
         this.didUpdateLayoutStateEventEmitter.emit({});
     };
 }

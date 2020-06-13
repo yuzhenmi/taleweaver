@@ -32,10 +32,10 @@ describe('RenderService', () => {
             const change = new ReplaceChange(3, 23, [
                 new Fragment('Hi', 0),
                 new Fragment(
-                    [new ModelParagraph('paragraph', 'paragraph3', {}, [new ModelText('text', 'text3', ' big', {})])],
+                    [new ModelParagraph('paragraph', 'paragraph3', {}, [new ModelText('text', 'text3', 'big', {})])],
                     2,
                 ),
-                new Fragment(' beautiful', 0),
+                new Fragment('beautiful', 0),
             ]);
             modelService.applyChanges([change]);
         });
@@ -52,8 +52,8 @@ describe('RenderService', () => {
             const text3 = paragraph3.firstChild!;
             const lineBreak3 = text3.nextSibling!;
             expect(text1.text).toEqual('Hi');
-            expect(text2.text).toEqual(' big');
-            expect(text3.text).toEqual(' beautiful test');
+            expect(text2.text).toEqual('big');
+            expect(text3.text).toEqual('beautiful test');
             expect(lineBreak1).not.toBeNull();
             expect(lineBreak2).not.toBeNull();
             expect(lineBreak3).not.toBeNull();

@@ -31,12 +31,12 @@ export class ConfigServiceStub implements IConfigService {
                 linux: {},
             },
             page: {
-                width: 816,
-                height: 1056,
-                paddingTop: 40,
-                paddingBottom: 40,
-                paddingLeft: 40,
-                paddingRight: 40,
+                width: 800,
+                height: 1000,
+                paddingTop: 50,
+                paddingBottom: 50,
+                paddingLeft: 50,
+                paddingRight: 50,
             },
         };
     }

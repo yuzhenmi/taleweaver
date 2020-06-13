@@ -108,7 +108,7 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
     }
 
     get font() {
-        let node: IRenderNode<any, any> | null = this;
+        let node = this.previousSibling;
         while (node) {
             if (node.type === 'text') {
                 return (node as IRenderText<any, any>).font;

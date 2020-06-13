@@ -26,28 +26,10 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
 
     get height() {
         if (this.internalHeight === undefined) {
-            this.internalHeight = this.children.reduce(
-                (height, child) => Math.max(height, child.height),
-                this.paddingVertical,
-            );
+            this.internalHeight =
+                this.children.reduce((height, child) => Math.max(height, child.height), 0) + this.paddingVertical;
         }
         return this.internalHeight;
-    }
-
-    get paddingTop() {
-        return 0;
-    }
-
-    get paddingBottom() {
-        return 0;
-    }
-
-    get paddingLeft() {
-        return 0;
-    }
-
-    get paddingRight() {
-        return 0;
     }
 
     get contentWidth() {

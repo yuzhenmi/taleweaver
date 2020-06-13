@@ -28,22 +28,6 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         return false;
     }
 
-    get paddingTop() {
-        return 0;
-    }
-
-    get paddingBottom() {
-        return 0;
-    }
-
-    get paddingLeft() {
-        return 0;
-    }
-
-    get paddingRight() {
-        return 0;
-    }
-
     convertCoordinatesToOffset(x: number, y: number): number {
         throw new Error('Use page to convert coordinates to offset.');
     }

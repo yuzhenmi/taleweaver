@@ -34,10 +34,10 @@ export interface ITextService {
     applyDefaultFont(font: Partial<IFont>): IFont;
 }
 
-export class TextMeasurer implements ITextService {
+export class TextService implements ITextService {
     protected $canvas: HTMLCanvasElement;
 
-    constructor() {
+    constructor(document: Document) {
         this.$canvas = document.createElement('canvas');
     }
 

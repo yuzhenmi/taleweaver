@@ -5,12 +5,11 @@ import { IModelNode } from '../node';
 import { IModelRoot } from '../root';
 import { Mutator } from './mutator';
 
-type IInserterState = 'text' | 'split' | 'node' | 'end';
+type IInserterState = 'text' | 'split' | 'leave' | 'node' | 'end';
 
 export class Inserter extends Mutator<IInserterState> {
-    protected currentOffset: number;
-    protected currentIndex = 0;
-    protected currentSplitDepth = 0;
+    protected depth: number;
+    protected current: { offset: number; index: number };
     protected internalInsertedSize = 0;
 
     constructor(
@@ -20,7 +19,8 @@ export class Inserter extends Mutator<IInserterState> {
         protected componentService: IComponentService,
     ) {
         super();
-        this.currentOffset = offset;
+        this.depth = root.resolvePosition(offset).depth;
+        this.current = { offset, index: 0 };
     }
 
     get insertedSize() {
@@ -35,6 +35,9 @@ export class Inserter extends Mutator<IInserterState> {
             case 'split':
                 this.handleSplit();
                 break;
+            case 'leave':
+                this.handleLeave();
+                break;
             case 'node':
                 this.handleNode();
                 break;
@@ -45,37 +48,49 @@ export class Inserter extends Mutator<IInserterState> {
     }
 
     protected handleText() {
-        const position = this.root.resolvePosition(this.currentOffset);
+        const position = this.root.resolvePosition(this.current.offset);
         const { node, index } = position.atDepth(position.depth - 1);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as string;
         node.replace(index, index, content);
-        this.currentOffset += currentFragment.size;
-        this.currentIndex++;
+        this.current = {
+            offset: this.current.offset + currentFragment.size,
+            index: this.current.index + 1,
+        };
         this.internalInsertedSize += currentFragment.size;
     }
 
     protected handleSplit() {
-        const position = this.root.resolvePosition(this.currentOffset);
+        const position = this.root.resolvePosition(this.current.offset);
         const { node, offset } = position.atDepth(position.depth - this.currentFragment!.depth);
         const insertedSize = this.splitNode(node, offset);
-        this.currentOffset += insertedSize / 2;
+        this.current = {
+            offset: this.current.offset + insertedSize / 2,
+            index: this.current.index,
+        };
         this.internalInsertedSize += insertedSize;
-        this.currentSplitDepth = insertedSize / 2;
+    }
+
+    protected handleLeave() {
+        this.current = {
+            offset: this.current.offset + 1,
+            index: this.current.index,
+        };
     }
 
     protected handleNode() {
-        const position = this.root.resolvePosition(this.currentOffset);
-        const { node, index } = position.atDepth(position.depth - 2);
+        const position = this.root.resolvePosition(this.current.offset);
+        const { node, index } = position.atDepth(position.depth - 1);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
         node.replace(index, index, content);
         this.joinNodeWithNextSibling(content[content.length - 1]);
         this.joinNodeWithPreviousSibling(content[0]);
-        this.currentOffset += currentFragment.size + this.currentSplitDepth;
-        this.currentIndex++;
+        this.current = {
+            offset: this.current.offset + currentFragment.size,
+            index: this.current.index + 1,
+        };
         this.internalInsertedSize += currentFragment.size;
-        this.currentSplitDepth = 0;
     }
 
     protected handleEnd() {
@@ -86,21 +101,24 @@ export class Inserter extends Mutator<IInserterState> {
         if (!this.currentFragment) {
             return 'end';
         }
+        const position = this.root.resolvePosition(this.current.offset);
+        if (position.depth > this.depth - this.currentFragment.depth) {
+            return 'split';
+        }
+        if (position.depth < this.depth - this.currentFragment.depth) {
+            return 'leave';
+        }
         if (this.currentFragment.depth === 0) {
             return 'text';
-        }
-        const position = this.root.resolvePosition(this.currentOffset);
-        if (position.atDepth(position.depth - 1).offset !== 0) {
-            return 'split';
         }
         return 'node';
     }
 
     protected get currentFragment() {
-        if (this.currentIndex >= this.fragments.length) {
+        if (this.current.index >= this.fragments.length) {
             return null;
         }
-        return this.fragments[this.currentIndex];
+        return this.fragments[this.current.index];
     }
 
     protected splitNode(node: IModelNode<any>, offset: number) {

@@ -1,16 +1,15 @@
-import { DEFAULT_FONT, IFont, ITextMeasurement, ITextService } from './service';
+import { IFont, ITextService, TextService } from './service';
 
-export class TextServiceStub implements ITextService {
-    measure(text: string, font: IFont): ITextMeasurement {
-        return { width: 10, height: 10 };
+export class TextServiceStub extends TextService implements ITextService {
+    constructor() {
+        const canvasStub = {};
+        const documentStub = {
+            createElement: () => canvasStub,
+        };
+        super(documentStub as any);
     }
-    trim(text: string): string {
-        return text;
-    }
-    breakIntoWords(text: string): string[] {
-        return text.split(' ');
-    }
-    applyDefaultFont(font: Partial<IFont>): IFont {
-        return { ...DEFAULT_FONT, ...font };
+
+    measure(text: string, font: IFont) {
+        return { width: text.length * 20, height: font.size * 10 };
     }
 }

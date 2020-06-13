@@ -46,12 +46,12 @@ describe('ModelService', () => {
                     new Fragment(
                         [
                             new ModelParagraph('paragraph', 'paragraph3', {}, [
-                                new ModelText('text', 'text3', ' big', {}),
+                                new ModelText('text', 'text3', 'big', {}),
                             ]),
                         ],
                         2,
                     ),
-                    new Fragment(' beautiful', 0),
+                    new Fragment('beautiful', 0),
                 ]);
                 modelService.applyChanges([change]);
             });
@@ -66,8 +66,8 @@ describe('ModelService', () => {
                 const text3 = paragraph3.firstChild!;
                 const text4 = paragraph4.firstChild!;
                 expect(text1.text).toEqual('Hi');
-                expect(text2.text).toEqual(' big');
-                expect(text3.text).toEqual(' beautiful world');
+                expect(text2.text).toEqual('big');
+                expect(text3.text).toEqual('beautiful world');
                 expect(text4.text).toEqual('Hello test');
             });
         });
@@ -92,12 +92,12 @@ describe('ModelService', () => {
                     new Fragment(
                         [
                             new ModelParagraph('paragraph', 'paragraph3', {}, [
-                                new ModelText('text', 'text3', ' big', {}),
+                                new ModelText('text', 'text3', 'big', {}),
                             ]),
                         ],
                         2,
                     ),
-                    new Fragment(' beautiful', 0),
+                    new Fragment('beautiful', 0),
                 ]);
                 modelService.applyChanges([change]);
             });
@@ -110,8 +110,8 @@ describe('ModelService', () => {
                 const text2 = paragraph2.firstChild!;
                 const text3 = paragraph3.firstChild!;
                 expect(text1.text).toEqual('Hi');
-                expect(text2.text).toEqual(' big');
-                expect(text3.text).toEqual(' beautiful test');
+                expect(text2.text).toEqual('big');
+                expect(text3.text).toEqual('beautiful test');
             });
         });
 

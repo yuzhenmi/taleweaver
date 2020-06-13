@@ -53,18 +53,17 @@ export class Remover extends Mutator<IRemoverState> {
 
     protected handlePartialNode() {
         const position = this.current.node.resolvePosition(this.current.offset - this.current.nodeFrom);
-        if (position.atDepth(1).offset === 0) {
-            const depth = position.depth - 1;
+        if (position.depth === 1) {
             const nodesToRemove: IModelNode<any>[] = [];
             const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size);
             let offset = position.atDepth(0).offset;
-            let node: IModelNode<any> | null = position.atDepth(1).node;
+            let node: IModelNode<any> | null = this.current.node.children.at(position.atDepth(0).index);
             while (node && offset + node.size <= removeTo) {
                 nodesToRemove.push(node);
                 offset += node.size;
                 node = node.nextSibling;
             }
-            this.recordRemovedNodes(nodesToRemove, depth);
+            this.recordRemovedNodes(nodesToRemove, position.depth);
             this.current.node.replace(0, nodesToRemove.length, []);
             if (node) {
                 this.joinNodeWithPreviousSibling(node);
@@ -107,8 +106,8 @@ export class Remover extends Mutator<IRemoverState> {
     protected stepDown() {
         const nodeOffset = this.current.offset - this.current.nodeFrom;
         const position = this.current.node.resolvePosition(nodeOffset);
-        const childNode = position.atDepth(1).node;
-        const childNodeFrom = this.current.offset - position.atDepth(1).offset;
+        const childNode = this.current.node.children.at(position.atDepth(0).index);
+        const childNodeFrom = this.current.nodeFrom + this.getOffsetToParent(childNode);
         const childNodeTo = childNodeFrom + childNode.size;
         this.current = {
             offset: this.current.offset,

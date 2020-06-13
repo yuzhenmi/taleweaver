@@ -46,7 +46,7 @@ export class LayoutEngine implements ILayoutEngine {
                 case 'block':
                     newChildren.push(
                         ...this.updateBlock(
-                            childrenMap[child.id] as ILayoutBlock[],
+                            (childrenMap[child.id] as ILayoutBlock[]) || [],
                             child as IRenderBlock<any, any>,
                             renderDoc.width - renderDoc.paddingLeft - renderDoc.paddingRight,
                         ),
@@ -222,18 +222,21 @@ export class LayoutEngine implements ILayoutEngine {
         const innerHeight = height - paddingTop - paddingBottom;
         nodes = nodes.slice();
         const newPages: ILayoutNode[] = [];
-        pages.forEach((page) => {
-            let reflowNeeded = false;
-            for (let n = 0, nn = page.children.length; n < nn; n++) {
-                const child = page.children.at(n);
-                if (child.id !== nodes[n].id) {
-                    reflowNeeded = true;
+        while (nodes.length > 0) {
+            if (newPages.length < pages.length) {
+                const page = pages[newPages.length];
+                let reflowNeeded = false;
+                for (let n = 0, nn = page.children.length; n < nn; n++) {
+                    const child = page.children.at(n);
+                    if (child.id !== nodes[n].id) {
+                        reflowNeeded = true;
+                        break;
+                    }
+                }
+                if (!reflowNeeded) {
+                    newPages.push(page);
                     break;
                 }
-            }
-            if (!reflowNeeded) {
-                newPages.push(page);
-                return;
             }
             const newChildren: ILayoutNode[] = [];
             let currentHeight = 0;
@@ -249,7 +252,7 @@ export class LayoutEngine implements ILayoutEngine {
                 const nodeChildren: ILayoutNode[] = [];
                 for (let m = 0, mm = node.children.length; m < mm; m++) {
                     const nodeChild = node.children.at(m);
-                    if (currentHeight + nodeChild.height > innerHeight) {
+                    if (currentHeight + nodeChild.height + node.paddingVertical > innerHeight) {
                         break;
                     }
                     nodeChildren.push(nodeChild);
@@ -297,25 +300,28 @@ export class LayoutEngine implements ILayoutEngine {
                 paddingRight,
             );
             newPages.push(newPage);
-        });
+        }
         return newPages;
     }
 
     protected reflowLines(lines: ILayoutLine[], nodes: ILayoutNode[], width: number) {
         nodes = nodes.slice();
         const newLines: ILayoutNode[] = [];
-        lines.forEach((line) => {
-            let reflowNeeded = false;
-            for (let n = 0, nn = line.children.length; n < nn; n++) {
-                const child = line.children.at(n);
-                if (child.id !== nodes[n].id) {
-                    reflowNeeded = true;
+        while (nodes.length > 0) {
+            if (newLines.length < newLines.length) {
+                const line = lines[newLines.length];
+                let reflowNeeded = false;
+                for (let n = 0, nn = line.children.length; n < nn; n++) {
+                    const child = line.children.at(n);
+                    if (child.id !== nodes[n].id) {
+                        reflowNeeded = true;
+                        break;
+                    }
+                }
+                if (!reflowNeeded) {
+                    newLines.push(line);
                     break;
                 }
-            }
-            if (!reflowNeeded) {
-                newLines.push(line);
-                return;
             }
             const newChildren: ILayoutNode[] = [];
             let currentWidth = 0;
@@ -357,7 +363,7 @@ export class LayoutEngine implements ILayoutEngine {
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
                                 text.renderId,
-                                node.slice(nodeChildren.length),
+                                node.children.slice(nodeChildren.length),
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,
@@ -383,7 +389,7 @@ export class LayoutEngine implements ILayoutEngine {
             }
             const newLine = new LayoutLine(newChildren, width);
             newLines.push(newLine);
-        });
+        }
         return newLines;
     }
 }

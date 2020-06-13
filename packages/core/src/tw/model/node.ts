@@ -137,6 +137,9 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         }
         let cumulatedOffset = 1;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
+            if (cumulatedOffset === offset) {
+                return new ModelPosition([{ node: this, offset, index: n }]);
+            }
             const child = this.children.at(n);
             const childSize = child.size;
             if (cumulatedOffset + childSize > offset) {
@@ -149,7 +152,7 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
             }
             cumulatedOffset += childSize;
         }
-        throw new Error('Offset cannot be resolved.');
+        return new ModelPosition([{ node: this, offset, index: this.children.length }]);
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateModelNodeEvent>) {

@@ -32,6 +32,9 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
     ) {
         super(layoutId);
         this.internalChildren = new NodeList(children);
+        children.forEach((child) => {
+            child.parent = this;
+        });
     }
 
     get size() {

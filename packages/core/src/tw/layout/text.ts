@@ -38,14 +38,15 @@ export class LayoutText extends LayoutNode implements ILayoutText {
 
     get width() {
         if (this.internalWidth === undefined) {
-            this.internalWidth = this.children.reduce((width, child) => width + child.width, 0);
+            this.internalWidth = this.children.reduce((width, child) => width + child.width, this.paddingHorizontal);
         }
         return this.internalWidth;
     }
 
     get height() {
         if (this.internalHeight === undefined) {
-            this.internalHeight = this.children.reduce((height, child) => Math.max(height, child.height), 0);
+            this.internalHeight =
+                this.children.reduce((height, child) => Math.max(height, child.height), 0) + this.paddingVertical;
         }
         return this.internalHeight;
     }
