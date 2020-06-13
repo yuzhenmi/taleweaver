@@ -1,3 +1,4 @@
+import { IDOMService } from '../dom/service';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
 
@@ -29,6 +30,7 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
         protected readonly text: string,
         protected readonly style: TStyle,
         children: IViewNode<any>[],
+        protected domService: IDOMService,
     ) {
         super(layoutId);
         this.internalChildren = new NodeList(children);

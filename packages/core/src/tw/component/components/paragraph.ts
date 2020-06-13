@@ -1,3 +1,4 @@
+import { IDOMService } from '../../dom/service';
 import { ModelBranch } from '../../model/branch';
 import { IModelNode } from '../../model/node';
 import { RenderBlock } from '../../render/block';
@@ -120,7 +121,7 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
 }
 
 export class ViewParagraph extends ViewBlock<IParagraphStyle> {
-    readonly domContainer = document.createElement('div');
+    readonly domContainer: HTMLDivElement;
 
     constructor(
         componentId: string | null,
@@ -134,8 +135,10 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
+        domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, style, children);
+        super(componentId, renderId, layoutId, style, children, domService);
+        this.domContainer = domService.createElement('div');
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -155,7 +158,18 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
 }
 
 export class ViewParagraphLineBreak extends ViewAtom<IParagraphLineBreakStyle> {
-    readonly domContainer = document.createElement('div');
+    readonly domContainer: HTMLDivElement;
+
+    constructor(
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: IParagraphLineBreakStyle,
+        domService: IDOMService,
+    ) {
+        super(componentId, renderId, layoutId, style, domService);
+        this.domContainer = domService.createElement('div');
+    }
 
     get partId() {
         return 'line-break';
@@ -214,9 +228,10 @@ export class ParagraphComponent extends Component implements IComponent {
                     paddingBottom,
                     paddingLeft,
                     paddingRight,
+                    this.domService,
                 );
             case 'line-break':
-                return new ViewParagraphLineBreak(this.id, renderId, layoutId, style);
+                return new ViewParagraphLineBreak(this.id, renderId, layoutId, style, this.domService);
             default:
                 throw new Error('Invalid part ID.');
         }

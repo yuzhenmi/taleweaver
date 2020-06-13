@@ -1,4 +1,5 @@
 import { IConfigService } from '../../config/service';
+import { IDOMService } from '../../dom/service';
 import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
 import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
@@ -66,7 +67,7 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
 }
 
 export class ViewDoc extends AbstractViewDoc<IDocStyle> {
-    readonly domContainer = document.createElement('div');
+    readonly domContainer: HTMLDivElement;
 
     constructor(
         componentId: string | null,
@@ -74,8 +75,10 @@ export class ViewDoc extends AbstractViewDoc<IDocStyle> {
         layoutId: string,
         style: IDocStyle,
         children: IViewNode<any>[],
+        domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, style, children);
+        super(componentId, renderId, layoutId, style, children, domService);
+        this.domContainer = domService.createElement('div');
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
@@ -91,8 +94,8 @@ export class ViewDoc extends AbstractViewDoc<IDocStyle> {
 }
 
 export class DocComponent extends Component implements IComponent {
-    constructor(id: string, protected configService: IConfigService) {
-        super(id);
+    constructor(id: string, domService: IDOMService, protected configService: IConfigService) {
+        super(id, domService);
     }
 
     buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
@@ -142,7 +145,7 @@ export class DocComponent extends Component implements IComponent {
     ) {
         switch (partId) {
             case 'doc':
-                return new ViewDoc(this.id, renderId, layoutId, style, children);
+                return new ViewDoc(this.id, renderId, layoutId, style, children, this.domService);
             default:
                 throw new Error('Invalid part ID.');
         }

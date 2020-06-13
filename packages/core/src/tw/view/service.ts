@@ -1,12 +1,13 @@
 import { ICommandService } from '../command/service';
 import { IComponentService } from '../component/service';
 import { ICursorService } from '../cursor/service';
+import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 import { CursorView, ICursorView } from './cursor';
-import { IDocViewNode } from './doc';
+import { IViewDoc } from './doc';
 import { DOMController, IDOMController } from './dom-controller';
 import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
 import { IDidPressKeyEvent } from './keyboard-observer';
@@ -17,7 +18,7 @@ export interface IViewService {
     onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    getDoc(): IDocViewNode;
+    getDoc(): IViewDoc<any>;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
     requestFocus(): void;
@@ -31,6 +32,7 @@ export class ViewService implements IViewService {
 
     constructor(
         instanceId: string,
+        domService: IDOMService,
         componentService: IComponentService,
         modelService: IModelService,
         layoutService: ILayoutService,
@@ -39,8 +41,8 @@ export class ViewService implements IViewService {
         commandService: ICommandService,
     ) {
         this.state = new ViewState(instanceId, componentService, layoutService, renderService);
-        this.domController = new DOMController(instanceId, commandService, modelService, this);
-        this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
+        this.domController = new DOMController(instanceId, domService, commandService, modelService, this);
+        this.cursor = new CursorView(instanceId, domService, cursorService, renderService, layoutService, this);
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
@@ -60,7 +62,7 @@ export class ViewService implements IViewService {
     }
 
     getDoc() {
-        return this.state.getDoc();
+        return this.state.doc;
     }
 
     isFocused() {

@@ -1,3 +1,4 @@
+import { IDOMService } from '../dom/service';
 import { IModelNode } from '../model/node';
 import { IRenderNode } from '../render/node';
 import { IViewNode } from '../view/node';
@@ -65,5 +66,5 @@ export abstract class Component implements IComponent {
         paddingRight: number,
     ): IViewNode<any>;
 
-    constructor(readonly id: string) {}
+    constructor(readonly id: string, protected domService: IDOMService) {}
 }

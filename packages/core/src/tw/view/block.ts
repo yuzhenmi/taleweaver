@@ -1,3 +1,4 @@
+import { IDOMService } from '../dom/service';
 import { IViewNode, IViewNodeType, ViewNode } from './node';
 
 export interface IViewBlock<TStyle> extends IViewNode<TStyle> {}
@@ -9,8 +10,9 @@ export abstract class ViewBlock<TStyle> extends ViewNode<TStyle> implements IVie
         layoutId: string,
         style: TStyle,
         children: IViewNode<any>[],
+        domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, '', style, children);
+        super(componentId, renderId, layoutId, '', style, children, domService);
     }
 
     get type(): IViewNodeType {

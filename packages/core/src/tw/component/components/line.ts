@@ -1,9 +1,10 @@
+import { IDOMService } from '../../dom/service';
 import { ViewLine as AbstractViewLine } from '../../view/line';
 import { IViewNode } from '../../view/node';
 import { ILineComponent, LineComponent as AbstractLineComponent } from '../line-component';
 
 export class ViewLine extends AbstractViewLine {
-    readonly domContainer = document.createElement('div');
+    readonly domContainer: HTMLDivElement;
 
     constructor(
         componentId: string | null,
@@ -15,8 +16,10 @@ export class ViewLine extends AbstractViewLine {
         protected paddingBottom: number,
         protected paddingLeft: number,
         protected paddingRight: number,
+        domService: IDOMService,
     ) {
-        super(componentId, layoutId, children);
+        super(componentId, layoutId, children, domService);
+        this.domContainer = domService.createElement('div');
         this.domContainer.style.width = `${width}px`;
         this.domContainer.style.height = `${height}px`;
         this.domContainer.style.paddingTop = `${paddingTop}px`;
@@ -55,6 +58,7 @@ export class LineComponent extends AbstractLineComponent implements ILineCompone
             paddingBottom,
             paddingLeft,
             paddingRight,
+            this.domService,
         );
     }
 }

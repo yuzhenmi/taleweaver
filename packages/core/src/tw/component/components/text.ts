@@ -1,3 +1,4 @@
+import { IDOMService } from '../../dom/service';
 import { ModelLeaf } from '../../model/leaf';
 import { IModelNode } from '../../model/node';
 import { IRenderNode } from '../../render/node';
@@ -90,8 +91,8 @@ export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> 
 }
 
 export class ViewText extends AbstractViewText<ITextStyle> {
-    readonly domContainer = document.createElement('span');
-    readonly domContentContainer = document.createElement('span');
+    readonly domContainer: HTMLSpanElement;
+    readonly domContentContainer: HTMLSpanElement;
 
     constructor(
         componentId: string | null,
@@ -105,8 +106,10 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         paddingBottom: number,
         paddingLeft: number,
         paddingRight: number,
+        domService: IDOMService,
     ) {
-        super(componentId, renderId, layoutId, text, style);
+        super(componentId, renderId, layoutId, text, style, domService);
+        this.domContainer = domService.createElement('span');
         this.domContainer.style.display = 'inline-block';
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '1em';
@@ -123,6 +126,7 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         this.domContainer.style.color = style.color;
         this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
+        this.domContentContainer = domService.createElement('span');
         this.domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
         this.domContentContainer.innerText = text;
         this.domContainer.appendChild(this.domContentContainer);
@@ -134,8 +138,8 @@ export class ViewText extends AbstractViewText<ITextStyle> {
 }
 
 export class TextComponent extends Component implements IComponent {
-    constructor(id: string, protected textService: ITextService) {
-        super(id);
+    constructor(id: string, domService: IDOMService, protected textService: ITextService) {
+        super(id, domService);
     }
 
     buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
@@ -172,7 +176,7 @@ export class TextComponent extends Component implements IComponent {
         paddingRight: number,
     ) {
         switch (partId) {
-            case 'doc':
+            case 'text':
                 return new ViewText(
                     this.id,
                     renderId,
@@ -185,6 +189,7 @@ export class TextComponent extends Component implements IComponent {
                     paddingBottom,
                     paddingLeft,
                     paddingRight,
+                    this.domService,
                 );
             default:
                 throw new Error('Invalid part ID.');

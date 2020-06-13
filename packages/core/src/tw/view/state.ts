@@ -22,7 +22,7 @@ export class ViewState implements IViewState {
     protected attached = false;
     protected didUpdateViewStateEventEmitter = new EventEmitter<IDidUpdateViewStateEvent>();
 
-    readonly doc: IViewDoc<any>;
+    protected internalDoc: IViewDoc<any>;
 
     constructor(
         protected instanceId: string,
@@ -32,7 +32,7 @@ export class ViewState implements IViewState {
     ) {
         const layoutDoc = layoutService.getDoc();
         const renderDoc = renderService.getDoc();
-        this.doc = this.updateNode(null, layoutDoc, renderDoc) as IViewDoc<any>;
+        this.internalDoc = this.updateNode(null, layoutDoc, renderDoc) as IViewDoc<any>;
         layoutService.onDidUpdateLayoutState(this.handleDidUpdateLayoutStateEvent);
     }
 
@@ -40,8 +40,8 @@ export class ViewState implements IViewState {
         return this.didUpdateViewStateEventEmitter.on(listener);
     }
 
-    getDoc() {
-        return this.doc;
+    get doc() {
+        return this.internalDoc;
     }
 
     attach(domContainer: HTMLElement) {
@@ -55,15 +55,11 @@ export class ViewState implements IViewState {
     protected handleDidUpdateLayoutStateEvent = (event: IDidUpdateLayoutStateEvent) => {
         const layoutDoc = this.layoutService.getDoc();
         const renderDoc = this.renderService.getDoc();
-        this.updateNode(this.doc, layoutDoc, renderDoc);
+        this.internalDoc = this.updateNode(this.doc, layoutDoc, renderDoc) as IViewDoc<any>;
         this.didUpdateViewStateEventEmitter.emit({});
     };
 
-    protected updateNode(
-        node: IViewNode<any> | null,
-        layoutNode: ILayoutNode,
-        renderNode: IRenderNode<any, any> | null,
-    ) {
+    protected updateNode(node: IViewNode<any> | null, layoutNode: ILayoutNode, renderNode: IRenderNode<any, any>) {
         if (!layoutNode.needView) {
             if (!node) {
                 throw new Error('Expected view node to be available.');
@@ -86,17 +82,19 @@ export class ViewState implements IViewState {
             });
         }
         const newChildren: IViewNode<any>[] = [];
-        layoutNode.children.forEach((layoutChild) => {
-            let child = childrenMap[layoutChild.id] || null;
-            let renderChild: IRenderNode<any, any> | null = null;
-            if (layoutChild.renderId) {
-                renderChild = renderChildrenMap[layoutChild.renderId] || null;
-                if (!renderChild) {
-                    throw new Error('Render node not found.');
+        if (layoutNode.type !== 'text') {
+            layoutNode.children.forEach((layoutChild) => {
+                let child = childrenMap[layoutChild.id] || null;
+                let renderChild: IRenderNode<any, any> | null = null;
+                if (layoutChild.renderId) {
+                    renderChild = renderChildrenMap[layoutChild.renderId] || null;
+                    if (!renderChild) {
+                        throw new Error('Render node not found.');
+                    }
                 }
-            }
-            newChildren.push(this.updateNode(child, layoutChild, renderChild));
-        });
+                newChildren.push(this.updateNode(child, layoutChild, renderChild || renderNode));
+            });
+        }
         layoutNode.clearNeedView();
         return this.buildNode(layoutNode, renderNode, newChildren);
     }
@@ -132,11 +130,12 @@ export class ViewState implements IViewState {
         if (!node) {
             throw new Error(`Error building view node from render node ${renderNode.id}.`);
         }
+        this.applyMetadataToDOMContainer(node);
         return node;
     }
 
     protected buildPageNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
-        return this.componentService
+        const node = this.componentService
             .getPageComponent()
             .buildViewNode(
                 layoutNode.id,
@@ -148,10 +147,12 @@ export class ViewState implements IViewState {
                 layoutNode.paddingLeft,
                 layoutNode.paddingRight,
             );
+        this.applyMetadataToDOMContainer(node);
+        return node;
     }
 
     protected buildLineNode(layoutNode: ILayoutNode, children: IViewNode<any>[]) {
-        return this.componentService
+        const node = this.componentService
             .getLineComponent()
             .buildViewNode(
                 layoutNode.id,
@@ -163,5 +164,23 @@ export class ViewState implements IViewState {
                 layoutNode.paddingLeft,
                 layoutNode.paddingRight,
             );
+        this.applyMetadataToDOMContainer(node);
+        return node;
+    }
+
+    protected applyMetadataToDOMContainer(viewNode: IViewNode<any>) {
+        const domContainer = viewNode.domContainer;
+        const componentId = viewNode.componentId;
+        const partId = viewNode.partId;
+        const id = viewNode.id;
+        domContainer.className = `tw--${componentId}--${partId}`;
+        domContainer.setAttribute('data-tw-instance', this.instanceId);
+        if (componentId) {
+            domContainer.setAttribute('data-tw-component', componentId);
+        }
+        if (partId) {
+            domContainer.setAttribute('data-tw-part', partId);
+        }
+        domContainer.setAttribute('data-tw-id', id);
     }
 }

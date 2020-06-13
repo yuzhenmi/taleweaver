@@ -1,10 +1,10 @@
+import { IDOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
-import { IToken } from '../transform/token';
 import { detectPlatform } from '../util/platform';
 
 export interface IDidInsertEvent {
-    tokens: IToken[];
+    content: string;
 }
 
 export interface IDidPressKeyEvent {
@@ -32,8 +32,8 @@ export class KeyboardObserver implements IKeyboardObserver {
     protected compositionDidEndEventEmitter = new EventEmitter<ICompositionDidEnd>();
     protected keyInterpreter = new KeyInterpreter();
 
-    constructor(protected $contentEditable: HTMLDivElement) {
-        this.mutationObserver = new MutationObserver(this.handleDidMutate);
+    constructor(protected $contentEditable: HTMLDivElement, protected domService: IDOMService) {
+        this.mutationObserver = domService.createMutationObserver(this.handleDidMutate);
         $contentEditable.addEventListener('keydown', this.handleKeyDown);
         $contentEditable.addEventListener('compositionstart', this.handleCompositionStart);
         $contentEditable.addEventListener('compositionend', this.handleCompositionEnd);
@@ -65,33 +65,14 @@ export class KeyboardObserver implements IKeyboardObserver {
             if (this.composing) {
                 return;
             }
-            const tokens = this.parse();
+            const content = this.$contentEditable.innerText;
             this.$contentEditable.innerHTML = '';
-            if (tokens.length === 0) {
+            if (content.length === 0) {
                 return;
             }
-            this.didInsertEventEmitter.emit({ tokens });
+            this.didInsertEventEmitter.emit({ content });
         });
     };
-
-    protected parse() {
-        const tokens: IToken[] = [];
-        this.$contentEditable.childNodes.forEach((child) => {
-            tokens.push(...this.parseNode(child));
-        });
-        return tokens;
-    }
-
-    protected parseNode(node: Node): IToken[] {
-        if (node.nodeValue) {
-            return node.nodeValue.split('');
-        }
-        const tokens: IToken[] = [];
-        node.childNodes.forEach((childNode) => {
-            tokens.push(...this.parseNode(childNode));
-        });
-        return tokens;
-    }
 
     protected handleKeyDown = (event: KeyboardEvent) => {
         const key = this.keyInterpreter.interpretFromKeyboardEvent(event);

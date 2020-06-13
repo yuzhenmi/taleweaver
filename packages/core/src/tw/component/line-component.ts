@@ -1,3 +1,4 @@
+import { IDOMService } from '../dom/service';
 import { IViewLine } from '../view/line';
 import { IViewNode } from '../view/node';
 
@@ -28,5 +29,5 @@ export abstract class LineComponent implements ILineComponent {
         paddingRight: number,
     ): IViewLine;
 
-    constructor(readonly id: string) {}
+    constructor(readonly id: string, protected domService: IDOMService) {}
 }

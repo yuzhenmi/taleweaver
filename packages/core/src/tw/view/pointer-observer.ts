@@ -1,3 +1,4 @@
+import { IDOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { IViewService } from './service';
@@ -43,7 +44,8 @@ export class PointerObserver implements IPointerObserver {
     protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
     protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
 
-    constructor(protected instanceId: string, protected viewService: IViewService) {
+    constructor(protected instanceId: string, protected viewService: IViewService, protected domService: IDOMService) {
+        const window = domService.getWindow();
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
@@ -125,24 +127,25 @@ export class PointerObserver implements IPointerObserver {
     };
 
     protected resolveCoordinates(x: number, y: number): number | null {
-        const pageViewNodes = this.viewService.getDoc().getChildren();
-        let cumulatedOffset = 0;
-        for (let pageViewNode of pageViewNodes) {
-            const pageLayoutNode = pageViewNode.getLayoutNode();
-            const pageDOMContainer = pageViewNode.getDOMContainer();
-            const pageBoundingClientRect = pageDOMContainer.getBoundingClientRect();
-            if (
-                pageBoundingClientRect.left <= x &&
-                pageBoundingClientRect.right >= x &&
-                pageBoundingClientRect.top <= y &&
-                pageBoundingClientRect.bottom >= y
-            ) {
-                const pageX = x - pageBoundingClientRect.left;
-                const pageY = y - pageBoundingClientRect.top;
-                return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
-            }
-            cumulatedOffset += pageLayoutNode.getSize();
-        }
+        // const doc = this.viewService.getDoc();
+        // let cumulatedOffset = 0;
+        // for (let n = 0, nn = doc.children.length; n < nn; n++) {
+        //     const page = doc.children.at(n);
+        //     const pageLayoutNode = page.getLayoutNode();
+        //     const pageDOMContainer = pageViewNode.getDOMContainer();
+        //     const pageBoundingClientRect = pageDOMContainer.getBoundingClientRect();
+        //     if (
+        //         pageBoundingClientRect.left <= x &&
+        //         pageBoundingClientRect.right >= x &&
+        //         pageBoundingClientRect.top <= y &&
+        //         pageBoundingClientRect.bottom >= y
+        //     ) {
+        //         const pageX = x - pageBoundingClientRect.left;
+        //         const pageY = y - pageBoundingClientRect.top;
+        //         return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
+        //     }
+        //     cumulatedOffset += pageLayoutNode.getSize();
+        // }
         return null;
     }
 }

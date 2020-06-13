@@ -1,3 +1,5 @@
+import { IDOMService } from '../dom/service';
+
 export interface IFont {
     weight: number;
     size: number;
@@ -37,8 +39,8 @@ export interface ITextService {
 export class TextService implements ITextService {
     protected $canvas: HTMLCanvasElement;
 
-    constructor(document: Document) {
-        this.$canvas = document.createElement('canvas');
+    constructor(domService: IDOMService) {
+        this.$canvas = domService.createElement('canvas');
     }
 
     measure(text: string, font: IFont) {
