@@ -1,4 +1,5 @@
 import { IConfigService } from '../config/service';
+import { IDOMService } from '../dom/service';
 import { IComponent } from './component';
 import { LineComponent } from './components/line';
 import { PageComponent } from './components/page';
@@ -15,12 +16,12 @@ export interface IComponentService {
 export class ComponentService implements IComponentService {
     protected registry: IComponentRegistry = new ComponentRegistry();
 
-    constructor(configService: IConfigService) {
+    constructor(protected configService: IConfigService, protected domService: IDOMService) {
         for (let [componentId, component] of Object.entries(configService.getConfig().components)) {
             this.registry.registerComponent(componentId, component);
         }
-        this.registry.registerPageComponent(new PageComponent('page', configService));
-        this.registry.registerLineComponent(new LineComponent('line'));
+        this.registry.registerPageComponent(new PageComponent('page', domService, configService));
+        this.registry.registerLineComponent(new LineComponent('line', domService));
     }
 
     getComponent(componentId: string) {

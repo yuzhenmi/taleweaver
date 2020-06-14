@@ -1,9 +1,9 @@
 import { IComponentService } from '../component/service';
 import { ICursorService } from '../cursor/service';
+import { IChange, IChangeResult } from '../model/change/change';
+import { IMapping } from '../model/change/mapping';
+import { IModelRoot } from '../model/root';
 import { IRenderService } from '../render/service';
-import { IChange, IChangeResult } from './change/change';
-import { IMapping } from './change/mapping';
-import { IModelRoot } from './root';
 
 export interface ITransformation {
     apply(

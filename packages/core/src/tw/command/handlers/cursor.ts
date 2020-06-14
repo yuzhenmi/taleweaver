@@ -1,15 +1,13 @@
 import { ILayoutLine } from '../../layout/line';
-import { identifyLayoutNodeType } from '../../layout/utility';
-import { Transformation } from '../../model/transformation';
 import { IRenderPosition } from '../../render/node';
 import { IAtomicRenderNode } from '../../render/text';
 import { identifyRenderNodeType } from '../../render/utility';
+import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
-    const tn = new Transformation();
-    tn.setCursor(offset);
-    serviceRegistry.getService('state').applyTransformation(tn);
+    const tn = new Transformation([], offset, offset, null);
+    serviceRegistry.getService('transform').applyTransformation(tn);
 };
 
 export const moveLeft: ICommandHandler = async (serviceRegistry) => {

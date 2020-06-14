@@ -1,8 +1,8 @@
 import { IModelNode, IModelPosition } from '../../model/node';
-import { DeleteOperation, InsertOperation, Transformation } from '../../model/transformation';
 import { identifyModelNodeType } from '../../model/utility';
 import { IServiceRegistry } from '../../service/registry';
 import { CLOSE_TOKEN, IToken } from '../../transform/token';
+import { DeleteOperation, InsertOperation, Transformation } from '../../transform/transformation';
 import { generateId } from '../../util/id';
 import { ICommandHandler } from '../command';
 

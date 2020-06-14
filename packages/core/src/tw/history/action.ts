@@ -1,4 +1,4 @@
-import { IAppliedTransformation } from '../model/transformation';
+import { IAppliedTransformation } from '../transform/transformation';
 
 export interface IHistoryAction {
     getBeganAt(): number;
