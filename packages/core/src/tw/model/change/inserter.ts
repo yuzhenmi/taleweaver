@@ -49,7 +49,7 @@ export class Inserter extends Mutator<IInserterState> {
 
     protected handleText() {
         const position = this.root.resolvePosition(this.current.offset);
-        const { node, index } = position.atDepth(position.depth - 1);
+        const { node, index } = position.atReverseDepth(0);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as string;
         node.replace(index, index, content);
@@ -62,7 +62,7 @@ export class Inserter extends Mutator<IInserterState> {
 
     protected handleSplit() {
         const position = this.root.resolvePosition(this.current.offset);
-        const { node, offset } = position.atDepth(position.depth - this.currentFragment!.depth);
+        const { node, offset } = position.atReverseDepth(this.currentFragment!.depth - 1);
         const insertedSize = this.splitNode(node, offset);
         this.current = {
             offset: this.current.offset + insertedSize / 2,
@@ -80,7 +80,7 @@ export class Inserter extends Mutator<IInserterState> {
 
     protected handleNode() {
         const position = this.root.resolvePosition(this.current.offset);
-        const { node, index } = position.atDepth(position.depth - 1);
+        const { node, index } = position.atReverseDepth(0);
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
         node.replace(index, index, content);

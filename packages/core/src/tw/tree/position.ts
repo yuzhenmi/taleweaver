@@ -10,6 +10,7 @@ export interface IPosition<TNode extends INode<TNode>> {
     readonly depth: number;
 
     atDepth(depth: number): IPositionDepth<TNode>;
+    atReverseDepth(reverseDepth: number): IPositionDepth<TNode>;
 }
 
 export abstract class Position<TNode extends INode<TNode>> implements IPosition<TNode> {
@@ -24,5 +25,12 @@ export abstract class Position<TNode extends INode<TNode>> implements IPosition<
             throw new Error('Depth out of range.');
         }
         return this.depths[depth];
+    }
+
+    atReverseDepth(reverseDepth: number) {
+        if (reverseDepth < 0 || reverseDepth >= this.depths.length) {
+            throw new Error('Reverse depth out of range.');
+        }
+        return this.depths[this.depth - reverseDepth - 1];
     }
 }

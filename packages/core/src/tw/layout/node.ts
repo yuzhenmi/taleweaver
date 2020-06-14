@@ -5,7 +5,9 @@ import { generateId } from '../util/id';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
 
-export interface ILayoutPosition extends IPosition<ILayoutNode> {}
+export interface ILayoutPosition extends IPosition<ILayoutNode> {
+    atLineDepth(): ILayoutPositionDepth;
+}
 export interface ILayoutPositionDepth extends IPositionDepth<ILayoutNode> {}
 
 export interface IBoundingBox {
@@ -138,4 +140,14 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     }
 }
 
-export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {}
+export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {
+    atLineDepth() {
+        for (let n = this.depth - 1; n >= 0; n--) {
+            const depth = this.atDepth(n);
+            if (depth.node.type === 'line') {
+                return depth;
+            }
+        }
+        throw new Error('Line depth not found.');
+    }
+}

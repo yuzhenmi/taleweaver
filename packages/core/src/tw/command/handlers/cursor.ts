@@ -6,118 +6,107 @@ import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
-    const tn = new Transformation([], offset, offset, null);
-    serviceRegistry.getService('transform').applyTransformation(tn);
+    const transformService = serviceRegistry.getService('transform');
+    transformService.applyTransformation(new Transformation([], offset, offset, null));
 };
 
 export const moveLeft: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const anchor = cursorState.anchor;
-    const head = cursorState.head;
+    const { anchor, head } = cursorService.getCursorState();
+    let newOffset: number | null = null;
     if (anchor === head) {
         if (head < 1) {
             return;
         }
-        tn.setCursor(head - 1);
+        newOffset = head - 1;
     } else {
         if (anchor < head) {
-            tn.setCursor(anchor);
+            newOffset = anchor;
         } else if (anchor > head) {
-            tn.setCursor(head);
+            newOffset = head;
         }
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([], newOffset, newOffset, null));
 };
 
 export const moveRight: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const anchor = cursorState.anchor;
-    const head = cursorState.head;
-    const docSize = renderService.getDocSize();
+    const { anchor, head } = cursorService.getCursorState();
+    let newOffset: number | null = null;
     if (anchor === head) {
-        if (head >= docSize - 1) {
+        if (head >= renderService.getDocSize() - 1) {
             return;
         }
-        tn.setCursor(head + 1);
+        newOffset = head + 1;
     } else {
         if (anchor < head) {
-            tn.setCursor(head);
+            newOffset = head;
         } else if (anchor > head) {
-            tn.setCursor(anchor);
+            newOffset = anchor;
         }
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([], newOffset, newOffset, null));
 };
 
 export const moveUp: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const offset = Math.min(cursorState.anchor, cursorState.head);
+    const { anchor, head, leftLock } = cursorService.getCursorState();
+    const offset = Math.min(anchor, head);
     const position = layoutService.resolvePosition(offset);
-    const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILayoutLine;
-    if (identifyLayoutNodeType(lineNode) !== 'Line') {
-        throw new Error(`Expecting position to be referencing an line node.`);
-    }
-    const previousLineNode = lineNode.getPreviousSiblingAllowCrossParent() as ILayoutLine;
-    if (!previousLineNode) {
-        tn.setCursor(offset - linePosition.getOffset());
+    const { node: line, offset: lineOffset } = position.atLineDepth();
+    const previousLine = line.previousCrossParentSibling;
+    let newOffset: number | null = null;
+    let newLeftLock: number | null = null;
+    if (!previousLine) {
+        newOffset = offset - lineOffset;
     } else {
-        let leftLock = cursorState.leftLock;
-        if (leftLock === null) {
-            leftLock = lineNode.resolveRects(linePosition.getOffset(), linePosition.getOffset())[0].left;
+        newLeftLock = leftLock;
+        if (newLeftLock === null) {
+            newLeftLock = line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left;
         }
-        tn.setCursorLockLeft(leftLock);
-        const targetLineSelectableOffset = previousLineNode.convertCoordinateToOffset(leftLock);
-        tn.setCursor(offset - linePosition.getOffset() - previousLineNode.getSize() + targetLineSelectableOffset);
+        newOffset = offset - lineOffset - previousLine.size + previousLine.convertCoordinatesToOffset(newLeftLock, 0);
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([], newOffset, newOffset, newLeftLock));
 };
 
 export const moveDown: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const offset = Math.max(cursorState.anchor, cursorState.head);
+    const { anchor, head, leftLock } = cursorService.getCursorState();
+    const offset = Math.min(anchor, head);
     const position = layoutService.resolvePosition(offset);
-    const linePosition = position.getLeaf().getParent()!.getParent()!;
-    const lineNode = linePosition.getNode() as ILayoutLine;
-    if (identifyLayoutNodeType(lineNode) !== 'Line') {
-        throw new Error(`Expecting position to be referencing an line node.`);
-    }
-    const nextLineNode = lineNode.getNextSiblingAllowCrossParent() as ILayoutLine;
-    if (!nextLineNode) {
-        tn.setCursor(offset - linePosition.getOffset() + lineNode.getSize() - 1);
+    const { node: line, offset: lineOffset } = position.atLineDepth();
+    const nextLine = line.nextCrossParentSibling;
+    let newOffset: number | null = null;
+    let newLeftLock: number | null = null;
+    if (!nextLine) {
+        newOffset = offset - lineOffset + line.size - 1;
     } else {
-        let leftLock = cursorState.leftLock;
-        if (leftLock === null) {
-            leftLock = lineNode.resolveRects(linePosition.getOffset(), linePosition.getOffset())[0].left;
+        newLeftLock = leftLock;
+        if (newLeftLock === null) {
+            newLeftLock = line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left;
         }
-        tn.setCursorLockLeft(leftLock);
-        const targetLineSelectableOffset = nextLineNode.convertCoordinateToOffset(leftLock);
-        tn.setCursor(offset - linePosition.getOffset() + lineNode.getSize() + targetLineSelectableOffset);
+        newOffset = offset - lineOffset + line.size + nextLine.convertCoordinatesToOffset(newLeftLock, 0);
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([], newOffset, newOffset, newLeftLock));
 };
 
 export const moveLeftByWord: ICommandHandler = async (serviceRegistry) => {

@@ -13,7 +13,7 @@ export class Remover extends Mutator<IRemoverState> {
     constructor(protected root: IModelRoot<any>, protected from: number, protected to: number) {
         super();
         const position = root.resolvePosition(from);
-        const { node, offset: nodeOffset } = position.atDepth(position.depth - 1);
+        const { node, offset: nodeOffset } = position.atReverseDepth(0);
         const nodeFrom = position.atDepth(0).offset - nodeOffset;
         const nodeTo = nodeFrom + node.size;
         this.current = {

@@ -5,9 +5,9 @@ import { RenderBlock } from '../../render/block';
 import { IRenderNode } from '../../render/node';
 import { IRenderText, RenderText } from '../../render/text';
 import { DEFAULT_FONT } from '../../text/service';
-import { ViewAtom } from '../../view/atom';
 import { ViewBlock } from '../../view/block';
 import { IViewNode } from '../../view/node';
+import { ViewText } from '../../view/text';
 import { Component, IComponent } from '../component';
 
 export interface IParagraphAttributes {}
@@ -155,7 +155,7 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
     }
 }
 
-export class ViewParagraphLineBreak extends ViewAtom<IParagraphLineBreakStyle> {
+export class ViewParagraphLineBreak extends ViewText<IParagraphLineBreakStyle> {
     get partId() {
         return 'line-break';
     }
