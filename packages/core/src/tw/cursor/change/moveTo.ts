@@ -1,30 +1,40 @@
 import { IMapping } from '../../model/change/mapping';
-import { ICursorState } from '../service';
-import { CursorChange } from './change';
+import { IRenderService } from '../../render/service';
+import { ICursorState } from '../state';
+import { CursorChange, ICursorChangeResult } from './change';
 
 export class MoveTo extends CursorChange {
-    constructor(protected anchor: number | null, protected head: number | null) {
+    protected anchor: number;
+
+    constructor(protected head: number, anchor?: number) {
         super();
+        this.anchor = anchor ?? head;
     }
 
-    apply(currentState: ICursorState, mappings: IMapping[]) {
-        const oldAnchor = currentState.anchor;
-        const oldHead = currentState.head;
+    map(mapping: IMapping) {
+        return new MoveTo(mapping.map(this.head), mapping.map(this.anchor));
+    }
+
+    apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult {
+        const { anchor, head } = cursorState.cursor;
+        cursorState.set(
+            this.restrictOffsetRange(this.anchor, renderService),
+            this.restrictOffsetRange(this.head, renderService),
+        );
         return {
-            newState: {
-                anchor: this.map(this.anchor, mappings) ?? oldAnchor,
-                head: this.map(this.head, mappings) ?? oldHead,
-                leftLock: currentState.leftLock,
-            },
             change: this,
-            reverseChange: new MoveTo(oldAnchor, oldHead),
+            reverseChange: new MoveTo(head, anchor),
         };
     }
 
-    map(offset: number | null, mappings: IMapping[]) {
-        if (offset === null) {
-            return null;
+    restrictOffsetRange(offset: number, renderService: IRenderService) {
+        if (offset < 0) {
+            return 0;
         }
-        return mappings.reduce((newOffset, mapping) => mapping.map(newOffset), offset);
+        const docSize = renderService.getDocSize();
+        if (offset >= docSize) {
+            return docSize - 1;
+        }
+        return offset;
     }
 }

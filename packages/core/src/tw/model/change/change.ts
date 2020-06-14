@@ -5,7 +5,8 @@ import { IMapping } from './mapping';
 export interface IModelChange {
     readonly type: 'model';
 
-    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IModelChangeResult;
+    map(mapping: IMapping): IModelChange;
+    apply(root: IModelRoot<any>, componentService: IComponentService): IModelChangeResult;
 }
 
 export interface IModelChangeResult {
@@ -17,9 +18,6 @@ export interface IModelChangeResult {
 export abstract class ModelChange implements IModelChange {
     readonly type = 'model';
 
-    abstract apply(
-        root: IModelRoot<any>,
-        mappings: IMapping[],
-        componentService: IComponentService,
-    ): IModelChangeResult;
+    abstract map(mapping: IMapping): IModelChange;
+    abstract apply(root: IModelRoot<any>, componentService: IComponentService): IModelChangeResult;
 }

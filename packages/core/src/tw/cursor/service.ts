@@ -1,66 +1,45 @@
 import { IConfigService } from '../config/service';
-import { IEventListener } from '../event/listener';
-import { Cursor, ICursor, IDidUpdateCursorEvent } from './cursor';
-
-export interface ICursorState {
-    readonly anchor: number;
-    readonly head: number;
-}
+import { IEventListener, IOnEvent } from '../event/listener';
+import { ICursorChange, ICursorChangeResult } from './change/change';
+import { CursorState, ICursor, ICursorState, IDidUpdateCursorEvent } from './state';
 
 export interface ICursorService {
     hasCursor(): boolean;
-    getState(): ICursorState;
-    setState(state: ICursorState): void;
-    getLeftLock(): number | null;
-    setLeftLock(leftLock: number | null): void;
-    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>): void;
+    getCursor(): ICursor;
+    setCursor(anchor: number, head: number): void;
+    setLeftLock(leftLock: number): void;
+    applyChange(change: ICursorChange): ICursorChangeResult;
+    onDidUpdate: IOnEvent<IDidUpdateCursorEvent>;
 }
 
 export class CursorService implements ICursorService {
-    protected cursor?: ICursor;
+    protected state: ICursorState;
 
     constructor(configService: IConfigService) {
-        if (!configService.getConfig().cursor.disable) {
-            this.cursor = new Cursor();
-        }
+        this.state = new CursorState(configService);
     }
 
     hasCursor() {
-        return !!this.cursor;
+        return this.state.hasCursor;
     }
 
-    getState() {
-        this.assertCursor();
-        return {
-            anchor: this.cursor!.anchor,
-            head: this.cursor!.head,
-        };
+    getCursor() {
+        return this.state.cursor;
     }
 
-    setState(state: ICursorState) {
-        this.assertCursor();
-        this.cursor!.set(state.anchor, state.head);
-    }
-
-    getLeftLock() {
-        this.assertCursor();
-        return this.cursor!.leftLock;
+    setCursor(anchor: number, head: number) {
+        this.state.set(anchor, head);
     }
 
     setLeftLock(leftLock: number) {
-        this.assertCursor();
-        this.cursor!.leftLock = leftLock;
+        this.state.setLeftLock(leftLock);
     }
 
-    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
-        if (this.cursor) {
-            this.cursor.onDidUpdateCursor(listener);
-        }
+    applyChange(change: ICursorChange) {
+        return this.state.applyChange(change);
     }
 
-    protected assertCursor() {
-        if (!this.cursor) {
-            throw new Error('Cursor is disabled.');
-        }
+    onDidUpdate(listener: IEventListener<IDidUpdateCursorEvent>) {
+        return this.state.onDidUpdate(listener);
     }
 }

@@ -1,23 +1,36 @@
 import { IMapping } from '../../model/change/mapping';
-import { ICursorState } from '../service';
-import { CursorChange } from './change';
+import { IRenderService } from '../../render/service';
+import { ICursorState } from '../state';
+import { CursorChange, ICursorChangeResult } from './change';
+import { MoveTo } from './moveTo';
 
 export class MoveBy extends CursorChange {
-    constructor(protected anchorBy: number | null, protected headBy: number | null) {
+    constructor(protected offset: number, protected headOnly: boolean) {
         super();
     }
 
-    apply(currentState: ICursorState, mappings: IMapping[]) {
-        const oldAnchor = currentState.anchor;
-        const oldHead = currentState.head;
+    map(mapping: IMapping) {
+        return this;
+    }
+
+    apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult {
+        const { anchor, head } = cursorState.cursor;
+        const newHead = this.restrictOffsetRange(head + this.offset, renderService);
+        cursorState.set(this.headOnly ? anchor : newHead, newHead);
         return {
-            newState: {
-                anchor: oldAnchor + this.anchorBy ?? 0,
-                head: oldHead + this.headBy ?? 0,
-                leftLock: currentState.leftLock,
-            },
             change: this,
-            reverseChange: new MoveBy(-(this.anchorBy ?? 0), -(this.headBy ?? 0)),
+            reverseChange: new MoveTo(head, anchor),
         };
+    }
+
+    restrictOffsetRange(offset: number, renderService: IRenderService) {
+        if (offset < 0) {
+            return 0;
+        }
+        const docSize = renderService.getDocSize();
+        if (offset >= docSize) {
+            return docSize - 1;
+        }
+        return offset;
     }
 }

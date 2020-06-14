@@ -8,7 +8,7 @@ import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
-    applyChanges(changes: IModelChange[]): [IModelChangeResult[], IMapping[]];
+    applyChange(change: IModelChange, mappings: IMapping[]): IModelChangeResult;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
@@ -26,8 +26,8 @@ export class ModelService implements IModelService {
         return this.state.root;
     }
 
-    applyChanges(changes: IModelChange[]) {
-        return this.state.applyChanges(changes);
+    applyChange(change: IModelChange) {
+        return this.state.applyChange(change);
     }
 
     resolvePosition(offset: number) {
@@ -43,6 +43,6 @@ export class ModelService implements IModelService {
     }
 
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        this.state.onDidUpdateModelState(listener);
+        this.state.onDidUpdate(listener);
     }
 }

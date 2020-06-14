@@ -1,3 +1,5 @@
+import { MoveBy } from '../../cursor/change/moveBy';
+import { MoveTo } from '../../cursor/change/moveTo';
 import { ILayoutLine } from '../../layout/line';
 import { IRenderPosition } from '../../render/node';
 import { IAtomicRenderNode } from '../../render/text';
@@ -7,54 +9,17 @@ import { ICommandHandler } from '../command';
 
 export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
     const transformService = serviceRegistry.getService('transform');
-    transformService.applyTransformation(new Transformation([], offset, offset, null));
+    transformService.applyTransformation(new Transformation([new MoveTo(offset, offset)]));
 };
 
 export const moveLeft: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
-    const cursorService = serviceRegistry.getService('cursor');
-    if (!cursorService.hasCursor()) {
-        return;
-    }
-    const { anchor, head } = cursorService.getCursorState();
-    let newOffset: number | null = null;
-    if (anchor === head) {
-        if (head < 1) {
-            return;
-        }
-        newOffset = head - 1;
-    } else {
-        if (anchor < head) {
-            newOffset = anchor;
-        } else if (anchor > head) {
-            newOffset = head;
-        }
-    }
-    transformService.applyTransformation(new Transformation([], newOffset, newOffset, null));
+    transformService.applyTransformation(new Transformation([new MoveBy(-1, false)]));
 };
 
 export const moveRight: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
-    const cursorService = serviceRegistry.getService('cursor');
-    const renderService = serviceRegistry.getService('render');
-    if (!cursorService.hasCursor()) {
-        return;
-    }
-    const { anchor, head } = cursorService.getCursorState();
-    let newOffset: number | null = null;
-    if (anchor === head) {
-        if (head >= renderService.getDocSize() - 1) {
-            return;
-        }
-        newOffset = head + 1;
-    } else {
-        if (anchor < head) {
-            newOffset = head;
-        } else if (anchor > head) {
-            newOffset = anchor;
-        }
-    }
-    transformService.applyTransformation(new Transformation([], newOffset, newOffset, null));
+    transformService.applyTransformation(new Transformation([new MoveBy(1, false)]));
 };
 
 export const moveUp: ICommandHandler = async (serviceRegistry) => {
@@ -64,23 +29,18 @@ export const moveUp: ICommandHandler = async (serviceRegistry) => {
     if (!cursorService.hasCursor()) {
         return;
     }
-    const { anchor, head, leftLock } = cursorService.getCursorState();
+    const { anchor, head, leftLock } = cursorService.getCursor();
     const offset = Math.min(anchor, head);
     const position = layoutService.resolvePosition(offset);
     const { node: line, offset: lineOffset } = position.atLineDepth();
     const previousLine = line.previousCrossParentSibling;
-    let newOffset: number | null = null;
-    let newLeftLock: number | null = null;
+    let newOffset: number;
     if (!previousLine) {
         newOffset = offset - lineOffset;
     } else {
-        newLeftLock = leftLock;
-        if (newLeftLock === null) {
-            newLeftLock = line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left;
-        }
-        newOffset = offset - lineOffset - previousLine.size + previousLine.convertCoordinatesToOffset(newLeftLock, 0);
+        newOffset = offset - lineOffset - previousLine.size + previousLine.convertCoordinatesToOffset(leftLock, 0);
     }
-    transformService.applyTransformation(new Transformation([], newOffset, newOffset, newLeftLock));
+    transformService.applyTransformation(new Transformation([new MoveTo(newOffset)], true));
 };
 
 export const moveDown: ICommandHandler = async (serviceRegistry) => {
@@ -90,83 +50,64 @@ export const moveDown: ICommandHandler = async (serviceRegistry) => {
     if (!cursorService.hasCursor()) {
         return;
     }
-    const { anchor, head, leftLock } = cursorService.getCursorState();
-    const offset = Math.min(anchor, head);
+    const { anchor, head, leftLock } = cursorService.getCursor();
+    const offset = Math.max(anchor, head);
     const position = layoutService.resolvePosition(offset);
     const { node: line, offset: lineOffset } = position.atLineDepth();
     const nextLine = line.nextCrossParentSibling;
-    let newOffset: number | null = null;
-    let newLeftLock: number | null = null;
+    let newOffset: number;
     if (!nextLine) {
         newOffset = offset - lineOffset + line.size - 1;
     } else {
-        newLeftLock = leftLock;
-        if (newLeftLock === null) {
-            newLeftLock = line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left;
-        }
-        newOffset = offset - lineOffset + line.size + nextLine.convertCoordinatesToOffset(newLeftLock, 0);
+        newOffset = offset - lineOffset + line.size + nextLine.convertCoordinatesToOffset(leftLock, 0);
     }
-    transformService.applyTransformation(new Transformation([], newOffset, newOffset, newLeftLock));
+    transformService.applyTransformation(new Transformation([new MoveTo(newOffset)]));
 };
 
 export const moveLeftByWord: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
-    const renderService = serviceRegistry.getService('render');
+    const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const offset = Math.min(cursorState.anchor, cursorState.head);
-    const position = renderService.resolvePosition(offset);
-    const atomicPosition = position.getLeaf();
-    const atomicNode = atomicPosition.getNode();
-    if (identifyRenderNodeType(atomicNode) !== 'atomic') {
-        throw new Error(`Expecting position to be referencing an atomic node.`);
-    }
-    if (atomicPosition.getOffset() > 0) {
-        tn.setCursor(offset - atomicPosition.getOffset());
+    const { anchor, head } = cursorService.getCursor();
+    const offset = Math.min(anchor, head);
+    const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
+    let newOffset: number;
+    if (wordOffset > 0) {
+        newOffset = offset - wordOffset;
     } else {
-        const previousAtomicNode = atomicNode.getPreviousSiblingAllowCrossParent() as IAtomicRenderNode | undefined;
-        if (previousAtomicNode) {
-            tn.setCursor(offset - previousAtomicNode.getSize());
-        } else {
-            tn.setCursor(offset);
+        const previousWord = word.previousCrossParentSibling;
+        if (!previousWord) {
+            return;
         }
+        newOffset = offset - previousWord.size;
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([new MoveTo(newOffset)]));
 };
 
 export const moveRightByWord: ICommandHandler = async (serviceRegistry) => {
+    const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
-    const renderService = serviceRegistry.getService('render');
+    const layoutService = serviceRegistry.getService('layout');
     if (!cursorService.hasCursor()) {
         return;
     }
-    const tn = new Transformation();
-    const cursorState = cursorService.getCursorState();
-    const offset = Math.max(cursorState.anchor, cursorState.head);
-    const position = renderService.resolvePosition(offset);
-    const atomicPosition = position.getLeaf();
-    const atomicNode = atomicPosition.getNode();
-    if (identifyRenderNodeType(atomicNode) !== 'atomic') {
-        throw new Error(`Expecting position to be referencing an atomic node.`);
-    }
-    if (atomicPosition.getOffset() < atomicNode.getSize() - 1) {
-        tn.setCursor(offset - atomicPosition.getOffset() + atomicNode.getSize() - 1);
+    const { anchor, head } = cursorService.getCursor();
+    const offset = Math.max(anchor, head);
+    const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
+    let newOffset: number;
+    if (wordOffset < word.size - 1) {
+        newOffset = offset + wordOffset - 1;
     } else {
-        const nextAtomicNode = atomicNode.getNextSiblingAllowCrossParent() as IAtomicRenderNode | undefined;
-        if (nextAtomicNode) {
-            let newOffset = offset - atomicPosition.getOffset() + atomicNode.getSize() + nextAtomicNode.getSize();
-            if (nextAtomicNode.isBreakable()) {
-                newOffset--;
-            }
-            tn.setCursor(newOffset);
-        } else {
-            tn.setCursor(offset);
+        const nextWord = word.nextCrossParentSibling;
+        if (!nextWord) {
+            return;
         }
+        newOffset = offset - wordOffset + word.size + nextWord.size - 1;
     }
-    serviceRegistry.getService('state').applyTransformation(tn);
+    transformService.applyTransformation(new Transformation([new MoveTo(newOffset)]));
 };
 
 export const moveToLineStart: ICommandHandler = async (serviceRegistry) => {

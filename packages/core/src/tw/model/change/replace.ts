@@ -12,24 +12,23 @@ export class ReplaceChange extends ModelChange {
         this.validateInput();
     }
 
-    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IModelChangeResult {
+    map(mapping: IMapping) {
+        const from = mapping.map(this.from);
+        const to = mapping.map(this.to);
+        return new ReplaceChange(from, to, this.fragments);
+    }
+
+    apply(root: IModelRoot<any>, componentService: IComponentService): IModelChangeResult {
         this.validateFit(root);
-        const { from, to } = this.map(mappings);
-        const remover = new Remover(root, from, to);
+        const remover = new Remover(root, this.from, this.to);
         remover.run();
-        const inserter = new Inserter(root, from, this.fragments, componentService);
+        const inserter = new Inserter(root, this.from, this.fragments, componentService);
         inserter.run();
         return {
             change: this,
-            reverseChange: new ReplaceChange(from, from + inserter.insertedSize, remover.removedFragments),
-            mapping: new Mapping(from, to - from, inserter.insertedSize),
+            reverseChange: new ReplaceChange(this.from, this.from + inserter.insertedSize, remover.removedFragments),
+            mapping: new Mapping(this.from, this.to - this.from, inserter.insertedSize),
         };
-    }
-
-    protected map(mappings: IMapping[]) {
-        const from = mappings.reduce((from, mapping) => mapping.map(from), this.from);
-        const to = mappings.reduce((to, mapping) => mapping.map(to), this.to);
-        return { from, to };
     }
 
     protected validateInput() {

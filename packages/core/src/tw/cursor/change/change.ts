@@ -1,14 +1,15 @@
 import { IMapping } from '../../model/change/mapping';
-import { ICursorState } from '../service';
+import { IRenderService } from '../../render/service';
+import { ICursorState } from '../state';
 
 export interface ICursorChange {
     readonly type: 'cursor';
 
-    apply(currentState: ICursorState, mappings: IMapping[]): ICursorChangeResult;
+    map(mapping: IMapping): ICursorChange;
+    apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult;
 }
 
 export interface ICursorChangeResult {
-    readonly newState: ICursorState;
     readonly change: ICursorChange;
     readonly reverseChange: ICursorChange;
 }
@@ -16,5 +17,6 @@ export interface ICursorChangeResult {
 export abstract class CursorChange implements ICursorChange {
     readonly type = 'cursor';
 
-    abstract apply(currentState: ICursorState, mappings: IMapping[]): ICursorChangeResult;
+    abstract map(mapping: IMapping): ICursorChange;
+    abstract apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult;
 }
