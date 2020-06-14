@@ -1,17 +1,18 @@
 import { IComponentService } from '../../component/service';
 import { IFragment } from '../fragment';
 import { IModelRoot } from '../root';
-import { IChange, IChangeResult } from './change';
+import { IModelChangeResult, ModelChange } from './change';
 import { Inserter } from './inserter';
 import { IMapping, Mapping } from './mapping';
 import { Remover } from './remover';
 
-export class ReplaceChange implements IChange {
+export class ReplaceChange extends ModelChange {
     constructor(protected from: number, protected to: number, protected fragments: IFragment[]) {
+        super();
         this.validateInput();
     }
 
-    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IChangeResult {
+    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IModelChangeResult {
         this.validateFit(root);
         const { from, to } = this.map(mappings);
         const remover = new Remover(root, from, to);

@@ -5,14 +5,15 @@ import { Cursor, ICursor, IDidUpdateCursorEvent } from './cursor';
 export interface ICursorState {
     readonly anchor: number;
     readonly head: number;
-    readonly leftLock: number | null;
 }
 
 export interface ICursorService {
-    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>): void;
     hasCursor(): boolean;
-    setCursorState(cursorState: ICursorState): void;
-    getCursorState(): ICursorState;
+    getState(): ICursorState;
+    setState(state: ICursorState): void;
+    getLeftLock(): number | null;
+    setLeftLock(leftLock: number | null): void;
+    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>): void;
 }
 
 export class CursorService implements ICursorService {
@@ -24,28 +25,37 @@ export class CursorService implements ICursorService {
         }
     }
 
-    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
-        if (this.cursor) {
-            this.cursor.onDidUpdateCursor(listener);
-        }
-    }
-
     hasCursor() {
         return !!this.cursor;
     }
 
-    setCursorState(cursorState: ICursorState) {
-        this.assertCursor();
-        this.cursor!.set(cursorState.anchor, cursorState.head, cursorState.leftLock);
-    }
-
-    getCursorState() {
+    getState() {
         this.assertCursor();
         return {
-            anchor: this.cursor!.getAnchor(),
-            head: this.cursor!.getHead(),
-            leftLock: this.cursor!.getLeftLock(),
+            anchor: this.cursor!.anchor,
+            head: this.cursor!.head,
         };
+    }
+
+    setState(state: ICursorState) {
+        this.assertCursor();
+        this.cursor!.set(state.anchor, state.head);
+    }
+
+    getLeftLock() {
+        this.assertCursor();
+        return this.cursor!.leftLock;
+    }
+
+    setLeftLock(leftLock: number) {
+        this.assertCursor();
+        this.cursor!.leftLock = leftLock;
+    }
+
+    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
+        if (this.cursor) {
+            this.cursor.onDidUpdateCursor(listener);
+        }
     }
 
     protected assertCursor() {

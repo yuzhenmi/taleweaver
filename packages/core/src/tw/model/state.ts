@@ -1,19 +1,19 @@
 import { IComponentService } from '../component/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
-import { IChange, IChangeResult } from './change/change';
+import { IModelChange, IModelChangeResult } from './change/change';
 import { IMapping } from './change/mapping';
 import { IModelRoot } from './root';
 
 export interface IDidUpdateModelStateEvent {
-    changeResults: IChangeResult[];
+    changeResults: IModelChangeResult[];
     mappings: IMapping[];
 }
 
 export interface IModelState {
     readonly root: IModelRoot<any>;
 
-    applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]];
+    applyChanges(changes: IModelChange[]): [IModelChangeResult[], IMapping[]];
     onDidUpdateModelState: IOnEvent<IDidUpdateModelStateEvent>;
 }
 
@@ -22,8 +22,8 @@ export class ModelState implements IModelState {
 
     constructor(readonly root: IModelRoot<any>, protected componentService: IComponentService) {}
 
-    applyChanges(changes: IChange[]): [IChangeResult[], IMapping[]] {
-        const changeResults: IChangeResult[] = [];
+    applyChanges(changes: IModelChange[]): [IModelChangeResult[], IMapping[]] {
+        const changeResults: IModelChangeResult[] = [];
         const mappings: IMapping[] = [];
         changes.forEach((change) => {
             const changeResult = change.apply(this.root, mappings, this.componentService);

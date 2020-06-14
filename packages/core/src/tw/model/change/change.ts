@@ -2,12 +2,24 @@ import { IComponentService } from '../../component/service';
 import { IModelRoot } from '../root';
 import { IMapping } from './mapping';
 
-export interface IChange {
-    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IChangeResult;
+export interface IModelChange {
+    readonly type: 'model';
+
+    apply(root: IModelRoot<any>, mappings: IMapping[], componentService: IComponentService): IModelChangeResult;
 }
 
-export interface IChangeResult {
-    readonly change: IChange;
-    readonly reverseChange: IChange;
+export interface IModelChangeResult {
+    readonly change: IModelChange;
+    readonly reverseChange: IModelChange;
     readonly mapping: IMapping;
+}
+
+export abstract class ModelChange implements IModelChange {
+    readonly type = 'model';
+
+    abstract apply(
+        root: IModelRoot<any>,
+        mappings: IMapping[],
+        componentService: IComponentService,
+    ): IModelChangeResult;
 }

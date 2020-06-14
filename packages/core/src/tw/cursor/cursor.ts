@@ -4,39 +4,37 @@ import { IEventListener, IOnEvent } from '../event/listener';
 export interface IDidUpdateCursorEvent {}
 
 export interface ICursor {
+    readonly anchor: number;
+    readonly head: number;
+
+    leftLock: number | null;
+
+    set(anchor: number, head: number): void;
     onDidUpdateCursor: IOnEvent<IDidUpdateCursorEvent>;
-    set(anchor: number, head: number, leftLock: number | null): void;
-    getAnchor(): number;
-    getHead(): number;
-    getLeftLock(): number | null;
 }
 
 export class Cursor implements ICursor {
+    protected internalAnchor: number = 0;
+    protected internalHead: number = 0;
     protected didUpdateCursorEventEmitter = new EventEmitter<IDidUpdateCursorEvent>();
-    protected anchor: number = 0;
-    protected head: number = 0;
-    protected leftLock: number | null = null;
 
-    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
-        return this.didUpdateCursorEventEmitter.on(listener);
+    leftLock: number | null = null;
+
+    get anchor() {
+        return this.internalAnchor;
     }
 
-    set(anchor: number, head: number, leftLock: number | null) {
-        this.anchor = anchor;
-        this.head = head;
-        this.leftLock = leftLock;
+    get head() {
+        return this.internalHead;
+    }
+
+    set(anchor: number, head: number) {
+        this.internalAnchor = anchor;
+        this.internalHead = head;
         this.didUpdateCursorEventEmitter.emit({});
     }
 
-    getAnchor() {
-        return this.anchor;
-    }
-
-    getHead() {
-        return this.head;
-    }
-
-    getLeftLock() {
-        return this.leftLock;
+    onDidUpdateCursor(listener: IEventListener<IDidUpdateCursorEvent>) {
+        return this.didUpdateCursorEventEmitter.on(listener);
     }
 }
