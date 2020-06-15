@@ -7,6 +7,7 @@ export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word
 
 export interface ILayoutPosition extends IPosition<ILayoutNode> {
     atLineDepth(): ILayoutPositionDepth;
+    atBlockDepth(): ILayoutPositionDepth;
 }
 export interface ILayoutPositionDepth extends IPositionDepth<ILayoutNode> {}
 
@@ -149,5 +150,15 @@ export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosi
             }
         }
         throw new Error('Line depth not found.');
+    }
+
+    atBlockDepth() {
+        for (let n = this.depth - 1; n >= 0; n--) {
+            const depth = this.atDepth(n);
+            if (depth.node.type === 'block') {
+                return depth;
+            }
+        }
+        throw new Error('Block depth not found.');
     }
 }
