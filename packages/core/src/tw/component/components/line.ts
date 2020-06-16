@@ -47,6 +47,7 @@ export class LineComponent extends AbstractLineComponent implements ILineCompone
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const domService = this.serviceRegistry.getService('dom');
         return new ViewLine(
             domContainer,
             this.id,
@@ -58,7 +59,7 @@ export class LineComponent extends AbstractLineComponent implements ILineCompone
             paddingBottom,
             paddingLeft,
             paddingRight,
-            this.domService,
+            domService,
         );
     }
 }

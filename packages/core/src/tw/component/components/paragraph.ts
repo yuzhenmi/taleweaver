@@ -208,6 +208,7 @@ export class ParagraphComponent extends Component implements IComponent {
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const domService = this.serviceRegistry.getService('dom');
         switch (partId) {
             case 'paragraph':
                 return new ViewParagraph(
@@ -223,10 +224,10 @@ export class ParagraphComponent extends Component implements IComponent {
                     paddingBottom,
                     paddingLeft,
                     paddingRight,
-                    this.domService,
+                    domService,
                 );
             case 'line-break':
-                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, this.domService);
+                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, domService);
             default:
                 throw new Error('Invalid part ID.');
         }

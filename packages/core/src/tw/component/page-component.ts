@@ -1,4 +1,4 @@
-import { IDOMService } from '../dom/service';
+import { IServiceRegistry } from '../service/registry';
 import { IViewNode } from '../view/node';
 import { IViewPage } from '../view/page';
 
@@ -31,5 +31,5 @@ export abstract class PageComponent {
         paddingRight: number,
     ): IViewPage;
 
-    constructor(readonly id: string, protected domService: IDOMService) {}
+    constructor(readonly id: string, protected serviceRegistry: IServiceRegistry) {}
 }

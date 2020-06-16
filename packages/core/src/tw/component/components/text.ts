@@ -148,10 +148,6 @@ export class ViewText extends AbstractViewText<ITextStyle> {
 }
 
 export class TextComponent extends Component implements IComponent {
-    constructor(id: string, domService: IDOMService, protected textService: ITextService) {
-        super(id, domService);
-    }
-
     buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
         return new ModelText(this.id, id, text, attributes);
     }
@@ -163,9 +159,10 @@ export class TextComponent extends Component implements IComponent {
         attributes: any,
         children: IRenderNode<any, any>[],
     ) {
+        const textService = this.serviceRegistry.getService('text');
         switch (partId) {
             case 'text':
-                return new RenderText(this.id, modelId, this.textService, text, attributes);
+                return new RenderText(this.id, modelId, textService, text, attributes);
             default:
                 throw new Error('Invalid part ID.');
         }
@@ -186,6 +183,7 @@ export class TextComponent extends Component implements IComponent {
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const domService = this.serviceRegistry.getService('dom');
         switch (partId) {
             case 'text':
                 return new ViewText(
@@ -201,7 +199,7 @@ export class TextComponent extends Component implements IComponent {
                     paddingBottom,
                     paddingLeft,
                     paddingRight,
-                    this.domService,
+                    domService,
                 );
             default:
                 throw new Error('Invalid part ID.');

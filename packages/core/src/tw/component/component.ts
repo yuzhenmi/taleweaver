@@ -1,6 +1,6 @@
-import { IDOMService } from '../dom/service';
 import { IModelNode } from '../model/node';
 import { IRenderNode } from '../render/node';
+import { IServiceRegistry } from '../service/registry';
 import { IViewNode } from '../view/node';
 
 export interface IComponent {
@@ -68,5 +68,5 @@ export abstract class Component implements IComponent {
         paddingRight: number,
     ): IViewNode<any>;
 
-    constructor(readonly id: string, protected domService: IDOMService) {}
+    constructor(readonly id: string, protected serviceRegistry: IServiceRegistry) {}
 }

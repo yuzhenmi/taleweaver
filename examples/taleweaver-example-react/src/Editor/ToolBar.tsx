@@ -151,11 +151,8 @@ interface Props {
 function getTextStyles(taleweaver: Taleweaver): ITextStyle[] {
     const renderService = taleweaver.getServiceRegistry().getService('render');
     const cursorService = taleweaver.getServiceRegistry().getService('cursor');
-    const cursorState = cursorService.getCursorState();
-    const styles = renderService.getStylesBetween(
-        Math.min(cursorState.anchor, cursorState.head),
-        Math.max(cursorState.anchor, cursorState.head),
-    );
+    const { anchor, head } = cursorService.getCursor();
+    const styles = renderService.getStylesBetween(Math.min(anchor, head), Math.max(anchor, head));
     if (!styles.text) {
         return [];
     }
@@ -179,23 +176,23 @@ export default function ToolBar({ taleweaver }: Props) {
         }
         const cursorService = taleweaver.getServiceRegistry().getService('cursor');
         const renderService = taleweaver.getServiceRegistry().getService('render');
-        cursorService.onDidUpdateCursor(event => updateTextStyle(taleweaver));
-        renderService.onDidUpdateRenderState(event => updateTextStyle(taleweaver));
+        cursorService.onDidUpdate((event) => updateTextStyle(taleweaver));
+        renderService.onDidUpdateRenderState((event) => updateTextStyle(taleweaver));
         updateTextStyle(taleweaver);
     }, [taleweaver]);
-    const font = new Set(textStyles.map(s => s.font)).size === 1 ? textStyles[0].font : null;
-    const size = new Set(textStyles.map(s => s.size)).size === 1 ? textStyles[0].size : null;
-    const bold = new Set(textStyles.map(s => s.weight > 400)).size === 1 ? textStyles[0].weight > 400 : false;
-    const italic = new Set(textStyles.map(s => s.italic)).size === 1 ? textStyles[0].italic : false;
-    const underline = new Set(textStyles.map(s => s.underline)).size === 1 ? textStyles[0].underline : false;
+    const family = new Set(textStyles.map((s) => s.family)).size === 1 ? textStyles[0].family : null;
+    const size = new Set(textStyles.map((s) => s.size)).size === 1 ? textStyles[0].size : null;
+    const bold = new Set(textStyles.map((s) => s.weight > 400)).size === 1 ? textStyles[0].weight > 400 : false;
+    const italic = new Set(textStyles.map((s) => s.italic)).size === 1 ? textStyles[0].italic : false;
+    const underline = new Set(textStyles.map((s) => s.underline)).size === 1 ? textStyles[0].underline : false;
     const strikethrough =
-        new Set(textStyles.map(s => s.strikethrough)).size === 1 ? textStyles[0].strikethrough : false;
-    const color = new Set(textStyles.map(s => s.color)).size === 1 ? textStyles[0].color : null;
+        new Set(textStyles.map((s) => s.strikethrough)).size === 1 ? textStyles[0].strikethrough : false;
+    const color = new Set(textStyles.map((s) => s.color)).size === 1 ? textStyles[0].color : null;
     return (
         <Wrapper>
             <Container>
                 <Group>
-                    <SelectItem width={120} value={'Normal'} disabled={false} onChange={event => null}>
+                    <SelectItem width={120} value={'Normal'} disabled={false} onChange={(event) => null}>
                         <option value="" style={{ display: 'none' }}></option>
                         <option value="Normal">Normal text</option>
                         <option value="Title">Title</option>
@@ -206,7 +203,7 @@ export default function ToolBar({ taleweaver }: Props) {
                     </SelectItem>
                 </Group>
                 <Group>
-                    <SelectItem width={120} value={font || ''} disabled={font === null} onChange={event => null}>
+                    <SelectItem width={120} value={family || ''} disabled={family === null} onChange={(event) => null}>
                         <option value="" style={{ display: 'none' }}></option>
                         <option value="sans-serif">sans-serif</option>
                     </SelectItem>
@@ -216,7 +213,7 @@ export default function ToolBar({ taleweaver }: Props) {
                         width={60}
                         value={size ? size.toString() : ''}
                         disabled={size === null}
-                        onChange={event => null}
+                        onChange={(event) => null}
                     >
                         <option value="" style={{ display: 'hidden' }} />
                         <option value="10">10</option>

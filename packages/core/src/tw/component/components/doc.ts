@@ -1,4 +1,3 @@
-import { IConfigService } from '../../config/service';
 import { IDOMService } from '../../dom/service';
 import { IModelNode } from '../../model/node';
 import { ModelRoot } from '../../model/root';
@@ -92,10 +91,6 @@ export class ViewDoc extends AbstractViewDoc<IDocStyle> {
 }
 
 export class DocComponent extends Component implements IComponent {
-    constructor(id: string, domService: IDOMService, protected configService: IConfigService) {
-        super(id, domService);
-    }
-
     buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
         return new ModelDoc(this.id, id, attributes, children);
     }
@@ -107,9 +102,10 @@ export class DocComponent extends Component implements IComponent {
         attributes: any,
         children: IRenderNode<any, any>[],
     ) {
+        const configService = this.serviceRegistry.getService('config');
         switch (partId) {
             case 'doc':
-                const pageConfig = this.configService.getConfig().page;
+                const pageConfig = configService.getConfig().page;
                 return new RenderDoc(
                     this.id,
                     modelId,
@@ -142,9 +138,10 @@ export class DocComponent extends Component implements IComponent {
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const domService = this.serviceRegistry.getService('dom');
         switch (partId) {
             case 'doc':
-                return new ViewDoc(domContainer, this.id, renderId, layoutId, style, children, this.domService);
+                return new ViewDoc(domContainer, this.id, renderId, layoutId, style, children, domService);
             default:
                 throw new Error('Invalid part ID.');
         }

@@ -50,14 +50,23 @@ export class Taleweaver {
         this.instanceId = generateId();
         this.serviceRegistry = new ServiceRegistry();
         this.configService = new ConfigService(this.buildBaseConfig(), config);
+        this.serviceRegistry.registerService('config', this.configService);
         this.domService = new DOMService();
+        this.serviceRegistry.registerService('dom', this.domService);
         this.textService = new TextService(this.domService);
+        this.serviceRegistry.registerService('text', this.textService);
         this.commandService = new CommandService(this.configService, this.serviceRegistry);
-        this.componentService = new ComponentService(this.configService, this.domService);
+        this.serviceRegistry.registerService('command', this.commandService);
+        this.componentService = new ComponentService(this.configService, this.serviceRegistry);
+        this.serviceRegistry.registerService('component', this.componentService);
         this.modelService = new ModelService(root, this.componentService);
+        this.serviceRegistry.registerService('model', this.modelService);
         this.renderService = new RenderService(this.componentService, this.modelService);
+        this.serviceRegistry.registerService('render', this.renderService);
         this.cursorService = new CursorService(this.configService, this.renderService);
+        this.serviceRegistry.registerService('cursor', this.cursorService);
         this.layoutService = new LayoutService(this.renderService, this.textService);
+        this.serviceRegistry.registerService('layout', this.layoutService);
         this.viewService = new ViewService(
             this.instanceId,
             this.domService,
@@ -68,6 +77,7 @@ export class Taleweaver {
             this.renderService,
             this.commandService,
         );
+        this.serviceRegistry.registerService('view', this.viewService);
         this.transformService = new TransformService(
             this.modelService,
             this.componentService,
@@ -75,9 +85,11 @@ export class Taleweaver {
             this.renderService,
             this.layoutService,
         );
+        this.serviceRegistry.registerService('transform', this.transformService);
         this.historyService = new HistoryService(this.configService, this.transformService);
+        this.serviceRegistry.registerService('history', this.historyService);
         this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);
-        this.registerServices();
+        this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
     }
 
     attach(domContainer: HTMLElement) {
@@ -128,9 +140,9 @@ export class Taleweaver {
                 'tw.view.blur': viewCommandHandlers.blur,
             },
             components: {
-                doc: new DocComponent('doc', this.domService, this.configService),
-                paragraph: new ParagraphComponent('paragraph', this.domService),
-                text: new TextComponent('text', this.domService, this.textService),
+                doc: DocComponent,
+                paragraph: ParagraphComponent,
+                text: TextComponent,
             },
             cursor: {
                 disable: false,
@@ -214,21 +226,5 @@ export class Taleweaver {
                 paddingRight: 40,
             },
         };
-    }
-
-    protected registerServices() {
-        this.serviceRegistry.registerService('config', this.configService);
-        this.serviceRegistry.registerService('dom', this.domService);
-        this.serviceRegistry.registerService('text', this.textService);
-        this.serviceRegistry.registerService('command', this.commandService);
-        this.serviceRegistry.registerService('component', this.componentService);
-        this.serviceRegistry.registerService('cursor', this.cursorService);
-        this.serviceRegistry.registerService('model', this.modelService);
-        this.serviceRegistry.registerService('render', this.renderService);
-        this.serviceRegistry.registerService('layout', this.layoutService);
-        this.serviceRegistry.registerService('view', this.viewService);
-        this.serviceRegistry.registerService('transform', this.transformService);
-        this.serviceRegistry.registerService('history', this.historyService);
-        this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
     }
 }

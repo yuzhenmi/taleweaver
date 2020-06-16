@@ -37,7 +37,7 @@ export class CursorState {
     }
 
     get hasCursor() {
-        return !!this.cursor;
+        return !!this.internalCursor;
     }
 
     get cursor() {
@@ -75,7 +75,7 @@ export class CursorState {
     }
 
     protected assertCursor() {
-        if (!this.cursor) {
+        if (!this.internalCursor) {
             throw new Error('Cursor is disabled.');
         }
     }

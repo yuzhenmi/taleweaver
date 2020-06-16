@@ -1,4 +1,3 @@
-import { IConfigService } from '../../config/service';
 import { IDOMService } from '../../dom/service';
 import { IViewNode } from '../../view/node';
 import { ViewPage as AbstractViewPage } from '../../view/page';
@@ -51,9 +50,6 @@ export class ViewPage extends AbstractViewPage {
 }
 
 export class PageComponent extends AbstractPageComponent implements IPageComponent {
-    constructor(id: string, domService: IDOMService, protected configService: IConfigService) {
-        super(id, domService);
-    }
     buildViewNode(
         domContainer: HTMLElement,
         layoutId: string,
@@ -65,6 +61,7 @@ export class PageComponent extends AbstractPageComponent implements IPageCompone
         paddingLeft: number,
         paddingRight: number,
     ) {
+        const domService = this.serviceRegistry.getService('dom');
         return new ViewPage(
             domContainer,
             this.id,
@@ -76,7 +73,7 @@ export class PageComponent extends AbstractPageComponent implements IPageCompone
             paddingBottom,
             paddingLeft,
             paddingRight,
-            this.domService,
+            domService,
         );
     }
 }

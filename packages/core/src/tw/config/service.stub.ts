@@ -1,8 +1,6 @@
 import { DocComponent } from '../component/components/doc';
 import { ParagraphComponent } from '../component/components/paragraph';
 import { TextComponent } from '../component/components/text';
-import { DOMServiceStub } from '../dom/service.stub';
-import { TextServiceStub } from '../text/service.stub';
 import { IConfig } from './config';
 import { IConfigService } from './service';
 
@@ -10,14 +8,12 @@ export class ConfigServiceStub implements IConfigService {
     protected config: IConfig;
 
     constructor() {
-        const textService = new TextServiceStub();
-        const domService = new DOMServiceStub();
         this.config = {
             commands: {},
             components: {
-                doc: new DocComponent('doc', domService, this),
-                paragraph: new ParagraphComponent('paragraph', domService),
-                text: new TextComponent('text', domService, textService),
+                doc: DocComponent,
+                paragraph: ParagraphComponent,
+                text: TextComponent,
             },
             cursor: {
                 disable: false,
