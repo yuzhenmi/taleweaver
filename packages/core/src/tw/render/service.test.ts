@@ -3,10 +3,11 @@ import { ModelParagraph } from '../component/components/paragraph';
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
-import { DOMServiceStub } from '../dom/service.stub';
 import { ReplaceChange } from '../model/change/replace';
 import { Fragment } from '../model/fragment';
 import { ModelService } from '../model/service';
+import { ServiceRegistry } from '../service/registry';
+import { TextServiceStub } from '../text/service.stub';
 import { RenderService } from './service';
 
 describe('RenderService', () => {
@@ -16,8 +17,12 @@ describe('RenderService', () => {
     let renderService: RenderService;
 
     beforeEach(() => {
+        const serviceRegistry = new ServiceRegistry();
         configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService, new DOMServiceStub());
+        serviceRegistry.registerService('config', configService);
+        const textService = new TextServiceStub();
+        serviceRegistry.registerService('text', textService);
+        componentService = new ComponentService(configService, serviceRegistry);
         const modelDoc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [

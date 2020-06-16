@@ -3,7 +3,7 @@ import { ModelParagraph } from '../component/components/paragraph';
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
-import { DOMServiceStub } from '../dom/service.stub';
+import { ServiceRegistry } from '../service/registry';
 import { ReplaceChange } from './change/replace';
 import { Fragment } from './fragment';
 import { ModelService } from './service';
@@ -15,7 +15,8 @@ describe('ModelService', () => {
 
     beforeEach(() => {
         const configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService, new DOMServiceStub());
+        const serviceRegistry = new ServiceRegistry();
+        componentService = new ComponentService(configService, serviceRegistry);
         doc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [new ModelText('text', 'text2', 'Hello test', {})]),

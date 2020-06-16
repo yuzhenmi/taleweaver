@@ -24,8 +24,14 @@ describe('ViewService', () => {
     let viewService: ViewService;
 
     beforeEach(() => {
+        const serviceRegistry = new ServiceRegistry();
         configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService, new DOMServiceStub());
+        serviceRegistry.registerService('config', configService);
+        const textService = new TextServiceStub();
+        serviceRegistry.registerService('text', textService);
+        const domService = new DOMServiceStub();
+        serviceRegistry.registerService('dom', domService);
+        componentService = new ComponentService(configService, serviceRegistry);
         const modelDoc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [
@@ -34,10 +40,10 @@ describe('ViewService', () => {
         ]);
         modelService = new ModelService(modelDoc, componentService);
         renderService = new RenderService(componentService, modelService);
-        layoutService = new LayoutService(renderService, new TextServiceStub());
+        layoutService = new LayoutService(renderService, textService);
         viewService = new ViewService(
             'test',
-            new DOMServiceStub(),
+            domService,
             componentService,
             modelService,
             layoutService,
