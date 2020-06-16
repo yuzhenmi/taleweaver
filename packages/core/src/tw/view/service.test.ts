@@ -25,7 +25,7 @@ describe('ViewService', () => {
 
     beforeEach(() => {
         configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService);
+        componentService = new ComponentService(configService, new DOMServiceStub());
         const modelDoc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [
@@ -41,7 +41,7 @@ describe('ViewService', () => {
             componentService,
             modelService,
             layoutService,
-            new CursorService(configService),
+            new CursorService(configService, renderService),
             renderService,
             new CommandService(configService, new ServiceRegistry()),
         );
@@ -57,7 +57,7 @@ describe('ViewService', () => {
                 ),
                 new Fragment('beautiful', 0),
             ]);
-            modelService.applyChanges([change]);
+            modelService.applyChange(change);
         });
 
         it('updates view tree', () => {

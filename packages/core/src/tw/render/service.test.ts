@@ -3,6 +3,7 @@ import { ModelParagraph } from '../component/components/paragraph';
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
+import { DOMServiceStub } from '../dom/service.stub';
 import { ReplaceChange } from '../model/change/replace';
 import { Fragment } from '../model/fragment';
 import { ModelService } from '../model/service';
@@ -16,7 +17,7 @@ describe('RenderService', () => {
 
     beforeEach(() => {
         configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService);
+        componentService = new ComponentService(configService, new DOMServiceStub());
         const modelDoc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [
@@ -37,7 +38,7 @@ describe('RenderService', () => {
                 ),
                 new Fragment('beautiful', 0),
             ]);
-            modelService.applyChanges([change]);
+            modelService.applyChange(change);
         });
 
         it('updates render tree', () => {
@@ -119,7 +120,7 @@ describe('RenderService', () => {
             const styles3 = renderService.getStylesBetween(10, 12);
             expect(styles3).toEqual({
                 doc: { doc: [{}] },
-                paragraph: { 'line-break': [{}], paragraph: [{}, {}] },
+                paragraph: { 'line-break': [null], paragraph: [{}, {}] },
                 text: {
                     text: [
                         {

@@ -14,8 +14,6 @@ export interface IParagraphAttributes {}
 
 export interface IParagraphStyle {}
 
-export interface IParagraphLineBreakStyle {}
-
 export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
     get partId() {
         return 'paragraph';
@@ -75,7 +73,7 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     }
 }
 
-export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyle, null> {
+export class RenderParagraphLineBreak extends RenderText<null, null> {
     constructor(readonly componentId: string, readonly paragraphModelId: string | null) {
         super(componentId, `${paragraphModelId}.line-break`, ' ', null);
     }
@@ -105,7 +103,7 @@ export class RenderParagraphLineBreak extends RenderText<IParagraphLineBreakStyl
     }
 
     get style() {
-        return {};
+        return null;
     }
 
     get font() {
@@ -155,7 +153,17 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
     }
 }
 
-export class ViewParagraphLineBreak extends ViewText<IParagraphLineBreakStyle> {
+export class ViewParagraphLineBreak extends ViewText<null> {
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, renderId, layoutId, ' ', null, domService);
+    }
+
     get partId() {
         return 'line-break';
     }
@@ -218,7 +226,7 @@ export class ParagraphComponent extends Component implements IComponent {
                     this.domService,
                 );
             case 'line-break':
-                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, style, this.domService);
+                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, this.domService);
             default:
                 throw new Error('Invalid part ID.');
         }

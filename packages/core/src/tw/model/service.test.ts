@@ -3,6 +3,7 @@ import { ModelParagraph } from '../component/components/paragraph';
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
+import { DOMServiceStub } from '../dom/service.stub';
 import { ReplaceChange } from './change/replace';
 import { Fragment } from './fragment';
 import { ModelService } from './service';
@@ -14,7 +15,7 @@ describe('ModelService', () => {
 
     beforeEach(() => {
         const configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService);
+        componentService = new ComponentService(configService, new DOMServiceStub());
         doc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [new ModelText('text', 'text2', 'Hello test', {})]),
@@ -26,7 +27,7 @@ describe('ModelService', () => {
         describe('when replace text with text', () => {
             beforeEach(() => {
                 const change = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('works', () => {
@@ -53,7 +54,7 @@ describe('ModelService', () => {
                     ),
                     new Fragment('beautiful', 0),
                 ]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('works', () => {
@@ -75,7 +76,7 @@ describe('ModelService', () => {
         describe('when replace text and node with text', () => {
             beforeEach(() => {
                 const change = new ReplaceChange(3, 23, [new Fragment('Hi', 0)]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('works', () => {
@@ -99,7 +100,7 @@ describe('ModelService', () => {
                     ),
                     new Fragment('beautiful', 0),
                 ]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('works', () => {
@@ -112,23 +113,6 @@ describe('ModelService', () => {
                 expect(text1.text).toEqual('Hi');
                 expect(text2.text).toEqual('big');
                 expect(text3.text).toEqual('beautiful test');
-            });
-        });
-
-        describe('when multiple replace changes', () => {
-            beforeEach(() => {
-                const change1 = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
-                const change2 = new ReplaceChange(18, 23, [new Fragment('Hi', 0)]);
-                modelService.applyChanges([change1, change2]);
-            });
-
-            it('works', () => {
-                const paragraph1 = doc.firstChild!;
-                const paragraph2 = paragraph1.nextSibling!;
-                const text1 = paragraph1.firstChild!;
-                const text2 = paragraph2.firstChild!;
-                expect(text1.text).toEqual('Hi world');
-                expect(text2.text).toEqual('Hi test');
             });
         });
     });
@@ -145,7 +129,7 @@ describe('ModelService', () => {
             let notified = false;
             modelService.onDidUpdateModelState(() => (notified = true));
             const change = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
-            modelService.applyChanges([change]);
+            modelService.applyChange(change);
             expect(notified).toEqual(true);
         });
     });

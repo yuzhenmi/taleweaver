@@ -1,5 +1,5 @@
 import { IConfigService } from '../config/service';
-import { IModelService } from '../model/service';
+import { ITransformService } from '../transform/service';
 import { HistoryState, IHistoryState } from './state';
 
 export interface IHistoryService {
@@ -10,8 +10,8 @@ export interface IHistoryService {
 export class HistoryService implements IHistoryService {
     protected state: IHistoryState;
 
-    constructor(configService: IConfigService, modelService: IModelService) {
-        this.state = new HistoryState(configService, modelService);
+    constructor(configService: IConfigService, transformService: ITransformService) {
+        this.state = new HistoryState(configService, transformService);
     }
 
     undo() {

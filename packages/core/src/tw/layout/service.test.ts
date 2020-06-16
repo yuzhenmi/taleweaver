@@ -3,6 +3,7 @@ import { ModelParagraph } from '../component/components/paragraph';
 import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
+import { DOMServiceStub } from '../dom/service.stub';
 import { ReplaceChange } from '../model/change/replace';
 import { Fragment } from '../model/fragment';
 import { ModelService } from '../model/service';
@@ -20,7 +21,7 @@ describe('LayoutService', () => {
 
     beforeEach(() => {
         configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService);
+        componentService = new ComponentService(configService, new DOMServiceStub());
         const modelDoc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'paragraph1', {}, [new ModelText('text', 'text1', 'Hello world', {})]),
             new ModelParagraph('paragraph', 'paragraph2', {}, [
@@ -47,7 +48,7 @@ describe('LayoutService', () => {
                     ),
                     new Fragment('beautiful', 0),
                 ]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('updates layout tree', () => {
@@ -84,7 +85,7 @@ describe('LayoutService', () => {
                 // Page inner width is 700, each character width is 20,
                 // we need at least 35 characters to trigger line reflow
                 const change = new ReplaceChange(3, 9, [new Fragment('Hello '.repeat(6), 0)]);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('updates layout tree', () => {
@@ -142,7 +143,7 @@ describe('LayoutService', () => {
                 }
                 fragments.push(new Fragment('beautiful', 0));
                 const change = new ReplaceChange(3, 8, fragments);
-                modelService.applyChanges([change]);
+                modelService.applyChange(change);
             });
 
             it('updates layout tree', () => {

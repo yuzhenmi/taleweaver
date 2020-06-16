@@ -37,9 +37,9 @@ export class Taleweaver {
     protected textService: ITextService;
     protected commandService: ICommandService;
     protected componentService: IComponentService;
-    protected cursorService: ICursorService;
     protected modelService: IModelService;
     protected renderService: IRenderService;
+    protected cursorService: ICursorService;
     protected layoutService: ILayoutService;
     protected viewService: IViewService;
     protected transformService: ITransformService;
@@ -54,9 +54,9 @@ export class Taleweaver {
         this.textService = new TextService(this.domService);
         this.commandService = new CommandService(this.configService, this.serviceRegistry);
         this.componentService = new ComponentService(this.configService, this.domService);
-        this.cursorService = new CursorService(this.configService);
         this.modelService = new ModelService(root, this.componentService);
         this.renderService = new RenderService(this.componentService, this.modelService);
+        this.cursorService = new CursorService(this.configService, this.renderService);
         this.layoutService = new LayoutService(this.renderService, this.textService);
         this.viewService = new ViewService(
             this.instanceId,
@@ -73,8 +73,9 @@ export class Taleweaver {
             this.componentService,
             this.cursorService,
             this.renderService,
+            this.layoutService,
         );
-        this.historyService = new HistoryService(this.configService, this.modelService);
+        this.historyService = new HistoryService(this.configService, this.transformService);
         this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);
         this.registerServices();
     }

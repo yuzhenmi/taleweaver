@@ -17,6 +17,7 @@ export interface ITransformation {
 export interface ITransformationResult {
     readonly transformation: ITransformation;
     readonly changeResults: IChangeResult[];
+    readonly reverseTransformation: ITransformation;
 }
 
 export class Transformation implements ITransformation {
@@ -35,7 +36,14 @@ export class Transformation implements ITransformation {
                 .atLineDepth();
             cursorService.setLeftLock(line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left);
         }
-        return new TransformationResult(this, changeResults);
+        return new TransformationResult(
+            this,
+            changeResults,
+            new Transformation(
+                changeResults.map((changeResult) => changeResult.reverseChange),
+                this.keepLeftLock,
+            ),
+        );
     }
 
     protected applyChanges(modelService: IModelService, cursorService: ICursorService, renderService: IRenderService) {
@@ -91,5 +99,9 @@ export class Transformation implements ITransformation {
 }
 
 export class TransformationResult implements ITransformationResult {
-    constructor(readonly transformation: ITransformation, readonly changeResults: IChangeResult[]) {}
+    constructor(
+        readonly transformation: ITransformation,
+        readonly changeResults: IChangeResult[],
+        readonly reverseTransformation: ITransformation,
+    ) {}
 }

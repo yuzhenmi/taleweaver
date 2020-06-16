@@ -1,7 +1,7 @@
 import { IConfigService } from '../config/service';
-import { IModelService } from '../model/service';
-import { IDidUpdateModelStateEvent } from '../model/state';
-import { IHistoryAction } from './action';
+import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
+import { ITransformationResult } from '../transform/transformation';
+import { HistoryAction, IHistoryAction } from './action';
 
 export interface IHistoryState {
     undo(): void;
@@ -14,11 +14,11 @@ export class HistoryState implements IHistoryState {
     protected actions: IHistoryAction[] = [];
     protected offset: number = -1;
 
-    constructor(protected configService: IConfigService, protected modelService: IModelService) {
+    constructor(protected configService: IConfigService, protected transformService: ITransformService) {
         const config = configService.getConfig();
         this.maxCollapseDuration = config.history.maxCollapseDuration;
         this.collapseThreshold = config.history.collapseThreshold;
-        modelService.onDidUpdateModelState(this.handleDidUpdateModelState);
+        transformService.onDidApplyTransformation(this.handleDidApplyTransformation);
     }
 
     undo() {
@@ -26,11 +26,11 @@ export class HistoryState implements IHistoryState {
         if (!action) {
             return;
         }
-        const appliedTransformations = action.getAppliedTransformations();
-        if (appliedTransformations.length === 0) {
+        const results = action.transformationResults;
+        if (results.length === 0) {
             return;
         }
-        // this.stateService.unapplyTransformations(appliedTransformations);
+        results.forEach((result) => this.transformService.applyTransformation(result.reverseTransformation));
     }
 
     redo() {
@@ -38,10 +38,9 @@ export class HistoryState implements IHistoryState {
         if (!action) {
             return;
         }
-        const transformations = action
-            .getAppliedTransformations()
-            .map((appliedTransformation) => appliedTransformation.getOriginalTransformation());
-        // this.stateService.applyTransformations(transformations);
+        action.transformationResults.forEach((result) =>
+            this.transformService.applyTransformation(result.transformation),
+        );
     }
 
     protected consumeNextUndoableAction() {
@@ -61,54 +60,54 @@ export class HistoryState implements IHistoryState {
         return this.actions[this.offset];
     }
 
-    // protected recordAppliedTransformationToNewAction(appliedTransformation: IAppliedTransformation) {
-    //     if (appliedTransformation.getOperations().length === 0) {
-    //         return;
-    //     }
-    //     if (this.offset < this.actions.length - 1) {
-    //         this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
-    //     }
-    //     const action = new HistoryAction();
-    //     action.recordAppliedTransformation(appliedTransformation);
-    //     this.actions.push(action);
-    //     this.offset++;
-    // }
+    protected recordToNewAction(result: ITransformationResult) {
+        if (result.changeResults.length === 0) {
+            return;
+        }
+        if (this.offset < this.actions.length - 1) {
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
+        }
+        const action = new HistoryAction();
+        action.recordTransformationResult(result);
+        this.actions.push(action);
+        this.offset++;
+    }
 
-    // protected recordAppliedTransformationToLastAction(appliedTransformation: IAppliedTransformation) {
-    //     const action = this.actions[this.offset];
-    //     if (!action) {
-    //         throw new Error('Error recording applied transformation, history is empty.');
-    //     }
-    //     if (this.offset < this.actions.length - 1) {
-    //         this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
-    //     }
-    //     action.recordAppliedTransformation(appliedTransformation);
-    // }
+    protected recordToLastAction(result: ITransformationResult) {
+        const action = this.actions[this.offset];
+        if (!action) {
+            throw new Error('Error recording applied transformation, history is empty.');
+        }
+        if (this.offset < this.actions.length - 1) {
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
+        }
+        action.recordTransformationResult(result);
+    }
 
-    protected handleDidUpdateModelState = (event: IDidUpdateModelStateEvent) => {
-        // const { transformation, appliedTransformation } = event;
-        // // Do not record applied transformation if originated from redo
-        // if (
-        //     this.offset >= 0 &&
-        //     this.actions[this.offset]
-        //         .getAppliedTransformations()
-        //         .some((appliedTn) => appliedTn.getOriginalTransformation() === transformation)
-        // ) {
-        //     return;
-        // }
-        // if (this.offset < 0) {
-        //     this.recordAppliedTransformationToNewAction(appliedTransformation);
-        //     return;
-        // }
-        // const currentItem = this.actions[this.offset];
-        // const now = Date.now();
-        // if (
-        //     now - currentItem.getBeganAt() < this.maxCollapseDuration &&
-        //     now - currentItem.getEndedAt() < this.collapseThreshold
-        // ) {
-        //     this.recordAppliedTransformationToLastAction(appliedTransformation);
-        // } else {
-        //     this.recordAppliedTransformationToNewAction(appliedTransformation);
-        // }
+    protected handleDidApplyTransformation = (event: IDidApplyTransformationEvent) => {
+        const { result } = event;
+        // Do not record applied transformation if originated from redo
+        if (
+            this.offset >= 0 &&
+            this.actions[this.offset].transformationResults.some(
+                (tnResult) => tnResult.transformation === result.transformation,
+            )
+        ) {
+            return;
+        }
+        if (this.offset < 0) {
+            this.recordToNewAction(result);
+            return;
+        }
+        const currentItem = this.actions[this.offset];
+        const now = Date.now();
+        if (
+            now - currentItem.beganAt < this.maxCollapseDuration &&
+            now - currentItem.endedAt < this.collapseThreshold
+        ) {
+            this.recordToLastAction(result);
+        } else {
+            this.recordToNewAction(result);
+        }
     };
 }

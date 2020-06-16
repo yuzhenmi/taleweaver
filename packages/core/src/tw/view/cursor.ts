@@ -33,7 +33,7 @@ export class CursorView implements ICursorView {
         this.domCaret.style.pointerEvents = 'none';
         this.domCaret.style.width = '2px';
         this.domCaret.style.marginLeft = '-1px';
-        cursorService.onDidUpdateCursor(this.handleDidUpdateCursorState);
+        cursorService.onDidUpdate(this.handleDidUpdateCursorState);
         viewService.onDidUpdateViewState(this.handleDidUpdateViewState);
         viewService.onDidFocus(this.handleDidFocus);
         viewService.onDidBlur(this.handleDidBlur);
