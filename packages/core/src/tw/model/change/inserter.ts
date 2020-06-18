@@ -84,8 +84,10 @@ export class Inserter extends Mutator<IInserterState> {
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
         node.replace(index, index, content);
-        this.joinNodeWithNextSibling(content[content.length - 1]);
-        this.joinNodeWithPreviousSibling(content[0]);
+        if (content.length > 0) {
+            this.joinNodeWithNextSibling(content[content.length - 1]);
+            this.joinNodeWithPreviousSibling(content[0]);
+        }
         this.current = {
             offset: this.current.offset + currentFragment.size,
             index: this.current.index + 1,

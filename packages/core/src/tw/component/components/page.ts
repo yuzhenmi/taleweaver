@@ -4,8 +4,6 @@ import { ViewPage as AbstractViewPage } from '../../view/page';
 import { IPageComponent, PageComponent as AbstractPageComponent } from '../page-component';
 
 export class ViewPage extends AbstractViewPage {
-    readonly domContentContainer: HTMLDivElement;
-
     constructor(
         domContainer: HTMLElement,
         componentId: string | null,
@@ -29,9 +27,11 @@ export class ViewPage extends AbstractViewPage {
         this.domContainer.style.paddingBottom = `${paddingBottom}px`;
         this.domContainer.style.paddingLeft = `${paddingLeft}px`;
         this.domContainer.style.paddingRight = `${paddingRight}px`;
-        this.domContentContainer = this.findOrCreateDOMContentContainer();
-        this.domContentContainer.setAttribute('data-tw-role', 'content-container');
-        this.domContainer.appendChild(this.domContentContainer);
+        this.domContainer.innerHTML = '';
+        const domContentContainer = this.findOrCreateDOMContentContainer();
+        domContentContainer.setAttribute('data-tw-role', 'content-container');
+        children.map((child) => domContentContainer.appendChild(child.domContainer));
+        this.domContainer.appendChild(domContentContainer);
     }
 
     get partId() {

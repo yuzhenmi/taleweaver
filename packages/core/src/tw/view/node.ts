@@ -12,13 +12,11 @@ export interface IViewNode<TStyle> extends INode<IViewNode<TStyle>> {
     readonly layoutId: string | null;
     readonly size: number;
     readonly domContainer: HTMLElement;
-    readonly domContentContainer: HTMLElement;
 }
 
 export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implements IViewNode<TStyle> {
     abstract get type(): IViewNodeType;
     abstract get partId(): string | null;
-    abstract get domContentContainer(): HTMLElement;
 
     protected internalSize?: number;
 

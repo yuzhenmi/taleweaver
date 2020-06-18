@@ -33,7 +33,7 @@ export class LayoutText extends LayoutNode implements ILayoutText {
     }
 
     get leaf() {
-        return true;
+        return false;
     }
 
     get width() {

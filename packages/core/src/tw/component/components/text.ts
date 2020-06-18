@@ -91,8 +91,6 @@ export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> 
 }
 
 export class ViewText extends AbstractViewText<ITextStyle> {
-    readonly domContentContainer: HTMLSpanElement;
-
     constructor(
         domContainer: HTMLElement,
         componentId: string | null,
@@ -125,11 +123,12 @@ export class ViewText extends AbstractViewText<ITextStyle> {
         this.domContainer.style.color = style.color;
         this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
-        this.domContentContainer = this.findOrCreateDOMContentContainer();
-        this.domContentContainer.setAttribute('data-tw-role', 'content-container');
-        this.domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
-        this.domContentContainer.innerHTML = text;
-        this.domContainer.appendChild(this.domContentContainer);
+        this.domContainer.innerHTML = '';
+        const domContentContainer = this.findOrCreateDOMContentContainer();
+        domContentContainer.setAttribute('data-tw-role', 'content-container');
+        domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
+        domContentContainer.innerHTML = text;
+        this.domContainer.appendChild(domContentContainer);
     }
 
     get partId() {

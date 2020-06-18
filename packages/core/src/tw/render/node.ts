@@ -82,9 +82,6 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         if (offset < 0 || offset >= this.size) {
             throw new Error(`Offset ${offset} is out of range.`);
         }
-        if (offset === 0) {
-            return new RenderPosition([{ node: this, offset, index: -1 }]);
-        }
         if (this.leaf) {
             return new RenderPosition([{ node: this, offset, index: offset }]);
         }
@@ -106,6 +103,12 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     }
 
     convertOffsetToModelOffset(offset: number): number {
+        if (offset < 0 || offset >= this.size) {
+            throw new Error('Offset is out of range.');
+        }
+        if (this.leaf) {
+            return offset + 1;
+        }
         let cumulatedSize = 0;
         let cumulatedModelSize = this.padModelSize ? 1 : 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -121,6 +124,12 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     }
 
     convertModelOffsetToOffset(modelOffset: number): number {
+        if (modelOffset < 0 || modelOffset >= this.modelSize) {
+            throw new Error('Model offset is out of range.');
+        }
+        if (this.leaf) {
+            return modelOffset - 1;
+        }
         let cumulatedModelSize = this.padModelSize ? 1 : 0;
         let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
@@ -132,7 +141,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             cumulatedModelSize += childModelSize;
             cumulatedSize += child.size;
         }
-        throw new Error(`Model offset ${modelOffset} is out of range.`);
+        return this.size;
     }
 }
 

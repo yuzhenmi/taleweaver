@@ -20,8 +20,8 @@ export interface IViewState {
 }
 
 export class ViewState implements IViewState {
-    protected attached = false;
     protected didUpdateViewStateEventEmitter = new EventEmitter<IDidUpdateViewStateEvent>();
+    protected domContainer: HTMLElement | null = null;
 
     protected internalDoc: IViewDoc<any>;
 
@@ -47,25 +47,28 @@ export class ViewState implements IViewState {
     }
 
     attach(domContainer: HTMLElement) {
-        if (this.attached) {
-            throw new Error('View is already attached to the DOM.');
-        }
-        this.doc.attach(domContainer);
-        this.attached = true;
+        this.domContainer = domContainer;
+        this.reattachDoc();
     }
 
     protected handleDidUpdateLayoutStateEvent = (event: IDidUpdateLayoutStateEvent) => {
         const layoutDoc = this.layoutService.getDoc();
         const renderDoc = this.renderService.getDoc();
         this.internalDoc = this.updateNode(this.doc, layoutDoc, renderDoc) as IViewDoc<any>;
+        this.reattachDoc();
         this.didUpdateViewStateEventEmitter.emit({});
     };
 
+    protected reattachDoc() {
+        if (!this.domContainer) {
+            return;
+        }
+        this.domContainer.innerHTML = '';
+        this.domContainer.appendChild(this.doc.domContainer);
+    }
+
     protected updateNode(node: IViewNode<any> | null, layoutNode: ILayoutNode, renderNode: IRenderNode<any, any>) {
-        if (!layoutNode.needView) {
-            if (!node) {
-                throw new Error('Expected view node to be available.');
-            }
+        if (!layoutNode.needView && node) {
             return node;
         }
         const childrenMap: { [key: string]: IViewNode<any> } = {};
@@ -99,24 +102,21 @@ export class ViewState implements IViewState {
         }
         layoutNode.clearNeedView();
         const domContainer = node ? node.domContainer : this.domService.createContainer();
-        return this.buildNode(domContainer, layoutNode, renderNode, newChildren);
+        const newNode = this.buildNode(domContainer, layoutNode, renderNode, newChildren);
+        return newNode;
     }
 
     protected buildNode(
         domContainer: HTMLElement,
         layoutNode: ILayoutNode,
-        renderNode: IRenderNode<any, any> | null,
+        renderNode: IRenderNode<any, any>,
         children: IViewNode<any>[],
     ) {
-        if (!renderNode) {
-            switch (layoutNode.type) {
-                case 'page':
-                    return this.buildPageNode(domContainer, layoutNode, children);
-                case 'line':
-                    return this.buildLineNode(domContainer, layoutNode, children);
-                default:
-                    throw new Error('Missing render node.');
-            }
+        switch (layoutNode.type) {
+            case 'page':
+                return this.buildPageNode(domContainer, layoutNode, children);
+            case 'line':
+                return this.buildLineNode(domContainer, layoutNode, children);
         }
         const component = this.componentService.getComponent(renderNode.componentId);
         const text =

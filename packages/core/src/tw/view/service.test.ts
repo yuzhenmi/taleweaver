@@ -81,9 +81,9 @@ describe('ViewService', () => {
             const lineBreak1 = text1.nextSibling!;
             const lineBreak2 = text2.nextSibling!;
             const lineBreak3 = text3.nextSibling!;
-            expect(text1.domContentContainer.innerHTML).toEqual('Hi');
-            expect(text2.domContentContainer.innerHTML).toEqual('big');
-            expect(text3.domContentContainer.innerHTML).toEqual('beautiful test');
+            expect(text1.domContainer.querySelector('span')!.innerHTML).toEqual('Hi');
+            expect(text2.domContainer.querySelector('span')!.innerHTML).toEqual('big');
+            expect(text3.domContainer.querySelector('span')!.innerHTML).toEqual('beautiful test');
             expect(lineBreak1).not.toBeNull();
             expect(lineBreak2).not.toBeNull();
             expect(lineBreak3).not.toBeNull();
@@ -102,8 +102,8 @@ describe('ViewService', () => {
             const text2 = line2.firstChild!;
             const lineBreak1 = text1.nextSibling!;
             const lineBreak2 = text2.nextSibling!;
-            expect(text1.domContentContainer.innerHTML).toEqual('Hello world');
-            expect(text2.domContentContainer.innerHTML).toEqual('Hello test');
+            expect(text1.domContainer.querySelector('span')!.innerHTML).toEqual('Hello world');
+            expect(text2.domContainer.querySelector('span')!.innerHTML).toEqual('Hello test');
             expect(lineBreak1).not.toBeNull();
             expect(lineBreak2).not.toBeNull();
         });

@@ -56,7 +56,6 @@ export default function Editor({ initialMarkup, config }: IProps) {
         const doc = new ModelDoc('doc', 'doc', {}, [
             new ModelParagraph('paragraph', 'p1', {}, [new ModelText('text', 't1', 'Hello world', {})]),
         ]);
-        console.log(mergedConfig);
         setTaleweaver(new Taleweaver(doc, mergedConfig));
     }, []);
     useEffect(() => {

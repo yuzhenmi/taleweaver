@@ -79,14 +79,15 @@ export class ViewDoc extends AbstractViewDoc<IDocStyle> {
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
+        this.domContainer.innerHTML = '';
+        const domContentContainer = domService.createElement('div');
+        domContentContainer.setAttribute('data-tw-role', 'content-container');
+        children.map((child) => domContentContainer.appendChild(child.domContainer));
+        this.domContainer.appendChild(domContentContainer);
     }
 
     get partId() {
         return 'doc';
-    }
-
-    get domContentContainer() {
-        return this.domContainer;
     }
 }
 

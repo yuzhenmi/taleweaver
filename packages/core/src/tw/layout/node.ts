@@ -117,9 +117,6 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         if (offset < 0 || offset >= this.size) {
             throw new Error(`Offset ${offset} is out of range.`);
         }
-        if (offset === 0) {
-            return new LayoutPosition([{ node: this, offset, index: -1 }]);
-        }
         if (this.leaf) {
             return new LayoutPosition([{ node: this, offset, index: offset }]);
         }

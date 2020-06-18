@@ -20,10 +20,7 @@ export class LayoutEngine implements ILayoutEngine {
     constructor(protected textService: ITextService) {}
 
     updateDoc(doc: ILayoutDoc | null, renderDoc: IRenderDoc<any, any>) {
-        if (!renderDoc.needLayout) {
-            if (!doc) {
-                throw new Error('Expected doc to be available.');
-            }
+        if (!renderDoc.needLayout && doc) {
             return doc;
         }
         const pages: ILayoutPage[] = [];
@@ -73,10 +70,7 @@ export class LayoutEngine implements ILayoutEngine {
     }
 
     protected updateBlock(blocks: ILayoutBlock[], renderBlock: IRenderBlock<any, any>, width: number): ILayoutBlock[] {
-        if (!renderBlock.needLayout) {
-            if (blocks.length === 0) {
-                throw new Error('Expected layout block to be available.');
-            }
+        if (!renderBlock.needLayout && blocks.length > 0) {
             return blocks;
         }
         const lines: ILayoutLine[] = [];
@@ -127,10 +121,7 @@ export class LayoutEngine implements ILayoutEngine {
     }
 
     protected updateText(texts: ILayoutText[], renderText: IRenderText<any, any>): ILayoutText[] {
-        if (!renderText.needLayout) {
-            if (texts.length === 0) {
-                throw new Error('Expected layout text to be available.');
-            }
+        if (!renderText.needLayout && texts.length > 0) {
             return texts;
         }
         const newChildren: ILayoutNode[] = [];
@@ -142,10 +133,7 @@ export class LayoutEngine implements ILayoutEngine {
     }
 
     protected updateAtom(atoms: ILayoutAtom[], renderAtom: IRenderAtom<any, any>): ILayoutAtom[] {
-        if (!renderAtom.needLayout) {
-            if (atoms.length === 0) {
-                throw new Error('Expected layout atom to be available.');
-            }
+        if (!renderAtom.needLayout && atoms.length > 0) {
             return atoms;
         }
         renderAtom.clearNeedLayout();
@@ -288,6 +276,8 @@ export class LayoutEngine implements ILayoutEngine {
                         default:
                             throw new Error('Invalid node type encountered while reflowing page.');
                     }
+                } else {
+                    nodes.unshift(node);
                 }
             }
             const newPage = new LayoutPage(
@@ -385,6 +375,8 @@ export class LayoutEngine implements ILayoutEngine {
                         default:
                             throw new Error('Invalid node type encountered while reflowing page.');
                     }
+                } else {
+                    nodes.unshift(node);
                 }
             }
             const newLine = new LayoutLine(newChildren, width);

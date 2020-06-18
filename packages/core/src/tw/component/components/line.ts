@@ -24,10 +24,12 @@ export class ViewLine extends AbstractViewLine {
         this.domContainer.style.paddingBottom = `${paddingBottom}px`;
         this.domContainer.style.paddingLeft = `${paddingLeft}px`;
         this.domContainer.style.paddingRight = `${paddingRight}px`;
+        this.domContainer.innerHTML = '';
+        children.map((child) => this.domContainer.appendChild(child.domContainer));
     }
 
     get partId() {
-        return 'doc';
+        return 'line';
     }
 
     get domContentContainer() {

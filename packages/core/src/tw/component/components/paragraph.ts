@@ -142,6 +142,8 @@ export class ViewParagraph extends ViewBlock<IParagraphStyle> {
         this.domContainer.style.paddingLeft = `${paddingLeft}px`;
         this.domContainer.style.paddingRight = `${paddingRight}px`;
         this.domContainer.style.lineHeight = '1em';
+        this.domContainer.innerHTML = '';
+        children.map((child) => this.domContainer.appendChild(child.domContainer));
     }
 
     get partId() {
