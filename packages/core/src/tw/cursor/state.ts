@@ -11,7 +11,7 @@ export interface ICursor {
     leftLock: number;
 }
 
-export interface IDidUpdateCursorEvent {}
+export interface IDidUpdateCursorStateEvent {}
 
 export interface ICursorState {
     readonly hasCursor: boolean;
@@ -20,12 +20,12 @@ export interface ICursorState {
     set(anchor: number, head: number): void;
     setLeftLock(leftLock: number): void;
     applyChange(change: ICursorChange): ICursorChangeResult;
-    onDidUpdate: IOnEvent<IDidUpdateCursorEvent>;
+    onDidUpdate: IOnEvent<IDidUpdateCursorStateEvent>;
 }
 
 export class CursorState {
     protected internalCursor: ICursor | null = null;
-    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateCursorEvent>();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateCursorStateEvent>();
 
     constructor(
         configService: IConfigService,
@@ -75,7 +75,7 @@ export class CursorState {
         return changeResult;
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateCursorEvent>) {
+    onDidUpdate(listener: IEventListener<IDidUpdateCursorStateEvent>) {
         return this.didUpdateEventEmitter.on(listener);
     }
 

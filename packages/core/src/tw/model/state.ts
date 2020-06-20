@@ -4,7 +4,9 @@ import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelChange, IModelChangeResult } from './change/change';
 import { IModelRoot } from './root';
 
-export interface IDidUpdateModelStateEvent {}
+export interface IDidUpdateModelStateEvent {
+    changeResult: IModelChangeResult;
+}
 
 export interface IModelState {
     readonly root: IModelRoot<any>;
@@ -20,7 +22,7 @@ export class ModelState implements IModelState {
 
     applyChange(change: IModelChange) {
         const changeResult = change.apply(this.root, this.componentService);
-        this.didUpdateEventEmitter.emit({});
+        this.didUpdateEventEmitter.emit({ changeResult });
         return changeResult;
     }
 

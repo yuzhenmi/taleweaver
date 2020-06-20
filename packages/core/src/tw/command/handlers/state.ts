@@ -18,7 +18,7 @@ export const insert: ICommandHandler = async (serviceRegistry, content: string) 
     const to = Math.max(anchor, head);
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
-    const changes: IChange[] = [new ReplaceChange(modelFrom, modelTo, [new Fragment(content, 0)]), new MoveTo(modelTo)];
+    const changes: IChange[] = [new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [new Fragment(content, 0)])];
     if (modelFrom === modelTo) {
         changes.push(new MoveBy(1, false));
     }
@@ -48,7 +48,7 @@ export const deleteBackward: ICommandHandler = async (serviceRegistry) => {
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([new ReplaceChange(modelFrom, modelTo, []), new MoveTo(modelFrom)]),
+        new Transformation([new MoveTo(modelFrom), new ReplaceChange(modelFrom, modelTo, [])]),
     );
 };
 
@@ -75,7 +75,7 @@ export const deleteForward: ICommandHandler = async (serviceRegistry) => {
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([new ReplaceChange(modelFrom, modelTo, []), new MoveTo(modelTo)]),
+        new Transformation([new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [])]),
     );
 };
 
@@ -92,6 +92,6 @@ export const splitLine: ICommandHandler = async (serviceRegistry) => {
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([new ReplaceChange(modelFrom, modelTo, [new Fragment([], 1)]), new MoveTo(modelTo)]),
+        new Transformation([new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [new Fragment([], 1)])]),
     );
 };

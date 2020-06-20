@@ -9,7 +9,7 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
     protected internalContentWidth?: number;
 
     constructor(children: ILayoutNode[], readonly width: number) {
-        super(null, '', children, 0, 0, 0, 0);
+        super(null, '', children, 0, 8, 0, 0);
     }
 
     get type(): ILayoutNodeType {
@@ -95,11 +95,11 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
                     from,
                     to,
                     width: left2! - left1!,
-                    height: this.innerHeight,
+                    height: from === to ? this.innerHeight : this.height,
                     left: this.paddingLeft + left1!,
                     right: this.width - this.paddingLeft - left2!,
-                    top: this.paddingTop,
-                    bottom: this.paddingBottom,
+                    top: from === to ? this.paddingTop : 0,
+                    bottom: from === to ? this.paddingBottom : 0,
                 },
             ],
             children: childResults,

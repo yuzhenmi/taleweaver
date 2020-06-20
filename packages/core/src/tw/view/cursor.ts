@@ -2,7 +2,8 @@ import { ICursorService } from '../cursor/service';
 import { IDOMService } from '../dom/service';
 import { IBoundingBox } from '../layout/node';
 import { ILayoutService } from '../layout/service';
-import { IRenderService } from '../render/service';
+import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
+import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
 import { IViewPage } from './page';
 import { IViewService } from './service';
 
@@ -23,9 +24,9 @@ export class CursorView implements ICursorView {
         protected instanceId: string,
         protected domService: IDOMService,
         protected cursorService: ICursorService,
-        protected renderService: IRenderService,
         protected layoutService: ILayoutService,
         protected viewService: IViewService,
+        protected transformService: ITransformService,
     ) {
         this.domCaret = domService.createElement('div');
         this.domCaret.className = 'tw--cursor--caret';
@@ -35,10 +36,9 @@ export class CursorView implements ICursorView {
         this.domCaret.style.pointerEvents = 'none';
         this.domCaret.style.width = '2px';
         this.domCaret.style.marginLeft = '-1px';
-        cursorService.onDidUpdate(this.handleDidUpdateCursorState);
-        viewService.onDidUpdateViewState(this.handleDidUpdateViewState);
-        viewService.onDidFocus(this.handleDidFocus);
-        viewService.onDidBlur(this.handleDidBlur);
+        transformService.onDidApplyTransformation((event) => this.handleDidApplyTransformation(event));
+        viewService.onDidFocus((event) => this.handleDidFocus(event));
+        viewService.onDidBlur((event) => this.handleDidBlur(event));
     }
 
     attach() {
@@ -184,19 +184,15 @@ export class CursorView implements ICursorView {
         return domSelection;
     }
 
-    protected handleDidUpdateCursorState = () => {
+    protected handleDidApplyTransformation(event: IDidApplyTransformationEvent) {
         this.updateView();
-    };
+    }
 
-    protected handleDidUpdateViewState = () => {
+    protected handleDidFocus(event: IDidFocusEvent) {
         this.updateView();
-    };
+    }
 
-    protected handleDidFocus = () => {
+    protected handleDidBlur(event: IDidBlurEvent) {
         this.updateView();
-    };
-
-    protected handleDidBlur = () => {
-        this.updateView();
-    };
+    }
 }

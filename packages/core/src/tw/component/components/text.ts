@@ -66,11 +66,11 @@ export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> 
     }
 
     get paddingTop() {
-        return 3;
+        return 0;
     }
 
     get paddingBottom() {
-        return 6;
+        return 0;
     }
 
     get paddingLeft() {

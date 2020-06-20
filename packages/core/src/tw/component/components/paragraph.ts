@@ -71,6 +71,26 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     get style() {
         return {};
     }
+
+    convertOffsetToModelOffset(offset: number): number {
+        if (this.size === 1) {
+            return 0;
+        }
+        if (offset === this.size - 1) {
+            return super.convertOffsetToModelOffset(offset - 1) + 1;
+        }
+        return super.convertOffsetToModelOffset(offset);
+    }
+
+    convertModelOffsetToOffset(modelOffset: number): number {
+        if (this.size === 1) {
+            return 0;
+        }
+        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.size - 1) {
+            return this.size - 1;
+        }
+        return super.convertModelOffsetToOffset(modelOffset);
+    }
 }
 
 export class RenderParagraphLineBreak extends RenderText<null, null> {

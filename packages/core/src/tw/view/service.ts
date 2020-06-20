@@ -6,6 +6,7 @@ import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
+import { ITransformService } from '../transform/service';
 import { CursorView, ICursorView } from './cursor';
 import { IViewDoc } from './doc';
 import { DOMController, IDOMController } from './dom-controller';
@@ -39,6 +40,7 @@ export class ViewService implements IViewService {
         cursorService: ICursorService,
         renderService: IRenderService,
         commandService: ICommandService,
+        transformService: ITransformService,
     ) {
         this.state = new ViewState(instanceId, componentService, layoutService, renderService, domService);
         this.domController = new DOMController(
@@ -49,7 +51,7 @@ export class ViewService implements IViewService {
             this,
             layoutService,
         );
-        this.cursor = new CursorView(instanceId, domService, cursorService, renderService, layoutService, this);
+        this.cursor = new CursorView(instanceId, domService, cursorService, layoutService, this, transformService);
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {

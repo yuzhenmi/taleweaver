@@ -35,7 +35,7 @@ export class ViewState implements IViewState {
         const layoutDoc = layoutService.getDoc();
         const renderDoc = renderService.getDoc();
         this.internalDoc = this.updateNode(null, layoutDoc, renderDoc) as IViewDoc<any>;
-        layoutService.onDidUpdateLayoutState(this.handleDidUpdateLayoutStateEvent);
+        layoutService.onDidUpdateLayoutState((event) => this.handleDidUpdateLayoutStateEvent(event));
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
@@ -51,13 +51,17 @@ export class ViewState implements IViewState {
         this.reattachDoc();
     }
 
-    protected handleDidUpdateLayoutStateEvent = (event: IDidUpdateLayoutStateEvent) => {
+    protected handleDidUpdateLayoutStateEvent(event: IDidUpdateLayoutStateEvent) {
+        this.update();
+    }
+
+    protected update() {
         const layoutDoc = this.layoutService.getDoc();
         const renderDoc = this.renderService.getDoc();
         this.internalDoc = this.updateNode(this.doc, layoutDoc, renderDoc) as IViewDoc<any>;
         this.reattachDoc();
         this.didUpdateViewStateEventEmitter.emit({});
-    };
+    }
 
     protected reattachDoc() {
         if (!this.domContainer) {

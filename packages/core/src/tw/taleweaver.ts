@@ -67,6 +67,14 @@ export class Taleweaver {
         this.serviceRegistry.registerService('cursor', this.cursorService);
         this.layoutService = new LayoutService(this.renderService, this.textService);
         this.serviceRegistry.registerService('layout', this.layoutService);
+        this.transformService = new TransformService(
+            this.modelService,
+            this.componentService,
+            this.cursorService,
+            this.renderService,
+            this.layoutService,
+        );
+        this.serviceRegistry.registerService('transform', this.transformService);
         this.viewService = new ViewService(
             this.instanceId,
             this.domService,
@@ -76,16 +84,9 @@ export class Taleweaver {
             this.cursorService,
             this.renderService,
             this.commandService,
+            this.transformService,
         );
         this.serviceRegistry.registerService('view', this.viewService);
-        this.transformService = new TransformService(
-            this.modelService,
-            this.componentService,
-            this.cursorService,
-            this.renderService,
-            this.layoutService,
-        );
-        this.serviceRegistry.registerService('transform', this.transformService);
         this.historyService = new HistoryService(this.configService, this.transformService);
         this.serviceRegistry.registerService('history', this.historyService);
         this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);

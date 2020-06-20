@@ -21,7 +21,7 @@ export class LayoutState implements ILayoutState {
     constructor(protected renderService: IRenderService, protected textService: ITextService) {
         this.engine = new LayoutEngine(textService);
         this.internalDoc = this.engine.updateDoc(null, renderService.getDoc());
-        renderService.onDidUpdateRenderState(this.handleDidUpdateRenderStateEvent);
+        renderService.onDidUpdateRenderState((event) => this.handleDidUpdateRenderStateEvent(event));
     }
 
     get doc() {
@@ -32,9 +32,13 @@ export class LayoutState implements ILayoutState {
         return this.didUpdateLayoutStateEventEmitter.on(listener);
     }
 
-    protected handleDidUpdateRenderStateEvent = (event: IDidUpdateRenderStateEvent) => {
+    protected handleDidUpdateRenderStateEvent(event: IDidUpdateRenderStateEvent) {
+        this.update();
+    }
+
+    protected update() {
         const renderDoc = this.renderService.getDoc();
         this.internalDoc = this.engine.updateDoc(this.doc, renderDoc);
         this.didUpdateLayoutStateEventEmitter.emit({});
-    };
+    }
 }

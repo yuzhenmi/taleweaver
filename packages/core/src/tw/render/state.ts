@@ -21,7 +21,7 @@ export class RenderState implements IRenderState {
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
         const modelRoot = modelService.getRoot();
         this.internalDoc = this.updateNode(null, modelRoot) as IRenderDoc<any, any>;
-        modelService.onDidUpdateModelState(this.handleDidUpdateModelState);
+        modelService.onDidUpdateModelState((event) => this.handleDidUpdateModelState(event));
     }
 
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
@@ -32,11 +32,15 @@ export class RenderState implements IRenderState {
         return this.internalDoc;
     }
 
-    protected handleDidUpdateModelState = (event: IDidUpdateModelStateEvent) => {
+    protected handleDidUpdateModelState(event: IDidUpdateModelStateEvent) {
+        this.update();
+    }
+
+    protected update() {
         const modelRoot = this.modelService.getRoot();
         this.internalDoc = this.updateNode(this.doc, modelRoot) as IRenderDoc<any, any>;
         this.didUpdateRenderStateEventEmitter.emit({});
-    };
+    }
 
     protected updateNode(node: IRenderNode<any, any> | null, modelNode: IModelNode<any>): IRenderNode<any, any> {
         if (!modelNode.needRender) {
