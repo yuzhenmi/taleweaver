@@ -44,6 +44,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
             const childHeight = child.height;
             if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
                 offset += child.convertCoordinatesToOffset(x, 0);
+                break;
             }
             offset += child.size;
             cumulatedHeight += childHeight;
@@ -52,7 +53,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
-        if (from < 0 || to >= this.size || from > to) {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         const childResults: IResolveBoundingBoxesResult[] = [];
@@ -60,7 +61,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         let cumulatedOffset = 0;
         let cumulatedHeight = 0;
         this.children.forEach((child) => {
-            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+            if (cumulatedOffset + child.size > from && cumulatedOffset <= to) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
                 const childResult = child.resolveBoundingBoxes(childFrom, childTo);

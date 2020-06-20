@@ -1,40 +1,44 @@
 import { IMapping } from '../../model/change/mapping';
+import { IModelService } from '../../model/service';
 import { IRenderService } from '../../render/service';
 import { ICursorState } from '../state';
 import { CursorChange, ICursorChangeResult } from './change';
 
 export class MoveTo extends CursorChange {
-    protected anchor: number;
+    protected modelAnchor: number;
 
-    constructor(protected head: number, anchor?: number) {
+    constructor(protected modelHead: number, modelAnchor?: number) {
         super();
-        this.anchor = anchor ?? head;
+        this.modelAnchor = modelAnchor ?? modelHead;
     }
 
     map(mapping: IMapping) {
-        return new MoveTo(mapping.map(this.head), mapping.map(this.anchor));
+        return new MoveTo(mapping.map(this.modelHead), mapping.map(this.modelAnchor));
     }
 
-    apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult {
+    apply(cursorState: ICursorState, modelService: IModelService, renderService: IRenderService): ICursorChangeResult {
         const { anchor, head } = cursorState.cursor;
-        cursorState.set(
-            this.restrictOffsetRange(this.anchor, renderService),
-            this.restrictOffsetRange(this.head, renderService),
+        const newAnchor = renderService.convertModelOffsetToOffset(
+            this.restrictModelOffset(this.modelAnchor, modelService),
         );
+        const newHead = renderService.convertModelOffsetToOffset(
+            this.restrictModelOffset(this.modelHead, modelService),
+        );
+        cursorState.set(newAnchor, newHead);
         return {
             change: this,
             reverseChange: new MoveTo(head, anchor),
         };
     }
 
-    restrictOffsetRange(offset: number, renderService: IRenderService) {
-        if (offset < 0) {
+    restrictModelOffset(modelOffset: number, modelService: IModelService) {
+        if (modelOffset < 0) {
             return 0;
         }
-        const docSize = renderService.getDocSize();
-        if (offset >= docSize) {
-            return docSize - 1;
+        const modelSize = modelService.getRootSize();
+        if (modelOffset >= modelSize) {
+            return modelSize - 1;
         }
-        return offset;
+        return modelOffset;
     }
 }

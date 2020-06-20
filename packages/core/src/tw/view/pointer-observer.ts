@@ -1,6 +1,7 @@
 import { IDOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
+import { ILayoutService } from '../layout/service';
 import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
@@ -44,7 +45,12 @@ export class PointerObserver implements IPointerObserver {
     protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
     protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
 
-    constructor(protected instanceId: string, protected viewService: IViewService, protected domService: IDOMService) {
+    constructor(
+        protected instanceId: string,
+        protected viewService: IViewService,
+        protected domService: IDOMService,
+        protected layoutService: ILayoutService,
+    ) {
         const window = domService.getWindow();
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
@@ -68,7 +74,7 @@ export class PointerObserver implements IPointerObserver {
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -84,7 +90,7 @@ export class PointerObserver implements IPointerObserver {
     };
 
     protected handleMouseMove = (event: MouseEvent) => {
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -100,7 +106,7 @@ export class PointerObserver implements IPointerObserver {
         }
         const lastPointerDown = this.lastPointerDown;
         this.lastPointerDown = null;
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -126,26 +132,26 @@ export class PointerObserver implements IPointerObserver {
         }
     };
 
-    protected resolveCoordinates(x: number, y: number): number | null {
-        // const doc = this.viewService.getDoc();
-        // let cumulatedOffset = 0;
-        // for (let n = 0, nn = doc.children.length; n < nn; n++) {
-        //     const page = doc.children.at(n);
-        //     const pageLayoutNode = page.getLayoutNode();
-        //     const pageDOMContainer = pageViewNode.getDOMContainer();
-        //     const pageBoundingClientRect = pageDOMContainer.getBoundingClientRect();
-        //     if (
-        //         pageBoundingClientRect.left <= x &&
-        //         pageBoundingClientRect.right >= x &&
-        //         pageBoundingClientRect.top <= y &&
-        //         pageBoundingClientRect.bottom >= y
-        //     ) {
-        //         const pageX = x - pageBoundingClientRect.left;
-        //         const pageY = y - pageBoundingClientRect.top;
-        //         return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
-        //     }
-        //     cumulatedOffset += pageLayoutNode.getSize();
-        // }
+    protected resolveOffset(x: number, y: number): number | null {
+        const viewDoc = this.viewService.getDoc();
+        const layoutDoc = this.layoutService.getDoc();
+        let cumulatedOffset = 0;
+        for (let n = 0, nn = viewDoc.children.length; n < nn; n++) {
+            const viewPage = viewDoc.children.at(n);
+            const layoutPage = layoutDoc.children.at(n);
+            const pageBoundingClientRect = viewPage.domContainer.getBoundingClientRect();
+            if (
+                pageBoundingClientRect.left <= x &&
+                pageBoundingClientRect.right >= x &&
+                pageBoundingClientRect.top <= y &&
+                pageBoundingClientRect.bottom >= y
+            ) {
+                const pageX = x - pageBoundingClientRect.left;
+                const pageY = y - pageBoundingClientRect.top;
+                return cumulatedOffset + layoutPage.convertCoordinatesToOffset(pageX, pageY);
+            }
+            cumulatedOffset += layoutPage.size;
+        }
         return null;
     }
 }

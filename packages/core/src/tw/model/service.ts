@@ -8,6 +8,7 @@ import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
+    getRootSize(): number;
     applyChange(change: IModelChange, mappings: IMapping[]): IModelChangeResult;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
@@ -24,6 +25,10 @@ export class ModelService implements IModelService {
 
     getRoot() {
         return this.state.root;
+    }
+
+    getRootSize() {
+        return this.state.root.size;
     }
 
     applyChange(change: IModelChange) {

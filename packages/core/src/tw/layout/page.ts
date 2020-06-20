@@ -44,13 +44,14 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
     convertCoordinatesToOffset(x: number, y: number) {
         let offset = 0;
         let cumulatedHeight = 0;
-        const contentX = Math.min(Math.max(x - this.paddingLeft, 0), this.width - this.paddingRight);
-        const contentY = Math.min(Math.max(y - this.paddingTop, 0), this.height - this.paddingBottom);
+        const contentX = Math.min(Math.max(x - this.paddingLeft, 0), this.innerWidth);
+        const contentY = Math.min(Math.max(y - this.paddingTop, 0), this.innerHeight);
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childHeight = child.height;
             if (contentY >= cumulatedHeight && contentY <= cumulatedHeight + childHeight) {
                 offset += child.convertCoordinatesToOffset(contentX, contentY - cumulatedHeight);
+                break;
             }
             offset += child.size;
             cumulatedHeight += childHeight;
@@ -69,7 +70,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
-        if (from < 0 || to >= this.size || from > to) {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         const childResults: IResolveBoundingBoxesResult[] = [];
@@ -77,7 +78,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         let cumulatedOffset = 0;
         let cumulatedHeight = 0;
         this.children.forEach((child) => {
-            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+            if (cumulatedOffset + child.size > from && cumulatedOffset <= to) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
                 const childResult = child.resolveBoundingBoxes(childFrom, childTo);
@@ -90,8 +91,8 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
                         height: boundingBox.height,
                         top: cumulatedHeight + this.paddingTop + boundingBox.top,
                         bottom: this.height - this.paddingTop - cumulatedHeight - child.height + boundingBox.bottom,
-                        left: boundingBox.left,
-                        right: boundingBox.right,
+                        left: boundingBox.left + this.paddingLeft,
+                        right: boundingBox.right + this.paddingRight,
                     });
                 });
             }

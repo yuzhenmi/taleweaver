@@ -69,8 +69,9 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childWidth = child.width;
-            if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
-                offset += child.convertCoordinatesToOffset(x, 0);
+            if (cumulatedWidth + childWidth >= x) {
+                offset += child.convertCoordinatesToOffset(x - cumulatedWidth, 0);
+                break;
             }
             offset += child.size;
             cumulatedWidth += childWidth;
@@ -82,31 +83,35 @@ export class LayoutText extends LayoutNode implements ILayoutText {
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
-        if (from < 0 || to >= this.size || from > to) {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         const childResults: IResolveBoundingBoxesResult[] = [];
         let cumulatedOffset = 0;
-        let cumulatedWidth = 0;
-        let left1: number;
-        let left2: number;
-        this.children.forEach((child) => {
-            if (cumulatedOffset + child.size > from && cumulatedOffset < to) {
+        let left1: number | null = null;
+        let left2 = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            if (cumulatedOffset > to) {
+                break;
+            }
+            const child = this.children.at(n);
+            if (cumulatedOffset + child.size > from) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
                 const childResult = child.resolveBoundingBoxes(childFrom, childTo);
                 childResults.push(childResult);
-                if (left1 === undefined) {
-                    left1 = cumulatedWidth + childResult.boundingBoxes[0].left;
+                if (left1 === null) {
+                    left1 = left2 + childResult.boundingBoxes[0].left;
                 }
-                left2 =
-                    cumulatedWidth +
-                    childResult.boundingBoxes.reduce((width, boundingBox) => width + boundingBox.width, 0) -
-                    childResult.boundingBoxes[childResult.boundingBoxes.length - 1].right;
+                left2 += childResult.boundingBoxes
+                    .slice(0, childResult.boundingBoxes.length - 1)
+                    .reduce((width, box) => width + box.left + box.width + box.right, 0);
+                left2 += childResult.boundingBoxes[0].left + childResult.boundingBoxes[0].width;
+            } else {
+                left2 += child.width;
             }
             cumulatedOffset += child.size;
-            cumulatedWidth += child.width;
-        });
+        }
         return {
             node: this,
             boundingBoxes: [

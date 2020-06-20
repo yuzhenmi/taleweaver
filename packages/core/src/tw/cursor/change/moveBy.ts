@@ -1,4 +1,5 @@
 import { IMapping } from '../../model/change/mapping';
+import { IModelService } from '../../model/service';
 import { IRenderService } from '../../render/service';
 import { ICursorState } from '../state';
 import { CursorChange, ICursorChangeResult } from './change';
@@ -13,9 +14,9 @@ export class MoveBy extends CursorChange {
         return this;
     }
 
-    apply(cursorState: ICursorState, renderService: IRenderService): ICursorChangeResult {
+    apply(cursorState: ICursorState, modelService: IModelService, renderService: IRenderService): ICursorChangeResult {
         const { anchor, head } = cursorState.cursor;
-        const newHead = this.restrictOffsetRange(head + this.offset, renderService);
+        const newHead = this.restrictOffset(head + this.offset, renderService);
         cursorState.set(this.headOnly ? anchor : newHead, newHead);
         return {
             change: this,
@@ -23,13 +24,13 @@ export class MoveBy extends CursorChange {
         };
     }
 
-    restrictOffsetRange(offset: number, renderService: IRenderService) {
+    restrictOffset(offset: number, renderService: IRenderService) {
         if (offset < 0) {
             return 0;
         }
-        const docSize = renderService.getDocSize();
-        if (offset >= docSize) {
-            return docSize - 1;
+        const size = renderService.getDocSize();
+        if (offset >= size) {
+            return size - 1;
         }
         return offset;
     }

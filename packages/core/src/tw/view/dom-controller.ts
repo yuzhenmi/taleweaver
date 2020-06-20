@@ -1,6 +1,7 @@
 import { ICommandService } from '../command/service';
 import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
+import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
 import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
@@ -49,6 +50,7 @@ export class DOMController {
         protected commandService: ICommandService,
         protected modelService: IModelService,
         protected viewService: IViewService,
+        protected layoutService: ILayoutService,
     ) {
         this.iframe = domService.createHiddenIframe();
         this.$contentEditable = this.createContentEditable();
@@ -56,7 +58,7 @@ export class DOMController {
         this.keyboardObserver.onDidInsert(this.handleDidInsert);
         this.keyboardObserver.onCompositionDidStart(this.handleCompositionDidStart);
         this.keyboardObserver.onCompositionDidEnd(this.handleCompositionDidEnd);
-        this.pointerObserver = new PointerObserver(instanceId, viewService, domService);
+        this.pointerObserver = new PointerObserver(instanceId, viewService, domService, layoutService);
         this.pointerObserver.onPointerDidDown(this.handlePointerDidDown);
         this.pointerObserver.onPointerDidMove(this.handlePointerDidMove);
         this.pointerObserver.onPointerDidClick(this.handlePointerDidClick);

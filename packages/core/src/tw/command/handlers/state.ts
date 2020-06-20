@@ -2,6 +2,7 @@ import { MoveBy } from '../../cursor/change/moveBy';
 import { MoveTo } from '../../cursor/change/moveTo';
 import { ReplaceChange } from '../../model/change/replace';
 import { Fragment } from '../../model/fragment';
+import { IChange } from '../../transform/change';
 import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
 
@@ -14,17 +15,14 @@ export const insert: ICommandHandler = async (serviceRegistry, content: string) 
     }
     const { anchor, head } = cursorService.getCursor();
     const from = Math.min(anchor, head);
-    const to = Math.min(anchor, head);
-    transformService.applyTransformation(
-        new Transformation([
-            new ReplaceChange(
-                renderService.convertOffsetToModelOffset(from),
-                renderService.convertOffsetToModelOffset(to),
-                [new Fragment(content, 0)],
-            ),
-            new MoveBy(content.length, false),
-        ]),
-    );
+    const to = Math.max(anchor, head);
+    const modelFrom = renderService.convertOffsetToModelOffset(from);
+    const modelTo = renderService.convertOffsetToModelOffset(to);
+    const changes: IChange[] = [new ReplaceChange(modelFrom, modelTo, [new Fragment(content, 0)]), new MoveTo(modelTo)];
+    if (modelFrom === modelTo) {
+        changes.push(new MoveBy(1, false));
+    }
+    transformService.applyTransformation(new Transformation(changes));
 };
 
 export const deleteBackward: ICommandHandler = async (serviceRegistry) => {
@@ -47,15 +45,10 @@ export const deleteBackward: ICommandHandler = async (serviceRegistry) => {
         from = Math.min(anchor, head);
         to = Math.max(anchor, head);
     }
+    const modelFrom = renderService.convertOffsetToModelOffset(from);
+    const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([
-            new ReplaceChange(
-                renderService.convertOffsetToModelOffset(from),
-                renderService.convertOffsetToModelOffset(to),
-                [],
-            ),
-            new MoveTo(from),
-        ]),
+        new Transformation([new ReplaceChange(modelFrom, modelTo, []), new MoveTo(modelFrom)]),
     );
 };
 
@@ -79,15 +72,10 @@ export const deleteForward: ICommandHandler = async (serviceRegistry) => {
         from = Math.min(anchor, head);
         to = Math.max(anchor, head);
     }
+    const modelFrom = renderService.convertOffsetToModelOffset(from);
+    const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([
-            new ReplaceChange(
-                renderService.convertOffsetToModelOffset(from),
-                renderService.convertOffsetToModelOffset(to),
-                [],
-            ),
-            new MoveTo(from),
-        ]),
+        new Transformation([new ReplaceChange(modelFrom, modelTo, []), new MoveTo(modelTo)]),
     );
 };
 
@@ -101,14 +89,9 @@ export const splitLine: ICommandHandler = async (serviceRegistry) => {
     const { anchor, head } = cursorService.getCursor();
     const from = Math.min(anchor, head);
     const to = Math.min(anchor, head);
+    const modelFrom = renderService.convertOffsetToModelOffset(from);
+    const modelTo = renderService.convertOffsetToModelOffset(to);
     transformService.applyTransformation(
-        new Transformation([
-            new ReplaceChange(
-                renderService.convertOffsetToModelOffset(from),
-                renderService.convertOffsetToModelOffset(to),
-                [new Fragment([], 1)],
-            ),
-            new MoveTo(from),
-        ]),
+        new Transformation([new ReplaceChange(modelFrom, modelTo, [new Fragment([], 1)]), new MoveTo(modelTo)]),
     );
 };

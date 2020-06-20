@@ -63,7 +63,7 @@ export class Taleweaver {
         this.serviceRegistry.registerService('model', this.modelService);
         this.renderService = new RenderService(this.componentService, this.modelService);
         this.serviceRegistry.registerService('render', this.renderService);
-        this.cursorService = new CursorService(this.configService, this.renderService);
+        this.cursorService = new CursorService(this.configService, this.renderService, this.modelService);
         this.serviceRegistry.registerService('cursor', this.cursorService);
         this.layoutService = new LayoutService(this.renderService, this.textService);
         this.serviceRegistry.registerService('layout', this.layoutService);

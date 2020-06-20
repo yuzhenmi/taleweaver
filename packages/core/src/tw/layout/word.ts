@@ -71,7 +71,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
-        if (from < 0 || to >= this.size || from > to) {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         if (from === 0 && to === this.size) {

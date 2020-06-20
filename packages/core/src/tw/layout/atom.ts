@@ -27,7 +27,7 @@ export class LayoutAtom extends LayoutNode implements ILayoutAtom {
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
-        if (from < 0 || to >= this.size || from > to) {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         return {

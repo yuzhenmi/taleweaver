@@ -1,5 +1,6 @@
 import { IConfigService } from '../config/service';
 import { IEventListener, IOnEvent } from '../event/listener';
+import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 import { ICursorChange, ICursorChangeResult } from './change/change';
 import { CursorState, ICursor, ICursorState, IDidUpdateCursorEvent } from './state';
@@ -16,8 +17,8 @@ export interface ICursorService {
 export class CursorService implements ICursorService {
     protected state: ICursorState;
 
-    constructor(configService: IConfigService, renderService: IRenderService) {
-        this.state = new CursorState(configService, renderService);
+    constructor(configService: IConfigService, renderService: IRenderService, modelService: IModelService) {
+        this.state = new CursorState(configService, renderService, modelService);
     }
 
     hasCursor() {

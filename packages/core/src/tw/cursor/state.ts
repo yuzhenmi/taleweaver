@@ -1,6 +1,7 @@
 import { IConfigService } from '../config/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
+import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 import { ICursorChange, ICursorChangeResult } from './change/change';
 
@@ -26,7 +27,11 @@ export class CursorState {
     protected internalCursor: ICursor | null = null;
     protected didUpdateEventEmitter = new EventEmitter<IDidUpdateCursorEvent>();
 
-    constructor(configService: IConfigService, protected renderService: IRenderService) {
+    constructor(
+        configService: IConfigService,
+        protected renderService: IRenderService,
+        protected modelService: IModelService,
+    ) {
         if (!configService.getConfig().cursor.disable) {
             this.internalCursor = {
                 anchor: 0,
@@ -65,7 +70,7 @@ export class CursorState {
     }
 
     applyChange(change: ICursorChange) {
-        const changeResult = change.apply(this, this.renderService);
+        const changeResult = change.apply(this, this.modelService, this.renderService);
         this.didUpdateEventEmitter.emit({});
         return changeResult;
     }
