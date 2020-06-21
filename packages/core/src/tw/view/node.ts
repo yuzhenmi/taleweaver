@@ -9,7 +9,7 @@ export interface IViewNode<TStyle> extends INode<IViewNode<TStyle>> {
     readonly componentId: string | null;
     readonly partId: string | null;
     readonly renderId: string | null;
-    readonly layoutId: string | null;
+    readonly layoutId: string;
     readonly size: number;
     readonly domContainer: HTMLElement;
 }

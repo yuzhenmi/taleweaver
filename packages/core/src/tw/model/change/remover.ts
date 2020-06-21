@@ -13,15 +13,14 @@ export class Remover extends Mutator<IRemoverState> {
     constructor(protected root: IModelRoot<any>, protected from: number, protected to: number) {
         super();
         const position = root.resolvePosition(from);
-        const { node, offset: nodeOffset } = position.atReverseDepth(0);
-        const nodeFrom = position.atDepth(0).offset - nodeOffset;
-        const nodeTo = nodeFrom + node.size;
+        const { node } = position.atReverseDepth(0);
         this.current = {
             offset: from,
             node,
-            nodeFrom,
-            nodeTo,
+            nodeFrom: -1,
+            nodeTo: -1,
         };
+        this.updateCurrentNode(node);
     }
 
     protected next() {
@@ -54,17 +53,19 @@ export class Remover extends Mutator<IRemoverState> {
     protected handlePartialNode() {
         const position = this.current.node.resolvePosition(this.current.offset - this.current.nodeFrom);
         if (position.depth === 1) {
+            const removeFrom = position.atDepth(0).index;
             const nodesToRemove: IModelNode<any>[] = [];
-            const removeTo = Math.min(this.to - this.current.nodeFrom, this.current.node.size);
+            const removeToOffset = Math.min(this.to - this.current.nodeFrom, this.current.node.size);
             let offset = position.atDepth(0).offset;
-            let node: IModelNode<any> | null = this.current.node.children.at(position.atDepth(0).index);
-            while (node && offset + node.size <= removeTo) {
+            let node: IModelNode<any> | null = this.current.node.children.at(removeFrom);
+            while (node && offset + node.size <= removeToOffset) {
                 nodesToRemove.push(node);
                 offset += node.size;
                 node = node.nextSibling;
             }
+            const removeTo = removeFrom + nodesToRemove.length;
             this.recordRemovedNodes(nodesToRemove, position.depth);
-            this.current.node.replace(0, nodesToRemove.length, []);
+            this.current.node.replace(removeFrom, removeTo, []);
             if (node) {
                 this.joinNodeWithPreviousSibling(node);
             }
@@ -93,51 +94,25 @@ export class Remover extends Mutator<IRemoverState> {
 
     protected stepUp() {
         const parentNode = this.current.node.parent!;
-        const parentNodeFrom = this.current.nodeFrom - this.getOffsetToParent(this.current.node);
-        const parentNodeTo = parentNodeFrom + parentNode.size;
-        this.current = {
-            offset: this.current.offset,
-            node: parentNode,
-            nodeFrom: parentNodeFrom,
-            nodeTo: parentNodeTo,
-        };
+        this.updateCurrentNode(parentNode);
     }
 
     protected stepDown() {
         const nodeOffset = this.current.offset - this.current.nodeFrom;
         const position = this.current.node.resolvePosition(nodeOffset);
         const childNode = this.current.node.children.at(position.atDepth(0).index);
-        const childNodeFrom = this.current.nodeFrom + this.getOffsetToParent(childNode);
-        const childNodeTo = childNodeFrom + childNode.size;
-        this.current = {
-            offset: this.current.offset,
-            node: childNode,
-            nodeFrom: childNodeFrom,
-            nodeTo: childNodeTo,
-        };
+        this.updateCurrentNode(childNode);
     }
 
     protected stepForward() {
         const nextNode = this.current.node.nextSibling;
         if (nextNode) {
-            const nextNodeFrom = this.current.nodeTo + 1;
-            const nextNodeTo = nextNodeFrom + nextNode.size;
-            this.current = {
-                offset: nextNodeFrom,
-                node: nextNode,
-                nodeFrom: nextNodeFrom,
-                nodeTo: nextNodeTo,
-            };
+            this.updateCurrentNode(nextNode);
+            this.current.offset = this.current.nodeFrom;
         } else {
             const parentNode = this.current.node.parent!;
-            const parentNodeFrom = this.current.nodeFrom - this.getOffsetToParent(this.current.node);
-            const parentNodeTo = parentNodeFrom + parentNode.size;
-            this.current = {
-                offset: this.current.nodeTo,
-                node: parentNode,
-                nodeFrom: parentNodeFrom,
-                nodeTo: parentNodeTo,
-            };
+            this.current.offset = this.current.nodeTo;
+            this.updateCurrentNode(parentNode);
         }
     }
 
@@ -185,20 +160,32 @@ export class Remover extends Mutator<IRemoverState> {
 
     protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
         let previousSibling = node.previousSibling;
-        if (!previousSibling && node.parent) {
-            this.joinNodeWithPreviousSibling(node.parent);
-        }
-        previousSibling = node.previousSibling;
         if (!previousSibling) {
+            if (node.parent) {
+                this.joinNodeWithPreviousSibling(node.parent);
+            }
             return;
         }
         this.current.offset -= 2;
         this.to -= 2;
-        if (this.current.node === node) {
-            this.current.node = previousSibling;
-            this.current.nodeTo = this.current.nodeFrom - 1;
-            this.current.nodeFrom = this.current.nodeTo - previousSibling.size;
-        }
+        const childNodeToJoin = node.firstChild;
         this.joinNodes(previousSibling, node);
+        if (childNodeToJoin) {
+            this.joinNodeWithPreviousSibling(childNodeToJoin);
+        }
+        if (this.current.node === node) {
+            this.updateCurrentNode(previousSibling);
+        }
+    }
+
+    protected updateCurrentNode(node: IModelNode<any>) {
+        this.current.node = node;
+        this.current.nodeFrom = 0;
+        let n = node;
+        while (n.parent) {
+            this.current.nodeFrom += this.getOffsetToParent(n);
+            n = n.parent;
+        }
+        this.current.nodeTo = this.current.nodeFrom + node.size;
     }
 }

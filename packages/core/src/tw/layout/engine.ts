@@ -223,7 +223,8 @@ export class LayoutEngine implements ILayoutEngine {
                 }
                 if (!reflowNeeded) {
                     newPages.push(page);
-                    break;
+                    nodes.splice(0, page.children.length);
+                    continue;
                 }
             }
             const newChildren: ILayoutNode[] = [];
@@ -310,7 +311,8 @@ export class LayoutEngine implements ILayoutEngine {
                 }
                 if (!reflowNeeded) {
                     newLines.push(line);
-                    break;
+                    nodes.splice(0, line.children.length);
+                    continue;
                 }
             }
             const newChildren: ILayoutNode[] = [];

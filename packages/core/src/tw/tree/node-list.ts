@@ -11,7 +11,8 @@ export interface INodeList<TNode extends INode<TNode>> {
     map: <T>(callbackFn: (value: TNode) => T) => T[];
     reduce: <T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) => T;
     filter: (callbackfn: (value: TNode, index: number, array: TNode[]) => any) => TNode[];
-    slice(start?: number, end?: number): TNode[];
+    slice: (start?: number, end?: number) => TNode[];
+    find: (callbackFn: (value: TNode, index: number) => boolean) => TNode | undefined;
 }
 
 export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
@@ -50,5 +51,9 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
 
     slice(start?: number, end?: number) {
         return this.nodes.slice(start, end);
+    }
+
+    find(callbackFn: (value: TNode, index: number) => boolean) {
+        return this.nodes.find(callbackFn);
     }
 }

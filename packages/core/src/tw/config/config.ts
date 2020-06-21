@@ -16,6 +16,10 @@ export interface IComponentsConfig {
 
 export interface ICursorConfig {
     disable: boolean;
+    caretColor: string;
+    caretInactiveColor: string;
+    selectionColor: string;
+    selectionInactiveColor: string;
 }
 
 export interface IHistoryConfig {

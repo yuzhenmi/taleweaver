@@ -1,5 +1,6 @@
 import { ICommandService } from '../command/service';
 import { IComponentService } from '../component/service';
+import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
 import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
@@ -33,6 +34,7 @@ export class ViewService implements IViewService {
 
     constructor(
         instanceId: string,
+        configService: IConfigService,
         domService: IDOMService,
         componentService: IComponentService,
         modelService: IModelService,
@@ -51,7 +53,15 @@ export class ViewService implements IViewService {
             this,
             layoutService,
         );
-        this.cursor = new CursorView(instanceId, domService, cursorService, layoutService, this, transformService);
+        this.cursor = new CursorView(
+            instanceId,
+            configService,
+            domService,
+            cursorService,
+            layoutService,
+            this,
+            transformService,
+        );
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {

@@ -17,6 +17,10 @@ export class ConfigServiceStub implements IConfigService {
             },
             cursor: {
                 disable: false,
+                caretColor: `hsla(213, 100%, 50%, 1)`,
+                caretInactiveColor: 'hsla(0, 0%, 0%, 0.5)',
+                selectionColor: `hsla(213, 100%, 50%, 0.2)`,
+                selectionInactiveColor: 'hsla(0, 0%, 0%, 0.08)',
             },
             history: {
                 collapseThreshold: 500,

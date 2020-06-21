@@ -1,3 +1,4 @@
+import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
 import { IDOMService } from '../dom/service';
 import { IBoundingBox } from '../layout/node';
@@ -11,23 +12,31 @@ export interface ICursorView {
     attach(): void;
 }
 
-const CURSOR_HUE = 213;
-
 export class CursorView implements ICursorView {
     protected blinkInterval: number | null = null;
     protected blinkState = true;
     protected domCaret: HTMLDivElement;
     protected domSelections: HTMLDivElement[] = [];
     protected attached = false;
+    protected caretColor: string;
+    protected caretInactiveColor: string;
+    protected selectionColor: string;
+    protected selectionInactiveColor: string;
 
     constructor(
         protected instanceId: string,
+        protected configService: IConfigService,
         protected domService: IDOMService,
         protected cursorService: ICursorService,
         protected layoutService: ILayoutService,
         protected viewService: IViewService,
         protected transformService: ITransformService,
     ) {
+        const cursorConfig = configService.getConfig().cursor;
+        this.caretColor = cursorConfig.caretColor;
+        this.caretInactiveColor = cursorConfig.caretInactiveColor;
+        this.selectionColor = cursorConfig.selectionColor;
+        this.selectionInactiveColor = cursorConfig.selectionInactiveColor;
         this.domCaret = domService.createElement('div');
         this.domCaret.className = 'tw--cursor--caret';
         this.domCaret.setAttribute('data-tw-instance', this.instanceId);
@@ -61,47 +70,51 @@ export class CursorView implements ICursorView {
         const viewDoc = this.viewService.getDoc();
         const layoutDoc = this.layoutService.getDoc();
         const focused = this.viewService.isFocused();
-        let firstPageOffset: number = -1;
+        let firstPageId = '';
         let firstBoxOffset: number = -1;
-        let lastPageOffset: number = -1;
+        let lastPageId = '';
         let lastBoxOffset: number = -1;
         docBoxResult.children.forEach((pageBoxResult) => {
             const pageOffset = layoutDoc.children.indexOf(pageBoxResult.node);
             const viewPage = viewDoc.children.at(pageOffset) as IViewPage;
             const domContentContainer = viewPage.domContentContainer;
             pageBoxResult.boundingBoxes.forEach((box, boxOffset) => {
-                if (firstPageOffset < 0) {
-                    firstPageOffset = pageOffset;
+                if (!firstPageId) {
+                    firstPageId = pageBoxResult.node.id;
                     firstBoxOffset = boxOffset;
                 }
-                lastPageOffset = pageOffset;
+                lastPageId = pageBoxResult.node.id;
                 lastBoxOffset = boxOffset;
                 if (box.width === 0) {
                     return;
                 }
                 const domSelection = this.buildDOMSelection(box);
                 if (focused) {
-                    domSelection.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 0.2)`;
+                    domSelection.style.background = this.selectionColor;
                 } else {
-                    domSelection.style.background = 'hsla(0, 0%, 0%, 0.08)';
+                    domSelection.style.background = this.selectionInactiveColor;
                 }
                 domContentContainer.appendChild(domSelection);
                 this.domSelections.push(domSelection);
             });
         });
-        let headPageOffset: number;
+        let headPageId: string;
         let headLeft: number;
         let headTop: number;
         let headHeight: number;
         if (head < anchor) {
-            headPageOffset = firstPageOffset;
-            const rect = docBoxResult.children[firstPageOffset].boundingBoxes[firstBoxOffset];
+            headPageId = firstPageId;
+            const rect = docBoxResult.children.find((child) => child.node.id === firstPageId)!.boundingBoxes[
+                firstBoxOffset
+            ];
             headLeft = rect.left;
             headTop = rect.top;
             headHeight = rect.height;
         } else {
-            headPageOffset = lastPageOffset;
-            const rect = docBoxResult.children[lastPageOffset].boundingBoxes[lastBoxOffset];
+            headPageId = lastPageId;
+            const rect = docBoxResult.children.find((child) => child.node.id === lastPageId)!.boundingBoxes[
+                lastBoxOffset
+            ];
             headLeft = rect.left + rect.width;
             headTop = rect.top;
             headHeight = rect.height;
@@ -112,11 +125,12 @@ export class CursorView implements ICursorView {
             this.domCaret.style.left = `${headLeft}px`;
             this.domCaret.style.height = `${headHeight}px`;
             if (focused) {
-                this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+                this.domCaret.style.background = this.caretColor;
             } else {
-                this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+                this.domCaret.style.background = this.caretInactiveColor;
             }
-            const pageDOMContentContainer = (viewDoc.children.at(headPageOffset) as IViewPage).domContentContainer;
+            const pageDOMContentContainer = (viewDoc.children.find((child) => child.id === headPageId) as IViewPage)
+                .domContentContainer;
             if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContentContainer) {
                 this.domCaret.parentElement.removeChild(this.domCaret);
             }

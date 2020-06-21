@@ -13,6 +13,7 @@ import { ModelService } from '../model/service';
 import { RenderService } from '../render/service';
 import { ServiceRegistry } from '../service/registry';
 import { TextServiceStub } from '../text/service.stub';
+import { TransformService } from '../transform/service';
 import { ViewService } from './service';
 
 describe('ViewService', () => {
@@ -40,16 +41,26 @@ describe('ViewService', () => {
         ]);
         modelService = new ModelService(modelDoc, componentService);
         renderService = new RenderService(componentService, modelService);
+        const cursorService = new CursorService(configService, renderService, modelService);
         layoutService = new LayoutService(renderService, textService);
+        const transformService = new TransformService(
+            modelService,
+            componentService,
+            cursorService,
+            renderService,
+            layoutService,
+        );
         viewService = new ViewService(
             'test',
+            configService,
             domService,
             componentService,
             modelService,
             layoutService,
-            new CursorService(configService, renderService),
+            cursorService,
             renderService,
             new CommandService(configService, new ServiceRegistry()),
+            transformService,
         );
     });
 

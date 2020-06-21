@@ -77,6 +77,7 @@ export class Taleweaver {
         this.serviceRegistry.registerService('transform', this.transformService);
         this.viewService = new ViewService(
             this.instanceId,
+            this.configService,
             this.domService,
             this.componentService,
             this.modelService,
@@ -147,6 +148,10 @@ export class Taleweaver {
             },
             cursor: {
                 disable: false,
+                caretColor: `hsla(213, 100%, 50%, 1)`,
+                caretInactiveColor: 'hsla(0, 0%, 0%, 0.5)',
+                selectionColor: `hsla(213, 100%, 50%, 0.2)`,
+                selectionInactiveColor: 'hsla(0, 0%, 0%, 0.08)',
             },
             history: {
                 collapseThreshold: 500,
