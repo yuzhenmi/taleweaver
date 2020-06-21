@@ -86,7 +86,7 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
         if (modelOffset <= this.resolvePosition(0).depth) {
             return 0;
         }
-        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.size - 1) {
+        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 >= this.size - 1) {
             return this.size - 1;
         }
         return super.convertModelOffsetToOffset(modelOffset);

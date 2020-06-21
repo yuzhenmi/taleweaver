@@ -148,16 +148,6 @@ export class Remover extends Mutator<IRemoverState> {
         this.to -= text.length;
     }
 
-    protected getOffsetToParent(node: IModelNode<any>) {
-        let offset = 1;
-        let previousSibling = node.previousSibling;
-        while (previousSibling) {
-            offset += previousSibling.size;
-            previousSibling = previousSibling.previousSibling;
-        }
-        return offset;
-    }
-
     protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
         let previousSibling = node.previousSibling;
         if (!previousSibling) {
@@ -166,7 +156,13 @@ export class Remover extends Mutator<IRemoverState> {
             }
             return;
         }
-        this.current.offset -= 2;
+        const nodeOffset = this.getOffsetToRoot(node);
+        if (this.current.offset >= nodeOffset - 1) {
+            if (this.current.offset > nodeOffset) {
+                this.current.offset--;
+            }
+            this.current.offset--;
+        }
         this.to -= 2;
         const childNodeToJoin = node.firstChild;
         this.joinNodes(previousSibling, node);
@@ -180,12 +176,27 @@ export class Remover extends Mutator<IRemoverState> {
 
     protected updateCurrentNode(node: IModelNode<any>) {
         this.current.node = node;
-        this.current.nodeFrom = 0;
+        this.current.nodeFrom = this.getOffsetToRoot(node);
+        this.current.nodeTo = this.current.nodeFrom + node.size;
+    }
+
+    protected getOffsetToRoot(node: IModelNode<any>) {
+        let offset = 0;
         let n = node;
         while (n.parent) {
-            this.current.nodeFrom += this.getOffsetToParent(n);
+            offset += this.getOffsetToParent(n);
             n = n.parent;
         }
-        this.current.nodeTo = this.current.nodeFrom + node.size;
+        return offset;
+    }
+
+    protected getOffsetToParent(node: IModelNode<any>) {
+        let offset = 1;
+        let previousSibling = node.previousSibling;
+        while (previousSibling) {
+            offset += previousSibling.size;
+            previousSibling = previousSibling.previousSibling;
+        }
+        return offset;
     }
 }

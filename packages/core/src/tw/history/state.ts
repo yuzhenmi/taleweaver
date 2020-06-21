@@ -30,7 +30,10 @@ export class HistoryState implements IHistoryState {
         if (results.length === 0) {
             return;
         }
-        results.forEach((result) => this.transformService.applyTransformation(result.reverseTransformation));
+        for (let n = results.length - 1; n >= 0; n--) {
+            const result = results[n];
+            this.transformService.applyTransformation(result.reverseTransformation);
+        }
     }
 
     redo() {
@@ -60,33 +63,18 @@ export class HistoryState implements IHistoryState {
         return this.actions[this.offset];
     }
 
-    protected recordToNewAction(result: ITransformationResult) {
-        if (result.changeResults.length === 0) {
-            return;
-        }
-        if (this.offset < this.actions.length - 1) {
-            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
-        }
-        const action = new HistoryAction();
-        action.recordTransformationResult(result);
-        this.actions.push(action);
-        this.offset++;
-    }
-
-    protected recordToLastAction(result: ITransformationResult) {
-        const action = this.actions[this.offset];
-        if (!action) {
-            throw new Error('Error recording applied transformation, history is empty.');
-        }
-        if (this.offset < this.actions.length - 1) {
-            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
-        }
-        action.recordTransformationResult(result);
-    }
-
     protected handleDidApplyTransformation = (event: IDidApplyTransformationEvent) => {
         const { result } = event;
-        // Do not record applied transformation if originated from redo
+        // Do not record undo
+        if (
+            this.offset + 1 < this.actions.length &&
+            this.actions[this.offset + 1].transformationResults.some(
+                (tnResult) => tnResult.reverseTransformation === result.transformation,
+            )
+        ) {
+            return;
+        }
+        // Do not record redo
         if (
             this.offset >= 0 &&
             this.actions[this.offset].transformationResults.some(
@@ -110,4 +98,28 @@ export class HistoryState implements IHistoryState {
             this.recordToNewAction(result);
         }
     };
+
+    protected recordToNewAction(result: ITransformationResult) {
+        if (result.changeResults.length === 0) {
+            return;
+        }
+        if (this.offset < this.actions.length - 1) {
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
+        }
+        const action = new HistoryAction();
+        action.recordTransformationResult(result);
+        this.actions.push(action);
+        this.offset++;
+    }
+
+    protected recordToLastAction(result: ITransformationResult) {
+        const action = this.actions[this.offset];
+        if (!action) {
+            throw new Error('Error recording applied transformation, history is empty.');
+        }
+        if (this.offset < this.actions.length - 1) {
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
+        }
+        action.recordTransformationResult(result);
+    }
 }

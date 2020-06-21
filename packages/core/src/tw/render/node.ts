@@ -146,7 +146,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             cumulatedModelSize += childModelSize;
             cumulatedSize += child.size;
         }
-        return this.size;
+        throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
 }
 

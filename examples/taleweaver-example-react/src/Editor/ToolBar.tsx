@@ -148,18 +148,22 @@ interface Props {
     taleweaver: Taleweaver | null;
 }
 
-function getTextStyles(taleweaver: Taleweaver): ITextStyle[] {
+function getTextStylesByRange(taleweaver: Taleweaver, from: number, to: number): ITextStyle[] {
     const renderService = taleweaver.getServiceRegistry().getService('render');
-    const cursorService = taleweaver.getServiceRegistry().getService('cursor');
-    const { anchor, head } = cursorService.getCursor();
-    const styles = renderService.getStylesBetween(Math.min(anchor, head), Math.max(anchor, head));
-    if (!styles.text) {
-        return [];
-    }
-    if (!styles.text.text) {
+    const styles = renderService.getStylesBetween(from, to);
+    if (!styles.text || !styles.text.text) {
+        if (styles.paragraph && styles.paragraph['line-break'] && from === to) {
+            return getTextStylesByRange(taleweaver, from - 1, to - 1);
+        }
         return [];
     }
     return styles.text.text as ITextStyle[];
+}
+
+function getTextStyles(taleweaver: Taleweaver) {
+    const cursorService = taleweaver.getServiceRegistry().getService('cursor');
+    const { anchor, head } = cursorService.getCursor();
+    return getTextStylesByRange(taleweaver, Math.min(anchor, head), Math.max(anchor, head));
 }
 
 export default function ToolBar({ taleweaver }: Props) {
