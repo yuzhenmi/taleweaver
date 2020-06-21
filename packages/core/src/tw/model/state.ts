@@ -1,17 +1,17 @@
 import { IComponentService } from '../component/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
-import { IModelChange, IModelChangeResult } from './change/change';
+import { IChange, IChangeResult } from './change/change';
 import { IModelRoot } from './root';
 
 export interface IDidUpdateModelStateEvent {
-    changeResult: IModelChangeResult;
+    changeResult: IChangeResult;
 }
 
 export interface IModelState {
     readonly root: IModelRoot<any>;
 
-    applyChange(change: IModelChange): IModelChangeResult;
+    applyChange(change: IChange): IChangeResult;
     onDidUpdate: IOnEvent<IDidUpdateModelStateEvent>;
 }
 
@@ -20,7 +20,7 @@ export class ModelState implements IModelState {
 
     constructor(readonly root: IModelRoot<any>, protected componentService: IComponentService) {}
 
-    applyChange(change: IModelChange) {
+    applyChange(change: IChange) {
         const changeResult = change.apply(this.root, this.componentService);
         this.didUpdateEventEmitter.emit({ changeResult });
         return changeResult;

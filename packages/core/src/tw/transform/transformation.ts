@@ -1,9 +1,9 @@
 import { ICursorService } from '../cursor/service';
 import { ILayoutService } from '../layout/service';
+import { IChange, IChangeResult } from '../model/change/change';
 import { IMapping } from '../model/change/mapping';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
-import { IChange, IChangeResult } from './change';
 
 export interface ITransformation {
     apply(
@@ -21,7 +21,12 @@ export interface ITransformationResult {
 }
 
 export class Transformation implements ITransformation {
-    constructor(protected changes: IChange[], protected keepLeftLock = false) {}
+    constructor(
+        protected changes: IChange[],
+        protected modelCursorHead?: number,
+        protected modelCursorAnchor?: number,
+        protected keepLeftLock = false,
+    ) {}
 
     apply(
         modelService: IModelService,
@@ -29,72 +34,62 @@ export class Transformation implements ITransformation {
         renderService: IRenderService,
         layoutService: ILayoutService,
     ): ITransformationResult {
-        const changeResults = this.applyChanges(modelService, cursorService, renderService);
-        if (cursorService.hasCursor() && !this.keepLeftLock) {
-            const { node: line, offset: lineOffset } = layoutService
-                .resolvePosition(cursorService.getCursor().head)
-                .atLineDepth();
-            cursorService.setLeftLock(line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left);
+        let originalCursorModelAnchor: number | undefined = undefined;
+        let originalCursorModelHead: number | undefined = undefined;
+        if (cursorService.hasCursor()) {
+            const { anchor, head } = cursorService.getCursor();
+            originalCursorModelAnchor = renderService.convertOffsetToModelOffset(anchor);
+            originalCursorModelHead = renderService.convertOffsetToModelOffset(head);
+        }
+        const changeResults = this.applyChanges(modelService);
+        if (cursorService.hasCursor()) {
+            if (this.modelCursorHead !== undefined) {
+                const cursorHead = renderService.convertModelOffsetToOffset(this.modelCursorHead);
+                let cursorAnchor = cursorHead;
+                if (this.modelCursorAnchor !== undefined) {
+                    cursorAnchor = renderService.convertModelOffsetToOffset(this.modelCursorAnchor);
+                }
+                cursorService.setCursor(cursorAnchor, cursorHead);
+            }
+            if (!this.keepLeftLock) {
+                const { node: line, offset: lineOffset } = layoutService
+                    .resolvePosition(cursorService.getCursor().head)
+                    .atLineDepth();
+                cursorService.setLeftLock(line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left);
+            }
+        }
+        const reverseChanges: IChange[] = [];
+        const reverseMappings: IMapping[] = [];
+        for (let n = changeResults.length - 1; n >= 0; n--) {
+            const changeResult = changeResults[n];
+            reverseChanges.push(
+                reverseMappings.reduce(
+                    (reverseChange, reverseMapping) => reverseChange.map(reverseMapping),
+                    changeResult.reverseChange,
+                ),
+            );
+            reverseMappings.push(changeResult.mapping.reverse());
         }
         return new TransformationResult(
             this,
             changeResults,
-            new Transformation(
-                changeResults.map((changeResult) => changeResult.reverseChange),
-                this.keepLeftLock,
-            ),
+            new Transformation(reverseChanges, originalCursorModelHead, originalCursorModelAnchor, this.keepLeftLock),
         );
     }
 
-    protected applyChanges(modelService: IModelService, cursorService: ICursorService, renderService: IRenderService) {
+    protected applyChanges(modelService: IModelService) {
         const changeResults: IChangeResult[] = [];
         const mappings: IMapping[] = [];
         let changes = [...this.changes];
         while (changes.length > 0) {
             const change = changes.shift()!;
-            let changeResult: IChangeResult;
-            switch (change.type) {
-                case 'model':
-                    const { modelAnchor, modelHead } = this.getCursorModelOffsets(cursorService, renderService);
-                    changeResult = modelService.applyChange(change, mappings);
-                    const mapping = changeResult.mapping;
-                    mappings.push(mapping);
-                    this.mapCursor(modelAnchor, modelHead, mapping, cursorService, renderService);
-                    changes = changes.map((c) => c.map(mapping));
-                    break;
-                case 'cursor':
-                    if (!cursorService.hasCursor()) {
-                        continue;
-                    }
-                    changeResult = cursorService.applyChange(change);
-                    break;
-                default:
-                    throw new Error('Unknown change type.');
-            }
+            const changeResult = modelService.applyChange(change, mappings);
+            const mapping = changeResult.mapping;
+            mappings.push(mapping);
+            changes = changes.map((c) => c.map(mapping));
             changeResults.push(changeResult);
         }
         return changeResults;
-    }
-
-    protected getCursorModelOffsets(cursorService: ICursorService, renderService: IRenderService) {
-        const cursor = cursorService.getCursor();
-        const modelAnchor = renderService.convertOffsetToModelOffset(cursor.anchor);
-        const modelHead = renderService.convertOffsetToModelOffset(cursor.head);
-        return { modelAnchor, modelHead };
-    }
-
-    protected mapCursor(
-        modelAnchor: number,
-        modelHead: number,
-        mapping: IMapping,
-        cursorService: ICursorService,
-        renderService: IRenderService,
-    ) {
-        const newModelAnchor = mapping.map(modelAnchor);
-        const newModelHead = mapping.map(modelHead);
-        const newAnchor = renderService.convertModelOffsetToOffset(newModelAnchor);
-        const newHead = renderService.convertModelOffsetToOffset(newModelHead);
-        cursorService.setCursor(newAnchor, newHead);
     }
 }
 

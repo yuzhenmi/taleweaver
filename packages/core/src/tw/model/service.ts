@@ -1,6 +1,6 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
-import { IModelChange, IModelChangeResult } from './change/change';
+import { IChange, IChangeResult } from './change/change';
 import { IMapping } from './change/mapping';
 import { IModelNode, IModelPosition } from './node';
 import { IModelRoot } from './root';
@@ -9,7 +9,7 @@ import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 export interface IModelService {
     getRoot(): IModelRoot<any>;
     getRootSize(): number;
-    applyChange(change: IModelChange, mappings: IMapping[]): IModelChangeResult;
+    applyChange(change: IChange, mappings: IMapping[]): IChangeResult;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
@@ -31,7 +31,7 @@ export class ModelService implements IModelService {
         return this.state.root.size;
     }
 
-    applyChange(change: IModelChange) {
+    applyChange(change: IChange) {
         return this.state.applyChange(change);
     }
 

@@ -3,6 +3,7 @@ import { IRenderService } from '../../render/service';
 export interface IMapping {
     map(offset: number): number;
     mapRender(offset: number, renderService: IRenderService): number;
+    reverse(): IMapping;
 }
 
 export class Mapping {
@@ -22,5 +23,9 @@ export class Mapping {
         const modelOffset = renderService.convertOffsetToModelOffset(offset);
         const newModelOffset = this.map(modelOffset);
         return renderService.convertModelOffsetToOffset(newModelOffset);
+    }
+
+    reverse() {
+        return new Mapping(this.from, this.newSize, this.oldSize);
     }
 }
