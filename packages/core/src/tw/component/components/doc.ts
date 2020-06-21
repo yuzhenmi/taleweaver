@@ -56,8 +56,8 @@ export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
         return 'doc';
     }
 
-    get padModelSize() {
-        return true;
+    get pseudo() {
+        return false;
     }
 
     get style() {

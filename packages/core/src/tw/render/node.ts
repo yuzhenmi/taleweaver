@@ -27,7 +27,7 @@ export interface IRenderPositionDepth extends IPositionDepth<IRenderNode<any, an
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
-    protected abstract get padModelSize(): boolean;
+    protected abstract get pseudo(): boolean;
 
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
@@ -63,11 +63,13 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     }
 
     get modelSize() {
+        if (this.pseudo) {
+            return 0;
+        }
         if (this.internalChildrenModelSize === undefined) {
             this.internalChildrenModelSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 0);
         }
-        const padding = this.padModelSize ? 2 : 0;
-        return this.internalChildrenModelSize! + padding + this.text.length;
+        return this.internalChildrenModelSize! + 2 + this.text.length;
     }
 
     get needLayout() {
@@ -107,7 +109,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             throw new Error('Offset is out of range.');
         }
         let cumulatedSize = 0;
-        let cumulatedModelSize = this.padModelSize ? 1 : 0;
+        let cumulatedModelSize = this.pseudo ? 0 : 1;
         if (this.leaf) {
             return cumulatedModelSize + offset;
         }
@@ -127,7 +129,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         if (modelOffset < 0 || modelOffset >= this.modelSize) {
             throw new Error('Model offset is out of range.');
         }
-        let cumulatedModelSize = this.padModelSize ? 1 : 0;
+        let cumulatedModelSize = this.pseudo ? 0 : 1;
         let cumulatedSize = 0;
         if (modelOffset <= cumulatedModelSize) {
             return 0;

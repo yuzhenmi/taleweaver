@@ -48,8 +48,8 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
         return 'paragraph';
     }
 
-    get padModelSize() {
-        return true;
+    get pseudo() {
+        return false;
     }
 
     get paddingTop() {
@@ -74,7 +74,7 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
 
     convertOffsetToModelOffset(offset: number): number {
         if (this.size === 1) {
-            return 0;
+            return this.resolvePosition(0).depth;
         }
         if (offset === this.size - 1) {
             return super.convertOffsetToModelOffset(offset - 1) + 1;
@@ -83,7 +83,7 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     }
 
     convertModelOffsetToOffset(modelOffset: number): number {
-        if (this.size === 1) {
+        if (modelOffset <= this.resolvePosition(0).depth) {
             return 0;
         }
         if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.size - 1) {
@@ -102,8 +102,8 @@ export class RenderParagraphLineBreak extends RenderText<null, null> {
         return 'line-break';
     }
 
-    get padModelSize() {
-        return false;
+    get pseudo() {
+        return true;
     }
 
     get paddingTop() {

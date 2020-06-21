@@ -21,6 +21,7 @@ export class ModelState implements IModelState {
     constructor(readonly root: IModelRoot<any>, protected componentService: IComponentService) {}
 
     applyChange(change: IModelChange) {
+        console.log(change, this.root);
         const changeResult = change.apply(this.root, this.componentService);
         this.didUpdateEventEmitter.emit({ changeResult });
         return changeResult;

@@ -125,8 +125,8 @@ export class LayoutEngine implements ILayoutEngine {
             return texts;
         }
         const newChildren: ILayoutNode[] = [];
-        this.textService.breakIntoWords(renderText.text).forEach((wordText) => {
-            newChildren.push(this.buildWord(renderText, wordText));
+        this.textService.breakIntoWords(renderText.text).forEach((word) => {
+            newChildren.push(this.buildWord(renderText, word.text, word.whitespaceSize));
         });
         renderText.clearNeedLayout();
         return [this.buildText(renderText, newChildren)];
@@ -183,11 +183,11 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildWord(renderText: IRenderText<any, any>, word: string) {
+    protected buildWord(renderText: IRenderText<any, any>, text: string, whitespaceSize: number) {
         if (renderText.type !== 'text') {
             throw new Error('Expected text.');
         }
-        return new LayoutWord(renderText.id, word, renderText.font, this.textService);
+        return new LayoutWord(renderText.id, text, whitespaceSize, renderText.font, this.textService);
     }
 
     protected buildAtom(renderAtom: IRenderAtom<any, any>) {

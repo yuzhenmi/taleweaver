@@ -20,7 +20,7 @@ export const insert: ICommandHandler = async (serviceRegistry, content: string) 
     const modelTo = renderService.convertOffsetToModelOffset(to);
     const changes: IChange[] = [new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [new Fragment(content, 0)])];
     if (modelFrom === modelTo) {
-        changes.push(new MoveBy(1, false));
+        changes.push(new MoveBy(content.length, false));
     }
     transformService.applyTransformation(new Transformation(changes));
 };
@@ -79,7 +79,7 @@ export const deleteForward: ICommandHandler = async (serviceRegistry) => {
     );
 };
 
-export const splitLine: ICommandHandler = async (serviceRegistry) => {
+export const breakLine: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -88,10 +88,12 @@ export const splitLine: ICommandHandler = async (serviceRegistry) => {
     }
     const { anchor, head } = cursorService.getCursor();
     const from = Math.min(anchor, head);
-    const to = Math.min(anchor, head);
+    const to = Math.max(anchor, head);
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
-    transformService.applyTransformation(
-        new Transformation([new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [new Fragment([], 1)])]),
-    );
+    const changes: IChange[] = [new MoveTo(modelTo), new ReplaceChange(modelFrom, modelTo, [new Fragment([], 2)])];
+    if (modelFrom === modelTo) {
+        changes.push(new MoveBy(1, false));
+    }
+    transformService.applyTransformation(new Transformation(changes));
 };

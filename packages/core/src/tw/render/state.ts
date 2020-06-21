@@ -43,10 +43,7 @@ export class RenderState implements IRenderState {
     }
 
     protected updateNode(node: IRenderNode<any, any> | null, modelNode: IModelNode<any>): IRenderNode<any, any> {
-        if (!modelNode.needRender) {
-            if (!node) {
-                throw new Error('Expected node to be available.');
-            }
+        if (!modelNode.needRender && node) {
             return node;
         }
         const childrenMap: { [key: string]: IRenderNode<any, any> } = {};

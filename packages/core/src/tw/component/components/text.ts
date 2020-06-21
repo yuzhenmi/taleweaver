@@ -61,8 +61,8 @@ export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> 
         return 'text';
     }
 
-    get padModelSize() {
-        return true;
+    get pseudo() {
+        return false;
     }
 
     get paddingTop() {

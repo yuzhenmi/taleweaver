@@ -2,6 +2,7 @@ import { IFont, ITextService } from '../text/service';
 import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
 
 export interface ILayoutWord extends ILayoutNode {
+    readonly whitespaceSize: number;
     readonly trimmedWidth: number;
 }
 
@@ -10,7 +11,13 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     protected internalHeight?: number;
     protected internalTrimmedWidth?: number;
 
-    constructor(renderId: string | null, text: string, readonly font: IFont, protected textService: ITextService) {
+    constructor(
+        renderId: string | null,
+        text: string,
+        readonly whitespaceSize: number,
+        readonly font: IFont,
+        protected textService: ITextService,
+    ) {
         super(renderId, text, [], 0, 0, 0, 0);
     }
 
@@ -42,7 +49,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
 
     get trimmedWidth() {
         if (this.internalTrimmedWidth === undefined) {
-            const trimmedText = this.textService.trim(this.text);
+            const trimmedText = this.text.substring(0, this.text.length - this.whitespaceSize);
             this.internalTrimmedWidth = this.textService.measure(trimmedText, this.font).width;
         }
         return this.internalTrimmedWidth;

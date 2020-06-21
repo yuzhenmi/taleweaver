@@ -26,8 +26,8 @@ export abstract class RenderAtom<TStyle, TAttributes> extends RenderNode<TStyle,
         return true;
     }
 
-    get padModelSize() {
-        return false;
+    get pseudo() {
+        return true;
     }
 
     get text() {

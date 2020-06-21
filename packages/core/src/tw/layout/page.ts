@@ -63,9 +63,6 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
                 offset += lastChild.convertCoordinatesToOffset(contentX, lastChild.height);
             }
         }
-        if (offset === this.size) {
-            offset--;
-        }
         return offset;
     }
 

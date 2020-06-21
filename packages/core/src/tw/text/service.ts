@@ -31,8 +31,7 @@ export const BREAKABLE_CHARS = [' ', '\n', '\t'];
 
 export interface ITextService {
     measure(text: string, font: IFont): ITextMeasurement;
-    trim(text: string): string;
-    breakIntoWords(text: string): string[];
+    breakIntoWords(text: string): Array<{ text: string; whitespaceSize: number }>;
     applyDefaultFont(font: Partial<IFont>): IFont;
 }
 
@@ -62,26 +61,25 @@ export class TextService implements ITextService {
         };
     }
 
-    trim(text: string) {
-        if (!this.testTrimmable(text)) {
-            return text;
-        }
-        return text.substring(0, text.length - 1);
-    }
-
     breakIntoWords(text: string) {
-        const words: string[] = [];
+        const words: Array<{ text: string; whitespaceSize: number }> = [];
         let word = '';
         for (let n = 0, nn = text.length; n < nn; n++) {
             const char = text[n];
             word += char;
             if (BREAKABLE_CHARS.includes(char)) {
-                words.push(word);
+                words.push({
+                    text: word,
+                    whitespaceSize: 1,
+                });
                 word = '';
             }
         }
         if (word.length > 0) {
-            words.push(word);
+            words.push({
+                text: word,
+                whitespaceSize: 0,
+            });
         }
         return words;
     }
@@ -103,12 +101,5 @@ export class TextService implements ITextService {
             return `'${fontFamily}'`;
         }
         return fontFamily;
-    }
-
-    protected testTrimmable(text: string) {
-        if (text.length === 0) {
-            return false;
-        }
-        return BREAKABLE_CHARS.includes(text[text.length - 1]);
     }
 }

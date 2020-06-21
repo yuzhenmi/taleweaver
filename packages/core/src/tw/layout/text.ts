@@ -76,9 +76,6 @@ export class LayoutText extends LayoutNode implements ILayoutText {
             offset += child.size;
             cumulatedWidth += childWidth;
         }
-        if (offset === this.size) {
-            return offset - 1;
-        }
         return offset;
     }
 

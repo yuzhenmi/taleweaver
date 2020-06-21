@@ -1,4 +1,5 @@
 import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { ILayoutWord } from './word';
 
 export interface ILayoutLine extends ILayoutNode {
     readonly contentWidth: number;
@@ -53,7 +54,13 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
             cumulatedWidth += childWidth;
         }
         if (offset === this.size) {
-            return offset - 1;
+            const lastChild = this.lastChild;
+            if (lastChild && lastChild.type === 'text') {
+                const lastWord = lastChild.lastChild as ILayoutWord | undefined;
+                if (lastWord && lastWord.whitespaceSize > 0) {
+                    offset--;
+                }
+            }
         }
         return offset;
     }

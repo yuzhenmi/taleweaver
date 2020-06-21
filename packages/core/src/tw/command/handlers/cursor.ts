@@ -1,6 +1,7 @@
 import { MoveBy } from '../../cursor/change/moveBy';
 import { MoveTo } from '../../cursor/change/moveTo';
 import { ILayoutService } from '../../layout/service';
+import { ILayoutWord } from '../../layout/word';
 import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
 
@@ -27,7 +28,7 @@ function atPreviousWord(offset: number, layoutService: ILayoutService) {
     if (wordOffset > 0) {
         return offset - wordOffset;
     }
-    const previousWord = word.previousCrossParentSibling;
+    const previousWord = word.previousCrossParentSibling as ILayoutWord | undefined;
     if (!previousWord) {
         return offset;
     }
@@ -37,13 +38,13 @@ function atPreviousWord(offset: number, layoutService: ILayoutService) {
 function atNextWord(offset: number, layoutService: ILayoutService) {
     const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
     if (wordOffset < word.size - 1) {
-        return offset - wordOffset + word.size;
+        return offset - wordOffset + word.size - (word as ILayoutWord).whitespaceSize;
     }
     const nextWord = word.nextCrossParentSibling;
     if (!nextWord) {
         return offset;
     }
-    return offset - wordOffset + word.size + nextWord.size - 1;
+    return offset - wordOffset + word.size + nextWord.size - (nextWord as ILayoutWord).whitespaceSize;
 }
 
 function atLineStart(offset: number, layoutService: ILayoutService) {
@@ -69,7 +70,7 @@ export const move: ICommandHandler = async (serviceRegistry, offset: number) => 
     transformService.applyTransformation(new Transformation([new MoveTo(modelOffset)]));
 };
 
-export const moveLeft: ICommandHandler = async (serviceRegistry) => {
+export const moveBackward: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -83,7 +84,7 @@ export const moveLeft: ICommandHandler = async (serviceRegistry) => {
     }
 };
 
-export const moveRight: ICommandHandler = async (serviceRegistry) => {
+export const moveForward: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -97,7 +98,7 @@ export const moveRight: ICommandHandler = async (serviceRegistry) => {
     }
 };
 
-export const moveUp: ICommandHandler = async (serviceRegistry) => {
+export const moveBackwardByLine: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
@@ -112,7 +113,7 @@ export const moveUp: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelOffset)], true));
 };
 
-export const moveDown: ICommandHandler = async (serviceRegistry) => {
+export const moveForwardByLine: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
@@ -127,7 +128,7 @@ export const moveDown: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelOffset)], true));
 };
 
-export const moveLeftByWord: ICommandHandler = async (serviceRegistry) => {
+export const moveBackwardByWord: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
@@ -142,7 +143,7 @@ export const moveLeftByWord: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelOffset)]));
 };
 
-export const moveRightByWord: ICommandHandler = async (serviceRegistry) => {
+export const moveForwardByWord: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const layoutService = serviceRegistry.getService('layout');
@@ -194,8 +195,9 @@ export const moveToDocStart: ICommandHandler = async (serviceRegistry) => {
 
 export const moveToDocEnd: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
-    const modelService = serviceRegistry.getService('model');
-    const newModelOffset = modelService.getRootSize() - 1;
+    const renderService = serviceRegistry.getService('render');
+    const newOffset = renderService.getDocSize() - 1;
+    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
     transformService.applyTransformation(new Transformation([new MoveTo(newModelOffset)]));
 };
 
@@ -209,17 +211,17 @@ export const moveHead: ICommandHandler = async (serviceRegistry, offset: number)
     transformService.applyTransformation(new Transformation([new MoveTo(newModelHead, modelAnchor)]));
 };
 
-export const moveHeadLeft: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadBackward: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     transformService.applyTransformation(new Transformation([new MoveBy(-1, true)]));
 };
 
-export const moveHeadRight: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadForward: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     transformService.applyTransformation(new Transformation([new MoveBy(1, true)]));
 };
 
-export const moveHeadUp: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadBackwardByLine: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -234,7 +236,7 @@ export const moveHeadUp: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelHead, modelAnchor)], true));
 };
 
-export const moveHeadDown: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadForwardByLine: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -249,7 +251,7 @@ export const moveHeadDown: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelHead, modelAnchor)], true));
 };
 
-export const moveHeadLeftByWord: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadBackwardByWord: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -264,7 +266,7 @@ export const moveHeadLeftByWord: ICommandHandler = async (serviceRegistry) => {
     transformService.applyTransformation(new Transformation([new MoveTo(newModelHead, modelAnchor)]));
 };
 
-export const moveHeadRightByWord: ICommandHandler = async (serviceRegistry) => {
+export const moveHeadForwardByWord: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -351,8 +353,16 @@ export const selectWord: ICommandHandler = async (serviceRegistry, offset: numbe
     if (!cursorService.hasCursor()) {
         return;
     }
-    const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
-    const newHead = offset - wordOffset + word.size;
+    let { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
+    if (word.size - (word as ILayoutWord).whitespaceSize === 0) {
+        const previousWord = word.previousCrossParentSibling;
+        if (!previousWord) {
+            return;
+        }
+        word = previousWord;
+        wordOffset += word.size;
+    }
+    const newHead = offset - wordOffset + word.size - (word as ILayoutWord).whitespaceSize;
     const newAnchor = offset - wordOffset;
     const newModelHead = renderService.convertOffsetToModelOffset(newHead);
     const newModelAnchor = renderService.convertOffsetToModelOffset(newAnchor);

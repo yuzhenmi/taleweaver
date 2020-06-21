@@ -49,6 +49,13 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
             offset += child.size;
             cumulatedHeight += childHeight;
         }
+        if (offset === this.size) {
+            const lastChild = this.lastChild;
+            if (lastChild) {
+                offset -= lastChild.size;
+                offset += lastChild.convertCoordinatesToOffset(x, lastChild.height);
+            }
+        }
         return offset;
     }
 
