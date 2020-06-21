@@ -3,7 +3,6 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
-import { ICursorChange, ICursorChangeResult } from './change/change';
 
 export interface ICursor {
     anchor: number;
@@ -19,7 +18,6 @@ export interface ICursorState {
 
     set(anchor: number, head: number): void;
     setLeftLock(leftLock: number): void;
-    applyChange(change: ICursorChange): ICursorChangeResult;
     onDidUpdate: IOnEvent<IDidUpdateCursorStateEvent>;
 }
 
@@ -67,12 +65,6 @@ export class CursorState {
             head: this.internalCursor!.head,
             leftLock,
         };
-    }
-
-    applyChange(change: ICursorChange) {
-        const changeResult = change.apply(this, this.modelService, this.renderService);
-        this.didUpdateEventEmitter.emit({});
-        return changeResult;
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateCursorStateEvent>) {

@@ -2,7 +2,6 @@ import { IConfigService } from '../config/service';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
-import { ICursorChange, ICursorChangeResult } from './change/change';
 import { CursorState, ICursor, ICursorState, IDidUpdateCursorStateEvent } from './state';
 
 export interface ICursorService {
@@ -10,7 +9,6 @@ export interface ICursorService {
     getCursor(): ICursor;
     setCursor(anchor: number, head: number): void;
     setLeftLock(leftLock: number): void;
-    applyChange(change: ICursorChange): ICursorChangeResult;
     onDidUpdate: IOnEvent<IDidUpdateCursorStateEvent>;
 }
 
@@ -35,10 +33,6 @@ export class CursorService implements ICursorService {
 
     setLeftLock(leftLock: number) {
         this.state.setLeftLock(leftLock);
-    }
-
-    applyChange(change: ICursorChange) {
-        return this.state.applyChange(change);
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateCursorStateEvent>) {
