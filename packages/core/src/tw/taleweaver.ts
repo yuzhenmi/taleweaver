@@ -15,19 +15,17 @@ import { DOMService, IDOMService } from './dom/service';
 import { HistoryService, IHistoryService } from './history/service';
 import { IKeyBindingService, KeyBindingService } from './key-binding/service';
 import { ILayoutService, LayoutService } from './layout/service';
+import { ReplaceChange } from './model/change/replace';
+import { Fragment } from './model/fragment';
 import { IModelRoot } from './model/root';
 import { IModelService, ModelService } from './model/service';
 import { IRenderService, RenderService } from './render/service';
 import { IServiceRegistry, ServiceRegistry } from './service/registry';
 import { ITextService, TextService } from './text/service';
 import { ITransformService, TransformService } from './transform/service';
+import { Transformation } from './transform/transformation';
 import { generateId } from './util/id';
 import { IViewService, ViewService } from './view/service';
-
-export interface ITaleweaver {
-    attach(domContainer: HTMLElement): void;
-    getServiceRegistry(): IServiceRegistry;
-}
 
 export class Taleweaver {
     protected instanceId: string;
@@ -92,6 +90,14 @@ export class Taleweaver {
         this.serviceRegistry.registerService('history', this.historyService);
         this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);
         this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
+    }
+
+    setContent(root: IModelRoot<any>) {
+        this.transformService.applyTransformation(
+            new Transformation([
+                new ReplaceChange(1, this.modelService.getRootSize() - 1, [new Fragment(root.children.slice(), 0)]),
+            ]),
+        );
     }
 
     attach(domContainer: HTMLElement) {

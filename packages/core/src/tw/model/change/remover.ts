@@ -98,6 +98,9 @@ export class Remover extends Mutator<IRemoverState> {
     }
 
     protected stepDown() {
+        if (this.current.node.children.length === 0) {
+            return;
+        }
         const nodeOffset = this.current.offset - this.current.nodeFrom;
         const position = this.current.node.resolvePosition(nodeOffset);
         const childNode = this.current.node.children.at(position.atDepth(0).index);
