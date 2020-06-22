@@ -19,7 +19,12 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Install dependencies, build and deploy
+      - name: Build core
+        working-directory: packages/core
+        run: |
+          npm install
+          npm run build
+      - name: Build and deploy example
         working-directory: examples/taleweaver-example-react
         run: |
           npm install
