@@ -75,7 +75,7 @@ export const moveBackward: ICommandHandler = async (serviceRegistry) => {
     const { anchor, head } = cursorService.getCursor();
     let newModelOffset: number;
     if (anchor === head) {
-        newModelOffset = renderService.convertOffsetToModelOffset(anchor) - 1;
+        newModelOffset = renderService.convertOffsetToModelOffset(anchor - 1);
     } else {
         const newOffset = Math.min(anchor, head);
         newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
@@ -90,7 +90,7 @@ export const moveForward: ICommandHandler = async (serviceRegistry) => {
     const { anchor, head } = cursorService.getCursor();
     let newModelOffset: number;
     if (anchor === head) {
-        newModelOffset = renderService.convertOffsetToModelOffset(anchor) + 1;
+        newModelOffset = renderService.convertOffsetToModelOffset(anchor + 1);
     } else {
         const newOffset = Math.max(anchor, head);
         newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
