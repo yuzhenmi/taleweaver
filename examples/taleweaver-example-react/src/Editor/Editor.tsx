@@ -2,6 +2,8 @@ import { IConfig, Taleweaver } from '@taleweaver/core';
 import { ModelDoc } from '@taleweaver/core/dist/tw/component/components/doc';
 import { ModelParagraph } from '@taleweaver/core/dist/tw/component/components/paragraph';
 import { ModelText } from '@taleweaver/core/dist/tw/component/components/text';
+import { generateId } from '@taleweaver/core/dist/tw/util/id';
+import { INode, parse } from '@taleweaver/core/dist/tw/util/serialize';
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import ToolBar from './ToolBar';
@@ -40,12 +42,18 @@ const EditorWrapper = styled.div`
     }
 `;
 
+function buildBlankDoc() {
+    return new ModelDoc('doc', generateId(), {}, [
+        new ModelParagraph('paragraph', generateId(), {}, [new ModelText('text', generateId(), '', {})]),
+    ]);
+}
+
 interface IProps {
-    initialMarkup: string;
+    initialDoc: INode;
     config?: IConfig['tw.core'];
 }
 
-export default function Editor({ initialMarkup, config }: IProps) {
+export default function Editor({ initialDoc, config }: IProps) {
     const domRef = useRef<HTMLDivElement>(null);
     const [taleweaver, setTaleweaver] = useState<Taleweaver | null>(null);
     useEffect(() => {
@@ -53,13 +61,11 @@ export default function Editor({ initialMarkup, config }: IProps) {
         if (config) {
             mergedConfig['tw.core'] = config;
         }
-        const doc = new ModelDoc('doc', 'doc', {}, [
-            new ModelParagraph('paragraph', 'p1', {}, [new ModelText('text', 't1', 'Hello world', {})]),
-        ]);
-        setTaleweaver(new Taleweaver(doc, mergedConfig));
+        setTaleweaver(new Taleweaver(buildBlankDoc(), mergedConfig));
     }, []);
     useEffect(() => {
         if (taleweaver && domRef.current) {
+            taleweaver.setContent(parse(initialDoc, taleweaver.getServiceRegistry().getService('component')));
             taleweaver.attach(domRef.current);
         }
     }, [taleweaver, domRef.current]);

@@ -43,18 +43,21 @@ export class Transformation implements ITransformation {
         }
         const changeResults = this.applyChanges(modelService);
         if (cursorService.hasCursor()) {
+            let { anchor: cursorAnchor, head: cursorHead } = cursorService.getCursor();
             if (this.modelCursorHead !== undefined) {
-                const cursorHead = renderService.convertModelOffsetToOffset(
+                cursorHead = renderService.convertModelOffsetToOffset(
                     this.boundModelOffset(this.modelCursorHead, modelService),
                 );
-                let cursorAnchor = cursorHead;
+                cursorAnchor = cursorHead;
                 if (this.modelCursorAnchor !== undefined) {
                     cursorAnchor = renderService.convertModelOffsetToOffset(
                         this.boundModelOffset(this.modelCursorAnchor, modelService),
                     );
                 }
-                cursorService.setCursor(cursorAnchor, cursorHead);
             }
+            cursorAnchor = this.boundOffset(cursorAnchor, renderService);
+            cursorHead = this.boundOffset(cursorHead, renderService);
+            cursorService.setCursor(cursorAnchor, cursorHead);
             if (!this.keepLeftLock) {
                 const { node: line, offset: lineOffset } = layoutService
                     .resolvePosition(cursorService.getCursor().head)
@@ -98,6 +101,10 @@ export class Transformation implements ITransformation {
 
     protected boundModelOffset(offset: number, modelService: IModelService) {
         return Math.max(0, Math.min(modelService.getRootSize() - 1, offset));
+    }
+
+    protected boundOffset(offset: number, renderService: IRenderService) {
+        return Math.max(0, Math.min(renderService.getDocSize() - 1, offset));
     }
 }
 

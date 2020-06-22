@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import './App.css';
 import Taleweaver from './Editor';
-import sampleMarkup from './samples/littleRedRidingHood';
+import sample from './samples/littleRedRidingHood';
 
 const Wrapper = styled.div``;
 
@@ -91,7 +91,7 @@ class App extends React.Component {
                     </DemoHintWrapper>
                 </Hero>
                 <Taleweaver
-                    initialMarkup={sampleMarkup}
+                    initialDoc={sample}
                     config={{
                         page: {
                             width: 816,
