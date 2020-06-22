@@ -1,5 +1,5 @@
 import { IConfigService } from '../config/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IServiceRegistry } from '../service/registry';
 import { CommandRegistry, ICommandRegistry } from './registry';
@@ -21,8 +21,8 @@ export interface ICommandService {
 }
 
 export class CommandService implements ICommandService {
-    protected willExecuteCommandEventEmitter: IEventEmitter<IWillExecuteCommandEvent> = new EventEmitter();
-    protected didExecuteCommandEventEmitter: IEventEmitter<IDidExecuteCommandEvent> = new EventEmitter();
+    protected willExecuteCommandEventEmitter = new EventEmitter<IWillExecuteCommandEvent>();
+    protected didExecuteCommandEventEmitter = new EventEmitter<IDidExecuteCommandEvent>();
     protected registry: ICommandRegistry = new CommandRegistry();
 
     constructor(configService: IConfigService, protected serviceRegistry: IServiceRegistry) {
@@ -32,11 +32,11 @@ export class CommandService implements ICommandService {
     }
 
     onWillExecuteCommand(listener: IEventListener<IWillExecuteCommandEvent>) {
-        this.willExecuteCommandEventEmitter.on(listener);
+        return this.willExecuteCommandEventEmitter.on(listener);
     }
 
     onDidExecuteCommand(listener: IEventListener<IDidExecuteCommandEvent>) {
-        this.didExecuteCommandEventEmitter.on(listener);
+        return this.didExecuteCommandEventEmitter.on(listener);
     }
 
     async executeCommand(commandId: string, ...args: any[]) {

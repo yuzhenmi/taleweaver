@@ -1,33 +1,72 @@
-import { ILayoutNode } from '../layout/node';
-import { IAttributes, IModelNode } from '../model/node';
+import { IModelNode } from '../model/node';
 import { IRenderNode } from '../render/node';
+import { IServiceRegistry } from '../service/registry';
 import { IViewNode } from '../view/node';
 
 export interface IComponent {
-    getId(): string;
+    readonly id: string;
+
     buildModelNode(
-        partId: string | undefined,
+        partId: string | null,
         id: string,
-        attributes: IAttributes,
-    ): IModelNode<IAttributes> | undefined;
-    buildRenderNode(modelNode: IModelNode): IRenderNode | undefined;
-    buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
-    buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
+        text: string,
+        attributes: {},
+        children: IModelNode<any>[],
+    ): IModelNode<any>;
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ): IRenderNode<any, any>;
+    buildViewNode(
+        domContainer: HTMLElement,
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ): IViewNode<any>;
 }
 
 export abstract class Component implements IComponent {
     abstract buildModelNode(
-        partId: string | undefined,
+        partId: string | null,
         id: string,
-        attributes: IAttributes,
-    ): IModelNode<IAttributes> | undefined;
-    abstract buildRenderNode(modelNode: IModelNode): IRenderNode | undefined;
-    abstract buildLayoutNode(renderNode: IRenderNode): ILayoutNode | undefined;
-    abstract buildViewNode(layoutNode: ILayoutNode): IViewNode | undefined;
+        text: string,
+        attributes: any,
+        children: IModelNode<any>[],
+    ): IModelNode<any>;
+    abstract buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ): IRenderNode<any, any>;
+    abstract buildViewNode(
+        domContainer: HTMLElement,
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ): IViewNode<any>;
 
-    constructor(protected id: string) {}
-
-    getId() {
-        return this.id;
-    }
+    constructor(readonly id: string, protected serviceRegistry: IServiceRegistry) {}
 }

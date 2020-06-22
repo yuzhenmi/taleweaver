@@ -1,71 +1,161 @@
 import { INode, Node } from '../tree/node';
-import { IPosition, Position } from '../tree/position';
+import { NodeList } from '../tree/node-list';
+import { IPosition, IPositionDepth, Position } from '../tree/position';
+import { generateId } from '../util/id';
 
-export type ILayoutNodeClass = 'doc' | 'page' | 'block' | 'line' | 'inline' | 'atomic';
+export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
 
-export interface ILayoutPosition extends IPosition<ILayoutNode> {}
+export interface ILayoutPosition extends IPosition<ILayoutNode> {
+    atLineDepth(): ILayoutPositionDepth;
+    atBlockDepth(): ILayoutPositionDepth;
+}
+export interface ILayoutPositionDepth extends IPositionDepth<ILayoutNode> {}
 
-export interface ILayoutNode<
-    TParent extends ILayoutNode = ILayoutNode<any, any>,
-    TChild extends ILayoutNode = ILayoutNode<any, any>
-> extends INode<TParent, TChild> {
-    getNodeClass(): ILayoutNodeClass;
-    getComponentId(): string;
-    getPartId(): string;
-    getSize(): number;
-    getWidth(): number;
-    getHeight(): number;
-    getInnerWidth(): number;
-    getInnerHeight(): number;
-    getPaddingTop(): number;
-    getPaddingBottom(): number;
-    getPaddingLeft(): number;
-    getPaddingRight(): number;
-    getVerticalPaddng(): number;
-    getHorizontalPaddng(): number;
-    resolvePosition(offset: number, depth?: number): ILayoutPosition;
+export interface IBoundingBox {
+    from: number;
+    to: number;
+    width: number;
+    height: number;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
 }
 
-export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {}
+export interface IResolveBoundingBoxesResult {
+    node: ILayoutNode;
+    boundingBoxes: IBoundingBox[];
+    children: IResolveBoundingBoxesResult[];
+}
 
-export abstract class LayoutNode<TParent extends ILayoutNode, TChild extends ILayoutNode> extends Node<TParent, TChild>
-    implements ILayoutNode<TParent, TChild> {
-    abstract getNodeClass(): ILayoutNodeClass;
-    abstract getPartId(): string;
-    abstract getSize(): number;
-    abstract getWidth(): number;
-    abstract getHeight(): number;
-    abstract getPaddingTop(): number;
-    abstract getPaddingBottom(): number;
-    abstract getPaddingLeft(): number;
-    abstract getPaddingRight(): number;
-    abstract resolvePosition(offset: number, depth?: number): ILayoutPosition;
+export interface ILayoutNode extends INode<ILayoutNode> {
+    readonly type: ILayoutNodeType;
+    readonly renderId: string | null;
+    readonly text: string;
+    readonly size: number;
+    readonly width: number;
+    readonly height: number;
+    readonly paddingTop: number;
+    readonly paddingBottom: number;
+    readonly paddingLeft: number;
+    readonly paddingRight: number;
+    readonly paddingVertical: number;
+    readonly paddingHorizontal: number;
+    readonly innerWidth: number;
+    readonly innerHeight: number;
+    readonly needView: boolean;
 
-    constructor(protected componentId: string, protected id: string) {
-        super();
+    clearNeedView(): void;
+    resolvePosition(offset: number, depth?: number): ILayoutPosition;
+    convertCoordinatesToOffset(x: number, y: number): number;
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
+}
+
+export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
+    abstract get type(): ILayoutNodeType;
+    abstract get width(): number;
+    abstract get height(): number;
+
+    abstract resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
+    abstract convertCoordinatesToOffset(x: number, y: number): number;
+
+    protected internalSize?: number;
+    protected internalNeedView = true;
+
+    constructor(
+        readonly renderId: string | null,
+        readonly text: string,
+        children: ILayoutNode[],
+        readonly paddingTop: number,
+        readonly paddingBottom: number,
+        readonly paddingLeft: number,
+        readonly paddingRight: number,
+    ) {
+        super(generateId());
+        this.internalChildren = new NodeList(children);
+        children.forEach((child) => {
+            child.parent = this;
+        });
     }
 
-    getComponentId() {
-        return this.componentId;
+    get size() {
+        if (this.internalSize === undefined) {
+            if (this.leaf) {
+                this.internalSize = this.text.length;
+            } else {
+                this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
+            }
+        }
+        return this.internalSize;
     }
 
-    getId() {
-        return this.id;
+    get paddingVertical() {
+        return this.paddingTop + this.paddingBottom;
     }
 
-    getInnerWidth() {
-        return this.getWidth() - this.getHorizontalPaddng();
+    get paddingHorizontal() {
+        return this.paddingLeft + this.paddingRight;
     }
 
-    getInnerHeight() {
-        return this.getHeight() - this.getVerticalPaddng();
+    get innerWidth() {
+        return this.width - this.paddingHorizontal;
     }
 
-    getVerticalPaddng() {
-        return this.getPaddingTop() + this.getPaddingBottom();
+    get innerHeight() {
+        return this.height - this.paddingVertical;
     }
 
-    getHorizontalPaddng() {
-        return this.getPaddingLeft() + this.getPaddingRight();
+    get needView() {
+        return this.internalNeedView;
+    }
+
+    clearNeedView() {
+        this.internalNeedView = false;
+    }
+
+    resolvePosition(offset: number): ILayoutPosition {
+        if (offset < 0 || offset >= this.size) {
+            throw new Error(`Offset ${offset} is out of range.`);
+        }
+        if (this.leaf) {
+            return new LayoutPosition([{ node: this, offset, index: offset }]);
+        }
+        let cumulatedOffset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (cumulatedOffset + childSize > offset) {
+                const childPosition = child.resolvePosition(offset - cumulatedOffset);
+                const depths: ILayoutPositionDepth[] = [{ node: this, offset, index: n }];
+                for (let m = 0; m < childPosition.depth; m++) {
+                    depths.push(childPosition.atDepth(m));
+                }
+                return new LayoutPosition(depths);
+            }
+            cumulatedOffset += childSize;
+        }
+        throw new Error('Offset cannot be resolved.');
+    }
+}
+
+export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {
+    atLineDepth() {
+        for (let n = this.depth - 1; n >= 0; n--) {
+            const depth = this.atDepth(n);
+            if (depth.node.type === 'line') {
+                return depth;
+            }
+        }
+        throw new Error('Line depth not found.');
+    }
+
+    atBlockDepth() {
+        for (let n = this.depth - 1; n >= 0; n--) {
+            const depth = this.atDepth(n);
+            if (depth.node.type === 'block') {
+                return depth;
+            }
+        }
+        throw new Error('Block depth not found.');
     }
 }

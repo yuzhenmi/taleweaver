@@ -1,96 +1,81 @@
-import { IConfigService } from '../../config/service';
-import { ILayoutNode } from '../../layout/node';
-import { PageLayoutNode as AbstractPageLayoutNode } from '../../layout/page-node';
-import { IAttributes, IModelNode } from '../../model/node';
-import { IRenderNode } from '../../render/node';
-import { PageViewNode as AbstractPageViewNode } from '../../view/page-node';
-import { Component } from '../component';
-import { IPageComponent } from '../page-component';
+import { IDOMService } from '../../dom/service';
+import { IViewNode } from '../../view/node';
+import { ViewPage as AbstractViewPage } from '../../view/page';
+import { IPageComponent, PageComponent as AbstractPageComponent } from '../page-component';
 
-export class PageLayoutNode extends AbstractPageLayoutNode {
-    getPartId() {
-        return 'page';
-    }
+export class ViewPage extends AbstractViewPage {
+    readonly domContentContainer: HTMLElement;
 
-    clone() {
-        return new PageLayoutNode(
-            this.getComponentId(),
-            this.width,
-            this.height,
-            this.paddingTop,
-            this.paddingBottom,
-            this.paddingLeft,
-            this.paddingRight,
-        );
-    }
-}
-
-export class PageViewNode extends AbstractPageViewNode<PageLayoutNode> {
-    protected domContainer: HTMLDivElement;
-    protected domContentContainer: HTMLDivElement;
-
-    constructor(layoutNode: PageLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        layoutId: string,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, layoutId, children, domService);
         this.domContainer.style.position = 'relative';
         this.domContainer.style.marginLeft = 'auto';
         this.domContainer.style.marginRight = 'auto';
-        this.domContentContainer = document.createElement('div');
+        this.domContainer.style.width = `${width}px`;
+        this.domContainer.style.height = `${height}px`;
+        this.domContainer.style.paddingTop = `${paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${paddingRight}px`;
+        this.domContainer.innerHTML = '';
+        this.domContentContainer = this.findOrCreateDOMContentContainer();
+        this.domContentContainer.setAttribute('data-tw-role', 'content-container');
+        children.map((child) => this.domContentContainer.appendChild(child.domContainer));
         this.domContainer.appendChild(this.domContentContainer);
     }
 
-    getDOMContainer() {
-        return this.domContainer;
+    get partId() {
+        return 'page';
     }
 
-    getDOMContentContainer() {
-        return this.domContentContainer;
-    }
-
-    onLayoutDidUpdate() {
-        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
-        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
-        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
-        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
-        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
-        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
+    protected findOrCreateDOMContentContainer() {
+        for (let n = 0, nn = this.domContainer.children.length; n < nn; n++) {
+            const child = this.domContainer.children[n];
+            if (child.getAttribute('data-tw-role') === 'content-container') {
+                return child as HTMLDivElement;
+            }
+        }
+        return this.domService.createElement('div');
     }
 }
 
-export class PageComponent extends Component implements IPageComponent {
-    constructor(id: string, protected configService: IConfigService) {
-        super(id);
-    }
-
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes): IModelNode {
-        throw new Error('Page component does not support buildModelNode.');
-    }
-
-    buildRenderNode(modelNode: IModelNode): IRenderNode {
-        throw new Error('Page component does not support buildRenderNode.');
-    }
-
-    buildLayoutNode(renderNode: IRenderNode): ILayoutNode {
-        throw new Error('Page component does not support buildLayoutNode.');
-    }
-
-    buildPageLayoutNode() {
-        const pageConfig = this.configService.getConfig().page;
-        return new PageLayoutNode(
-            this.getId(),
-            pageConfig.width,
-            pageConfig.height,
-            pageConfig.paddingTop,
-            pageConfig.paddingBottom,
-            pageConfig.paddingLeft,
-            pageConfig.paddingRight,
+export class PageComponent extends AbstractPageComponent implements IPageComponent {
+    buildViewNode(
+        domContainer: HTMLElement,
+        layoutId: string,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        const domService = this.serviceRegistry.getService('dom');
+        return new ViewPage(
+            domContainer,
+            this.id,
+            layoutId,
+            children,
+            width,
+            height,
+            paddingTop,
+            paddingBottom,
+            paddingLeft,
+            paddingRight,
+            domService,
         );
-    }
-
-    buildViewNode(layoutNode: ILayoutNode) {
-        if (layoutNode instanceof PageLayoutNode) {
-            return new PageViewNode(layoutNode);
-        }
-        throw new Error('Invalid layout render node.');
     }
 }

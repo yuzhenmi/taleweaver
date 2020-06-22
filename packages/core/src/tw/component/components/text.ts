@@ -1,17 +1,14 @@
-import { AtomicLayoutNode } from '../../layout/atomic-node';
-import { InlineLayoutNode } from '../../layout/inline-node';
-import { ILayoutNode } from '../../layout/node';
-import { InlineModelNode } from '../../model/inline-node';
-import { IAttributes, IModelNode } from '../../model/node';
-import { AtomicRenderNode } from '../../render/atomic-node';
-import { InlineRenderNode } from '../../render/inline-node';
-import { IRenderNode, IStyle } from '../../render/node';
-import { generateId } from '../../util/id';
-import { breakTextToWords, IWord } from '../../util/language';
-import { InlineViewNode } from '../../view/inline-node';
+import { IDOMService } from '../../dom/service';
+import { ModelLeaf } from '../../model/leaf';
+import { IModelNode } from '../../model/node';
+import { IRenderNode } from '../../render/node';
+import { RenderText as AbstractRenderText } from '../../render/text';
+import { IFont, ITextService } from '../../text/service';
+import { IViewNode } from '../../view/node';
+import { ViewText as AbstractViewText } from '../../view/text';
 import { Component, IComponent } from '../component';
 
-export interface ITextAttributes extends IAttributes {
+export interface ITextAttributes {
     weight?: number;
     size?: number;
     font?: string;
@@ -22,452 +19,189 @@ export interface ITextAttributes extends IAttributes {
     color?: string;
 }
 
-export class TextModelNode extends InlineModelNode<ITextAttributes> {
-    getPartId() {
+export interface ITextStyle extends IFont {}
+
+export class ModelText extends ModelLeaf<ITextAttributes> {
+    get partId() {
         return 'text';
+    }
+
+    canJoin(node: IModelNode<any>) {
+        if (this.componentId !== node.componentId) {
+            return false;
+        }
+        if (this.partId !== node.partId) {
+            return false;
+        }
+        if (JSON.stringify(this.attributes) !== JSON.stringify(node.attributes)) {
+            return false;
+        }
+        return true;
     }
 
     toDOM(from: number, to: number) {
         const $component = document.createElement('span');
-        $component.innerText = this.content.substring(from - 1, to - 1);
+        $component.innerText = this.text.substring(from - 1, to - 1);
         return $component;
     }
-
-    clone() {
-        const node = new TextModelNode(this.componentId, generateId(), this.attributes);
-        node.setContent(this.getContent());
-        return node;
-    }
 }
 
-export interface ITextStyle extends IStyle {
-    weight: number;
-    size: number;
-    font: string;
-    letterSpacing: number;
-    underline: boolean;
-    italic: boolean;
-    strikethrough: boolean;
-    color: string;
-}
-
-export const DEFAULT_TEXT_STYLE: ITextStyle = {
-    weight: 400,
-    size: 16,
-    font: 'sans-serif',
-    letterSpacing: 0,
-    underline: false,
-    italic: false,
-    strikethrough: false,
-    color: 'black',
-};
-
-export class TextRenderNode extends InlineRenderNode<ITextStyle> {
-    getPartId() {
-        return 'text';
-    }
-}
-
-export interface IWordStyle extends ITextStyle {}
-
-export class WordRenderNode extends AtomicRenderNode<IWordStyle> {
-    constructor(componentId: string, id: string, style: IWordStyle, protected word: IWord) {
-        super(componentId, id, style);
-    }
-
-    getPartId() {
-        return 'word';
-    }
-
-    getWord() {
-        return this.word;
-    }
-
-    getModelSize() {
-        return this.word.text.length;
-    }
-
-    getSize() {
-        return this.word.text.length;
-    }
-
-    isBreakable() {
-        return this.word.breakable;
-    }
-
-    clearOwnCache() {}
-
-    onDidUpdate(updatedNode: this) {
-        super.onDidUpdate(updatedNode);
-        const oldWord = this.word;
-        const newWord = updatedNode.getWord();
-        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
-            return;
-        }
-        this.word = updatedNode.getWord();
-        this.clearCache();
-    }
-}
-
-export interface ITextMeasurement {
-    width: number;
-    height: number;
-}
-
-export interface ITextMeasurer {
-    measure(text: string, style: ITextStyle): ITextMeasurement;
-}
-
-export class TextLayoutNode extends InlineLayoutNode {
-    constructor(componentId: string, id: string, protected style: ITextStyle) {
-        super(componentId, id);
-    }
-
-    getPartId() {
-        return 'text';
-    }
-
-    getPaddingTop() {
-        return 3;
-    }
-
-    getPaddingBottom() {
-        return 6;
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    getStyle() {
-        return this.style;
-    }
-
-    clone() {
-        return new TextLayoutNode(this.componentId, this.id, this.style);
-    }
-}
-
-export class WordLayoutNode extends AtomicLayoutNode {
-    protected width?: number;
-    protected height?: number;
-    protected tailTrimmedWidth?: number;
-
+export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> {
     constructor(
         componentId: string,
-        id: string,
-        protected word: IWord,
-        protected style: ITextStyle,
-        protected textMeasurer: ITextMeasurer,
+        modelId: string | null,
+        protected textService: ITextService,
+        text: string,
+        attributes: any,
     ) {
-        super(componentId, id);
+        super(componentId, modelId, text, attributes);
     }
 
-    getPartId() {
-        return 'word';
+    get partId() {
+        return 'text';
     }
 
-    getSize() {
-        return this.word.text.length;
+    get pseudo() {
+        return false;
     }
 
-    getWidth() {
-        if (this.width === undefined) {
-            this.takeMeasurement();
-        }
-        return this.width!;
-    }
-
-    getHeight() {
-        if (this.height === undefined) {
-            this.takeMeasurement();
-        }
-        return this.height!;
-    }
-
-    getPaddingTop() {
+    get paddingTop() {
         return 0;
     }
 
-    getPaddingBottom() {
+    get paddingBottom() {
         return 0;
     }
 
-    getPaddingLeft() {
+    get paddingLeft() {
         return 0;
     }
 
-    getPaddingRight() {
+    get paddingRight() {
         return 0;
     }
 
-    getTailTrimmedWidth() {
-        if (this.tailTrimmedWidth === undefined) {
-            if (this.word.breakable) {
-                const text = this.word.text;
-                const measurement = this.textMeasurer.measure(text.substring(0, text.length - 1), this.style);
-                this.tailTrimmedWidth = measurement.width;
-            } else {
-                this.tailTrimmedWidth = this.getWidth();
-            }
-        }
-        return this.tailTrimmedWidth;
+    get style() {
+        return this.textService.applyDefaultFont(this.attributes);
     }
 
-    breakAtWidth(width: number) {
-        const text = this.word.text;
-        let min = 0;
-        let max = text.length;
-        while (max - min > 1) {
-            const offset = Math.floor((max + min) / 2);
-            const substr = text.substring(0, offset);
-            const subwidth = this.textMeasurer.measure(substr, this.style).width;
-            if (subwidth > width) {
-                max = offset;
-            } else {
-                min = offset;
-            }
-        }
-        const splitAt = min;
-        const newWord = { ...this.word, text: text.substring(splitAt) };
-        const newNode = new WordLayoutNode(this.componentId, this.id, newWord, this.style, this.textMeasurer);
-        this.word.text = text.substring(0, splitAt);
-        this.clearCache();
-        return newNode;
-    }
-
-    getWord() {
-        return this.word;
-    }
-
-    convertCoordinateToOffset(x: number) {
-        let lastWidth = 0;
-        const text = this.word.text;
-        for (let n = 0, nn = text.length; n < nn; n++) {
-            const measurement = this.textMeasurer.measure(text.substring(0, n), this.style);
-            const width = measurement.width;
-            if (width < x) {
-                lastWidth = width;
-                continue;
-            }
-            if (x - lastWidth < width - x) {
-                return n - 1;
-            }
-            return n;
-        }
-        const width = this.getWidth();
-        if (x - lastWidth < width - x) {
-            return text.length - 1;
-        }
-        return text.length;
-    }
-
-    resolveRects(from: number, to: number) {
-        if (from === 0 && to === this.getSize()) {
-            return [
-                {
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: this.getWidth(),
-                    height: this.getHeight(),
-                    paddingTop: 0,
-                    paddingBottom: 0,
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                },
-            ];
-        }
-        const fromTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, from), this.style);
-        const toTextMeasurement = this.textMeasurer.measure(this.word.text.substring(0, to), this.style);
-        const width = toTextMeasurement.width - fromTextMeasurement.width;
-        const height = this.getHeight();
-        const left = fromTextMeasurement.width;
-        const right = this.getWidth() - toTextMeasurement.width;
-        const top = 0;
-        const bottom = 0;
-        return [
-            {
-                width,
-                height,
-                left,
-                right,
-                top,
-                bottom,
-                paddingTop: 0,
-                paddingBottom: 0,
-                paddingLeft: 0,
-                paddingRight: 0,
-            },
-        ];
-    }
-
-    onDidUpdate(updatedNode: this) {
-        super.onDidUpdate(updatedNode);
-        const oldWord = this.word;
-        const newWord = updatedNode.getWord();
-        if (oldWord.text === newWord.text && oldWord.breakable === newWord.breakable) {
-            return;
-        }
-        this.word = updatedNode.getWord();
-        this.clearCache();
-    }
-
-    clearOwnCache() {
-        this.width = undefined;
-        this.height = undefined;
-        this.tailTrimmedWidth = undefined;
-    }
-
-    protected takeMeasurement() {
-        const measurement = this.textMeasurer.measure(this.word.text, this.style);
-        this.width = measurement.width;
-        this.height = measurement.height;
+    get font() {
+        return this.style;
     }
 }
 
-export class TextViewNode extends InlineViewNode<TextLayoutNode> {
-    protected domContainer: HTMLSpanElement;
-    protected domContent: HTMLSpanElement;
-
-    constructor(layoutNode: TextLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('span');
+export class ViewText extends AbstractViewText<ITextStyle> {
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        text: string,
+        style: ITextStyle,
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, renderId, layoutId, text, style, domService);
         this.domContainer.style.display = 'inline-block';
         this.domContainer.style.whiteSpace = 'pre';
         this.domContainer.style.lineHeight = '1em';
-        this.domContent = document.createElement('span');
-        this.domContainer.appendChild(this.domContent);
-        this.onLayoutDidUpdate();
-    }
-
-    getDOMContainer() {
-        return this.domContainer;
-    }
-
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {
-        const text = this.layoutNode
-            .getChildren()
-            .map(child => {
-                if (child instanceof WordLayoutNode) {
-                    return child.getWord().text;
-                }
-                return '';
-            })
-            .join('');
-        const style = this.layoutNode.getStyle();
-        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
-        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
-        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
-        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
-        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
-        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
-        this.domContainer.style.fontFamily = style.font;
+        this.domContainer.style.width = `${width}px`;
+        this.domContainer.style.height = `${height}px`;
+        this.domContainer.style.paddingTop = `${paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${paddingRight}px`;
+        this.domContainer.style.fontFamily = style.family;
         this.domContainer.style.fontSize = `${style.size}px`;
         this.domContainer.style.letterSpacing = `${style.letterSpacing}px`;
         this.domContainer.style.fontWeight = `${style.weight}`;
         this.domContainer.style.color = style.color;
         this.domContainer.style.textDecoration = style.underline ? 'underline' : '';
         this.domContainer.style.fontStyle = style.italic ? 'italic' : '';
-        this.domContent.style.textDecoration = style.strikethrough ? 'line-through' : '';
-        this.domContent.innerText = text;
+        this.domContainer.innerHTML = '';
+        const domContentContainer = this.findOrCreateDOMContentContainer();
+        domContentContainer.setAttribute('data-tw-role', 'content-container');
+        domContentContainer.style.textDecoration = style.strikethrough ? 'line-through' : '';
+        domContentContainer.innerHTML = text;
+        this.domContainer.appendChild(domContentContainer);
+    }
+
+    get partId() {
+        return 'text';
+    }
+
+    protected findOrCreateDOMContentContainer() {
+        for (let n = 0, nn = this.domContainer.children.length; n < nn; n++) {
+            const child = this.domContainer.children[n];
+            if (child.getAttribute('data-tw-role') === 'content-container') {
+                return child as HTMLSpanElement;
+            }
+        }
+        return this.domService.createElement('span');
     }
 }
 
 export class TextComponent extends Component implements IComponent {
-    constructor(id: string, protected textMeasurer: ITextMeasurer) {
-        super(id);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
+        return new ModelText(this.id, id, text, attributes);
     }
 
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
-        return new TextModelNode(this.id, id, attributes);
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
+        const textService = this.serviceRegistry.getService('text');
+        switch (partId) {
+            case 'text':
+                return new RenderText(this.id, modelId, textService, text, attributes);
+            default:
+                throw new Error('Invalid part ID.');
+        }
     }
 
-    buildRenderNode(modelNode: IModelNode) {
-        if (modelNode instanceof TextModelNode) {
-            const attributes = modelNode.getAttributes();
-            const style: ITextStyle = {
-                ...DEFAULT_TEXT_STYLE,
-                ...attributes,
-            };
-            const node = new TextRenderNode(this.id, modelNode.getId(), style);
-            const words = breakTextToWords(modelNode.getContent());
-            words.forEach((word, wordIndex) => {
-                const wordRenderNode = new WordRenderNode(this.id, `${modelNode.getId()}-${wordIndex}`, style, word);
-                node.appendChild(wordRenderNode);
-            });
-            if (words.length === 0) {
-                node.appendChild(
-                    new WordRenderNode(this.id, `${modelNode.getId()}-0`, style, { text: '', breakable: false }),
+    buildViewNode(
+        domContainer: HTMLElement,
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        const domService = this.serviceRegistry.getService('dom');
+        switch (partId) {
+            case 'text':
+                return new ViewText(
+                    domContainer,
+                    this.id,
+                    renderId,
+                    layoutId,
+                    text,
+                    style,
+                    width,
+                    height,
+                    paddingTop,
+                    paddingBottom,
+                    paddingLeft,
+                    paddingRight,
+                    domService,
                 );
-            }
-            return node;
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid text model node.');
-    }
-
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof TextRenderNode) {
-            return new TextLayoutNode(this.id, renderNode.getId(), renderNode.getStyle());
-        }
-        if (renderNode instanceof WordRenderNode) {
-            return new WordLayoutNode(
-                this.id,
-                renderNode.getId(),
-                renderNode.getWord(),
-                renderNode.getStyle(),
-                this.textMeasurer,
-            );
-        }
-        throw new Error('Invalid text render node.');
-    }
-
-    buildViewNode(layoutNode: ILayoutNode) {
-        if (layoutNode instanceof TextLayoutNode) {
-            return new TextViewNode(layoutNode);
-        }
-        throw new Error('Invalid text layout node');
-    }
-}
-
-export class TextMeasurer implements ITextMeasurer {
-    protected $canvas: HTMLCanvasElement;
-
-    constructor() {
-        this.$canvas = document.createElement('canvas');
-    }
-
-    measure(text: string, textStyle: ITextStyle) {
-        const ctx = this.$canvas.getContext('2d')!;
-        const weight = textStyle.weight;
-        const size = textStyle.size;
-        const font = this.fixFont(textStyle.font);
-        const letterSpacing = textStyle.letterSpacing!;
-        ctx.font = `${weight} ${size}px ${font}`;
-        const measurement = ctx.measureText(text);
-        const width =
-            letterSpacing === 0 || text.length <= 1
-                ? measurement.width
-                : measurement.width + (text.length - 1) * letterSpacing;
-        return {
-            width,
-            height: size,
-        };
-    }
-
-    protected fixFont(font: string) {
-        if (font.indexOf(' ') >= 0) {
-            return `'${font}'`;
-        }
-        return font;
     }
 }

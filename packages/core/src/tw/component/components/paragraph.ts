@@ -1,32 +1,31 @@
-import { AtomicLayoutNode } from '../../layout/atomic-node';
-import { BlockLayoutNode } from '../../layout/block-node';
-import { InlineLayoutNode } from '../../layout/inline-node';
-import { ILayoutNode } from '../../layout/node';
-import { BlockModelNode } from '../../model/block-node';
-import { IAttributes, IModelNode } from '../../model/node';
-import { AtomicRenderNode } from '../../render/atomic-node';
-import { BlockRenderNode } from '../../render/block-node';
-import { InlineRenderNode } from '../../render/inline-node';
-import { IRenderNode, IStyle } from '../../render/node';
-import { generateId } from '../../util/id';
-import { BlockViewNode } from '../../view/block-node';
-import { InlineViewNode } from '../../view/inline-node';
+import { IDOMService } from '../../dom/service';
+import { ModelBranch } from '../../model/branch';
+import { IModelNode } from '../../model/node';
+import { RenderBlock } from '../../render/block';
+import { IRenderNode } from '../../render/node';
+import { IRenderText, RenderText } from '../../render/text';
+import { DEFAULT_FONT } from '../../text/service';
+import { ViewBlock } from '../../view/block';
+import { IViewNode } from '../../view/node';
+import { ViewText } from '../../view/text';
 import { Component, IComponent } from '../component';
 
-export interface IParagraphAttributes extends IAttributes {}
+export interface IParagraphAttributes {}
 
-export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
-    getPartId() {
+export interface IParagraphStyle {}
+
+export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
+    get partId() {
         return 'paragraph';
     }
 
     toDOM(from: number, to: number) {
         const $element = document.createElement('p');
         let offset = 1;
-        const children = this.getChildren();
+        const children = this.children;
         for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const childNode = children[n];
-            const childSize = childNode.getSize();
+            const childNode = children.at(n);
+            const childSize = childNode.size;
             const childFrom = Math.max(0, from - offset);
             const childTo = Math.min(childFrom + childSize, to - offset);
             offset += childSize;
@@ -38,323 +37,221 @@ export class ParagraphModelNode extends BlockModelNode<IParagraphAttributes> {
         }
         return $element;
     }
-
-    clone() {
-        return new ParagraphModelNode(this.componentId, generateId(), this.attributes);
-    }
 }
 
-export interface IParagraphStyle extends IStyle {}
-
-export class ParagraphRenderNode extends BlockRenderNode<IParagraphStyle> {
-    protected lineBreakNode: ParagraphLineBreakRenderNode;
-
-    constructor(protected componentId: string, protected id: string, protected style: IParagraphStyle) {
-        super(componentId, id, style);
-        this.lineBreakNode = this.buildLineBreakNode();
+export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttributes> {
+    constructor(componentId: string, modelId: string | null, attributes: any, children: IRenderNode<any, any>[]) {
+        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId, modelId)]);
     }
 
-    getPartId() {
+    get partId() {
         return 'paragraph';
     }
 
-    getChildren() {
-        return [...super.getChildren(), this.lineBreakNode];
+    get pseudo() {
+        return false;
+    }
+
+    get paddingTop() {
+        return 0;
+    }
+
+    get paddingBottom() {
+        return 12;
+    }
+
+    get paddingLeft() {
+        return 0;
+    }
+
+    get paddingRight() {
+        return 0;
+    }
+
+    get style() {
+        return {};
     }
 
     convertOffsetToModelOffset(offset: number): number {
-        // Handle line break
-        if (offset === this.getSize() - 1) {
+        if (this.size === 1) {
+            return this.resolvePosition(0).depth;
+        }
+        if (offset === this.size - 1) {
             return super.convertOffsetToModelOffset(offset - 1) + 1;
         }
         return super.convertOffsetToModelOffset(offset);
     }
 
     convertModelOffsetToOffset(modelOffset: number): number {
-        // Handle line break
-        if (this.getSize() === 1) {
+        if (modelOffset <= this.resolvePosition(0).depth) {
             return 0;
         }
-        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 === this.getSize() - 1) {
-            return this.getSize() - 1;
+        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 >= this.size - 1) {
+            return this.size - 1;
         }
         return super.convertModelOffsetToOffset(modelOffset);
     }
-
-    protected buildLineBreakNode() {
-        const inlineNode = new ParagraphLineBreakRenderNode(this.componentId, `${this.id}.line-break`, {});
-        const atomicNode = new ParagraphLineBreakAtomicRenderNode(this.componentId, `${this.id}.line-break-atomic`, {});
-        inlineNode.appendChild(atomicNode);
-        inlineNode.setParent(this);
-        return inlineNode;
-    }
 }
 
-export interface IParagraphLineBreakStyle extends IStyle {}
+export class RenderParagraphLineBreak extends RenderText<null, null> {
+    constructor(readonly componentId: string, readonly paragraphModelId: string | null) {
+        super(componentId, `${paragraphModelId}.line-break`, ' ', null);
+    }
 
-export class ParagraphLineBreakRenderNode extends InlineRenderNode<IParagraphLineBreakStyle> {
-    getPartId() {
+    get partId() {
         return 'line-break';
     }
 
-    getModelSize() {
-        return 0;
-    }
-}
-
-export interface IParagraphLineBreakAtomicStyle extends IStyle {}
-
-export class ParagraphLineBreakAtomicRenderNode extends AtomicRenderNode<IParagraphLineBreakAtomicStyle> {
-    getPartId() {
-        return 'line-break-atomic';
-    }
-
-    getModelSize() {
-        return 0;
-    }
-
-    getSize() {
-        return 1;
-    }
-
-    isBreakable() {
+    get pseudo() {
         return true;
     }
 
-    clearOwnCache() {}
+    get paddingTop() {
+        return 0;
+    }
+
+    get paddingBottom() {
+        return 0;
+    }
+
+    get paddingLeft() {
+        return 0;
+    }
+
+    get paddingRight() {
+        return 0;
+    }
+
+    get style() {
+        return null;
+    }
+
+    get font() {
+        let node = this.previousSibling;
+        while (node) {
+            if (node.type === 'text') {
+                return (node as IRenderText<any, any>).font;
+            }
+            node = node.previousSibling;
+        }
+        return DEFAULT_FONT;
+    }
 }
 
-export class ParagraphLayoutNode extends BlockLayoutNode {
-    getPartId() {
+export class ViewParagraph extends ViewBlock<IParagraphStyle> {
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: IParagraphStyle,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, renderId, layoutId, style, children, domService);
+        this.domContainer.style.width = `${width}px`;
+        this.domContainer.style.height = `${height}px`;
+        this.domContainer.style.paddingTop = `${paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${paddingRight}px`;
+        this.domContainer.style.lineHeight = '1em';
+        this.domContainer.innerHTML = '';
+        children.map((child) => this.domContainer.appendChild(child.domContainer));
+    }
+
+    get partId() {
         return 'paragraph';
     }
 
-    getPaddingTop() {
-        return 0;
-    }
-
-    getPaddingBottom() {
-        return 12;
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    clone() {
-        return new ParagraphLayoutNode(this.componentId, this.id);
+    get domContentContainer() {
+        return this.domContainer;
     }
 }
 
-export class ParagraphLineBreakLayoutNode extends InlineLayoutNode {
-    getPartId() {
+export class ViewParagraphLineBreak extends ViewText<null> {
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, renderId, layoutId, ' ', null, domService);
+    }
+
+    get partId() {
         return 'line-break';
     }
 
-    getPaddingTop() {
-        const previousSibling = this.getPreviousSibling() as ILayoutNode | undefined;
-        if (!previousSibling) {
-            return 0;
-        }
-        return previousSibling.getPaddingTop();
-    }
-
-    getPaddingBottom() {
-        const previousSibling = this.getPreviousSibling() as ILayoutNode | undefined;
-        if (!previousSibling) {
-            return 0;
-        }
-        return previousSibling.getPaddingBottom();
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    clone() {
-        return new ParagraphLineBreakLayoutNode(this.componentId, this.id);
-    }
-}
-
-export class ParagraphLineBreakAtomicLayoutNode extends AtomicLayoutNode {
-    protected height?: number;
-
-    getPartId() {
-        return 'line-break-atomic';
-    }
-
-    getSize() {
-        return 1;
-    }
-
-    getWidth() {
-        return 5;
-    }
-
-    getHeight() {
-        if (this.height === undefined) {
-            this.takeMeasurement();
-        }
-        return this.height!;
-    }
-
-    getPaddingTop() {
-        return 0;
-    }
-
-    getPaddingBottom() {
-        return 0;
-    }
-
-    getPaddingLeft() {
-        return 0;
-    }
-
-    getPaddingRight() {
-        return 0;
-    }
-
-    getTailTrimmedWidth() {
-        return 0;
-    }
-
-    breakAtWidth(width: number): ParagraphLineBreakAtomicLayoutNode {
-        throw new Error('Method should never be called, there is a bug.');
-    }
-
-    convertCoordinateToOffset(x: number) {
-        return 0;
-    }
-
-    resolveRects(from: number, to: number) {
-        if (from === to) {
-            return [
-                {
-                    left: 0,
-                    right: this.getWidth(),
-                    top: 0,
-                    bottom: 0,
-                    width: 0,
-                    height: this.getHeight(),
-                    paddingTop: 0,
-                    paddingBottom: 0,
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                },
-            ];
-        }
-        return [
-            {
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: this.getWidth(),
-                height: this.getHeight(),
-                paddingTop: 0,
-                paddingBottom: 0,
-                paddingLeft: 0,
-                paddingRight: 0,
-            },
-        ];
-    }
-
-    protected takeMeasurement() {
-        this.height = 0;
-        const previousSibling = this.getPreviousSiblingAllowCrossParent() as ILayoutNode | undefined;
-        if (!previousSibling) {
-            return;
-        }
-        this.height = previousSibling.getHeight();
-    }
-}
-
-export class ParagraphViewNode extends BlockViewNode<ParagraphLayoutNode> {
-    protected domContainer: HTMLDivElement;
-
-    constructor(layoutNode: ParagraphLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
-    }
-
-    getDOMContainer() {
+    get domContentContainer() {
         return this.domContainer;
     }
-
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {
-        this.domContainer.style.width = `${this.layoutNode.getWidth()}px`;
-        this.domContainer.style.height = `${this.layoutNode.getHeight()}px`;
-        this.domContainer.style.paddingTop = `${this.layoutNode.getPaddingTop()}px`;
-        this.domContainer.style.paddingBottom = `${this.layoutNode.getPaddingBottom()}px`;
-        this.domContainer.style.paddingLeft = `${this.layoutNode.getPaddingLeft()}px`;
-        this.domContainer.style.paddingRight = `${this.layoutNode.getPaddingRight()}px`;
-        this.domContainer.style.lineHeight = '1em';
-    }
-}
-
-export class ParagraphLineBreakViewNode extends InlineViewNode<ParagraphLineBreakLayoutNode> {
-    protected domContainer: HTMLDivElement;
-
-    constructor(layoutNode: ParagraphLineBreakLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
-    }
-
-    getDOMContainer() {
-        return this.domContainer;
-    }
-
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {}
 }
 
 export class ParagraphComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: {}) {
-        return new ParagraphModelNode(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
+        return new ModelParagraph(this.id, id, attributes, children);
     }
 
-    buildRenderNode(modelNode: IModelNode) {
-        if (modelNode instanceof ParagraphModelNode) {
-            return new ParagraphRenderNode(this.id, modelNode.getId(), {});
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
+        switch (partId) {
+            case 'paragraph':
+                return new RenderParagraph(this.id, modelId, attributes, children);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid paragraph model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof ParagraphRenderNode) {
-            return new ParagraphLayoutNode(this.id, renderNode.getId());
+    buildViewNode(
+        domContainer: HTMLElement,
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        const domService = this.serviceRegistry.getService('dom');
+        switch (partId) {
+            case 'paragraph':
+                return new ViewParagraph(
+                    domContainer,
+                    this.id,
+                    renderId,
+                    layoutId,
+                    style,
+                    children,
+                    width,
+                    height,
+                    paddingTop,
+                    paddingBottom,
+                    paddingLeft,
+                    paddingRight,
+                    domService,
+                );
+            case 'line-break':
+                return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, domService);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        if (renderNode instanceof ParagraphLineBreakRenderNode) {
-            return new ParagraphLineBreakLayoutNode(this.id, renderNode.getId());
-        }
-        if (renderNode instanceof ParagraphLineBreakAtomicRenderNode) {
-            return new ParagraphLineBreakAtomicLayoutNode(this.id, renderNode.getId());
-        }
-        throw new Error('Invalid paragraph render node.');
-    }
-
-    buildViewNode(layoutNode: ILayoutNode) {
-        if (layoutNode instanceof ParagraphLayoutNode) {
-            return new ParagraphViewNode(layoutNode);
-        }
-        if (layoutNode instanceof ParagraphLineBreakLayoutNode) {
-            return new ParagraphLineBreakViewNode(layoutNode);
-        }
-        throw new Error('Invalid paragraph layout node.');
     }
 }

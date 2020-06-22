@@ -1,42 +1,52 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
-import { IStateService } from '../state/service';
-import { IDocModelNode } from './doc-node';
+import { IChange, IChangeResult } from './change/change';
 import { IModelNode, IModelPosition } from './node';
+import { IModelRoot } from './root';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
 
 export interface IModelService {
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
-    getDocNode(): IDocModelNode;
-    toDOM(from: number, to: number): HTMLElement;
-    fromDOM(domNodes: HTMLElement[]): IModelNode[];
+    getRoot(): IModelRoot<any>;
+    getRootSize(): number;
+    applyChange(change: IChange): IChangeResult;
     resolvePosition(offset: number): IModelPosition;
+    toDOM(from: number, to: number): HTMLElement;
+    fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
 }
 
 export class ModelService implements IModelService {
     protected state: IModelState;
 
-    constructor(componentService: IComponentService, stateService: IStateService) {
-        this.state = new ModelState(componentService, stateService);
+    constructor(root: IModelRoot<any>, componentService: IComponentService) {
+        this.state = new ModelState(root, componentService);
     }
 
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
-        this.state.onDidUpdateModelState(listener);
+    getRoot() {
+        return this.state.root;
     }
 
-    getDocNode() {
-        return this.state.getDocNode();
+    getRootSize() {
+        return this.state.root.size;
     }
 
-    toDOM(from: number, to: number) {
-        return this.state.getDocNode().toDOM(from, to);
-    }
-
-    fromDOM(domNodes: HTMLElement[]) {
-        return [this.getDocNode()];
+    applyChange(change: IChange) {
+        return this.state.applyChange(change);
     }
 
     resolvePosition(offset: number) {
-        return this.state.getDocNode().resolvePosition(offset);
+        return this.state.root.resolvePosition(offset);
+    }
+
+    toDOM(from: number, to: number) {
+        return this.state.root.toDOM(from, to);
+    }
+
+    fromDOM(domNodes: HTMLElement[]) {
+        return [this.getRoot()];
+    }
+
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
+        this.state.onDidUpdate(listener);
     }
 }

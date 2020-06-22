@@ -1,36 +1,34 @@
-import { IAppliedTransformation } from '../state/transformation';
+import { ITransformationResult } from '../transform/transformation';
 
 export interface IHistoryAction {
-    getBeganAt(): number;
-    getEndedAt(): number;
-    recordAppliedTransformation(appliedTransformation: IAppliedTransformation): void;
-    getAppliedTransformations(): IAppliedTransformation[];
+    readonly beganAt: number;
+    readonly endedAt: number;
+    readonly transformationResults: ITransformationResult[];
+
+    recordTransformationResult(transformationResult: ITransformationResult): void;
 }
 
 export class HistoryAction implements IHistoryAction {
-    protected beganAt: number;
-    protected endedAt: number;
-    protected appliedTransformations: IAppliedTransformation[] = [];
+    protected internalEndedAt: number;
+    protected internalTransformationResults: ITransformationResult[] = [];
+
+    readonly beganAt: number;
 
     constructor() {
         this.beganAt = Date.now();
-        this.endedAt = this.beganAt;
+        this.internalEndedAt = this.beganAt;
     }
 
-    getBeganAt() {
-        return this.beganAt;
+    get endedAt() {
+        return this.internalEndedAt;
     }
 
-    getEndedAt() {
-        return this.endedAt;
+    get transformationResults() {
+        return this.internalTransformationResults;
     }
 
-    recordAppliedTransformation(appliedTransformation: IAppliedTransformation) {
-        this.appliedTransformations.push(appliedTransformation);
-        this.endedAt = Date.now();
-    }
-
-    getAppliedTransformations() {
-        return this.appliedTransformations;
+    recordTransformationResult(transformationResult: ITransformationResult) {
+        this.transformationResults.push(transformationResult);
+        this.internalEndedAt = Date.now();
     }
 }

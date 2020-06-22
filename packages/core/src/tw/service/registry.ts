@@ -2,25 +2,29 @@ import { ICommandService } from '../command/service';
 import { IComponentService } from '../component/service';
 import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
+import { IDOMService } from '../dom/service';
 import { IHistoryService } from '../history/service';
 import { IKeyBindingService } from '../key-binding/service';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
-import { IStateService } from '../state/service';
+import { ITextService } from '../text/service';
+import { ITransformService } from '../transform/service';
 import { IViewService } from '../view/service';
 
 export interface IServices {
+    readonly config: IConfigService;
+    readonly dom: IDOMService;
+    readonly text: ITextService;
     readonly command: ICommandService;
     readonly component: IComponentService;
-    readonly config: IConfigService;
     readonly cursor: ICursorService;
-    readonly history: IHistoryService;
-    readonly layout: ILayoutService;
     readonly model: IModelService;
     readonly render: IRenderService;
-    readonly state: IStateService;
+    readonly layout: ILayoutService;
     readonly view: IViewService;
+    readonly transform: ITransformService;
+    readonly history: IHistoryService;
     readonly keyBinding: IKeyBindingService;
 }
 

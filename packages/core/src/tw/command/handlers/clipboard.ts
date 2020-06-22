@@ -7,7 +7,7 @@ if (isDOMAvailable()) {
     document.body.appendChild(iframe);
 }
 
-export const copy: ICommandHandler = async serviceRegistry => {
+export const copy: ICommandHandler = async (serviceRegistry) => {
     if (!iframe) {
         return;
     }
@@ -17,7 +17,7 @@ export const copy: ICommandHandler = async serviceRegistry => {
     if (!cursorService.hasCursor()) {
         return;
     }
-    const { anchor, head } = cursorService.getCursorState();
+    const { anchor, head } = cursorService.getCursor();
     if (anchor === head) {
         return;
     }
@@ -35,7 +35,7 @@ export const copy: ICommandHandler = async serviceRegistry => {
     iframeDocument.body.innerHTML = '';
 };
 
-export const paste: ICommandHandler = async serviceRegistry => {
+export const paste: ICommandHandler = async (serviceRegistry) => {
     // Not yet possible due to browser limitation
     // Pending development of async clipboard api
     // https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API

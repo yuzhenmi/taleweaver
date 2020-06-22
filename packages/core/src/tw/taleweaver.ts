@@ -6,18 +6,21 @@ import * as viewCommandHandlers from './command/handlers/view';
 import { CommandService, ICommandService } from './command/service';
 import { DocComponent } from './component/components/doc';
 import { ParagraphComponent } from './component/components/paragraph';
-import { TextComponent, TextMeasurer } from './component/components/text';
+import { TextComponent } from './component/components/text';
 import { ComponentService, IComponentService } from './component/service';
 import { IConfig, IExternalConfig } from './config/config';
 import { ConfigService, IConfigService } from './config/service';
 import { CursorService, ICursorService } from './cursor/service';
+import { DOMService, IDOMService } from './dom/service';
 import { HistoryService, IHistoryService } from './history/service';
 import { IKeyBindingService, KeyBindingService } from './key-binding/service';
 import { ILayoutService, LayoutService } from './layout/service';
+import { IModelRoot } from './model/root';
 import { IModelService, ModelService } from './model/service';
 import { IRenderService, RenderService } from './render/service';
 import { IServiceRegistry, ServiceRegistry } from './service/registry';
-import { IStateService, StateService } from './state/service';
+import { ITextService, TextService } from './text/service';
+import { ITransformService, TransformService } from './transform/service';
 import { generateId } from './util/id';
 import { IViewService, ViewService } from './view/service';
 
@@ -29,41 +32,66 @@ export interface ITaleweaver {
 export class Taleweaver {
     protected instanceId: string;
     protected serviceRegistry: IServiceRegistry;
+    protected configService: IConfigService;
+    protected domService: IDOMService;
+    protected textService: ITextService;
     protected commandService: ICommandService;
     protected componentService: IComponentService;
-    protected configService: IConfigService;
-    protected cursorService: ICursorService;
-    protected historyService: IHistoryService;
-    protected keyBindingService: IKeyBindingService;
-    protected layoutService: ILayoutService;
     protected modelService: IModelService;
     protected renderService: IRenderService;
-    protected stateService: IStateService;
+    protected cursorService: ICursorService;
+    protected layoutService: ILayoutService;
     protected viewService: IViewService;
+    protected transformService: ITransformService;
+    protected historyService: IHistoryService;
+    protected keyBindingService: IKeyBindingService;
 
-    constructor(initialMarkup: string, config: IExternalConfig) {
+    constructor(root: IModelRoot<any>, config: IExternalConfig) {
         this.instanceId = generateId();
         this.serviceRegistry = new ServiceRegistry();
         this.configService = new ConfigService(this.buildBaseConfig(), config);
+        this.serviceRegistry.registerService('config', this.configService);
+        this.domService = new DOMService();
+        this.serviceRegistry.registerService('dom', this.domService);
+        this.textService = new TextService(this.domService);
+        this.serviceRegistry.registerService('text', this.textService);
         this.commandService = new CommandService(this.configService, this.serviceRegistry);
-        this.componentService = new ComponentService(this.configService);
-        this.cursorService = new CursorService(this.configService);
-        this.stateService = new StateService(this.cursorService, initialMarkup);
-        this.historyService = new HistoryService(this.configService, this.stateService);
-        this.modelService = new ModelService(this.componentService, this.stateService);
+        this.serviceRegistry.registerService('command', this.commandService);
+        this.componentService = new ComponentService(this.configService, this.serviceRegistry);
+        this.serviceRegistry.registerService('component', this.componentService);
+        this.modelService = new ModelService(root, this.componentService);
+        this.serviceRegistry.registerService('model', this.modelService);
         this.renderService = new RenderService(this.componentService, this.modelService);
-        this.layoutService = new LayoutService(this.componentService, this.renderService);
+        this.serviceRegistry.registerService('render', this.renderService);
+        this.cursorService = new CursorService(this.configService, this.renderService, this.modelService);
+        this.serviceRegistry.registerService('cursor', this.cursorService);
+        this.layoutService = new LayoutService(this.renderService, this.textService);
+        this.serviceRegistry.registerService('layout', this.layoutService);
+        this.transformService = new TransformService(
+            this.modelService,
+            this.componentService,
+            this.cursorService,
+            this.renderService,
+            this.layoutService,
+        );
+        this.serviceRegistry.registerService('transform', this.transformService);
         this.viewService = new ViewService(
             this.instanceId,
+            this.configService,
+            this.domService,
             this.componentService,
             this.modelService,
             this.layoutService,
             this.cursorService,
             this.renderService,
             this.commandService,
+            this.transformService,
         );
+        this.serviceRegistry.registerService('view', this.viewService);
+        this.historyService = new HistoryService(this.configService, this.transformService);
+        this.serviceRegistry.registerService('history', this.historyService);
         this.keyBindingService = new KeyBindingService(this.configService, this.commandService, this.viewService);
-        this.registerServices();
+        this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
     }
 
     attach(domContainer: HTMLElement) {
@@ -80,23 +108,23 @@ export class Taleweaver {
                 'tw.clipboard.copy': clipboardCommandHandlers.copy,
                 'tw.clipboard.paste': clipboardCommandHandlers.paste,
                 'tw.cursor.move': cursorCommandHandlers.move,
-                'tw.cursor.moveUp': cursorCommandHandlers.moveUp,
-                'tw.cursor.moveDown': cursorCommandHandlers.moveDown,
-                'tw.cursor.moveLeft': cursorCommandHandlers.moveLeft,
-                'tw.cursor.moveRight': cursorCommandHandlers.moveRight,
-                'tw.cursor.moveLeftByWord': cursorCommandHandlers.moveLeftByWord,
-                'tw.cursor.moveRightByWord': cursorCommandHandlers.moveRightByWord,
+                'tw.cursor.moveBackwardByLine': cursorCommandHandlers.moveBackwardByLine,
+                'tw.cursor.moveForwardByLine': cursorCommandHandlers.moveForwardByLine,
+                'tw.cursor.moveBackward': cursorCommandHandlers.moveBackward,
+                'tw.cursor.moveForward': cursorCommandHandlers.moveForward,
+                'tw.cursor.moveBackwardByWord': cursorCommandHandlers.moveBackwardByWord,
+                'tw.cursor.moveForwardByWord': cursorCommandHandlers.moveForwardByWord,
                 'tw.cursor.moveToLineStart': cursorCommandHandlers.moveToLineStart,
                 'tw.cursor.moveToLineEnd': cursorCommandHandlers.moveToLineEnd,
                 'tw.cursor.moveToDocStart': cursorCommandHandlers.moveToDocStart,
                 'tw.cursor.moveToDocEnd': cursorCommandHandlers.moveToDocEnd,
                 'tw.cursor.moveHead': cursorCommandHandlers.moveHead,
-                'tw.cursor.moveHeadUp': cursorCommandHandlers.moveHeadUp,
-                'tw.cursor.moveHeadDown': cursorCommandHandlers.moveHeadDown,
-                'tw.cursor.moveHeadLeft': cursorCommandHandlers.moveHeadLeft,
-                'tw.cursor.moveHeadRight': cursorCommandHandlers.moveHeadRight,
-                'tw.cursor.moveHeadLeftByWord': cursorCommandHandlers.moveHeadLeftByWord,
-                'tw.cursor.moveHeadRightByWord': cursorCommandHandlers.moveHeadRightByWord,
+                'tw.cursor.moveHeadBackwardByLine': cursorCommandHandlers.moveHeadBackwardByLine,
+                'tw.cursor.moveHeadForwardByLine': cursorCommandHandlers.moveHeadForwardByLine,
+                'tw.cursor.moveHeadBackward': cursorCommandHandlers.moveHeadBackward,
+                'tw.cursor.moveHeadForward': cursorCommandHandlers.moveHeadForward,
+                'tw.cursor.moveHeadBackwardByWord': cursorCommandHandlers.moveHeadBackwardByWord,
+                'tw.cursor.moveHeadForwardByWord': cursorCommandHandlers.moveHeadForwardByWord,
                 'tw.cursor.moveHeadToLineStart': cursorCommandHandlers.moveHeadToLineStart,
                 'tw.cursor.moveHeadToLineEnd': cursorCommandHandlers.moveHeadToLineEnd,
                 'tw.cursor.moveHeadToDocStart': cursorCommandHandlers.moveHeadToDocStart,
@@ -109,17 +137,21 @@ export class Taleweaver {
                 'tw.state.insert': stateCommandHandlers.insert,
                 'tw.state.deleteBackward': stateCommandHandlers.deleteBackward,
                 'tw.state.deleteForward': stateCommandHandlers.deleteForward,
-                'tw.state.splitLine': stateCommandHandlers.splitLine,
+                'tw.state.breakLine': stateCommandHandlers.breakLine,
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
             },
             components: {
-                doc: new DocComponent('doc'),
-                paragraph: new ParagraphComponent('paragraph'),
-                text: new TextComponent('text', new TextMeasurer()),
+                doc: DocComponent,
+                paragraph: ParagraphComponent,
+                text: TextComponent,
             },
             cursor: {
                 disable: false,
+                caretColor: `hsla(213, 100%, 50%, 1)`,
+                caretInactiveColor: 'hsla(0, 0%, 0%, 0.5)',
+                selectionColor: `hsla(213, 100%, 50%, 0.2)`,
+                selectionInactiveColor: 'hsla(0, 0%, 0%, 0.08)',
             },
             history: {
                 collapseThreshold: 500,
@@ -127,23 +159,23 @@ export class Taleweaver {
             },
             keyBindings: {
                 common: {
-                    left: { command: 'tw.cursor.moveLeft' },
-                    right: { command: 'tw.cursor.moveRight' },
-                    up: { command: 'tw.cursor.moveUp' },
-                    down: { command: 'tw.cursor.moveDown' },
-                    'shift+left': { command: 'tw.cursor.moveHeadLeft' },
-                    'shift+right': { command: 'tw.cursor.moveHeadRight' },
-                    'shift+up': { command: 'tw.cursor.moveHeadUp' },
-                    'shift+down': { command: 'tw.cursor.moveHeadDown' },
-                    backspace: { command: 'tw.state.deleteBackward' },
-                    delete: { command: 'tw.state.deleteForward' },
-                    enter: { command: 'tw.state.splitLine' },
+                    left: { command: 'tw.cursor.moveBackward', preventDefault: true },
+                    right: { command: 'tw.cursor.moveForward', preventDefault: true },
+                    up: { command: 'tw.cursor.moveBackwardByLine', preventDefault: true },
+                    down: { command: 'tw.cursor.moveForwardByLine', preventDefault: true },
+                    'shift+left': { command: 'tw.cursor.moveHeadBackward', preventDefault: true },
+                    'shift+right': { command: 'tw.cursor.moveHeadForward', preventDefault: true },
+                    'shift+up': { command: 'tw.cursor.moveHeadBackwardByLine', preventDefault: true },
+                    'shift+down': { command: 'tw.cursor.moveHeadForwardByLine', preventDefault: true },
+                    backspace: { command: 'tw.state.deleteBackward', preventDefault: true },
+                    delete: { command: 'tw.state.deleteForward', preventDefault: true },
+                    enter: { command: 'tw.state.breakLine', preventDefault: true },
                 },
                 macos: {
-                    'alt+left': { command: 'tw.cursor.moveLeftByWord' },
-                    'alt+right': { command: 'tw.cursor.moveRightByWord' },
-                    'shift+alt+left': { command: 'tw.cursor.moveHeadLeftByWord' },
-                    'shift+alt+right': { command: 'tw.cursor.moveHeadRightByWord' },
+                    'alt+left': { command: 'tw.cursor.moveBackwardByWord' },
+                    'alt+right': { command: 'tw.cursor.moveForwardByWord' },
+                    'shift+alt+left': { command: 'tw.cursor.moveHeadBackwardByWord' },
+                    'shift+alt+right': { command: 'tw.cursor.moveHeadForwardByWord' },
                     'cmd+left': { command: 'tw.cursor.moveToLineStart' },
                     'cmd+right': { command: 'tw.cursor.moveToLineEnd' },
                     'cmd+up': { command: 'tw.cursor.moveToDocStart' },
@@ -157,10 +189,10 @@ export class Taleweaver {
                     'shift+cmd+z': { command: 'tw.history.redo', preventDefault: true },
                 },
                 windows: {
-                    'ctrl+left': { command: 'tw.cursor.moveLeftByWord' },
-                    'ctrl+right': { command: 'tw.cursor.moveRightByWord' },
-                    'ctrl+shift+left': { command: 'tw.cursor.moveHeadLeftByWord' },
-                    'ctrl+shift+right': { command: 'tw.cursor.moveHeadRightByWord' },
+                    'ctrl+left': { command: 'tw.cursor.moveBackwardByWord' },
+                    'ctrl+right': { command: 'tw.cursor.moveForwardByWord' },
+                    'ctrl+shift+left': { command: 'tw.cursor.moveHeadBackwardByWord' },
+                    'ctrl+shift+right': { command: 'tw.cursor.moveHeadForwardByWord' },
                     home: { command: 'tw.cursor.moveToLineStart' },
                     end: { command: 'tw.cursor.moveToLineEnd' },
                     'ctrl+home': { command: 'tw.cursor.moveToDocStart' },
@@ -174,10 +206,10 @@ export class Taleweaver {
                     'ctrl+shift+z': { command: 'tw.history.redo', preventDefault: true },
                 },
                 linux: {
-                    'ctrl+left': { command: 'tw.cursor.moveLeftByWord' },
-                    'ctrl+right': { command: 'tw.cursor.moveRightByWord' },
-                    'ctrl+shift+left': { command: 'tw.cursor.moveHeadLeftByWord' },
-                    'ctrl+shift+right': { command: 'tw.cursor.moveHeadRightByWord' },
+                    'ctrl+left': { command: 'tw.cursor.moveBackwardByWord' },
+                    'ctrl+right': { command: 'tw.cursor.moveForwardByWord' },
+                    'ctrl+shift+left': { command: 'tw.cursor.moveHeadBackwardByWord' },
+                    'ctrl+shift+right': { command: 'tw.cursor.moveHeadForwardByWord' },
                     home: { command: 'tw.cursor.moveToLineStart' },
                     end: { command: 'tw.cursor.moveToLineEnd' },
                     'ctrl+home': { command: 'tw.cursor.moveToDocStart' },
@@ -200,19 +232,5 @@ export class Taleweaver {
                 paddingRight: 40,
             },
         };
-    }
-
-    protected registerServices() {
-        this.serviceRegistry.registerService('config', this.configService);
-        this.serviceRegistry.registerService('command', this.commandService);
-        this.serviceRegistry.registerService('component', this.componentService);
-        this.serviceRegistry.registerService('cursor', this.cursorService);
-        this.serviceRegistry.registerService('history', this.historyService);
-        this.serviceRegistry.registerService('state', this.stateService);
-        this.serviceRegistry.registerService('model', this.modelService);
-        this.serviceRegistry.registerService('render', this.renderService);
-        this.serviceRegistry.registerService('layout', this.layoutService);
-        this.serviceRegistry.registerService('view', this.viewService);
-        this.serviceRegistry.registerService('keyBinding', this.keyBindingService);
     }
 }

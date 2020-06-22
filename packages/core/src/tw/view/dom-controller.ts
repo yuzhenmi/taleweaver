@@ -1,7 +1,8 @@
 import { ICommandService } from '../command/service';
+import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
+import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
-import { createHiddenIframe } from '../util/dom';
 import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
 import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
 import {
@@ -45,17 +46,19 @@ export class DOMController {
 
     constructor(
         protected instanceId: string,
+        protected domService: IDOMService,
         protected commandService: ICommandService,
         protected modelService: IModelService,
         protected viewService: IViewService,
+        protected layoutService: ILayoutService,
     ) {
-        this.iframe = createHiddenIframe();
+        this.iframe = domService.createHiddenIframe();
         this.$contentEditable = this.createContentEditable();
-        this.keyboardObserver = new KeyboardObserver(this.$contentEditable);
+        this.keyboardObserver = new KeyboardObserver(this.$contentEditable, domService);
         this.keyboardObserver.onDidInsert(this.handleDidInsert);
         this.keyboardObserver.onCompositionDidStart(this.handleCompositionDidStart);
         this.keyboardObserver.onCompositionDidEnd(this.handleCompositionDidEnd);
-        this.pointerObserver = new PointerObserver(instanceId, viewService);
+        this.pointerObserver = new PointerObserver(instanceId, viewService, domService, layoutService);
         this.pointerObserver.onPointerDidDown(this.handlePointerDidDown);
         this.pointerObserver.onPointerDidMove(this.handlePointerDidMove);
         this.pointerObserver.onPointerDidClick(this.handlePointerDidClick);
@@ -80,7 +83,7 @@ export class DOMController {
     }
 
     attach() {
-        document.body.appendChild(this.iframe);
+        this.domService.getBody().appendChild(this.iframe);
         setTimeout(() => {
             this.iframe.contentDocument!.body.appendChild(this.$contentEditable);
         });
@@ -103,7 +106,7 @@ export class DOMController {
     }
 
     protected handleDidInsert = (event: IDidInsertEvent) => {
-        this.commandService.executeCommand('tw.state.insert', event.tokens);
+        this.commandService.executeCommand('tw.state.insert', event.content);
     };
 
     protected handleCompositionDidStart = (event: ICompositionDidStart) => {
@@ -158,7 +161,7 @@ export class DOMController {
 
     protected handlePaste = (event: IDidPasteEvent) => {
         const html = event.data.getData('text/html');
-        const $container = document.createElement('html');
+        const $container = this.domService.createElement('html');
         $container.innerHTML = html;
         const $body = $container.querySelector('body');
         if (!$body) {
@@ -171,7 +174,7 @@ export class DOMController {
     };
 
     protected createContentEditable() {
-        const $contentEditable = document.createElement('div');
+        const $contentEditable = this.domService.createElement('div');
         $contentEditable.contentEditable = 'true';
         $contentEditable.style.whiteSpace = 'pre';
         return $contentEditable;

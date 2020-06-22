@@ -1,4 +1,7 @@
 import { IConfig, Taleweaver } from '@taleweaver/core';
+import { ModelDoc } from '@taleweaver/core/dist/tw/component/components/doc';
+import { ModelParagraph } from '@taleweaver/core/dist/tw/component/components/paragraph';
+import { ModelText } from '@taleweaver/core/dist/tw/component/components/text';
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import ToolBar from './ToolBar';
@@ -50,7 +53,10 @@ export default function Editor({ initialMarkup, config }: IProps) {
         if (config) {
             mergedConfig['tw.core'] = config;
         }
-        setTaleweaver(new Taleweaver(initialMarkup, mergedConfig));
+        const doc = new ModelDoc('doc', 'doc', {}, [
+            new ModelParagraph('paragraph', 'p1', {}, [new ModelText('text', 't1', 'Hello world', {})]),
+        ]);
+        setTaleweaver(new Taleweaver(doc, mergedConfig));
     }, []);
     useEffect(() => {
         if (taleweaver && domRef.current) {

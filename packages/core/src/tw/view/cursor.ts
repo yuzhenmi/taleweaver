@@ -1,14 +1,16 @@
+import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
-import { ILayoutRect } from '../layout/rect';
+import { IDOMService } from '../dom/service';
+import { IBoundingBox } from '../layout/node';
 import { ILayoutService } from '../layout/service';
-import { IRenderService } from '../render/service';
+import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
+import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
+import { IViewPage } from './page';
 import { IViewService } from './service';
 
 export interface ICursorView {
     attach(): void;
 }
-
-const CURSOR_HUE = 213;
 
 export class CursorView implements ICursorView {
     protected blinkInterval: number | null = null;
@@ -16,15 +18,26 @@ export class CursorView implements ICursorView {
     protected domCaret: HTMLDivElement;
     protected domSelections: HTMLDivElement[] = [];
     protected attached = false;
+    protected caretColor: string;
+    protected caretInactiveColor: string;
+    protected selectionColor: string;
+    protected selectionInactiveColor: string;
 
     constructor(
         protected instanceId: string,
+        protected configService: IConfigService,
+        protected domService: IDOMService,
         protected cursorService: ICursorService,
-        protected renderService: IRenderService,
         protected layoutService: ILayoutService,
         protected viewService: IViewService,
+        protected transformService: ITransformService,
     ) {
-        this.domCaret = document.createElement('div');
+        const cursorConfig = configService.getConfig().cursor;
+        this.caretColor = cursorConfig.caretColor;
+        this.caretInactiveColor = cursorConfig.caretInactiveColor;
+        this.selectionColor = cursorConfig.selectionColor;
+        this.selectionInactiveColor = cursorConfig.selectionInactiveColor;
+        this.domCaret = domService.createElement('div');
         this.domCaret.className = 'tw--cursor--caret';
         this.domCaret.setAttribute('data-tw-instance', this.instanceId);
         this.domCaret.style.position = 'absolute';
@@ -32,10 +45,9 @@ export class CursorView implements ICursorView {
         this.domCaret.style.pointerEvents = 'none';
         this.domCaret.style.width = '2px';
         this.domCaret.style.marginLeft = '-1px';
-        cursorService.onDidUpdateCursor(this.handleDidUpdateCursorState);
-        viewService.onDidUpdateViewState(this.handleDidUpdateViewState);
-        viewService.onDidFocus(this.handleDidFocus);
-        viewService.onDidBlur(this.handleDidBlur);
+        transformService.onDidApplyTransformation((event) => this.handleDidApplyTransformation(event));
+        viewService.onDidFocus((event) => this.handleDidFocus(event));
+        viewService.onDidBlur((event) => this.handleDidBlur(event));
     }
 
     attach() {
@@ -51,53 +63,58 @@ export class CursorView implements ICursorView {
             return;
         }
         this.clearDOMSelections();
-        const cursorState = this.cursorService.getCursorState();
-        const anchor = this.boundCursorPosition(cursorState.anchor);
-        const head = this.boundCursorPosition(cursorState.head);
+        const { anchor, head } = this.cursorService.getCursor();
         const from = Math.min(anchor, head);
         const to = Math.max(anchor, head);
-        const pageRects = this.layoutService.resolvePageRects(from, to);
-        const pageViewNodes = this.viewService.getDocNode().getChildren();
+        const docBoxResult = this.layoutService.resolveBoundingBoxes(from, to);
+        const viewDoc = this.viewService.getDoc();
+        const layoutDoc = this.layoutService.getDoc();
         const focused = this.viewService.isFocused();
-        let firstPageOffset: number = -1;
-        let firstLayoutRectOffset: number = -1;
-        let lastPageOffset: number = -1;
-        let lastLayoutRectOffset: number = -1;
-        pageRects.forEach((rects, pageOffset) => {
-            const pageDOMContentContainer = pageViewNodes[pageOffset].getDOMContentContainer();
-            rects.forEach((rect, rectOffset) => {
-                if (firstPageOffset < 0) {
-                    firstPageOffset = pageOffset;
-                    firstLayoutRectOffset = rectOffset;
+        let firstPageId = '';
+        let firstBoxOffset: number = -1;
+        let lastPageId = '';
+        let lastBoxOffset: number = -1;
+        docBoxResult.children.forEach((pageBoxResult) => {
+            const pageOffset = layoutDoc.children.indexOf(pageBoxResult.node);
+            const viewPage = viewDoc.children.at(pageOffset) as IViewPage;
+            const domContentContainer = viewPage.domContentContainer;
+            pageBoxResult.boundingBoxes.forEach((box, boxOffset) => {
+                if (!firstPageId) {
+                    firstPageId = pageBoxResult.node.id;
+                    firstBoxOffset = boxOffset;
                 }
-                lastPageOffset = pageOffset;
-                lastLayoutRectOffset = rectOffset;
-                if (rect.width === 0) {
+                lastPageId = pageBoxResult.node.id;
+                lastBoxOffset = boxOffset;
+                if (box.width === 0) {
                     return;
                 }
-                const domSelection = this.buildDOMSelection(rect);
+                const domSelection = this.buildDOMSelection(box);
                 if (focused) {
-                    domSelection.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 0.2)`;
+                    domSelection.style.background = this.selectionColor;
                 } else {
-                    domSelection.style.background = 'hsla(0, 0%, 0%, 0.08)';
+                    domSelection.style.background = this.selectionInactiveColor;
                 }
-                pageDOMContentContainer.appendChild(domSelection);
+                domContentContainer.appendChild(domSelection);
                 this.domSelections.push(domSelection);
             });
         });
-        let headPageOffset: number;
+        let headPageId: string;
         let headLeft: number;
         let headTop: number;
         let headHeight: number;
         if (head < anchor) {
-            headPageOffset = firstPageOffset;
-            const rect = pageRects[firstPageOffset][firstLayoutRectOffset];
+            headPageId = firstPageId;
+            const rect = docBoxResult.children.find((child) => child.node.id === firstPageId)!.boundingBoxes[
+                firstBoxOffset
+            ];
             headLeft = rect.left;
             headTop = rect.top;
             headHeight = rect.height;
         } else {
-            headPageOffset = lastPageOffset;
-            const rect = pageRects[lastPageOffset][lastLayoutRectOffset];
+            headPageId = lastPageId;
+            const rect = docBoxResult.children.find((child) => child.node.id === lastPageId)!.boundingBoxes[
+                lastBoxOffset
+            ];
             headLeft = rect.left + rect.width;
             headTop = rect.top;
             headHeight = rect.height;
@@ -108,11 +125,12 @@ export class CursorView implements ICursorView {
             this.domCaret.style.left = `${headLeft}px`;
             this.domCaret.style.height = `${headHeight}px`;
             if (focused) {
-                this.domCaret.style.background = `hsla(${CURSOR_HUE}, 100%, 50%, 1)`;
+                this.domCaret.style.background = this.caretColor;
             } else {
-                this.domCaret.style.background = 'hsla(0, 0%, 0%, 0.5)';
+                this.domCaret.style.background = this.caretInactiveColor;
             }
-            const pageDOMContentContainer = pageViewNodes[headPageOffset].getDOMContentContainer();
+            const pageDOMContentContainer = (viewDoc.children.find((child) => child.id === headPageId) as IViewPage)
+                .domContentContainer;
             if (this.domCaret.parentElement && this.domCaret.parentElement !== pageDOMContentContainer) {
                 this.domCaret.parentElement.removeChild(this.domCaret);
             }
@@ -158,7 +176,7 @@ export class CursorView implements ICursorView {
     }
 
     protected clearDOMSelections() {
-        this.domSelections.forEach(domSelection => {
+        this.domSelections.forEach((domSelection) => {
             if (domSelection.parentElement) {
                 domSelection.parentElement.removeChild(domSelection);
             }
@@ -166,37 +184,29 @@ export class CursorView implements ICursorView {
         this.domSelections = [];
     }
 
-    protected buildDOMSelection(layoutRect: ILayoutRect) {
+    protected buildDOMSelection(box: IBoundingBox) {
         const domSelection = document.createElement('div');
         domSelection.className = 'tw--cursor--selection';
         domSelection.setAttribute('data-tw-instance', this.instanceId);
         domSelection.style.position = 'absolute';
-        domSelection.style.top = `${layoutRect.top - layoutRect.paddingTop}px`;
-        domSelection.style.left = `${layoutRect.left}px`;
-        domSelection.style.width = `${layoutRect.paddingLeft + layoutRect.width + layoutRect.paddingRight}px`;
-        domSelection.style.height = `${layoutRect.paddingTop + layoutRect.height + layoutRect.paddingBottom}px`;
+        domSelection.style.top = `${box.top}px`;
+        domSelection.style.left = `${box.left}px`;
+        domSelection.style.width = `${box.width}px`;
+        domSelection.style.height = `${box.height}px`;
         domSelection.style.userSelect = 'none';
         domSelection.style.pointerEvents = 'none';
         return domSelection;
     }
 
-    protected boundCursorPosition(offset: number) {
-        return Math.min(Math.max(offset, 0), this.renderService.getDocNode().getSize() - 1);
+    protected handleDidApplyTransformation(event: IDidApplyTransformationEvent) {
+        this.updateView();
     }
 
-    protected handleDidUpdateCursorState = () => {
+    protected handleDidFocus(event: IDidFocusEvent) {
         this.updateView();
-    };
+    }
 
-    protected handleDidUpdateViewState = () => {
+    protected handleDidBlur(event: IDidBlurEvent) {
         this.updateView();
-    };
-
-    protected handleDidFocus = () => {
-        this.updateView();
-    };
-
-    protected handleDidBlur = () => {
-        this.updateView();
-    };
+    }
 }

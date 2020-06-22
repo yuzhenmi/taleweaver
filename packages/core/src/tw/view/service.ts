@@ -1,12 +1,15 @@
 import { ICommandService } from '../command/service';
 import { IComponentService } from '../component/service';
+import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
+import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
+import { ITransformService } from '../transform/service';
 import { CursorView, ICursorView } from './cursor';
-import { IDocViewNode } from './doc-node';
+import { IViewDoc } from './doc';
 import { DOMController, IDOMController } from './dom-controller';
 import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
 import { IDidPressKeyEvent } from './keyboard-observer';
@@ -17,7 +20,7 @@ export interface IViewService {
     onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    getDocNode(): IDocViewNode;
+    getDoc(): IViewDoc<any>;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
     requestFocus(): void;
@@ -31,16 +34,34 @@ export class ViewService implements IViewService {
 
     constructor(
         instanceId: string,
+        configService: IConfigService,
+        domService: IDOMService,
         componentService: IComponentService,
         modelService: IModelService,
         layoutService: ILayoutService,
         cursorService: ICursorService,
         renderService: IRenderService,
         commandService: ICommandService,
+        transformService: ITransformService,
     ) {
-        this.state = new ViewState(instanceId, componentService, layoutService);
-        this.domController = new DOMController(instanceId, commandService, modelService, this);
-        this.cursor = new CursorView(instanceId, cursorService, renderService, layoutService, this);
+        this.state = new ViewState(instanceId, componentService, layoutService, renderService, domService);
+        this.domController = new DOMController(
+            instanceId,
+            domService,
+            commandService,
+            modelService,
+            this,
+            layoutService,
+        );
+        this.cursor = new CursorView(
+            instanceId,
+            configService,
+            domService,
+            cursorService,
+            layoutService,
+            this,
+            transformService,
+        );
     }
 
     onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
@@ -59,8 +80,8 @@ export class ViewService implements IViewService {
         this.domController.onDidPressKey(listener);
     }
 
-    getDocNode() {
-        return this.state.getDocNode();
+    getDoc() {
+        return this.state.doc;
     }
 
     isFocused() {

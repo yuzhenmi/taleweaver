@@ -1,27 +1,28 @@
-import { DocLayoutNode as AbstractDocLayoutNode } from '../../layout/doc-node';
-import { ILayoutNode } from '../../layout/node';
-import { DocModelNode as AbstractDocModelNode } from '../../model/doc-node';
-import { IAttributes, IModelNode } from '../../model/node';
-import { DocRenderNode as AbstractDocRenderNode } from '../../render/doc-node';
-import { IRenderNode, IStyle } from '../../render/node';
-import { generateId } from '../../util/id';
-import { DocViewNode as AbstractDocViewNode } from '../../view/doc-node';
+import { IDOMService } from '../../dom/service';
+import { IModelNode } from '../../model/node';
+import { ModelRoot } from '../../model/root';
+import { RenderDoc as AbstractRenderDoc } from '../../render/doc';
+import { IRenderNode } from '../../render/node';
+import { ViewDoc as AbstractViewDoc } from '../../view/doc';
+import { IViewNode } from '../../view/node';
 import { Component, IComponent } from '../component';
 
-export interface IDocAttributes extends IAttributes {}
+export interface IDocAttributes {}
 
-export class DocModelNode extends AbstractDocModelNode<IDocAttributes> {
-    getPartId() {
+export interface IDocStyle {}
+
+export class ModelDoc extends ModelRoot<IDocAttributes> {
+    get partId() {
         return 'doc';
     }
 
     toDOM(from: number, to: number) {
         const $element = document.createElement('div');
         let offset = 1;
-        const children = this.getChildren();
+        const children = this.children;
         for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const child = children[n];
-            const childSize = child.getSize();
+            const child = children.at(n);
+            const childSize = child.size;
             const childFrom = Math.max(0, from - offset);
             const childTo = Math.min(childFrom + childSize, to - offset);
             offset += childSize;
@@ -33,71 +34,117 @@ export class DocModelNode extends AbstractDocModelNode<IDocAttributes> {
         }
         return $element;
     }
-
-    clone() {
-        return new DocModelNode(this.componentId, generateId(), this.attributes);
-    }
 }
 
-export interface IDocStyle extends IStyle {}
+export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
+    constructor(
+        componentId: string,
+        modelId: string | null,
+        attributes: IDocAttributes,
+        children: IRenderNode<any, any>[],
+        readonly width: number,
+        readonly height: number,
+        readonly paddingTop: number,
+        readonly paddingBottom: number,
+        readonly paddingLeft: number,
+        readonly paddingRight: number,
+    ) {
+        super(componentId, modelId, attributes, children);
+    }
 
-export class DocRenderNode extends AbstractDocRenderNode<IDocStyle> {
-    getPartId() {
+    get partId() {
         return 'doc';
     }
-}
 
-export class DocLayoutNode extends AbstractDocLayoutNode {
-    getPartId() {
-        return 'doc';
+    get pseudo() {
+        return false;
+    }
+
+    get style() {
+        return {};
     }
 }
 
-export class DocViewNode extends AbstractDocViewNode<DocLayoutNode> {
-    protected domContainer: HTMLDivElement;
-
-    constructor(layoutNode: DocLayoutNode) {
-        super(layoutNode);
-        this.domContainer = document.createElement('div');
+export class ViewDoc extends AbstractViewDoc<IDocStyle> {
+    constructor(
+        domContainer: HTMLElement,
+        componentId: string | null,
+        renderId: string | null,
+        layoutId: string,
+        style: IDocStyle,
+        children: IViewNode<any>[],
+        domService: IDOMService,
+    ) {
+        super(domContainer, componentId, renderId, layoutId, style, children, domService);
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
+        this.domContainer.innerHTML = '';
+        const domContentContainer = domService.createElement('div');
+        domContentContainer.setAttribute('data-tw-role', 'content-container');
+        children.map((child) => domContentContainer.appendChild(child.domContainer));
+        this.domContainer.appendChild(domContentContainer);
     }
 
-    getDOMContainer() {
-        return this.domContainer;
+    get partId() {
+        return 'doc';
     }
-
-    getDOMContentContainer() {
-        return this.domContainer;
-    }
-
-    onLayoutDidUpdate() {}
 }
 
 export class DocComponent extends Component implements IComponent {
-    buildModelNode(partId: string | undefined, id: string, attributes: IAttributes) {
-        return new DocModelNode(this.id, id, attributes);
+    buildModelNode(partId: string | null, id: string, text: string, attributes: any, children: IModelNode<any>[]) {
+        return new ModelDoc(this.id, id, attributes, children);
     }
 
-    buildRenderNode(modelNode: IModelNode) {
-        if (modelNode instanceof DocModelNode) {
-            return new DocRenderNode(this.id, modelNode.getId(), {});
+    buildRenderNode(
+        partId: string | null,
+        modelId: string,
+        text: string,
+        attributes: any,
+        children: IRenderNode<any, any>[],
+    ) {
+        const configService = this.serviceRegistry.getService('config');
+        switch (partId) {
+            case 'doc':
+                const pageConfig = configService.getConfig().page;
+                return new RenderDoc(
+                    this.id,
+                    modelId,
+                    attributes,
+                    children,
+                    pageConfig.width,
+                    pageConfig.height,
+                    pageConfig.paddingTop,
+                    pageConfig.paddingBottom,
+                    pageConfig.paddingLeft,
+                    pageConfig.paddingRight,
+                );
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid doc model node.');
     }
 
-    buildLayoutNode(renderNode: IRenderNode) {
-        if (renderNode instanceof DocRenderNode) {
-            return new DocLayoutNode(this.id, renderNode.getId());
+    buildViewNode(
+        domContainer: HTMLElement,
+        partId: string | null,
+        renderId: string,
+        layoutId: string,
+        text: string,
+        style: any,
+        children: IViewNode<any>[],
+        width: number,
+        height: number,
+        paddingTop: number,
+        paddingBottom: number,
+        paddingLeft: number,
+        paddingRight: number,
+    ) {
+        const domService = this.serviceRegistry.getService('dom');
+        switch (partId) {
+            case 'doc':
+                return new ViewDoc(domContainer, this.id, renderId, layoutId, style, children, domService);
+            default:
+                throw new Error('Invalid part ID.');
         }
-        throw new Error('Invalid doc render node.');
-    }
-
-    buildViewNode(layoutNode: ILayoutNode) {
-        if (layoutNode instanceof DocLayoutNode) {
-            return new DocViewNode(layoutNode);
-        }
-        throw new Error('Invalid layout render node.');
     }
 }

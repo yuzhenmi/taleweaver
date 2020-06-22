@@ -1,4 +1,4 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 
 export interface IDidCopyEvent {}
@@ -13,8 +13,8 @@ export interface IClipboardObserver {
 }
 
 export class ClipboardObserver implements IClipboardObserver {
-    protected didCopyEventEmitter: IEventEmitter<IDidCopyEvent> = new EventEmitter();
-    protected didPasteEventEmitter: IEventEmitter<IDidPasteEvent> = new EventEmitter();
+    protected didCopyEventEmitter = new EventEmitter<IDidCopyEvent>();
+    protected didPasteEventEmitter = new EventEmitter<IDidPasteEvent>();
 
     constructor(protected $contentEditable: HTMLDivElement) {
         $contentEditable.addEventListener('copy', this.handleCopy);
@@ -22,11 +22,11 @@ export class ClipboardObserver implements IClipboardObserver {
     }
 
     onDidCopy(listener: IEventListener<IDidCopyEvent>) {
-        this.didCopyEventEmitter.on(listener);
+        return this.didCopyEventEmitter.on(listener);
     }
 
     onDidPaste(listener: IEventListener<IDidPasteEvent>) {
-        this.didPasteEventEmitter.on(listener);
+        return this.didPasteEventEmitter.on(listener);
     }
 
     protected handleCopy = (event: ClipboardEvent) => {

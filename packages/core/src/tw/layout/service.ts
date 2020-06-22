@@ -1,38 +1,37 @@
-import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IRenderService } from '../render/service';
-import { IDocLayoutNode } from './doc-node';
-import { ILayoutPosition } from './node';
-import { IPageLayoutRect } from './rect';
+import { ITextService } from '../text/service';
+import { ILayoutDoc } from './doc';
+import { ILayoutPosition, IResolveBoundingBoxesResult } from './node';
 import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 
 export interface ILayoutService {
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
-    getDocNode(): IDocLayoutNode;
+    getDoc(): ILayoutDoc;
     resolvePosition(offset: number): ILayoutPosition;
-    resolvePageRects(from: number, to: number): IPageLayoutRect[];
+    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
 }
 
 export class LayoutService implements ILayoutService {
     protected state: ILayoutState;
 
-    constructor(componentService: IComponentService, renderService: IRenderService) {
-        this.state = new LayoutState(componentService, renderService);
+    constructor(renderService: IRenderService, textService: ITextService) {
+        this.state = new LayoutState(renderService, textService);
     }
 
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
         this.state.onDidUpdateLayoutState(listener);
     }
 
-    getDocNode() {
-        return this.state.getDocNode();
+    getDoc() {
+        return this.state.doc;
     }
 
     resolvePosition(offset: number) {
-        return this.state.getDocNode().resolvePosition(offset);
+        return this.state.doc.resolvePosition(offset);
     }
 
-    resolvePageRects(from: number, to: number) {
-        return this.state.getDocNode().resolvePageRects(from, to);
+    resolveBoundingBoxes(from: number, to: number) {
+        return this.state.doc.resolveBoundingBoxes(from, to);
     }
 }

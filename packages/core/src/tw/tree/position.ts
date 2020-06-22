@@ -1,69 +1,36 @@
 import { INode } from './node';
 
-export interface IPosition<TNode extends INode> {
-    getNode(): TNode;
-    getDepth(): number;
-    getOffset(): number;
-    setParent(parent: IPosition<TNode>): void;
-    getParent(): IPosition<TNode> | null;
-    setChild(child: IPosition<TNode>): void;
-    getChild(): IPosition<TNode> | null;
-    getRoot(): IPosition<TNode>;
-    getLeaf(): IPosition<TNode>;
+export interface IPositionDepth<TNode extends INode<TNode>> {
+    readonly node: TNode;
+    readonly offset: number;
+    readonly index: number;
 }
 
-export abstract class Position<TNode extends INode> {
-    protected node: TNode;
-    protected depth: number;
-    protected offset: number;
-    protected parent: IPosition<TNode> | null = null;
-    protected child: IPosition<TNode> | null = null;
+export interface IPosition<TNode extends INode<TNode>> {
+    readonly depth: number;
 
-    constructor(node: TNode, depth: number, offset: number) {
-        this.node = node;
-        this.depth = depth;
-        this.offset = offset;
+    atDepth(depth: number): IPositionDepth<TNode>;
+    atReverseDepth(reverseDepth: number): IPositionDepth<TNode>;
+}
+
+export abstract class Position<TNode extends INode<TNode>> implements IPosition<TNode> {
+    constructor(protected depths: IPositionDepth<TNode>[]) {}
+
+    get depth() {
+        return this.depths.length;
     }
 
-    getNode() {
-        return this.node;
-    }
-
-    getDepth() {
-        return this.depth;
-    }
-
-    getOffset() {
-        return this.offset;
-    }
-
-    setParent(parent: IPosition<TNode>) {
-        this.parent = parent;
-    }
-
-    getParent() {
-        return this.parent;
-    }
-
-    setChild(child: IPosition<TNode>) {
-        this.child = child;
-    }
-
-    getChild() {
-        return this.child;
-    }
-
-    getRoot(): IPosition<TNode> {
-        if (this.parent) {
-            return this.parent.getRoot();
+    atDepth(depth: number) {
+        if (depth < 0 || depth >= this.depths.length) {
+            throw new Error('Depth out of range.');
         }
-        return this;
+        return this.depths[depth];
     }
 
-    getLeaf(): IPosition<TNode> {
-        if (this.child) {
-            return this.child.getLeaf();
+    atReverseDepth(reverseDepth: number) {
+        if (reverseDepth < 0 || reverseDepth >= this.depths.length) {
+            throw new Error('Reverse depth out of range.');
         }
-        return this;
+        return this.depths[this.depth - reverseDepth - 1];
     }
 }

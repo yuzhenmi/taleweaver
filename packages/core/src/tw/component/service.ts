@@ -1,4 +1,5 @@
 import { IConfigService } from '../config/service';
+import { IServiceRegistry } from '../service/registry';
 import { IComponent } from './component';
 import { LineComponent } from './components/line';
 import { PageComponent } from './components/page';
@@ -7,24 +8,20 @@ import { IPageComponent } from './page-component';
 import { ComponentRegistry, IComponentRegistry } from './registry';
 
 export interface IComponentService {
+    getComponent(componentId: string): IComponent;
     getPageComponent(): IPageComponent;
     getLineComponent(): ILineComponent;
-    getComponent(componentId: string): IComponent | undefined;
 }
 
 export class ComponentService implements IComponentService {
-    protected pageComponent: IPageComponent;
-    protected lineComponent: ILineComponent;
     protected registry: IComponentRegistry = new ComponentRegistry();
 
-    constructor(configService: IConfigService) {
-        this.pageComponent = new PageComponent('page', configService);
-        this.lineComponent = new LineComponent('line');
-        for (let [componentId, component] of Object.entries(configService.getConfig().components)) {
-            this.registry.registerComponent(componentId, component);
+    constructor(protected configService: IConfigService, protected serviceRegistry: IServiceRegistry) {
+        for (let [componentId, Component] of Object.entries(configService.getConfig().components)) {
+            this.registry.registerComponent(componentId, new Component(componentId, serviceRegistry));
         }
-        this.registry.registerComponent(this.pageComponent.getId(), this.pageComponent);
-        this.registry.registerComponent(this.lineComponent.getId(), this.lineComponent);
+        this.registry.registerPageComponent(new PageComponent('page', serviceRegistry));
+        this.registry.registerLineComponent(new LineComponent('line', serviceRegistry));
     }
 
     getComponent(componentId: string) {
@@ -32,10 +29,10 @@ export class ComponentService implements IComponentService {
     }
 
     getPageComponent() {
-        return this.pageComponent;
+        return this.registry.getPageComponent();
     }
 
     getLineComponent() {
-        return this.lineComponent;
+        return this.registry.getLineComponent();
     }
 }

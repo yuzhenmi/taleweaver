@@ -1,48 +1,80 @@
 import { IComponentService } from '../component/service';
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
+import { IModelNode } from '../model/node';
 import { IModelService } from '../model/service';
 import { IDidUpdateModelStateEvent } from '../model/state';
-import { IDocRenderNode } from './doc-node';
+import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
-import { RenderTreeBuilder } from './tree-builder';
 
-export interface IDidUpdateRenderStateEvent {
-    readonly node: IRenderNode;
-}
+export interface IDidUpdateRenderStateEvent {}
 
 export interface IRenderState {
     onDidUpdateRenderState: IOnEvent<IDidUpdateRenderStateEvent>;
-    getDocNode(): IDocRenderNode;
+    readonly doc: IRenderDoc<any, any>;
 }
 
 export class RenderState implements IRenderState {
-    protected docNode: IDocRenderNode;
-    protected didUpdateRenderStateEventEmitter: IEventEmitter<IDidUpdateRenderStateEvent> = new EventEmitter();
+    protected didUpdateRenderStateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
+    protected internalDoc: IRenderDoc<any, any>;
 
     constructor(protected componentService: IComponentService, protected modelService: IModelService) {
-        const docModelNode = modelService.getDocNode();
-        const treeBuilder = new RenderTreeBuilder(componentService);
-        this.docNode = treeBuilder.buildTree(docModelNode) as IDocRenderNode;
-        modelService.onDidUpdateModelState(this.handleDidUpdateModelStateEvent);
+        const modelRoot = modelService.getRoot();
+        this.internalDoc = this.updateNode(null, modelRoot) as IRenderDoc<any, any>;
+        modelService.onDidUpdateModelState((event) => this.handleDidUpdateModelState(event));
     }
 
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
-        this.didUpdateRenderStateEventEmitter.on(listener);
+        return this.didUpdateRenderStateEventEmitter.on(listener);
     }
 
-    getDocNode() {
-        return this.docNode;
+    get doc() {
+        return this.internalDoc;
     }
 
-    protected handleDidUpdateModelStateEvent = (event: IDidUpdateModelStateEvent) => {
-        const treeBuilder = new RenderTreeBuilder(this.componentService);
-        const updatedNode = treeBuilder.buildTree(event.node);
-        const node = this.docNode.findDescendant(event.node.getId()) as IRenderNode;
-        if (!node) {
-            throw new Error(`Render node ${event.node.getId()} is not found.`);
+    protected handleDidUpdateModelState(event: IDidUpdateModelStateEvent) {
+        this.update();
+    }
+
+    protected update() {
+        const modelRoot = this.modelService.getRoot();
+        this.internalDoc = this.updateNode(this.doc, modelRoot) as IRenderDoc<any, any>;
+        this.didUpdateRenderStateEventEmitter.emit({});
+    }
+
+    protected updateNode(node: IRenderNode<any, any> | null, modelNode: IModelNode<any>): IRenderNode<any, any> {
+        if (!modelNode.needRender && node) {
+            return node;
         }
-        node.onDidUpdate(updatedNode);
-        this.didUpdateRenderStateEventEmitter.emit({ node });
-    };
+        const childrenMap: { [key: string]: IRenderNode<any, any> } = {};
+        if (node) {
+            node.children.forEach((child) => {
+                if (!child.modelId) {
+                    return;
+                }
+                childrenMap[child.modelId] = child;
+            });
+        }
+        const newChildren: IRenderNode<any, any>[] = [];
+        modelNode.children.forEach((modelChild) => {
+            newChildren.push(this.updateNode(childrenMap[modelChild.id] || null, modelChild));
+        });
+        modelNode.clearNeedRender();
+        return this.buildNode(modelNode, newChildren);
+    }
+
+    protected buildNode(modelNode: IModelNode<any>, children: IRenderNode<any, any>[]) {
+        const component = this.componentService.getComponent(modelNode.componentId);
+        const node = component.buildRenderNode(
+            modelNode.partId,
+            modelNode.id,
+            modelNode.text,
+            modelNode.attributes,
+            children,
+        );
+        if (!node) {
+            throw new Error(`Error building render node from model node ${modelNode.id}.`);
+        }
+        return node;
+    }
 }

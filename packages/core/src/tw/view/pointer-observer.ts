@@ -1,5 +1,7 @@
-import { EventEmitter, IEventEmitter } from '../event/emitter';
+import { IDOMService } from '../dom/service';
+import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
+import { ILayoutService } from '../layout/service';
 import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
@@ -38,35 +40,41 @@ export class PointerObserver implements IPointerObserver {
         offset: number;
     } | null = null;
     protected consecutiveClickCount: number = 0;
-    protected pointerDidDownEventEmitter: IEventEmitter<IPointerDidDownEvent> = new EventEmitter();
-    protected pointerDidMoveEventEmitter: IEventEmitter<IPointerDidMoveEvent> = new EventEmitter();
-    protected pointerDidUpEventEmitter: IEventEmitter<IPointerDidUpEvent> = new EventEmitter();
-    protected pointerDidClickEventEmitter: IEventEmitter<IPointerDidClick> = new EventEmitter();
+    protected pointerDidDownEventEmitter = new EventEmitter<IPointerDidDownEvent>();
+    protected pointerDidMoveEventEmitter = new EventEmitter<IPointerDidMoveEvent>();
+    protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
+    protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
 
-    constructor(protected instanceId: string, protected viewService: IViewService) {
+    constructor(
+        protected instanceId: string,
+        protected viewService: IViewService,
+        protected domService: IDOMService,
+        protected layoutService: ILayoutService,
+    ) {
+        const window = domService.getWindow();
         window.addEventListener('mousedown', this.handleMouseDown);
         window.addEventListener('mousemove', this.handleMouseMove);
         window.addEventListener('mouseup', this.handleMouseUp);
     }
 
     onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
-        this.pointerDidDownEventEmitter.on(listener);
+        return this.pointerDidDownEventEmitter.on(listener);
     }
 
     onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>) {
-        this.pointerDidMoveEventEmitter.on(listener);
+        return this.pointerDidMoveEventEmitter.on(listener);
     }
 
     onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>) {
-        this.pointerDidUpEventEmitter.on(listener);
+        return this.pointerDidUpEventEmitter.on(listener);
     }
 
     onPointerDidClick(listener: IEventListener<IPointerDidClick>) {
-        this.pointerDidClickEventEmitter.on(listener);
+        return this.pointerDidClickEventEmitter.on(listener);
     }
 
     protected handleMouseDown = (event: MouseEvent) => {
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -82,7 +90,7 @@ export class PointerObserver implements IPointerObserver {
     };
 
     protected handleMouseMove = (event: MouseEvent) => {
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -98,7 +106,7 @@ export class PointerObserver implements IPointerObserver {
         }
         const lastPointerDown = this.lastPointerDown;
         this.lastPointerDown = null;
-        const offset = this.resolveCoordinates(event.clientX, event.clientY);
+        const offset = this.resolveOffset(event.clientX, event.clientY);
         if (offset === null) {
             return;
         }
@@ -124,13 +132,14 @@ export class PointerObserver implements IPointerObserver {
         }
     };
 
-    protected resolveCoordinates(x: number, y: number): number | null {
-        const pageViewNodes = this.viewService.getDocNode().getChildren();
+    protected resolveOffset(x: number, y: number): number | null {
+        const viewDoc = this.viewService.getDoc();
+        const layoutDoc = this.layoutService.getDoc();
         let cumulatedOffset = 0;
-        for (let pageViewNode of pageViewNodes) {
-            const pageLayoutNode = pageViewNode.getLayoutNode();
-            const pageDOMContainer = pageViewNode.getDOMContainer();
-            const pageBoundingClientRect = pageDOMContainer.getBoundingClientRect();
+        for (let n = 0, nn = viewDoc.children.length; n < nn; n++) {
+            const viewPage = viewDoc.children.at(n);
+            const layoutPage = layoutDoc.children.at(n);
+            const pageBoundingClientRect = viewPage.domContainer.getBoundingClientRect();
             if (
                 pageBoundingClientRect.left <= x &&
                 pageBoundingClientRect.right >= x &&
@@ -139,9 +148,9 @@ export class PointerObserver implements IPointerObserver {
             ) {
                 const pageX = x - pageBoundingClientRect.left;
                 const pageY = y - pageBoundingClientRect.top;
-                return cumulatedOffset + pageLayoutNode.convertCoordinatesToOffset(pageX, pageY);
+                return cumulatedOffset + layoutPage.convertCoordinatesToOffset(pageX, pageY);
             }
-            cumulatedOffset += pageLayoutNode.getSize();
+            cumulatedOffset += layoutPage.size;
         }
         return null;
     }
