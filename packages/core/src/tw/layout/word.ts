@@ -4,6 +4,8 @@ import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode }
 export interface ILayoutWord extends ILayoutNode {
     readonly whitespaceSize: number;
     readonly trimmedWidth: number;
+
+    breakAt(offset: number): [ILayoutWord, ILayoutWord];
 }
 
 export class LayoutWord extends LayoutNode implements ILayoutWord {
@@ -136,6 +138,19 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
             ],
             children: [],
         };
+    }
+
+    breakAt(offset: number): [ILayoutWord, ILayoutWord] {
+        return [
+            new LayoutWord(this.renderId, this.text.substring(0, offset), 0, this.font, this.textService),
+            new LayoutWord(
+                this.renderId,
+                this.text.substring(offset),
+                this.whitespaceSize,
+                this.font,
+                this.textService,
+            ),
+        ];
     }
 
     protected measure() {

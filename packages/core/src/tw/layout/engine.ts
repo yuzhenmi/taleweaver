@@ -10,7 +10,7 @@ import { ILayoutLine, LayoutLine } from './line';
 import { ILayoutNode } from './node';
 import { ILayoutPage, LayoutPage } from './page';
 import { ILayoutText, LayoutText } from './text';
-import { LayoutWord } from './word';
+import { ILayoutWord, LayoutWord } from './word';
 
 export interface ILayoutEngine {
     updateDoc(doc: ILayoutDoc | null, renderDoc: IRenderDoc<any, any>): ILayoutDoc;
@@ -326,17 +326,26 @@ export class LayoutEngine implements ILayoutEngine {
             }
             // If there is remainder node, try to push part of it to line
             if (node) {
-                const nodeChildren: ILayoutNode[] = [];
-                for (let m = 0, mm = node.children.length; m < mm; m++) {
-                    // TODO: If word is wider than line, break word
-                    const nodeChild = node.children.at(m);
+                const nodeChildren = node.children.slice();
+                const newNodeChildren: ILayoutNode[] = [];
+                for (let m = 0; m < nodeChildren.length; m++) {
+                    let nodeChild = nodeChildren[m];
+                    if (nodeChild.type === 'word' && nodeChild.width > width) {
+                        let breakAt = nodeChild.convertCoordinatesToOffset(width, 0);
+                        if (nodeChild.resolveBoundingBoxes(breakAt, breakAt).boundingBoxes[0].left > width) {
+                            breakAt--;
+                        }
+                        const [brokenNodeChild1, brokenNodeChild2] = (nodeChild as ILayoutWord).breakAt(breakAt);
+                        nodeChild = brokenNodeChild1;
+                        nodeChildren.splice(m, 1, brokenNodeChild1, brokenNodeChild2);
+                    }
                     if (currentWidth + nodeChild.width > width) {
                         break;
                     }
-                    nodeChildren.push(nodeChild);
+                    newNodeChildren.push(nodeChild);
                     currentWidth += nodeChild.width;
                 }
-                if (nodeChildren.length > 0) {
+                if (newNodeChildren.length > 0) {
                     switch (node.type) {
                         case 'text':
                             // Split text to two, one to push to this line, other goes back
@@ -344,7 +353,7 @@ export class LayoutEngine implements ILayoutEngine {
                             const text = node as ILayoutText;
                             const node1 = new LayoutText(
                                 text.renderId,
-                                nodeChildren,
+                                newNodeChildren,
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,
@@ -355,7 +364,7 @@ export class LayoutEngine implements ILayoutEngine {
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
                                 text.renderId,
-                                node.children.slice(nodeChildren.length),
+                                nodeChildren.slice(newNodeChildren.length),
                                 text.paddingTop,
                                 text.paddingBottom,
                                 text.paddingLeft,
