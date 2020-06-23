@@ -1,6 +1,6 @@
 import { Taleweaver } from '@taleweaver/core';
 import { ITextStyle } from '@taleweaver/core/dist/tw/component/components/text';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import styled from 'styled-components';
 
 const Wrapper = styled.div`
@@ -168,12 +168,9 @@ function getTextStyles(taleweaver: Taleweaver) {
 
 export default function ToolBar({ taleweaver }: Props) {
     const [textStyles, setTextStyles] = useState<ITextStyle[]>([]);
-    const updateTextStyle = useMemo(
-        () => (taleweaver: Taleweaver) => {
-            setTextStyles(getTextStyles(taleweaver));
-        },
-        [],
-    );
+    const updateTextStyle = useCallback((taleweaver: Taleweaver) => {
+        setTextStyles(getTextStyles(taleweaver));
+    }, []);
     useEffect(() => {
         if (!taleweaver) {
             return;
@@ -183,7 +180,7 @@ export default function ToolBar({ taleweaver }: Props) {
         cursorService.onDidUpdate((event) => updateTextStyle(taleweaver));
         renderService.onDidUpdateRenderState((event) => updateTextStyle(taleweaver));
         updateTextStyle(taleweaver);
-    }, [taleweaver]);
+    }, [taleweaver, updateTextStyle]);
     const family = new Set(textStyles.map((s) => s.family)).size === 1 ? textStyles[0].family : null;
     const size = new Set(textStyles.map((s) => s.size)).size === 1 ? textStyles[0].size : null;
     const bold = new Set(textStyles.map((s) => s.weight > 400)).size === 1 ? textStyles[0].weight > 400 : false;
@@ -192,6 +189,7 @@ export default function ToolBar({ taleweaver }: Props) {
     const strikethrough =
         new Set(textStyles.map((s) => s.strikethrough)).size === 1 ? textStyles[0].strikethrough : false;
     const color = new Set(textStyles.map((s) => s.color)).size === 1 ? textStyles[0].color : null;
+    const commandService = taleweaver?.getServiceRegistry().getService('command');
     return (
         <Wrapper>
             <Container>
@@ -232,16 +230,58 @@ export default function ToolBar({ taleweaver }: Props) {
                     </SelectItem>
                 </Group>
                 <Group>
-                    <Item active={bold} disabled={false} onClick={() => null}>
+                    <Item
+                        active={bold}
+                        disabled={false}
+                        onClick={() =>
+                            commandService!.executeCommand(
+                                'tw.state.applyAttribute',
+                                'text',
+                                'text',
+                                'weight',
+                                bold ? 400 : 700,
+                            )
+                        }
+                    >
                         <i className="mdi mdi-format-bold" />
                     </Item>
-                    <Item active={italic} disabled={false} onClick={() => null}>
+                    <Item
+                        active={italic}
+                        disabled={false}
+                        onClick={() =>
+                            commandService!.executeCommand('tw.state.applyAttribute', 'text', 'text', 'italic', !italic)
+                        }
+                    >
                         <i className="mdi mdi-format-italic" />
                     </Item>
-                    <Item active={underline} disabled={false} onClick={() => null}>
+                    <Item
+                        active={underline}
+                        disabled={false}
+                        onClick={() =>
+                            commandService!.executeCommand(
+                                'tw.state.applyAttribute',
+                                'text',
+                                'text',
+                                'underline',
+                                !underline,
+                            )
+                        }
+                    >
                         <i className="mdi mdi-format-underline" />
                     </Item>
-                    <Item active={strikethrough} disabled={false} onClick={() => null}>
+                    <Item
+                        active={strikethrough}
+                        disabled={false}
+                        onClick={() =>
+                            commandService!.executeCommand(
+                                'tw.state.applyAttribute',
+                                'text',
+                                'text',
+                                'strikethrough',
+                                !strikethrough,
+                            )
+                        }
+                    >
                         <i className="mdi mdi-format-strikethrough-variant" />
                     </Item>
                     <Item active={false} disabled={color === null} onClick={() => null}>

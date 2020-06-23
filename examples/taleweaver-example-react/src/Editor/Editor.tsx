@@ -54,7 +54,8 @@ interface IProps {
 }
 
 export default function Editor({ initialDoc, config }: IProps) {
-    const domRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const container = containerRef.current;
     const [taleweaver, setTaleweaver] = useState<Taleweaver | null>(null);
     useEffect(() => {
         const mergedConfig: IConfig = {};
@@ -62,17 +63,17 @@ export default function Editor({ initialDoc, config }: IProps) {
             mergedConfig['tw.core'] = config;
         }
         setTaleweaver(new Taleweaver(buildBlankDoc(), mergedConfig));
-    }, []);
+    }, [config]);
     useEffect(() => {
-        if (taleweaver && domRef.current) {
+        if (taleweaver && container) {
             taleweaver.setContent(parse(initialDoc, taleweaver.getServiceRegistry().getService('component')));
-            taleweaver.attach(domRef.current);
+            taleweaver.attach(container);
         }
-    }, [taleweaver, domRef.current]);
+    }, [taleweaver, container, initialDoc]);
     return (
         <Wrapper>
             <ToolBar taleweaver={taleweaver} />
-            <EditorWrapper ref={domRef} />
+            <EditorWrapper ref={containerRef} />
         </Wrapper>
     );
 }
