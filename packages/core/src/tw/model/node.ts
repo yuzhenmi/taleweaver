@@ -16,6 +16,7 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
 
     canJoin(node: IModelNode<any>): boolean;
     clearNeedRender(): void;
+    applyAttribute(key: string, value: any): any;
     replace(from: number, to: number, content: IModelNode<any>[] | string): IModelNode<any>[] | string;
     resolvePosition(offset: number): IModelPosition;
     toDOM(from: number, to: number): HTMLElement;
@@ -82,6 +83,15 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
 
     clearNeedRender() {
         this.internalNeedRender = false;
+    }
+
+    applyAttribute(key: string, value: any) {
+        // @ts-ignore
+        const originalValue = this.attributes[key];
+        // @ts-ignore
+        this.attributes[key] = value;
+        this.didUpdateEventEmitter.emit({});
+        return originalValue;
     }
 
     replace(from: number, to: number, content: IModelNode<any>[] | string) {

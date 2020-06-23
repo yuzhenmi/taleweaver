@@ -29,3 +29,9 @@ export class Mapping {
         return new Mapping(this.from, this.newSize, this.oldSize);
     }
 }
+
+export const identity: IMapping = {
+    map: (offset: number) => offset,
+    mapRender: (offset: number, renderService: IRenderService) => offset,
+    reverse: () => identity,
+};
