@@ -1,7 +1,8 @@
-import { Fragment } from '../fragment';
-import { IModelNode } from '../node';
-import { IModelRoot } from '../root';
+import { Fragment } from '../../fragment';
+import { IModelNode } from '../../node';
+import { IModelRoot } from '../../root';
 import { Mutator } from './mutator';
+import { join } from './join';
 
 type IRemoverState = 'end' | 'forward' | 'enter' | 'fullNode' | 'text' | 'partialNode';
 
@@ -168,7 +169,7 @@ export class Remover extends Mutator<IRemoverState> {
         }
         this.to -= 2;
         const childNodeToJoin = node.firstChild;
-        this.joinNodes(previousSibling, node);
+        join(previousSibling, node);
         if (childNodeToJoin) {
             this.joinNodeWithPreviousSibling(childNodeToJoin);
         }

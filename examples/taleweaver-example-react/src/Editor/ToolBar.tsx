@@ -235,7 +235,7 @@ export default function ToolBar({ taleweaver }: Props) {
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
-                                'tw.state.applyAttribute',
+                                'tw.state.applyAttributeWithin',
                                 'text',
                                 'text',
                                 'weight',
@@ -249,7 +249,13 @@ export default function ToolBar({ taleweaver }: Props) {
                         active={italic}
                         disabled={false}
                         onClick={() =>
-                            commandService!.executeCommand('tw.state.applyAttribute', 'text', 'text', 'italic', !italic)
+                            commandService!.executeCommand(
+                                'tw.state.applyAttributeWithin',
+                                'text',
+                                'text',
+                                'italic',
+                                !italic,
+                            )
                         }
                     >
                         <i className="mdi mdi-format-italic" />
@@ -259,7 +265,7 @@ export default function ToolBar({ taleweaver }: Props) {
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
-                                'tw.state.applyAttribute',
+                                'tw.state.applyAttributeWithin',
                                 'text',
                                 'text',
                                 'underline',
@@ -274,7 +280,7 @@ export default function ToolBar({ taleweaver }: Props) {
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
-                                'tw.state.applyAttribute',
+                                'tw.state.applyAttributeWithin',
                                 'text',
                                 'text',
                                 'strikethrough',

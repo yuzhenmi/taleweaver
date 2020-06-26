@@ -145,6 +145,7 @@ export class Taleweaver {
                 'tw.state.deleteForward': stateCommandHandlers.deleteForward,
                 'tw.state.breakLine': stateCommandHandlers.breakLine,
                 'tw.state.applyAttribute': stateCommandHandlers.applyAttribute,
+                'tw.state.applyAttributeWithin': stateCommandHandlers.applyAttributeWithin,
                 'tw.view.focus': viewCommandHandlers.focus,
                 'tw.view.blur': viewCommandHandlers.blur,
             },

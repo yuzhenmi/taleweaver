@@ -2,9 +2,11 @@ import { IComponentService } from '../../component/service';
 import { IFragment } from '../fragment';
 import { IModelRoot } from '../root';
 import { IChangeResult, ModelChange } from './change';
-import { Inserter } from './inserter';
+import { Inserter } from './util/inserter';
 import { IMapping, Mapping } from './mapping';
-import { Remover } from './remover';
+import { Remover } from './util/remover';
+import { IModelNode } from '../node';
+import { join } from './util/join';
 
 export class ReplaceChange extends ModelChange {
     constructor(protected from: number, protected to: number, protected fragments: IFragment[]) {
@@ -24,10 +26,17 @@ export class ReplaceChange extends ModelChange {
         remover.run();
         const inserter = new Inserter(root, this.from, this.fragments, componentService);
         inserter.run();
+        let insertedSize = inserter.insertedSize;
+        const toPosition = root.resolvePosition(this.from + insertedSize);
+        if (toPosition.atReverseDepth(0).offset === 1) {
+            if (this.fragments.length === 0 || this.fragments[this.fragments.length - 1].depth === 0) {
+                insertedSize += this.joinWithPreviousSibling(toPosition.atReverseDepth(0).node);
+            }
+        }
         return {
             change: this,
-            reverseChange: new ReplaceChange(this.from, this.from + inserter.insertedSize, remover.removedFragments),
-            mapping: new Mapping(this.from, this.to - this.from, inserter.insertedSize),
+            reverseChange: new ReplaceChange(this.from, this.from + insertedSize, remover.removedFragments),
+            mapping: new Mapping(this.from, this.to - this.from, insertedSize),
         };
     }
 
@@ -68,5 +77,22 @@ export class ReplaceChange extends ModelChange {
         if (maxFragmentDepth >= fromPosition.depth) {
             throw new Error('Fragments do not fit in range.');
         }
+    }
+
+    protected joinWithPreviousSibling(node: IModelNode<any>): number {
+        let previousSibling = node.previousSibling;
+        if (!previousSibling) {
+            if (node.parent) {
+                return this.joinWithPreviousSibling(node.parent);
+            }
+            return 0;
+        }
+        const childNodeToJoin = node.firstChild;
+        join(previousSibling, node);
+        let insertedSize = 2;
+        if (childNodeToJoin) {
+            insertedSize += this.joinWithPreviousSibling(childNodeToJoin);
+        }
+        return insertedSize;
     }
 }

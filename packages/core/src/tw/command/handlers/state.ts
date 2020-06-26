@@ -4,28 +4,87 @@ import { Fragment } from '../../model/fragment';
 import { IModelNode } from '../../model/node';
 import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
+import { IComponentService } from '../../component/service';
+import { generateId } from '../../util/id';
+
+interface IFindNodeResult {
+    node: IModelNode<any>;
+    from: number;
+    to: number;
+    relativeFrom: number;
+    relativeTo: number;
+}
 
 function findNodesByComponentIdAndPartId(
     node: IModelNode<any>,
     componentId: string,
     partId: string | null,
-    searchFrom: number,
-    searchTo: number,
-): IModelNode<any>[] {
-    const nodes: IModelNode<any>[] = [];
+    from: number,
+    to: number,
+): IFindNodeResult[] {
+    const results: IFindNodeResult[] = [];
     if (node.componentId === componentId && node.partId === partId) {
-        nodes.push(node);
+        results.push({ node, from: from, to: to, relativeFrom: from, relativeTo: to });
     }
     let cumulatedOffset = 1;
     node.children.forEach((child) => {
-        if (cumulatedOffset <= searchTo && searchFrom <= cumulatedOffset + child.size) {
-            const searchChildFrom = Math.max(0, searchFrom - cumulatedOffset);
-            const searchChildTo = Math.min(child.size, searchTo - cumulatedOffset);
-            nodes.push(...findNodesByComponentIdAndPartId(child, componentId, partId, searchChildFrom, searchChildTo));
+        if (cumulatedOffset <= to && from <= cumulatedOffset + child.size) {
+            const childFrom = Math.max(0, from - cumulatedOffset);
+            const childTo = Math.min(child.size, to - cumulatedOffset);
+            results.push(
+                ...findNodesByComponentIdAndPartId(child, componentId, partId, childFrom, childTo).map(
+                    (childResult) => ({
+                        ...childResult,
+                        from: cumulatedOffset + childResult.from,
+                        to: cumulatedOffset + childResult.to,
+                    }),
+                ),
+            );
         }
         cumulatedOffset += child.size;
     });
-    return nodes;
+    return results;
+}
+
+function cloneNodeWithAttribute(
+    node: IModelNode<any>,
+    attributeKey: string,
+    attributeValue: any,
+    from: number,
+    to: number,
+    componentService: IComponentService,
+) {
+    const component = componentService.getComponent(node.componentId);
+    if (node.leaf) {
+        const textFrom = Math.max(0, from - 1);
+        const textTo = Math.min(node.text.length, to - 1);
+        return component.buildModelNode(
+            node.partId,
+            generateId(),
+            node.text.substring(textFrom, textTo),
+            { ...node.attributes, [attributeKey]: attributeValue },
+            [],
+        );
+    }
+    const children: IModelNode<any>[] = [];
+    let cumulatedOffset = 1;
+    node.children.forEach((child) => {
+        const childFrom = Math.max(0, from - cumulatedOffset);
+        const childTo = Math.min(child.size, to - cumulatedOffset);
+        if (cumulatedOffset <= to && from <= cumulatedOffset + child.size) {
+            children.push(
+                cloneNodeWithAttribute(child, attributeKey, attributeValue, childFrom, childTo, componentService),
+            );
+        }
+        cumulatedOffset += child.size;
+    });
+    return component.buildModelNode(
+        node.partId,
+        generateId(),
+        '',
+        { ...node.attributes, [attributeKey]: attributeValue },
+        children,
+    );
 }
 
 function buildPath(node: IModelNode<any>) {
@@ -140,8 +199,70 @@ export const applyAttribute: ICommandHandler = async (
     const to = Math.max(anchor, head);
     const modelFrom = renderService.convertOffsetToModelOffset(from);
     const modelTo = renderService.convertOffsetToModelOffset(to);
-    const nodes = findNodesByComponentIdAndPartId(modelService.getRoot(), componentId, partId, modelFrom, modelTo);
+    const findResults = findNodesByComponentIdAndPartId(
+        modelService.getRoot(),
+        componentId,
+        partId,
+        modelFrom,
+        modelTo,
+    );
     transformService.applyTransformation(
-        new Transformation(nodes.map((node) => new ApplyAttribute(buildPath(node), attributeKey, attributeValue))),
+        new Transformation(
+            findResults
+                .filter((findResult) => findResult.node.attributes[attributeKey] !== attributeValue)
+                .map((findResult) => new ApplyAttribute(buildPath(findResult.node), attributeKey, attributeValue)),
+        ),
+    );
+};
+
+export const applyAttributeWithin: ICommandHandler = async (
+    serviceRegistry,
+    componentId: string,
+    partId: string | null,
+    attributeKey: string,
+    attributeValue: any,
+) => {
+    const transformService = serviceRegistry.getService('transform');
+    const componentService = serviceRegistry.getService('component');
+    const cursorService = serviceRegistry.getService('cursor');
+    const renderService = serviceRegistry.getService('render');
+    const modelService = serviceRegistry.getService('model');
+    const { anchor, head } = cursorService.getCursor();
+    const from = Math.min(anchor, head);
+    const to = Math.max(anchor, head);
+    const modelFrom = renderService.convertOffsetToModelOffset(from);
+    const modelTo = renderService.convertOffsetToModelOffset(to);
+    const findResults = findNodesByComponentIdAndPartId(
+        modelService.getRoot(),
+        componentId,
+        partId,
+        modelFrom,
+        modelTo,
+    );
+    transformService.applyTransformation(
+        new Transformation(
+            findResults
+                .filter((findResult) => findResult.node.attributes[attributeKey] !== attributeValue)
+                .map((findResult) => {
+                    if (findResult.relativeFrom === 0 && findResult.relativeTo === findResult.node.size) {
+                        return new ApplyAttribute(buildPath(findResult.node), attributeKey, attributeValue);
+                    }
+                    return new ReplaceChange(findResult.from, findResult.to, [
+                        new Fragment(
+                            [
+                                cloneNodeWithAttribute(
+                                    findResult.node,
+                                    attributeKey,
+                                    attributeValue,
+                                    findResult.relativeFrom,
+                                    findResult.relativeTo,
+                                    componentService,
+                                ),
+                            ],
+                            1,
+                        ),
+                    ]);
+                }),
+        ),
     );
 };

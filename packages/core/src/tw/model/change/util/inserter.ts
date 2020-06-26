@@ -1,8 +1,8 @@
-import { IComponentService } from '../../component/service';
-import { generateId } from '../../util/id';
-import { IFragment } from '../fragment';
-import { IModelNode } from '../node';
-import { IModelRoot } from '../root';
+import { IComponentService } from '../../../component/service';
+import { generateId } from '../../../util/id';
+import { IFragment } from '../../fragment';
+import { IModelNode } from '../../node';
+import { IModelRoot } from '../../root';
 import { Mutator } from './mutator';
 
 type IInserterState = 'text' | 'split' | 'leave' | 'node' | 'end';
@@ -63,12 +63,25 @@ export class Inserter extends Mutator<IInserterState> {
     protected handleSplit() {
         const position = this.root.resolvePosition(this.current.offset);
         const { node, offset } = position.atReverseDepth(this.currentFragment!.depth - 1);
-        const insertedSize = this.splitNode(node, offset);
-        this.current = {
-            offset: this.current.offset + insertedSize / 2,
-            index: this.current.index,
-        };
-        this.internalInsertedSize += insertedSize;
+        console.log(offset, node.size - 1);
+        if (offset === node.size - 1) {
+            this.current = {
+                offset: this.current.offset + 1,
+                index: this.current.index,
+            };
+        } else if (offset === 1) {
+            this.current = {
+                offset: this.current.offset - 1,
+                index: this.current.index,
+            };
+        } else {
+            const insertedSize = this.splitNode(node, offset);
+            this.current = {
+                offset: this.current.offset + insertedSize / 2,
+                index: this.current.index,
+            };
+            this.internalInsertedSize += insertedSize;
+        }
     }
 
     protected handleLeave() {
@@ -84,10 +97,6 @@ export class Inserter extends Mutator<IInserterState> {
         const currentFragment = this.currentFragment!;
         const content = currentFragment.content as IModelNode<any>[];
         node.replace(index, index, content);
-        if (content.length > 0) {
-            this.joinNodeWithNextSibling(content[content.length - 1]);
-            this.joinNodeWithPreviousSibling(content[0]);
-        }
         this.current = {
             offset: this.current.offset + currentFragment.size,
             index: this.current.index + 1,
@@ -169,27 +178,5 @@ export class Inserter extends Mutator<IInserterState> {
         parent.replace(index, index + 1, [node1, node2]);
         insertedSize += 2;
         return insertedSize;
-    }
-
-    protected joinNodeWithNextSibling(node: IModelNode<any>) {
-        const nextSibling = node.nextSibling;
-        if (!nextSibling) {
-            return;
-        }
-        if (!node.canJoin(nextSibling)) {
-            return;
-        }
-        this.joinNodes(node, nextSibling);
-    }
-
-    protected joinNodeWithPreviousSibling(node: IModelNode<any>) {
-        const previousSibling = node.previousSibling;
-        if (!previousSibling) {
-            return;
-        }
-        if (!previousSibling.canJoin(node)) {
-            return;
-        }
-        this.joinNodes(previousSibling, node);
     }
 }

@@ -37,6 +37,7 @@ export class RenderState implements IRenderState {
     }
 
     protected update() {
+        // TODO: Broken when model has empty texts
         const modelRoot = this.modelService.getRoot();
         this.internalDoc = this.updateNode(this.doc, modelRoot) as IRenderDoc<any, any>;
         this.didUpdateRenderStateEventEmitter.emit({});
