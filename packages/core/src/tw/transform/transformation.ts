@@ -77,8 +77,6 @@ export class Transformation implements ITransformation {
             );
             reverseMappings.push(changeResult.mapping.reverse());
         }
-        // TODO: Broken, leaves empty texts in tree
-        console.log(modelService.getRoot());
         return new TransformationResult(
             this,
             changeResults,

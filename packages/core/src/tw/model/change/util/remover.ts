@@ -2,7 +2,8 @@ import { Fragment } from '../../fragment';
 import { IModelNode } from '../../node';
 import { IModelRoot } from '../../root';
 import { Mutator } from './mutator';
-import { join } from './join';
+import { join } from './util';
+import { Mapping } from '../mapping';
 
 type IRemoverState = 'end' | 'forward' | 'enter' | 'fullNode' | 'text' | 'partialNode';
 

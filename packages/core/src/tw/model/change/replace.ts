@@ -6,7 +6,7 @@ import { Inserter } from './util/inserter';
 import { IMapping, Mapping } from './mapping';
 import { Remover } from './util/remover';
 import { IModelNode } from '../node';
-import { join } from './util/join';
+import { join } from './util/util';
 
 export class ReplaceChange extends ModelChange {
     constructor(protected from: number, protected to: number, protected fragments: IFragment[]) {

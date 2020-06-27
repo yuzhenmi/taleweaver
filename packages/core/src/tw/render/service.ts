@@ -55,7 +55,15 @@ export class RenderService implements IRenderService {
     getStylesBetween(from: number, to: number) {
         const styles: IStyles = {};
         const doc = this.state.doc;
-        this.extractStyle(styles, doc, from, to);
+        if (from === to) {
+            if (from === 0) {
+                this.extractStyle(styles, doc, from, to + 1);
+            } else {
+                this.extractStyle(styles, doc, from - 1, to);
+            }
+        } else {
+            this.extractStyle(styles, doc, from, to);
+        }
         return styles;
     }
 
@@ -66,15 +74,15 @@ export class RenderService implements IRenderService {
         const componentStyles = (styles[node.componentId] = styles[node.componentId] || {});
         const partStyles = (componentStyles[node.partId || ''] = componentStyles[node.partId || ''] || []);
         partStyles.push(node.style);
-        let position = 0;
+        let cumulatedOffset = 0;
         node.children.forEach((child) => {
             const childSize = child.size;
-            if (to - position >= 0 && from - position < childSize) {
-                const childFrom = Math.max(0, Math.min(childSize, from - position));
-                const childTo = Math.max(0, Math.min(childSize, to - position));
+            if (to > cumulatedOffset && from < cumulatedOffset + childSize) {
+                const childFrom = Math.max(0, Math.min(childSize, from - cumulatedOffset));
+                const childTo = Math.max(0, Math.min(childSize, to - cumulatedOffset));
                 this.extractStyle(styles, child, childFrom, childTo);
             }
-            position += childSize;
+            cumulatedOffset += childSize;
         });
     }
 }

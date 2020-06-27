@@ -24,7 +24,21 @@ function findNodesByComponentIdAndPartId(
 ): IFindNodeResult[] {
     const results: IFindNodeResult[] = [];
     if (node.componentId === componentId && node.partId === partId) {
-        results.push({ node, from: from, to: to, relativeFrom: from, relativeTo: to });
+        let adjustedFrom = from;
+        let adjustedTo = to;
+        if (from !== 0 || to !== node.size) {
+            adjustedFrom = Math.max(1, adjustedFrom);
+            adjustedTo = Math.min(node.size - 1, adjustedTo);
+        }
+        if (adjustedFrom < adjustedTo) {
+            results.push({
+                node,
+                from: adjustedFrom,
+                to: adjustedTo,
+                relativeFrom: adjustedFrom,
+                relativeTo: adjustedTo,
+            });
+        }
     }
     let cumulatedOffset = 1;
     node.children.forEach((child) => {
