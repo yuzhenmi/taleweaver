@@ -8,7 +8,6 @@ import { CursorService } from '../cursor/service';
 import { DOMServiceStub } from '../dom/service.stub';
 import { LayoutService } from '../layout/service';
 import { ReplaceChange } from '../model/change/replace';
-import { Fragment } from '../model/fragment';
 import { ModelService } from '../model/service';
 import { RenderService } from '../render/service';
 import { ServiceRegistry } from '../service/registry';
@@ -66,14 +65,17 @@ describe('ViewService', () => {
 
     describe('when model did update', () => {
         beforeEach(() => {
-            const change = new ReplaceChange(3, 23, [
-                new Fragment('Hi', 0),
-                new Fragment(
+            const change = new ReplaceChange(
+                [0, 0, 0],
+                [1, 0, 5],
+                [
+                    'Hi',
+                    [],
                     [new ModelParagraph('paragraph', 'paragraph3', {}, [new ModelText('text', 'text3', 'big', {})])],
-                    2,
-                ),
-                new Fragment('beautiful', 0),
-            ]);
+                    [],
+                    'beautiful',
+                ],
+            );
             modelService.applyChange(change);
         });
 

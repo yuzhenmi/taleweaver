@@ -1,70 +1,73 @@
+import { atBlock, atLine, atWord } from '../../layout/position';
 import { ILayoutService } from '../../layout/service';
 import { ILayoutWord } from '../../layout/word';
+import { IModelPosition } from '../../model/position';
+import { IRenderPosition } from '../../render/position';
 import { Transformation } from '../../transform/transformation';
 import { ICommandHandler } from '../command';
 
-function atPreviousLine(offset: number, leftLock: number, layoutService: ILayoutService) {
-    const { node: line, offset: lineOffset } = layoutService.resolvePosition(offset).atLineDepth();
+function atPreviousLine(position: IRenderPosition, leftLock: number, layoutService: ILayoutService) {
+    const { node: line, position: linePosition } = atLine(layoutService.resolvePosition(position));
     const previousLine = line.previousCrossParentSibling;
     if (!previousLine) {
-        return offset - lineOffset;
+        return position - linePosition;
     }
-    return offset - lineOffset - previousLine.size + previousLine.convertCoordinatesToOffset(leftLock, 0);
+    return position - linePosition - previousLine.size + previousLine.convertCoordinatesToPosition(leftLock, 0);
 }
 
-function atNextLine(offset: number, leftLock: number, layoutService: ILayoutService) {
-    const { node: line, offset: lineOffset } = layoutService.resolvePosition(offset).atLineDepth();
+function atNextLine(position: IRenderPosition, leftLock: number, layoutService: ILayoutService) {
+    const { node: line, position: linePosition } = atLine(layoutService.resolvePosition(position));
     const nextLine = line.nextCrossParentSibling;
     if (!nextLine) {
-        return offset - lineOffset + line.size - 1;
+        return position - linePosition + line.size - 1;
     }
-    return offset - lineOffset + line.size + nextLine.convertCoordinatesToOffset(leftLock, 0);
+    return position - linePosition + line.size + nextLine.convertCoordinatesToPosition(leftLock, 0);
 }
 
-function atPreviousWord(offset: number, layoutService: ILayoutService) {
-    const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
-    if (wordOffset > 0) {
-        return offset - wordOffset;
+function atPreviousWord(position: IRenderPosition, layoutService: ILayoutService) {
+    const { node: word, offset: wordPosition } = atWord(layoutService.resolvePosition(position));
+    if (wordPosition > 0) {
+        return position - wordPosition;
     }
     const previousWord = word.previousCrossParentSibling as ILayoutWord | undefined;
     if (!previousWord) {
-        return offset;
+        return position;
     }
-    return offset - previousWord.size;
+    return position - previousWord.size;
 }
 
-function atNextWord(offset: number, layoutService: ILayoutService) {
-    const { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
-    if (wordOffset < word.size - 1) {
-        return offset - wordOffset + word.size - (word as ILayoutWord).whitespaceSize;
+function atNextWord(position: IRenderPosition, layoutService: ILayoutService) {
+    const { node: word, offset: wordPosition } = atWord(layoutService.resolvePosition(position));
+    if (wordPosition < word.size - 1) {
+        return position - wordPosition + word.size - (word as ILayoutWord).whitespaceSize;
     }
     const nextWord = word.nextCrossParentSibling;
     if (!nextWord) {
-        return offset;
+        return position;
     }
-    return offset - wordOffset + word.size + nextWord.size - (nextWord as ILayoutWord).whitespaceSize;
+    return position - wordPosition + word.size + nextWord.size - (nextWord as ILayoutWord).whitespaceSize;
 }
 
-function atLineStart(offset: number, layoutService: ILayoutService) {
-    const { offset: lineOffset } = layoutService.resolvePosition(offset).atLineDepth();
-    if (lineOffset === 0) {
-        return offset;
+function atLineStart(position: IRenderPosition, layoutService: ILayoutService) {
+    const { position: linePosition } = atLine(layoutService.resolvePosition(position));
+    if (linePosition === 0) {
+        return position;
     }
-    return offset - lineOffset;
+    return position - linePosition;
 }
 
-function atLineEnd(offset: number, layoutService: ILayoutService) {
-    const { node: line, offset: lineOffset } = layoutService.resolvePosition(offset).atLineDepth();
-    if (lineOffset >= line.size - 1) {
-        return offset;
+function atLineEnd(position: IRenderPosition, layoutService: ILayoutService) {
+    const { node: line, position: linePosition } = atLine(layoutService.resolvePosition(position));
+    if (linePosition >= line.size - 1) {
+        return position;
     }
-    return offset - lineOffset + line.size - 1;
+    return position - linePosition + line.size - 1;
 }
 
-export const move: ICommandHandler = async (serviceRegistry, offset: number) => {
+export const move: ICommandHandler = async (serviceRegistry, position: IRenderPosition) => {
     const transformService = serviceRegistry.getService('transform');
     const renderService = serviceRegistry.getService('render');
-    const modelOffset = renderService.convertOffsetToModelOffset(offset);
+    const modelOffset = renderService.convertRenderToModelPosition(position);
     transformService.applyTransformation(new Transformation([], modelOffset));
 };
 
@@ -73,14 +76,14 @@ export const moveBackward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const { anchor, head } = cursorService.getCursor();
-    let newModelOffset: number;
+    let newModelPosition: IModelPosition;
     if (anchor === head) {
-        newModelOffset = renderService.convertOffsetToModelOffset(anchor - 1);
+        newModelPosition = renderService.convertRenderToModelPosition(anchor - 1);
     } else {
-        const newOffset = Math.min(anchor, head);
-        newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
+        const newPosition = Math.min(anchor, head);
+        newModelPosition = renderService.convertRenderToModelPosition(newPosition);
     }
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveForward: ICommandHandler = async (serviceRegistry) => {
@@ -88,14 +91,14 @@ export const moveForward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const { anchor, head } = cursorService.getCursor();
-    let newModelOffset: number;
+    let newModelPosition: IModelPosition;
     if (anchor === head) {
-        newModelOffset = renderService.convertOffsetToModelOffset(anchor + 1);
+        newModelPosition = renderService.convertRenderToModelPosition(anchor + 1);
     } else {
-        const newOffset = Math.max(anchor, head);
-        newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
+        const newPosition = Math.max(anchor, head);
+        newModelPosition = renderService.convertRenderToModelPosition(newPosition);
     }
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveBackwardByLine: ICommandHandler = async (serviceRegistry) => {
@@ -106,11 +109,11 @@ export const moveBackwardByLine: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head, leftLock } = cursorService.getCursor();
-    const offset = Math.min(anchor, head);
-    const newOffset = atPreviousLine(offset, leftLock, layoutService);
+    const position = Math.min(anchor, head);
+    const newPosition = atPreviousLine(position, leftLock, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset, newModelOffset, true));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition, newModelPosition, true));
 };
 
 export const moveForwardByLine: ICommandHandler = async (serviceRegistry) => {
@@ -121,11 +124,11 @@ export const moveForwardByLine: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head, leftLock } = cursorService.getCursor();
-    const offset = Math.max(anchor, head);
-    const newOffset = atNextLine(offset, leftLock, layoutService);
+    const position = Math.max(anchor, head);
+    const newPosition = atNextLine(position, leftLock, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset, newModelOffset, true));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition, newModelPosition, true));
 };
 
 export const moveBackwardByWord: ICommandHandler = async (serviceRegistry) => {
@@ -136,11 +139,11 @@ export const moveBackwardByWord: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head } = cursorService.getCursor();
-    const offset = Math.min(anchor, head);
-    const newOffset = atPreviousWord(offset, layoutService);
+    const position = Math.min(anchor, head);
+    const newPosition = atPreviousWord(position, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveForwardByWord: ICommandHandler = async (serviceRegistry) => {
@@ -151,11 +154,11 @@ export const moveForwardByWord: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head } = cursorService.getCursor();
-    const offset = Math.max(anchor, head);
-    const newOffset = atNextWord(offset, layoutService);
+    const position = Math.max(anchor, head);
+    const newPosition = atNextWord(position, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveToLineStart: ICommandHandler = async (serviceRegistry) => {
@@ -166,11 +169,11 @@ export const moveToLineStart: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head } = cursorService.getCursor();
-    const offset = Math.min(anchor, head);
-    const newOffset = atLineStart(offset, layoutService);
+    const position = Math.min(anchor, head);
+    const newPosition = atLineStart(position, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveToLineEnd: ICommandHandler = async (serviceRegistry) => {
@@ -181,36 +184,36 @@ export const moveToLineEnd: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const { anchor, head } = cursorService.getCursor();
-    const offset = Math.max(anchor, head);
-    const newOffset = atLineEnd(offset, layoutService);
+    const position = Math.max(anchor, head);
+    const newPosition = atLineEnd(position, layoutService);
     const renderService = serviceRegistry.getService('render');
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveToDocStart: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const renderService = serviceRegistry.getService('render');
-    const newOffset = 0;
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newPosition = 0;
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
 export const moveToDocEnd: ICommandHandler = async (serviceRegistry) => {
     const transformService = serviceRegistry.getService('transform');
     const renderService = serviceRegistry.getService('render');
-    const newOffset = renderService.getDocSize() - 1;
-    const newModelOffset = renderService.convertOffsetToModelOffset(newOffset);
-    transformService.applyTransformation(new Transformation([], newModelOffset));
+    const newPosition = renderService.getDocSize() - 1;
+    const newModelPosition = renderService.convertRenderToModelPosition(newPosition);
+    transformService.applyTransformation(new Transformation([], newModelPosition));
 };
 
-export const moveHead: ICommandHandler = async (serviceRegistry, offset: number) => {
+export const moveHead: ICommandHandler = async (serviceRegistry, position: IRenderPosition) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const { anchor } = cursorService.getCursor();
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(offset);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(position);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -219,8 +222,8 @@ export const moveHeadBackward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const { anchor, head } = cursorService.getCursor();
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(head - 1);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(head - 1);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -229,8 +232,8 @@ export const moveHeadForward: ICommandHandler = async (serviceRegistry) => {
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
     const { anchor, head } = cursorService.getCursor();
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(head + 1);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(head + 1);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -244,8 +247,8 @@ export const moveHeadBackwardByLine: ICommandHandler = async (serviceRegistry) =
     }
     const { anchor, head, leftLock } = cursorService.getCursor();
     const newHead = atPreviousLine(head, leftLock, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -259,8 +262,8 @@ export const moveHeadForwardByLine: ICommandHandler = async (serviceRegistry) =>
     }
     const { anchor, head, leftLock } = cursorService.getCursor();
     const newHead = atNextLine(head, leftLock, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -274,8 +277,8 @@ export const moveHeadBackwardByWord: ICommandHandler = async (serviceRegistry) =
     }
     const { anchor, head } = cursorService.getCursor();
     const newHead = atPreviousWord(head, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -289,8 +292,8 @@ export const moveHeadForwardByWord: ICommandHandler = async (serviceRegistry) =>
     }
     const { anchor, head } = cursorService.getCursor();
     const newHead = atNextWord(head, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -304,8 +307,8 @@ export const moveHeadToLineStart: ICommandHandler = async (serviceRegistry) => {
     }
     const { anchor, head } = cursorService.getCursor();
     const newHead = atLineStart(head, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -319,8 +322,8 @@ export const moveHeadToLineEnd: ICommandHandler = async (serviceRegistry) => {
     }
     const { anchor, head } = cursorService.getCursor();
     const newHead = atLineEnd(head, layoutService);
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -330,8 +333,8 @@ export const moveHeadToDocStart: ICommandHandler = async (serviceRegistry) => {
     const renderService = serviceRegistry.getService('render');
     const { anchor } = cursorService.getCursor();
     const newHead = 0;
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -341,8 +344,8 @@ export const moveHeadToDocEnd: ICommandHandler = async (serviceRegistry) => {
     const renderService = serviceRegistry.getService('render');
     const { anchor } = cursorService.getCursor();
     const newHead = renderService.getDocSize() - 1;
-    const modelAnchor = renderService.convertOffsetToModelOffset(anchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const modelAnchor = renderService.convertRenderToModelPosition(anchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, modelAnchor));
 };
 
@@ -355,12 +358,12 @@ export const selectAll: ICommandHandler = async (serviceRegistry) => {
     }
     const newAnchor = 0;
     const newHead = renderService.getDocSize() - 1;
-    const newModelAnchor = renderService.convertOffsetToModelOffset(newAnchor);
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
+    const newModelAnchor = renderService.convertRenderToModelPosition(newAnchor);
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
     transformService.applyTransformation(new Transformation([], newModelHead, newModelAnchor));
 };
 
-export const selectWord: ICommandHandler = async (serviceRegistry, offset: number) => {
+export const selectWord: ICommandHandler = async (serviceRegistry, position: IRenderPosition) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -368,23 +371,23 @@ export const selectWord: ICommandHandler = async (serviceRegistry, offset: numbe
     if (!cursorService.hasCursor()) {
         return;
     }
-    let { node: word, offset: wordOffset } = layoutService.resolvePosition(offset).atReverseDepth(0);
+    let { node: word, position: wordPosition } = atWord(layoutService.resolvePosition(position));
     if (word.size - (word as ILayoutWord).whitespaceSize === 0) {
         const previousWord = word.previousCrossParentSibling;
         if (!previousWord) {
             return;
         }
         word = previousWord;
-        wordOffset += word.size;
+        wordPosition += word.size;
     }
-    const newHead = offset - wordOffset + word.size - (word as ILayoutWord).whitespaceSize;
-    const newAnchor = offset - wordOffset;
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
-    const newModelAnchor = renderService.convertOffsetToModelOffset(newAnchor);
+    const newHead = position - wordPosition + word.size - (word as ILayoutWord).whitespaceSize;
+    const newAnchor = position - wordPosition;
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
+    const newModelAnchor = renderService.convertRenderToModelPosition(newAnchor);
     transformService.applyTransformation(new Transformation([], newModelHead, newModelAnchor));
 };
 
-export const selectBlock: ICommandHandler = async (serviceRegistry, offset: number) => {
+export const selectBlock: ICommandHandler = async (serviceRegistry, position: IRenderPosition) => {
     const transformService = serviceRegistry.getService('transform');
     const cursorService = serviceRegistry.getService('cursor');
     const renderService = serviceRegistry.getService('render');
@@ -392,10 +395,10 @@ export const selectBlock: ICommandHandler = async (serviceRegistry, offset: numb
     if (!cursorService.hasCursor()) {
         return;
     }
-    const { node: block, offset: blockOffset } = layoutService.resolvePosition(offset).atBlockDepth();
-    const newHead = offset - blockOffset + block.size - 1;
-    const newAnchor = offset - blockOffset;
-    const newModelHead = renderService.convertOffsetToModelOffset(newHead);
-    const newModelAnchor = renderService.convertOffsetToModelOffset(newAnchor);
+    const { node: block, position: blockPosition } = atBlock(layoutService.resolvePosition(position));
+    const newHead = position - blockPosition + block.size - 1;
+    const newAnchor = position - blockPosition;
+    const newModelHead = renderService.convertRenderToModelPosition(newHead);
+    const newModelAnchor = renderService.convertRenderToModelPosition(newAnchor);
     transformService.applyTransformation(new Transformation([], newModelHead, newModelAnchor));
 };

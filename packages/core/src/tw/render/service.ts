@@ -1,8 +1,10 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
+import { IModelPosition } from '../model/position';
 import { IModelService } from '../model/service';
 import { IRenderDoc } from './doc';
-import { IRenderNode, IRenderPosition } from './node';
+import { IRenderNode } from './node';
+import { IRenderPosition, IResolvedRenderPosition } from './position';
 import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
 
 export interface IStyles {
@@ -15,10 +17,10 @@ export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDoc(): IRenderDoc<any, any>;
     getDocSize(): number;
-    convertOffsetToModelOffset(offset: number): number;
-    convertModelOffsetToOffset(modelOffset: number): number;
-    resolvePosition(offset: number): IRenderPosition;
-    getStylesBetween(from: number, to: number): IStyles;
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition;
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition;
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition;
+    getStylesBetween(from: IRenderPosition, to: IRenderPosition): IStyles;
 }
 
 export class RenderService implements IRenderService {
@@ -40,41 +42,49 @@ export class RenderService implements IRenderService {
         return this.state.doc.size;
     }
 
-    convertOffsetToModelOffset(offset: number) {
-        return this.state.doc.convertOffsetToModelOffset(offset);
+    resolvePosition(position: IRenderPosition) {
+        return this.state.doc.resolvePosition(position);
     }
 
-    convertModelOffsetToOffset(modelOffset: number) {
-        return this.state.doc.convertModelOffsetToOffset(modelOffset);
+    convertModelToRenderPosition(modelPosition: IModelPosition) {
+        return this.state.doc.convertModelToRenderPosition(modelPosition);
     }
 
-    resolvePosition(offset: number) {
-        return this.state.doc.resolvePosition(offset);
+    convertRenderToModelPosition(renderPosition: IRenderPosition) {
+        return this.state.doc.convertRenderToModelPosition(renderPosition);
     }
 
-    getStylesBetween(from: number, to: number) {
+    getStylesBetween(from: IRenderPosition, to: IRenderPosition) {
+        const resolvedFrom = this.resolvePosition(from);
+        const resolvedTo = this.resolvePosition(to);
         const styles: IStyles = {};
         const doc = this.state.doc;
-        this.extractStyle(styles, doc, from, to);
+        this.extractStyle(styles, doc, resolvedFrom, resolvedTo);
         return styles;
     }
 
-    protected extractStyle(styles: IStyles, node: IRenderNode<any, any>, from: number, to: number) {
-        if (from > to) {
-            return;
-        }
+    protected extractStyle(
+        styles: IStyles,
+        node: IRenderNode<any, any>,
+        from: IResolvedRenderPosition | null,
+        to: IResolvedRenderPosition | null,
+    ) {
         const componentStyles = (styles[node.componentId] = styles[node.componentId] || {});
         const partStyles = (componentStyles[node.partId || ''] = componentStyles[node.partId || ''] || []);
         partStyles.push(node.style);
-        let position = 0;
-        node.children.forEach((child) => {
-            const childSize = child.size;
-            if (to - position >= 0 && from - position < childSize) {
-                const childFrom = Math.max(0, Math.min(childSize, from - position));
-                const childTo = Math.max(0, Math.min(childSize, to - position));
-                this.extractStyle(styles, child, childFrom, childTo);
-            }
-            position += childSize;
-        });
+        if (node.leaf) {
+            return;
+        }
+        const fromOffset = from ? from[0].offset : 0;
+        const toOffset = to ? to[0].offset : node.contentLength - 1;
+        for (let n = fromOffset; n <= toOffset; n++) {
+            const child = node.children.at(n);
+            this.extractStyle(
+                styles,
+                child,
+                from && n === fromOffset ? from.slice(1) : null,
+                to && n === toOffset ? to.slice(1) : null,
+            );
+        }
     }
 }

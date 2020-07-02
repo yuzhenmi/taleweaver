@@ -18,30 +18,11 @@ export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
     get partId() {
         return 'paragraph';
     }
-
-    toDOM(from: number, to: number) {
-        const $element = document.createElement('p');
-        let offset = 1;
-        const children = this.children;
-        for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const childNode = children.at(n);
-            const childSize = childNode.size;
-            const childFrom = Math.max(0, from - offset);
-            const childTo = Math.min(childFrom + childSize, to - offset);
-            offset += childSize;
-            if (childFrom > childSize || childTo < 0) {
-                continue;
-            }
-            const $childElement = childNode.toDOM(childFrom, childTo);
-            $element.appendChild($childElement);
-        }
-        return $element;
-    }
 }
 
 export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttributes> {
     constructor(componentId: string, modelId: string | null, attributes: any, children: IRenderNode<any, any>[]) {
-        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId, modelId)]);
+        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId)]);
     }
 
     get partId() {
@@ -71,31 +52,11 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
     get style() {
         return {};
     }
-
-    convertOffsetToModelOffset(offset: number): number {
-        if (this.size === 1) {
-            return this.resolvePosition(0).depth;
-        }
-        if (offset === this.size - 1) {
-            return super.convertOffsetToModelOffset(offset - 1) + 1;
-        }
-        return super.convertOffsetToModelOffset(offset);
-    }
-
-    convertModelOffsetToOffset(modelOffset: number): number {
-        if (modelOffset <= this.resolvePosition(0).depth) {
-            return 0;
-        }
-        if (super.convertModelOffsetToOffset(modelOffset - 1) + 1 >= this.size - 1) {
-            return this.size - 1;
-        }
-        return super.convertModelOffsetToOffset(modelOffset);
-    }
 }
 
 export class RenderParagraphLineBreak extends RenderText<null, null> {
-    constructor(readonly componentId: string, readonly paragraphModelId: string | null) {
-        super(componentId, `${paragraphModelId}.line-break`, ' ', null);
+    constructor(readonly componentId: string) {
+        super(componentId, null, ' ', null);
     }
 
     get partId() {
@@ -250,6 +211,18 @@ export class ParagraphComponent extends Component implements IComponent {
                 );
             case 'line-break':
                 return new ViewParagraphLineBreak(domContainer, this.id, renderId, layoutId, domService);
+            default:
+                throw new Error('Invalid part ID.');
+        }
+    }
+
+    toDOM(partId: string | null, attributes: {}, text: string, children: HTMLElement[]) {
+        switch (partId) {
+            case 'paragraph': {
+                const $element = document.createElement('p');
+                children.forEach((child) => $element.appendChild(child));
+                return $element;
+            }
             default:
                 throw new Error('Invalid part ID.');
         }

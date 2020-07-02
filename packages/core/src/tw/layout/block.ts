@@ -1,4 +1,6 @@
-import { IBoundingBox, ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IRenderPosition } from '../render/position';
+import { IBoundingBox, IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
 export interface ILayoutBlock extends ILayoutNode {}
 
@@ -36,14 +38,14 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         return this.internalHeight;
     }
 
-    convertCoordinatesToOffset(x: number, y: number) {
+    convertCoordinatesToPosition(x: number, y: number) {
         let offset = 0;
         let cumulatedHeight = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childHeight = child.height;
             if (y >= cumulatedHeight && y <= cumulatedHeight + childHeight) {
-                offset += child.convertCoordinatesToOffset(x, 0);
+                offset += child.convertCoordinatesToPosition(x, 0);
                 break;
             }
             offset += child.size;
@@ -53,17 +55,17 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
             const lastChild = this.lastChild;
             if (lastChild) {
                 offset -= lastChild.size;
-                offset += lastChild.convertCoordinatesToOffset(x, lastChild.height);
+                offset += lastChild.convertCoordinatesToPosition(x, lastChild.height);
             }
         }
         return offset;
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
-        const childResults: IResolveBoundingBoxesResult[] = [];
+        const resolvedChildren: IResolvedBoundingBoxes[] = [];
         const boundingBoxes: IBoundingBox[] = [];
         let cumulatedOffset = 0;
         let cumulatedHeight = 0;
@@ -72,7 +74,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
                 const childResult = child.resolveBoundingBoxes(childFrom, childTo);
-                childResults.push(childResult);
+                resolvedChildren.push(childResult);
                 childResult.boundingBoxes.forEach((boundingBox) => {
                     boundingBoxes.push({
                         from: cumulatedOffset + childFrom,
@@ -92,7 +94,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         return {
             node: this,
             boundingBoxes,
-            children: childResults,
+            children: resolvedChildren,
         };
     }
 }

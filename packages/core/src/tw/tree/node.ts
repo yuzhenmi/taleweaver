@@ -5,6 +5,8 @@ export interface INode<TNode extends INode<TNode>> {
 
     readonly root: boolean;
     readonly leaf: boolean;
+    readonly contentLength: number;
+    readonly size: number;
 
     parent: TNode | null;
 
@@ -23,6 +25,8 @@ export interface INode<TNode extends INode<TNode>> {
 export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
     abstract get root(): boolean;
     abstract get leaf(): boolean;
+    abstract get contentLength(): number;
+    abstract get size(): number;
 
     parent: TNode | null = null;
 
@@ -125,5 +129,9 @@ export abstract class Node<TNode extends INode<TNode>> implements INode<TNode> {
             }
         }
         return null;
+    }
+
+    protected boundOffset(offset: number) {
+        return Math.min(this.contentLength, Math.max(0, offset));
     }
 }

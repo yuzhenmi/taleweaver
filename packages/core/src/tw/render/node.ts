@@ -1,7 +1,8 @@
+import { IModelPosition } from '../model/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../tree/position';
 import { generateId } from '../util/id';
+import { IRenderPosition, IResolvedRenderPosition } from './position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
@@ -13,22 +14,16 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     readonly text: string;
     readonly style: TStyle;
     readonly size: number;
-    readonly modelSize: number;
     readonly needLayout: boolean;
 
     clearNeedLayout(): void;
-    resolvePosition(offset: number): IRenderPosition;
-    convertOffsetToModelOffset(offset: number): number;
-    convertModelOffsetToOffset(modelOffset: number): number;
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition;
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition;
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition;
 }
-
-export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
-export interface IRenderPositionDepth extends IPositionDepth<IRenderNode<any, any>> {}
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
-    protected abstract get pseudo(): boolean;
-
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
     abstract get style(): TStyle;
@@ -51,25 +46,22 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         });
     }
 
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
+    }
+
     get size() {
         if (this.internalSize === undefined) {
             if (this.leaf) {
-                this.internalSize = this.text.length;
+                this.internalSize = this.contentLength;
             } else {
                 this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
             }
         }
         return this.internalSize;
-    }
-
-    get modelSize() {
-        if (this.pseudo) {
-            return 0;
-        }
-        if (this.internalChildrenModelSize === undefined) {
-            this.internalChildrenModelSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 0);
-        }
-        return this.internalChildrenModelSize! + 2 + this.text.length;
     }
 
     get needLayout() {
@@ -80,74 +72,76 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         this.internalNeedLayout = false;
     }
 
-    resolvePosition(offset: number): IRenderPosition {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error(`Offset ${offset} is out of range.`);
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition {
+        if (position < 0 || position >= this.size) {
+            throw new Error(`Offset ${position} is out of range.`);
         }
         if (this.leaf) {
-            return new RenderPosition([{ node: this, offset, index: offset }]);
+            return [{ node: this, offset: position, position }];
         }
-        let cumulatedOffset = 0;
+        let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childSize = child.size;
-            if (cumulatedOffset + childSize > offset) {
-                const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: IRenderPositionDepth[] = [{ node: this, offset, index: n }];
-                for (let m = 0; m < childPosition.depth; m++) {
-                    depths.push(childPosition.atDepth(m));
-                }
-                return new RenderPosition(depths);
+            if (cumulatedSize + childSize > position) {
+                return [
+                    { node: this, offset: n, position: cumulatedSize },
+                    ...child.resolvePosition(position - cumulatedSize),
+                ];
             }
-            cumulatedOffset += childSize;
+            cumulatedSize += childSize;
         }
         throw new Error('Offset cannot be resolved.');
     }
 
-    convertOffsetToModelOffset(offset: number): number {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error('Offset is out of range.');
-        }
-        let cumulatedSize = 0;
-        let cumulatedModelSize = this.pseudo ? 0 : 1;
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition {
+        const modelOffset = this.boundOffset(modelPosition[0]);
         if (this.leaf) {
-            return cumulatedModelSize + offset;
+            return modelOffset;
         }
+        let offset = 0;
+        let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
-            const childSize = child.size;
-            if (cumulatedSize + childSize > offset) {
-                return cumulatedModelSize + child.convertOffsetToModelOffset(offset - cumulatedSize);
+            if (child.modelId) {
+                if (offset === modelOffset) {
+                    return cumulatedSize + child.convertModelToRenderPosition(modelPosition.slice(1));
+                }
+                offset++;
             }
-            cumulatedSize += childSize;
-            cumulatedModelSize += child.modelSize;
-        }
-        throw new Error(`Offset ${offset} is out of range.`);
-    }
-
-    convertModelOffsetToOffset(modelOffset: number): number {
-        if (modelOffset < 0 || modelOffset >= this.modelSize) {
-            throw new Error('Model offset is out of range.');
-        }
-        let cumulatedModelSize = this.pseudo ? 0 : 1;
-        let cumulatedSize = 0;
-        if (modelOffset <= cumulatedModelSize) {
-            return 0;
-        }
-        if (this.leaf) {
-            return modelOffset - cumulatedModelSize;
-        }
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            const child = this.children.at(n);
-            const childModelSize = child.modelSize;
-            if (cumulatedModelSize + childModelSize > modelOffset) {
-                return cumulatedSize + child.convertModelOffsetToOffset(modelOffset - cumulatedModelSize);
-            }
-            cumulatedModelSize += childModelSize;
             cumulatedSize += child.size;
         }
         throw new Error(`Model offset ${modelOffset} is out of range.`);
     }
-}
 
-export class RenderPosition extends Position<IRenderNode<any, any>> implements IRenderPosition {}
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition {
+        if (renderPosition < 0 || renderPosition > this.size) {
+            throw new Error('Render position is out of range.');
+        }
+        if (this.leaf) {
+            return [this.boundOffset(renderPosition)];
+        }
+        let cumulatedSize = 0;
+        let modelOffset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (child.modelId) {
+                let nextNonModelSize = 0;
+                for (let m = n + 1; m < nn; m++) {
+                    const nextChild = this.children.at(m);
+                    if (nextChild.modelId) {
+                        break;
+                    }
+                    nextNonModelSize += nextChild.size;
+                }
+                if (cumulatedSize + childSize + nextNonModelSize > renderPosition) {
+                    return [modelOffset, ...child.convertRenderToModelPosition(renderPosition - cumulatedSize)];
+                }
+                modelOffset++;
+            }
+            cumulatedSize += childSize;
+        }
+        throw new Error(`Render offset ${renderPosition} is out of range.`);
+    }
+}

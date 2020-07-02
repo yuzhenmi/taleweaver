@@ -1,7 +1,9 @@
 import { ICursorService } from '../cursor/service';
+import { atLine } from '../layout/position';
 import { ILayoutService } from '../layout/service';
 import { IChange, IChangeResult } from '../model/change/change';
 import { IMapping } from '../model/change/mapping';
+import { IModelPosition } from '../model/position';
 import { IModelService } from '../model/service';
 import { IRenderService } from '../render/service';
 
@@ -23,8 +25,8 @@ export interface ITransformationResult {
 export class Transformation implements ITransformation {
     constructor(
         protected changes: IChange[],
-        protected modelCursorHead?: number,
-        protected modelCursorAnchor?: number,
+        protected modelCursorHead?: IModelPosition,
+        protected modelCursorAnchor?: IModelPosition,
         protected keepLeftLock = false,
     ) {}
 
@@ -34,35 +36,31 @@ export class Transformation implements ITransformation {
         renderService: IRenderService,
         layoutService: ILayoutService,
     ): ITransformationResult {
-        let originalCursorModelAnchor: number | undefined = undefined;
-        let originalCursorModelHead: number | undefined = undefined;
+        let originalCursorModelAnchor: IModelPosition | undefined = undefined;
+        let originalCursorModelHead: IModelPosition | undefined = undefined;
         if (cursorService.hasCursor()) {
             const { anchor, head } = cursorService.getCursor();
-            originalCursorModelAnchor = renderService.convertOffsetToModelOffset(anchor);
-            originalCursorModelHead = renderService.convertOffsetToModelOffset(head);
+            originalCursorModelAnchor = renderService.convertRenderToModelPosition(anchor);
+            originalCursorModelHead = renderService.convertRenderToModelPosition(head);
         }
         const changeResults = this.applyChanges(modelService);
         if (cursorService.hasCursor()) {
             let { anchor: cursorAnchor, head: cursorHead } = cursorService.getCursor();
             if (this.modelCursorHead !== undefined) {
-                cursorHead = renderService.convertModelOffsetToOffset(
-                    this.boundModelOffset(this.modelCursorHead, modelService),
-                );
+                cursorHead = renderService.convertModelToRenderPosition(this.modelCursorHead);
                 cursorAnchor = cursorHead;
                 if (this.modelCursorAnchor !== undefined) {
-                    cursorAnchor = renderService.convertModelOffsetToOffset(
-                        this.boundModelOffset(this.modelCursorAnchor, modelService),
-                    );
+                    cursorAnchor = renderService.convertModelToRenderPosition(this.modelCursorAnchor);
                 }
             }
             cursorAnchor = this.boundOffset(cursorAnchor, renderService);
             cursorHead = this.boundOffset(cursorHead, renderService);
             cursorService.setCursor(cursorAnchor, cursorHead);
             if (!this.keepLeftLock) {
-                const { node: line, offset: lineOffset } = layoutService
-                    .resolvePosition(cursorService.getCursor().head)
-                    .atLineDepth();
-                cursorService.setLeftLock(line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left);
+                const { node: line, position: linePosition } = atLine(
+                    layoutService.resolvePosition(cursorService.getCursor().head),
+                );
+                cursorService.setLeftLock(line.resolveBoundingBoxes(linePosition, linePosition).boundingBoxes[0].left);
             }
         }
         const reverseChanges: IChange[] = [];
@@ -97,10 +95,6 @@ export class Transformation implements ITransformation {
             changeResults.push(changeResult);
         }
         return changeResults;
-    }
-
-    protected boundModelOffset(offset: number, modelService: IModelService) {
-        return Math.max(0, Math.min(modelService.getRootSize() - 1, offset));
     }
 
     protected boundOffset(offset: number, renderService: IRenderService) {

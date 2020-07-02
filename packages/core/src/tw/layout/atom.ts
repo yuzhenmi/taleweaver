@@ -1,4 +1,5 @@
-import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
 export interface ILayoutAtom extends ILayoutNode {}
 
@@ -19,14 +20,14 @@ export class LayoutAtom extends LayoutNode implements ILayoutAtom {
         return true;
     }
 
-    convertCoordinatesToOffset(x: number, y: number) {
+    convertCoordinatesToPosition(x: number, y: number) {
         if (x < this.innerWidth / 2) {
             return 0;
         }
         return 1;
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: number, to: number): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }

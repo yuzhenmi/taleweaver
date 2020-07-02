@@ -4,7 +4,6 @@ import { ModelText } from '../component/components/text';
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
 import { ReplaceChange } from '../model/change/replace';
-import { Fragment } from '../model/fragment';
 import { ModelService } from '../model/service';
 import { ServiceRegistry } from '../service/registry';
 import { TextServiceStub } from '../text/service.stub';
@@ -35,14 +34,17 @@ describe('RenderService', () => {
 
     describe('when model did update', () => {
         beforeEach(() => {
-            const change = new ReplaceChange(3, 23, [
-                new Fragment('Hi', 0),
-                new Fragment(
+            const change = new ReplaceChange(
+                [0, 0, 0],
+                [1, 0, 5],
+                [
+                    'Hi',
+                    [],
                     [new ModelParagraph('paragraph', 'paragraph3', {}, [new ModelText('text', 'text3', 'big', {})])],
-                    2,
-                ),
-                new Fragment('beautiful', 0),
-            ]);
+                    [],
+                    'beautiful',
+                ],
+            );
             modelService.applyChange(change);
         });
 
@@ -122,7 +124,7 @@ describe('RenderService', () => {
                     ],
                 },
             });
-            const styles3 = renderService.getStylesBetween(10, 12);
+            const styles3 = renderService.getStylesBetween(1, 12);
             expect(styles3).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { 'line-break': [null], paragraph: [{}, {}] },

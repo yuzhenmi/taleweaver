@@ -37,6 +37,13 @@ export abstract class ViewNode<TStyle> extends Node<IViewNode<TStyle>> implement
         });
     }
 
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
+    }
+
     get size() {
         if (this.internalSize === undefined) {
             if (this.leaf) {

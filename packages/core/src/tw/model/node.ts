@@ -2,7 +2,7 @@ import { EventEmitter, IDisposable } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../tree/position';
+import { IModelPosition, IResolvedModelPosition } from './position';
 
 export interface IDidUpdateModelNodeEvent {}
 
@@ -11,26 +11,19 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     readonly partId: string | null;
     readonly attributes: TAttributes;
     readonly text: string;
-    readonly size: number;
     readonly needRender: boolean;
 
     canJoin(node: IModelNode<any>): boolean;
     clearNeedRender(): void;
     applyAttribute(key: string, value: any): any;
     replace(from: number, to: number, content: IModelNode<any>[] | string): IModelNode<any>[] | string;
-    resolvePosition(offset: number): IModelPosition;
-    toDOM(from: number, to: number): HTMLElement;
+    resolvePosition(position: IModelPosition): IResolvedModelPosition;
     onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
 }
-
-export interface IModelPosition extends IPosition<IModelNode<any>> {}
-export interface IModelPositionDepth extends IPositionDepth<IModelNode<any>> {}
 
 export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<TAttributes>>
     implements IModelNode<TAttributes> {
     abstract get partId(): string | null;
-
-    abstract toDOM(from: number, to: number): HTMLElement;
 
     protected internalText: string;
     protected internalSize?: number;
@@ -60,6 +53,13 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
 
     get text() {
         return this.internalText;
+    }
+
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
     }
 
     get size() {
@@ -135,34 +135,22 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         return replacedContent;
     }
 
-    resolvePosition(offset: number): IModelPosition {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error(`Offset ${offset} is out of range.`);
+    resolvePosition(position: IModelPosition): IResolvedModelPosition {
+        if (position.length === 0) {
+            position = [0];
         }
-        if (offset === 0) {
-            return new ModelPosition([{ node: this, offset, index: -1 }]);
-        }
-        if (this.leaf) {
-            return new ModelPosition([{ node: this, offset, index: offset - 1 }]);
-        }
-        let cumulatedOffset = 1;
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            if (cumulatedOffset === offset) {
-                return new ModelPosition([{ node: this, offset, index: n }]);
+        const offset = this.boundOffset(position[0]);
+        const resolvedPosition: IResolvedModelPosition = [{ node: this, offset }];
+        if (!this.leaf) {
+            if (offset < this.children.length) {
+                const child = this.children.at(offset);
+                resolvedPosition.push(...child.resolvePosition(position.slice(1)));
+            } else {
+                const child = this.children.at(this.children.length - 1);
+                resolvedPosition.push(...child.resolvePosition([child.contentLength]));
             }
-            const child = this.children.at(n);
-            const childSize = child.size;
-            if (cumulatedOffset + childSize > offset) {
-                const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: IModelPositionDepth[] = [{ node: this, offset, index: n }];
-                for (let m = 0; m < childPosition.depth; m++) {
-                    depths.push(childPosition.atDepth(m));
-                }
-                return new ModelPosition(depths);
-            }
-            cumulatedOffset += childSize;
         }
-        return new ModelPosition([{ node: this, offset, index: this.children.length }]);
+        return resolvedPosition;
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateModelNodeEvent>) {
@@ -173,5 +161,3 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         this.didUpdateEventEmitter.emit({});
     };
 }
-
-export class ModelPosition extends Position<IModelNode<any>> implements IModelPosition {}

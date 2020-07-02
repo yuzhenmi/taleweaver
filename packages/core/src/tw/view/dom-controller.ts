@@ -168,9 +168,8 @@ export class DOMController {
             return;
         }
         const domNodes = Array.prototype.slice.call($body.children) as HTMLElement[];
-        const modelNodes = this.modelService.fromDOM(domNodes);
-        // TODO: Insert modelNodes to cursor location
-        console.log(modelNodes);
+        console.log(domNodes);
+        // TODO
     };
 
     protected createContentEditable() {

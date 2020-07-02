@@ -5,7 +5,6 @@ import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
 import { ServiceRegistry } from '../service/registry';
 import { ReplaceChange } from './change/replace';
-import { Fragment } from './fragment';
 import { ModelService } from './service';
 
 describe('ModelService', () => {
@@ -27,7 +26,7 @@ describe('ModelService', () => {
     describe('applyTransformation', () => {
         describe('when replace text with text', () => {
             beforeEach(() => {
-                const change = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
+                const change = new ReplaceChange([0, 0, 0], [0, 0, 5], ['Hi']);
                 modelService.applyChange(change);
             });
 
@@ -43,18 +42,21 @@ describe('ModelService', () => {
 
         describe('when replace text with text and node', () => {
             beforeEach(() => {
-                const change = new ReplaceChange(3, 8, [
-                    new Fragment('Hi', 0),
-                    new Fragment(
+                const change = new ReplaceChange(
+                    [0, 0, 0],
+                    [0, 0, 5],
+                    [
+                        'Hi',
+                        [],
                         [
                             new ModelParagraph('paragraph', 'paragraph3', {}, [
                                 new ModelText('text', 'text3', 'big', {}),
                             ]),
                         ],
-                        2,
-                    ),
-                    new Fragment('beautiful', 0),
-                ]);
+                        [],
+                        'beautiful',
+                    ],
+                );
                 modelService.applyChange(change);
             });
 
@@ -76,7 +78,7 @@ describe('ModelService', () => {
 
         describe('when replace text and node with text', () => {
             beforeEach(() => {
-                const change = new ReplaceChange(3, 23, [new Fragment('Hi', 0)]);
+                const change = new ReplaceChange([0, 0, 0], [1, 0, 5], ['Hi']);
                 modelService.applyChange(change);
             });
 
@@ -89,18 +91,21 @@ describe('ModelService', () => {
 
         describe('when replace text and node with text and node', () => {
             beforeEach(() => {
-                const change = new ReplaceChange(3, 23, [
-                    new Fragment('Hi', 0),
-                    new Fragment(
+                const change = new ReplaceChange(
+                    [0, 0, 0],
+                    [1, 0, 5],
+                    [
+                        'Hi',
+                        [],
                         [
                             new ModelParagraph('paragraph', 'paragraph3', {}, [
                                 new ModelText('text', 'text3', 'big', {}),
                             ]),
                         ],
-                        2,
-                    ),
-                    new Fragment('beautiful', 0),
-                ]);
+                        [],
+                        'beautiful',
+                    ],
+                );
                 modelService.applyChange(change);
             });
 
@@ -129,7 +134,7 @@ describe('ModelService', () => {
         it('listens to DidUpdateModelState event', () => {
             let notified = false;
             modelService.onDidUpdateModelState(() => (notified = true));
-            const change = new ReplaceChange(3, 8, [new Fragment('Hi', 0)]);
+            const change = new ReplaceChange([0, 0, 0], [0, 0, 5], ['Hi']);
             modelService.applyChange(change);
             expect(notified).toEqual(true);
         });

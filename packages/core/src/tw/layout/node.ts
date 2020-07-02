@@ -1,32 +1,11 @@
+import { IRenderPosition } from '../render/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../tree/position';
 import { generateId } from '../util/id';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { IResolvedLayoutPosition } from './position';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
-
-export interface ILayoutPosition extends IPosition<ILayoutNode> {
-    atLineDepth(): ILayoutPositionDepth;
-    atBlockDepth(): ILayoutPositionDepth;
-}
-export interface ILayoutPositionDepth extends IPositionDepth<ILayoutNode> {}
-
-export interface IBoundingBox {
-    from: number;
-    to: number;
-    width: number;
-    height: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-}
-
-export interface IResolveBoundingBoxesResult {
-    node: ILayoutNode;
-    boundingBoxes: IBoundingBox[];
-    children: IResolveBoundingBoxesResult[];
-}
 
 export interface ILayoutNode extends INode<ILayoutNode> {
     readonly type: ILayoutNodeType;
@@ -46,9 +25,9 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly needView: boolean;
 
     clearNeedView(): void;
-    resolvePosition(offset: number, depth?: number): ILayoutPosition;
-    convertCoordinatesToOffset(x: number, y: number): number;
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
+    resolvePosition(position: IRenderPosition): IResolvedLayoutPosition;
+    convertCoordinatesToPosition(x: number, y: number): IRenderPosition;
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
 }
 
 export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
@@ -56,8 +35,8 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     abstract get width(): number;
     abstract get height(): number;
 
-    abstract resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
-    abstract convertCoordinatesToOffset(x: number, y: number): number;
+    abstract resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
+    abstract convertCoordinatesToPosition(x: number, y: number): IRenderPosition;
 
     protected internalSize?: number;
     protected internalNeedView = true;
@@ -76,6 +55,13 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         children.forEach((child) => {
             child.parent = this;
         });
+    }
+
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
     }
 
     get size() {
@@ -113,49 +99,22 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         this.internalNeedView = false;
     }
 
-    resolvePosition(offset: number): ILayoutPosition {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error(`Offset ${offset} is out of range.`);
+    resolvePosition(position: IRenderPosition): IResolvedLayoutPosition {
+        if (position < 0 || position >= this.size) {
+            throw new Error(`Offset ${position} is out of range.`);
         }
         if (this.leaf) {
-            return new LayoutPosition([{ node: this, offset, index: offset }]);
+            return [{ node: this, offset: position, position }];
         }
-        let cumulatedOffset = 0;
+        let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childSize = child.size;
-            if (cumulatedOffset + childSize > offset) {
-                const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: ILayoutPositionDepth[] = [{ node: this, offset, index: n }];
-                for (let m = 0; m < childPosition.depth; m++) {
-                    depths.push(childPosition.atDepth(m));
-                }
-                return new LayoutPosition(depths);
+            if (cumulatedSize + childSize > position) {
+                return [{ node: this, offset: n, position }, ...child.resolvePosition(position - cumulatedSize)];
             }
-            cumulatedOffset += childSize;
+            cumulatedSize += childSize;
         }
         throw new Error('Offset cannot be resolved.');
-    }
-}
-
-export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {
-    atLineDepth() {
-        for (let n = this.depth - 1; n >= 0; n--) {
-            const depth = this.atDepth(n);
-            if (depth.node.type === 'line') {
-                return depth;
-            }
-        }
-        throw new Error('Line depth not found.');
-    }
-
-    atBlockDepth() {
-        for (let n = this.depth - 1; n >= 0; n--) {
-            const depth = this.atDepth(n);
-            if (depth.node.type === 'block') {
-                return depth;
-            }
-        }
-        throw new Error('Block depth not found.');
     }
 }

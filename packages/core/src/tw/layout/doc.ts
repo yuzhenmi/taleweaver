@@ -1,4 +1,6 @@
-import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IRenderPosition } from '../render/position';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
 export interface ILayoutDoc extends ILayoutNode {}
 
@@ -28,29 +30,29 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         return false;
     }
 
-    convertCoordinatesToOffset(x: number, y: number): number {
-        throw new Error('Use page to convert coordinates to offset.');
+    convertCoordinatesToPosition(x: number, y: number): IRenderPosition {
+        throw new Error('Use page to convert coordinates to position.');
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
-        const childResults: IResolveBoundingBoxesResult[] = [];
+        const resolvedChildren: IResolvedBoundingBoxes[] = [];
         let cumulatedOffset = 0;
         this.children.forEach((child) => {
             if (cumulatedOffset + child.size > from && cumulatedOffset <= to) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
-                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
-                childResults.push(childResult);
+                const resolvedChild = child.resolveBoundingBoxes(childFrom, childTo);
+                resolvedChildren.push(resolvedChild);
             }
             cumulatedOffset += child.size;
         });
         return {
             node: this,
             boundingBoxes: [],
-            children: childResults,
+            children: resolvedChildren,
         };
     }
 }
