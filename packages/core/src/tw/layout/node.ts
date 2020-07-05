@@ -1,35 +1,15 @@
+import { IModelPosition } from '../model/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../model/position';
 import { generateId } from '../util/id';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { IResolvedPosition } from './position';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
 
-export interface ILayoutPosition extends IPosition<ILayoutNode> {
-    atLineDepth(): ILayoutPositionDepth;
-    atBlockDepth(): ILayoutPositionDepth;
-}
-export interface ILayoutPositionDepth extends IPositionDepth<ILayoutNode> {}
-
-export interface IBoundingBox {
-    from: number;
-    to: number;
-    width: number;
-    height: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-}
-
-export interface IResolveBoundingBoxesResult {
-    node: ILayoutNode;
-    boundingBoxes: IBoundingBox[];
-    children: IResolveBoundingBoxesResult[];
-}
-
 export interface ILayoutNode extends INode<ILayoutNode> {
     readonly type: ILayoutNodeType;
+    readonly modelId: string | null;
     readonly renderId: string | null;
     readonly text: string;
     readonly size: number;
@@ -46,9 +26,9 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly needView: boolean;
 
     clearNeedView(): void;
-    resolvePosition(offset: number, depth?: number): ILayoutPosition;
-    convertCoordinatesToOffset(x: number, y: number): number;
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
+    resolvePosition(position: IModelPosition): IResolvedPosition;
+    convertCoordinatesToPosition(x: number, y: number): IModelPosition;
+    resolveBoundingBoxes(from: IResolvedPosition | null, to: IResolvedPosition | null): IResolvedBoundingBoxes;
 }
 
 export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
@@ -56,13 +36,14 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     abstract get width(): number;
     abstract get height(): number;
 
-    abstract resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
-    abstract convertCoordinatesToOffset(x: number, y: number): number;
+    abstract resolveBoundingBoxes(from: IResolvedPosition, to: IResolvedPosition): IResolvedBoundingBoxes;
+    abstract convertCoordinatesToPosition(x: number, y: number): IModelPosition;
 
     protected internalSize?: number;
     protected internalNeedView = true;
 
     constructor(
+        readonly modelId: string | null,
         readonly renderId: string | null,
         readonly text: string,
         children: ILayoutNode[],
@@ -76,6 +57,13 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         children.forEach((child) => {
             child.parent = this;
         });
+    }
+
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
     }
 
     get size() {
@@ -113,49 +101,41 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         this.internalNeedView = false;
     }
 
-    resolvePosition(offset: number): ILayoutPosition {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error(`Offset ${offset} is out of range.`);
-        }
+    resolvePosition(position: IModelPosition): IResolvedPosition {
+        const offset = this.boundOffset(position[0]);
+        const resolvedPosition: IResolvedPosition = [];
         if (this.leaf) {
-            return new LayoutPosition([{ node: this, offset, index: offset }]);
-        }
-        let cumulatedOffset = 0;
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            const child = this.children.at(n);
-            const childSize = child.size;
-            if (cumulatedOffset + childSize > offset) {
-                const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: ILayoutPositionDepth[] = [{ node: this, offset, index: n }];
-                for (let m = 0; m < childPosition.depth; m++) {
-                    depths.push(childPosition.atDepth(m));
+            resolvedPosition.push({ node: this, offset });
+        } else if (this.renderId === null) {
+            let cumulatedOffset = 0;
+            for (let n = 0, nn = this.children.length; n < nn; n++) {
+                const child = this.children.at(n);
+                for (let m = 0, mm = child.children.length; m < mm; m++) {
+                    const grandchild = child.children.at(m);
+                    if (grandchild.modelId) {
+                        if (cumulatedOffset === position[0]) {
+                            resolvedPosition.push(
+                                { node: this, offset: n },
+                                { node: child, offset: m },
+                                ...grandchild.resolvePosition(position.slice(1)),
+                            );
+                        }
+                        cumulatedOffset++;
+                    }
                 }
-                return new LayoutPosition(depths);
             }
-            cumulatedOffset += childSize;
-        }
-        throw new Error('Offset cannot be resolved.');
-    }
-}
-
-export class LayoutPosition extends Position<ILayoutNode> implements ILayoutPosition {
-    atLineDepth() {
-        for (let n = this.depth - 1; n >= 0; n--) {
-            const depth = this.atDepth(n);
-            if (depth.node.type === 'line') {
-                return depth;
+        } else {
+            let cumulatedOffset = 0;
+            for (let n = 0, nn = this.children.length; n < nn; n++) {
+                const child = this.children.at(n);
+                if (child.modelId) {
+                    if (cumulatedOffset === position[0]) {
+                        resolvedPosition.push({ node: this, offset: n }, ...child.resolvePosition(position.slice(1)));
+                    }
+                    cumulatedOffset++;
+                }
             }
         }
-        throw new Error('Line depth not found.');
-    }
-
-    atBlockDepth() {
-        for (let n = this.depth - 1; n >= 0; n--) {
-            const depth = this.atDepth(n);
-            if (depth.node.type === 'block') {
-                return depth;
-            }
-        }
-        throw new Error('Block depth not found.');
+        return resolvedPosition;
     }
 }

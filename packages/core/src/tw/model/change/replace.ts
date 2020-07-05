@@ -1,16 +1,16 @@
 import { IComponentService } from '../../component/service';
+import { generateId } from '../../util/id';
 import { IFragment } from '../fragment';
+import { IModelNode } from '../node';
+import { IModelPosition } from '../position';
 import { IModelRoot } from '../root';
 import { IChangeResult, ModelChange } from './change';
 import { IMapping, Mapping } from './mapping';
-import { IPosition } from '../position';
-import { IModelNode } from '../node';
-import { generateId } from '../../util/id';
 
 class Remover {
     protected ran = false;
 
-    constructor(protected root: IModelRoot<any>, protected from: IPosition, protected to: IPosition) {}
+    constructor(protected root: IModelRoot<any>, protected from: IModelPosition, protected to: IModelPosition) {}
 
     run() {
         if (this.ran) {
@@ -20,7 +20,7 @@ class Remover {
         this.ran = true;
     }
 
-    protected remove(node: IModelNode<any>, from: IPosition, to: IPosition): IFragment {
+    protected remove(node: IModelNode<any>, from: IModelPosition, to: IModelPosition): IFragment {
         if (node.leaf) {
             return [node.replace(from[0], to[0], '')];
         }
@@ -58,7 +58,7 @@ class Inserter {
 
     constructor(
         protected root: IModelRoot<any>,
-        protected position: IPosition,
+        protected position: IModelPosition,
         protected fragment: IFragment,
         protected componentService: IComponentService,
     ) {}
@@ -71,7 +71,7 @@ class Inserter {
         this.ran = true;
     }
 
-    protected insert(ownOffset: number | null, node: IModelNode<any>, position: IPosition, fragment: IFragment) {
+    protected insert(ownOffset: number | null, node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
         if (Math.ceil(fragment.length / 2) < position.length) {
             this.insert(position[0], node.children.at(position[0]), position.slice(1), fragment);
             return;
@@ -129,7 +129,7 @@ class Inserter {
 }
 
 export class ReplaceChange extends ModelChange {
-    constructor(protected from: IPosition, protected to: IPosition, protected fragment: IFragment) {
+    constructor(protected from: IModelPosition, protected to: IModelPosition, protected fragment: IFragment) {
         super();
         if (fragment.length % 2 !== 1) {
             throw new Error('Fragment is invalid.');

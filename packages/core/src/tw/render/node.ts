@@ -1,8 +1,8 @@
+import { IModelPosition } from '../model/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
 import { generateId } from '../util/id';
 import { IResolvedPosition } from './position';
-import { IPosition } from '../model/position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
@@ -17,7 +17,7 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     readonly needLayout: boolean;
 
     clearNeedLayout(): void;
-    resolvePosition(position: IPosition): IResolvedPosition;
+    resolvePosition(position: IModelPosition): IResolvedPosition;
 }
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
@@ -70,7 +70,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         this.internalNeedLayout = false;
     }
 
-    resolvePosition(position: IPosition): IResolvedPosition {
+    resolvePosition(position: IModelPosition): IResolvedPosition {
         const offset = this.boundOffset(position[0]);
         const resolvedPosition: IResolvedPosition = [];
         if (this.leaf) {

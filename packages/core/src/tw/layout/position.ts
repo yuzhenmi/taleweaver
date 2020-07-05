@@ -1,10 +1,8 @@
-import { IRenderNode } from './node';
-
-export type IRenderPosition = number;
+import { ILayoutNode } from './node';
 
 export interface IResolvedOffset {
     offset: number;
-    node: IRenderNode<any, any>;
+    node: ILayoutNode;
 }
 
 export type IResolvedPosition = IResolvedOffset[];

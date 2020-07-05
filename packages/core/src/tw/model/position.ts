@@ -1,15 +1,15 @@
 import { IModelNode } from './node';
 
-export type IPosition = number[];
+export type IModelPosition = number[];
 
-export interface IResolvedOffset {
+export interface IResolvedModelOffset {
     offset: number;
     node: IModelNode<any>;
 }
 
-export type IResolvedPosition = IResolvedOffset[];
+export type IResolvedModelPosition = IResolvedModelOffset[];
 
-export function testPositionLessThan(position1: IPosition, position2: IPosition): boolean {
+export function testPositionLessThan(position1: IModelPosition, position2: IModelPosition): boolean {
     if (position1.length === 0 || position2.length === 0) {
         return false;
     }
@@ -22,7 +22,7 @@ export function testPositionLessThan(position1: IPosition, position2: IPosition)
     return testPositionLessThan(position1.slice(1), position2.slice(1));
 }
 
-export function testPositionGreaterThan(position1: IPosition, position2: IPosition): boolean {
+export function testPositionGreaterThan(position1: IModelPosition, position2: IModelPosition): boolean {
     if (position1.length === 0 || position2.length === 0) {
         return false;
     }

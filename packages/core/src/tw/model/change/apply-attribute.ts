@@ -1,11 +1,11 @@
 import { IComponentService } from '../../component/service';
+import { IModelPosition } from '../position';
 import { IModelRoot } from '../root';
 import { IChangeResult, ModelChange } from './change';
 import { identity, IMapping } from './mapping';
-import { IPosition } from '../position';
 
 export class ApplyAttribute extends ModelChange {
-    constructor(protected position: IPosition, protected key: string, protected value: any) {
+    constructor(protected position: IModelPosition, protected key: string, protected value: any) {
         super();
     }
 

@@ -1,4 +1,4 @@
-import { ApplyAttribute } from '../../model/change/applyAttribute';
+import { ApplyAttribute } from '../../model/change/apply-attribute';
 import { ReplaceChange } from '../../model/change/replace';
 import { Fragment } from '../../model/fragment';
 import { IModelNode } from '../../model/node';

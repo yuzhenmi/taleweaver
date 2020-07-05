@@ -1,20 +1,20 @@
-import { IPosition, testPositionGreaterThan } from '../position';
+import { IModelPosition, testPositionGreaterThan } from '../position';
 
 export interface IMapping {
-    map(position: IPosition): IPosition;
+    map(position: IModelPosition): IModelPosition;
     reverse(): IMapping;
 }
 
 export interface IMappingDesc {
-    from: IPosition;
-    toBefore: IPosition;
-    toAfter: IPosition;
+    from: IModelPosition;
+    toBefore: IModelPosition;
+    toAfter: IModelPosition;
 }
 
 export class Mapping implements IMapping {
     constructor(protected descs: IMappingDesc[]) {}
 
-    map(position: IPosition) {
+    map(position: IModelPosition) {
         return this.descs.reduce(
             (newPosition, desc) => this.internalMap(newPosition, desc.from, desc.toBefore, desc.toAfter),
             position,
@@ -27,7 +27,12 @@ export class Mapping implements IMapping {
         );
     }
 
-    protected internalMap(position: IPosition, from: IPosition, toBefore: IPosition, toAfter: IPosition): IPosition {
+    protected internalMap(
+        position: IModelPosition,
+        from: IModelPosition,
+        toBefore: IModelPosition,
+        toAfter: IModelPosition,
+    ): IModelPosition {
         if (!testPositionGreaterThan(position, toBefore)) {
             return position;
         }
@@ -39,6 +44,6 @@ export class Mapping implements IMapping {
 }
 
 export const identity: IMapping = {
-    map: (position: IPosition) => position,
+    map: (position: IModelPosition) => position,
     reverse: () => identity,
 };

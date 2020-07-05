@@ -1,11 +1,11 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
+import { IModelPosition } from '../model/position';
 import { IModelService } from '../model/service';
 import { IRenderDoc } from './doc';
-import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
-import { IResolvedPosition } from './position';
 import { IRenderNode } from './node';
-import { IPosition } from '../model/position';
+import { IResolvedPosition } from './position';
+import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
 
 export interface IStyles {
     [componentId: string]: {
@@ -17,8 +17,8 @@ export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDoc(): IRenderDoc<any, any>;
     getDocSize(): number;
-    resolvePosition(position: IPosition): IResolvedPosition;
-    getStylesBetween(from: IPosition, to: IPosition): IStyles;
+    resolvePosition(position: IModelPosition): IResolvedPosition;
+    getStylesBetween(from: IModelPosition, to: IModelPosition): IStyles;
 }
 
 export class RenderService implements IRenderService {
@@ -40,11 +40,11 @@ export class RenderService implements IRenderService {
         return this.state.doc.size;
     }
 
-    resolvePosition(position: IPosition) {
+    resolvePosition(position: IModelPosition) {
         return this.state.doc.resolvePosition(position);
     }
 
-    getStylesBetween(from: IPosition, to: IPosition) {
+    getStylesBetween(from: IModelPosition, to: IModelPosition) {
         const resolvedFrom = this.resolvePosition(from);
         const resolvedTo = this.resolvePosition(to);
         const styles: IStyles = {};
