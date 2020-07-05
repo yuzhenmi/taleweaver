@@ -1,13 +1,11 @@
-import { IModelPosition } from '../model/position';
+import { IRenderPosition } from '../render/position';
 import { IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
-import { IResolvedPosition } from './position';
 
 export interface ILayoutDoc extends ILayoutNode {}
 
 export class LayoutDoc extends LayoutNode implements ILayoutDoc {
     constructor(
-        modelId: string | null,
         renderId: string | null,
         children: ILayoutNode[],
         readonly width: number,
@@ -17,7 +15,7 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(modelId, renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
@@ -32,26 +30,25 @@ export class LayoutDoc extends LayoutNode implements ILayoutDoc {
         return false;
     }
 
-    convertCoordinatesToPosition(x: number, y: number): IModelPosition {
+    convertCoordinatesToPosition(x: number, y: number): IRenderPosition {
         throw new Error('Use page to convert coordinates to position.');
     }
 
-    resolveBoundingBoxes(from: IResolvedPosition | null, to: IResolvedPosition | null): IResolvedBoundingBoxes {
-        const fromOffset = from ? this.boundOffset(from[0].offset) : 0;
-        const toOffset = to ? this.boundOffset(to[0].offset) : this.contentLength;
-        if (fromOffset > toOffset) {
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes {
+        if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
         const resolvedChildren: IResolvedBoundingBoxes[] = [];
-        for (let n = fromOffset; n <= toOffset; n++) {
-            const child = this.children.at(n);
-            resolvedChildren.push(
-                child.resolveBoundingBoxes(
-                    from && n === fromOffset ? from.slice(1) : null,
-                    to && n === toOffset ? to.slice(1) : null,
-                ),
-            );
-        }
+        let cumulatedOffset = 0;
+        this.children.forEach((child) => {
+            if (cumulatedOffset + child.size > from && cumulatedOffset <= to) {
+                const childFrom = Math.max(0, from - cumulatedOffset);
+                const childTo = Math.min(child.size, to - cumulatedOffset);
+                const resolvedChild = child.resolveBoundingBoxes(childFrom, childTo);
+                resolvedChildren.push(resolvedChild);
+            }
+            cumulatedOffset += child.size;
+        });
         return {
             node: this,
             boundingBoxes: [],

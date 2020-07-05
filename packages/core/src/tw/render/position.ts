@@ -2,9 +2,9 @@ import { IRenderNode } from './node';
 
 export type IRenderPosition = number;
 
-export interface IResolvedOffset {
+export interface IResolvedRenderOffset {
     offset: number;
     node: IRenderNode<any, any>;
 }
 
-export type IResolvedPosition = IResolvedOffset[];
+export type IResolvedRenderPosition = IResolvedRenderOffset[];

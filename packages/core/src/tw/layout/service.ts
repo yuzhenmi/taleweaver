@@ -1,5 +1,5 @@
 import { IEventListener } from '../event/listener';
-import { IModelPosition } from '../model/position';
+import { IRenderPosition } from '../render/position';
 import { IRenderService } from '../render/service';
 import { ITextService } from '../text/service';
 import { IResolvedBoundingBoxes } from './bounding-box';
@@ -10,8 +10,8 @@ import { IDidUpdateLayoutStateEvent, ILayoutState, LayoutState } from './state';
 export interface ILayoutService {
     onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
     getDoc(): ILayoutDoc;
-    resolvePosition(position: IModelPosition): IResolvedPosition;
-    resolveBoundingBoxes(from: IModelPosition, to: IModelPosition): IResolvedBoundingBoxes;
+    resolvePosition(position: IRenderPosition): IResolvedPosition;
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
 }
 
 export class LayoutService implements ILayoutService {
@@ -29,11 +29,11 @@ export class LayoutService implements ILayoutService {
         return this.state.doc;
     }
 
-    resolvePosition(position: IModelPosition) {
+    resolvePosition(position: IRenderPosition) {
         return this.state.doc.resolvePosition(position);
     }
 
-    resolveBoundingBoxes(from: IModelPosition, to: IModelPosition) {
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition) {
         return this.state.doc.resolveBoundingBoxes(from, to);
     }
 }

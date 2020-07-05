@@ -1,4 +1,5 @@
-import { IBoundingBox, ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IBoundingBox, IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
 export interface ILayoutPage extends ILayoutNode {
     readonly contentHeight: number;
@@ -41,7 +42,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         return this.internalContentHeight;
     }
 
-    convertCoordinatesToOffset(x: number, y: number) {
+    convertCoordinatesToPosition(x: number, y: number) {
         let offset = 0;
         let cumulatedHeight = 0;
         const contentX = Math.min(Math.max(x - this.paddingLeft, 0), this.innerWidth);
@@ -50,7 +51,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
             const child = this.children.at(n);
             const childHeight = child.height;
             if (contentY >= cumulatedHeight && contentY <= cumulatedHeight + childHeight) {
-                offset += child.convertCoordinatesToOffset(contentX, contentY - cumulatedHeight);
+                offset += child.convertCoordinatesToPosition(contentX, contentY - cumulatedHeight);
                 break;
             }
             offset += child.size;
@@ -60,17 +61,17 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
             const lastChild = this.lastChild;
             if (lastChild) {
                 offset -= lastChild.size;
-                offset += lastChild.convertCoordinatesToOffset(contentX, lastChild.height);
+                offset += lastChild.convertCoordinatesToPosition(contentX, lastChild.height);
             }
         }
         return offset;
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: number, to: number): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
-        const childResults: IResolveBoundingBoxesResult[] = [];
+        const resolvedChildren: IResolvedBoundingBoxes[] = [];
         const boundingBoxes: IBoundingBox[] = [];
         let cumulatedOffset = 0;
         let cumulatedHeight = 0;
@@ -78,9 +79,9 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
             if (cumulatedOffset + child.size > from && cumulatedOffset <= to) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
-                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
-                childResults.push(childResult);
-                childResult.boundingBoxes.forEach((boundingBox) => {
+                const resolvedChild = child.resolveBoundingBoxes(childFrom, childTo);
+                resolvedChildren.push(resolvedChild);
+                resolvedChild.boundingBoxes.forEach((boundingBox) => {
                     boundingBoxes.push({
                         from: cumulatedOffset + childFrom,
                         to: cumulatedOffset + childTo,
@@ -99,7 +100,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         return {
             node: this,
             boundingBoxes,
-            children: childResults,
+            children: resolvedChildren,
         };
     }
 }

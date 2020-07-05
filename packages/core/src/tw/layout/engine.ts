@@ -331,7 +331,7 @@ export class LayoutEngine implements ILayoutEngine {
                 for (let m = 0; m < nodeChildren.length; m++) {
                     let nodeChild = nodeChildren[m];
                     if (nodeChild.type === 'word' && nodeChild.width > width) {
-                        let breakAt = nodeChild.convertCoordinatesToOffset(width, 0);
+                        let breakAt = nodeChild.convertCoordinatesToPosition(width, 0);
                         if (nodeChild.resolveBoundingBoxes(breakAt, breakAt).boundingBoxes[0].left > width) {
                             breakAt--;
                         }

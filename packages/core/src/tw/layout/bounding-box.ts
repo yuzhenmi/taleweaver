@@ -1,9 +1,9 @@
-import { IModelPosition } from '../model/position';
+import { IRenderPosition } from '../render/position';
 import { ILayoutNode } from './node';
 
 export interface IBoundingBox {
-    from: IModelPosition;
-    to: IModelPosition;
+    from: IRenderPosition;
+    to: IRenderPosition;
     width: number;
     height: number;
     left: number;

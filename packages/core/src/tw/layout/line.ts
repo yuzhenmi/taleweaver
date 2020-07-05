@@ -1,4 +1,5 @@
-import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutWord } from './word';
 
 export interface ILayoutLine extends ILayoutNode {
@@ -40,14 +41,14 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
         return this.internalContentWidth;
     }
 
-    convertCoordinatesToOffset(x: number, y: number) {
+    convertCoordinatesToPosition(x: number, y: number) {
         let offset = 0;
         let cumulatedWidth = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childWidth = child.width;
             if (x >= cumulatedWidth && x <= cumulatedWidth + childWidth) {
-                offset += child.convertCoordinatesToOffset(x - cumulatedWidth, 0);
+                offset += child.convertCoordinatesToPosition(x - cumulatedWidth, 0);
                 break;
             }
             offset += child.size;
@@ -65,11 +66,11 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
         return offset;
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: number, to: number): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }
-        const childResults: IResolveBoundingBoxesResult[] = [];
+        const resolvedChildren: IResolvedBoundingBoxes[] = [];
         let cumulatedOffset = 0;
         let left1: number | null = null;
         let left2 = 0;
@@ -81,15 +82,15 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
             if (cumulatedOffset + child.size > from) {
                 const childFrom = Math.max(0, from - cumulatedOffset);
                 const childTo = Math.min(child.size, to - cumulatedOffset);
-                const childResult = child.resolveBoundingBoxes(childFrom, childTo);
-                childResults.push(childResult);
+                const resolvedChild = child.resolveBoundingBoxes(childFrom, childTo);
+                resolvedChildren.push(resolvedChild);
                 if (left1 === null) {
-                    left1 = left2 + childResult.boundingBoxes[0].left;
+                    left1 = left2 + resolvedChild.boundingBoxes[0].left;
                 }
-                left2 += childResult.boundingBoxes
-                    .slice(0, childResult.boundingBoxes.length - 1)
+                left2 += resolvedChild.boundingBoxes
+                    .slice(0, resolvedChild.boundingBoxes.length - 1)
                     .reduce((width, box) => width + box.left + box.width + box.right, 0);
-                left2 += childResult.boundingBoxes[0].left + childResult.boundingBoxes[0].width;
+                left2 += resolvedChild.boundingBoxes[0].left + resolvedChild.boundingBoxes[0].width;
             } else {
                 left2 += child.width;
             }
@@ -109,7 +110,7 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
                     bottom: from === to ? this.paddingBottom : 0,
                 },
             ],
-            children: childResults,
+            children: resolvedChildren,
         };
     }
 }

@@ -1,4 +1,4 @@
-import { IModelPosition } from '../model/position';
+import { IRenderPosition } from '../render/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
 import { generateId } from '../util/id';
@@ -9,7 +9,6 @@ export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word
 
 export interface ILayoutNode extends INode<ILayoutNode> {
     readonly type: ILayoutNodeType;
-    readonly modelId: string | null;
     readonly renderId: string | null;
     readonly text: string;
     readonly size: number;
@@ -26,9 +25,9 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly needView: boolean;
 
     clearNeedView(): void;
-    resolvePosition(position: IModelPosition): IResolvedPosition;
-    convertCoordinatesToPosition(x: number, y: number): IModelPosition;
-    resolveBoundingBoxes(from: IResolvedPosition | null, to: IResolvedPosition | null): IResolvedBoundingBoxes;
+    resolvePosition(position: IRenderPosition): IResolvedPosition;
+    convertCoordinatesToPosition(x: number, y: number): IRenderPosition;
+    resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
 }
 
 export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNode {
@@ -36,14 +35,13 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     abstract get width(): number;
     abstract get height(): number;
 
-    abstract resolveBoundingBoxes(from: IResolvedPosition, to: IResolvedPosition): IResolvedBoundingBoxes;
-    abstract convertCoordinatesToPosition(x: number, y: number): IModelPosition;
+    abstract resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
+    abstract convertCoordinatesToPosition(x: number, y: number): IRenderPosition;
 
     protected internalSize?: number;
     protected internalNeedView = true;
 
     constructor(
-        readonly modelId: string | null,
         readonly renderId: string | null,
         readonly text: string,
         children: ILayoutNode[],
@@ -101,41 +99,22 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         this.internalNeedView = false;
     }
 
-    resolvePosition(position: IModelPosition): IResolvedPosition {
-        const offset = this.boundOffset(position[0]);
-        const resolvedPosition: IResolvedPosition = [];
-        if (this.leaf) {
-            resolvedPosition.push({ node: this, offset });
-        } else if (this.renderId === null) {
-            let cumulatedOffset = 0;
-            for (let n = 0, nn = this.children.length; n < nn; n++) {
-                const child = this.children.at(n);
-                for (let m = 0, mm = child.children.length; m < mm; m++) {
-                    const grandchild = child.children.at(m);
-                    if (grandchild.modelId) {
-                        if (cumulatedOffset === position[0]) {
-                            resolvedPosition.push(
-                                { node: this, offset: n },
-                                { node: child, offset: m },
-                                ...grandchild.resolvePosition(position.slice(1)),
-                            );
-                        }
-                        cumulatedOffset++;
-                    }
-                }
-            }
-        } else {
-            let cumulatedOffset = 0;
-            for (let n = 0, nn = this.children.length; n < nn; n++) {
-                const child = this.children.at(n);
-                if (child.modelId) {
-                    if (cumulatedOffset === position[0]) {
-                        resolvedPosition.push({ node: this, offset: n }, ...child.resolvePosition(position.slice(1)));
-                    }
-                    cumulatedOffset++;
-                }
-            }
+    resolvePosition(position: IRenderPosition): IResolvedPosition {
+        if (position < 0 || position >= this.size) {
+            throw new Error(`Offset ${position} is out of range.`);
         }
-        return resolvedPosition;
+        if (this.leaf) {
+            return [{ node: this, offset: position }];
+        }
+        let cumulatedOffset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (cumulatedOffset + childSize > position) {
+                return [{ node: this, offset: n }, ...child.resolvePosition(position - cumulatedOffset)];
+            }
+            cumulatedOffset += childSize;
+        }
+        throw new Error('Offset cannot be resolved.');
     }
 }

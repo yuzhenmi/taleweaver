@@ -86,7 +86,7 @@ describe('RenderService', () => {
 
     describe('getStylesBetween', () => {
         it('returns styles of all render nodes covering the range', () => {
-            const styles1 = renderService.getStylesBetween([0, 0, 1], [0, 0, 1]);
+            const styles1 = renderService.getStylesBetween(1, 1);
             expect(styles1).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
@@ -105,7 +105,7 @@ describe('RenderService', () => {
                     ],
                 },
             });
-            const styles2 = renderService.getStylesBetween([1, 0, 1], [1, 0, 1]);
+            const styles2 = renderService.getStylesBetween(12, 12);
             expect(styles2).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { paragraph: [{}] },
@@ -124,7 +124,7 @@ describe('RenderService', () => {
                     ],
                 },
             });
-            const styles3 = renderService.getStylesBetween([0, 0, 10], [1, 0, 1]);
+            const styles3 = renderService.getStylesBetween(1, 12);
             expect(styles3).toEqual({
                 doc: { doc: [{}] },
                 paragraph: { 'line-break': [null], paragraph: [{}, {}] },

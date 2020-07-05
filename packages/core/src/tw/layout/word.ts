@@ -1,5 +1,6 @@
 import { IFont, ITextService } from '../text/service';
-import { ILayoutNode, ILayoutNodeType, IResolveBoundingBoxesResult, LayoutNode } from './node';
+import { IResolvedBoundingBoxes } from './bounding-box';
+import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
 export interface ILayoutWord extends ILayoutNode {
     readonly whitespaceSize: number;
@@ -57,7 +58,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
         return this.internalTrimmedWidth;
     }
 
-    convertCoordinatesToOffset(x: number, y: number) {
+    convertCoordinatesToPosition(x: number, y: number) {
         let lastWidth = 0;
         const text = this.text;
         for (let n = 0, nn = text.length; n < nn; n++) {
@@ -79,7 +80,7 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
         return text.length;
     }
 
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
+    resolveBoundingBoxes(from: number, to: number): IResolvedBoundingBoxes {
         if (from < 0 || to > this.size || from > to) {
             throw new Error('Invalid range.');
         }

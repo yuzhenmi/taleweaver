@@ -2,7 +2,7 @@ import { IModelPosition } from '../model/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
 import { generateId } from '../util/id';
-import { IResolvedPosition } from './position';
+import { IRenderPosition, IResolvedRenderPosition } from './position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
@@ -17,7 +17,9 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     readonly needLayout: boolean;
 
     clearNeedLayout(): void;
-    resolvePosition(position: IModelPosition): IResolvedPosition;
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition;
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition;
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition;
 }
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
@@ -70,23 +72,65 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         this.internalNeedLayout = false;
     }
 
-    resolvePosition(position: IModelPosition): IResolvedPosition {
-        const offset = this.boundOffset(position[0]);
-        const resolvedPosition: IResolvedPosition = [];
-        if (this.leaf) {
-            resolvedPosition.push({ node: this, offset });
-        } else {
-            let cumulatedOffset = 0;
-            for (let n = 0, nn = this.children.length; n < nn; n++) {
-                const child = this.children.at(n);
-                if (child.modelId) {
-                    if (cumulatedOffset === position[0]) {
-                        resolvedPosition.push({ node: this, offset: n }, ...child.resolvePosition(position.slice(1)));
-                    }
-                    cumulatedOffset++;
-                }
-            }
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition {
+        if (position < 0 || position >= this.size) {
+            throw new Error(`Offset ${position} is out of range.`);
         }
-        return resolvedPosition;
+        if (this.leaf) {
+            return [{ node: this, offset: position }];
+        }
+        let offset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (offset + childSize > position) {
+                return [{ node: this, offset: n }, ...child.resolvePosition(position - offset)];
+            }
+            offset += childSize;
+        }
+        throw new Error('Offset cannot be resolved.');
+    }
+
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition {
+        const modelOffset = this.boundOffset(modelPosition[0]);
+        if (this.leaf) {
+            return modelOffset;
+        }
+        let offset = 0;
+        let cumulatedSize = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            if (child.modelId) {
+                if (offset === modelOffset) {
+                    return cumulatedSize + child.convertModelToRenderPosition(modelPosition.slice(1));
+                }
+                offset++;
+            }
+            cumulatedSize += child.size;
+        }
+        throw new Error(`Model offset ${modelOffset} is out of range.`);
+    }
+
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition {
+        if (renderPosition < 0 || renderPosition >= this.size) {
+            throw new Error('Render position is out of range.');
+        }
+        if (this.leaf) {
+            return [this.boundOffset(renderPosition)];
+        }
+        let cumulatedSize = 0;
+        let modelOffset = 0;
+        for (let n = 0, nn = this.children.length; n < nn; n++) {
+            const child = this.children.at(n);
+            const childSize = child.size;
+            if (this.modelId) {
+                if (cumulatedSize + childSize > renderPosition) {
+                    return [modelOffset, ...child.convertRenderToModelPosition(renderPosition - cumulatedSize)];
+                }
+                modelOffset++;
+            }
+            cumulatedSize += childSize;
+        }
+        throw new Error(`Render offset ${renderPosition} is out of range.`);
     }
 }

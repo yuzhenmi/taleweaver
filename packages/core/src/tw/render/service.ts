@@ -4,7 +4,7 @@ import { IModelPosition } from '../model/position';
 import { IModelService } from '../model/service';
 import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
-import { IResolvedPosition } from './position';
+import { IRenderPosition, IResolvedRenderPosition } from './position';
 import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
 
 export interface IStyles {
@@ -17,8 +17,10 @@ export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDoc(): IRenderDoc<any, any>;
     getDocSize(): number;
-    resolvePosition(position: IModelPosition): IResolvedPosition;
-    getStylesBetween(from: IModelPosition, to: IModelPosition): IStyles;
+    resolvePosition(position: IRenderPosition): IResolvedRenderPosition;
+    convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition;
+    convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition;
+    getStylesBetween(from: IRenderPosition, to: IRenderPosition): IStyles;
 }
 
 export class RenderService implements IRenderService {
@@ -40,11 +42,19 @@ export class RenderService implements IRenderService {
         return this.state.doc.size;
     }
 
-    resolvePosition(position: IModelPosition) {
+    resolvePosition(position: IRenderPosition) {
         return this.state.doc.resolvePosition(position);
     }
 
-    getStylesBetween(from: IModelPosition, to: IModelPosition) {
+    convertModelToRenderPosition(modelPosition: IModelPosition) {
+        return this.state.doc.convertModelToRenderPosition(modelPosition);
+    }
+
+    convertRenderToModelPosition(renderPosition: IRenderPosition) {
+        return this.state.doc.convertRenderToModelPosition(renderPosition);
+    }
+
+    getStylesBetween(from: IRenderPosition, to: IRenderPosition) {
         const resolvedFrom = this.resolvePosition(from);
         const resolvedTo = this.resolvePosition(to);
         const styles: IStyles = {};
@@ -56,8 +66,8 @@ export class RenderService implements IRenderService {
     protected extractStyle(
         styles: IStyles,
         node: IRenderNode<any, any>,
-        from: IResolvedPosition | null,
-        to: IResolvedPosition | null,
+        from: IResolvedRenderPosition | null,
+        to: IResolvedRenderPosition | null,
     ) {
         const componentStyles = (styles[node.componentId] = styles[node.componentId] || {});
         const partStyles = (componentStyles[node.partId || ''] = componentStyles[node.partId || ''] || []);
