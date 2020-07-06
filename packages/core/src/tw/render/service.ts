@@ -63,11 +63,12 @@ export class RenderService implements IRenderService {
                 }
             } else {
                 let childOffset = 0;
-                node.children.forEach((child) => {
+                node.children.forEach((child, childIndex) => {
                     const childSize = child.size;
                     const childFrom = nodeFrom + childOffset;
                     const childTo = childFrom + childSize;
-                    if (childFrom <= to && childTo > from) {
+                    const intersect = (childIndex === 0 ? childFrom <= to : childFrom < to) && childTo >= from;
+                    if (intersect) {
                         nodeQueue.push([child, childFrom]);
                     }
                     childOffset += child.size;

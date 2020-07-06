@@ -56,6 +56,8 @@ class Remover {
 class Inserter {
     protected ran = false;
 
+    readonly insertedTo: IModelPosition = [];
+
     constructor(
         protected root: IModelRoot<any>,
         protected position: IModelPosition,
@@ -89,7 +91,15 @@ class Inserter {
             if (node.leaf) {
                 node.replace(position[0], position[0], content);
             } else {
-                node.replace(position[0] + 1, position[0] + 1, content);
+                const at = position[1] > 0 ? position[0] + 1 : position[0];
+                node.replace(at, at, content);
+            }
+            for (let n = 0, nn = this.position.length - position.length; n < nn; n++) {
+                this.insertedTo.push(this.position[n]);
+            }
+            this.insertedTo.push(position[0] + 1);
+            for (let n = 1, nn = position.length; n < nn; n++) {
+                this.insertedTo.push(0);
             }
             return;
         }
@@ -105,26 +115,29 @@ class Inserter {
         const content1 = fragment[contentIndex1];
         const content2 = fragment[contentIndex2];
         const component = this.componentService.getComponent(node.componentId);
-        let node2: IModelNode<any>;
+        let node2: IModelNode<any> | null = null;
         if (node.leaf) {
-            const text2 = node.text.substring(position[0]) as string;
-            node.replace(position[0], node.contentLength, content1);
-            node2 = component.buildModelNode(
-                node.partId,
-                generateId(),
-                (content2 as string) + text2,
-                node.attributes,
-                [],
-            );
+            const text1 = node.text.substring(0, position[0]) + (content1 as string);
+            const text2 = (content2 as string) + node.text.substring(position[0]);
+            if (!text1 || !text2) {
+                node.replace(0, node.contentLength, text1 || text2);
+            } else {
+                node.replace(0, node.contentLength, text1);
+                node2 = component.buildModelNode(node.partId, generateId(), text2, node.attributes, []);
+            }
         } else {
-            const children2 = node.children.slice(position[0] + 1) as IModelNode<any>[];
-            node.replace(position[0] + 1, node.contentLength, content1);
-            node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, [
-                ...(content2 as IModelNode<any>[]),
-                ...children2,
-            ]);
+            const children1 = [...node.children.slice(0, position[0] + 1), ...(content1 as IModelNode<any>[])];
+            const children2 = [...(content2 as IModelNode<any>[]), ...node.children.slice(position[0] + 1)];
+            node.replace(0, node.contentLength, children1);
+            if (children2.length > 0) {
+                node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, children2);
+            }
         }
-        node.parent!.replace(ownOffset! + 1, ownOffset! + 1, [node2]);
+        node.parent!.replace(ownOffset! + 1, ownOffset! + 1, node2 ? [node2] : []);
+        this.insertedTo[this.insertedTo.length - position.length]++;
+        for (let n = this.insertedTo.length - position.length + 1, nn = this.insertedTo.length; n < nn; n++) {
+            this.insertedTo[n] = 0;
+        }
     }
 }
 
@@ -143,14 +156,20 @@ export class ReplaceChange extends ModelChange {
     }
 
     apply(root: IModelRoot<any>, componentService: IComponentService): IChangeResult {
-        const remover = new Remover(root, this.from, this.to);
+        const from = this.correctPosition(root, this.from);
+        const to = this.correctPosition(root, this.to);
+        const remover = new Remover(root, from, to);
         remover.run();
-        const inserter = new Inserter(root, this.from, this.fragment, componentService);
+        const inserter = new Inserter(root, from, this.fragment, componentService);
         inserter.run();
         return {
             change: this,
-            reverseChange: new ReplaceChange(this.from, this.from, ['TODO']), // TODO: Set removed fragment
-            mapping: new Mapping([{ from: this.from, toBefore: this.to, toAfter: this.to }]),
+            reverseChange: new ReplaceChange(from, inserter.insertedTo, ['TODO']), // TODO: Set removed fragment
+            mapping: new Mapping([{ from, toBefore: to, toAfter: inserter.insertedTo }]),
         };
+    }
+
+    protected correctPosition(root: IModelRoot<any>, position: IModelPosition) {
+        return root.resolvePosition(position).map((resolvedOffset) => resolvedOffset.offset);
     }
 }

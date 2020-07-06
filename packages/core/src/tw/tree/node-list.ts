@@ -7,7 +7,7 @@ export interface INodeList<TNode extends INode<TNode>> {
 
     at(index: number): TNode;
     indexOf(node: TNode): number;
-    forEach(callbackFn: (value: TNode) => void): void;
+    forEach(callbackFn: (value: TNode, index?: number) => void): void;
     map: <T>(callbackFn: (value: TNode) => T) => T[];
     reduce: <T>(callbackFn: (previousValue: T, currentValue: TNode) => T, initialValue: T) => T;
     filter: (callbackfn: (value: TNode, index: number, array: TNode[]) => any) => TNode[];
@@ -33,7 +33,7 @@ export class NodeList<TNode extends INode<TNode>> implements INodeList<TNode> {
         return this.nodes.findIndex((n) => n.id === node.id);
     }
 
-    forEach(callbackFn: (value: TNode) => void) {
+    forEach(callbackFn: (value: TNode, index?: number) => void) {
         return this.nodes.forEach(callbackFn);
     }
 
