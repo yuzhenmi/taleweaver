@@ -5,21 +5,8 @@ import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
 import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
 import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
-import {
-    ICompositionDidEnd,
-    ICompositionDidStart,
-    IDidInsertEvent,
-    IDidPressKeyEvent,
-    IKeyboardObserver,
-    KeyboardObserver,
-} from './keyboard-observer';
-import {
-    IPointerDidClick,
-    IPointerDidDownEvent,
-    IPointerDidMoveEvent,
-    IPointerObserver,
-    PointerObserver,
-} from './pointer-observer';
+import { ICompositionDidEnd, ICompositionDidStart, IDidInsertEvent, IDidPressKeyEvent, IKeyboardObserver, KeyboardObserver } from './keyboard-observer';
+import { IPointerDidClick, IPointerDidDownEvent, IPointerDidMoveEvent, IPointerObserver, PointerObserver } from './pointer-observer';
 import { IViewService } from './service';
 
 export interface IDOMController {
@@ -168,9 +155,8 @@ export class DOMController {
             return;
         }
         const domNodes = Array.prototype.slice.call($body.children) as HTMLElement[];
-        const modelNodes = this.modelService.fromDOM(domNodes);
-        // TODO: Insert modelNodes to cursor location
-        console.log(modelNodes);
+        console.log(domNodes);
+        // TODO
     };
 
     protected createContentEditable() {

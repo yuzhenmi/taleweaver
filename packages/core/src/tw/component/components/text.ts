@@ -38,12 +38,6 @@ export class ModelText extends ModelLeaf<ITextAttributes> {
         }
         return true;
     }
-
-    toDOM(from: number, to: number) {
-        const $component = document.createElement('span');
-        $component.innerText = this.text.substring(from - 1, to - 1);
-        return $component;
-    }
 }
 
 export class RenderText extends AbstractRenderText<ITextStyle, ITextAttributes> {
@@ -200,6 +194,18 @@ export class TextComponent extends Component implements IComponent {
                     paddingRight,
                     domService,
                 );
+            default:
+                throw new Error('Invalid part ID.');
+        }
+    }
+
+    toDOM(partId: string | null, attributes: {}, text: string, children: HTMLElement[]) {
+        switch (partId) {
+            case 'text': {
+                const $element = document.createElement('span');
+                $element.innerText = text;
+                return $element;
+            }
             default:
                 throw new Error('Invalid part ID.');
         }

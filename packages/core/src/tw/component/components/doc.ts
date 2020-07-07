@@ -15,25 +15,6 @@ export class ModelDoc extends ModelRoot<IDocAttributes> {
     get partId() {
         return 'doc';
     }
-
-    toDOM(from: number, to: number) {
-        const $element = document.createElement('div');
-        let offset = 1;
-        const children = this.children;
-        for (let n = 0, nn = children.length; n < nn && offset < to; n++) {
-            const child = children.at(n);
-            const childSize = child.size;
-            const childFrom = Math.max(0, from - offset);
-            const childTo = Math.min(childFrom + childSize, to - offset);
-            offset += childSize;
-            if (childFrom > childSize || childTo < 0) {
-                continue;
-            }
-            const $childElement = child.toDOM(childFrom, childTo);
-            $element.appendChild($childElement);
-        }
-        return $element;
-    }
 }
 
 export class RenderDoc extends AbstractRenderDoc<IDocStyle, IDocAttributes> {
@@ -143,6 +124,18 @@ export class DocComponent extends Component implements IComponent {
         switch (partId) {
             case 'doc':
                 return new ViewDoc(domContainer, this.id, renderId, layoutId, style, children, domService);
+            default:
+                throw new Error('Invalid part ID.');
+        }
+    }
+
+    toDOM(partId: string | null, attributes: {}, text: string, children: HTMLElement[]) {
+        switch (partId) {
+            case 'doc': {
+                const $element = document.createElement('div');
+                children.forEach((child) => $element.appendChild(child));
+                return $element;
+            }
             default:
                 throw new Error('Invalid part ID.');
         }

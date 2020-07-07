@@ -1,7 +1,6 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IChange, IChangeResult } from './change/change';
-import { IModelNode } from './node';
 import { IModelPosition, IResolvedModelPosition } from './position';
 import { IModelRoot } from './root';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
@@ -11,8 +10,6 @@ export interface IModelService {
     getRootSize(): number;
     applyChange(change: IChange): IChangeResult;
     resolvePosition(position: IModelPosition): IResolvedModelPosition;
-    toDOM(from: number, to: number): HTMLElement;
-    fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
 }
 
@@ -37,14 +34,6 @@ export class ModelService implements IModelService {
 
     resolvePosition(position: IModelPosition) {
         return this.state.root.resolvePosition(position);
-    }
-
-    toDOM(from: number, to: number) {
-        return this.state.root.toDOM(from, to);
-    }
-
-    fromDOM(domNodes: HTMLElement[]) {
-        return [this.getRoot()];
     }
 
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {

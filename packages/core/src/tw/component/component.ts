@@ -13,6 +13,7 @@ export interface IComponent {
         attributes: {},
         children: IModelNode<any>[],
     ): IModelNode<any>;
+
     buildRenderNode(
         partId: string | null,
         modelId: string,
@@ -20,6 +21,7 @@ export interface IComponent {
         attributes: any,
         children: IRenderNode<any, any>[],
     ): IRenderNode<any, any>;
+
     buildViewNode(
         domContainer: HTMLElement,
         partId: string | null,
@@ -35,6 +37,8 @@ export interface IComponent {
         paddingLeft: number,
         paddingRight: number,
     ): IViewNode<any>;
+
+    toDOM(partId: string | null, attributes: {}, text: string, children: HTMLElement[]): HTMLElement;
 }
 
 export abstract class Component implements IComponent {
@@ -45,6 +49,7 @@ export abstract class Component implements IComponent {
         attributes: any,
         children: IModelNode<any>[],
     ): IModelNode<any>;
+
     abstract buildRenderNode(
         partId: string | null,
         modelId: string,
@@ -52,6 +57,7 @@ export abstract class Component implements IComponent {
         attributes: any,
         children: IRenderNode<any, any>[],
     ): IRenderNode<any, any>;
+
     abstract buildViewNode(
         domContainer: HTMLElement,
         partId: string | null,
@@ -67,6 +73,8 @@ export abstract class Component implements IComponent {
         paddingLeft: number,
         paddingRight: number,
     ): IViewNode<any>;
+
+    abstract toDOM(partId: string | null, attributes: {}, text: string, children: HTMLElement[]): HTMLElement;
 
     constructor(readonly id: string, protected serviceRegistry: IServiceRegistry) {}
 }

@@ -3,7 +3,7 @@ import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
 import { generateId } from '../util/id';
 import { IResolvedBoundingBoxes } from './bounding-box';
-import { IResolvedPosition } from './position';
+import { IResolvedLayoutPosition } from './position';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';
 
@@ -25,7 +25,7 @@ export interface ILayoutNode extends INode<ILayoutNode> {
     readonly needView: boolean;
 
     clearNeedView(): void;
-    resolvePosition(position: IRenderPosition): IResolvedPosition;
+    resolvePosition(position: IRenderPosition): IResolvedLayoutPosition;
     convertCoordinatesToPosition(x: number, y: number): IRenderPosition;
     resolveBoundingBoxes(from: IRenderPosition, to: IRenderPosition): IResolvedBoundingBoxes;
 }
@@ -99,21 +99,24 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         this.internalNeedView = false;
     }
 
-    resolvePosition(position: IRenderPosition): IResolvedPosition {
+    resolvePosition(position: IRenderPosition): IResolvedLayoutPosition {
         if (position < 0 || position >= this.size) {
             throw new Error(`Offset ${position} is out of range.`);
         }
         if (this.leaf) {
-            return [{ node: this, offset: position }];
+            return [{ node: this, offset: position, position }];
         }
-        let cumulatedOffset = 0;
+        let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childSize = child.size;
-            if (cumulatedOffset + childSize > position) {
-                return [{ node: this, offset: n }, ...child.resolvePosition(position - cumulatedOffset)];
+            if (cumulatedSize + childSize > position) {
+                return [
+                    { node: this, offset: n, position: cumulatedSize },
+                    ...child.resolvePosition(position - cumulatedSize),
+                ];
             }
-            cumulatedOffset += childSize;
+            cumulatedSize += childSize;
         }
         throw new Error('Offset cannot be resolved.');
     }

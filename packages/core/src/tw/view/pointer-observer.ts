@@ -148,7 +148,7 @@ export class PointerObserver implements IPointerObserver {
             ) {
                 const pageX = x - pageBoundingClientRect.left;
                 const pageY = y - pageBoundingClientRect.top;
-                return cumulatedOffset + layoutPage.convertCoordinatesToOffset(pageX, pageY);
+                return cumulatedOffset + layoutPage.convertCoordinatesToPosition(pageX, pageY);
             }
             cumulatedOffset += layoutPage.size;
         }

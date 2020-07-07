@@ -77,16 +77,19 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
             throw new Error(`Offset ${position} is out of range.`);
         }
         if (this.leaf) {
-            return [{ node: this, offset: position }];
+            return [{ node: this, offset: position, position }];
         }
-        let offset = 0;
+        let cumulatedSize = 0;
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childSize = child.size;
-            if (offset + childSize > position) {
-                return [{ node: this, offset: n }, ...child.resolvePosition(position - offset)];
+            if (cumulatedSize + childSize > position) {
+                return [
+                    { node: this, offset: n, position: cumulatedSize },
+                    ...child.resolvePosition(position - cumulatedSize),
+                ];
             }
-            offset += childSize;
+            cumulatedSize += childSize;
         }
         throw new Error('Offset cannot be resolved.');
     }

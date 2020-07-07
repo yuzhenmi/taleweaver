@@ -18,15 +18,12 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     applyAttribute(key: string, value: any): any;
     replace(from: number, to: number, content: IModelNode<any>[] | string): IModelNode<any>[] | string;
     resolvePosition(position: IModelPosition): IResolvedModelPosition;
-    toDOM(from: number, to: number): HTMLElement;
     onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
 }
 
 export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<TAttributes>>
     implements IModelNode<TAttributes> {
     abstract get partId(): string | null;
-
-    abstract toDOM(from: number, to: number): HTMLElement;
 
     protected internalText: string;
     protected internalSize?: number;
@@ -145,8 +142,13 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         const offset = this.boundOffset(position[0]);
         const resolvedPosition: IResolvedModelPosition = [{ node: this, offset }];
         if (!this.leaf) {
-            const child = this.children.at(offset);
-            resolvedPosition.push(...child.resolvePosition(position.slice(1)));
+            if (offset < this.children.length) {
+                const child = this.children.at(offset);
+                resolvedPosition.push(...child.resolvePosition(position.slice(1)));
+            } else {
+                const child = this.children.at(this.children.length - 1);
+                resolvedPosition.push(...child.resolvePosition([child.contentLength]));
+            }
         }
         return resolvedPosition;
     }

@@ -12,8 +12,9 @@ export const copy: ICommandHandler = async (serviceRegistry) => {
         return;
     }
     const cursorService = serviceRegistry.getService('cursor');
-    const renderService = serviceRegistry.getService('render');
     const modelService = serviceRegistry.getService('model');
+    const renderService = serviceRegistry.getService('render');
+    const componentService = serviceRegistry.getService('component');
     if (!cursorService.hasCursor()) {
         return;
     }
@@ -21,9 +22,10 @@ export const copy: ICommandHandler = async (serviceRegistry) => {
     if (anchor === head) {
         return;
     }
-    const html = modelService.toDOM(
-        renderService.convertOffsetToModelOffset(Math.min(anchor, head)),
-        renderService.convertOffsetToModelOffset(Math.max(anchor, head)),
+    const html = componentService.convertModelToDOM(
+        modelService.getRoot(),
+        modelService.resolvePosition(renderService.convertRenderToModelPosition(Math.min(anchor, head))),
+        modelService.resolvePosition(renderService.convertRenderToModelPosition(Math.max(anchor, head))),
     ).outerHTML;
     const iframeDocument = iframe.contentDocument;
     if (!iframeDocument) {
