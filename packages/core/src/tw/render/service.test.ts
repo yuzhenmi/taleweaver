@@ -94,7 +94,7 @@ describe('RenderService', () => {
 
         describe('when font property conflicts', () => {
             it('returns null as font property', () => {
-                expect(renderService.resolveFont(11, 12).weight).toEqual(null);
+                expect(renderService.resolveFont(11, 13).weight).toEqual(null);
             });
         });
     });
