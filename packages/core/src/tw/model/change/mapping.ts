@@ -36,9 +36,7 @@ export class Mapping implements IMapping {
         if (!isPositionGreaterThanOrEqualTo(position, toBefore)) {
             return position;
         }
-        console.log(position, toBefore);
         const newPosition = [toAfter[0] + position[0] - toBefore[0]];
-        console.log(position[0], toAfter[0], toBefore[0]);
         if (position[0] === toBefore[0]) {
             newPosition.push(
                 ...this.internalMap(position.slice(1), from.slice(1), toBefore.slice(1), toAfter.slice(1)),

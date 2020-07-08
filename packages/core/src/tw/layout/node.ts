@@ -1,7 +1,6 @@
 import { IRenderPosition } from '../render/position';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { generateId } from '../util/id';
 import { IResolvedBoundingBoxes } from './bounding-box';
 import { IResolvedLayoutPosition } from './position';
 
@@ -42,6 +41,7 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
     protected internalNeedView = true;
 
     constructor(
+        id: string,
         readonly renderId: string | null,
         readonly text: string,
         children: ILayoutNode[],
@@ -50,7 +50,7 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
         readonly paddingLeft: number,
         readonly paddingRight: number,
     ) {
-        super(generateId());
+        super(id);
         this.internalChildren = new NodeList(children);
         children.forEach((child) => {
             child.parent = this;

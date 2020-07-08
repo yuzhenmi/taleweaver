@@ -2,13 +2,19 @@ import { IRenderPosition } from '../render/position';
 import { IBoundingBox, IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
-export interface ILayoutBlock extends ILayoutNode {}
+export interface ILayoutBlock extends ILayoutNode {
+    readonly needReflow: boolean;
+
+    clearNeedReflow(): void;
+}
 
 export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     protected internalHeight?: number;
+    protected internalNeedReflow = true;
 
     constructor(
-        renderId: string | null,
+        id: string,
+        renderId: string,
         children: ILayoutNode[],
         readonly width: number,
         paddingTop: number,
@@ -16,7 +22,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(id, renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
@@ -36,6 +42,14 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
             this.internalHeight = this.children.reduce((height, child) => height + child.height, this.paddingVertical);
         }
         return this.internalHeight;
+    }
+
+    get needReflow() {
+        return this.internalNeedReflow;
+    }
+
+    clearNeedReflow() {
+        this.internalNeedReflow = false;
     }
 
     convertCoordinatesToPosition(x: number, y: number) {
