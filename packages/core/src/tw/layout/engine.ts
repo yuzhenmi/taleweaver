@@ -114,7 +114,12 @@ export class LayoutEngine implements ILayoutEngine {
         return [
             this.buildBlock(
                 renderBlock,
-                this.reflowLines(lines, newChildren, width - renderBlock.paddingLeft - renderBlock.paddingRight),
+                this.reflowLines(
+                    renderBlock.id,
+                    lines,
+                    newChildren,
+                    width - renderBlock.paddingLeft - renderBlock.paddingRight,
+                ),
                 width,
             ),
         ];
@@ -126,7 +131,17 @@ export class LayoutEngine implements ILayoutEngine {
         }
         const newChildren: ILayoutNode[] = [];
         this.textService.breakIntoWords(renderText.text).forEach((word) => {
-            newChildren.push(this.buildWord(renderText, word.text, word.whitespaceSize));
+            newChildren.push(
+                this.buildWord(
+                    getNextId(
+                        newChildren.length > 0 ? newChildren[newChildren.length - 1].id : null,
+                        `${renderText.id}.word`,
+                    ),
+                    renderText,
+                    word.text,
+                    word.whitespaceSize,
+                ),
+            );
         });
         renderText.clearNeedLayout();
         return [this.buildText(renderText, newChildren)];
@@ -158,6 +173,7 @@ export class LayoutEngine implements ILayoutEngine {
             throw new Error('Expected block.');
         }
         return new LayoutBlock(
+            getNextId(null, renderBlock.id),
             renderBlock.id,
             children,
             width,
@@ -173,6 +189,7 @@ export class LayoutEngine implements ILayoutEngine {
             throw new Error('Expected text.');
         }
         return new LayoutText(
+            getNextId(null, renderText.id),
             renderText.id,
             children,
             renderText.paddingTop,
@@ -183,11 +200,11 @@ export class LayoutEngine implements ILayoutEngine {
         );
     }
 
-    protected buildWord(renderText: IRenderText<any, any>, text: string, whitespaceSize: number) {
+    protected buildWord(id: string, renderText: IRenderText<any, any>, text: string, whitespaceSize: number) {
         if (renderText.type !== 'text') {
             throw new Error('Expected text.');
         }
-        return new LayoutWord(renderText.id, text, whitespaceSize, renderText.font, this.textService);
+        return new LayoutWord(id, renderText.id, text, whitespaceSize, renderText.font, this.textService);
     }
 
     protected buildAtom(renderAtom: IRenderAtom<any, any>) {
@@ -216,7 +233,7 @@ export class LayoutEngine implements ILayoutEngine {
                 let reflowNeeded = false;
                 for (let n = 0, nn = page.children.length; n < nn; n++) {
                     const child = page.children.at(n);
-                    if (child.id !== nodes[n].id) {
+                    if (child.id !== nodes[n].id || checkNeedsReflow(nodes[n])) {
                         reflowNeeded = true;
                         break;
                     }
@@ -232,6 +249,7 @@ export class LayoutEngine implements ILayoutEngine {
             // Push whole nodes to page until either no more node or no longer fit
             let node = nodes.shift();
             while (node && currentHeight + node.height <= innerHeight) {
+                clearNeedReflow(node);
                 newChildren.push(node);
                 currentHeight += node.height;
                 node = nodes.shift();
@@ -248,12 +266,14 @@ export class LayoutEngine implements ILayoutEngine {
                     currentHeight += nodeChild.height;
                 }
                 if (nodeChildren.length > 0) {
+                    clearNeedReflow(node);
                     switch (node.type) {
                         case 'block':
                             // Split block to two, one to push to this page, other goes back
                             // to list of nodes to process
                             const node1 = new LayoutBlock(
-                                node.renderId,
+                                node.id,
+                                node.renderId!,
                                 nodeChildren,
                                 width,
                                 node.paddingTop,
@@ -264,7 +284,8 @@ export class LayoutEngine implements ILayoutEngine {
                             newChildren.push(node1);
                             currentHeight += node1.height;
                             const node2 = new LayoutBlock(
-                                node.renderId,
+                                getNextId(node.id, node.renderId!),
+                                node.renderId!,
                                 node.children.slice(nodeChildren.length),
                                 width,
                                 node.paddingTop,
@@ -282,6 +303,7 @@ export class LayoutEngine implements ILayoutEngine {
                 }
             }
             const newPage = new LayoutPage(
+                getNextId(newPages.length > 0 ? newPages[newPages.length - 1].id : null, 'page'),
                 newChildren,
                 width,
                 height,
@@ -295,7 +317,7 @@ export class LayoutEngine implements ILayoutEngine {
         return newPages;
     }
 
-    protected reflowLines(lines: ILayoutLine[], nodes: ILayoutNode[], width: number) {
+    protected reflowLines(parentId: string, lines: ILayoutLine[], nodes: ILayoutNode[], width: number) {
         nodes = nodes.slice();
         const newLines: ILayoutNode[] = [];
         while (nodes.length > 0) {
@@ -352,6 +374,7 @@ export class LayoutEngine implements ILayoutEngine {
                             // to list of nodes to process
                             const text = node as ILayoutText;
                             const node1 = new LayoutText(
+                                text.id,
                                 text.renderId,
                                 newNodeChildren,
                                 text.paddingTop,
@@ -363,6 +386,7 @@ export class LayoutEngine implements ILayoutEngine {
                             newChildren.push(node1);
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
+                                getNextId(text.id, text.renderId!),
                                 text.renderId,
                                 nodeChildren.slice(newNodeChildren.length),
                                 text.paddingTop,
@@ -390,9 +414,39 @@ export class LayoutEngine implements ILayoutEngine {
                     nodes.unshift(node);
                 }
             }
-            const newLine = new LayoutLine(newChildren, width);
+            const newLine = new LayoutLine(
+                getNextId(newLines.length > 0 ? newLines[newLines.length - 1].id : null, `${parentId}.line`),
+                newChildren,
+                width,
+            );
             newLines.push(newLine);
         }
         return newLines;
+    }
+}
+
+function getNextId(previousId: string | null, prefix: string) {
+    if (!previousId) {
+        return `${prefix}.0`;
+    }
+    const segments = previousId.split('.');
+    const counter = parseInt(segments[segments.length - 1]);
+    return `${prefix}.${(counter + 1).toString(36)}`;
+}
+
+function checkNeedsReflow(node: ILayoutNode) {
+    switch (node.type) {
+        case 'block':
+            return (node as ILayoutBlock).needReflow;
+        default:
+            return false;
+    }
+}
+
+function clearNeedReflow(node: ILayoutNode) {
+    switch (node.type) {
+        case 'block':
+            (node as ILayoutBlock).clearNeedReflow();
+            break;
     }
 }

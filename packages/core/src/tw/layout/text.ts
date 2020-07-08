@@ -14,6 +14,7 @@ export class LayoutText extends LayoutNode implements ILayoutText {
     protected internalTrimmedWidth?: number;
 
     constructor(
+        id: string,
         renderId: string | null,
         children: ILayoutNode[],
         paddingTop: number,
@@ -22,7 +23,7 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         paddingRight: number,
         readonly font: IFont,
     ) {
-        super(renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(id, renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

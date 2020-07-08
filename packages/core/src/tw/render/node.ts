@@ -39,7 +39,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         protected readonly attributes: TAttributes,
         children: IRenderNode<any, any>[],
     ) {
-        super(generateId());
+        super(modelId || generateId());
         this.internalChildren = new NodeList(children);
         children.forEach((child) => {
             child.parent = this;

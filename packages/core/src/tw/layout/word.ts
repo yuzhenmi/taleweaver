@@ -15,13 +15,14 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     protected internalTrimmedWidth?: number;
 
     constructor(
-        renderId: string | null,
+        id: string,
+        renderId: string,
         text: string,
         readonly whitespaceSize: number,
         readonly font: IFont,
         protected textService: ITextService,
     ) {
-        super(renderId, text, [], 0, 0, 0, 0);
+        super(id, renderId, text, [], 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {
@@ -143,9 +144,10 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
 
     breakAt(offset: number): [ILayoutWord, ILayoutWord] {
         return [
-            new LayoutWord(this.renderId, this.text.substring(0, offset), 0, this.font, this.textService),
+            new LayoutWord(this.id, this.renderId!, this.text.substring(0, offset), 0, this.font, this.textService),
             new LayoutWord(
-                this.renderId,
+                `${this.id}=`,
+                this.renderId!,
                 this.text.substring(offset),
                 this.whitespaceSize,
                 this.font,
