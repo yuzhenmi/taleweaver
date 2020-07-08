@@ -28,11 +28,11 @@ class Remover {
         const child = node.children.at(from[0]);
         let joinedChildrenAt = 0;
         if (from[0] < to[0]) {
-            removed.push(node.replace(from[0], to[0] - 1, []));
+            removed.push(node.replace(from[0] + 1, to[0], []));
             joinedChildrenAt = child.contentLength;
-            this.joinNodes(child, node.children.at(to[0]));
+            this.joinNodes(child, node.children.at(from[0] + 1));
         }
-        const removedChildFragment = this.remove(child, from.slice(1), [to[1] + joinedChildrenAt, ...to.slice(2)]);
+        const removedChildFragment = this.remove(child, from.slice(1), [joinedChildrenAt + to[1], ...to.slice(2)]);
         removed.splice(0, 0, ...removedChildFragment.slice(0, joinedChildrenAt));
         removed.push(...removedChildFragment.slice(joinedChildrenAt));
         return removed;
@@ -55,8 +55,7 @@ class Remover {
 
 class Inserter {
     protected ran = false;
-
-    readonly insertedTo: IModelPosition = [];
+    protected internalInsertedTo: IModelPosition = [];
 
     constructor(
         protected root: IModelRoot<any>,
@@ -65,20 +64,26 @@ class Inserter {
         protected componentService: IComponentService,
     ) {}
 
+    get insertedTo() {
+        return this.internalInsertedTo;
+    }
+
     run() {
         if (this.ran) {
             throw new Error('Inserter already ran.');
         }
+        this.insertedTo.push(this.position[0]);
         this.insert(this.root, this.position, this.fragment);
+        this.trimEnds();
         this.ran = true;
     }
 
     protected insert(node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
-        // TODO: Update insertedTo
         let insertAt = position[0];
         const fragmentDepth = Math.ceil(fragment.length / 2);
         const positionDepth = position.length;
         if (fragmentDepth < positionDepth) {
+            this.insertedTo.push(position[1]);
             this.insert(node.children.at(insertAt), position.slice(1), fragment);
             return 0;
         }
@@ -86,6 +91,7 @@ class Inserter {
         const beforeContents = fragment.slice(0, fragmentDepth - 1);
         const afterContents = fragment.slice(fragment.length - fragmentDepth + 1);
         if (positionDepth > 1) {
+            this.insertedTo.push(0);
             const child = node.children.at(insertAt);
             const childInsertedExtra = this.insert(child, position.slice(1), [...beforeContents, ...afterContents]);
             const splitAt = position[1] + beforeContents[beforeContents.length - 1].length + childInsertedExtra;
@@ -96,7 +102,52 @@ class Inserter {
 
         const contents = fragment.slice(fragmentDepth - 1, fragment.length - fragmentDepth + 1);
         node.replace(insertAt, insertAt, this.mergeContents(contents));
+        this.insertedTo[this.insertedTo.length - position.length] += contents[contents.length - 1].length;
+        if (!node.leaf) {
+            this.insertedTo[this.insertedTo.length - position.length]++;
+        }
         return insertAt - position[0];
+    }
+
+    protected trimEnds() {
+        const from = this.position;
+        const resolvedFrom = this.root.resolvePosition(from);
+        const fromLeaf = resolvedFrom[resolvedFrom.length - 1].node;
+        if (fromLeaf.text.length === 0) {
+            const nextLeaf = fromLeaf.nextSibling;
+            if (nextLeaf) {
+                this.removeNode(fromLeaf);
+                const mapFrom = from;
+                const mapToBefore = [...from.slice(0, from.length - 2), from[from.length - 2] + 1, 0];
+                const mapToAfter = from;
+                const mapping = new Mapping([{ from: mapFrom, toBefore: mapToBefore, toAfter: mapToAfter }]);
+                this.internalInsertedTo = mapping.map(this.insertedTo);
+            }
+        }
+
+        const to = this.insertedTo;
+        const resolvedTo = this.root.resolvePosition(to);
+        const toLeaf = resolvedTo[resolvedTo.length - 1].node;
+        if (toLeaf.text.length === 0) {
+            const previousLeaf = toLeaf.previousSibling;
+            if (previousLeaf) {
+                this.removeNode(toLeaf);
+                const mapFrom = [...to.slice(0, to.length - 2), to[to.length - 2] - 1, previousLeaf.contentLength];
+                const mapToBefore = to;
+                const mapToAfter = mapFrom;
+                const mapping = new Mapping([{ from: mapFrom, toBefore: mapToBefore, toAfter: mapToAfter }]);
+                this.internalInsertedTo = mapping.map(this.insertedTo);
+            }
+        }
+    }
+
+    protected removeNode(node: IModelNode<any>) {
+        const parent = node.parent!;
+        parent.replace(
+            0,
+            parent.children.length,
+            parent.children.filter((child) => child !== node),
+        );
     }
 
     protected splitNode(node: IModelNode<any>, offset: number) {

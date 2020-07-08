@@ -134,16 +134,17 @@ export class DOMController {
 
     protected handlePointerDidClick = (event: IPointerDidClick) => {
         switch (event.consecutiveCount) {
-            case 1: {
+            case 1:
                 break;
-            }
             case 2:
                 this.commandService.executeCommand('tw.cursor.selectWord', event.offset);
                 break;
             case 3:
-            default:
                 this.commandService.executeCommand('tw.cursor.selectBlock', event.offset);
                 break;
+            case 4:
+            default:
+                this.commandService.executeCommand('tw.cursor.selectAll');
         }
     };
 

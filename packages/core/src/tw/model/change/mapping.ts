@@ -1,4 +1,4 @@
-import { IModelPosition, testPositionGreaterThan } from '../position';
+import { IModelPosition } from '../position';
 
 export interface IMapping {
     map(position: IModelPosition): IModelPosition;
@@ -33,13 +33,20 @@ export class Mapping implements IMapping {
         toBefore: IModelPosition,
         toAfter: IModelPosition,
     ): IModelPosition {
-        if (!testPositionGreaterThan(position, toBefore)) {
+        if (!isPositionGreaterThanOrEqualTo(position, toBefore)) {
             return position;
         }
-        return [
-            position[0] + toAfter[0] - toBefore[0],
-            ...this.internalMap(position.slice(1), from.slice(1), toBefore.slice(1), toAfter.slice(1)),
-        ];
+        console.log(position, toBefore);
+        const newPosition = [toAfter[0] + position[0] - toBefore[0]];
+        console.log(position[0], toAfter[0], toBefore[0]);
+        if (position[0] === toBefore[0]) {
+            newPosition.push(
+                ...this.internalMap(position.slice(1), from.slice(1), toBefore.slice(1), toAfter.slice(1)),
+            );
+        } else {
+            newPosition.push(...position.slice(1));
+        }
+        return newPosition;
     }
 }
 
@@ -47,3 +54,19 @@ export const identity: IMapping = {
     map: (position: IModelPosition) => position,
     reverse: () => identity,
 };
+
+function isPositionGreaterThanOrEqualTo(position1: IModelPosition, position2: IModelPosition): boolean {
+    if (position1.length === 0 || position2.length === 0) {
+        return false;
+    }
+    if (position1[0] < position2[0]) {
+        return false;
+    }
+    if (position1[0] > position2[0]) {
+        return true;
+    }
+    if (position1.length === 1 && position2.length === 1) {
+        return true;
+    }
+    return isPositionGreaterThanOrEqualTo(position1.slice(1), position2.slice(1));
+}
