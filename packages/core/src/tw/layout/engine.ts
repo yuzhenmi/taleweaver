@@ -430,7 +430,7 @@ function getNextId(previousId: string | null, prefix: string) {
         return `${prefix}.0`;
     }
     const segments = previousId.split('.');
-    const counter = parseInt(segments[segments.length - 1]);
+    const counter = parseInt(segments[segments.length - 1], 36);
     return `${prefix}.${(counter + 1).toString(36)}`;
 }
 
