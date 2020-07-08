@@ -1,6 +1,6 @@
 import { Taleweaver } from '@taleweaver/core';
-import { ITextStyle } from '@taleweaver/core/dist/tw/component/components/text';
-import React, { useEffect, useCallback, useState } from 'react';
+import { IResolvedFont } from '@taleweaver/core/dist/tw/render/service';
+import React, { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
 
 const Wrapper = styled.div`
@@ -148,28 +148,17 @@ interface Props {
     taleweaver: Taleweaver | null;
 }
 
-function getTextStylesByRange(taleweaver: Taleweaver, from: number, to: number): ITextStyle[] {
-    const renderService = taleweaver.getServiceRegistry().getService('render');
-    const styles = renderService.getStylesBetween(from, to);
-    if (!styles.text || !styles.text.text) {
-        if (styles.paragraph && styles.paragraph['line-break'] && from === to) {
-            return getTextStylesByRange(taleweaver, from - 1, to - 1);
-        }
-        return [];
-    }
-    return styles.text.text as ITextStyle[];
-}
-
-function getTextStyles(taleweaver: Taleweaver) {
+function resolveFont(taleweaver: Taleweaver) {
     const cursorService = taleweaver.getServiceRegistry().getService('cursor');
+    const renderService = taleweaver.getServiceRegistry().getService('render');
     const { anchor, head } = cursorService.getCursor();
-    return getTextStylesByRange(taleweaver, Math.min(anchor, head), Math.max(anchor, head));
+    return renderService.resolveFont(Math.min(anchor, head), Math.max(anchor, head));
 }
 
 export default function ToolBar({ taleweaver }: Props) {
-    const [textStyles, setTextStyles] = useState<ITextStyle[]>([]);
-    const updateTextStyle = useCallback((taleweaver: Taleweaver) => {
-        setTextStyles(getTextStyles(taleweaver));
+    const [font, setFont] = useState<IResolvedFont | null>(null);
+    const refreshFront = useCallback((taleweaver: Taleweaver) => {
+        setFont(resolveFont(taleweaver));
     }, []);
     useEffect(() => {
         if (!taleweaver) {
@@ -177,19 +166,14 @@ export default function ToolBar({ taleweaver }: Props) {
         }
         const cursorService = taleweaver.getServiceRegistry().getService('cursor');
         const renderService = taleweaver.getServiceRegistry().getService('render');
-        cursorService.onDidUpdate((event) => updateTextStyle(taleweaver));
-        renderService.onDidUpdateRenderState((event) => updateTextStyle(taleweaver));
-        updateTextStyle(taleweaver);
-    }, [taleweaver, updateTextStyle]);
-    const family = new Set(textStyles.map((s) => s.family)).size === 1 ? textStyles[0].family : null;
-    const size = new Set(textStyles.map((s) => s.size)).size === 1 ? textStyles[0].size : null;
-    const bold = new Set(textStyles.map((s) => s.weight > 400)).size === 1 ? textStyles[0].weight > 400 : false;
-    const italic = new Set(textStyles.map((s) => s.italic)).size === 1 ? textStyles[0].italic : false;
-    const underline = new Set(textStyles.map((s) => s.underline)).size === 1 ? textStyles[0].underline : false;
-    const strikethrough =
-        new Set(textStyles.map((s) => s.strikethrough)).size === 1 ? textStyles[0].strikethrough : false;
-    const color = new Set(textStyles.map((s) => s.color)).size === 1 ? textStyles[0].color : null;
+        cursorService.onDidUpdate((event) => refreshFront(taleweaver));
+        renderService.onDidUpdateRenderState((event) => refreshFront(taleweaver));
+        refreshFront(taleweaver);
+    }, [taleweaver, refreshFront]);
     const commandService = taleweaver?.getServiceRegistry().getService('command');
+    if (!font) {
+        return null;
+    }
     return (
         <Wrapper>
             <Container>
@@ -205,7 +189,12 @@ export default function ToolBar({ taleweaver }: Props) {
                     </SelectItem>
                 </Group>
                 <Group>
-                    <SelectItem width={120} value={family || ''} disabled={family === null} onChange={(event) => null}>
+                    <SelectItem
+                        width={120}
+                        value={font.family || ''}
+                        disabled={font.family === null}
+                        onChange={(event) => null}
+                    >
                         <option value="" style={{ display: 'none' }}></option>
                         <option value="sans-serif">sans-serif</option>
                     </SelectItem>
@@ -213,8 +202,8 @@ export default function ToolBar({ taleweaver }: Props) {
                 <Group>
                     <SelectItem
                         width={60}
-                        value={size ? size.toString() : ''}
-                        disabled={size === null}
+                        value={font.size ? font.size.toString() : ''}
+                        disabled={font.size === null}
                         onChange={(event) => null}
                     >
                         <option value="" style={{ display: 'hidden' }} />
@@ -231,7 +220,7 @@ export default function ToolBar({ taleweaver }: Props) {
                 </Group>
                 <Group>
                     <Item
-                        active={bold}
+                        active={!!font.weight && font.weight > 400}
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
@@ -239,23 +228,29 @@ export default function ToolBar({ taleweaver }: Props) {
                                 'text',
                                 'text',
                                 'weight',
-                                bold ? 400 : 700,
+                                font.weight && font.weight > 400 ? 400 : 700,
                             )
                         }
                     >
                         <i className="mdi mdi-format-bold" />
                     </Item>
                     <Item
-                        active={italic}
+                        active={!!font.italic}
                         disabled={false}
                         onClick={() =>
-                            commandService!.executeCommand('tw.state.applyAttribute', 'text', 'text', 'italic', !italic)
+                            commandService!.executeCommand(
+                                'tw.state.applyAttribute',
+                                'text',
+                                'text',
+                                'italic',
+                                !font.italic,
+                            )
                         }
                     >
                         <i className="mdi mdi-format-italic" />
                     </Item>
                     <Item
-                        active={underline}
+                        active={!!font.underline}
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
@@ -263,14 +258,14 @@ export default function ToolBar({ taleweaver }: Props) {
                                 'text',
                                 'text',
                                 'underline',
-                                !underline,
+                                !font.underline,
                             )
                         }
                     >
                         <i className="mdi mdi-format-underline" />
                     </Item>
                     <Item
-                        active={strikethrough}
+                        active={!!font.strikethrough}
                         disabled={false}
                         onClick={() =>
                             commandService!.executeCommand(
@@ -278,15 +273,15 @@ export default function ToolBar({ taleweaver }: Props) {
                                 'text',
                                 'text',
                                 'strikethrough',
-                                !strikethrough,
+                                !font.strikethrough,
                             )
                         }
                     >
                         <i className="mdi mdi-format-strikethrough-variant" />
                     </Item>
-                    <Item active={false} disabled={color === null} onClick={() => null}>
+                    <Item active={false} disabled={font.color === null} onClick={() => null}>
                         <i className="mdi mdi-format-color-text" style={{ position: 'relative', top: '-2px' }} />
-                        <ItemColorLine color={color || 'transparent'} />
+                        <ItemColorLine color={font.color || 'transparent'} />
                     </Item>
                 </Group>
             </Container>

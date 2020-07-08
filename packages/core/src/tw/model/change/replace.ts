@@ -1,6 +1,6 @@
 import { IComponentService } from '../../component/service';
 import { generateId } from '../../util/id';
-import { IFragment } from '../fragment';
+import { IContent, IFragment } from '../fragment';
 import { IModelNode } from '../node';
 import { IModelPosition } from '../position';
 import { IModelRoot } from '../root';
@@ -28,11 +28,11 @@ class Remover {
         const child = node.children.at(from[0]);
         let joinedChildrenAt = 0;
         if (from[0] < to[0]) {
-            removed.push(node.replace(from[0], to[0] - 1, []));
+            removed.push(node.replace(from[0] + 1, to[0], []));
             joinedChildrenAt = child.contentLength;
-            this.joinNodes(child, node.children.at(to[0]));
+            this.joinNodes(child, node.children.at(from[0] + 1));
         }
-        const removedChildFragment = this.remove(child, from.slice(1), [to[1] + joinedChildrenAt, ...to.slice(2)]);
+        const removedChildFragment = this.remove(child, from.slice(1), [joinedChildrenAt + to[1], ...to.slice(2)]);
         removed.splice(0, 0, ...removedChildFragment.slice(0, joinedChildrenAt));
         removed.push(...removedChildFragment.slice(joinedChildrenAt));
         return removed;
@@ -55,6 +55,7 @@ class Remover {
 
 class Inserter {
     protected ran = false;
+    protected internalInsertedTo: IModelPosition = [];
 
     constructor(
         protected root: IModelRoot<any>,
@@ -63,68 +64,112 @@ class Inserter {
         protected componentService: IComponentService,
     ) {}
 
+    get insertedTo() {
+        return this.internalInsertedTo;
+    }
+
     run() {
         if (this.ran) {
             throw new Error('Inserter already ran.');
         }
-        this.insert(null, this.root, this.position, this.fragment);
+        this.insertedTo.push(this.position[0]);
+        this.insert(this.root, this.position, this.fragment);
+        this.trimEnds();
         this.ran = true;
     }
 
-    protected insert(ownOffset: number | null, node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
-        if (Math.ceil(fragment.length / 2) < position.length) {
-            this.insert(position[0], node.children.at(position[0]), position.slice(1), fragment);
-            return;
+    protected insert(node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
+        let insertAt = position[0];
+        const fragmentDepth = Math.ceil(fragment.length / 2);
+        const positionDepth = position.length;
+        if (fragmentDepth < positionDepth) {
+            this.insertedTo.push(position[1]);
+            this.insert(node.children.at(insertAt), position.slice(1), fragment);
+            return 0;
         }
 
-        if (fragment.length % 2 === 1) {
-            const contentIndex = (fragment.length - 1) / 2;
-            if (position.length > 1) {
-                this.insert(position[0], node.children.at(position[0]), position.slice(1), [
-                    ...fragment.slice(0, contentIndex),
-                    ...fragment.slice(contentIndex + 1),
-                ]);
-            }
-            const content = fragment[contentIndex];
-            if (node.leaf) {
-                node.replace(position[0], position[0], content);
-            } else {
-                node.replace(position[0] + 1, position[0] + 1, content);
-            }
-            return;
+        const beforeContents = fragment.slice(0, fragmentDepth - 1);
+        const afterContents = fragment.slice(fragment.length - fragmentDepth + 1);
+        if (positionDepth > 1) {
+            this.insertedTo.push(0);
+            const child = node.children.at(insertAt);
+            const childInsertedExtra = this.insert(child, position.slice(1), [...beforeContents, ...afterContents]);
+            const splitAt = position[1] + beforeContents[beforeContents.length - 1].length + childInsertedExtra;
+            const [child1, child2] = this.splitNode(child, splitAt);
+            node.replace(insertAt, insertAt + 1, [child1, child2]);
+            insertAt++;
         }
 
-        const contentIndex1 = fragment.length / 2 - 1;
-        const contentIndex2 = fragment.length / 2;
-        if (position.length > 1) {
-            this.insert(position[0], node.children.at(position[0]), position.slice(1), [
-                ...fragment.slice(0, contentIndex1),
-                ...fragment.slice(contentIndex2 + 1),
-            ]);
+        const contents = fragment.slice(fragmentDepth - 1, fragment.length - fragmentDepth + 1);
+        node.replace(insertAt, insertAt, this.mergeContents(contents));
+        this.insertedTo[this.insertedTo.length - position.length] += contents[contents.length - 1].length;
+        if (!node.leaf) {
+            this.insertedTo[this.insertedTo.length - position.length]++;
         }
-        const content1 = fragment[contentIndex1];
-        const content2 = fragment[contentIndex2];
+        return insertAt - position[0];
+    }
+
+    protected trimEnds() {
+        const from = this.position;
+        const resolvedFrom = this.root.resolvePosition(from);
+        const fromLeaf = resolvedFrom[resolvedFrom.length - 1].node;
+        if (fromLeaf.text.length === 0) {
+            const nextLeaf = fromLeaf.nextSibling;
+            if (nextLeaf) {
+                this.removeNode(fromLeaf);
+                const mapFrom = from;
+                const mapToBefore = [...from.slice(0, from.length - 2), from[from.length - 2] + 1, 0];
+                const mapToAfter = from;
+                const mapping = new Mapping([{ from: mapFrom, toBefore: mapToBefore, toAfter: mapToAfter }]);
+                this.internalInsertedTo = mapping.map(this.insertedTo);
+            }
+        }
+
+        const to = this.insertedTo;
+        const resolvedTo = this.root.resolvePosition(to);
+        const toLeaf = resolvedTo[resolvedTo.length - 1].node;
+        if (toLeaf.text.length === 0) {
+            const previousLeaf = toLeaf.previousSibling;
+            if (previousLeaf) {
+                this.removeNode(toLeaf);
+                const mapFrom = [...to.slice(0, to.length - 2), to[to.length - 2] - 1, previousLeaf.contentLength];
+                const mapToBefore = to;
+                const mapToAfter = mapFrom;
+                const mapping = new Mapping([{ from: mapFrom, toBefore: mapToBefore, toAfter: mapToAfter }]);
+                this.internalInsertedTo = mapping.map(this.insertedTo);
+            }
+        }
+    }
+
+    protected removeNode(node: IModelNode<any>) {
+        const parent = node.parent!;
+        parent.replace(
+            0,
+            parent.children.length,
+            parent.children.filter((child) => child !== node),
+        );
+    }
+
+    protected splitNode(node: IModelNode<any>, offset: number) {
         const component = this.componentService.getComponent(node.componentId);
         let node2: IModelNode<any>;
         if (node.leaf) {
-            const text2 = node.text.substring(position[0]) as string;
-            node.replace(position[0], node.contentLength, content1);
-            node2 = component.buildModelNode(
-                node.partId,
-                generateId(),
-                (content2 as string) + text2,
-                node.attributes,
-                [],
-            );
+            const content2 = node.replace(0, offset, '') as string;
+            node2 = component.buildModelNode(node.partId, generateId(), content2, node.attributes, []);
         } else {
-            const children2 = node.children.slice(position[0] + 1) as IModelNode<any>[];
-            node.replace(position[0] + 1, node.contentLength, content1);
-            node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, [
-                ...(content2 as IModelNode<any>[]),
-                ...children2,
-            ]);
+            const content2 = node.replace(0, offset, []) as IModelNode<any>[];
+            node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, content2);
         }
-        node.parent!.replace(ownOffset! + 1, ownOffset! + 1, [node2]);
+        return [node2, node];
+    }
+
+    protected mergeContents(contents: IContent[]) {
+        if (typeof contents[0] === 'string') {
+            const textContents = contents as string[];
+            return textContents.reduce((mergedContent, content) => mergedContent + content, '');
+        }
+        const nodeContents = contents as IModelNode<any>[][];
+        return nodeContents.reduce((mergedContent, content) => mergedContent.concat(content), []);
     }
 }
 
@@ -143,14 +188,20 @@ export class ReplaceChange extends ModelChange {
     }
 
     apply(root: IModelRoot<any>, componentService: IComponentService): IChangeResult {
-        const remover = new Remover(root, this.from, this.to);
+        const from = this.correctPosition(root, this.from);
+        const to = this.correctPosition(root, this.to);
+        const remover = new Remover(root, from, to);
         remover.run();
-        const inserter = new Inserter(root, this.from, this.fragment, componentService);
+        const inserter = new Inserter(root, from, this.fragment, componentService);
         inserter.run();
         return {
             change: this,
-            reverseChange: new ReplaceChange(this.from, this.from, ['TODO']), // TODO: Set removed fragment
-            mapping: new Mapping([{ from: this.from, toBefore: this.to, toAfter: this.to }]),
+            reverseChange: new ReplaceChange(from, inserter.insertedTo, ['TODO']), // TODO: Set removed fragment
+            mapping: new Mapping([{ from, toBefore: to, toAfter: inserter.insertedTo }]),
         };
+    }
+
+    protected correctPosition(root: IModelRoot<any>, position: IModelPosition) {
+        return root.resolvePosition(position).map((resolvedOffset) => resolvedOffset.offset);
     }
 }

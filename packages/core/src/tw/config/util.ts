@@ -45,6 +45,7 @@ export function buildBaseConfig(): IConfig {
             'tw.state.deleteForward': stateCommandHandlers.deleteForward,
             'tw.state.breakLine': stateCommandHandlers.breakLine,
             'tw.state.applyAttribute': stateCommandHandlers.applyAttribute,
+            'tw.state.applyAttributeAround': stateCommandHandlers.applyAttributeAround,
             'tw.view.focus': viewCommandHandlers.focus,
             'tw.view.blur': viewCommandHandlers.blur,
         },
