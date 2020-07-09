@@ -1,10 +1,10 @@
 self.__precacheManifest = (self.__precacheManifest || []).concat([
   {
-    "revision": "37dcfda35e403adf1640c08b5370b4f6",
+    "revision": "bb1d8d3099e92f5903d04bcabe5a0ae4",
     "url": "/taleweaver/index.html"
   },
   {
-    "revision": "da7dd551f991f9aceddb",
+    "revision": "0ce75a805e2286f55c61",
     "url": "/taleweaver/static/css/main.6c23ad2e.chunk.css"
   },
   {
@@ -16,8 +16,8 @@ self.__precacheManifest = (self.__precacheManifest || []).concat([
     "url": "/taleweaver/static/js/2.d501ae8d.chunk.js.LICENSE.txt"
   },
   {
-    "revision": "da7dd551f991f9aceddb",
-    "url": "/taleweaver/static/js/main.667783a8.chunk.js"
+    "revision": "0ce75a805e2286f55c61",
+    "url": "/taleweaver/static/js/main.864f5bb9.chunk.js"
   },
   {
     "revision": "0c3df9d6070c5ed2eed6",
