@@ -1,6 +1,6 @@
 import { IComponentService } from '../../component/service';
 import { generateId } from '../../util/id';
-import { IFragment } from '../fragment';
+import { IContent, IFragment } from '../fragment';
 import { IModelNode } from '../node';
 import { IModelPosition } from '../position';
 import { IModelRoot } from '../root';
@@ -69,75 +69,56 @@ class Inserter {
         if (this.ran) {
             throw new Error('Inserter already ran.');
         }
-        this.insert(null, this.root, this.position, this.fragment);
+        this.insert(this.root, this.position, this.fragment);
         this.ran = true;
     }
 
-    protected insert(ownOffset: number | null, node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
-        if (Math.ceil(fragment.length / 2) < position.length) {
-            this.insert(position[0], node.children.at(position[0]), position.slice(1), fragment);
-            return;
+    protected insert(node: IModelNode<any>, position: IModelPosition, fragment: IFragment) {
+        // TODO: Update insertedTo
+        let insertAt = position[0];
+        const fragmentDepth = Math.ceil(fragment.length / 2);
+        const positionDepth = position.length;
+        if (fragmentDepth < positionDepth) {
+            this.insert(node.children.at(insertAt), position.slice(1), fragment);
+            return 0;
         }
 
-        if (fragment.length % 2 === 1) {
-            const contentIndex = (fragment.length - 1) / 2;
-            if (position.length > 1) {
-                this.insert(position[0], node.children.at(position[0]), position.slice(1), [
-                    ...fragment.slice(0, contentIndex),
-                    ...fragment.slice(contentIndex + 1),
-                ]);
-            }
-            const content = fragment[contentIndex];
-            if (node.leaf) {
-                node.replace(position[0], position[0], content);
-            } else {
-                const at = position[1] > 0 ? position[0] + 1 : position[0];
-                node.replace(at, at, content);
-            }
-            for (let n = 0, nn = this.position.length - position.length; n < nn; n++) {
-                this.insertedTo.push(this.position[n]);
-            }
-            this.insertedTo.push(position[0] + 1);
-            for (let n = 1, nn = position.length; n < nn; n++) {
-                this.insertedTo.push(0);
-            }
-            return;
+        const beforeContents = fragment.slice(0, fragmentDepth - 1);
+        const afterContents = fragment.slice(fragment.length - fragmentDepth + 1);
+        if (positionDepth > 1) {
+            const child = node.children.at(insertAt);
+            const childInsertedExtra = this.insert(child, position.slice(1), [...beforeContents, ...afterContents]);
+            const splitAt = position[1] + beforeContents[beforeContents.length - 1].length + childInsertedExtra;
+            const [child1, child2] = this.splitNode(child, splitAt);
+            node.replace(insertAt, insertAt + 1, [child1, child2]);
+            insertAt++;
         }
 
-        const contentIndex1 = fragment.length / 2 - 1;
-        const contentIndex2 = fragment.length / 2;
-        if (position.length > 1) {
-            this.insert(position[0], node.children.at(position[0]), position.slice(1), [
-                ...fragment.slice(0, contentIndex1),
-                ...fragment.slice(contentIndex2 + 1),
-            ]);
-        }
-        const content1 = fragment[contentIndex1];
-        const content2 = fragment[contentIndex2];
+        const contents = fragment.slice(fragmentDepth - 1, fragment.length - fragmentDepth + 1);
+        node.replace(insertAt, insertAt, this.mergeContents(contents));
+        return insertAt - position[0];
+    }
+
+    protected splitNode(node: IModelNode<any>, offset: number) {
         const component = this.componentService.getComponent(node.componentId);
-        let node2: IModelNode<any> | null = null;
+        let node2: IModelNode<any>;
         if (node.leaf) {
-            const text1 = node.text.substring(0, position[0]) + (content1 as string);
-            const text2 = (content2 as string) + node.text.substring(position[0]);
-            if (!text1 || !text2) {
-                node.replace(0, node.contentLength, text1 || text2);
-            } else {
-                node.replace(0, node.contentLength, text1);
-                node2 = component.buildModelNode(node.partId, generateId(), text2, node.attributes, []);
-            }
+            const content2 = node.replace(0, offset, '') as string;
+            node2 = component.buildModelNode(node.partId, generateId(), content2, node.attributes, []);
         } else {
-            const children1 = [...node.children.slice(0, position[0] + 1), ...(content1 as IModelNode<any>[])];
-            const children2 = [...(content2 as IModelNode<any>[]), ...node.children.slice(position[0] + 1)];
-            node.replace(0, node.contentLength, children1);
-            if (children2.length > 0) {
-                node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, children2);
-            }
+            const content2 = node.replace(0, offset, []) as IModelNode<any>[];
+            node2 = component.buildModelNode(node.partId, generateId(), '', node.attributes, content2);
         }
-        node.parent!.replace(ownOffset! + 1, ownOffset! + 1, node2 ? [node2] : []);
-        this.insertedTo[this.insertedTo.length - position.length]++;
-        for (let n = this.insertedTo.length - position.length + 1, nn = this.insertedTo.length; n < nn; n++) {
-            this.insertedTo[n] = 0;
+        return [node2, node];
+    }
+
+    protected mergeContents(contents: IContent[]) {
+        if (typeof contents[0] === 'string') {
+            const textContents = contents as string[];
+            return textContents.reduce((mergedContent, content) => mergedContent + content, '');
         }
+        const nodeContents = contents as IModelNode<any>[][];
+        return nodeContents.reduce((mergedContent, content) => mergedContent.concat(content), []);
     }
 }
 
