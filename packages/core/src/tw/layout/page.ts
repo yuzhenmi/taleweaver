@@ -1,3 +1,4 @@
+import { generateId } from '../util/id';
 import { IBoundingBox, IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
@@ -9,7 +10,6 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
     protected internalContentHeight?: number;
 
     constructor(
-        id: string,
         children: ILayoutNode[],
         readonly width: number,
         readonly height: number,
@@ -18,7 +18,7 @@ export class LayoutPage extends LayoutNode implements ILayoutPage {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(id, null, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(generateId(), null, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

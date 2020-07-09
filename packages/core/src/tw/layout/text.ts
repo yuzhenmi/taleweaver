@@ -1,4 +1,5 @@
 import { IFont } from '../text/service';
+import { generateId } from '../util/id';
 import { IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutWord } from './word';
@@ -14,7 +15,6 @@ export class LayoutText extends LayoutNode implements ILayoutText {
     protected internalTrimmedWidth?: number;
 
     constructor(
-        id: string,
         renderId: string | null,
         children: ILayoutNode[],
         paddingTop: number,
@@ -23,7 +23,7 @@ export class LayoutText extends LayoutNode implements ILayoutText {
         paddingRight: number,
         readonly font: IFont,
     ) {
-        super(id, renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(generateId(), renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {

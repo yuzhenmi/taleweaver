@@ -1,3 +1,4 @@
+import { generateId } from '../util/id';
 import { IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 import { ILayoutWord } from './word';
@@ -10,8 +11,8 @@ export class LayoutLine extends LayoutNode implements ILayoutLine {
     protected internalHeight?: number;
     protected internalContentWidth?: number;
 
-    constructor(id: string, children: ILayoutNode[], readonly width: number) {
-        super(id, null, '', children, 0, 8, 0, 0);
+    constructor(children: ILayoutNode[], readonly width: number) {
+        super(generateId(), null, '', children, 0, 8, 0, 0);
     }
 
     get type(): ILayoutNodeType {

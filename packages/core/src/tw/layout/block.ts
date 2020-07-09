@@ -1,4 +1,5 @@
 import { IRenderPosition } from '../render/position';
+import { generateId } from '../util/id';
 import { IBoundingBox, IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
@@ -13,7 +14,6 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
     protected internalNeedReflow = true;
 
     constructor(
-        id: string,
         renderId: string,
         children: ILayoutNode[],
         readonly width: number,
@@ -22,7 +22,7 @@ export class LayoutBlock extends LayoutNode implements ILayoutBlock {
         paddingLeft: number,
         paddingRight: number,
     ) {
-        super(id, renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
+        super(generateId(), renderId, '', children, paddingTop, paddingBottom, paddingLeft, paddingRight);
     }
 
     get type(): ILayoutNodeType {
