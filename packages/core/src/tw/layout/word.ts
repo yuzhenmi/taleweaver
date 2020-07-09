@@ -1,4 +1,5 @@
 import { IFont, ITextService } from '../text/service';
+import { generateId } from '../util/id';
 import { IResolvedBoundingBoxes } from './bounding-box';
 import { ILayoutNode, ILayoutNodeType, LayoutNode } from './node';
 
@@ -15,14 +16,13 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
     protected internalTrimmedWidth?: number;
 
     constructor(
-        id: string,
         renderId: string,
         text: string,
         readonly whitespaceSize: number,
         readonly font: IFont,
         protected textService: ITextService,
     ) {
-        super(id, renderId, text, [], 0, 0, 0, 0);
+        super(generateId(), renderId, text, [], 0, 0, 0, 0);
     }
 
     get type(): ILayoutNodeType {
@@ -144,9 +144,8 @@ export class LayoutWord extends LayoutNode implements ILayoutWord {
 
     breakAt(offset: number): [ILayoutWord, ILayoutWord] {
         return [
-            new LayoutWord(this.id, this.renderId!, this.text.substring(0, offset), 0, this.font, this.textService),
+            new LayoutWord(this.renderId!, this.text.substring(0, offset), 0, this.font, this.textService),
             new LayoutWord(
-                `${this.id}=`,
                 this.renderId!,
                 this.text.substring(offset),
                 this.whitespaceSize,

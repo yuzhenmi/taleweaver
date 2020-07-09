@@ -231,7 +231,7 @@ export const applyAttribute: ICommandHandler = async (
         new Transformation(
             findResults
                 .filter(({ node }) => node.attributes[attributeKey] !== attributeValue)
-                .filter(({ from: nodeFrom, to: nodeTo }) => nodeFrom !== nodeTo)
+                .filter(({ node, from: nodeFrom, to: nodeTo }) => nodeFrom !== nodeTo || node.contentLength === 0)
                 .map(({ node, position: nodePosition, from: nodeFrom, to: nodeTo }) => {
                     if (nodeFrom === 0 && nodeTo === node.size) {
                         return new ApplyAttribute(nodePosition, attributeKey, attributeValue);

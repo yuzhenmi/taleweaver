@@ -173,7 +173,6 @@ export class LayoutEngine implements ILayoutEngine {
             throw new Error('Expected block.');
         }
         return new LayoutBlock(
-            getNextId(null, renderBlock.id),
             renderBlock.id,
             children,
             width,
@@ -189,7 +188,6 @@ export class LayoutEngine implements ILayoutEngine {
             throw new Error('Expected text.');
         }
         return new LayoutText(
-            getNextId(null, renderText.id),
             renderText.id,
             children,
             renderText.paddingTop,
@@ -204,7 +202,7 @@ export class LayoutEngine implements ILayoutEngine {
         if (renderText.type !== 'text') {
             throw new Error('Expected text.');
         }
-        return new LayoutWord(id, renderText.id, text, whitespaceSize, renderText.font, this.textService);
+        return new LayoutWord(renderText.id, text, whitespaceSize, renderText.font, this.textService);
     }
 
     protected buildAtom(renderAtom: IRenderAtom<any, any>) {
@@ -272,7 +270,6 @@ export class LayoutEngine implements ILayoutEngine {
                             // Split block to two, one to push to this page, other goes back
                             // to list of nodes to process
                             const node1 = new LayoutBlock(
-                                node.id,
                                 node.renderId!,
                                 nodeChildren,
                                 width,
@@ -284,7 +281,6 @@ export class LayoutEngine implements ILayoutEngine {
                             newChildren.push(node1);
                             currentHeight += node1.height;
                             const node2 = new LayoutBlock(
-                                getNextId(node.id, node.renderId!),
                                 node.renderId!,
                                 node.children.slice(nodeChildren.length),
                                 width,
@@ -303,7 +299,6 @@ export class LayoutEngine implements ILayoutEngine {
                 }
             }
             const newPage = new LayoutPage(
-                getNextId(newPages.length > 0 ? newPages[newPages.length - 1].id : null, 'page'),
                 newChildren,
                 width,
                 height,
@@ -326,7 +321,7 @@ export class LayoutEngine implements ILayoutEngine {
                 let reflowNeeded = false;
                 for (let n = 0, nn = line.children.length; n < nn; n++) {
                     const child = line.children.at(n);
-                    if (child.id !== nodes[n].id) {
+                    if (child.id !== nodes[n].id || checkNeedsReflow(nodes[n])) {
                         reflowNeeded = true;
                         break;
                     }
@@ -342,6 +337,7 @@ export class LayoutEngine implements ILayoutEngine {
             // Push whole nodes to line until either no more node or no longer fit
             let node = nodes.shift();
             while (node && currentWidth + node.width <= width) {
+                clearNeedReflow(node);
                 newChildren.push(node);
                 currentWidth += node.width;
                 node = nodes.shift();
@@ -368,13 +364,13 @@ export class LayoutEngine implements ILayoutEngine {
                     currentWidth += nodeChild.width;
                 }
                 if (newNodeChildren.length > 0) {
+                    clearNeedReflow(node);
                     switch (node.type) {
                         case 'text':
                             // Split text to two, one to push to this line, other goes back
                             // to list of nodes to process
                             const text = node as ILayoutText;
                             const node1 = new LayoutText(
-                                text.id,
                                 text.renderId,
                                 newNodeChildren,
                                 text.paddingTop,
@@ -386,7 +382,6 @@ export class LayoutEngine implements ILayoutEngine {
                             newChildren.push(node1);
                             currentWidth += node1.width;
                             const node2 = new LayoutText(
-                                getNextId(text.id, text.renderId!),
                                 text.renderId,
                                 nodeChildren.slice(newNodeChildren.length),
                                 text.paddingTop,
@@ -414,11 +409,7 @@ export class LayoutEngine implements ILayoutEngine {
                     nodes.unshift(node);
                 }
             }
-            const newLine = new LayoutLine(
-                getNextId(newLines.length > 0 ? newLines[newLines.length - 1].id : null, `${parentId}.line`),
-                newChildren,
-                width,
-            );
+            const newLine = new LayoutLine(newChildren, width);
             newLines.push(newLine);
         }
         return newLines;
