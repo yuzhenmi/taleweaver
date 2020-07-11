@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import './App.css';
-import Taleweaver from './Editor';
+import Editor from './components/Editor';
 import sample from './samples/littleRedRidingHood';
 
 const Wrapper = styled.div``;
@@ -71,41 +71,37 @@ const DemoHint = styled.span`
     cursor: default;
 `;
 
-class App extends React.Component {
-    render() {
-        return (
-            <Wrapper>
-                <Hero>
-                    <BrandWrapper>
-                        <Brand>Taleweaver</Brand>
-                    </BrandWrapper>
-                    <Tagline>Word processing in your browser.</Tagline>
-                    <SupportingTagline>
-                        Open source editor delivering true word processing experience.
-                    </SupportingTagline>
-                    <Links>
-                        <Link href="https://github.com/yuzhenmi/taleweaver">GitHub</Link>
-                    </Links>
-                    <DemoHintWrapper>
-                        <DemoHint>&darr; Check it out &darr;</DemoHint>
-                    </DemoHintWrapper>
-                </Hero>
-                <Taleweaver
-                    initialDoc={sample}
-                    config={{
-                        page: {
-                            width: 816,
-                            height: 1056,
-                            paddingTop: 60,
-                            paddingBottom: 60,
-                            paddingLeft: 60,
-                            paddingRight: 60,
-                        },
-                    }}
-                />
-            </Wrapper>
-        );
-    }
-}
+const App: React.FC = () => {
+    return (
+        <Wrapper>
+            <Hero>
+                <BrandWrapper>
+                    <Brand>Taleweaver</Brand>
+                </BrandWrapper>
+                <Tagline>Word processing in your browser.</Tagline>
+                <SupportingTagline>Open source editor delivering true word processing experience.</SupportingTagline>
+                <Links>
+                    <Link href="https://github.com/yuzhenmi/taleweaver">GitHub</Link>
+                </Links>
+                <DemoHintWrapper>
+                    <DemoHint>&darr; Check it out &darr;</DemoHint>
+                </DemoHintWrapper>
+            </Hero>
+            <Editor
+                initialDoc={sample}
+                config={{
+                    page: {
+                        width: 816,
+                        height: 1056,
+                        paddingTop: 60,
+                        paddingBottom: 60,
+                        paddingLeft: 60,
+                        paddingRight: 60,
+                    },
+                }}
+            />
+        </Wrapper>
+    );
+};
 
 export default App;
