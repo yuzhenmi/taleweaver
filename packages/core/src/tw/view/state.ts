@@ -14,6 +14,7 @@ export interface IDidUpdateViewStateEvent {}
 
 export interface IViewState {
     readonly doc: IViewDoc<any>;
+    readonly domContainer: HTMLElement | null;
 
     onDidUpdateViewState: IOnEvent<IDidUpdateViewStateEvent>;
     attach(domContainer: HTMLElement): void;
@@ -21,7 +22,7 @@ export interface IViewState {
 
 export class ViewState implements IViewState {
     protected didUpdateViewStateEventEmitter = new EventEmitter<IDidUpdateViewStateEvent>();
-    protected domContainer: HTMLElement | null = null;
+    protected internalDOMContainer: HTMLElement | null = null;
 
     protected internalDoc: IViewDoc<any>;
 
@@ -38,16 +39,20 @@ export class ViewState implements IViewState {
         layoutService.onDidUpdateLayoutState((event) => this.handleDidUpdateLayoutStateEvent(event));
     }
 
-    onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
-        return this.didUpdateViewStateEventEmitter.on(listener);
-    }
-
     get doc() {
         return this.internalDoc;
     }
 
+    get domContainer() {
+        return this.internalDOMContainer;
+    }
+
+    onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
+        return this.didUpdateViewStateEventEmitter.on(listener);
+    }
+
     attach(domContainer: HTMLElement) {
-        this.domContainer = domContainer;
+        this.internalDOMContainer = domContainer;
         this.reattachDoc();
     }
 

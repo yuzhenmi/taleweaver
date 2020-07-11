@@ -21,6 +21,7 @@ export interface IViewService {
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
     getDoc(): IViewDoc<any>;
+    getDOMContainer(): HTMLElement | null;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
     requestFocus(): void;
@@ -82,6 +83,10 @@ export class ViewService implements IViewService {
 
     getDoc() {
         return this.state.doc;
+    }
+
+    getDOMContainer() {
+        return this.state.domContainer;
     }
 
     isFocused() {
