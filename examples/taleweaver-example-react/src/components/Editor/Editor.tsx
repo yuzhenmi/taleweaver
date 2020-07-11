@@ -1,12 +1,13 @@
-import { IConfig, Taleweaver } from '@taleweaver/core';
-import { INode, parse } from '@taleweaver/core/dist/tw/util/serialize';
-import React, { useEffect, useRef, useState } from 'react';
+import { IConfig } from '@taleweaver/core';
+import { INode } from '@taleweaver/core/dist/tw/util/serialize';
+import { TaleweaverContainer, TaleweaverProvider } from '@taleweaver/react';
+import React from 'react';
 import styled from 'styled-components';
 import ToolBar from './ToolBar';
 
 const Wrapper = styled.div``;
 
-const EditorWrapper = styled.div`
+const ContainerWrapper = styled.div`
     text-align: center;
     .tw--doc--doc {
         font-family: 'Source Sans Pro', sans-serif;
@@ -39,31 +40,21 @@ const EditorWrapper = styled.div`
 `;
 
 interface IProps {
-    initialDoc: INode;
     config?: IConfig['tw.core'];
+    initialDoc: INode;
 }
 
-export default function Editor({ initialDoc, config }: IProps) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const container = containerRef.current;
-    const [taleweaver, setTaleweaver] = useState<Taleweaver | null>(null);
-    useEffect(() => {
-        const mergedConfig: IConfig = {};
-        if (config) {
-            mergedConfig['tw.core'] = config;
-        }
-        const doc = parse(initialDoc, mergedConfig);
-        setTaleweaver(new Taleweaver(doc, mergedConfig));
-    }, [config, initialDoc]);
-    useEffect(() => {
-        if (taleweaver && container) {
-            taleweaver.attach(container);
-        }
-    }, [taleweaver, container, initialDoc]);
+const Editor: React.FC<IProps> = ({ config, initialDoc }) => {
     return (
-        <Wrapper>
-            <ToolBar taleweaver={taleweaver} />
-            <EditorWrapper ref={containerRef} />
-        </Wrapper>
+        <TaleweaverProvider>
+            <Wrapper>
+                <ToolBar />
+                <ContainerWrapper>
+                    <TaleweaverContainer config={config} initialDoc={initialDoc} />
+                </ContainerWrapper>
+            </Wrapper>
+        </TaleweaverProvider>
     );
-}
+};
+
+export default Editor;

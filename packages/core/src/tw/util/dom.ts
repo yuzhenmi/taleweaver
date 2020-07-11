@@ -17,14 +17,3 @@ export function createHiddenIframe() {
     iframe.style.top = '-1000000px';
     return iframe;
 }
-
-export function isDescendant(parent: HTMLElement, child: HTMLElement) {
-    let node = child.parentNode;
-    while (node) {
-        if (node === parent) {
-            return true;
-        }
-        node = node.parentNode;
-    }
-    return false;
-}

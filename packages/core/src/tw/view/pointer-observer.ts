@@ -2,7 +2,6 @@ import { IDOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
-import { isDescendant } from '../util/dom';
 import { IViewService } from './service';
 
 export interface IPointerDidDownEvent {
@@ -136,7 +135,7 @@ export class PointerObserver implements IPointerObserver {
     protected resolveOffset(event: MouseEvent): number | null {
         const domContainer = this.viewService.getDOMContainer();
         const target = event.target as HTMLElement | null;
-        if (!domContainer || !target || !isDescendant(domContainer, target)) {
+        if (!domContainer || !target || !domContainer.contains(target)) {
             return null;
         }
         const x = event.clientX;
