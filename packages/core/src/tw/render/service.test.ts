@@ -84,74 +84,17 @@ describe('RenderService', () => {
         });
     });
 
-    describe('getStylesBetween', () => {
-        it('returns styles of all render nodes covering the range', () => {
-            const styles1 = renderService.getStylesBetween(1, 1);
-            expect(styles1).toEqual({
-                doc: { doc: [{}] },
-                paragraph: { paragraph: [{}] },
-                text: {
-                    text: [
-                        {
-                            weight: 400,
-                            size: 16,
-                            family: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                    ],
-                },
+    describe('resolveFont', () => {
+        describe('when font property does not conflict', () => {
+            it('returns font property', () => {
+                expect(renderService.resolveFont(0, 11).weight).toEqual(400);
+                expect(renderService.resolveFont(12, 21).weight).toEqual(700);
             });
-            const styles2 = renderService.getStylesBetween(12, 12);
-            expect(styles2).toEqual({
-                doc: { doc: [{}] },
-                paragraph: { paragraph: [{}] },
-                text: {
-                    text: [
-                        {
-                            weight: 700,
-                            size: 16,
-                            family: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                    ],
-                },
-            });
-            const styles3 = renderService.getStylesBetween(1, 12);
-            expect(styles3).toEqual({
-                doc: { doc: [{}] },
-                paragraph: { 'line-break': [null], paragraph: [{}, {}] },
-                text: {
-                    text: [
-                        {
-                            weight: 400,
-                            size: 16,
-                            family: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                        {
-                            weight: 700,
-                            size: 16,
-                            family: 'sans-serif',
-                            letterSpacing: 0,
-                            underline: false,
-                            italic: false,
-                            strikethrough: false,
-                            color: 'black',
-                        },
-                    ],
-                },
+        });
+
+        describe('when font property conflicts', () => {
+            it('returns null as font property', () => {
+                expect(renderService.resolveFont(11, 12).weight).toEqual(null);
             });
         });
     });

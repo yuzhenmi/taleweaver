@@ -2,25 +2,25 @@ import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IModelPosition } from '../model/position';
 import { IModelService } from '../model/service';
+import { IFont } from '../text/service';
 import { IRenderDoc } from './doc';
 import { IRenderNode } from './node';
 import { IRenderPosition, IResolvedRenderPosition } from './position';
 import { IDidUpdateRenderStateEvent, IRenderState, RenderState } from './state';
+import { IRenderText } from './text';
 
-export interface IStyles {
-    [componentId: string]: {
-        [partId: string]: any[];
-    };
-}
+export type IResolvedFont = {
+    [TKey in keyof IFont]: IFont[TKey] | null;
+};
 
 export interface IRenderService {
     onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
     getDoc(): IRenderDoc<any, any>;
     getDocSize(): number;
     resolvePosition(position: IRenderPosition): IResolvedRenderPosition;
+    resolveFont(from: IRenderPosition, to: IRenderPosition): IResolvedFont;
     convertModelToRenderPosition(modelPosition: IModelPosition): IRenderPosition;
     convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition;
-    getStylesBetween(from: IRenderPosition, to: IRenderPosition): IStyles;
 }
 
 export class RenderService implements IRenderService {
@@ -46,45 +46,51 @@ export class RenderService implements IRenderService {
         return this.state.doc.resolvePosition(position);
     }
 
+    resolveFont(from: IRenderPosition, to: IRenderPosition) {
+        const resolvedFont: Partial<IResolvedFont> = {};
+        const nodeQueue: [IRenderNode<any, any>, number][] = [[this.state.doc, 0]];
+        while (nodeQueue.length > 0) {
+            const [node, nodeFrom] = nodeQueue.shift()!;
+            if (node.text) {
+                const nodeFont = (node as IRenderText<any, any>).font;
+                let fontProp: keyof IFont;
+                for (fontProp in nodeFont) {
+                    if (!(fontProp in resolvedFont)) {
+                        (resolvedFont as any)[fontProp] = nodeFont[fontProp];
+                    } else if (resolvedFont[fontProp] !== nodeFont[fontProp]) {
+                        resolvedFont[fontProp] = null;
+                    }
+                }
+            } else {
+                let childOffset = 0;
+                node.children.forEach((child) => {
+                    const childSize = child.size;
+                    const childFrom = nodeFrom + childOffset;
+                    const childTo = childFrom + childSize;
+                    if (childFrom <= to && childTo > from) {
+                        nodeQueue.push([child, childFrom]);
+                    }
+                    childOffset += child.size;
+                });
+            }
+        }
+        return {
+            weight: resolvedFont.weight ?? null,
+            size: resolvedFont.size ?? null,
+            family: resolvedFont.family ?? null,
+            letterSpacing: resolvedFont.letterSpacing ?? null,
+            underline: resolvedFont.underline ?? null,
+            italic: resolvedFont.italic ?? null,
+            strikethrough: resolvedFont.strikethrough ?? null,
+            color: resolvedFont.color ?? null,
+        };
+    }
+
     convertModelToRenderPosition(modelPosition: IModelPosition) {
         return this.state.doc.convertModelToRenderPosition(modelPosition);
     }
 
     convertRenderToModelPosition(renderPosition: IRenderPosition) {
         return this.state.doc.convertRenderToModelPosition(renderPosition);
-    }
-
-    getStylesBetween(from: IRenderPosition, to: IRenderPosition) {
-        const resolvedFrom = this.resolvePosition(from);
-        const resolvedTo = this.resolvePosition(to);
-        const styles: IStyles = {};
-        const doc = this.state.doc;
-        this.extractStyle(styles, doc, resolvedFrom, resolvedTo);
-        return styles;
-    }
-
-    protected extractStyle(
-        styles: IStyles,
-        node: IRenderNode<any, any>,
-        from: IResolvedRenderPosition | null,
-        to: IResolvedRenderPosition | null,
-    ) {
-        const componentStyles = (styles[node.componentId] = styles[node.componentId] || {});
-        const partStyles = (componentStyles[node.partId || ''] = componentStyles[node.partId || ''] || []);
-        partStyles.push(node.style);
-        if (node.leaf) {
-            return;
-        }
-        const fromOffset = from ? from[0].offset : 0;
-        const toOffset = to ? to[0].offset : node.contentLength - 1;
-        for (let n = fromOffset; n <= toOffset; n++) {
-            const child = node.children.at(n);
-            this.extractStyle(
-                styles,
-                child,
-                from && n === fromOffset ? from.slice(1) : null,
-                to && n === toOffset ? to.slice(1) : null,
-            );
-        }
     }
 }
