@@ -16,19 +16,21 @@ function findNodesByComponentIdAndPartId(
     if (node.componentId === componentId && node.partId === partId) {
         nodes.push(node);
     }
-    const fromOffset = from ? from[0].offset : 0;
-    const toOffset = to ? to[0].offset : node.contentLength - 1;
-    for (let n = fromOffset; n <= toOffset; n++) {
-        const child = node.children.at(n);
-        nodes.push(
-            ...findNodesByComponentIdAndPartId(
-                child,
-                componentId,
-                partId,
-                from && n === fromOffset ? from.slice(1) : null,
-                to && n === toOffset ? to.slice(1) : null,
-            ),
-        );
+    if (!node.leaf) {
+        const fromOffset = from ? from[0].offset : 0;
+        const toOffset = to ? to[0].offset : node.contentLength - 1;
+        for (let n = fromOffset; n <= toOffset; n++) {
+            const child = node.children.at(n);
+            nodes.push(
+                ...findNodesByComponentIdAndPartId(
+                    child,
+                    componentId,
+                    partId,
+                    from && n === fromOffset ? from.slice(1) : null,
+                    to && n === toOffset ? to.slice(1) : null,
+                ),
+            );
+        }
     }
     return nodes;
 }
@@ -37,7 +39,7 @@ function buildModelPosition(node: IModelNode<any>) {
     const position: IModelPosition = [];
     let currentNode = node;
     while (currentNode.parent) {
-        position.unshift(currentNode.parent.children.indexOf(node));
+        position.unshift(currentNode.parent.children.indexOf(currentNode));
         currentNode = currentNode.parent;
     }
     return position;

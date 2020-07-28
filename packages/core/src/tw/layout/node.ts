@@ -112,7 +112,7 @@ export abstract class LayoutNode extends Node<ILayoutNode> implements ILayoutNod
             const childSize = child.size;
             if (cumulatedSize + childSize > position) {
                 return [
-                    { node: this, offset: n, position: cumulatedSize },
+                    { node: this, offset: n, position: position - cumulatedSize },
                     ...child.resolvePosition(position - cumulatedSize),
                 ];
             }

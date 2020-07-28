@@ -57,10 +57,10 @@ export class Transformation implements ITransformation {
             cursorHead = this.boundOffset(cursorHead, renderService);
             cursorService.setCursor(cursorAnchor, cursorHead);
             if (!this.keepLeftLock) {
-                const { node: line, offset: lineOffset } = atLine(
+                const { node: line, position: linePosition } = atLine(
                     layoutService.resolvePosition(cursorService.getCursor().head),
                 );
-                cursorService.setLeftLock(line.resolveBoundingBoxes(lineOffset, lineOffset).boundingBoxes[0].left);
+                cursorService.setLeftLock(line.resolveBoundingBoxes(linePosition, linePosition).boundingBoxes[0].left);
             }
         }
         const reverseChanges: IChange[] = [];
