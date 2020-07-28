@@ -115,7 +115,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     }
 
     convertRenderToModelPosition(renderPosition: IRenderPosition): IModelPosition {
-        if (renderPosition < 0 || renderPosition >= this.size) {
+        if (renderPosition < 0 || renderPosition > this.size) {
             throw new Error('Render position is out of range.');
         }
         if (this.leaf) {
@@ -126,8 +126,16 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         for (let n = 0, nn = this.children.length; n < nn; n++) {
             const child = this.children.at(n);
             const childSize = child.size;
-            if (this.modelId) {
-                if (cumulatedSize + childSize > renderPosition) {
+            if (child.modelId) {
+                let nextNonModelSize = 0;
+                for (let m = n + 1; m < nn; m++) {
+                    const nextChild = this.children.at(m);
+                    if (nextChild.modelId) {
+                        break;
+                    }
+                    nextNonModelSize += nextChild.size;
+                }
+                if (cumulatedSize + childSize + nextNonModelSize > renderPosition) {
                     return [modelOffset, ...child.convertRenderToModelPosition(renderPosition - cumulatedSize)];
                 }
                 modelOffset++;

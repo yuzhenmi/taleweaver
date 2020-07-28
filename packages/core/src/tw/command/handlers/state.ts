@@ -131,7 +131,7 @@ export const breakLine: ICommandHandler = async (serviceRegistry) => {
     newModelOffset[newModelOffset.length - 2] = 0;
     newModelOffset[newModelOffset.length - 1] = 0;
     transformService.applyTransformation(
-        new Transformation([new ReplaceChange(modelFrom, modelTo, [[], [], '', [], []])], newModelOffset),
+        new Transformation([new ReplaceChange(modelFrom, modelTo, ['', [], [], [], ''])], newModelOffset),
     );
 };
 

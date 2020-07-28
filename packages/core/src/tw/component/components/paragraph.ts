@@ -22,7 +22,7 @@ export class ModelParagraph extends ModelBranch<IParagraphAttributes> {
 
 export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttributes> {
     constructor(componentId: string, modelId: string | null, attributes: any, children: IRenderNode<any, any>[]) {
-        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId, modelId)]);
+        super(componentId, modelId, attributes, [...children, new RenderParagraphLineBreak(componentId)]);
     }
 
     get partId() {
@@ -55,8 +55,8 @@ export class RenderParagraph extends RenderBlock<IParagraphStyle, IParagraphAttr
 }
 
 export class RenderParagraphLineBreak extends RenderText<null, null> {
-    constructor(readonly componentId: string, readonly paragraphModelId: string | null) {
-        super(componentId, `${paragraphModelId}.line-break`, ' ', null);
+    constructor(readonly componentId: string) {
+        super(componentId, null, ' ', null);
     }
 
     get partId() {
