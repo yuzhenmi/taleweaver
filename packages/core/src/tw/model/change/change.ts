@@ -4,7 +4,7 @@ import { IMapping } from './mapping';
 
 export interface IChange {
     map(mapping: IMapping): IChange;
-    apply(root: IModelRoot<any>, componentService: IComponentService): IChangeResult;
+    apply(state: IModelRoot<any>, componentService: IComponentService): IChangeResult;
 }
 
 export interface IChangeResult {

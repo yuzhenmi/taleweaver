@@ -1,6 +1,6 @@
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../tree/position';
+import { IPosition, IResolvedOffset, IResolvedPosition } from '../tree/position';
 import { generateId } from '../util/id';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
@@ -13,17 +13,14 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     readonly text: string;
     readonly style: TStyle;
     readonly size: number;
-    readonly modelSize: number;
     readonly needLayout: boolean;
 
     clearNeedLayout(): void;
-    resolvePosition(offset: number): IRenderPosition;
-    convertOffsetToModelOffset(offset: number): number;
-    convertModelOffsetToOffset(modelOffset: number): number;
+    resolvePosition(position: IPosition): IResolvedRenderPosition;
 }
 
-export interface IRenderPosition extends IPosition<IRenderNode<any, any>> {}
-export interface IRenderPositionDepth extends IPositionDepth<IRenderNode<any, any>> {}
+export type IResolvedRenderOffset = IResolvedOffset<IRenderNode<any, any>>;
+export type IResolvedRenderPosition = IResolvedPosition<IRenderNode<any, any>>;
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
@@ -43,6 +40,7 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         readonly text: string,
         protected readonly attributes: TAttributes,
         children: IRenderNode<any, any>[],
+        readonly contentLength: number,
     ) {
         super(generateId());
         this.internalChildren = new NodeList(children);
@@ -54,22 +52,12 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
     get size() {
         if (this.internalSize === undefined) {
             if (this.leaf) {
-                this.internalSize = this.text.length;
+                this.internalSize = this.contentLength;
             } else {
                 this.internalSize = this.children.reduce((size, child) => size + child.size, 0);
             }
         }
         return this.internalSize;
-    }
-
-    get modelSize() {
-        if (this.pseudo) {
-            return 0;
-        }
-        if (this.internalChildrenModelSize === undefined) {
-            this.internalChildrenModelSize = this.children.reduce((size, childNode) => size + childNode.modelSize, 0);
-        }
-        return this.internalChildrenModelSize! + 2 + this.text.length;
     }
 
     get needLayout() {
@@ -80,74 +68,16 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         this.internalNeedLayout = false;
     }
 
-    resolvePosition(offset: number): IRenderPosition {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error(`Offset ${offset} is out of range.`);
+    resolvePosition(position: IPosition): IResolvedRenderPosition {
+        if (position.length === 0) {
+            position = [0];
         }
-        if (this.leaf) {
-            return new RenderPosition([{ node: this, offset, index: offset }]);
+        const offset = this.boundOffset(position[0]);
+        const resolvedPosition: IResolvedRenderPosition = [{ node: this, offset }];
+        if (!this.leaf) {
+            const child = this.children.at(offset);
+            resolvedPosition.push(...child.resolvePosition(position.slice(1)));
         }
-        let cumulatedOffset = 0;
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            const child = this.children.at(n);
-            const childSize = child.size;
-            if (cumulatedOffset + childSize > offset) {
-                const childPosition = child.resolvePosition(offset - cumulatedOffset);
-                const depths: IRenderPositionDepth[] = [{ node: this, offset, index: n }];
-                for (let m = 0; m < childPosition.depth; m++) {
-                    depths.push(childPosition.atDepth(m));
-                }
-                return new RenderPosition(depths);
-            }
-            cumulatedOffset += childSize;
-        }
-        throw new Error('Offset cannot be resolved.');
-    }
-
-    convertOffsetToModelOffset(offset: number): number {
-        if (offset < 0 || offset >= this.size) {
-            throw new Error('Offset is out of range.');
-        }
-        let cumulatedSize = 0;
-        let cumulatedModelSize = this.pseudo ? 0 : 1;
-        if (this.leaf) {
-            return cumulatedModelSize + offset;
-        }
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            const child = this.children.at(n);
-            const childSize = child.size;
-            if (cumulatedSize + childSize > offset) {
-                return cumulatedModelSize + child.convertOffsetToModelOffset(offset - cumulatedSize);
-            }
-            cumulatedSize += childSize;
-            cumulatedModelSize += child.modelSize;
-        }
-        throw new Error(`Offset ${offset} is out of range.`);
-    }
-
-    convertModelOffsetToOffset(modelOffset: number): number {
-        if (modelOffset < 0 || modelOffset >= this.modelSize) {
-            throw new Error('Model offset is out of range.');
-        }
-        let cumulatedModelSize = this.pseudo ? 0 : 1;
-        let cumulatedSize = 0;
-        if (modelOffset <= cumulatedModelSize) {
-            return 0;
-        }
-        if (this.leaf) {
-            return modelOffset - cumulatedModelSize;
-        }
-        for (let n = 0, nn = this.children.length; n < nn; n++) {
-            const child = this.children.at(n);
-            const childModelSize = child.modelSize;
-            if (cumulatedModelSize + childModelSize > modelOffset) {
-                return cumulatedSize + child.convertModelOffsetToOffset(modelOffset - cumulatedModelSize);
-            }
-            cumulatedModelSize += childModelSize;
-            cumulatedSize += child.size;
-        }
-        throw new Error(`Model offset ${modelOffset} is out of range.`);
+        return resolvedPosition;
     }
 }
-
-export class RenderPosition extends Position<IRenderNode<any, any>> implements IRenderPosition {}

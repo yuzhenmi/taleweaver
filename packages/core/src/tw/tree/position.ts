@@ -1,36 +1,36 @@
 import { INode } from './node';
 
-export interface IPositionDepth<TNode extends INode<TNode>> {
-    readonly node: TNode;
-    readonly offset: number;
-    readonly index: number;
+export type IPosition = number[];
+
+export interface IResolvedOffset<TNode extends INode<TNode>> {
+    offset: number;
+    node: TNode;
 }
 
-export interface IPosition<TNode extends INode<TNode>> {
-    readonly depth: number;
+export type IResolvedPosition<TNode extends INode<TNode>> = IResolvedOffset<TNode>[];
 
-    atDepth(depth: number): IPositionDepth<TNode>;
-    atReverseDepth(reverseDepth: number): IPositionDepth<TNode>;
+export function testPositionLessThan(position1: IPosition, position2: IPosition): boolean {
+    if (position1.length === 0 || position2.length === 0) {
+        return false;
+    }
+    if (position1[0] < position2[0]) {
+        return true;
+    }
+    if (position1.length === 1 || position2.length === 1) {
+        return false;
+    }
+    return testPositionLessThan(position1.slice(1), position2.slice(1));
 }
 
-export abstract class Position<TNode extends INode<TNode>> implements IPosition<TNode> {
-    constructor(protected depths: IPositionDepth<TNode>[]) {}
-
-    get depth() {
-        return this.depths.length;
+export function testPositionGreaterThan(position1: IPosition, position2: IPosition): boolean {
+    if (position1.length === 0 || position2.length === 0) {
+        return false;
     }
-
-    atDepth(depth: number) {
-        if (depth < 0 || depth >= this.depths.length) {
-            throw new Error('Depth out of range.');
-        }
-        return this.depths[depth];
+    if (position1[0] > position2[0]) {
+        return true;
     }
-
-    atReverseDepth(reverseDepth: number) {
-        if (reverseDepth < 0 || reverseDepth >= this.depths.length) {
-            throw new Error('Reverse depth out of range.');
-        }
-        return this.depths[this.depth - reverseDepth - 1];
+    if (position1.length === 1 || position2.length === 1) {
+        return false;
     }
+    return testPositionGreaterThan(position1.slice(1), position2.slice(1));
 }
