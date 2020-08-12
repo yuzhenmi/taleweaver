@@ -3,7 +3,7 @@ import { IFragment } from '../fragment';
 import { IModelRoot } from '../root';
 import { IChangeResult, ModelChange } from './change';
 import { IMapping, Mapping } from './mapping';
-import { IPosition } from '../../tree/position';
+import { IPosition } from '../position';
 import { IModelNode } from '../node';
 import { generateId } from '../../util/id';
 

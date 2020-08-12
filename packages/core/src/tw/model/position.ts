@@ -1,13 +1,13 @@
-import { INode } from './node';
+import { IModelNode } from './node';
 
 export type IPosition = number[];
 
-export interface IResolvedOffset<TNode extends INode<TNode>> {
+export interface IResolvedOffset {
     offset: number;
-    node: TNode;
+    node: IModelNode<any>;
 }
 
-export type IResolvedPosition<TNode extends INode<TNode>> = IResolvedOffset<TNode>[];
+export type IResolvedPosition = IResolvedOffset[];
 
 export function testPositionLessThan(position1: IPosition, position2: IPosition): boolean {
     if (position1.length === 0 || position2.length === 0) {

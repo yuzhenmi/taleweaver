@@ -2,7 +2,7 @@ import { IComponentService } from '../../component/service';
 import { IModelRoot } from '../root';
 import { IChangeResult, ModelChange } from './change';
 import { identity, IMapping } from './mapping';
-import { IPosition } from '../../tree/position';
+import { IPosition } from '../position';
 
 export class ApplyAttribute extends ModelChange {
     constructor(protected position: IPosition, protected key: string, protected value: any) {

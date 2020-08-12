@@ -1,4 +1,4 @@
-import { IPosition, testPositionGreaterThan } from '../../tree/position';
+import { IPosition, testPositionGreaterThan } from '../position';
 
 export interface IMapping {
     map(position: IPosition): IPosition;

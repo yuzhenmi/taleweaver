@@ -1,16 +1,16 @@
 import { IComponentService } from '../component/service';
 import { IEventListener } from '../event/listener';
 import { IChange, IChangeResult } from './change/change';
-import { IModelNode, IResolvedModelPosition } from './node';
+import { IModelNode } from './node';
 import { IModelRoot } from './root';
 import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
-import { IPosition } from '../tree/position';
+import { IPosition, IResolvedPosition } from './position';
 
 export interface IModelService {
     getRoot(): IModelRoot<any>;
     getRootSize(): number;
     applyChange(change: IChange): IChangeResult;
-    resolvePosition(position: IPosition): IResolvedModelPosition;
+    resolvePosition(position: IPosition): IResolvedPosition;
     toDOM(from: number, to: number): HTMLElement;
     fromDOM(domNodes: HTMLElement[]): IModelNode<any>[];
     onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;

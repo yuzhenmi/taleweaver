@@ -2,7 +2,7 @@ import { EventEmitter, IDisposable } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IResolvedPosition, IResolvedOffset } from '../tree/position';
+import { IPosition, IResolvedPosition } from './position';
 
 export interface IDidUpdateModelNodeEvent {}
 
@@ -17,13 +17,10 @@ export interface IModelNode<TAttributes extends {}> extends INode<IModelNode<TAt
     clearNeedRender(): void;
     applyAttribute(key: string, value: any): any;
     replace(from: number, to: number, content: IModelNode<any>[] | string): IModelNode<any>[] | string;
-    resolvePosition(position: IPosition): IResolvedModelPosition;
+    resolvePosition(position: IPosition): IResolvedPosition;
     toDOM(from: number, to: number): HTMLElement;
     onDidUpdate: IOnEvent<IDidUpdateModelNodeEvent>;
 }
-
-export type IResolvedModelOffset = IResolvedOffset<IModelNode<any>>;
-export type IResolvedModelPosition = IResolvedPosition<IModelNode<any>>;
 
 export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<TAttributes>>
     implements IModelNode<TAttributes> {
@@ -141,12 +138,12 @@ export abstract class ModelNode<TAttributes extends {}> extends Node<IModelNode<
         return replacedContent;
     }
 
-    resolvePosition(position: IPosition): IResolvedModelPosition {
+    resolvePosition(position: IPosition): IResolvedPosition {
         if (position.length === 0) {
             position = [0];
         }
         const offset = this.boundOffset(position[0]);
-        const resolvedPosition: IResolvedModelPosition = [{ node: this, offset }];
+        const resolvedPosition: IResolvedPosition = [{ node: this, offset }];
         if (!this.leaf) {
             const child = this.children.at(offset);
             resolvedPosition.push(...child.resolvePosition(position.slice(1)));

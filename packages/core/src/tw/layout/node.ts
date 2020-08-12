@@ -1,6 +1,6 @@
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IPositionDepth, Position } from '../tree/position';
+import { IPosition, IPositionDepth, Position } from '../model/position';
 import { generateId } from '../util/id';
 
 export type ILayoutNodeType = 'doc' | 'page' | 'block' | 'line' | 'text' | 'word' | 'atom';

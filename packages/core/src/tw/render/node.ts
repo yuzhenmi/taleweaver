@@ -1,7 +1,8 @@
 import { INode, Node } from '../tree/node';
 import { NodeList } from '../tree/node-list';
-import { IPosition, IResolvedOffset, IResolvedPosition } from '../tree/position';
 import { generateId } from '../util/id';
+import { IResolvedPosition } from './position';
+import { IPosition } from '../model/position';
 
 export type IRenderNodeType = 'doc' | 'block' | 'text' | 'word' | 'atom';
 
@@ -16,16 +17,11 @@ export interface IRenderNode<TStyle, TAttributes> extends INode<IRenderNode<TSty
     readonly needLayout: boolean;
 
     clearNeedLayout(): void;
-    resolvePosition(position: IPosition): IResolvedRenderPosition;
+    resolvePosition(position: IPosition): IResolvedPosition;
 }
-
-export type IResolvedRenderOffset = IResolvedOffset<IRenderNode<any, any>>;
-export type IResolvedRenderPosition = IResolvedPosition<IRenderNode<any, any>>;
 
 export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<TStyle, TAttributes>>
     implements IRenderNode<TStyle, TAttributes> {
-    protected abstract get pseudo(): boolean;
-
     abstract get type(): IRenderNodeType;
     abstract get partId(): string | null;
     abstract get style(): TStyle;
@@ -40,13 +36,19 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         readonly text: string,
         protected readonly attributes: TAttributes,
         children: IRenderNode<any, any>[],
-        readonly contentLength: number,
     ) {
         super(generateId());
         this.internalChildren = new NodeList(children);
         children.forEach((child) => {
             child.parent = this;
         });
+    }
+
+    get contentLength() {
+        if (this.leaf) {
+            return this.text.length;
+        }
+        return this.children.length;
     }
 
     get size() {
@@ -68,15 +70,22 @@ export abstract class RenderNode<TStyle, TAttributes> extends Node<IRenderNode<T
         this.internalNeedLayout = false;
     }
 
-    resolvePosition(position: IPosition): IResolvedRenderPosition {
-        if (position.length === 0) {
-            position = [0];
-        }
+    resolvePosition(position: IPosition): IResolvedPosition {
         const offset = this.boundOffset(position[0]);
-        const resolvedPosition: IResolvedRenderPosition = [{ node: this, offset }];
-        if (!this.leaf) {
-            const child = this.children.at(offset);
-            resolvedPosition.push(...child.resolvePosition(position.slice(1)));
+        const resolvedPosition: IResolvedPosition = [];
+        if (this.leaf) {
+            resolvedPosition.push({ node: this, offset });
+        } else {
+            let cumulatedOffset = 0;
+            for (let n = 0, nn = this.children.length; n < nn; n++) {
+                const child = this.children.at(n);
+                if (child.modelId) {
+                    if (cumulatedOffset === position[0]) {
+                        resolvedPosition.push({ node: this, offset: n }, ...child.resolvePosition(position.slice(1)));
+                    }
+                    cumulatedOffset++;
+                }
+            }
         }
         return resolvedPosition;
     }
