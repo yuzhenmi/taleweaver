@@ -57,7 +57,7 @@ export class BlockLayoutNode extends BaseLayoutNode<IBlockLayoutProps, IBlockLay
     protected internalPreviousCrossParentSibling: IBlockLayoutNodeSibling | null = null;
     protected internalNextCrossParentSibling: IBlockLayoutNodeSibling | null = null;
     protected internalSize?: number;
-    protected internalHeight?: number;
+    protected internalContentHeight?: number;
     protected internalNeedReflow = true;
     protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
 
@@ -65,7 +65,7 @@ export class BlockLayoutNode extends BaseLayoutNode<IBlockLayoutProps, IBlockLay
         super();
         this.onDidUpdate(() => {
             this.internalSize = undefined;
-            this.internalHeight = undefined;
+            this.internalContentHeight = undefined;
         });
     }
 
@@ -227,24 +227,24 @@ export class BlockLayoutNode extends BaseLayoutNode<IBlockLayoutProps, IBlockLay
         return describePositionForNodeWithChildren(this, position);
     }
 
-    protected get height() {
-        if (this.internalHeight === undefined) {
-            this.internalHeight = this.calculateHeight();
+    protected get contentHeight() {
+        if (this.internalContentHeight === undefined) {
+            this.internalContentHeight = this.calculateContentHeight();
         }
-        return this.internalHeight;
+        return this.internalContentHeight;
     }
 
     protected buildLayout() {
         const props = this.layoutProps;
         return {
             width: props.width,
-            height: this.height,
+            height: this.contentHeight + props.paddingTop + props.paddingBottom,
             paddingTop: props.paddingTop,
             paddingBottom: props.paddingBottom,
             paddingLeft: props.paddingLeft,
             paddingRight: props.paddingRight,
             contentWidth: props.width - props.paddingLeft - props.paddingRight,
-            contentHeight: this.height - props.paddingTop - props.paddingBottom,
+            contentHeight: this.contentHeight,
         };
     }
 
@@ -252,7 +252,7 @@ export class BlockLayoutNode extends BaseLayoutNode<IBlockLayoutProps, IBlockLay
         return this.internalChildren.reduce((size, child) => size + child.size, 0);
     }
 
-    protected calculateHeight() {
+    protected calculateContentHeight() {
         return this.internalChildren.reduce((height, child) => height + child.layout.height, 0);
     }
 

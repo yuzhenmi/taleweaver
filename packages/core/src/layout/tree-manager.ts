@@ -393,7 +393,7 @@ export class LayoutTreeManager {
         node.setLayoutProps({
             width: 0,
             paddingTop: 0,
-            paddingBottom: 0,
+            paddingBottom: 20,
             paddingLeft: 0,
             paddingRight: 0,
         });
