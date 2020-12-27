@@ -3,7 +3,6 @@ import {
     TaleweaverProvider,
     useCommandService,
     useCursorService,
-    useFont,
     useRenderService,
     useTaleweaver,
 } from './context';
@@ -13,7 +12,6 @@ export {
     TaleweaverProvider,
     useCommandService,
     useCursorService,
-    useFont,
     useRenderService,
     useTaleweaver,
 };

@@ -1,5 +1,5 @@
 import { IConfig } from '@taleweaver/core';
-import { INode } from '@taleweaver/core/dist/tw/util/serialize';
+import { ISerializable } from '@taleweaver/core/dist/model/serializer';
 import { TaleweaverContainer, TaleweaverProvider } from '@taleweaver/react';
 import React from 'react';
 import styled from 'styled-components';
@@ -41,7 +41,7 @@ const ContainerWrapper = styled.div`
 
 interface IProps {
     config?: IConfig['tw.core'];
-    initialDoc: INode;
+    initialDoc: ISerializable;
 }
 
 const Editor: React.FC<IProps> = ({ config, initialDoc }) => {

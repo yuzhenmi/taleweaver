@@ -1,4 +1,4 @@
-import { IExternalConfig as IConfig } from './tw/config/config';
-import { Taleweaver } from './tw/taleweaver';
+import { IExternalConfig as IConfig } from './config/config';
+import { Taleweaver } from './taleweaver';
 
 export { Taleweaver, IConfig };
