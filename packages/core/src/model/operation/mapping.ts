@@ -18,10 +18,7 @@ export class Mapping implements IMapping {
     }
 
     map<TPosition extends IPosition>(position: TPosition): TPosition {
-        return this.entries.reduce(
-            (mappedPosition, entry) => this.mapEntry(mappedPosition, entry),
-            position,
-        );
+        return this.entries.reduce((mappedPosition, entry) => this.mapEntry(mappedPosition, entry), position);
     }
 
     reverse() {
@@ -37,21 +34,14 @@ export class Mapping implements IMapping {
 
     protected validateEntry(entry: IMappingEntry) {
         if (entry.endBefore < entry.start) {
-            throw new Error(
-                'Mapping entry ending offset (before mapping) cannot be less than starting offset.',
-            );
+            throw new Error('Mapping entry ending offset (before mapping) cannot be less than starting offset.');
         }
         if (entry.endAfter < entry.start) {
-            throw new Error(
-                'Mapping entry ending offset (after mapping) cannot be less than starting offset.',
-            );
+            throw new Error('Mapping entry ending offset (after mapping) cannot be less than starting offset.');
         }
     }
 
-    protected mapEntry<TPosition extends IPosition>(
-        position: TPosition,
-        entry: IMappingEntry,
-    ): TPosition {
+    protected mapEntry<TPosition extends IPosition>(position: TPosition, entry: IMappingEntry): TPosition {
         const [path, offset] = normalizePosition(position);
         const pathWithOffset = offset === null ? path : [...path, offset];
         if (pathWithOffset.length <= entry.path.length) {
@@ -77,10 +67,7 @@ export class Mapping implements IMapping {
         return (offset === null
             ? newPathWithOffset
             : {
-                  path: newPathWithOffset.slice(
-                      0,
-                      newPathWithOffset.length - 1,
-                  ),
+                  path: newPathWithOffset.slice(0, newPathWithOffset.length - 1),
                   offset: newPathWithOffset[newPathWithOffset.length - 1],
               }) as TPosition;
     }

@@ -12,10 +12,7 @@ export interface IRange {
 
 export type IPosition = IPath | IPoint;
 
-export function arePositionsEqual(
-    position: IPosition,
-    otherPosition: IPosition,
-) {
+export function arePositionsEqual(position: IPosition, otherPosition: IPosition) {
     return JSON.stringify(position) === JSON.stringify(otherPosition);
 }
 

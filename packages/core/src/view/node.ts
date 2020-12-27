@@ -1,25 +1,29 @@
 import { IDOMService } from '../dom/service';
 import { EventEmitter, IDisposable } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
-import { IBlockStyle, IDocStyle, IInlineStyle, ILineStyle, IPageStyle } from '../layout/node';
-import { ITextStyle } from '../text/service';
+import { IBlockLayout } from '../layout/block-node';
+import { IDocLayout } from '../layout/doc-node';
+import { IInlineLayout } from '../layout/inline-node';
+import { ILineLayout } from '../layout/line-node';
+import { IPageLayout } from '../layout/page-node';
+import { ITextLayout } from '../layout/text-node';
 import { generateId } from '../util/id';
 
 export interface IDidUpdateViewNodeEvent {}
 
-interface IBaseViewNode<TStyle> {
+interface IBaseViewNode<TLayout> {
     readonly id: string;
     readonly layoutId: string;
-    readonly style: TStyle;
+    readonly layout: TLayout;
     readonly domContainer: HTMLElement;
 
-    setStyle(style: TStyle): void;
+    setLayout(layout: TLayout): void;
     onDidUpdate: IOnEvent<IDidUpdateViewNodeEvent>;
 }
 
 export type IDocViewNodeChild = IPageViewNode;
 
-export interface IDocViewNode extends IBaseViewNode<IDocStyle> {
+export interface IDocViewNode extends IBaseViewNode<IDocLayout> {
     readonly type: 'doc';
     readonly children: IDocViewNodeChild[];
 
@@ -28,7 +32,7 @@ export interface IDocViewNode extends IBaseViewNode<IDocStyle> {
 
 export type IPageViewNodeChild = IBlockViewNode;
 
-export interface IPageViewNode extends IBaseViewNode<IPageStyle> {
+export interface IPageViewNode extends IBaseViewNode<IPageLayout> {
     readonly type: 'page';
     readonly children: IPageViewNodeChild[];
     readonly domContentContainer: HTMLElement;
@@ -38,7 +42,7 @@ export interface IPageViewNode extends IBaseViewNode<IPageStyle> {
 
 export type IBlockViewNodeChild = ILineViewNode;
 
-export interface IBlockViewNode extends IBaseViewNode<IBlockStyle> {
+export interface IBlockViewNode extends IBaseViewNode<IBlockLayout> {
     readonly type: 'block';
     readonly children: IBlockViewNodeChild[];
 
@@ -47,64 +51,50 @@ export interface IBlockViewNode extends IBaseViewNode<IBlockStyle> {
 
 export type ILineViewNodeChild = ITextViewNode | IInlineViewNode;
 
-export interface ILineViewNode extends IBaseViewNode<ILineStyle> {
+export interface ILineViewNode extends IBaseViewNode<ILineLayout> {
     readonly type: 'line';
     readonly children: ILineViewNodeChild[];
 
     setChildren(children: ILineViewNodeChild[]): void;
 }
 
-export type ITextViewNodeChild = IWordViewNode;
-
-export interface ITextViewNode extends IBaseViewNode<ITextStyle> {
+export interface ITextViewNode extends IBaseViewNode<ITextLayout> {
     readonly type: 'text';
-    readonly children: ITextViewNodeChild[];
-
-    setChildren(children: ITextViewNodeChild[]): void;
-}
-
-export interface IWordViewNode extends IBaseViewNode<ITextStyle> {
-    readonly type: 'word';
     readonly content: string;
-    readonly whitespaceSize: number;
 
     setContent(content: string): void;
-    setWhitespaceSize(whitespaceSize: number): void;
 }
 
-export interface IInlineViewNode extends IBaseViewNode<IInlineStyle> {
+export interface IInlineViewNode extends IBaseViewNode<IInlineLayout> {
     readonly type: 'inline';
 }
 
-export type IViewNode =
-    | IDocViewNode
-    | IPageViewNode
-    | IBlockViewNode
-    | ILineViewNode
-    | IInlineViewNode
-    | ITextViewNode
-    | IWordViewNode;
+export type IViewNode = IDocViewNode | IPageViewNode | IBlockViewNode | ILineViewNode | IInlineViewNode | ITextViewNode;
 
 export type IBoundedViewNode = IPageViewNode | ILineViewNode;
 
-abstract class BaseViewNode<TStyle> implements IBaseViewNode<TStyle> {
+abstract class BaseViewNode<TLayout> implements IBaseViewNode<TLayout> {
     readonly id = generateId();
     abstract readonly domContainer: HTMLElement;
 
-    protected internalStyle?: TStyle;
+    protected abstract updateDOMLayout(): void;
+
+    protected internalLayout?: TLayout;
     protected didUpdateEventEmitter = new EventEmitter<IDidUpdateViewNodeEvent>();
 
     constructor(readonly layoutId: string) {}
 
-    get style() {
-        if (!this.internalStyle) {
-            throw new Error('Style is not initialized.');
+    get layout() {
+        if (!this.internalLayout) {
+            throw new Error('Layout is not initialized.');
         }
-        return JSON.parse(JSON.stringify(this.internalStyle));
+        return this.internalLayout;
     }
 
-    setStyle(style: TStyle) {
-        this.internalStyle = style;
+    setLayout(layout: TLayout) {
+        this.internalLayout = layout;
+        this.updateDOMLayout();
+        this.didUpdateEventEmitter.emit({});
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateViewNodeEvent>) {
@@ -112,9 +102,10 @@ abstract class BaseViewNode<TStyle> implements IBaseViewNode<TStyle> {
     }
 }
 
-export class DocViewNode extends BaseViewNode<IDocStyle> implements IDocViewNode {
+export class DocViewNode extends BaseViewNode<IDocLayout> implements IDocViewNode {
     readonly type = 'doc';
     readonly domContainer: HTMLDivElement;
+    readonly domContentContainer: HTMLDivElement;
 
     protected internalChildren: IDocViewNodeChild[] = [];
     protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
@@ -122,6 +113,11 @@ export class DocViewNode extends BaseViewNode<IDocStyle> implements IDocViewNode
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div');
+        this.domContainer.style.textAlign = 'left';
+        this.domContainer.style.cursor = 'text';
+        this.domContainer.style.userSelect = 'none';
+        this.domContentContainer = domService.createElement('div');
+        this.domContainer.appendChild(this.domContentContainer);
     }
 
     get children() {
@@ -136,18 +132,20 @@ export class DocViewNode extends BaseViewNode<IDocStyle> implements IDocViewNode
         );
         this.internalChildren = children;
         setDOMContainerChildren(
-            this.domContainer,
+            this.domContentContainer,
             children.map((child) => child.domContainer),
         );
         this.didUpdateEventEmitter.emit({});
     }
+
+    protected updateDOMLayout() {}
 
     protected handleChildDidUpdate = () => {
         this.didUpdateEventEmitter.emit({});
     };
 }
 
-export class PageViewNode extends BaseViewNode<IPageStyle> implements IPageViewNode {
+export class PageViewNode extends BaseViewNode<IPageLayout> implements IPageViewNode {
     readonly type = 'page';
     readonly domContainer: HTMLDivElement;
     readonly domContentContainer: HTMLDivElement;
@@ -158,7 +156,17 @@ export class PageViewNode extends BaseViewNode<IPageStyle> implements IPageViewN
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div');
+        this.domContainer.style.position = 'relative';
+        this.domContainer.style.marginLeft = 'auto';
+        this.domContainer.style.marginRight = 'auto';
+        this.domContainer.style.width = '0px';
+        this.domContainer.style.height = '0px';
+        this.domContainer.style.paddingTop = '0px';
+        this.domContainer.style.paddingBottom = '0px';
+        this.domContainer.style.paddingLeft = '0px';
+        this.domContainer.style.paddingRight = '0px';
         this.domContentContainer = domService.createElement('div');
+        this.domContainer.appendChild(this.domContentContainer);
     }
 
     get children() {
@@ -179,12 +187,21 @@ export class PageViewNode extends BaseViewNode<IPageStyle> implements IPageViewN
         this.didUpdateEventEmitter.emit({});
     }
 
+    protected updateDOMLayout() {
+        this.domContainer.style.width = `${this.layout.width}px`;
+        this.domContainer.style.height = `${this.layout.height}px`;
+        this.domContainer.style.paddingTop = `${this.layout.paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${this.layout.paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${this.layout.paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${this.layout.paddingRight}px`;
+    }
+
     protected handleChildDidUpdate = () => {
         this.didUpdateEventEmitter.emit({});
     };
 }
 
-export class BlockViewNode extends BaseViewNode<IBlockStyle> implements IBlockViewNode {
+export class BlockViewNode extends BaseViewNode<IBlockLayout> implements IBlockViewNode {
     readonly type = 'block';
     readonly domContainer: HTMLDivElement;
 
@@ -194,6 +211,13 @@ export class BlockViewNode extends BaseViewNode<IBlockStyle> implements IBlockVi
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div');
+        this.domContainer.style.width = '0px';
+        this.domContainer.style.height = '0px';
+        this.domContainer.style.paddingTop = '0px';
+        this.domContainer.style.paddingBottom = '0px';
+        this.domContainer.style.paddingLeft = '0px';
+        this.domContainer.style.paddingRight = '0px';
+        this.domContainer.style.lineHeight = '1em';
     }
 
     get children() {
@@ -214,12 +238,21 @@ export class BlockViewNode extends BaseViewNode<IBlockStyle> implements IBlockVi
         this.didUpdateEventEmitter.emit({});
     }
 
+    protected updateDOMLayout() {
+        this.domContainer.style.width = `${this.layout.width}px`;
+        this.domContainer.style.height = `${this.layout.height}px`;
+        this.domContainer.style.paddingTop = `${this.layout.paddingTop}px`;
+        this.domContainer.style.paddingBottom = `${this.layout.paddingBottom}px`;
+        this.domContainer.style.paddingLeft = `${this.layout.paddingLeft}px`;
+        this.domContainer.style.paddingRight = `${this.layout.paddingRight}px`;
+    }
+
     protected handleChildDidUpdate = () => {
         this.didUpdateEventEmitter.emit({});
     };
 }
 
-export class LineViewNode extends BaseViewNode<ILineStyle> implements ILineViewNode {
+export class LineViewNode extends BaseViewNode<ILineLayout> implements ILineViewNode {
     readonly type = 'line';
     readonly domContainer: HTMLDivElement;
 
@@ -249,77 +282,55 @@ export class LineViewNode extends BaseViewNode<ILineStyle> implements ILineViewN
         this.didUpdateEventEmitter.emit({});
     }
 
+    protected updateDOMLayout() {
+        this.domContainer.style.width = `${this.layout.width}px`;
+        this.domContainer.style.height = `${this.layout.height}px`;
+    }
+
     protected handleChildDidUpdate = () => {
         this.didUpdateEventEmitter.emit({});
     };
 }
 
-export class TextViewNode extends BaseViewNode<ITextStyle> implements ITextViewNode {
+export class TextViewNode extends BaseViewNode<ITextLayout> implements ITextViewNode {
     readonly type = 'text';
     readonly domContainer: HTMLDivElement;
-
-    protected internalChildren: ITextViewNodeChild[] = [];
-    protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
-
-    constructor(layoutId: string, protected domService: IDOMService) {
-        super(layoutId);
-        this.domContainer = domService.createElement('div');
-    }
-
-    get children() {
-        return this.internalChildren.slice();
-    }
-
-    setChildren(children: ITextViewNodeChild[]) {
-        this.childDidUpdateDisposableMap.forEach((disposable) => disposable.dispose());
-        this.childDidUpdateDisposableMap.clear();
-        children.forEach((child) =>
-            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate)),
-        );
-        this.internalChildren = children;
-        setDOMContainerChildren(
-            this.domContainer,
-            children.map((child) => child.domContainer),
-        );
-        this.didUpdateEventEmitter.emit({});
-    }
-
-    protected handleChildDidUpdate = () => {
-        this.didUpdateEventEmitter.emit({});
-    };
-}
-
-export class WordViewNode extends BaseViewNode<ITextStyle> implements IWordViewNode {
-    readonly type = 'word';
-    readonly domContainer: HTMLDivElement;
+    readonly domInnerContainer: HTMLDivElement;
 
     protected internalContent: string = '';
-    protected internalWhitespaceSize: number = 0;
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div');
+        this.domInnerContainer = domService.createElement('div');
+        this.domContainer.appendChild(this.domInnerContainer);
     }
 
     get content() {
         return this.internalContent;
     }
 
-    get whitespaceSize() {
-        return this.internalWhitespaceSize;
-    }
-
     setContent(content: string) {
         this.internalContent = content;
-        this.domContainer.innerText = content;
+        this.domInnerContainer.innerText = content;
+        this.didUpdateEventEmitter.emit({});
     }
 
-    setWhitespaceSize(whitespaceSize: number) {
-        this.internalWhitespaceSize = whitespaceSize;
+    protected updateDOMLayout() {
+        this.domContainer.style.width = `${this.layout.width}px`;
+        this.domContainer.style.height = `${this.layout.height}px`;
+        this.domContainer.style.fontFamily = this.layout.family;
+        this.domContainer.style.fontSize = `${this.layout.size}px`;
+        this.domContainer.style.letterSpacing = `${this.layout.letterSpacing}px`;
+        this.domContainer.style.fontWeight = `${this.layout.weight}`;
+        this.domContainer.style.color = this.layout.color;
+        this.domContainer.style.textDecoration = this.layout.underline ? 'underline' : '';
+        this.domContainer.style.fontStyle = this.layout.italic ? 'italic' : '';
+        this.domInnerContainer.style.textDecoration = this.layout.strikethrough ? 'line-through' : '';
     }
 }
 
-export class InlineViewNode extends BaseViewNode<IInlineStyle> implements IInlineViewNode {
+export class InlineViewNode extends BaseViewNode<IInlineLayout> implements IInlineViewNode {
     readonly type = 'inline';
     readonly size = 1;
     readonly domContainer: HTMLDivElement;
@@ -327,6 +338,11 @@ export class InlineViewNode extends BaseViewNode<IInlineStyle> implements IInlin
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div');
+    }
+
+    protected updateDOMLayout() {
+        this.domContainer.style.width = `${this.layout.width}px`;
+        this.domContainer.style.height = `${this.layout.height}px`;
     }
 }
 

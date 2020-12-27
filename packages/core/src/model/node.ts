@@ -68,9 +68,7 @@ abstract class BaseModelNode implements IBaseModelNode {
 
     protected internalAttributes: IAttributes = {};
     protected internalNeedRender = true;
-    protected didUpdateEventEmitter = new EventEmitter<
-        IDidUpdateModelNodeEvent
-    >();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateModelNodeEvent>();
 
     constructor(readonly componentId: string, readonly id: string) {
         this.onDidUpdate(() => {
@@ -130,10 +128,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
         if (at < 0 || at > this.internalChildren.length) {
             throw new Error('Child insertion point is out of range.');
         }
-        this.childDidUpdateDisposableMap.set(
-            child.id,
-            child.onDidUpdate(this.handleChildDidUpdate),
-        );
+        this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate));
         this.internalChildren.splice(at, 0, child);
         this.didUpdateEventEmitter.emit({});
     }
@@ -170,10 +165,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
 
     toContentPosition(position: IPoint) {
         const currentOffset = position.path[0];
-        if (
-            currentOffset < 0 ||
-            currentOffset >= this.internalChildren.length
-        ) {
+        if (currentOffset < 0 || currentOffset >= this.internalChildren.length) {
             throw new Error('Position is invalid.');
         }
         const child = this.internalChildren[currentOffset];
@@ -181,10 +173,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
         return (
             this.internalChildren
                 .slice(0, currentOffset)
-                .reduce(
-                    (contentSize, child) => contentSize + child.contentSize,
-                    0,
-                ) +
+                .reduce((contentSize, child) => contentSize + child.contentSize, 0) +
             child.toContentPosition({
                 path: childPath,
                 offset: position.offset,
@@ -198,9 +187,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
             const child = this.internalChildren[n];
             const childContentSize = child.contentSize;
             if (cumulatedContentSize + childContentSize > contentPosition) {
-                const childPosition = child.fromContentPosition(
-                    contentPosition - cumulatedContentSize,
-                );
+                const childPosition = child.fromContentPosition(contentPosition - cumulatedContentSize);
                 return {
                     path: [n, ...childPosition.path],
                     offset: childPosition.offset,
@@ -211,10 +198,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
     }
 
     protected calculateContentSize() {
-        return this.internalChildren.reduce(
-            (contentSize, child) => contentSize + child.contentSize,
-            0,
-        );
+        return this.internalChildren.reduce((contentSize, child) => contentSize + child.contentSize, 0);
     }
 
     protected handleChildDidUpdate = () => {
@@ -229,10 +213,7 @@ export class BlockModelNode extends BaseModelNode implements IBlockModelNode {
     protected internalMarks: IMark[] = [];
     protected internalSize?: number;
     protected internalContentSize?: number;
-    protected inlineDidUpdateDisposableMap: Map<
-        string,
-        IDisposable
-    > = new Map();
+    protected inlineDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
 
     get content() {
         return this.internalContent.slice();
@@ -259,9 +240,7 @@ export class BlockModelNode extends BaseModelNode implements IBlockModelNode {
             if (typeof characterOrInlineNode !== 'string') {
                 this.inlineDidUpdateDisposableMap.set(
                     characterOrInlineNode.id,
-                    characterOrInlineNode.onDidUpdate(
-                        this.handleInlineDidUpdate,
-                    ),
+                    characterOrInlineNode.onDidUpdate(this.handleInlineDidUpdate),
                 );
             }
         });
@@ -285,21 +264,14 @@ export class BlockModelNode extends BaseModelNode implements IBlockModelNode {
     }
 
     toContentPosition(position: IPoint) {
-        if (
-            position.path.length > 0 ||
-            position.offset < 0 ||
-            position.offset >= this.internalContent.length
-        ) {
+        if (position.path.length > 0 || position.offset < 0 || position.offset >= this.internalContent.length) {
             throw new Error('Position is invalid.');
         }
         return position.offset;
     }
 
     fromContentPosition(contentPosition: number) {
-        if (
-            contentPosition < 0 ||
-            contentPosition >= this.internalContent.length
-        ) {
+        if (contentPosition < 0 || contentPosition >= this.internalContent.length) {
             throw new Error('Content position is invalid.');
         }
         return { path: [], offset: contentPosition };

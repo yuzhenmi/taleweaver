@@ -1,7 +1,7 @@
 import { BlockRenderNode, DocRenderNode, TextRenderNode } from '../render/node';
 import { TextService } from '../text/service';
 import { TextServiceStub } from '../text/service.stub';
-import { IDocLayoutNode } from './node';
+import { IDocLayoutNode } from './doc-node';
 import { LayoutTreeManager } from './tree-manager';
 
 function getContentFromDoc(doc: IDocLayoutNode) {
@@ -11,9 +11,7 @@ function getContentFromDoc(doc: IDocLayoutNode) {
                 line.children.map((textOrInline) => {
                     switch (textOrInline.type) {
                         case 'text':
-                            return textOrInline.children.map(
-                                (word) => word.content,
-                            );
+                            return textOrInline.children.map((word) => word.content);
                         default:
                             return null;
                     }
@@ -111,9 +109,7 @@ describe('LayoutTreeManager', () => {
             });
 
             it('builds updated layout tree', () => {
-                expect(getContentFromDoc(doc)).toEqual([
-                    [[[['Hello ', 'beautiful ', 'world!']]]],
-                ]);
+                expect(getContentFromDoc(doc)).toEqual([[[[['Hello ', 'beautiful ', 'world!']]]]]);
             });
         });
 

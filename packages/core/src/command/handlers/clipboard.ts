@@ -7,10 +7,7 @@ export class CopyCommandHandler implements ICommandHandler {
 
     private internalIframe?: HTMLIFrameElement;
 
-    constructor(
-        protected cursorService: ICursorService,
-        protected domService: IDOMService,
-    ) {}
+    constructor(protected cursorService: ICursorService, protected domService: IDOMService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();

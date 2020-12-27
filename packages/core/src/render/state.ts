@@ -15,9 +15,7 @@ export interface IRenderState {
 }
 
 export class RenderState implements IRenderState {
-    protected didUpdateEventEmitter = new EventEmitter<
-        IDidUpdateRenderStateEvent
-    >();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
     protected treeManager: RenderTreeManager;
     readonly doc: IDocRenderNode;
 

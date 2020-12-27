@@ -1,8 +1,4 @@
-import {
-    IBlockRenderSpec,
-    IDocRenderSpec,
-    IInlineRenderSpec,
-} from '../render/spec';
+import { IBlockRenderSpec, IDocRenderSpec, IInlineRenderSpec } from '../render/spec';
 
 interface IBaseComponent {
     readonly id: string;
@@ -32,22 +28,19 @@ abstract class BaseComponent implements IBaseComponent {
     constructor(readonly id: string) {}
 }
 
-export abstract class DocComponent<TAttributes> extends BaseComponent
-    implements IDocComponent<TAttributes> {
+export abstract class DocComponent<TAttributes> extends BaseComponent implements IDocComponent<TAttributes> {
     abstract render(attributes: Partial<TAttributes>): IDocRenderSpec;
 
     readonly type = 'doc';
 }
 
-export abstract class BlockComponent<TAttributes> extends BaseComponent
-    implements IBlockComponent<TAttributes> {
+export abstract class BlockComponent<TAttributes> extends BaseComponent implements IBlockComponent<TAttributes> {
     abstract render(attributes: Partial<TAttributes>): IBlockRenderSpec;
 
     readonly type = 'block';
 }
 
-export abstract class InlineComponent<TAttributes> extends BaseComponent
-    implements IInlineComponent<TAttributes> {
+export abstract class InlineComponent<TAttributes> extends BaseComponent implements IInlineComponent<TAttributes> {
     abstract render(attributes: Partial<TAttributes>): IInlineRenderSpec;
 
     readonly type = 'inline';

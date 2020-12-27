@@ -17,10 +17,7 @@ export class ConfigServiceStub implements IConfigService {
     constructor() {
         this.config = {
             commands: {},
-            components: [
-                new DocComponent('doc'),
-                new ParagraphComponent('paragraph'),
-            ],
+            components: [new DocComponent('doc'), new ParagraphComponent('paragraph')],
             markTypes: [
                 new Color('color'),
                 new Family('family'),
@@ -47,14 +44,6 @@ export class ConfigServiceStub implements IConfigService {
                 macos: {},
                 windows: {},
                 linux: {},
-            },
-            page: {
-                width: 800,
-                height: 1000,
-                paddingTop: 50,
-                paddingBottom: 50,
-                paddingLeft: 50,
-                paddingRight: 50,
             },
         };
     }

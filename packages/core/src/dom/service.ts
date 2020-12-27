@@ -2,9 +2,7 @@ export interface IDOMService {
     getWindow(): Window;
     getDocument(): Document;
     getBody(): HTMLElement;
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(
-        tagName: TTagName,
-    ): HTMLElementTagNameMap[TTagName];
+    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName): HTMLElementTagNameMap[TTagName];
     createHiddenIframe(): HTMLIFrameElement;
     createContainer(): HTMLElement;
     createMutationObserver(callback: MutationCallback): MutationObserver;
@@ -23,9 +21,7 @@ export class DOMService implements IDOMService {
         return document.body;
     }
 
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(
-        tagName: TTagName,
-    ) {
+    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName) {
         return document.createElement(tagName);
     }
 

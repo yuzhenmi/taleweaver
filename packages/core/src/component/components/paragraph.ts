@@ -10,7 +10,7 @@ export class ParagraphComponent extends BlockComponent<IParagraphAttributes> {
                 paddingBottom: 0,
                 paddingLeft: 0,
                 paddingRight: 0,
-                lineHeight: 0,
+                lineHeight: 2,
             },
         };
     }

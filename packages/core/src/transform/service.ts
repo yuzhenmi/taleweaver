@@ -17,9 +17,7 @@ export interface ITransformService {
 }
 
 export class TransformService implements ITransformService {
-    protected didApplyTransformationEventEmitter = new EventEmitter<
-        IDidApplyTransformationEvent
-    >();
+    protected didApplyTransformationEventEmitter = new EventEmitter<IDidApplyTransformationEvent>();
 
     constructor(
         protected modelService: IModelService,
@@ -30,18 +28,12 @@ export class TransformService implements ITransformService {
     ) {}
 
     applyTransformation(tn: ITransformation) {
-        const result = tn.apply(
-            this.modelService,
-            this.cursorService,
-            this.layoutService,
-        );
+        const result = tn.apply(this.modelService, this.cursorService, this.layoutService);
         this.didApplyTransformationEventEmitter.emit({ result });
         return result;
     }
 
-    onDidApplyTransformation(
-        listener: IEventListener<IDidApplyTransformationEvent>,
-    ) {
+    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformationEvent>) {
         return this.didApplyTransformationEventEmitter.on(listener);
     }
 }

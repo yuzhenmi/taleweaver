@@ -28,30 +28,15 @@ export class KeyboardObserver implements IKeyboardObserver {
     protected mutationObserver: MutationObserver;
     protected didInsertEventEmitter = new EventEmitter<IDidInsertEvent>();
     protected didPressKeyEventEmitter = new EventEmitter<IDidPressKeyEvent>();
-    protected compositionDidStartEventEmitter = new EventEmitter<
-        ICompositionDidStart
-    >();
-    protected compositionDidEndEventEmitter = new EventEmitter<
-        ICompositionDidEnd
-    >();
+    protected compositionDidStartEventEmitter = new EventEmitter<ICompositionDidStart>();
+    protected compositionDidEndEventEmitter = new EventEmitter<ICompositionDidEnd>();
     protected keyInterpreter = new KeyInterpreter();
 
-    constructor(
-        protected $contentEditable: HTMLDivElement,
-        protected domService: IDOMService,
-    ) {
-        this.mutationObserver = domService.createMutationObserver(
-            this.handleDidMutate,
-        );
+    constructor(protected $contentEditable: HTMLDivElement, protected domService: IDOMService) {
+        this.mutationObserver = domService.createMutationObserver(this.handleDidMutate);
         $contentEditable.addEventListener('keydown', this.handleKeyDown);
-        $contentEditable.addEventListener(
-            'compositionstart',
-            this.handleCompositionStart,
-        );
-        $contentEditable.addEventListener(
-            'compositionend',
-            this.handleCompositionEnd,
-        );
+        $contentEditable.addEventListener('compositionstart', this.handleCompositionStart);
+        $contentEditable.addEventListener('compositionend', this.handleCompositionEnd);
         this.mutationObserver.observe($contentEditable, {
             subtree: true,
             characterData: true,

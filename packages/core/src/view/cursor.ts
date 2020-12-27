@@ -1,7 +1,8 @@
 import { IConfigService } from '../config/service';
 import { ICursorService } from '../cursor/service';
 import { IDOMService } from '../dom/service';
-import { IBoundingBox, IPageLayoutNode } from '../layout/node';
+import { IBoundingBox } from '../layout/node';
+import { IPageLayoutNode } from '../layout/page-node';
 import { ILayoutService } from '../layout/service';
 import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
 import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';

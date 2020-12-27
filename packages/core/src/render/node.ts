@@ -17,12 +17,12 @@ interface IBaseRenderNode<TStyle> {
 }
 
 export interface IDocStyle {
-    pageWidth: number;
-    pageHeight: number;
-    pagePaddingTop: number;
-    pagePaddingBottom: number;
-    pagePaddingLeft: number;
-    pagePaddingRight: number;
+    readonly pageWidth: number;
+    readonly pageHeight: number;
+    readonly pagePaddingTop: number;
+    readonly pagePaddingBottom: number;
+    readonly pagePaddingLeft: number;
+    readonly pagePaddingRight: number;
 }
 
 export type IDocRenderNodeChild = IBlockRenderNode;
@@ -36,11 +36,11 @@ export interface IDocRenderNode extends IBaseRenderNode<IDocStyle> {
 }
 
 export interface IBlockStyle {
-    paddingTop: number;
-    paddingBottom: number;
-    paddingLeft: number;
-    paddingRight: number;
-    lineHeight: number;
+    readonly paddingTop: number;
+    readonly paddingBottom: number;
+    readonly paddingLeft: number;
+    readonly paddingRight: number;
+    readonly lineHeight: number;
 }
 
 export type IBlockRenderNodeChild = ITextRenderNode | IInlineRenderNode;
@@ -61,8 +61,8 @@ export interface ITextRenderNode extends IBaseRenderNode<ITextStyle> {
 }
 
 export interface IInlineStyle {
-    width: number;
-    height: number;
+    readonly width: number;
+    readonly height: number;
 }
 
 export interface IInlineRenderNode extends IBaseRenderNode<IInlineStyle> {
@@ -70,11 +70,7 @@ export interface IInlineRenderNode extends IBaseRenderNode<IInlineStyle> {
     readonly modelId: string;
 }
 
-export type IRenderNode =
-    | IDocRenderNode
-    | IBlockRenderNode
-    | ITextRenderNode
-    | IInlineRenderNode;
+export type IRenderNode = IDocRenderNode | IBlockRenderNode | ITextRenderNode | IInlineRenderNode;
 
 abstract class BaseRenderNode<TStyle> implements IBaseRenderNode<TStyle> {
     abstract readonly size: number;
@@ -83,9 +79,7 @@ abstract class BaseRenderNode<TStyle> implements IBaseRenderNode<TStyle> {
 
     protected internalStyle?: TStyle;
     protected internalNeedLayout = true;
-    protected didUpdateEventEmitter = new EventEmitter<
-        IDidUpdateRenderNodeEvent
-    >();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateRenderNodeEvent>();
 
     constructor() {
         this.onDidUpdate(() => {
@@ -97,7 +91,7 @@ abstract class BaseRenderNode<TStyle> implements IBaseRenderNode<TStyle> {
         if (!this.internalStyle) {
             throw new Error('Style is not initialized.');
         }
-        return JSON.parse(JSON.stringify(this.internalStyle));
+        return this.internalStyle;
     }
 
     get needLayout() {
@@ -118,8 +112,7 @@ abstract class BaseRenderNode<TStyle> implements IBaseRenderNode<TStyle> {
     }
 }
 
-export class DocRenderNode extends BaseRenderNode<IDocStyle>
-    implements IDocRenderNode {
+export class DocRenderNode extends BaseRenderNode<IDocStyle> implements IDocRenderNode {
     readonly type = 'doc';
 
     protected internalChildren: IDocRenderNodeChild[] = [];
@@ -145,25 +138,17 @@ export class DocRenderNode extends BaseRenderNode<IDocStyle>
     }
 
     setChildren(children: IDocRenderNodeChild[]) {
-        this.childDidUpdateDisposableMap.forEach((disposable) =>
-            disposable.dispose(),
-        );
+        this.childDidUpdateDisposableMap.forEach((disposable) => disposable.dispose());
         this.childDidUpdateDisposableMap.clear();
         children.forEach((child) =>
-            this.childDidUpdateDisposableMap.set(
-                child.id,
-                child.onDidUpdate(this.handleChildDidUpdate),
-            ),
+            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate)),
         );
         this.internalChildren = children;
         this.didUpdateEventEmitter.emit({});
     }
 
     protected calculateSize() {
-        return this.internalChildren.reduce(
-            (size, child) => size + child.size,
-            0,
-        );
+        return this.internalChildren.reduce((size, child) => size + child.size, 0);
     }
 
     protected handleChildDidUpdate = () => {
@@ -171,8 +156,7 @@ export class DocRenderNode extends BaseRenderNode<IDocStyle>
     };
 }
 
-export class BlockRenderNode extends BaseRenderNode<IBlockStyle>
-    implements IBlockRenderNode {
+export class BlockRenderNode extends BaseRenderNode<IBlockStyle> implements IBlockRenderNode {
     readonly type = 'block';
 
     protected internalChildren: IBlockRenderNodeChild[] = [];
@@ -198,25 +182,17 @@ export class BlockRenderNode extends BaseRenderNode<IBlockStyle>
     }
 
     setChildren(children: IBlockRenderNodeChild[]) {
-        this.childDidUpdateDisposableMap.forEach((disposable) =>
-            disposable.dispose(),
-        );
+        this.childDidUpdateDisposableMap.forEach((disposable) => disposable.dispose());
         this.childDidUpdateDisposableMap.clear();
         children.forEach((child) =>
-            this.childDidUpdateDisposableMap.set(
-                child.id,
-                child.onDidUpdate(this.handleChildDidUpdate),
-            ),
+            this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate)),
         );
         this.internalChildren = children;
         this.didUpdateEventEmitter.emit({});
     }
 
     protected calculateSize() {
-        return this.internalChildren.reduce(
-            (size, child) => size + child.size,
-            0,
-        );
+        return this.internalChildren.reduce((size, child) => size + child.size, 0);
     }
 
     protected handleChildDidUpdate = () => {
@@ -224,8 +200,7 @@ export class BlockRenderNode extends BaseRenderNode<IBlockStyle>
     };
 }
 
-export class TextRenderNode extends BaseRenderNode<ITextStyle>
-    implements ITextRenderNode {
+export class TextRenderNode extends BaseRenderNode<ITextStyle> implements ITextRenderNode {
     readonly type = 'text';
 
     protected internalContent = '';
@@ -244,8 +219,7 @@ export class TextRenderNode extends BaseRenderNode<ITextStyle>
     }
 }
 
-export class InlineRenderNode extends BaseRenderNode<IInlineStyle>
-    implements IInlineRenderNode {
+export class InlineRenderNode extends BaseRenderNode<IInlineStyle> implements IInlineRenderNode {
     readonly type = 'inline';
     readonly size = 1;
 

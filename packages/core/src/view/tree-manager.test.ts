@@ -1,12 +1,10 @@
 import { DOMServiceStub } from '../dom/service.stub';
-import {
-    BlockLayoutNode,
-    DocLayoutNode,
-    LineLayoutNode,
-    PageLayoutNode,
-    TextLayoutNode,
-    WordLayoutNode,
-} from '../layout/node';
+import { BlockLayoutNode } from '../layout/block-node';
+import { DocLayoutNode } from '../layout/doc-node';
+import { LineLayoutNode } from '../layout/line-node';
+import { PageLayoutNode } from '../layout/page-node';
+import { TextLayoutNode } from '../layout/text-node';
+import { WordLayoutNode } from '../layout/word-node';
 import { TextServiceStub } from '../text/service.stub';
 import { IDocViewNode, ITextViewNode } from './node';
 import { ViewTreeManager } from './tree-manager';
@@ -32,16 +30,9 @@ describe('ViewTreeManager', () => {
 
         beforeEach(() => {
             layoutDoc = new DocLayoutNode('doc');
-            layoutDoc.setStyle({
-                pageWidth: 0,
-                pageHeight: 0,
-                pagePaddingTop: 0,
-                pagePaddingBottom: 0,
-                pagePaddingLeft: 0,
-                pagePaddingRight: 0,
-            });
+            layoutDoc.setLayoutProps({});
             layoutPage = new PageLayoutNode();
-            layoutPage.setStyle({
+            layoutPage.setLayoutProps({
                 width: 0,
                 height: 0,
                 paddingTop: 0,
@@ -51,7 +42,7 @@ describe('ViewTreeManager', () => {
             });
             layoutDoc.setChildren([layoutPage]);
             layoutBlock = new BlockLayoutNode('block');
-            layoutBlock.setStyle({
+            layoutBlock.setLayoutProps({
                 width: 0,
                 paddingTop: 0,
                 paddingBottom: 0,
@@ -60,13 +51,13 @@ describe('ViewTreeManager', () => {
             });
             layoutPage.setChildren([layoutBlock]);
             layoutLine = new LineLayoutNode();
-            layoutLine.setStyle({
+            layoutLine.setLayoutProps({
                 width: 0,
                 lineHeight: 0,
             });
             layoutBlock.setChildren([layoutLine]);
             layoutText = new TextLayoutNode('text');
-            layoutText.setStyle({
+            layoutText.setLayoutProps({
                 weight: 400,
                 size: 14,
                 family: 'sans-serif',
@@ -78,7 +69,7 @@ describe('ViewTreeManager', () => {
             });
             layoutLine.setChildren([layoutText]);
             layoutWord = new WordLayoutNode(textService);
-            layoutWord.setStyle({
+            layoutWord.setLayoutProps({
                 weight: 400,
                 size: 14,
                 family: 'sans-serif',
@@ -104,8 +95,7 @@ describe('ViewTreeManager', () => {
                 expect(line.layoutId).toEqual(layoutLine.id);
                 const text = line.children[0] as ITextViewNode;
                 expect(text.layoutId).toEqual(layoutText.id);
-                const word = text.children[0];
-                expect(word.content).toEqual('Hello ');
+                expect(text.content).toEqual('Hello ');
             });
         });
 
@@ -116,7 +106,7 @@ describe('ViewTreeManager', () => {
             beforeEach(() => {
                 doc = treeManager.syncWithLayoutTree(layoutDoc);
                 layoutWord2 = new WordLayoutNode(textService);
-                layoutWord2.setStyle({
+                layoutWord2.setLayoutProps({
                     weight: 400,
                     size: 14,
                     family: 'sans-serif',
@@ -141,10 +131,7 @@ describe('ViewTreeManager', () => {
                 expect(line.layoutId).toEqual(layoutLine.id);
                 const text = line.children[0] as ITextViewNode;
                 expect(text.layoutId).toEqual(layoutText.id);
-                const word1 = text.children[0];
-                expect(word1.content).toEqual('Hello ');
-                const word2 = text.children[1];
-                expect(word2.content).toEqual('world!');
+                expect(text.content).toEqual('Hello world!');
             });
         });
     });

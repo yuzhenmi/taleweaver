@@ -14,9 +14,7 @@ import { IDocViewNode } from './node';
 import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
 export interface IViewService {
-    onDidUpdateViewState(
-        listener: IEventListener<IDidUpdateViewStateEvent>,
-    ): void;
+    onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
     onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
     onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
     onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;

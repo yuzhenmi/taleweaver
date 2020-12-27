@@ -10,9 +10,7 @@ export interface IModelService {
     toContentPosition(position: IPoint): number;
     fromContentPosition(contentPosition: number): IPoint;
     applyOperation(operation: IOperation): IOperationResult;
-    onDidUpdateModelState(
-        listener: IEventListener<IDidUpdateModelStateEvent>,
-    ): void;
+    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
 }
 
 export class ModelService implements IModelService {

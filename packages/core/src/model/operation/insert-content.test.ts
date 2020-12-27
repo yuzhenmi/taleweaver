@@ -34,26 +34,18 @@ describe('InsertContent', () => {
 
         describe('when insertion point is within content', () => {
             beforeEach(() => {
-                operation = new InsertContent(
-                    { path: [0], offset: 5 },
-                    ' beautiful'.split(''),
-                );
+                operation = new InsertContent({ path: [0], offset: 5 }, ' beautiful'.split(''));
             });
 
             it('inserts content', () => {
                 operation.apply(doc);
-                expect(doc.children[0].content).toEqual(
-                    'Hello beautiful world!\n'.split(''),
-                );
+                expect(doc.children[0].content).toEqual('Hello beautiful world!\n'.split(''));
             });
         });
 
         describe('when insertion point is outside of content', () => {
             beforeEach(() => {
-                operation = new InsertContent(
-                    { path: [0], offset: 13 },
-                    ' beautiful'.split(''),
-                );
+                operation = new InsertContent({ path: [0], offset: 13 }, ' beautiful'.split(''));
             });
 
             it('throws error', () => {

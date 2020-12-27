@@ -87,10 +87,7 @@ const App: React.FC = () => {
                     <DemoHint>&darr; Check it out &darr;</DemoHint>
                 </DemoHintWrapper>
             </Hero>
-            <Editor
-                initialDoc={sample}
-                config={{}}
-            />
+            <Editor initialDoc={sample} config={{}} />
         </Wrapper>
     );
 };

@@ -1,19 +1,7 @@
 import { IComponentService } from '../component/service';
-import {
-    BlockModelNode,
-    DocModelNode,
-    IDocModelNode,
-    IInlineModelNode,
-    IModelNode,
-    InlineModelNode,
-} from './node';
+import { BlockModelNode, DocModelNode, IDocModelNode, IInlineModelNode, IModelNode, InlineModelNode } from './node';
 
-type ISerializableValue =
-    | number
-    | string
-    | boolean
-    | ISerializableValue[]
-    | { [key: string]: ISerializableValue };
+type ISerializableValue = number | string | boolean | ISerializableValue[] | { [key: string]: ISerializableValue };
 
 export interface ISerializable {
     componentId: string;
@@ -82,17 +70,11 @@ export class Serializer {
                             characterOrInlineNode = '$';
                         } else {
                             if (m >= dataChildren.length) {
-                                throw new Error(
-                                    'Expected additional children in block node.',
-                                );
+                                throw new Error('Expected additional children in block node.');
                             }
-                            const inlineNode = this.internalParse(
-                                dataChildren[m],
-                            );
+                            const inlineNode = this.internalParse(dataChildren[m]);
                             if (inlineNode.type !== 'inline') {
-                                throw new Error(
-                                    'Expected block node child as inline node.',
-                                );
+                                throw new Error('Expected block node child as inline node.');
                             }
                             characterOrInlineNode = inlineNode;
                         }
@@ -128,22 +110,18 @@ export class Serializer {
             case 'block': {
                 result.content = '';
                 result.children = [];
-                node.content
-                    .slice(0, node.content.length - 1)
-                    .forEach((characterOrInlineNode) => {
-                        if (typeof characterOrInlineNode === 'string') {
-                            if (characterOrInlineNode === '$') {
-                                result.content += '$$';
-                            } else {
-                                result.content += characterOrInlineNode;
-                            }
+                node.content.slice(0, node.content.length - 1).forEach((characterOrInlineNode) => {
+                    if (typeof characterOrInlineNode === 'string') {
+                        if (characterOrInlineNode === '$') {
+                            result.content += '$$';
                         } else {
-                            result.content += '$';
-                            result.children!.push(
-                                this.internalSerialize(characterOrInlineNode),
-                            );
+                            result.content += characterOrInlineNode;
                         }
-                    });
+                    } else {
+                        result.content += '$';
+                        result.children!.push(this.internalSerialize(characterOrInlineNode));
+                    }
+                });
                 result.marks = node.marks as any;
                 break;
             }

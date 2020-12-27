@@ -1,27 +1,13 @@
 import { IBlockRenderNode, IDocRenderNode, IInlineRenderNode, ITextRenderNode } from '../render/node';
 import { ITextService } from '../text/service';
-import { testDeepEquality } from '../util/compare';
-import {
-    BlockLayoutNode,
-    DocLayoutNode,
-    IBlockLayoutNode,
-    IBlockStyle,
-    IDocLayoutNode,
-    IInlineLayoutNode,
-    ILayoutNode,
-    ILineLayoutNode,
-    ILineLayoutNodeChild,
-    ILineStyle,
-    InlineLayoutNode,
-    IPageLayoutNode,
-    IPageLayoutNodeChild,
-    ITextLayoutNode,
-    IWordLayoutNode,
-    LineLayoutNode,
-    PageLayoutNode,
-    TextLayoutNode,
-    WordLayoutNode,
-} from './node';
+import { BlockLayoutNode, IBlockLayoutNode, IBlockLayoutProps } from './block-node';
+import { DocLayoutNode, IDocLayoutNode } from './doc-node';
+import { IInlineLayoutNode, InlineLayoutNode } from './inline-node';
+import { ILineLayoutNode, ILineLayoutNodeChild, ILineLayoutProps, LineLayoutNode } from './line-node';
+import { ILayoutNode } from './node';
+import { IPageLayoutNode, IPageLayoutNodeChild, PageLayoutNode } from './page-node';
+import { ITextLayoutNode, TextLayoutNode } from './text-node';
+import { IWordLayoutNode, WordLayoutNode } from './word-node';
 
 interface ILayoutNodeWithChildren<TChild extends ILayoutNode> {
     children: TChild[];
@@ -55,9 +41,9 @@ export class LayoutTreeManager {
             });
         });
         const renderChildren = renderNode.children;
-        const docRenderStyle = renderNode.style;
-        const pageContentWidth =
-            docRenderStyle.pageWidth - docRenderStyle.pagePaddingLeft - docRenderStyle.pagePaddingRight;
+        const docStyle = renderNode.style;
+        const pageContentWidth = docStyle.pageWidth - docStyle.pagePaddingLeft - docStyle.pagePaddingRight;
+        const pageContentHeight = docStyle.pageHeight - docStyle.pagePaddingTop - docStyle.pagePaddingBottom;
         const newChildren: IPageLayoutNodeChild[] = [];
         renderChildren.forEach((renderChild) => {
             newChildren.push(
@@ -65,18 +51,17 @@ export class LayoutTreeManager {
             );
         });
         this.updateChildrenForNodes(pages, newChildren, () => this.buildPageLayoutNode());
-        this.reflowPages(pages, pageContentWidth);
-        const pageStyle = {
-            width: docRenderStyle.pageWidth,
-            height: docRenderStyle.pageHeight,
-            paddingTop: docRenderStyle.pagePaddingTop,
-            paddingBottom: docRenderStyle.pagePaddingBottom,
-            paddingLeft: docRenderStyle.pagePaddingLeft,
-            paddingRight: docRenderStyle.pagePaddingRight,
+        this.reflowPages(pages, pageContentHeight);
+        const pageLayoutProps = {
+            width: docStyle.pageWidth,
+            height: docStyle.pageHeight,
+            paddingTop: docStyle.pagePaddingTop,
+            paddingBottom: docStyle.pagePaddingBottom,
+            paddingLeft: docStyle.pagePaddingLeft,
+            paddingRight: docStyle.pagePaddingRight,
         };
-        pages.forEach((page) => this.updateStyleIfNeeded(page, pageStyle));
+        pages.forEach((page) => page.setLayoutProps(pageLayoutProps));
         node.setChildren(pages);
-        this.updateStyleIfNeeded(node, {}); // No style for doc yet
         renderNode.markAsLaidOut();
         return node;
     }
@@ -114,23 +99,23 @@ export class LayoutTreeManager {
             }
         });
         this.updateChildrenForNodes(lines, newChildren, () => this.buildLineLayoutNode());
-        const blockRenderStyle = renderNode.style;
-        const blockStyle: IBlockStyle = {
+        const blockStyle = renderNode.style;
+        const blockLayoutProps: IBlockLayoutProps = {
             width,
-            paddingTop: blockRenderStyle.paddingTop,
-            paddingBottom: blockRenderStyle.paddingBottom,
-            paddingLeft: blockRenderStyle.paddingLeft,
-            paddingRight: blockRenderStyle.paddingRight,
+            paddingTop: blockStyle.paddingTop,
+            paddingBottom: blockStyle.paddingBottom,
+            paddingLeft: blockStyle.paddingLeft,
+            paddingRight: blockStyle.paddingRight,
         };
-        const lineWidth = blockStyle.width - blockStyle.paddingLeft - blockStyle.paddingRight;
-        const lineStyle: ILineStyle = {
+        const lineWidth = blockLayoutProps.width - blockLayoutProps.paddingLeft - blockLayoutProps.paddingRight;
+        const lineLayoutProps: ILineLayoutProps = {
             width: lineWidth,
-            lineHeight: blockRenderStyle.lineHeight,
+            lineHeight: blockStyle.lineHeight,
         };
-        this.reflowLines(lines, lineStyle.width);
-        lines.forEach((line) => this.updateStyleIfNeeded(line, lineStyle));
+        this.reflowLines(lines, lineLayoutProps.width);
+        lines.forEach((line) => line.setLayoutProps(lineLayoutProps));
         this.updateChildrenForNodes(nodes, lines, () => this.buildBlockLayoutNode(renderNode.id));
-        nodes.forEach((node) => this.updateStyleIfNeeded(node, blockStyle));
+        nodes.forEach((node) => node.setLayoutProps(blockLayoutProps));
         renderNode.markAsLaidOut();
         return nodes;
     }
@@ -142,7 +127,7 @@ export class LayoutTreeManager {
         if (!node) {
             node = this.buildInlineLayoutNode(renderNode.id);
         }
-        this.updateStyleIfNeeded(node, renderNode.style);
+        node.setLayoutProps(renderNode.style);
         renderNode.markAsLaidOut();
         return node;
     }
@@ -169,12 +154,12 @@ export class LayoutTreeManager {
                 child.setContent(word.content);
                 child.setWhitespaceSize(word.whitespaceSize);
             }
-            this.updateStyleIfNeeded(child, renderNode.style);
+            child.setLayoutProps(renderNode.style);
             newChildren.push(child);
         }
         node.setChildren(newChildren);
         this.updateChildrenForNodes(nodes, newChildren, () => this.buildTextLayoutNode(renderNode.id));
-        nodes.forEach((node) => this.updateStyleIfNeeded(node, renderNode.style));
+        nodes.forEach((node) => node.setLayoutProps(renderNode.style));
         renderNode.markAsLaidOut();
         return nodes;
     }
@@ -187,23 +172,23 @@ export class LayoutTreeManager {
         while (children.length > 0) {
             const child = children.shift()!;
             let shouldStartNewPage = false;
-            if (heightInCurrentPage + child.height > maxHeight) {
+            if (heightInCurrentPage + child.layout.height > maxHeight) {
                 switch (child.type) {
                     case 'block': {
                         const remainingHeight = maxHeight - heightInCurrentPage;
                         const lines: ILineLayoutNode[] = [];
                         let heightOfLines = 0;
                         for (const line of child.children) {
-                            if (heightOfLines + line.height > remainingHeight && heightInCurrentPage > 0) {
+                            if (heightOfLines + line.layout.height > remainingHeight) {
                                 shouldStartNewPage = true;
                                 break;
                             }
                             lines.push(line);
-                            heightOfLines += line.height;
+                            heightOfLines += line.layout.height;
                         }
                         if (lines.length > 0) {
                             const newChild = this.buildBlockLayoutNode(child.renderId);
-                            newChild.setStyle(child.style);
+                            newChild.setLayoutProps(child.layoutProps);
                             newChild.setChildren(child.children.slice(lines.length));
                             child.setChildren(lines);
                             children.unshift(newChild);
@@ -214,7 +199,7 @@ export class LayoutTreeManager {
             }
             child.markAsReflowed();
             childrenInCurrentPage.push(child);
-            heightInCurrentPage += child.height;
+            heightInCurrentPage += child.layout.height;
             if (shouldStartNewPage) {
                 childrenByPage.push(this.compressPageChildren(childrenInCurrentPage));
                 childrenInCurrentPage = [];
@@ -248,23 +233,23 @@ export class LayoutTreeManager {
         while (children.length > 0) {
             const child = children.shift()!;
             let shouldStartNewLine = false;
-            if (widthInCurrentLine + child.width > maxWidth) {
+            if (widthInCurrentLine + child.layout.width > maxWidth) {
                 switch (child.type) {
                     case 'text': {
                         const remainingWidth = maxWidth - widthInCurrentLine;
                         const words: IWordLayoutNode[] = [];
                         let widthOfWords = 0;
                         for (const word of child.children) {
-                            if (widthOfWords + word.width > remainingWidth && widthInCurrentLine > 0) {
+                            if (widthOfWords + word.layout.width > remainingWidth) {
                                 shouldStartNewLine = true;
                                 break;
                             }
                             words.push(word);
-                            widthOfWords += word.width;
+                            widthOfWords += word.layout.width;
                         }
                         if (words.length > 0) {
                             const newChild = this.buildTextLayoutNode(child.renderId);
-                            newChild.setStyle(child.style);
+                            newChild.setLayoutProps(child.layoutProps);
                             newChild.setChildren(child.children.slice(words.length));
                             child.setChildren(words);
                             children.unshift(newChild);
@@ -272,9 +257,9 @@ export class LayoutTreeManager {
                             const word = child.children[0];
                             const breakpoint = word.convertCoordinatesToPosition(maxWidth, 0);
                             const newChild = this.buildTextLayoutNode(child.renderId);
-                            newChild.setStyle(child.style);
+                            newChild.setLayoutProps(child.layoutProps);
                             const newWord = this.buildWordLayoutNode();
-                            newWord.setStyle(word.style);
+                            newWord.setLayoutProps(word.layoutProps);
                             newWord.setContent(word.content.substring(breakpoint));
                             word.setContent(word.content.substring(0, breakpoint));
                             newChild.setChildren([newWord, ...child.children.slice(1)]);
@@ -286,7 +271,7 @@ export class LayoutTreeManager {
                 }
             }
             childrenInCurrentLine.push(child);
-            widthInCurrentLine += child.height;
+            widthInCurrentLine += child.layout.height;
             if (shouldStartNewLine) {
                 childrenByLine.push(this.compressLineChildren(childrenInCurrentLine));
                 childrenInCurrentLine = [];
@@ -384,29 +369,15 @@ export class LayoutTreeManager {
         }
     }
 
-    protected updateStyleIfNeeded(node: ILayoutNode, style: any) {
-        const currentStyle = node.style;
-        if (!testDeepEquality(currentStyle, style)) {
-            node.setStyle(style);
-        }
-    }
-
     protected buildDocLayoutNode(renderId: string) {
         const node = new DocLayoutNode(renderId);
-        node.setStyle({
-            pageWidth: 0,
-            pageHeight: 0,
-            pagePaddingTop: 0,
-            pagePaddingBottom: 0,
-            pagePaddingLeft: 0,
-            pagePaddingRight: 0,
-        });
+        node.setLayoutProps({});
         return node;
     }
 
     protected buildPageLayoutNode() {
         const node = new PageLayoutNode();
-        node.setStyle({
+        node.setLayoutProps({
             width: 0,
             height: 0,
             paddingTop: 0,
@@ -419,7 +390,7 @@ export class LayoutTreeManager {
 
     protected buildBlockLayoutNode(renderId: string) {
         const node = new BlockLayoutNode(renderId);
-        node.setStyle({
+        node.setLayoutProps({
             width: 0,
             paddingTop: 0,
             paddingBottom: 0,
@@ -431,7 +402,7 @@ export class LayoutTreeManager {
 
     protected buildLineLayoutNode() {
         const node = new LineLayoutNode();
-        node.setStyle({
+        node.setLayoutProps({
             width: 0,
             lineHeight: 0,
         });
@@ -440,7 +411,7 @@ export class LayoutTreeManager {
 
     protected buildInlineLayoutNode(renderId: string) {
         const node = new InlineLayoutNode(renderId);
-        node.setStyle({
+        node.setLayoutProps({
             width: 0,
             height: 0,
         });
@@ -449,7 +420,7 @@ export class LayoutTreeManager {
 
     protected buildTextLayoutNode(renderId: string) {
         const node = new TextLayoutNode(renderId);
-        node.setStyle({
+        node.setLayoutProps({
             weight: 400,
             size: 14,
             family: 'sans-serif',
@@ -464,7 +435,7 @@ export class LayoutTreeManager {
 
     protected buildWordLayoutNode() {
         const node = new WordLayoutNode(this.textService);
-        node.setStyle({
+        node.setLayoutProps({
             weight: 400,
             size: 14,
             family: 'sans-serif',

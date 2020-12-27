@@ -40,16 +40,10 @@ export class PointerObserver implements IPointerObserver {
         position: number;
     } | null = null;
     protected consecutiveClickCount: number = 0;
-    protected pointerDidDownEventEmitter = new EventEmitter<
-        IPointerDidDownEvent
-    >();
-    protected pointerDidMoveEventEmitter = new EventEmitter<
-        IPointerDidMoveEvent
-    >();
+    protected pointerDidDownEventEmitter = new EventEmitter<IPointerDidDownEvent>();
+    protected pointerDidMoveEventEmitter = new EventEmitter<IPointerDidMoveEvent>();
     protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
-    protected pointerDidClickEventEmitter = new EventEmitter<
-        IPointerDidClick
-    >();
+    protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
 
     constructor(
         protected instanceId: string,
@@ -91,9 +85,7 @@ export class PointerObserver implements IPointerObserver {
             position,
         };
         const consecutive =
-            this.lastClick !== null &&
-            Date.now() - this.lastClick.timestamp <
-                this.consecutiveClickThreshold;
+            this.lastClick !== null && Date.now() - this.lastClick.timestamp < this.consecutiveClickThreshold;
         this.pointerDidDownEventEmitter.emit({ position, consecutive });
     };
 
@@ -119,9 +111,7 @@ export class PointerObserver implements IPointerObserver {
             return;
         }
         const now = Date.now();
-        const clicked =
-            lastPointerDown.position === position &&
-            now - lastPointerDown.timestamp < this.clickThreshold;
+        const clicked = lastPointerDown.position === position && now - lastPointerDown.timestamp < this.clickThreshold;
         this.pointerDidUpEventEmitter.emit({});
         if (clicked) {
             if (this.lastClick !== null) {

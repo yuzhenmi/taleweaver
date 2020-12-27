@@ -1,12 +1,7 @@
 import { IComponentService } from '../component/service';
 import { IMark } from '../mark/mark';
 import { IMarkService } from '../mark/service';
-import {
-    IBlockModelNode,
-    IDocModelNode,
-    IInlineModelNode,
-    IModelNode,
-} from '../model/node';
+import { IBlockModelNode, IDocModelNode, IInlineModelNode, IModelNode } from '../model/node';
 import { testDeepEquality } from '../util/compare';
 import {
     BlockRenderNode,
@@ -25,40 +20,23 @@ import {
 export class RenderTreeManager {
     protected doc: IDocRenderNode | null = null;
 
-    constructor(
-        protected componentService: IComponentService,
-        protected markService: IMarkService,
-    ) {}
+    constructor(protected componentService: IComponentService, protected markService: IMarkService) {}
 
     syncWithModelTree(modelDoc: IDocModelNode) {
-        this.doc = this.syncWithModelNode(
-            this.doc,
-            modelDoc,
-            null,
-        ) as IDocRenderNode;
+        this.doc = this.syncWithModelNode(this.doc, modelDoc, null) as IDocRenderNode;
         return this.doc;
     }
 
-    protected syncWithModelNode(
-        node: IRenderNode | null,
-        modelNode: IModelNode,
-        parentNode: IRenderNode | null,
-    ) {
+    protected syncWithModelNode(node: IRenderNode | null, modelNode: IModelNode, parentNode: IRenderNode | null) {
         if (!modelNode.needRender && node) {
             return node;
         }
         let updatedNode: IRenderNode;
         if (modelNode.type === 'doc' && (!node || node.type === 'doc')) {
             updatedNode = this.syncWithDocModelNode(node, modelNode);
-        } else if (
-            modelNode.type === 'block' &&
-            (!node || node.type === 'block')
-        ) {
+        } else if (modelNode.type === 'block' && (!node || node.type === 'block')) {
             updatedNode = this.syncWithBlockModelNode(node, modelNode);
-        } else if (
-            modelNode.type === 'inline' &&
-            (!node || node.type === 'inline')
-        ) {
+        } else if (modelNode.type === 'inline' && (!node || node.type === 'inline')) {
             updatedNode = this.syncWithInlineModelNode(node, modelNode);
         } else {
             throw new Error('Invalid render and model node pair for syncing.');
@@ -68,10 +46,7 @@ export class RenderTreeManager {
         return updatedNode;
     }
 
-    protected syncWithDocModelNode(
-        node: IDocRenderNode | null,
-        modelNode: IDocModelNode,
-    ) {
+    protected syncWithDocModelNode(node: IDocRenderNode | null, modelNode: IDocModelNode) {
         if (!node) {
             node = new DocRenderNode(modelNode.id);
             node.setStyle({
@@ -91,29 +66,15 @@ export class RenderTreeManager {
         });
         const newChildren: IDocRenderNodeChild[] = [];
         modelChildren.forEach((modelChild) => {
-            newChildren.push(
-                this.syncWithModelNode(
-                    childrenMap[modelChild.id] || null,
-                    modelChild,
-                    node,
-                ) as any,
-            );
+            newChildren.push(this.syncWithModelNode(childrenMap[modelChild.id] || null, modelChild, node) as any);
         });
-        if (
-            !testDeepEquality(
-                children.map(this.identifyNode),
-                newChildren.map(this.identifyNode),
-            )
-        ) {
+        if (!testDeepEquality(children.map(this.identifyNode), newChildren.map(this.identifyNode))) {
             node.setChildren(newChildren);
         }
         return node;
     }
 
-    protected syncWithBlockModelNode(
-        node: IBlockRenderNode | null,
-        modelNode: IBlockModelNode,
-    ) {
+    protected syncWithBlockModelNode(node: IBlockRenderNode | null, modelNode: IBlockModelNode) {
         if (!node) {
             node = new BlockRenderNode(modelNode.id);
             node.setStyle({
@@ -149,17 +110,11 @@ export class RenderTreeManager {
         let currentMarks: IMark[] = [];
         content.forEach((c, index) => {
             let marksChanged = !!(markStartMap[index] || markEndMap[index]);
-            if (
-                index > stringStartIndex &&
-                (typeof c !== 'string' || marksChanged)
-            ) {
+            if (index > stringStartIndex && (typeof c !== 'string' || marksChanged)) {
                 newChildren.push(
                     this.syncTextNode(
                         textChildren.shift() || null,
-                        (content.slice(
-                            stringStartIndex,
-                            index,
-                        ) as string[]).join(''),
+                        (content.slice(stringStartIndex, index) as string[]).join(''),
                         currentMarks,
                     ),
                 );
@@ -174,11 +129,7 @@ export class RenderTreeManager {
                 currentMarks = currentMarks.filter((m) => !marks.includes(m));
             }
             if (typeof c !== 'string') {
-                this.syncWithModelNode(
-                    inlineChildrenMap[c.id] || null,
-                    c,
-                    node,
-                );
+                this.syncWithModelNode(inlineChildrenMap[c.id] || null, c, node);
             }
         });
         if (stringStartIndex < content.length) {
@@ -190,21 +141,13 @@ export class RenderTreeManager {
                 ),
             );
         }
-        if (
-            !testDeepEquality(
-                children.map(this.identifyNode),
-                newChildren.map(this.identifyNode),
-            )
-        ) {
+        if (!testDeepEquality(children.map(this.identifyNode), newChildren.map(this.identifyNode))) {
             node.setChildren(newChildren);
         }
         return node;
     }
 
-    protected syncWithInlineModelNode(
-        node: IInlineRenderNode | null,
-        modelNode: IInlineModelNode,
-    ) {
+    protected syncWithInlineModelNode(node: IInlineRenderNode | null, modelNode: IInlineModelNode) {
         if (!node) {
             node = new InlineRenderNode(modelNode.id);
             node.setStyle({
@@ -215,16 +158,12 @@ export class RenderTreeManager {
         return node;
     }
 
-    protected syncTextNode(
-        node: ITextRenderNode | null,
-        content: string,
-        marks: IMark[],
-    ) {
+    protected syncTextNode(node: ITextRenderNode | null, content: string, marks: IMark[]) {
         if (!node) {
             node = new TextRenderNode();
             node.setStyle({
                 weight: 400,
-                size: 14,
+                size: 16,
                 family: 'sans-serif',
                 letterSpacing: 0,
                 underline: false,
@@ -239,12 +178,7 @@ export class RenderTreeManager {
         const style = node.style;
         const newStyle = marks.reduce(
             (newStyle, mark) =>
-                Object.assign(
-                    newStyle,
-                    this.markService
-                        .getMarkType(mark.typeId)
-                        .getStyle(mark.attributes),
-                ),
+                Object.assign(newStyle, this.markService.getMarkType(mark.typeId).getStyle(mark.attributes)),
             { ...style },
         );
         if (!testDeepEquality(style, newStyle)) {
@@ -255,13 +189,9 @@ export class RenderTreeManager {
 
     protected syncStyleWithModelNode(node: IRenderNode, modelNode: IModelNode) {
         const style = node.style;
-        const component = this.componentService.getComponent(
-            modelNode.componentId,
-        );
+        const component = this.componentService.getComponent(modelNode.componentId);
         if (!component) {
-            throw new Error(
-                `Unregistered component ID: ${modelNode.componentId}.`,
-            );
+            throw new Error(`Unregistered component ID: ${modelNode.componentId}.`);
         }
         const { style: newStyle } = component.render(modelNode.attributes);
         if (!testDeepEquality(style, newStyle)) {

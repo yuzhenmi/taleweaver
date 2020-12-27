@@ -26,10 +26,7 @@ export class InsertContent extends Operation {
         }
         return {
             change: this,
-            reverseOperation: new RemoveContent(
-                this.position,
-                this.content.length,
-            ),
+            reverseOperation: new RemoveContent(this.position, this.content.length),
             mapping: new Mapping([
                 {
                     path: this.position.path,

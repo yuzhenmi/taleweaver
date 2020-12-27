@@ -3,18 +3,8 @@ import { IDOMService } from '../dom/service';
 import { IEventListener } from '../event/listener';
 import { ILayoutService } from '../layout/service';
 import { IModelService } from '../model/service';
-import {
-    ClipboardObserver,
-    IClipboardObserver,
-    IDidCopyEvent,
-    IDidPasteEvent,
-} from './clipboard-observer';
-import {
-    FocusObserver,
-    IDidBlurEvent,
-    IDidFocusEvent,
-    IFocusObserver,
-} from './focus-observer';
+import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
+import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
 import {
     ICompositionDidEnd,
     ICompositionDidStart,
@@ -64,21 +54,11 @@ export class DOMController {
     ) {
         this.iframe = domService.createHiddenIframe();
         this.$contentEditable = this.createContentEditable();
-        this.keyboardObserver = new KeyboardObserver(
-            this.$contentEditable,
-            domService,
-        );
+        this.keyboardObserver = new KeyboardObserver(this.$contentEditable, domService);
         this.keyboardObserver.onDidInsert(this.handleDidInsert);
-        this.keyboardObserver.onCompositionDidStart(
-            this.handleCompositionDidStart,
-        );
+        this.keyboardObserver.onCompositionDidStart(this.handleCompositionDidStart);
         this.keyboardObserver.onCompositionDidEnd(this.handleCompositionDidEnd);
-        this.pointerObserver = new PointerObserver(
-            instanceId,
-            viewState,
-            domService,
-            layoutService,
-        );
+        this.pointerObserver = new PointerObserver(instanceId, viewState, domService, layoutService);
         this.pointerObserver.onPointerDidDown(this.handlePointerDidDown);
         this.pointerObserver.onPointerDidMove(this.handlePointerDidMove);
         this.pointerObserver.onPointerDidClick(this.handlePointerDidClick);
@@ -105,9 +85,7 @@ export class DOMController {
     attach() {
         this.domService.getBody().appendChild(this.iframe);
         setTimeout(() => {
-            this.iframe.contentDocument!.body.appendChild(
-                this.$contentEditable,
-            );
+            this.iframe.contentDocument!.body.appendChild(this.$contentEditable);
         });
     }
 
@@ -144,19 +122,13 @@ export class DOMController {
             this.commandService.executeCommand('tw.view.focus');
         }
         if (!event.consecutive) {
-            this.commandService.executeCommand(
-                'tw.cursor.move',
-                event.position,
-            );
+            this.commandService.executeCommand('tw.cursor.move', event.position);
         }
     };
 
     protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
         if (event.pointerDown) {
-            this.commandService.executeCommand(
-                'tw.cursor.moveHead',
-                event.position,
-            );
+            this.commandService.executeCommand('tw.cursor.moveHead', event.position);
         }
     };
 
@@ -165,16 +137,10 @@ export class DOMController {
             case 1:
                 break;
             case 2:
-                this.commandService.executeCommand(
-                    'tw.cursor.selectWord',
-                    event.position,
-                );
+                this.commandService.executeCommand('tw.cursor.selectWord', event.position);
                 break;
             case 3:
-                this.commandService.executeCommand(
-                    'tw.cursor.selectBlock',
-                    event.position,
-                );
+                this.commandService.executeCommand('tw.cursor.selectBlock', event.position);
                 break;
             case 4:
             default:
@@ -202,9 +168,7 @@ export class DOMController {
         if (!$body) {
             return;
         }
-        const domNodes = Array.prototype.slice.call(
-            $body.children,
-        ) as HTMLElement[];
+        const domNodes = Array.prototype.slice.call($body.children) as HTMLElement[];
         console.log(domNodes);
         // TODO
     };

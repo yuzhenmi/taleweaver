@@ -15,9 +15,7 @@ export interface IModelState {
 }
 
 export class ModelState implements IModelState {
-    protected didUpdateEventEmitter = new EventEmitter<
-        IDidUpdateModelStateEvent
-    >();
+    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateModelStateEvent>();
 
     constructor(readonly doc: IDocModelNode) {}
 

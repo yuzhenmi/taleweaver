@@ -1,14 +1,11 @@
 import { IDOMService } from '../dom/service';
-import {
-    IBlockLayoutNode,
-    IDocLayoutNode,
-    IInlineLayoutNode,
-    ILayoutNode,
-    ILineLayoutNode,
-    IPageLayoutNode,
-    ITextLayoutNode,
-    IWordLayoutNode,
-} from '../layout/node';
+import { IBlockLayoutNode } from '../layout/block-node';
+import { IDocLayoutNode } from '../layout/doc-node';
+import { IInlineLayoutNode } from '../layout/inline-node';
+import { ILineLayoutNode } from '../layout/line-node';
+import { ILayoutNode } from '../layout/node';
+import { IPageLayoutNode } from '../layout/page-node';
+import { ITextLayoutNode } from '../layout/text-node';
 import { testDeepEquality } from '../util/compare';
 import {
     BlockViewNode,
@@ -21,11 +18,9 @@ import {
     IPageViewNode,
     ITextViewNode,
     IViewNode,
-    IWordViewNode,
     LineViewNode,
     PageViewNode,
     TextViewNode,
-    WordViewNode,
 } from './node';
 
 export class ViewTreeManager {
@@ -38,147 +33,90 @@ export class ViewTreeManager {
         return this.doc;
     }
 
-    protected syncWithLayoutNode(
-        node: IViewNode | null,
-        layoutNode: ILayoutNode,
-    ) {
+    protected syncWithLayoutNode(node: IViewNode | null, layoutNode: ILayoutNode) {
         if (!layoutNode.needDisplay && node) {
             return node;
         }
         let updatedNode: IViewNode;
         if (layoutNode.type === 'doc' && (!node || node.type === 'doc')) {
             updatedNode = this.syncWithDocLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'page' &&
-            (!node || node.type === 'page')
-        ) {
+        } else if (layoutNode.type === 'page' && (!node || node.type === 'page')) {
             updatedNode = this.syncWithPageLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'block' &&
-            (!node || node.type === 'block')
-        ) {
+        } else if (layoutNode.type === 'block' && (!node || node.type === 'block')) {
             updatedNode = this.syncWithBlockLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'line' &&
-            (!node || node.type === 'line')
-        ) {
+        } else if (layoutNode.type === 'line' && (!node || node.type === 'line')) {
             updatedNode = this.syncWithLineLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'text' &&
-            (!node || node.type === 'text')
-        ) {
+        } else if (layoutNode.type === 'text' && (!node || node.type === 'text')) {
             updatedNode = this.syncWithTextLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'word' &&
-            (!node || node.type === 'word')
-        ) {
-            updatedNode = this.syncWithWordLayoutNode(node, layoutNode);
-        } else if (
-            layoutNode.type === 'inline' &&
-            (!node || node.type === 'inline')
-        ) {
+        } else if (layoutNode.type === 'inline' && (!node || node.type === 'inline')) {
             updatedNode = this.syncWithInlineLayoutNode(node, layoutNode);
         } else {
             throw new Error('Invalid view and layout node pair for syncing.');
         }
-        this.syncStyleWithLayoutNode(updatedNode, layoutNode);
+        this.syncLayoutWithLayoutNode(updatedNode, layoutNode);
         layoutNode.markAsDisplayed();
         return updatedNode;
     }
 
-    protected syncWithDocLayoutNode(
-        node: IDocViewNode | null,
-        layoutNode: IDocLayoutNode,
-    ) {
+    protected syncWithDocLayoutNode(node: IDocViewNode | null, layoutNode: IDocLayoutNode) {
         if (!node) {
             node = new DocViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
         this.syncWithLayoutNodeWithChildren(node, layoutNode);
         return node;
     }
 
-    protected syncWithPageLayoutNode(
-        node: IPageViewNode | null,
-        layoutNode: IPageLayoutNode,
-    ) {
+    protected syncWithPageLayoutNode(node: IPageViewNode | null, layoutNode: IPageLayoutNode) {
         if (!node) {
             node = new PageViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
         this.syncWithLayoutNodeWithChildren(node, layoutNode);
         return node;
     }
 
-    protected syncWithBlockLayoutNode(
-        node: IBlockViewNode | null,
-        layoutNode: IBlockLayoutNode,
-    ) {
+    protected syncWithBlockLayoutNode(node: IBlockViewNode | null, layoutNode: IBlockLayoutNode) {
         if (!node) {
             node = new BlockViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
         this.syncWithLayoutNodeWithChildren(node, layoutNode);
         return node;
     }
 
-    protected syncWithLineLayoutNode(
-        node: ILineViewNode | null,
-        layoutNode: ILineLayoutNode,
-    ) {
+    protected syncWithLineLayoutNode(node: ILineViewNode | null, layoutNode: ILineLayoutNode) {
         if (!node) {
             node = new LineViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
         this.syncWithLayoutNodeWithChildren(node, layoutNode);
         return node;
     }
 
-    protected syncWithTextLayoutNode(
-        node: ITextViewNode | null,
-        layoutNode: ITextLayoutNode,
-    ) {
+    protected syncWithTextLayoutNode(node: ITextViewNode | null, layoutNode: ITextLayoutNode) {
         if (!node) {
             node = new TextViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
-        this.syncWithLayoutNodeWithChildren(node, layoutNode);
+        const content = layoutNode.children.map((child) => child.content).join('');
+        node.setContent(content);
         return node;
     }
 
-    protected syncWithWordLayoutNode(
-        node: IWordViewNode | null,
-        layoutNode: IWordLayoutNode,
-    ) {
-        if (!node) {
-            node = new WordViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
-        }
-        if (node.content !== layoutNode.content) {
-            node.setContent(layoutNode.content);
-        }
-        return node;
-    }
-
-    protected syncWithInlineLayoutNode(
-        node: IInlineViewNode | null,
-        layoutNode: IInlineLayoutNode,
-    ) {
+    protected syncWithInlineLayoutNode(node: IInlineViewNode | null, layoutNode: IInlineLayoutNode) {
         if (!node) {
             node = new InlineViewNode(layoutNode.id, this.domService);
-            node.setStyle(layoutNode.style);
+            node.setLayout(layoutNode.layout);
         }
         return node;
     }
 
-    protected syncStyleWithLayoutNode(
-        node: IViewNode,
-        layoutNode: ILayoutNode,
-    ) {
-        const style = node.style;
-        const newStyle = layoutNode.style;
-        if (!testDeepEquality(style, newStyle)) {
-            node.setStyle(newStyle as any);
+    protected syncLayoutWithLayoutNode(node: IViewNode, layoutNode: ILayoutNode) {
+        const layout = node.layout;
+        const newLayout = layoutNode.layout;
+        if (!testDeepEquality(layout, newLayout)) {
+            node.setLayout(newLayout as any);
         }
     }
 
@@ -186,10 +124,7 @@ export class ViewTreeManager {
         return node.id;
     }
 
-    protected syncWithLayoutNodeWithChildren<
-        TViewNodeChild extends IViewNode,
-        TLayoutNodeChild extends ILayoutNode
-    >(
+    protected syncWithLayoutNodeWithChildren<TViewNodeChild extends IViewNode, TLayoutNodeChild extends ILayoutNode>(
         node: IViewNodeWithChildren<TViewNodeChild>,
         layoutNode: ILayoutNodeWithChildren<TLayoutNodeChild>,
     ) {
@@ -201,19 +136,9 @@ export class ViewTreeManager {
         });
         const newChildren: TViewNodeChild[] = [];
         layoutChildren.forEach((layoutChild) => {
-            newChildren.push(
-                this.syncWithLayoutNode(
-                    childrenMap[layoutChild.id] || null,
-                    layoutChild,
-                ) as any,
-            );
+            newChildren.push(this.syncWithLayoutNode(childrenMap[layoutChild.id] || null, layoutChild) as any);
         });
-        if (
-            !testDeepEquality(
-                children.map(this.identifyNode),
-                newChildren.map(this.identifyNode),
-            )
-        ) {
+        if (!testDeepEquality(children.map(this.identifyNode), newChildren.map(this.identifyNode))) {
             node.setChildren(newChildren);
         }
     }

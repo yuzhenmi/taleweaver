@@ -1,8 +1,5 @@
 import { IConfigService } from '../config/service';
-import {
-    IDidApplyTransformationEvent,
-    ITransformService,
-} from '../transform/service';
+import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
 import { ITransformationResult } from '../transform/transformation';
 import { HistoryAction, IHistoryAction } from './action';
 
@@ -17,16 +14,11 @@ export class HistoryState implements IHistoryState {
     protected actions: IHistoryAction[] = [];
     protected offset: number = -1;
 
-    constructor(
-        protected configService: IConfigService,
-        protected transformService: ITransformService,
-    ) {
+    constructor(protected configService: IConfigService, protected transformService: ITransformService) {
         const config = configService.getConfig();
         this.maxCollapseDuration = config.history.maxCollapseDuration;
         this.collapseThreshold = config.history.collapseThreshold;
-        transformService.onDidApplyTransformation(
-            this.handleDidApplyTransformation,
-        );
+        transformService.onDidApplyTransformation(this.handleDidApplyTransformation);
     }
 
     undo() {
@@ -40,9 +32,7 @@ export class HistoryState implements IHistoryState {
         }
         for (let n = results.length - 1; n >= 0; n--) {
             const result = results[n];
-            this.transformService.applyTransformation(
-                result.reverseTransformation,
-            );
+            this.transformService.applyTransformation(result.reverseTransformation);
         }
     }
 
@@ -73,16 +63,13 @@ export class HistoryState implements IHistoryState {
         return this.actions[this.offset];
     }
 
-    protected handleDidApplyTransformation = (
-        event: IDidApplyTransformationEvent,
-    ) => {
+    protected handleDidApplyTransformation = (event: IDidApplyTransformationEvent) => {
         const { result } = event;
         // Do not record undo
         if (
             this.offset + 1 < this.actions.length &&
             this.actions[this.offset + 1].transformationResults.some(
-                (tnResult) =>
-                    tnResult.reverseTransformation === result.transformation,
+                (tnResult) => tnResult.reverseTransformation === result.transformation,
             )
         ) {
             return;
@@ -117,10 +104,7 @@ export class HistoryState implements IHistoryState {
             return;
         }
         if (this.offset < this.actions.length - 1) {
-            this.actions.splice(
-                this.offset + 1,
-                this.actions.length - 1 - this.offset,
-            );
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
         }
         const action = new HistoryAction();
         action.recordTransformationResult(result);
@@ -131,15 +115,10 @@ export class HistoryState implements IHistoryState {
     protected recordToLastAction(result: ITransformationResult) {
         const action = this.actions[this.offset];
         if (!action) {
-            throw new Error(
-                'Error recording applied transformation, history is empty.',
-            );
+            throw new Error('Error recording applied transformation, history is empty.');
         }
         if (this.offset < this.actions.length - 1) {
-            this.actions.splice(
-                this.offset + 1,
-                this.actions.length - 1 - this.offset,
-            );
+            this.actions.splice(this.offset + 1, this.actions.length - 1 - this.offset);
         }
         action.recordTransformationResult(result);
     }

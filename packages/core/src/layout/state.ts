@@ -2,7 +2,7 @@ import { EventEmitter } from '../event/emitter';
 import { IEventListener, IOnEvent } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { ITextService } from '../text/service';
-import { IDocLayoutNode } from './node';
+import { IDocLayoutNode } from './doc-node';
 import { LayoutTreeManager } from './tree-manager';
 
 export interface IDidUpdateLayoutStateEvent {}
@@ -22,6 +22,7 @@ export class LayoutState implements ILayoutState {
         this.treeManager = new LayoutTreeManager(textService);
         this.doc = this.treeManager.syncWithRenderTree(renderService.getDoc());
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderState);
+        console.log(this.doc);
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateLayoutStateEvent>) {

@@ -15,10 +15,7 @@ export class RemoveContent extends Operation {
             path: this.position.path,
             offset: this.position.offset + this.length,
         });
-        return new RemoveContent(
-            newPosition,
-            newEndPosition.offset - newPosition.offset,
-        );
+        return new RemoveContent(newPosition, newEndPosition.offset - newPosition.offset);
     }
 
     apply(doc: IDocModelNode): IOperationResult {
@@ -26,10 +23,7 @@ export class RemoveContent extends Operation {
         let removedContent: IContent;
         switch (node.type) {
             case 'block': {
-                removedContent = node.removeContent(
-                    this.position.offset,
-                    this.length,
-                );
+                removedContent = node.removeContent(this.position.offset, this.length);
                 break;
             }
             default: {

@@ -41,24 +41,16 @@ export class Transformation implements ITransformation {
         const operationResults = this.applyOperations(modelService);
         if (cursor) {
             let cursorHead = this.cursorHead ?? cursor.head;
-            let cursorAnchor =
-                this.cursorAnchor ?? this.cursorHead ?? cursor.anchor;
-            cursorAnchor = this.boundContentPosition(
-                cursorAnchor,
-                modelService,
-            );
+            let cursorAnchor = this.cursorAnchor ?? this.cursorHead ?? cursor.anchor;
+            cursorAnchor = this.boundContentPosition(cursorAnchor, modelService);
             cursorHead = this.boundContentPosition(cursorHead, modelService);
             cursorService.setCursor(cursorAnchor, cursorHead);
             if (!this.keepLeftLock) {
-                const {
-                    node: lineLayoutNode,
-                    position: linePosition,
-                } = layoutService.describePosition(cursorHead).atLine();
+                const { node: lineLayoutNode, position: linePosition } = layoutService
+                    .describePosition(cursorHead)
+                    .atLine();
                 cursorService.setLeftLock(
-                    lineLayoutNode.resolveBoundingBoxes(
-                        linePosition,
-                        linePosition,
-                    ).boundingBoxes[0].left,
+                    lineLayoutNode.resolveBoundingBoxes(linePosition, linePosition).boundingBoxes[0].left,
                 );
             }
         }
@@ -68,8 +60,7 @@ export class Transformation implements ITransformation {
             const operationResult = operationResults[n];
             reverseOperations.push(
                 reverseMappings.reduce(
-                    (reverseOperation, reverseMapping) =>
-                        reverseOperation.map(reverseMapping),
+                    (reverseOperation, reverseMapping) => reverseOperation.map(reverseMapping),
                     operationResult.reverseOperation,
                 ),
             );
@@ -78,12 +69,7 @@ export class Transformation implements ITransformation {
         return new TransformationResult(
             this,
             operationResults,
-            new Transformation(
-                reverseOperations,
-                originalCursorHead,
-                originalCursorAnchor,
-                this.keepLeftLock,
-            ),
+            new Transformation(reverseOperations, originalCursorHead, originalCursorAnchor, this.keepLeftLock),
         );
     }
 
@@ -102,14 +88,8 @@ export class Transformation implements ITransformation {
         return operationResults;
     }
 
-    protected boundContentPosition(
-        contentPosition: number,
-        modelService: IModelService,
-    ) {
-        return Math.max(
-            0,
-            Math.min(modelService.getDocContentSize() - 1, contentPosition),
-        );
+    protected boundContentPosition(contentPosition: number, modelService: IModelService) {
+        return Math.max(0, Math.min(modelService.getDocContentSize() - 1, contentPosition));
     }
 }
 

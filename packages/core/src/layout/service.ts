@@ -1,34 +1,27 @@
 import { IEventListener } from '../event/listener';
 import { IRenderService } from '../render/service';
 import { ITextService } from '../text/service';
-import {
-    IBlockLayoutNode,
-    IDocLayoutNode,
-    IInlineLayoutNode,
-    ILayoutPositionLayerDescription,
-    ILineLayoutNode,
-    IResolveBoundingBoxesResult,
-    IWordLayoutNode,
-} from './node';
+import { IBlockLayoutNode } from './block-node';
+import { IDocLayoutNode } from './doc-node';
+import { IInlineLayoutNode } from './inline-node';
+import { ILineLayoutNode } from './line-node';
+import { ILayoutPositionLayerDescription, IResolveBoundingBoxesResult } from './node';
 import { IDidUpdateLayoutStateEvent, LayoutState } from './state';
+import { IWordLayoutNode } from './word-node';
 
 export interface ILayoutPositionDescription {
     readonly layers: ILayoutPositionLayerDescription[];
 
     atBlock(): ILayoutPositionLayerDescription<IBlockLayoutNode>;
     atLine(): ILayoutPositionLayerDescription<ILineLayoutNode>;
-    atWord(): ILayoutPositionLayerDescription<
-        IWordLayoutNode | IInlineLayoutNode
-    >;
+    atWord(): ILayoutPositionLayerDescription<IWordLayoutNode | IInlineLayoutNode>;
 }
 
 export interface ILayoutService {
     getDoc(): IDocLayoutNode;
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
     describePosition(position: number): ILayoutPositionDescription;
-    onDidUpdateLayoutState(
-        listener: IEventListener<IDidUpdateLayoutStateEvent>,
-    ): void;
+    onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
 }
 
 class LayoutPositionDescription implements ILayoutPositionDescription {
@@ -39,7 +32,7 @@ class LayoutPositionDescription implements ILayoutPositionDescription {
     }
 
     get layers() {
-        return JSON.parse(JSON.stringify(this.internalLayers));
+        return this.internalLayers;
     }
 
     atBlock() {
@@ -93,9 +86,7 @@ export class LayoutService implements ILayoutService {
         return new LayoutPositionDescription(layers);
     }
 
-    onDidUpdateLayoutState(
-        listener: IEventListener<IDidUpdateLayoutStateEvent>,
-    ) {
+    onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
         this.state.onDidUpdate(listener);
     }
 }

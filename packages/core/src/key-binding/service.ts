@@ -62,9 +62,6 @@ export class KeyBindingService implements IKeyBindingService {
         if (keyBinding.preventDefault) {
             event.originalKeyboardEvent.preventDefault();
         }
-        this.commandService.executeCommand(
-            keyBinding.command,
-            ...keyBinding.args,
-        );
+        this.commandService.executeCommand(keyBinding.command, ...keyBinding.args);
     };
 }

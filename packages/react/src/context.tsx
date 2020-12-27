@@ -1,10 +1,6 @@
 import { IConfig, Taleweaver } from '@taleweaver/core';
 import { ISerializable } from '@taleweaver/core/dist/model/serializer';
-import React, {
-    useContext,
-    useEffect,
-    useState
-} from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 
 function noOp() {}
 
@@ -20,11 +16,7 @@ export const TaleweaverContext = React.createContext<IValue>({
 
 export const TaleweaverProvider: React.FC = ({ children }) => {
     const [taleweaver, setTaleweaver] = useState<Taleweaver | null>(null);
-    return (
-        <TaleweaverContext.Provider value={{ taleweaver, setTaleweaver }}>
-            {children}
-        </TaleweaverContext.Provider>
-    );
+    return <TaleweaverContext.Provider value={{ taleweaver, setTaleweaver }}>{children}</TaleweaverContext.Provider>;
 };
 
 export interface ITaleweaverContainerProps {
@@ -32,10 +24,7 @@ export interface ITaleweaverContainerProps {
     initialDoc: ISerializable;
 }
 
-export const TaleweaverContainer: React.FC<ITaleweaverContainerProps> = ({
-    config,
-    initialDoc,
-}) => {
+export const TaleweaverContainer: React.FC<ITaleweaverContainerProps> = ({ config, initialDoc }) => {
     const { setTaleweaver } = useContext(TaleweaverContext);
     const [container, setContainer] = useState<HTMLDivElement | null>(null);
     const serializedConfig = config && JSON.stringify(config);

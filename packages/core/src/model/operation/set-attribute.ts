@@ -4,11 +4,7 @@ import { identity, IMapping } from './mapping';
 import { IOperationResult, Operation } from './operation';
 
 export class SetAttribute extends Operation {
-    constructor(
-        protected path: IPath,
-        protected key: string,
-        protected value: ISerializableValue,
-    ) {
+    constructor(protected path: IPath, protected key: string, protected value: ISerializableValue) {
         super();
     }
 
@@ -22,11 +18,7 @@ export class SetAttribute extends Operation {
         node.setAttribute(this.key, this.value);
         return {
             change: this,
-            reverseOperation: new SetAttribute(
-                this.path,
-                this.key,
-                originalValue,
-            ),
+            reverseOperation: new SetAttribute(this.path, this.key, originalValue),
             mapping: identity,
         };
     }
