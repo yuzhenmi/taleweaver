@@ -9,13 +9,13 @@ const Wrapper = styled.div``;
 
 const ContainerWrapper = styled.div`
     text-align: center;
-    .tw--doc--doc {
+    .tw--doc--container {
         font-family: 'Source Sans Pro', sans-serif;
         display: inline-block;
         padding-bottom: 9px;
         counter-reset: page-counter;
     }
-    .tw--page--page {
+    .tw--page--container {
         background: rgba(255, 255, 255, 1);
         margin: 9px auto 0;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);

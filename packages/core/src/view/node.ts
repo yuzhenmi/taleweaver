@@ -112,11 +112,13 @@ export class DocViewNode extends BaseViewNode<IDocLayout> implements IDocViewNod
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'doc', className: 'doc--container' });
+        this.domContainer.style.display = 'block';
         this.domContainer.style.textAlign = 'left';
         this.domContainer.style.cursor = 'text';
         this.domContainer.style.userSelect = 'none';
-        this.domContentContainer = domService.createElement('div');
+        this.domContentContainer = domService.createElement('div', { role: 'doc-content', className: 'doc--content' });
+        this.domContentContainer.style.display = 'block';
         this.domContainer.appendChild(this.domContentContainer);
     }
 
@@ -155,7 +157,8 @@ export class PageViewNode extends BaseViewNode<IPageLayout> implements IPageView
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'page', className: 'page--container' });
+        this.domContainer.style.display = 'block';
         this.domContainer.style.position = 'relative';
         this.domContainer.style.marginLeft = 'auto';
         this.domContainer.style.marginRight = 'auto';
@@ -165,7 +168,11 @@ export class PageViewNode extends BaseViewNode<IPageLayout> implements IPageView
         this.domContainer.style.paddingBottom = '0px';
         this.domContainer.style.paddingLeft = '0px';
         this.domContainer.style.paddingRight = '0px';
-        this.domContentContainer = domService.createElement('div');
+        this.domContentContainer = domService.createElement('div', {
+            role: 'page-content',
+            className: 'page--content',
+        });
+        this.domContentContainer.style.display = 'block';
         this.domContainer.appendChild(this.domContentContainer);
     }
 
@@ -210,7 +217,8 @@ export class BlockViewNode extends BaseViewNode<IBlockLayout> implements IBlockV
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'block', className: 'block--container' });
+        this.domContainer.style.display = 'block';
         this.domContainer.style.width = '0px';
         this.domContainer.style.height = '0px';
         this.domContainer.style.paddingTop = '0px';
@@ -261,7 +269,8 @@ export class LineViewNode extends BaseViewNode<ILineLayout> implements ILineView
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'line', className: 'line--container' });
+        this.domContainer.style.display = 'block';
     }
 
     get children() {
@@ -301,8 +310,10 @@ export class TextViewNode extends BaseViewNode<ITextLayout> implements ITextView
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
-        this.domInnerContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'text', className: 'text--container' });
+        this.domContainer.style.display = 'inline';
+        this.domInnerContainer = domService.createElement('div', { role: 'text-content', className: 'text--content' });
+        this.domInnerContainer.style.display = 'inline';
         this.domContainer.appendChild(this.domInnerContainer);
     }
 
@@ -337,7 +348,8 @@ export class InlineViewNode extends BaseViewNode<IInlineLayout> implements IInli
 
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
-        this.domContainer = domService.createElement('div');
+        this.domContainer = domService.createElement('div', { role: 'inline', className: 'inline--container' });
+        this.domContainer.style.display = 'inline';
     }
 
     protected updateDOMLayout() {

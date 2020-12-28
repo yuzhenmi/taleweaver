@@ -17,6 +17,7 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'weight', start: 0, end: 344, attributes: { weight: 700 } }],
             content:
                 'Once upon a time there lived in a certain village a little country girl, the prettiest creature was ever seen. Her mother was excessively fond of her; and her grandmother doted on her still more. This good woman had made for her a little red riding-hood; which became the girl so extremely well that everybody called her Little Red Riding-Hood.',
         },
@@ -24,12 +25,14 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'color', start: 0, end: 59, attributes: { color: '#ff0000' } }],
             content: 'One day her mother, having made some custards, said to her:',
         },
         {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'size', start: 0, end: 133, attributes: { size: 20 } }],
             content:
                 '"Go, my dear, and see how thy grandmamma does, for I hear she has been very ill; carry her a custard, and this little pot of butter."',
         },
@@ -37,6 +40,7 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'italic', start: 0, end: 98, attributes: { italic: true } }],
             content:
                 'Little Red Riding-Hood set out immediately to go to her grandmother, who lived in another village.',
         },
@@ -44,6 +48,10 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [
+                { typeId: 'strikethrough', start: 0, end: 306, attributes: { strikethrough: true } },
+                { typeId: 'underline', start: 0, end: 306, attributes: { underline: true } },
+            ],
             content:
                 'As she was going through the wood, she met with Gaffer Wolf, who had a very great mind to eat her up, but he dared not, because of some faggot-makers hard by in the forest. He asked her whither she was going. The poor child, who did not know that it was dangerous to stay and hear a wolf talk, said to him:',
         },
@@ -51,6 +59,7 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'letterSpacing', start: 0, end: 306, attributes: { letterSpacing: 4 } }],
             content:
                 '"I am going to see my grandmamma and carry her a custard and a little pot of butter from my mamma."',
         },
@@ -58,6 +67,7 @@ const doc: ISerializable = {
             componentId: 'paragraph',
             id: generateId(),
             attributes: {},
+            marks: [{ typeId: 'family', start: 0, end: 306, attributes: { family: 'cursive' } }],
             content: '"Does she live far off?" said the Wolf.',
         },
         {

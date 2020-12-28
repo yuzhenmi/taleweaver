@@ -1,10 +1,17 @@
+interface ICreateElementOptions {
+    role?: string;
+    className?: string;
+}
+
 export interface IDOMService {
     getWindow(): Window;
     getDocument(): Document;
     getBody(): HTMLElement;
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName): HTMLElementTagNameMap[TTagName];
+    createElement<TTagName extends keyof HTMLElementTagNameMap>(
+        tagName: TTagName,
+        options?: ICreateElementOptions,
+    ): HTMLElementTagNameMap[TTagName];
     createHiddenIframe(): HTMLIFrameElement;
-    createContainer(): HTMLElement;
     createMutationObserver(callback: MutationCallback): MutationObserver;
 }
 
@@ -21,14 +28,17 @@ export class DOMService implements IDOMService {
         return document.body;
     }
 
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName) {
-        return document.createElement(tagName);
-    }
-
-    createContainer() {
-        const container = this.createElement('div');
-        container.setAttribute('data-tw-role', 'container');
-        return container;
+    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName, options?: ICreateElementOptions) {
+        const element = document.createElement(tagName);
+        if (options) {
+            if (options.role) {
+                element.setAttribute('data-tw-role', options.role);
+            }
+            if (options.className) {
+                element.className = `tw--${options.className}`;
+            }
+        }
+        return element;
     }
 
     createHiddenIframe() {
