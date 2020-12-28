@@ -144,6 +144,7 @@ export class PointerObserver implements IPointerObserver {
         const layoutDoc = this.layoutService.getDoc();
         const viewPages = viewDoc.children;
         const layoutPages = layoutDoc.children;
+        let cumulatedPosition = 0;
         for (let n = 0, nn = viewPages.length; n < nn; n++) {
             const viewPage = viewPages[n];
             const layoutPage = layoutPages[n];
@@ -156,8 +157,9 @@ export class PointerObserver implements IPointerObserver {
             ) {
                 const pageX = x - pageBoundingClientRect.left;
                 const pageY = y - pageBoundingClientRect.top;
-                return layoutPage.convertCoordinatesToPosition(pageX, pageY);
+                return cumulatedPosition + layoutPage.convertCoordinatesToPosition(pageX, pageY);
             }
+            cumulatedPosition += layoutPage.size;
         }
         return null;
     }
