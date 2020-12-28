@@ -188,7 +188,7 @@ export class PageViewNode extends BaseViewNode<IPageLayout> implements IPageView
         );
         this.internalChildren = children;
         setDOMContainerChildren(
-            this.domContainer,
+            this.domContentContainer,
             children.map((child) => child.domContainer),
         );
         this.didUpdateEventEmitter.emit({});

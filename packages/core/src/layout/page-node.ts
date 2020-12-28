@@ -60,6 +60,7 @@ export class PageLayoutNode extends BaseLayoutNode<IPageLayoutProps, IPageLayout
         super();
         this.onDidUpdate(() => {
             this.internalSize = undefined;
+            this.internalNeedReflow = true;
         });
     }
 

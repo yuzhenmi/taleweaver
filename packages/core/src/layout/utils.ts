@@ -65,6 +65,7 @@ export function convertCoordinatesToPositionForHorizontallyFlowingNode(
             return cumulatedPosition + childPosition;
         }
         cumulatedWidth += childWidth;
+        cumulatedPosition += child.size;
     }
     const lastChild = children[children.length - 1];
     const lastChildPosition = lastChild.convertCoordinatesToPosition(lastChild.layout.width, contentY);

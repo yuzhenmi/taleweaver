@@ -76,9 +76,6 @@ export class CursorView implements ICursorView {
         const from = Math.min(cursor.anchor, cursor.head);
         const to = Math.max(cursor.anchor, cursor.head);
         const docBoundingBoxResult = this.layoutService.resolveBoundingBoxes(from, to);
-        if (docBoundingBoxResult.children.length === 0) {
-            console.log(this.layoutService.getDoc(), from, to, docBoundingBoxResult);
-        }
         const docViewNode = this.viewService.getDoc();
         const docLayoutNode = this.layoutService.getDoc();
         const focused = this.viewService.isFocused();

@@ -129,7 +129,7 @@ export class WordLayoutNode extends BaseLayoutNode<IWordLayoutProps, IWordLayout
     }
 
     convertCoordinatesToPosition(x: number, y: number) {
-        return this.searchForPosition(x, 0, this.internalContent.length, null, null) || this.internalContent.length - 1;
+        return this.searchForPosition(x, 0, this.internalContent.length, null, null) ?? this.internalContent.length - 1;
     }
 
     resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult {
@@ -282,6 +282,6 @@ export class WordLayoutNode extends BaseLayoutNode<IWordLayoutProps, IWordLayout
             return x - fromX < toX - x ? from : to;
         }
         const mid = Math.floor((from + to) / 2);
-        return this.searchForPosition(x, from, mid, fromX, null) || this.searchForPosition(x, mid, to, null, toX);
+        return this.searchForPosition(x, from, mid, fromX, null) ?? this.searchForPosition(x, mid, to, null, toX);
     }
 }

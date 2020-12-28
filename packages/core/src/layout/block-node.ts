@@ -66,6 +66,7 @@ export class BlockLayoutNode extends BaseLayoutNode<IBlockLayoutProps, IBlockLay
         this.onDidUpdate(() => {
             this.internalSize = undefined;
             this.internalContentHeight = undefined;
+            this.internalNeedReflow = true;
         });
     }
 

@@ -35,6 +35,7 @@ export class DocLayoutNode extends BaseLayoutNode<IDocLayoutProps, IDocLayout> i
         super();
         this.onDidUpdate(() => {
             this.internalSize = undefined;
+            this.internalNeedReflow = true;
         });
     }
 

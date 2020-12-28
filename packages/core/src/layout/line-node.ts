@@ -64,6 +64,7 @@ export class LineLayoutNode extends BaseLayoutNode<ILineLayoutProps, ILineLayout
             this.internalContentWidth = undefined;
             this.internalContentHeight = undefined;
             this.internalTrimmedContentWidth = undefined;
+            this.internalNeedReflow = true;
         });
     }
 

@@ -193,6 +193,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
                     offset: childPosition.offset,
                 };
             }
+            cumulatedContentSize += child.contentSize;
         }
         throw new Error(`Content position ${contentPosition} is not valid.`);
     }

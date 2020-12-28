@@ -170,7 +170,7 @@ export class LayoutTreeManager {
         let childrenInCurrentPage: IPageLayoutNodeChild[] = [];
         let heightInCurrentPage = 0;
         while (children.length > 0) {
-            const child = children.shift()!;
+            let child: IPageLayoutNodeChild | null = children.shift()!;
             let shouldStartNewPage = false;
             if (heightInCurrentPage + child.layout.height > maxHeight) {
                 switch (child.type) {
@@ -192,14 +192,21 @@ export class LayoutTreeManager {
                             newChild.setChildren(child.children.slice(lines.length));
                             child.setChildren(lines);
                             children.unshift(newChild);
+                        } else {
+                            if (child.children.length > 0) {
+                                children.unshift(child);
+                            }
+                            child = null;
                         }
                         break;
                     }
                 }
             }
-            child.markAsReflowed();
-            childrenInCurrentPage.push(child);
-            heightInCurrentPage += child.layout.height;
+            if (child) {
+                child.markAsReflowed();
+                childrenInCurrentPage.push(child);
+                heightInCurrentPage += child.layout.height;
+            }
             if (shouldStartNewPage) {
                 childrenByPage.push(this.compressPageChildren(childrenInCurrentPage));
                 childrenInCurrentPage = [];
@@ -231,7 +238,7 @@ export class LayoutTreeManager {
         let childrenInCurrentLine: ILineLayoutNodeChild[] = [];
         let widthInCurrentLine = 0;
         while (children.length > 0) {
-            const child = children.shift()!;
+            let child: ILineLayoutNodeChild | null = children.shift()!;
             let shouldStartNewLine = false;
             if (widthInCurrentLine + child.layout.width > maxWidth) {
                 switch (child.type) {
@@ -265,13 +272,20 @@ export class LayoutTreeManager {
                             newChild.setChildren([newWord, ...child.children.slice(1)]);
                             child.setChildren([word]);
                             children.unshift(newChild);
+                        } else {
+                            if (child.children.length > 0) {
+                                children.unshift(child);
+                            }
+                            child = null;
                         }
                         break;
                     }
                 }
             }
-            childrenInCurrentLine.push(child);
-            widthInCurrentLine += child.layout.height;
+            if (child) {
+                childrenInCurrentLine.push(child);
+                widthInCurrentLine += child.layout.width;
+            }
             if (shouldStartNewLine) {
                 childrenByLine.push(this.compressLineChildren(childrenInCurrentLine));
                 childrenInCurrentLine = [];
