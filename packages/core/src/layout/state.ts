@@ -22,7 +22,6 @@ export class LayoutState implements ILayoutState {
         this.treeManager = new LayoutTreeManager(textService);
         this.doc = this.treeManager.syncWithRenderTree(renderService.getDoc());
         renderService.onDidUpdateRenderState(this.handleDidUpdateRenderState);
-        console.log(this.doc);
     }
 
     onDidUpdate(listener: IEventListener<IDidUpdateLayoutStateEvent>) {

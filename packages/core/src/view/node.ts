@@ -294,6 +294,7 @@ export class LineViewNode extends BaseViewNode<ILineLayout> implements ILineView
     protected updateDOMLayout() {
         this.domContainer.style.width = `${this.layout.width}px`;
         this.domContainer.style.height = `${this.layout.height}px`;
+        this.domContainer.style.whiteSpace = 'nowrap';
     }
 
     protected handleChildDidUpdate = () => {
@@ -311,7 +312,7 @@ export class TextViewNode extends BaseViewNode<ITextLayout> implements ITextView
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div', { role: 'text', className: 'text--container' });
-        this.domContainer.style.display = 'inline';
+        this.domContainer.style.display = 'inline-block';
         this.domInnerContainer = domService.createElement('div', { role: 'text-content', className: 'text--content' });
         this.domInnerContainer.style.display = 'inline';
         this.domContainer.appendChild(this.domInnerContainer);
@@ -349,7 +350,7 @@ export class InlineViewNode extends BaseViewNode<IInlineLayout> implements IInli
     constructor(layoutId: string, protected domService: IDOMService) {
         super(layoutId);
         this.domContainer = domService.createElement('div', { role: 'inline', className: 'inline--container' });
-        this.domContainer.style.display = 'inline';
+        this.domContainer.style.display = 'inline-block';
     }
 
     protected updateDOMLayout() {

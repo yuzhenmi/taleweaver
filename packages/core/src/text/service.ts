@@ -46,7 +46,7 @@ export class TextService implements ITextService {
         const width =
             letterSpacing === 0 || text.length <= 1
                 ? measurement.width
-                : measurement.width + (text.length - 1) * letterSpacing;
+                : measurement.width + text.length * letterSpacing;
         return {
             width,
             height: size,
