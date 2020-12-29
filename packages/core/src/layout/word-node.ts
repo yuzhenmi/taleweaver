@@ -267,12 +267,13 @@ export class WordLayoutNode extends BaseLayoutNode<IWordLayoutProps, IWordLayout
         fromX: number | null,
         toX: number | null,
     ): number | null {
+        const content = this.content.replace(/\n$/, '');
         if (fromX === null) {
-            const measurement = this.textService.measure(this.content.substring(0, from), this.textStyle);
+            const measurement = this.textService.measure(content.substring(0, from), this.textStyle);
             fromX = measurement.width;
         }
         if (toX === null) {
-            const measurement = this.textService.measure(this.content.substring(0, to), this.textStyle);
+            const measurement = this.textService.measure(content.substring(0, to), this.textStyle);
             toX = measurement.width;
         }
         if (x < fromX || x > toX) {

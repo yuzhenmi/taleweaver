@@ -98,7 +98,7 @@ export class RenderTreeManager {
         const newChildren: IBlockRenderNodeChild[] = [];
         let stringStartIndex = 0;
         let content = modelNode.content;
-        content = content.slice(0, content.length - 1);
+        content = content.slice(0, content.length);
         const markStartMap: { [key: number]: IMark[] } = {};
         const markEndMap: { [key: number]: IMark[] } = {};
         modelNode.marks.forEach((mark) => {

@@ -102,14 +102,13 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
     readonly type = 'doc';
 
     protected internalChildren: IDocModelNodeChild[] = [];
-    protected internalSize?: number;
     protected internalContentSize?: number;
     protected childDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
 
     constructor(componentId: string, id: string) {
         super(componentId, id);
         this.onDidUpdate(() => {
-            this.internalSize = undefined;
+            this.internalContentSize = undefined;
         });
     }
 
@@ -186,7 +185,7 @@ export class DocModelNode extends BaseModelNode implements IDocModelNode {
         for (let n = 0, nn = this.internalChildren.length; n < nn; n++) {
             const child = this.internalChildren[n];
             const childContentSize = child.contentSize;
-            if (cumulatedContentSize + childContentSize > contentPosition) {
+            if (contentPosition < cumulatedContentSize + childContentSize) {
                 const childPosition = child.fromContentPosition(contentPosition - cumulatedContentSize);
                 return {
                     path: [n, ...childPosition.path],
@@ -212,7 +211,6 @@ export class BlockModelNode extends BaseModelNode implements IBlockModelNode {
 
     protected internalContent: IContent = ['\n'];
     protected internalMarks: IMark[] = [];
-    protected internalSize?: number;
     protected internalContentSize?: number;
     protected inlineDidUpdateDisposableMap: Map<string, IDisposable> = new Map();
 
