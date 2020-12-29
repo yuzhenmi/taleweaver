@@ -35,7 +35,7 @@ describe('RenderTreeManager', () => {
                 const block = doc.children[0];
                 expect(block.modelId).toEqual(modelBlock.id);
                 const text = block.children[0] as ITextRenderNode;
-                expect(text.content).toEqual('Hello world!');
+                expect(text.content).toEqual('Hello world!\n');
             });
 
             describe('when has mark', () => {
@@ -61,7 +61,7 @@ describe('RenderTreeManager', () => {
                     expect(text2.content).toEqual('world');
                     expect(text2.style.weight).toEqual(700);
                     const text3 = block.children[2] as ITextRenderNode;
-                    expect(text3.content).toEqual('!');
+                    expect(text3.content).toEqual('!\n');
                     expect(text3.style.weight).toEqual(400);
                 });
             });
@@ -81,7 +81,7 @@ describe('RenderTreeManager', () => {
                 const block = doc.children[0];
                 expect(block.modelId).toEqual(modelBlock.id);
                 const text = block.children[0] as ITextRenderNode;
-                expect(text.content).toEqual('Hello beautiful world!');
+                expect(text.content).toEqual('Hello beautiful world!\n');
             });
         });
     });
