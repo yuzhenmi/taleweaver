@@ -1,10 +1,10 @@
-import { useCommandService, useFont } from '@taleweaver/react';
+import { useCommandService } from '@taleweaver/react';
 import React from 'react';
 import SelectButton from './SelectButton';
 
 const FamilyButton: React.FC = () => {
     const commandService = useCommandService();
-    const font = useFont();
+    const font = {} as any;
     if (!commandService || !font) {
         return null;
     }

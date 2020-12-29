@@ -1,8 +1,8 @@
 body {
-  background: #F5F6F7;
-  min-height: 100vh;
+    background: #f5f6f7;
+    min-height: 100vh;
 }
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }

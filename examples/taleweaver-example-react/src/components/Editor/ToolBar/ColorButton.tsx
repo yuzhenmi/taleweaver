@@ -1,4 +1,4 @@
-import { useCommandService, useFont } from '@taleweaver/react';
+import { useCommandService } from '@taleweaver/react';
 import React, { useEffect, useState } from 'react';
 import { SketchPicker } from 'react-color';
 import { usePopper } from 'react-popper';
@@ -21,7 +21,7 @@ const Underline = styled.div<IUnderlineProps>`
 
 const ColorButton: React.FC = () => {
     const commandService = useCommandService();
-    const font = useFont();
+    const font = {} as any;
     const [open, setOpen] = useState(false);
     const [buttonElement, setButtonElement] = useState<HTMLButtonElement | null>(null);
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null);

@@ -1,4 +1,3 @@
-import { useFont } from '@taleweaver/react';
 import React from 'react';
 import Box from 'ui-box';
 import ButtonGroup from './ButtonGroup';
@@ -12,8 +11,7 @@ import VariantButton from './VariantButton';
 import WeightButton from './WeightButton';
 
 const ToolBar: React.FC = () => {
-    const font = useFont();
-    if (!font) {
+    if (1 === 1) {
         return null;
     }
     return (
