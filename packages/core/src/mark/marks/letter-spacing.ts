@@ -1,4 +1,4 @@
-import { ITextStyle } from '../../text/service';
+import { TextStyle } from '../../text/service';
 import { MarkType } from '../mark';
 
 export interface ILetterSpacingAttributes {
@@ -6,7 +6,7 @@ export interface ILetterSpacingAttributes {
 }
 
 export class LetterSpacing extends MarkType<ILetterSpacingAttributes> {
-    getStyle(attributes: ILetterSpacingAttributes): Partial<ITextStyle> {
+    getStyle(attributes: ILetterSpacingAttributes): Partial<TextStyle> {
         return { letterSpacing: attributes.letterSpacing };
     }
 }

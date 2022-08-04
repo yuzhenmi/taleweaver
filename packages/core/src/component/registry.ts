@@ -1,14 +1,9 @@
-import { IComponent } from './component';
+import { Component } from './component';
 
-export interface IComponentRegistry {
-    registerComponent(component: IComponent<any>): void;
-    getComponent<TAttributes>(componentId: string): IComponent<TAttributes>;
-}
+export class ComponentRegistry {
+    protected componentsMap: Map<string, Component<any>> = new Map();
 
-export class ComponentRegistry implements IComponentRegistry {
-    protected componentsMap: Map<string, IComponent<any>> = new Map();
-
-    registerComponent(component: IComponent<any>) {
+    registerComponent(component: Component<any>) {
         this.componentsMap.set(component.id, component);
     }
 
@@ -17,6 +12,6 @@ export class ComponentRegistry implements IComponentRegistry {
         if (!component) {
             throw new Error(`Component ${componentId} is not registered.`);
         }
-        return component as IComponent<TAttributes>;
+        return component as Component<TAttributes>;
     }
 }

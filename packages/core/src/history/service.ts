@@ -1,16 +1,11 @@
-import { IConfigService } from '../config/service';
-import { ITransformService } from '../transform/service';
-import { HistoryState, IHistoryState } from './state';
+import { ConfigService } from '../config/service';
+import { TransformService } from '../transform/service';
+import { HistoryState } from './state';
 
-export interface IHistoryService {
-    undo(): void;
-    redo(): void;
-}
+export class HistoryService {
+    protected state: HistoryState;
 
-export class HistoryService implements IHistoryService {
-    protected state: IHistoryState;
-
-    constructor(configService: IConfigService, transformService: ITransformService) {
+    constructor(configService: ConfigService, transformService: TransformService) {
         this.state = new HistoryState(configService, transformService);
     }
 

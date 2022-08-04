@@ -1,13 +1,15 @@
-import { IBlockStyle, IDocStyle, IInlineStyle } from './node';
+import { BlockStyle } from './nodes/block';
+import { DocStyle } from './nodes/doc';
+import { InlineStyle } from './nodes/inline';
 
-export interface IDocRenderSpec {
-    style: IDocStyle;
+export interface DocRenderSpec {
+    style: DocStyle;
 }
 
-export interface IBlockRenderSpec {
-    style: IBlockStyle;
+export interface BlockRenderSpec {
+    style: BlockStyle;
 }
 
-export interface IInlineRenderSpec {
-    style: IInlineStyle;
+export interface InlineRenderSpec {
+    style: InlineStyle;
 }

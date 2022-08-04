@@ -1,45 +1,27 @@
-import { ICommandService } from '../command/service';
-import { IDOMService } from '../dom/service';
-import { IEventListener } from '../event/listener';
-import { ILayoutService } from '../layout/service';
-import { IModelService } from '../model/service';
-import { ClipboardObserver, IClipboardObserver, IDidCopyEvent, IDidPasteEvent } from './clipboard-observer';
-import { FocusObserver, IDidBlurEvent, IDidFocusEvent, IFocusObserver } from './focus-observer';
+import { CommandService } from '../command/service';
+import { DOMService } from '../dom/service';
+import { EventListener } from '../event/listener';
+import { LayoutService } from '../layout/service';
+import { ModelService } from '../model/service';
+import { ClipboardObserver, DidCopyEvent, DidPasteEvent } from './clipboard-observer';
+import { FocusObserver, DidBlurEvent, DidFocusEvent } from './focus-observer';
 import {
-    ICompositionDidEnd,
-    ICompositionDidStart,
-    IDidInsertEvent,
-    IDidPressKeyEvent,
-    IKeyboardObserver,
+    CompositionDidEnd,
+    CompositionDidStart,
+    DidInsertEvent,
+    DidPressKeyEvent,
     KeyboardObserver,
 } from './keyboard-observer';
-import {
-    IPointerDidClick,
-    IPointerDidDownEvent,
-    IPointerDidMoveEvent,
-    IPointerObserver,
-    PointerObserver,
-} from './pointer-observer';
+import { PointerDidClick, PointerDidDownEvent, PointerDidMoveEvent, PointerObserver } from './pointer-observer';
 import { IViewState } from './state';
-
-export interface IDOMController {
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
-    onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
-    attach(): void;
-    requestFocus(): void;
-    requestBlur(): void;
-    isFocused(): boolean;
-    isComposing(): boolean;
-}
 
 export class DOMController {
     protected iframe: HTMLIFrameElement;
     protected $contentEditable: HTMLDivElement;
-    protected keyboardObserver: IKeyboardObserver;
-    protected pointerObserver: IPointerObserver;
-    protected focusObserver: IFocusObserver;
-    protected clipboardObserver: IClipboardObserver;
+    protected keyboardObserver: KeyboardObserver;
+    protected pointerObserver: PointerObserver;
+    protected focusObserver: FocusObserver;
+    protected clipboardObserver: ClipboardObserver;
     protected focused: boolean = false;
     protected composing: boolean = false;
     protected mouseDown: boolean = false;
@@ -47,10 +29,10 @@ export class DOMController {
     constructor(
         protected instanceId: string,
         protected viewState: IViewState,
-        protected domService: IDOMService,
-        protected commandService: ICommandService,
-        protected modelService: IModelService,
-        protected layoutService: ILayoutService,
+        protected domService: DOMService,
+        protected commandService: CommandService,
+        protected modelService: ModelService,
+        protected layoutService: LayoutService,
     ) {
         this.iframe = domService.createHiddenIframe();
         this.$contentEditable = this.createContentEditable();
@@ -70,15 +52,15 @@ export class DOMController {
         this.clipboardObserver.onDidPaste(this.handlePaste);
     }
 
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+    onDidPressKey(listener: EventListener<DidPressKeyEvent>) {
         this.keyboardObserver.onDidPressKey(listener);
     }
 
-    onDidFocus(listener: IEventListener<IDidFocusEvent>) {
+    onDidFocus(listener: EventListener<DidFocusEvent>) {
         this.focusObserver.onDidFocus(listener);
     }
 
-    onDidBlur(listener: IEventListener<IDidBlurEvent>) {
+    onDidBlur(listener: EventListener<DidBlurEvent>) {
         this.focusObserver.onDidBlur(listener);
     }
 
@@ -105,19 +87,19 @@ export class DOMController {
         return this.composing;
     }
 
-    protected handleDidInsert = (event: IDidInsertEvent) => {
+    protected handleDidInsert = (event: DidInsertEvent) => {
         this.commandService.executeCommand('tw.state.insert', event.content);
     };
 
-    protected handleCompositionDidStart = (event: ICompositionDidStart) => {
+    protected handleCompositionDidStart = (event: CompositionDidStart) => {
         this.composing = true;
     };
 
-    protected handleCompositionDidEnd = (event: ICompositionDidEnd) => {
+    protected handleCompositionDidEnd = (event: CompositionDidEnd) => {
         this.composing = false;
     };
 
-    protected handlePointerDidDown = (event: IPointerDidDownEvent) => {
+    protected handlePointerDidDown = (event: PointerDidDownEvent) => {
         if (!this.focused) {
             this.commandService.executeCommand('tw.view.focus');
         }
@@ -126,13 +108,13 @@ export class DOMController {
         }
     };
 
-    protected handlePointerDidMove = (event: IPointerDidMoveEvent) => {
+    protected handlePointerDidMove = (event: PointerDidMoveEvent) => {
         if (event.pointerDown) {
             this.commandService.executeCommand('tw.cursor.moveHead', event.position);
         }
     };
 
-    protected handlePointerDidClick = (event: IPointerDidClick) => {
+    protected handlePointerDidClick = (event: PointerDidClick) => {
         switch (event.consecutiveCount) {
             case 1:
                 break;
@@ -148,19 +130,19 @@ export class DOMController {
         }
     };
 
-    protected handleDidFocus = (event: IDidFocusEvent) => {
+    protected handleDidFocus = (event: DidFocusEvent) => {
         this.focused = true;
     };
 
-    protected handleDidBlur = (event: IDidBlurEvent) => {
+    protected handleDidBlur = (event: DidBlurEvent) => {
         this.focused = false;
     };
 
-    protected handleCopy = (event: IDidCopyEvent) => {
+    protected handleCopy = (event: DidCopyEvent) => {
         this.commandService.executeCommand('tw.clipboard.copy');
     };
 
-    protected handlePaste = (event: IDidPasteEvent) => {
+    protected handlePaste = (event: DidPasteEvent) => {
         const html = event.data.getData('text/html');
         const $container = this.domService.createElement('html');
         $container.innerHTML = html;

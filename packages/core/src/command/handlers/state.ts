@@ -1,22 +1,22 @@
-import { IComponentService } from '../../component/service';
-import { ICursorService } from '../../cursor/service';
-import { IDocModelNode } from '../../model/node';
+import { ComponentService } from '../../component/service';
+import { CursorService } from '../../cursor/service';
+import { DocModelNode } from '../../model/nodes/doc';
 import { InsertContent } from '../../model/operation/insert-content';
-import { IOperation } from '../../model/operation/operation';
+import { Operation } from '../../model/operation/operation';
 import { RemoveContent } from '../../model/operation/remove-content';
 import { RemoveNode } from '../../model/operation/remove-node';
-import { IPath, IPosition, normalizePosition } from '../../model/position';
-import { IModelService } from '../../model/service';
-import { ITransformService } from '../../transform/service';
+import { Path, IPosition, normalizePosition } from '../../model/position';
+import { ModelService } from '../../model/service';
+import { TransformService } from '../../transform/service';
 import { Transformation } from '../../transform/transformation';
-import { ICommandHandler } from '../command';
+import { CommandHandler } from '../command';
 
-function buildRemoveOperations(doc: IDocModelNode, from: IPosition, to: IPosition) {
-    const operations: IOperation[] = [];
+function buildRemoveOperations(doc: DocModelNode<any>, from: IPosition, to: IPosition) {
+    const operations: Operation[] = [];
     const [fromPath, fromOffset] = normalizePosition(from);
     const [toPath, toOffset] = normalizePosition(to);
-    let parentFromPath: IPath;
-    let parentToPath: IPath;
+    let parentFromPath: Path;
+    let parentToPath: Path;
     if (fromOffset !== null && toOffset !== null) {
         parentFromPath = fromPath;
         parentToPath = toPath;
@@ -25,15 +25,19 @@ function buildRemoveOperations(doc: IDocModelNode, from: IPosition, to: IPositio
             if (parentFromNode.type !== 'block') {
                 throw new Error('Expecting node for content removal to contain content.');
             }
-            operations.push(
-                new RemoveContent(
-                    { path: parentFromPath, offset: fromOffset },
-                    parentFromNode.content.length - fromOffset,
-                ),
-            );
-            operations.push(new RemoveContent({ path: parentToPath, offset: 0 }, toOffset));
+            const length1 = parentFromNode.content.length - fromOffset;
+            if (length1 > 0) {
+                operations.push(new RemoveContent({ path: parentFromPath, offset: fromOffset }, length1));
+            }
+            const length2 = toOffset;
+            if (length2 > 0) {
+                operations.push(new RemoveContent({ path: parentToPath, offset: 0 }, length2));
+            }
         } else {
-            operations.push(new RemoveContent({ path: parentFromPath, offset: fromOffset }, toOffset - fromOffset));
+            const length = toOffset - fromOffset;
+            if (length > 0) {
+                operations.push(new RemoveContent({ path: parentFromPath, offset: fromOffset }, toOffset - fromOffset));
+            }
         }
     } else if (fromPath.length > 0 && toPath.length > 0) {
         parentFromPath = fromPath.slice(0, fromPath.length - 1);
@@ -61,13 +65,13 @@ function buildRemoveOperations(doc: IDocModelNode, from: IPosition, to: IPositio
     return operations;
 }
 
-export class InsertCommandHandler implements ICommandHandler {
+export class InsertCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle(content: string) {
@@ -75,17 +79,13 @@ export class InsertCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         const from = Math.min(cursor.anchor, cursor.head);
         const to = Math.max(cursor.anchor, cursor.head);
-        const modelFrom = this.modelService.fromContentPosition(from);
+        const modelFrom = this.modelService.offsetToPoint(from);
         if (from < to) {
             operations.push(
-                ...buildRemoveOperations(
-                    this.modelService.getDoc(),
-                    modelFrom,
-                    this.modelService.fromContentPosition(to),
-                ),
+                ...buildRemoveOperations(this.modelService.getDoc(), modelFrom, this.modelService.offsetToPoint(to)),
             );
         }
         operations.push(new InsertContent(modelFrom, content.split('')));
@@ -93,13 +93,13 @@ export class InsertCommandHandler implements ICommandHandler {
     }
 }
 
-export class DeleteBackwardCommandHandler implements ICommandHandler {
+export class DeleteBackwardCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
@@ -107,7 +107,7 @@ export class DeleteBackwardCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         let from: number;
         let to: number;
         if (cursor.anchor === cursor.head) {
@@ -123,21 +123,21 @@ export class DeleteBackwardCommandHandler implements ICommandHandler {
         operations.push(
             ...buildRemoveOperations(
                 this.modelService.getDoc(),
-                this.modelService.fromContentPosition(from),
-                this.modelService.fromContentPosition(to),
+                this.modelService.offsetToPoint(from),
+                this.modelService.offsetToPoint(to),
             ),
         );
         this.transformService.applyTransformation(new Transformation(operations, from));
     }
 }
 
-export class DeleteForwardCommandHandler implements ICommandHandler {
+export class DeleteForwardCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
@@ -145,11 +145,11 @@ export class DeleteForwardCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         let from: number;
         let to: number;
         if (cursor.anchor === cursor.head) {
-            if (cursor.head >= this.modelService.getDocContentSize() - 1) {
+            if (cursor.head >= this.modelService.getDocSize() - 1) {
                 return;
             }
             from = cursor.head;
@@ -161,21 +161,21 @@ export class DeleteForwardCommandHandler implements ICommandHandler {
         operations.push(
             ...buildRemoveOperations(
                 this.modelService.getDoc(),
-                this.modelService.fromContentPosition(from),
-                this.modelService.fromContentPosition(to),
+                this.modelService.offsetToPoint(from),
+                this.modelService.offsetToPoint(to),
             ),
         );
         this.transformService.applyTransformation(new Transformation(operations, from));
     }
 }
 
-export class BreakLineCommandHandler implements ICommandHandler {
+export class BreakLineCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
@@ -183,17 +183,13 @@ export class BreakLineCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         const from = Math.min(cursor.anchor, cursor.head);
         const to = Math.max(cursor.anchor, cursor.head);
-        const modelFrom = this.modelService.fromContentPosition(from);
+        const modelFrom = this.modelService.offsetToPoint(from);
         if (from < to) {
             operations.push(
-                ...buildRemoveOperations(
-                    this.modelService.getDoc(),
-                    modelFrom,
-                    this.modelService.fromContentPosition(to),
-                ),
+                ...buildRemoveOperations(this.modelService.getDoc(), modelFrom, this.modelService.offsetToPoint(to)),
             );
         }
         // TODO: Add split operation
@@ -202,14 +198,14 @@ export class BreakLineCommandHandler implements ICommandHandler {
     }
 }
 
-export class ApplyAttributesCommandHandler implements ICommandHandler {
+export class ApplyAttributesCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'component', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected componentService: IComponentService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected componentService: ComponentService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle(componentId: string, attributeKey: string, attributeValue: any) {
@@ -217,7 +213,7 @@ export class ApplyAttributesCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         const from = Math.min(cursor.anchor, cursor.head);
         const to = Math.max(cursor.anchor, cursor.head);
         // TODO: Apply attribute to all nodes between "from" and "to"
@@ -226,14 +222,14 @@ export class ApplyAttributesCommandHandler implements ICommandHandler {
     }
 }
 
-export class ApplyMarksCommandHandler implements ICommandHandler {
+export class ApplyMarksCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'component', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected componentService: IComponentService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected componentService: ComponentService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle(componentId: string, attributeKey: string, attributeValue: any) {
@@ -241,7 +237,7 @@ export class ApplyMarksCommandHandler implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const operations: IOperation[] = [];
+        const operations: Operation[] = [];
         const from = Math.min(cursor.anchor, cursor.head);
         const to = Math.max(cursor.anchor, cursor.head);
         // TODO: Apply marks to all content between "from" and "to"

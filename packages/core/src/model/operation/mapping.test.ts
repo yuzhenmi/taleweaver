@@ -1,161 +1,111 @@
-import { IPosition } from '../position';
+import { Point } from '../nodes/base';
 import { Mapping } from './mapping';
 
 describe('Mapping', () => {
     let mapping: Mapping;
-    let position: IPosition;
+    let point: Point;
 
     describe('map', () => {
-        describe('when position is shallower than mapping entry path', () => {
+        describe('when point is shallower than mapping entry path', () => {
             beforeEach(() => {
                 mapping = new Mapping([
                     {
-                        path: [1, 2],
-                        start: 3,
+                        start: { path: [1, 2], offset: 3 },
                         endBefore: 5,
                         endAfter: 6,
                     },
                 ]);
             });
 
-            describe('when position is path', () => {
-                beforeEach(() => {
-                    position = [1, 1];
-                });
-                it('returns original position', () => {
-                    const newPosition = mapping.map(position);
-                    expect(newPosition).toStrictEqual(position);
-                });
+            beforeEach(() => {
+                point = {
+                    path: [1],
+                    offset: 1,
+                };
             });
 
-            describe('when position is point', () => {
-                beforeEach(() => {
-                    position = {
-                        path: [1],
-                        offset: 1,
-                    };
-                });
-
-                it('returns original position', () => {
-                    const newPosition = mapping.map(position);
-                    expect(newPosition).toStrictEqual(position);
-                });
+            it('returns original point', () => {
+                const newPoint = mapping.map(point);
+                expect(newPoint).toStrictEqual(point);
             });
         });
 
-        describe('when position is at same level as mapping entry path', () => {
+        describe('when point is at same level as mapping entry path', () => {
             beforeEach(() => {
                 mapping = new Mapping([
                     {
-                        path: [1, 2],
-                        start: 3,
+                        start: { path: [1, 2], offset: 3 },
                         endBefore: 5,
                         endAfter: 6,
                     },
                 ]);
             });
 
-            describe('when position is before mapping entry start', () => {
-                describe('when position is path', () => {
-                    beforeEach(() => {
-                        position = [1, 2, 2];
-                    });
-
-                    it('returns original position', () => {
-                        const newPosition = mapping.map(position);
-                        expect(newPosition).toStrictEqual(position);
-                    });
+            describe('when point is before mapping entry start', () => {
+                beforeEach(() => {
+                    point = {
+                        path: [1, 2],
+                        offset: 2,
+                    };
                 });
 
-                describe('when position is point', () => {
-                    beforeEach(() => {
-                        position = {
-                            path: [1, 2],
-                            offset: 2,
-                        };
-                    });
-
-                    it('returns original position', () => {
-                        const newPosition = mapping.map(position);
-                        expect(newPosition).toStrictEqual(position);
-                    });
+                it('returns original point', () => {
+                    const newPoint = mapping.map(point);
+                    expect(newPoint).toStrictEqual(point);
                 });
             });
 
-            describe('when position is between mapping entry start and end', () => {
+            describe('when point is between mapping entry start and end', () => {
                 beforeEach(() => {
                     mapping = new Mapping([
                         {
-                            path: [1, 2],
-                            start: 3,
+                            start: { path: [1, 2], offset: 3 },
                             endBefore: 5,
                             endAfter: 6,
                         },
                     ]);
                 });
 
-                describe('when position is path', () => {
-                    beforeEach(() => {
-                        position = [1, 2, 4];
-                    });
-
-                    it('throws error', () => {
-                        expect(() => mapping.map(position)).toThrow(Error);
-                    });
+                beforeEach(() => {
+                    point = {
+                        path: [1, 2],
+                        offset: 4,
+                    };
                 });
 
-                describe('when position is point', () => {
-                    beforeEach(() => {
-                        position = {
-                            path: [1, 2],
-                            offset: 4,
-                        };
-                    });
-
-                    it('throws error', () => {
-                        expect(() => mapping.map(position)).toThrow(Error);
+                it('maps to the end', () => {
+                    const newPoint = mapping.map(point);
+                    expect(newPoint).toStrictEqual({
+                        path: [1, 2],
+                        offset: 6,
                     });
                 });
             });
 
-            describe('when position is after mapping entry end', () => {
+            describe('when point is after mapping entry end', () => {
                 describe('mapping entry describes insertion', () => {
                     beforeEach(() => {
                         mapping = new Mapping([
                             {
-                                path: [1, 2],
-                                start: 3,
+                                start: { path: [1, 2], offset: 3 },
                                 endBefore: 5,
                                 endAfter: 6,
                             },
                         ]);
                     });
 
-                    describe('when position is path', () => {
-                        beforeEach(() => {
-                            position = [1, 2, 6];
-                        });
-
-                        it('maps position towards the end', () => {
-                            const newPosition = mapping.map(position);
-                            expect(newPosition).toStrictEqual([1, 2, 7]);
-                        });
+                    beforeEach(() => {
+                        point = {
+                            path: [1, 2],
+                            offset: 6,
+                        };
                     });
 
-                    describe('when position is point', () => {
-                        beforeEach(() => {
-                            position = {
-                                path: [1, 2],
-                                offset: 6,
-                            };
-                        });
-
-                        it('maps position towards the end', () => {
-                            const newPosition = mapping.map(position);
-                            expect(newPosition).toStrictEqual({
-                                path: [1, 2],
-                                offset: 7,
-                            });
+                    it('maps point towards the end', () => {
+                        const newPoint = mapping.map(point);
+                        expect(newPoint).toStrictEqual({
+                            path: [1, 2],
+                            offset: 7,
                         });
                     });
                 });
@@ -164,39 +114,25 @@ describe('Mapping', () => {
                     beforeEach(() => {
                         mapping = new Mapping([
                             {
-                                path: [1, 2],
-                                start: 3,
+                                start: { path: [1, 2], offset: 3 },
                                 endBefore: 5,
                                 endAfter: 4,
                             },
                         ]);
                     });
 
-                    describe('when position is path', () => {
-                        beforeEach(() => {
-                            position = [1, 2, 6];
-                        });
-
-                        it('maps position towards the start', () => {
-                            const newPosition = mapping.map(position);
-                            expect(newPosition).toStrictEqual([1, 2, 5]);
-                        });
+                    beforeEach(() => {
+                        point = {
+                            path: [1, 2],
+                            offset: 6,
+                        };
                     });
 
-                    describe('when position is point', () => {
-                        beforeEach(() => {
-                            position = {
-                                path: [1, 2],
-                                offset: 6,
-                            };
-                        });
-
-                        it('maps position towards the start', () => {
-                            const newPosition = mapping.map(position);
-                            expect(newPosition).toStrictEqual({
-                                path: [1, 2],
-                                offset: 5,
-                            });
+                    it('maps point towards the start', () => {
+                        const newPoint = mapping.map(point);
+                        expect(newPoint).toStrictEqual({
+                            path: [1, 2],
+                            offset: 5,
                         });
                     });
                 });

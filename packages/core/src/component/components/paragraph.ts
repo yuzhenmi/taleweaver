@@ -1,9 +1,9 @@
 import { BlockComponent } from '../component';
 
-export interface IParagraphAttributes {}
+export interface ParagraphAttributes {}
 
-export class ParagraphComponent extends BlockComponent<IParagraphAttributes> {
-    render(attributes: Partial<IParagraphAttributes>) {
+export class ParagraphComponent extends BlockComponent<ParagraphAttributes> {
+    render(attributes: Partial<ParagraphAttributes>) {
         return {
             style: {
                 paddingTop: 0,

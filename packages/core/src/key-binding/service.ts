@@ -1,24 +1,22 @@
-import { ICommandService } from '../command/service';
-import { IPlatformKeyBindings } from '../config/config';
-import { IConfigService } from '../config/service';
+import { CommandService } from '../command/service';
+import { PlatformKeyBindings } from '../config/config';
+import { ConfigService } from '../config/service';
 import { detectPlatform } from '../util/platform';
-import { IDidPressKeyEvent } from '../view/keyboard-observer';
+import { DidPressKeyEvent } from '../view/keyboard-observer';
 import { IViewService } from '../view/service';
 
-export interface IKeyBinding {
+export interface KeyBinding {
     command: string;
     args: any[];
     preventDefault: boolean;
 }
 
-export interface IKeyBindingService {}
-
-export class KeyBindingService implements IKeyBindingService {
-    protected keyBindings: Map<string, IKeyBinding> = new Map();
+export class KeyBindingService {
+    protected keyBindings: Map<string, KeyBinding> = new Map();
 
     constructor(
-        protected configService: IConfigService,
-        protected commandService: ICommandService,
+        protected configService: ConfigService,
+        protected commandService: CommandService,
         protected viewService: IViewService,
     ) {
         const keyBindingsConfig = this.configService.getConfig().keyBindings;
@@ -43,7 +41,7 @@ export class KeyBindingService implements IKeyBindingService {
         viewService.onDidPressKey(this.handleDidPressKey);
     }
 
-    protected bindKeys(config: IPlatformKeyBindings) {
+    protected bindKeys(config: PlatformKeyBindings) {
         for (let key in config) {
             const binding = config[key];
             this.keyBindings.set(key, {
@@ -54,7 +52,7 @@ export class KeyBindingService implements IKeyBindingService {
         }
     }
 
-    protected handleDidPressKey = (event: IDidPressKeyEvent) => {
+    protected handleDidPressKey = (event: DidPressKeyEvent) => {
         const keyBinding = this.keyBindings.get(event.key);
         if (!keyBinding) {
             return;

@@ -1,30 +1,30 @@
-import { IBlockRenderNode, IDocRenderNode, IInlineRenderNode, ITextRenderNode } from '../render/node';
-import { ITextService } from '../text/service';
-import { BlockLayoutNode, IBlockLayoutNode, IBlockLayoutProps } from './block-node';
-import { DocLayoutNode, IDocLayoutNode } from './doc-node';
-import { IInlineLayoutNode, InlineLayoutNode } from './inline-node';
-import { ILineLayoutNode, ILineLayoutNodeChild, ILineLayoutProps, LineLayoutNode } from './line-node';
-import { ILayoutNode } from './node';
-import { IPageLayoutNode, IPageLayoutNodeChild, PageLayoutNode } from './page-node';
-import { ITextLayoutNode, TextLayoutNode } from './text-node';
-import { IWordLayoutNode, WordLayoutNode } from './word-node';
+import { BlockRenderNode } from '../render/nodes/block';
+import { DocRenderNode } from '../render/nodes/doc';
+import { InlineRenderNode } from '../render/nodes/inline';
+import { TextRenderNode } from '../render/nodes/text';
+import { TextService } from '../text/service';
+import { LayoutNode } from './nodes';
+import { BlockLayoutNode, BlockLayoutProps } from './nodes/block';
+import { DocLayoutNode } from './nodes/doc';
+import { InlineLayoutNode } from './nodes/inline';
+import { LineLayoutChildNode, LineLayoutNode, LineLayoutProps } from './nodes/line';
+import { PageLayoutChildNode, PageLayoutNode } from './nodes/page';
+import { TextLayoutNode } from './nodes/text';
+import { WordLayoutNode } from './nodes/word';
 
-interface ILayoutNodeWithChildren<TChild extends ILayoutNode> {
+interface LayoutNodeWithChildren<TChild extends LayoutNode> {
     children: TChild[];
     setChildren(children: TChild[]): void;
 }
 
 export class LayoutTreeManager {
-    protected doc: IDocLayoutNode | null = null;
+    constructor(protected textService: TextService) {}
 
-    constructor(protected textService: ITextService) {}
-
-    syncWithRenderTree(renderDoc: IDocRenderNode) {
-        this.doc = this.syncWithDocRenderNode(this.doc, renderDoc) as IDocLayoutNode;
-        return this.doc;
+    syncWithRenderTree(doc: DocLayoutNode | null, renderDoc: DocRenderNode) {
+        return this.syncWithDocRenderNode(doc, renderDoc) as DocLayoutNode;
     }
 
-    protected syncWithDocRenderNode(node: IDocLayoutNode | null, renderNode: IDocRenderNode) {
+    protected syncWithDocRenderNode(node: DocLayoutNode | null, renderNode: DocRenderNode) {
         if (!renderNode.needLayout && node) {
             return node;
         }
@@ -32,7 +32,7 @@ export class LayoutTreeManager {
             node = this.buildDocLayoutNode(renderNode.id);
         }
         let pages = node.children;
-        const childrenMap: { [key: string]: IPageLayoutNodeChild[] } = {};
+        const childrenMap: { [key: string]: PageLayoutChildNode[] } = {};
         pages.forEach((page) => {
             const children = page.children;
             children.forEach((child) => {
@@ -44,7 +44,7 @@ export class LayoutTreeManager {
         const docStyle = renderNode.style;
         const pageContentWidth = docStyle.pageWidth - docStyle.pagePaddingLeft - docStyle.pagePaddingRight;
         const pageContentHeight = docStyle.pageHeight - docStyle.pagePaddingTop - docStyle.pagePaddingBottom;
-        const newChildren: IPageLayoutNodeChild[] = [];
+        const newChildren: PageLayoutChildNode[] = [];
         renderChildren.forEach((renderChild) => {
             newChildren.push(
                 ...this.syncWithBlockRenderNode(childrenMap[renderChild.id] ?? [], renderChild, pageContentWidth),
@@ -66,13 +66,13 @@ export class LayoutTreeManager {
         return node;
     }
 
-    protected syncWithBlockRenderNode(nodes: IBlockLayoutNode[], renderNode: IBlockRenderNode, width: number) {
+    protected syncWithBlockRenderNode(nodes: BlockLayoutNode[], renderNode: BlockRenderNode, width: number) {
         if (!renderNode.needLayout && nodes.length > 0) {
             return nodes;
         }
-        let lines = nodes.reduce((lines, node) => lines.concat(node.children), [] as ILineLayoutNode[]);
+        let lines = nodes.reduce((lines, node) => lines.concat(node.children), [] as LineLayoutNode[]);
         const renderChildren = renderNode.children;
-        const childrenMap: { [key: string]: ILineLayoutNodeChild[] } = {};
+        const childrenMap: { [key: string]: LineLayoutChildNode[] } = {};
         lines.forEach((line) => {
             const children = line.children;
             children.forEach((child) => {
@@ -80,7 +80,7 @@ export class LayoutTreeManager {
                 childrenMap[child.renderId].push(child);
             });
         });
-        const newChildren: ILineLayoutNodeChild[] = [];
+        const newChildren: LineLayoutChildNode[] = [];
         renderChildren.forEach((renderChild) => {
             switch (renderChild.type) {
                 case 'inline':
@@ -100,7 +100,7 @@ export class LayoutTreeManager {
         });
         this.updateChildrenForNodes(lines, newChildren, () => this.buildLineLayoutNode());
         const blockStyle = renderNode.style;
-        const blockLayoutProps: IBlockLayoutProps = {
+        const blockLayoutProps: BlockLayoutProps = {
             width,
             paddingTop: blockStyle.paddingTop,
             paddingBottom: blockStyle.paddingBottom,
@@ -108,7 +108,7 @@ export class LayoutTreeManager {
             paddingRight: blockStyle.paddingRight,
         };
         const lineWidth = blockLayoutProps.width - blockLayoutProps.paddingLeft - blockLayoutProps.paddingRight;
-        const lineLayoutProps: ILineLayoutProps = {
+        const lineLayoutProps: LineLayoutProps = {
             width: lineWidth,
             lineHeight: blockStyle.lineHeight,
         };
@@ -120,7 +120,7 @@ export class LayoutTreeManager {
         return nodes;
     }
 
-    protected syncWithInlineRenderNode(node: IInlineLayoutNode, renderNode: IInlineRenderNode) {
+    protected syncWithInlineRenderNode(node: InlineLayoutNode, renderNode: InlineRenderNode) {
         if (!renderNode.needLayout && node) {
             return node;
         }
@@ -132,11 +132,11 @@ export class LayoutTreeManager {
         return node;
     }
 
-    protected syncWithTextRenderNode(nodes: ITextLayoutNode[], renderNode: ITextRenderNode) {
+    protected syncWithTextRenderNode(nodes: TextLayoutNode[], renderNode: TextRenderNode) {
         if (!renderNode.needLayout && nodes.length > 0) {
             return nodes;
         }
-        const childrenMap: { [key: string]: IWordLayoutNode[] } = {};
+        const childrenMap: { [key: string]: WordLayoutNode[] } = {};
         for (const node of nodes) {
             for (const child of node.children) {
                 const key = child.content + new Array(child.whitespaceSize).fill(' ').join('');
@@ -146,7 +146,7 @@ export class LayoutTreeManager {
         }
         const node = this.buildTextLayoutNode(renderNode.id);
         const words = this.textService.breakIntoWords(renderNode.content);
-        const newChildren: IWordLayoutNode[] = [];
+        const newChildren: WordLayoutNode[] = [];
         for (const word of words) {
             let child = childrenMap[word.content + new Array(word.whitespaceSize).fill(' ').join('')]?.shift();
             if (!child) {
@@ -164,19 +164,19 @@ export class LayoutTreeManager {
         return nodes;
     }
 
-    protected reflowPages(pages: IPageLayoutNode[], maxHeight: number) {
-        const children = pages.reduce((children, page) => children.concat(page.children), [] as IPageLayoutNodeChild[]);
-        const childrenByPage: IPageLayoutNodeChild[][] = [];
-        let childrenInCurrentPage: IPageLayoutNodeChild[] = [];
+    protected reflowPages(pages: PageLayoutNode[], maxHeight: number) {
+        const children = pages.reduce((children, page) => children.concat(page.children), [] as PageLayoutChildNode[]);
+        const childrenByPage: PageLayoutChildNode[][] = [];
+        let childrenInCurrentPage: PageLayoutChildNode[] = [];
         let heightInCurrentPage = 0;
         while (children.length > 0) {
-            let child: IPageLayoutNodeChild | null = children.shift()!;
+            let child: PageLayoutChildNode | null = children.shift()!;
             let shouldStartNewPage = false;
             if (heightInCurrentPage + child.layout.height > maxHeight) {
                 switch (child.type) {
                     case 'block': {
                         const remainingHeight = maxHeight - heightInCurrentPage;
-                        const lines: ILineLayoutNode[] = [];
+                        const lines: LineLayoutNode[] = [];
                         let heightOfLines = 0;
                         for (const line of child.children) {
                             if (heightOfLines + line.layout.height > remainingHeight) {
@@ -232,19 +232,19 @@ export class LayoutTreeManager {
         }
     }
 
-    protected reflowLines(lines: ILineLayoutNode[], maxWidth: number) {
-        const children = lines.reduce((children, line) => children.concat(line.children), [] as ILineLayoutNodeChild[]);
-        const childrenByLine: ILineLayoutNodeChild[][] = [];
-        let childrenInCurrentLine: ILineLayoutNodeChild[] = [];
+    protected reflowLines(lines: LineLayoutNode[], maxWidth: number) {
+        const children = lines.reduce((children, line) => children.concat(line.children), [] as LineLayoutChildNode[]);
+        const childrenByLine: LineLayoutChildNode[][] = [];
+        let childrenInCurrentLine: LineLayoutChildNode[] = [];
         let widthInCurrentLine = 0;
         while (children.length > 0) {
-            let child: ILineLayoutNodeChild | null = children.shift()!;
+            let child: LineLayoutChildNode | null = children.shift()!;
             let shouldStartNewLine = false;
             if (widthInCurrentLine + child.layout.width > maxWidth) {
                 switch (child.type) {
                     case 'text': {
                         const remainingWidth = maxWidth - widthInCurrentLine;
-                        const words: IWordLayoutNode[] = [];
+                        const words: WordLayoutNode[] = [];
                         let widthOfWords = 0;
                         for (const word of child.children) {
                             if (widthOfWords + word.layout.width > remainingWidth) {
@@ -311,9 +311,9 @@ export class LayoutTreeManager {
         }
     }
 
-    protected compressPageChildren(nodes: IPageLayoutNodeChild[]) {
-        const newNodes: IPageLayoutNodeChild[] = [];
-        let lastNode: IPageLayoutNodeChild | undefined;
+    protected compressPageChildren(nodes: PageLayoutChildNode[]) {
+        const newNodes: PageLayoutChildNode[] = [];
+        let lastNode: PageLayoutChildNode | undefined;
         for (const node of nodes) {
             if (lastNode?.renderId === node.renderId) {
                 lastNode.setChildren([...lastNode.children, ...node.children]);
@@ -325,9 +325,9 @@ export class LayoutTreeManager {
         return newNodes;
     }
 
-    protected compressLineChildren(nodes: ILineLayoutNodeChild[]) {
-        const newNodes: ILineLayoutNodeChild[] = [];
-        let lastNode: ILineLayoutNodeChild | undefined;
+    protected compressLineChildren(nodes: LineLayoutChildNode[]) {
+        const newNodes: LineLayoutChildNode[] = [];
+        let lastNode: LineLayoutChildNode | undefined;
         for (const node of nodes) {
             switch (node.type) {
                 case 'text': {
@@ -348,7 +348,7 @@ export class LayoutTreeManager {
         return newNodes;
     }
 
-    protected updateChildrenForNodes<TChild extends ILayoutNode, TNode extends ILayoutNodeWithChildren<TChild>>(
+    protected updateChildrenForNodes<TChild extends LayoutNode, TNode extends LayoutNodeWithChildren<TChild>>(
         nodes: Array<TNode>,
         newChildren: TChild[],
         buildNode: () => TNode,
@@ -462,7 +462,7 @@ export class LayoutTreeManager {
         return node;
     }
 
-    protected identifyNode(node: ILayoutNode) {
+    protected identifyNode(node: LayoutNode) {
         return node.id;
     }
 }

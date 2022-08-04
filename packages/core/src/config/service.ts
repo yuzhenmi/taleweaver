@@ -1,13 +1,9 @@
-import { IConfig, IExternalConfig } from './config';
+import { Config, ExternalConfig } from './config';
 
-export interface IConfigService {
-    getConfig(): IConfig;
-}
+export class ConfigService {
+    protected config: Config;
 
-export class ConfigService implements IConfigService {
-    protected config: IConfig;
-
-    constructor(config: IConfig, externalConfig: IExternalConfig) {
+    constructor(config: Config, externalConfig: ExternalConfig) {
         this.config = config;
         this.applyExternalConfig(externalConfig);
     }
@@ -16,7 +12,7 @@ export class ConfigService implements IConfigService {
         return this.config;
     }
 
-    protected applyExternalConfig(externalConfig: IExternalConfig) {
+    protected applyExternalConfig(externalConfig: ExternalConfig) {
         const coreConfig = externalConfig['tw.core'];
         if (coreConfig) {
             // TODO

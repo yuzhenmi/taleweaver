@@ -1,128 +1,105 @@
-import { IComponentService } from '../component/service';
-import { BlockModelNode, DocModelNode, IDocModelNode, IInlineModelNode, IModelNode, InlineModelNode } from './node';
+import { ComponentService } from '../component/service';
+import { ModelNode } from './nodes';
+import { BlockModelNode, BlockModelNodeChild } from './nodes/block';
+import { DocModelChildNode, DocModelNode } from './nodes/doc';
+import { InlineModelNode } from './nodes/inline';
 
-type ISerializableValue = number | string | boolean | ISerializableValue[] | { [key: string]: ISerializableValue };
-
-export interface ISerializable {
+export interface ModelNodeData {
     componentId: string;
     id: string;
-    attributes: { [key: string]: ISerializableValue };
-    children?: ISerializable[];
-    content?: string;
+    attributes: any;
+    children?: Array<ModelNodeData | string>;
     marks?: Array<{
         typeId: string;
         start: number;
         end: number;
-        attributes: { [key: string]: ISerializableValue };
+        attributes: any;
     }>;
 }
 
 export class Serializer {
-    constructor(protected componentService: IComponentService) {}
+    constructor(protected componentService: ComponentService) {}
 
-    parse(data: ISerializable): IDocModelNode {
-        const doc = this.internalParse(data);
+    parse(data: ModelNodeData): DocModelNode<any> {
+        const doc = this._parse(data);
         if (doc.type !== 'doc') {
             throw new Error('Serializable is invalid.');
         }
         return doc;
     }
 
-    serialize(doc: IDocModelNode): ISerializable {
-        return this.internalSerialize(doc);
+    serialize(doc: DocModelNode<any>): ModelNodeData {
+        return this._serialize(doc);
     }
 
-    protected internalParse(data: ISerializable): IModelNode {
+    protected _parse(data: ModelNodeData): ModelNode {
         const component = this.componentService.getComponent(data.componentId);
         switch (component.type) {
             case 'doc': {
-                const node = new DocModelNode(data.componentId, data.id);
-                for (const key in data.attributes) {
-                    node.setAttribute(key, data.attributes[key]);
-                }
-                data.children?.forEach((childData, childIndex) => {
-                    const child = this.internalParse(childData);
-                    if (child.type !== 'block') {
-                        throw new Error('Child of doc must be block.');
-                    }
-                    node.insertChild(child, childIndex);
-                });
-                return node;
+                const children =
+                    data.children?.map((childData) => {
+                        if (typeof childData === 'string') {
+                            throw new Error('Doc child data must be object.');
+                        }
+                        const child = this._parse(childData);
+                        if (!['block'].includes(child.type)) {
+                            throw new Error('Doc child must be block.');
+                        }
+                        return child as DocModelChildNode;
+                    }) ?? [];
+                return new DocModelNode(data.componentId, data.id, data.attributes, children);
             }
             case 'block': {
-                const node = new BlockModelNode(data.componentId, data.id);
-                for (const key in data.attributes) {
-                    node.setAttribute(key, data.attributes[key]);
-                }
-                data.marks?.forEach((mark) => {
-                    node.appendMark(mark);
-                });
-                const content: Array<string | IInlineModelNode> = [];
-                const dataContent = data.content ?? '';
-                const dataChildren = data.children ?? [];
-                let m = 0;
-                for (let n = 0, nn = dataContent.length; n < nn; n++) {
-                    let character = dataContent[n];
-                    let characterOrInlineNode: string | IInlineModelNode;
-                    if (character === '$') {
-                        if (n + 1 < nn && dataContent[n + 1] === '$') {
-                            n++;
-                            characterOrInlineNode = '$';
+                const children: BlockModelNodeChild[] = [];
+                if (data.children) {
+                    for (let n = 0, nn = data.children.length; n < nn; n++) {
+                        const childData = data.children[n];
+                        if (typeof childData === 'string') {
+                            children.push(...childData.split(''));
                         } else {
-                            if (m >= dataChildren.length) {
-                                throw new Error('Expected additional children in block node.');
+                            const child = this._parse(childData);
+                            if (!['inline'].includes(child.type)) {
+                                throw new Error('Block child must be inline.');
                             }
-                            const inlineNode = this.internalParse(dataChildren[m]);
-                            if (inlineNode.type !== 'inline') {
-                                throw new Error('Expected block node child as inline node.');
-                            }
-                            characterOrInlineNode = inlineNode;
+                            children.push(child as BlockModelNodeChild);
                         }
-                    } else {
-                        characterOrInlineNode = character;
                     }
-                    content.push(characterOrInlineNode);
                 }
-                node.insertContent(content, 0);
-                return node;
+                return new BlockModelNode(data.componentId, data.id, data.attributes, data.marks ?? [], children);
             }
             case 'inline': {
-                const node = new InlineModelNode(data.componentId, data.id);
-                for (const key in data.attributes) {
-                    node.setAttribute(key, data.attributes[key]);
-                }
-                return node;
+                return new InlineModelNode(data.componentId, data.id, data.attributes);
             }
         }
     }
 
-    protected internalSerialize(node: IModelNode): ISerializable {
-        const result: ISerializable = {
+    protected _serialize(node: ModelNode): ModelNodeData {
+        const result: ModelNodeData = {
             componentId: node.componentId,
             id: node.id,
-            attributes: node.attributes as any,
+            attributes: node.attributes,
         };
         switch (node.type) {
             case 'doc': {
-                result.children = node.children.map(this.internalSerialize);
+                result.children = node.children.map(this._serialize);
                 break;
             }
             case 'block': {
-                result.content = '';
+                result.marks = node.marks.slice();
                 result.children = [];
-                node.content.slice(0, node.content.length - 1).forEach((characterOrInlineNode) => {
-                    if (typeof characterOrInlineNode === 'string') {
-                        if (characterOrInlineNode === '$') {
-                            result.content += '$$';
-                        } else {
-                            result.content += characterOrInlineNode;
-                        }
+                let substring = '';
+                for (const child of node.children) {
+                    if (typeof child === 'string') {
+                        substring += child;
                     } else {
-                        result.content += '$';
-                        result.children!.push(this.internalSerialize(characterOrInlineNode));
+                        result.children.push(substring);
+                        substring = '';
+                        result.children.push(this._serialize(child));
                     }
-                });
-                result.marks = node.marks as any;
+                }
+                if (substring) {
+                    result.children.push(substring);
+                }
                 break;
             }
         }

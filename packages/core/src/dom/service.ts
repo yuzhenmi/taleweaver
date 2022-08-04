@@ -1,21 +1,9 @@
-interface ICreateElementOptions {
+interface CreateElementOptions {
     role?: string;
     className?: string;
 }
 
-export interface IDOMService {
-    getWindow(): Window;
-    getDocument(): Document;
-    getBody(): HTMLElement;
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(
-        tagName: TTagName,
-        options?: ICreateElementOptions,
-    ): HTMLElementTagNameMap[TTagName];
-    createHiddenIframe(): HTMLIFrameElement;
-    createMutationObserver(callback: MutationCallback): MutationObserver;
-}
-
-export class DOMService implements IDOMService {
+export class DOMService {
     getWindow(): Window {
         return window;
     }
@@ -28,7 +16,7 @@ export class DOMService implements IDOMService {
         return document.body;
     }
 
-    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName, options?: ICreateElementOptions) {
+    createElement<TTagName extends keyof HTMLElementTagNameMap>(tagName: TTagName, options?: CreateElementOptions) {
         const element = document.createElement(tagName);
         if (options) {
             if (options.role) {

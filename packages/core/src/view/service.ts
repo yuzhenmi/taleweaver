@@ -1,24 +1,24 @@
-import { ICommandService } from '../command/service';
-import { IConfigService } from '../config/service';
-import { ICursorService } from '../cursor/service';
-import { IDOMService } from '../dom/service';
-import { IEventListener } from '../event/listener';
-import { ILayoutService } from '../layout/service';
-import { IModelService } from '../model/service';
-import { ITransformService } from '../transform/service';
-import { CursorView, ICursorView } from './cursor';
-import { DOMController, IDOMController } from './dom-controller';
-import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
-import { IDidPressKeyEvent } from './keyboard-observer';
-import { IDocViewNode } from './node';
+import { CommandService } from '../command/service';
+import { ConfigService } from '../config/service';
+import { CursorService } from '../cursor/service';
+import { DOMService } from '../dom/service';
+import { EventListener } from '../event/listener';
+import { LayoutService } from '../layout/service';
+import { ModelService } from '../model/service';
+import { TransformService } from '../transform/service';
+import { CursorView } from './cursor';
+import { DOMController } from './dom-controller';
+import { DidBlurEvent, DidFocusEvent } from './focus-observer';
+import { DidPressKeyEvent } from './keyboard-observer';
+import { DocViewNode } from './nodes/doc';
 import { IDidUpdateViewStateEvent, IViewState, ViewState } from './state';
 
 export interface IViewService {
-    onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>): void;
-    onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
-    onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    getDoc(): IDocViewNode;
+    onDidUpdateViewState(listener: EventListener<IDidUpdateViewStateEvent>): void;
+    onDidFocus(listener: EventListener<DidFocusEvent>): void;
+    onDidBlur(listener: EventListener<DidBlurEvent>): void;
+    onDidPressKey(listener: EventListener<DidPressKeyEvent>): void;
+    getDoc(): DocViewNode;
     getDOMContainer(): HTMLElement | null;
     isFocused(): boolean;
     attach(domContainer: HTMLElement): void;
@@ -28,18 +28,18 @@ export interface IViewService {
 
 export class ViewService implements IViewService {
     protected state: IViewState;
-    protected cursor: ICursorView;
-    protected domController: IDOMController;
+    protected cursor: CursorView;
+    protected domController: DOMController;
 
     constructor(
         instanceId: string,
-        configService: IConfigService,
-        domService: IDOMService,
-        modelService: IModelService,
-        layoutService: ILayoutService,
-        cursorService: ICursorService,
-        commandService: ICommandService,
-        transformService: ITransformService,
+        configService: ConfigService,
+        domService: DOMService,
+        modelService: ModelService,
+        layoutService: LayoutService,
+        cursorService: CursorService,
+        commandService: CommandService,
+        transformService: TransformService,
     ) {
         this.state = new ViewState(instanceId, layoutService, domService);
         this.domController = new DOMController(
@@ -61,19 +61,19 @@ export class ViewService implements IViewService {
         );
     }
 
-    onDidUpdateViewState(listener: IEventListener<IDidUpdateViewStateEvent>) {
+    onDidUpdateViewState(listener: EventListener<IDidUpdateViewStateEvent>) {
         this.state.onDidUpdate(listener);
     }
 
-    onDidFocus(listener: IEventListener<IDidFocusEvent>) {
+    onDidFocus(listener: EventListener<DidFocusEvent>) {
         this.domController.onDidFocus(listener);
     }
 
-    onDidBlur(listener: IEventListener<IDidBlurEvent>) {
+    onDidBlur(listener: EventListener<DidBlurEvent>) {
         this.domController.onDidBlur(listener);
     }
 
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+    onDidPressKey(listener: EventListener<DidPressKeyEvent>) {
         this.domController.onDidPressKey(listener);
     }
 

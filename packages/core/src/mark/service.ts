@@ -1,15 +1,10 @@
-import { IConfigService } from '../config/service';
-import { IMarkType } from './mark';
+import { ConfigService } from '../config/service';
 import { IMarkTypeRegistry, MarkTypeRegistry } from './registry';
 
-export interface IMarkService {
-    getMarkType<TAttributes>(markTypeId: string): IMarkType<TAttributes>;
-}
-
-export class MarkService implements IMarkService {
+export class MarkService {
     protected registry: IMarkTypeRegistry = new MarkTypeRegistry();
 
-    constructor(configService: IConfigService) {
+    constructor(configService: ConfigService) {
         configService.getConfig().markTypes.forEach((markType) => {
             this.registry.registerMarkType(markType);
         });

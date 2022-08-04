@@ -1,29 +1,24 @@
 import { EventEmitter } from '../event/emitter';
-import { IEventListener } from '../event/listener';
+import { EventListener } from '../event/listener';
 
-export interface IDidFocusEvent {}
+export interface DidFocusEvent {}
 
-export interface IDidBlurEvent {}
+export interface DidBlurEvent {}
 
-export interface IFocusObserver {
-    onDidFocus(listener: IEventListener<IDidFocusEvent>): void;
-    onDidBlur(listener: IEventListener<IDidBlurEvent>): void;
-}
-
-export class FocusObserver implements IFocusObserver {
-    protected didFocusEventEmitter = new EventEmitter<IDidFocusEvent>();
-    protected didBlurEventEmitter = new EventEmitter<IDidBlurEvent>();
+export class FocusObserver implements FocusObserver {
+    protected didFocusEventEmitter = new EventEmitter<DidFocusEvent>();
+    protected didBlurEventEmitter = new EventEmitter<DidBlurEvent>();
 
     constructor(protected $contentEditable: HTMLDivElement) {
         $contentEditable.addEventListener('focus', this.handleFocus);
         $contentEditable.addEventListener('blur', this.handleBlur);
     }
 
-    onDidFocus(listener: IEventListener<IDidFocusEvent>) {
+    onDidFocus(listener: EventListener<DidFocusEvent>) {
         return this.didFocusEventEmitter.on(listener);
     }
 
-    onDidBlur(listener: IEventListener<IDidBlurEvent>) {
+    onDidBlur(listener: EventListener<DidBlurEvent>) {
         return this.didBlurEventEmitter.on(listener);
     }
 

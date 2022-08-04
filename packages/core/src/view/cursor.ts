@@ -1,19 +1,19 @@
-import { IConfigService } from '../config/service';
-import { ICursorService } from '../cursor/service';
-import { IDOMService } from '../dom/service';
-import { IBoundingBox } from '../layout/node';
-import { IPageLayoutNode } from '../layout/page-node';
-import { ILayoutService } from '../layout/service';
-import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
-import { IDidBlurEvent, IDidFocusEvent } from './focus-observer';
-import { IPageViewNode } from './node';
+import { ConfigService } from '../config/service';
+import { CursorService } from '../cursor/service';
+import { DOMService } from '../dom/service';
+import { BoundingBox } from '../layout/nodes/base';
+import { PageLayoutNode } from '../layout/nodes/page';
+import { LayoutService } from '../layout/service';
+import { DidApplyTransformationEvent, TransformService } from '../transform/service';
+import { DidBlurEvent, DidFocusEvent } from './focus-observer';
+import { PageViewNode } from './nodes/page';
 import { IViewService } from './service';
 
-export interface ICursorView {
+export interface CursorView {
     attach(): void;
 }
 
-export class CursorView implements ICursorView {
+export class CursorView {
     protected blinkInterval: number | null = null;
     protected blinkState = true;
     protected caretElement: HTMLDivElement;
@@ -26,12 +26,12 @@ export class CursorView implements ICursorView {
 
     constructor(
         protected instanceId: string,
-        protected configService: IConfigService,
-        protected domService: IDOMService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected configService: ConfigService,
+        protected domService: DOMService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
         protected viewService: IViewService,
-        protected transformService: ITransformService,
+        protected transformService: TransformService,
     ) {
         const cursorConfig = configService.getConfig().cursor;
         this.caretColor = cursorConfig.caretColor;
@@ -86,8 +86,8 @@ export class CursorView implements ICursorView {
         const pageLayoutNodes = docLayoutNode.children;
         const pageViewNodes = docViewNode.children;
         for (const pageBoundingBoxResult of docBoundingBoxResult.children) {
-            const pageOffset = pageLayoutNodes.indexOf(pageBoundingBoxResult.node as IPageLayoutNode);
-            const pageViewNode = pageViewNodes[pageOffset] as IPageViewNode;
+            const pageOffset = pageLayoutNodes.indexOf(pageBoundingBoxResult.node as PageLayoutNode);
+            const pageViewNode = pageViewNodes[pageOffset] as PageViewNode;
             const domContentContainer = pageViewNode.domContentContainer;
             pageBoundingBoxResult.boundingBoxes.forEach((boundingBox, boundingBoxOffset) => {
                 if (!firstPageId) {
@@ -140,9 +140,9 @@ export class CursorView implements ICursorView {
             } else {
                 this.caretElement.style.background = this.caretInactiveColor;
             }
-            const pageDOMContentContainer = (docViewNode.children.find(
-                (child) => child.layoutId === headPageId,
-            ) as IPageViewNode).domContentContainer;
+            const pageDOMContentContainer = (
+                docViewNode.children.find((child) => child.layoutId === headPageId) as PageViewNode
+            ).domContentContainer;
             if (this.caretElement.parentElement && this.caretElement.parentElement !== pageDOMContentContainer) {
                 this.caretElement.parentElement.removeChild(this.caretElement);
             }
@@ -196,7 +196,7 @@ export class CursorView implements ICursorView {
         this.selectionElements = [];
     }
 
-    protected buildDOMSelection(boundingBox: IBoundingBox) {
+    protected buildDOMSelection(boundingBox: BoundingBox) {
         const domSelection = document.createElement('div');
         domSelection.className = 'tw--cursor--selection';
         domSelection.setAttribute('data-tw-instance', this.instanceId);
@@ -210,15 +210,15 @@ export class CursorView implements ICursorView {
         return domSelection;
     }
 
-    protected handleDidApplyTransformation(event: IDidApplyTransformationEvent) {
+    protected handleDidApplyTransformation(event: DidApplyTransformationEvent) {
         this.updateView();
     }
 
-    protected handleDidFocus(event: IDidFocusEvent) {
+    protected handleDidFocus(event: DidFocusEvent) {
         this.updateView();
     }
 
-    protected handleDidBlur(event: IDidBlurEvent) {
+    protected handleDidBlur(event: DidBlurEvent) {
         this.updateView();
     }
 }

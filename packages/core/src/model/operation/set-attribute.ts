@@ -1,24 +1,24 @@
-import { IDocModelNode, ISerializableValue } from '../node';
-import { IPath } from '../position';
-import { identity, IMapping } from './mapping';
-import { IOperationResult, Operation } from './operation';
+import { Point } from '../nodes/base';
+import { DocModelNode } from '../nodes/doc';
+import { identity, Mapping } from './mapping';
+import { OperationResult, Operation } from './operation';
 
-export class SetAttribute extends Operation {
-    constructor(protected path: IPath, protected key: string, protected value: ISerializableValue) {
+export class SetAttribute<TAttributes> extends Operation {
+    constructor(protected point: Point, protected attributes: TAttributes) {
         super();
     }
 
-    map(mapping: IMapping) {
-        return new SetAttribute(mapping.map(this.path), this.key, this.value);
+    map(mapping: Mapping) {
+        return new SetAttribute(mapping.map(this.point), this.attributes);
     }
 
-    apply(doc: IDocModelNode): IOperationResult {
-        const node = doc.findByPath(this.path);
-        const originalValue = node.attributes[this.key];
-        node.setAttribute(this.key, this.value);
+    apply(doc: DocModelNode<any>): OperationResult {
+        const node = doc.findByPath([...this.point.path, this.point.offset]);
+        const prevAttributes = node.attributes;
+        node.setAttributes(this.attributes);
         return {
-            change: this,
-            reverseOperation: new SetAttribute(this.path, this.key, originalValue),
+            operation: this,
+            reverseOperation: new SetAttribute(this.point, prevAttributes),
             mapping: identity,
         };
     }

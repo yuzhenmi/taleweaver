@@ -1,11 +1,11 @@
-import { ICursorService } from '../../cursor/service';
-import { ILayoutService } from '../../layout/service';
-import { IModelService } from '../../model/service';
-import { ITransformService } from '../../transform/service';
+import { CursorService } from '../../cursor/service';
+import { LayoutService } from '../../layout/service';
+import { ModelService } from '../../model/service';
+import { TransformService } from '../../transform/service';
 import { Transformation } from '../../transform/transformation';
-import { ICommandHandler } from '../command';
+import { CommandHandler } from '../command';
 
-function atPreviousLine(position: number, leftLock: number, layoutService: ILayoutService) {
+function atPreviousLine(position: number, leftLock: number, layoutService: LayoutService) {
     const { node: lineLayoutNode, position: linePosition } = layoutService.describePosition(position).atLine();
     const previousLine = lineLayoutNode.previousCrossParentSibling;
     if (!previousLine) {
@@ -14,7 +14,7 @@ function atPreviousLine(position: number, leftLock: number, layoutService: ILayo
     return position - linePosition - previousLine.size + previousLine.convertCoordinatesToPosition(leftLock, 0);
 }
 
-function atNextLine(position: number, leftLock: number, layoutService: ILayoutService) {
+function atNextLine(position: number, leftLock: number, layoutService: LayoutService) {
     const { node: lineLayoutNode, position: linePosition } = layoutService.describePosition(position).atLine();
     const nextLine = lineLayoutNode.nextCrossParentSibling;
     if (!nextLine) {
@@ -23,7 +23,7 @@ function atNextLine(position: number, leftLock: number, layoutService: ILayoutSe
     return position - linePosition + lineLayoutNode.size + nextLine.convertCoordinatesToPosition(leftLock, 0);
 }
 
-function atPreviousWord(position: number, layoutService: ILayoutService) {
+function atPreviousWord(position: number, layoutService: LayoutService) {
     const { node: wordLayoutNode, position: wordPosition } = layoutService.describePosition(position).atWord();
     if (wordPosition > 0) {
         return position - wordPosition;
@@ -35,19 +35,19 @@ function atPreviousWord(position: number, layoutService: ILayoutService) {
     return position - previousWord.size;
 }
 
-function atNextWord(position: number, layoutService: ILayoutService) {
+function atNextWord(position: number, layoutService: LayoutService) {
     const { node: wordLayoutNode, position: wordPosition } = layoutService.describePosition(position).atWord();
     if (wordPosition < wordLayoutNode.size - 1) {
         return position - wordPosition + wordLayoutNode.trimmedSize;
     }
     const nextWord = wordLayoutNode.nextCrossParentSibling;
-    if (!nextWord) {
+    if (!nextWord || nextWord.type !== 'word') {
         return position;
     }
-    return position - wordPosition + wordLayoutNode.size + wordLayoutNode.trimmedSize;
+    return position - wordPosition + wordLayoutNode.size + nextWord.trimmedSize;
 }
 
-function atLineStart(position: number, layoutService: ILayoutService) {
+function atLineStart(position: number, layoutService: LayoutService) {
     const { position: linePosition } = layoutService.describePosition(position).atLine();
     if (linePosition === 0) {
         return position;
@@ -55,7 +55,7 @@ function atLineStart(position: number, layoutService: ILayoutService) {
     return position - linePosition;
 }
 
-function atLineEnd(position: number, layoutService: ILayoutService) {
+function atLineEnd(position: number, layoutService: LayoutService) {
     const { node: lineLayoutNode, position: linePosition } = layoutService.describePosition(position).atLine();
     if (linePosition >= lineLayoutNode.size - 1) {
         return position;
@@ -63,20 +63,20 @@ function atLineEnd(position: number, layoutService: ILayoutService) {
     return position - linePosition + lineLayoutNode.size - 1;
 }
 
-export class MoveCommandHandler implements ICommandHandler {
+export class MoveCommandHandler implements CommandHandler {
     static dependencies = ['transform'] as const;
 
-    constructor(protected transformService: ITransformService) {}
+    constructor(protected transformService: TransformService) {}
 
     async handle(position: number) {
         this.transformService.applyTransformation(new Transformation([], position));
     }
 }
 
-export class MoveBackwardCommandHandler implements ICommandHandler {
+export class MoveBackwardCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor'] as const;
 
-    constructor(protected transformService: ITransformService, protected cursorService: ICursorService) {}
+    constructor(protected transformService: TransformService, protected cursorService: CursorService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
@@ -93,10 +93,10 @@ export class MoveBackwardCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveForwardCommandHandler implements ICommandHandler {
+export class MoveForwardCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor'] as const;
 
-    constructor(protected transformService: ITransformService, protected cursorService: ICursorService) {}
+    constructor(protected transformService: TransformService, protected cursorService: CursorService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
@@ -113,13 +113,13 @@ export class MoveForwardCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveBackwardByLineCommandHandler implements ICommandHandler {
+export class MoveBackwardByLineCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -133,13 +133,13 @@ export class MoveBackwardByLineCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveForwardByLineCommandHandler implements ICommandHandler {
+export class MoveForwardByLineCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -153,13 +153,13 @@ export class MoveForwardByLineCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveBackwardByWordCommandHandler implements ICommandHandler {
+export class MoveBackwardByWordCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -173,13 +173,13 @@ export class MoveBackwardByWordCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveForwardByWordCommandHandler implements ICommandHandler {
+export class MoveForwardByWordCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -193,13 +193,13 @@ export class MoveForwardByWordCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveToLineStartCommandHandler implements ICommandHandler {
+export class MoveToLineStartCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -213,13 +213,13 @@ export class MoveToLineStartCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveToLineEndCommandHandler implements ICommandHandler {
+export class MoveToLineEndCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -233,10 +233,10 @@ export class MoveToLineEndCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveToDocStartCommandHandler implements ICommandHandler {
+export class MoveToDocStartCommandHandler implements CommandHandler {
     static dependencies = ['transform'] as const;
 
-    constructor(protected transformService: ITransformService) {}
+    constructor(protected transformService: TransformService) {}
 
     async handle() {
         const newPosition = 0;
@@ -244,21 +244,21 @@ export class MoveToDocStartCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveToDocEndCommandHandler implements ICommandHandler {
+export class MoveToDocEndCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'model'] as const;
 
-    constructor(protected transformService: ITransformService, protected modelService: IModelService) {}
+    constructor(protected transformService: TransformService, protected modelService: ModelService) {}
 
     async handle() {
-        const newPosition = this.modelService.getDocContentSize() - 1;
+        const newPosition = this.modelService.getDocSize() - 1;
         this.transformService.applyTransformation(new Transformation([], newPosition));
     }
 }
 
-export class MoveHeadCommandHandler implements ICommandHandler {
+export class MoveHeadCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor'] as const;
 
-    constructor(protected transformService: ITransformService, protected cursorService: ICursorService) {}
+    constructor(protected transformService: TransformService, protected cursorService: CursorService) {}
 
     async handle(position: number) {
         const cursor = this.cursorService.getCursor();
@@ -269,10 +269,10 @@ export class MoveHeadCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadBackwardCommandHandler implements ICommandHandler {
+export class MoveHeadBackwardCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor'] as const;
 
-    constructor(protected transformService: ITransformService, protected cursorService: ICursorService) {}
+    constructor(protected transformService: TransformService, protected cursorService: CursorService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
@@ -284,13 +284,13 @@ export class MoveHeadBackwardCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadForward implements ICommandHandler {
+export class MoveHeadForward implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
@@ -298,19 +298,19 @@ export class MoveHeadForward implements ICommandHandler {
         if (!cursor) {
             return;
         }
-        const contentSize = this.modelService.getDocContentSize();
+        const contentSize = this.modelService.getDocSize();
         const newHead = Math.min(contentSize - 1, cursor.head + 1);
         this.transformService.applyTransformation(new Transformation([], newHead, cursor.anchor));
     }
 }
 
-export class MoveHeadBackwardByLineCommandHandler implements ICommandHandler {
+export class MoveHeadBackwardByLineCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -323,13 +323,13 @@ export class MoveHeadBackwardByLineCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadForwardByLineCommandHandler implements ICommandHandler {
+export class MoveHeadForwardByLineCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -342,13 +342,13 @@ export class MoveHeadForwardByLineCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadBackwardByWordCommandHandler implements ICommandHandler {
+export class MoveHeadBackwardByWordCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -361,13 +361,13 @@ export class MoveHeadBackwardByWordCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadForwardByWordCommandHandler implements ICommandHandler {
+export class MoveHeadForwardByWordCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -380,13 +380,13 @@ export class MoveHeadForwardByWordCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadToLineStartCommandHandler implements ICommandHandler {
+export class MoveHeadToLineStartCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -399,13 +399,13 @@ export class MoveHeadToLineStartCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadToLineEndCommandHandler implements ICommandHandler {
+export class MoveHeadToLineEndCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle() {
@@ -418,10 +418,10 @@ export class MoveHeadToLineEndCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadToDocStartCommandHandler implements ICommandHandler {
+export class MoveHeadToDocStartCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor'] as const;
 
-    constructor(protected transformService: ITransformService, protected cursorService: ICursorService) {}
+    constructor(protected transformService: TransformService, protected cursorService: CursorService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
@@ -430,29 +430,29 @@ export class MoveHeadToDocStartCommandHandler implements ICommandHandler {
     }
 }
 
-export class MoveHeadToDocEndCommandHandler implements ICommandHandler {
+export class MoveHeadToDocEndCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
-        const newHead = this.modelService.getDocContentSize() - 1;
+        const newHead = this.modelService.getDocSize() - 1;
         this.transformService.applyTransformation(new Transformation([], newHead, cursor?.anchor));
     }
 }
 
-export class SelectAllCommandHandler implements ICommandHandler {
+export class SelectAllCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'model'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected modelService: IModelService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected modelService: ModelService,
     ) {}
 
     async handle() {
@@ -461,18 +461,18 @@ export class SelectAllCommandHandler implements ICommandHandler {
             return;
         }
         const newAnchor = 0;
-        const newHead = this.modelService.getDocContentSize() - 1;
+        const newHead = this.modelService.getDocSize() - 1;
         this.transformService.applyTransformation(new Transformation([], newHead, newAnchor));
     }
 }
 
-export class SelectWordCommandHandle implements ICommandHandler {
+export class SelectWordCommandHandle implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle(position: number) {
@@ -495,13 +495,13 @@ export class SelectWordCommandHandle implements ICommandHandler {
     }
 }
 
-export class SelectBlockCommandHandler implements ICommandHandler {
+export class SelectBlockCommandHandler implements CommandHandler {
     static dependencies = ['transform', 'cursor', 'layout'] as const;
 
     constructor(
-        protected transformService: ITransformService,
-        protected cursorService: ICursorService,
-        protected layoutService: ILayoutService,
+        protected transformService: TransformService,
+        protected cursorService: CursorService,
+        protected layoutService: LayoutService,
     ) {}
 
     async handle(position: number) {

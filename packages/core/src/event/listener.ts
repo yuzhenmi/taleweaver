@@ -1,9 +1,9 @@
-import { IDisposable } from './emitter';
+import { Disposable } from './emitter';
 
-export interface IEventListener<TEvent> {
+export interface EventListener<TEvent> {
     (event: TEvent): void;
 }
 
-export interface IOnEvent<TEvent> {
-    (listener: IEventListener<TEvent>): IDisposable;
+export interface OnEvent<TEvent> {
+    (listener: EventListener<TEvent>): Disposable;
 }

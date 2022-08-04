@@ -1,14 +1,14 @@
-import { IMarkType } from './mark';
+import { MarkType } from './mark';
 
 export interface IMarkTypeRegistry {
-    registerMarkType(markType: IMarkType<any>): void;
-    getMarkType<TAttributes>(markTypeId: string): IMarkType<TAttributes>;
+    registerMarkType(markType: MarkType<any>): void;
+    getMarkType<TAttributes>(markTypeId: string): MarkType<TAttributes>;
 }
 
 export class MarkTypeRegistry implements IMarkTypeRegistry {
-    protected markTypesMap: Map<string, IMarkType<any>> = new Map();
+    protected markTypesMap: Map<string, MarkType<any>> = new Map();
 
-    registerMarkType(markType: IMarkType<any>) {
+    registerMarkType(markType: MarkType<any>) {
         this.markTypesMap.set(markType.id, markType);
     }
 
@@ -17,6 +17,6 @@ export class MarkTypeRegistry implements IMarkTypeRegistry {
         if (!markType) {
             throw new Error(`Mark type ${markTypeId} is not registered.`);
         }
-        return markType as IMarkType<TAttributes>;
+        return markType as MarkType<TAttributes>;
     }
 }

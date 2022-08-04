@@ -1,31 +1,25 @@
-import { IConfigService } from '../config/service';
+import { ConfigService } from '../config/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { IServiceRegistry } from '../service/registry';
-import { CommandRegistry, ICommandRegistry } from './registry';
+import { EventListener } from '../event/listener';
+import { ServiceRegistry } from '../service/registry';
+import { CommandRegistry } from './registry';
 
-export interface IWillExecuteCommandEvent {
+export interface WillExecuteCommandEvent {
     readonly commandId: string;
     readonly args: any[];
 }
 
-export interface IDidExecuteCommandEvent {
+export interface DidExecuteCommandEvent {
     readonly commandId: string;
     readonly args: any[];
 }
 
-export interface ICommandService {
-    onWillExecuteCommand: IOnEvent<IWillExecuteCommandEvent>;
-    onDidExecuteCommand: IOnEvent<IDidExecuteCommandEvent>;
-    executeCommand(commandId: string, ...args: any[]): Promise<void>;
-}
+export class CommandService {
+    protected willExecuteCommandEventEmitter = new EventEmitter<WillExecuteCommandEvent>();
+    protected didExecuteCommandEventEmitter = new EventEmitter<DidExecuteCommandEvent>();
+    protected registry: CommandRegistry = new CommandRegistry();
 
-export class CommandService implements ICommandService {
-    protected willExecuteCommandEventEmitter = new EventEmitter<IWillExecuteCommandEvent>();
-    protected didExecuteCommandEventEmitter = new EventEmitter<IDidExecuteCommandEvent>();
-    protected registry: ICommandRegistry = new CommandRegistry();
-
-    constructor(configService: IConfigService, protected serviceRegistry: IServiceRegistry) {
+    constructor(configService: ConfigService, protected serviceRegistry: ServiceRegistry) {
         // HACK: Let service registry initialize before registering commands
         setTimeout(() => {
             for (let [commandId, CommandHandler] of Object.entries(configService.getConfig().commands)) {
@@ -37,11 +31,11 @@ export class CommandService implements ICommandService {
         });
     }
 
-    onWillExecuteCommand(listener: IEventListener<IWillExecuteCommandEvent>) {
+    onWillExecuteCommand(listener: EventListener<WillExecuteCommandEvent>) {
         return this.willExecuteCommandEventEmitter.on(listener);
     }
 
-    onDidExecuteCommand(listener: IEventListener<IDidExecuteCommandEvent>) {
+    onDidExecuteCommand(listener: EventListener<DidExecuteCommandEvent>) {
         return this.didExecuteCommandEventEmitter.on(listener);
     }
 

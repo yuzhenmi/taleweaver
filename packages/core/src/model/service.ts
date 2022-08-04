@@ -1,22 +1,13 @@
-import { IEventListener } from '../event/listener';
-import { IDocModelNode } from './node';
-import { IOperation, IOperationResult } from './operation/operation';
-import { IPoint } from './position';
-import { IDidUpdateModelStateEvent, IModelState, ModelState } from './state';
+import { EventListener } from '../event/listener';
+import { Point } from './nodes/base';
+import { DocModelNode } from './nodes/doc';
+import { Operation } from './operation/operation';
+import { DidUpdateModelStateEvent, ModelState } from './state';
 
-export interface IModelService {
-    getDoc(): IDocModelNode;
-    getDocContentSize(): number;
-    toContentPosition(position: IPoint): number;
-    fromContentPosition(contentPosition: number): IPoint;
-    applyOperation(operation: IOperation): IOperationResult;
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>): void;
-}
+export class ModelService {
+    protected state: ModelState;
 
-export class ModelService implements IModelService {
-    protected state: IModelState;
-
-    constructor(doc: IDocModelNode) {
+    constructor(doc: DocModelNode<any>) {
         this.state = new ModelState(doc);
     }
 
@@ -24,23 +15,23 @@ export class ModelService implements IModelService {
         return this.state.doc;
     }
 
-    getDocContentSize() {
-        return this.state.doc.contentSize;
+    getDocSize() {
+        return this.state.doc.size;
     }
 
-    toContentPosition(position: IPoint) {
-        return this.state.doc.toContentPosition(position);
+    pointToOffset(point: Point) {
+        return this.state.doc.pointToOffset(point);
     }
 
-    fromContentPosition(contentPosition: number) {
-        return this.state.doc.fromContentPosition(contentPosition);
+    offsetToPoint(offset: number) {
+        return this.state.doc.offsetToPoint(offset);
     }
 
-    applyOperation(operation: IOperation) {
+    applyOperation(operation: Operation) {
         return this.state.applyOperation(operation);
     }
 
-    onDidUpdateModelState(listener: IEventListener<IDidUpdateModelStateEvent>) {
+    onDidUpdateModelState(listener: EventListener<DidUpdateModelStateEvent>) {
         this.state.onDidUpdate(listener);
     }
 }

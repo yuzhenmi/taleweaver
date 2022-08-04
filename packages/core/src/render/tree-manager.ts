@@ -1,93 +1,74 @@
-import { IComponentService } from '../component/service';
-import { IMark } from '../mark/mark';
-import { IMarkService } from '../mark/service';
-import { IBlockModelNode, IDocModelNode, IInlineModelNode, IModelNode } from '../model/node';
-import { testDeepEquality } from '../util/compare';
-import {
-    BlockRenderNode,
-    DocRenderNode,
-    IBlockRenderNode,
-    IBlockRenderNodeChild,
-    IDocRenderNode,
-    IDocRenderNodeChild,
-    IInlineRenderNode,
-    InlineRenderNode,
-    IRenderNode,
-    ITextRenderNode,
-    TextRenderNode,
-} from './node';
+import { ComponentService } from '../component/service';
+import { Mark } from '../mark/mark';
+import { MarkService } from '../mark/service';
+import { DocModelNode } from '../model/nodes/doc';
+import { BlockModelNode } from '../model/nodes/block';
+import { InlineModelNode } from '../model/nodes/inline';
+import { ModelNode } from '../model/nodes';
+import { testArrayEquality, testObjectEquality } from '../util/compare';
+import { DocRenderChildNode, DocRenderNode } from './nodes/doc';
+import { BlockRenderNode, BlockRenderChildNode } from './nodes/block';
+import { InlineRenderNode } from './nodes/inline';
+import { RenderNode } from './nodes';
+import { TextRenderNode } from './nodes/text';
 
 export class RenderTreeManager {
-    protected doc: IDocRenderNode | null = null;
+    constructor(protected componentService: ComponentService, protected markService: MarkService) {}
 
-    constructor(protected componentService: IComponentService, protected markService: IMarkService) {}
-
-    syncWithModelTree(modelDoc: IDocModelNode) {
-        this.doc = this.syncWithModelNode(this.doc, modelDoc, null) as IDocRenderNode;
-        return this.doc;
+    updateFromModel(doc: DocRenderNode | null, modelDoc: DocModelNode<any>) {
+        return this.updateNodeFromModel(doc, modelDoc);
     }
 
-    protected syncWithModelNode(node: IRenderNode | null, modelNode: IModelNode, parentNode: IRenderNode | null) {
+    protected updateNodeFromModel(node: DocRenderNode | null, modelNode: DocModelNode<any>): DocRenderNode;
+    protected updateNodeFromModel(node: BlockRenderNode | null, modelNode: BlockModelNode<any>): BlockRenderNode;
+    protected updateNodeFromModel(node: InlineRenderNode | null, modelNode: InlineModelNode<any>): InlineRenderNode;
+    protected updateNodeFromModel(node: RenderNode | null, modelNode: ModelNode) {
         if (!modelNode.needRender && node) {
             return node;
         }
-        let updatedNode: IRenderNode;
+        let updatedNode: RenderNode;
         if (modelNode.type === 'doc' && (!node || node.type === 'doc')) {
-            updatedNode = this.syncWithDocModelNode(node, modelNode);
+            updatedNode = this.updateDocFromModel(node, modelNode);
         } else if (modelNode.type === 'block' && (!node || node.type === 'block')) {
-            updatedNode = this.syncWithBlockModelNode(node, modelNode);
+            updatedNode = this.updateBlockFromModel(node, modelNode);
         } else if (modelNode.type === 'inline' && (!node || node.type === 'inline')) {
-            updatedNode = this.syncWithInlineModelNode(node, modelNode);
+            updatedNode = this.updateInlineFromModel(node, modelNode);
         } else {
             throw new Error('Invalid render and model node pair for syncing.');
         }
-        this.syncStyleWithModelNode(updatedNode, modelNode);
+        this.updateStyleFromModel(updatedNode, modelNode);
         modelNode.markAsRendered();
         return updatedNode;
     }
 
-    protected syncWithDocModelNode(node: IDocRenderNode | null, modelNode: IDocModelNode) {
+    protected updateDocFromModel(node: DocRenderNode | null, modelNode: DocModelNode<any>) {
         if (!node) {
             node = new DocRenderNode(modelNode.id);
-            node.setStyle({
-                pageWidth: 0,
-                pageHeight: 0,
-                pagePaddingTop: 0,
-                pagePaddingBottom: 0,
-                pagePaddingLeft: 0,
-                pagePaddingRight: 0,
-            });
         }
         const children = node.children;
         const modelChildren = modelNode.children;
-        const childrenMap: { [key: string]: IRenderNode } = {};
+        const childrenMap: { [key: string]: DocRenderChildNode } = {};
         children.forEach((child) => {
             childrenMap[child.modelId] = child;
         });
-        const newChildren: IDocRenderNodeChild[] = [];
+        const newChildren: DocRenderChildNode[] = [];
         modelChildren.forEach((modelChild) => {
-            newChildren.push(this.syncWithModelNode(childrenMap[modelChild.id] || null, modelChild, node) as any);
+            const child = childrenMap[modelChild.id] || null;
+            newChildren.push(this.updateNodeFromModel(child, modelChild));
         });
-        if (!testDeepEquality(children.map(this.identifyNode), newChildren.map(this.identifyNode))) {
+        if (!testArrayEquality(children, newChildren)) {
             node.setChildren(newChildren);
         }
         return node;
     }
 
-    protected syncWithBlockModelNode(node: IBlockRenderNode | null, modelNode: IBlockModelNode) {
+    protected updateBlockFromModel(node: BlockRenderNode | null, modelNode: BlockModelNode<any>) {
         if (!node) {
             node = new BlockRenderNode(modelNode.id);
-            node.setStyle({
-                paddingTop: 0,
-                paddingBottom: 0,
-                paddingLeft: 0,
-                paddingRight: 0,
-                lineHeight: 1,
-            });
         }
         const children = node.children;
-        const inlineChildrenMap: { [key: string]: IInlineRenderNode } = {};
-        const textChildren: ITextRenderNode[] = [];
+        const inlineChildrenMap: { [key: string]: InlineRenderNode } = {};
+        const textChildren: TextRenderNode[] = [];
         children.forEach((child) => {
             if (child.type === 'inline') {
                 inlineChildrenMap[child.modelId] = child;
@@ -95,26 +76,25 @@ export class RenderTreeManager {
                 textChildren.push(child);
             }
         });
-        const newChildren: IBlockRenderNodeChild[] = [];
+        const newChildren: BlockRenderChildNode[] = [];
         let stringStartIndex = 0;
-        let content = modelNode.content;
-        content = content.slice(0, content.length);
-        const markStartMap: { [key: number]: IMark[] } = {};
-        const markEndMap: { [key: number]: IMark[] } = {};
+        const modelChildren = modelNode.children;
+        const markStartMap: { [key: number]: Mark[] } = {};
+        const markEndMap: { [key: number]: Mark[] } = {};
         modelNode.marks.forEach((mark) => {
             markStartMap[mark.start] = markStartMap[mark.start] || [];
             markStartMap[mark.start].push(mark);
             markEndMap[mark.end] = markEndMap[mark.end] || [];
             markEndMap[mark.end].push(mark);
         });
-        let currentMarks: IMark[] = [];
-        content.forEach((c, index) => {
+        let currentMarks: Mark[] = [];
+        modelChildren.forEach((modelChild, index) => {
             let marksChanged = !!(markStartMap[index] || markEndMap[index]);
-            if (index > stringStartIndex && (typeof c !== 'string' || marksChanged)) {
+            if (index > stringStartIndex && (typeof modelChild !== 'string' || marksChanged)) {
                 newChildren.push(
-                    this.syncTextNode(
+                    this.updateText(
                         textChildren.shift() || null,
-                        (content.slice(stringStartIndex, index) as string[]).join(''),
+                        (modelChildren.slice(stringStartIndex, index) as string[]).join(''),
                         currentMarks,
                     ),
                 );
@@ -126,51 +106,37 @@ export class RenderTreeManager {
             }
             if (markEndMap[index]) {
                 const marks = markEndMap[index];
-                currentMarks = currentMarks.filter((m) => !marks.includes(m));
+                currentMarks = currentMarks.filter((mark) => !marks.includes(mark));
             }
-            if (typeof c !== 'string') {
-                this.syncWithModelNode(inlineChildrenMap[c.id] || null, c, node);
+            if (typeof modelChild !== 'string') {
+                newChildren.push(this.updateNodeFromModel(inlineChildrenMap[modelChild.id] || null, modelChild));
             }
         });
-        if (stringStartIndex < content.length) {
+        if (stringStartIndex < modelChildren.length) {
             newChildren.push(
-                this.syncTextNode(
+                this.updateText(
                     textChildren.shift() || null,
-                    (content.slice(stringStartIndex) as string[]).join(''),
+                    (modelChildren.slice(stringStartIndex) as string[]).join(''),
                     currentMarks,
                 ),
             );
         }
-        if (!testDeepEquality(children.map(this.identifyNode), newChildren.map(this.identifyNode))) {
+        if (!testArrayEquality(children, newChildren)) {
             node.setChildren(newChildren);
         }
         return node;
     }
 
-    protected syncWithInlineModelNode(node: IInlineRenderNode | null, modelNode: IInlineModelNode) {
+    protected updateInlineFromModel(node: InlineRenderNode | null, modelNode: InlineModelNode<any>) {
         if (!node) {
             node = new InlineRenderNode(modelNode.id);
-            node.setStyle({
-                width: 0,
-                height: 0,
-            });
         }
         return node;
     }
 
-    protected syncTextNode(node: ITextRenderNode | null, content: string, marks: IMark[]) {
+    protected updateText(node: TextRenderNode | null, content: string, marks: Mark[]) {
         if (!node) {
             node = new TextRenderNode();
-            node.setStyle({
-                weight: 400,
-                size: 16,
-                family: 'sans-serif',
-                letterSpacing: 0,
-                underline: false,
-                italic: false,
-                strikethrough: false,
-                color: 'black',
-            });
         }
         if (node.content !== content) {
             node.setContent(content);
@@ -181,25 +147,21 @@ export class RenderTreeManager {
                 Object.assign(newStyle, this.markService.getMarkType(mark.typeId).getStyle(mark.attributes)),
             { ...style },
         );
-        if (!testDeepEquality(style, newStyle)) {
+        if (!testObjectEquality(style, newStyle)) {
             node.setStyle(newStyle);
         }
         return node;
     }
 
-    protected syncStyleWithModelNode(node: IRenderNode, modelNode: IModelNode) {
+    protected updateStyleFromModel(node: RenderNode, modelNode: ModelNode) {
         const style = node.style;
         const component = this.componentService.getComponent(modelNode.componentId);
         if (!component) {
             throw new Error(`Unregistered component ID: ${modelNode.componentId}.`);
         }
         const { style: newStyle } = component.render(modelNode.attributes);
-        if (!testDeepEquality(style, newStyle)) {
+        if (!testObjectEquality(style, newStyle)) {
             node.setStyle(newStyle as any);
         }
-    }
-
-    protected identifyNode(node: IRenderNode) {
-        return node.id;
     }
 }

@@ -1,14 +1,9 @@
-import { ICommandHandler } from './command';
+import { CommandHandler } from './command';
 
-export interface ICommandRegistry {
-    registerCommand(commandId: string, handler: ICommandHandler): void;
-    getCommandHandler(commandId: string): ICommandHandler | undefined;
-}
+export class CommandRegistry {
+    protected commandsMap: Map<string, CommandHandler> = new Map();
 
-export class CommandRegistry implements ICommandRegistry {
-    protected commandsMap: Map<string, ICommandHandler> = new Map();
-
-    registerCommand(commandId: string, commandHandler: ICommandHandler) {
+    registerCommand(commandId: string, commandHandler: CommandHandler) {
         this.commandsMap.set(commandId, commandHandler);
     }
 

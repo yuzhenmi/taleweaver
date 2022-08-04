@@ -1,47 +1,28 @@
-import { IBlockRenderSpec, IDocRenderSpec, IInlineRenderSpec } from '../render/spec';
+import { BlockRenderSpec, DocRenderSpec, InlineRenderSpec } from '../render/spec';
 
-interface IBaseComponent {
-    readonly id: string;
-}
+export type Component<TAttributes> =
+    | DocComponent<TAttributes>
+    | BlockComponent<TAttributes>
+    | InlineComponent<TAttributes>;
 
-export interface IDocComponent<TAttributes> extends IBaseComponent {
-    readonly type: 'doc';
-    render(attributes: Partial<TAttributes>): IDocRenderSpec;
-}
-
-export interface IBlockComponent<TAttributes> extends IBaseComponent {
-    readonly type: 'block';
-    render(attributes: Partial<TAttributes>): IBlockRenderSpec;
-}
-
-export interface IInlineComponent<TAttributes> extends IBaseComponent {
-    readonly type: 'inline';
-    render(attributes: Partial<TAttributes>): IInlineRenderSpec;
-}
-
-export type IComponent<TAttributes> =
-    | IDocComponent<TAttributes>
-    | IBlockComponent<TAttributes>
-    | IInlineComponent<TAttributes>;
-
-abstract class BaseComponent implements IBaseComponent {
+abstract class BaseComponent {
     constructor(readonly id: string) {}
 }
 
-export abstract class DocComponent<TAttributes> extends BaseComponent implements IDocComponent<TAttributes> {
-    abstract render(attributes: Partial<TAttributes>): IDocRenderSpec;
+export abstract class DocComponent<TAttributes> extends BaseComponent {
+    abstract render(attributes: Partial<TAttributes>): DocRenderSpec;
 
     readonly type = 'doc';
 }
 
-export abstract class BlockComponent<TAttributes> extends BaseComponent implements IBlockComponent<TAttributes> {
-    abstract render(attributes: Partial<TAttributes>): IBlockRenderSpec;
+export abstract class BlockComponent<TAttributes> extends BaseComponent {
+    abstract render(attributes: Partial<TAttributes>): BlockRenderSpec;
 
     readonly type = 'block';
 }
 
-export abstract class InlineComponent<TAttributes> extends BaseComponent implements IInlineComponent<TAttributes> {
-    abstract render(attributes: Partial<TAttributes>): IInlineRenderSpec;
+export abstract class InlineComponent<TAttributes> extends BaseComponent {
+    abstract render(attributes: Partial<TAttributes>): InlineRenderSpec;
 
     readonly type = 'inline';
 }

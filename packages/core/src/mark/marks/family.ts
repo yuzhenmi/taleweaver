@@ -1,4 +1,4 @@
-import { ITextStyle } from '../../text/service';
+import { TextStyle } from '../../text/service';
 import { MarkType } from '../mark';
 
 export interface IFamilyAttributes {
@@ -6,7 +6,7 @@ export interface IFamilyAttributes {
 }
 
 export class Family extends MarkType<IFamilyAttributes> {
-    getStyle(attributes: IFamilyAttributes): Partial<ITextStyle> {
+    getStyle(attributes: IFamilyAttributes): Partial<TextStyle> {
         return { family: attributes.family };
     }
 }

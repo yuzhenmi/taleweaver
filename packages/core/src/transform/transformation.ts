@@ -1,36 +1,22 @@
-import { ICursorService } from '../cursor/service';
-import { ILayoutService } from '../layout/service';
-import { IMapping } from '../model/operation/mapping';
-import { IOperation, IOperationResult } from '../model/operation/operation';
-import { IModelService } from '../model/service';
+import { CursorService } from '../cursor/service';
+import { LayoutService } from '../layout/service';
+import { Mapping } from '../model/operation/mapping';
+import { Operation, OperationResult } from '../model/operation/operation';
+import { ModelService } from '../model/service';
 
-export interface ITransformation {
-    apply(
-        modelService: IModelService,
-        cursorService: ICursorService,
-        layoutService: ILayoutService,
-    ): ITransformationResult;
-}
-
-export interface ITransformationResult {
-    readonly transformation: ITransformation;
-    readonly operationResults: IOperationResult[];
-    readonly reverseTransformation: ITransformation;
-}
-
-export class Transformation implements ITransformation {
+export class Transformation {
     constructor(
-        protected operations: IOperation[],
+        protected operations: Operation[],
         protected cursorHead?: number,
         protected cursorAnchor?: number,
         protected keepLeftLock = false,
     ) {}
 
     apply(
-        modelService: IModelService,
-        cursorService: ICursorService,
-        layoutService: ILayoutService,
-    ): ITransformationResult {
+        modelService: ModelService,
+        cursorService: CursorService,
+        layoutService: LayoutService,
+    ): TransformationResult {
         let originalCursorAnchor: number | undefined = undefined;
         let originalCursorHead: number | undefined = undefined;
         const cursor = cursorService.getCursor();
@@ -54,8 +40,8 @@ export class Transformation implements ITransformation {
                 );
             }
         }
-        const reverseOperations: IOperation[] = [];
-        const reverseMappings: IMapping[] = [];
+        const reverseOperations: Operation[] = [];
+        const reverseMappings: Mapping[] = [];
         for (let n = operationResults.length - 1; n >= 0; n--) {
             const operationResult = operationResults[n];
             reverseOperations.push(
@@ -73,9 +59,9 @@ export class Transformation implements ITransformation {
         );
     }
 
-    protected applyOperations(modelService: IModelService) {
-        const operationResults: IOperationResult[] = [];
-        const mappings: IMapping[] = [];
+    protected applyOperations(modelService: ModelService) {
+        const operationResults: OperationResult[] = [];
+        const mappings: Mapping[] = [];
         let operations = [...this.operations];
         while (operations.length > 0) {
             const operation = operations.shift()!;
@@ -88,15 +74,15 @@ export class Transformation implements ITransformation {
         return operationResults;
     }
 
-    protected boundContentPosition(contentPosition: number, modelService: IModelService) {
-        return Math.max(0, Math.min(modelService.getDocContentSize() - 1, contentPosition));
+    protected boundContentPosition(contentPosition: number, modelService: ModelService) {
+        return Math.max(0, Math.min(modelService.getDocSize() - 1, contentPosition));
     }
 }
 
-export class TransformationResult implements ITransformationResult {
+export class TransformationResult {
     constructor(
-        readonly transformation: ITransformation,
-        readonly operationResults: IOperationResult[],
-        readonly reverseTransformation: ITransformation,
+        readonly transformation: Transformation,
+        readonly operationResults: OperationResult[],
+        readonly reverseTransformation: Transformation,
     ) {}
 }

@@ -1,16 +1,8 @@
-import { ITransformationResult } from '../transform/transformation';
+import { TransformationResult } from '../transform/transformation';
 
-export interface IHistoryAction {
-    readonly beganAt: number;
-    readonly endedAt: number;
-    readonly transformationResults: ITransformationResult[];
-
-    recordTransformationResult(transformationResult: ITransformationResult): void;
-}
-
-export class HistoryAction implements IHistoryAction {
+export class HistoryAction {
     protected internalEndedAt: number;
-    protected internalTransformationResults: ITransformationResult[] = [];
+    protected internalTransformationResults: TransformationResult[] = [];
 
     readonly beganAt: number;
 
@@ -27,7 +19,7 @@ export class HistoryAction implements IHistoryAction {
         return this.internalTransformationResults;
     }
 
-    recordTransformationResult(transformationResult: ITransformationResult) {
+    recordTransformationResult(transformationResult: TransformationResult) {
         this.transformationResults.push(transformationResult);
         this.internalEndedAt = Date.now();
     }

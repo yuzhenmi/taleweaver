@@ -1,40 +1,34 @@
-import { IComponentService } from '../component/service';
+import { ComponentService } from '../component/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { IMarkService } from '../mark/service';
-import { IModelService } from '../model/service';
-import { IDocRenderNode } from './node';
+import { EventListener } from '../event/listener';
+import { MarkService } from '../mark/service';
+import { ModelService } from '../model/service';
+import { DocRenderNode } from './nodes/doc';
 import { RenderTreeManager } from './tree-manager';
 
-export interface IDidUpdateRenderStateEvent {}
+export interface DidUpdateRenderStateEvent {}
 
-export interface IRenderState {
-    readonly doc: IDocRenderNode;
-
-    onDidUpdate: IOnEvent<IDidUpdateRenderStateEvent>;
-}
-
-export class RenderState implements IRenderState {
-    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateRenderStateEvent>();
+export class RenderState {
+    protected didUpdateEventEmitter = new EventEmitter<DidUpdateRenderStateEvent>();
     protected treeManager: RenderTreeManager;
-    readonly doc: IDocRenderNode;
+    readonly doc: DocRenderNode;
 
     constructor(
-        protected modelService: IModelService,
-        protected componentService: IComponentService,
-        protected markService: IMarkService,
+        protected modelService: ModelService,
+        protected componentService: ComponentService,
+        protected markService: MarkService,
     ) {
         this.treeManager = new RenderTreeManager(componentService, markService);
-        this.doc = this.treeManager.syncWithModelTree(modelService.getDoc());
+        this.doc = this.treeManager.updateFromModel(null, modelService.getDoc());
         modelService.onDidUpdateModelState(this.handleDidUpdateModelState);
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateRenderStateEvent>) {
+    onDidUpdate(listener: EventListener<DidUpdateRenderStateEvent>) {
         return this.didUpdateEventEmitter.on(listener);
     }
 
-    handleDidUpdateModelState = (event: IDidUpdateRenderStateEvent) => {
-        this.treeManager.syncWithModelTree(this.modelService.getDoc());
+    handleDidUpdateModelState = (event: DidUpdateRenderStateEvent) => {
+        this.treeManager.updateFromModel(this.doc, this.modelService.getDoc());
         this.didUpdateEventEmitter.emit({});
     };
 }

@@ -1,18 +1,13 @@
-import { IDocModelNode } from '../node';
-import { IMapping } from './mapping';
+import { DocModelNode } from '../nodes/doc';
+import { Mapping } from './mapping';
 
-export interface IOperation {
-    map(mapping: IMapping): IOperation;
-    apply(state: IDocModelNode): IOperationResult;
+export abstract class Operation {
+    abstract map(mapping: Mapping): Operation;
+    abstract apply(root: DocModelNode<any>): OperationResult;
 }
 
-export interface IOperationResult {
-    readonly change: IOperation;
-    readonly reverseOperation: IOperation;
-    readonly mapping: IMapping;
-}
-
-export abstract class Operation implements IOperation {
-    abstract map(mapping: IMapping): IOperation;
-    abstract apply(root: IDocModelNode): IOperationResult;
+export interface OperationResult {
+    readonly operation: Operation;
+    readonly reverseOperation: Operation;
+    readonly mapping: Mapping;
 }

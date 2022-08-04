@@ -1,22 +1,15 @@
-import { IConfigService } from '../config/service';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { Cursor, ICursor, IDidUpdateCursorEvent } from './cursor';
-
-export interface ICursorService {
-    getCursor(): ICursor | null;
-    setCursor(anchor: number, head: number): void;
-    setLeftLock(leftLock: number): void;
-    onDidUpdate: IOnEvent<IDidUpdateCursorEvent>;
-}
+import { ConfigService } from '../config/service';
+import { EventListener } from '../event/listener';
+import { Cursor, DidUpdateCursorEvent } from './cursor';
 
 const noOpDisposable = {
     dispose: () => {},
 };
 
-export class CursorService implements ICursorService {
-    protected cursor: ICursor | null = null;
+export class CursorService {
+    protected cursor: Cursor | null = null;
 
-    constructor(configService: IConfigService) {
+    constructor(configService: ConfigService) {
         if (!configService.getConfig().cursor.disable) {
             this.cursor = new Cursor();
         }
@@ -35,7 +28,7 @@ export class CursorService implements ICursorService {
         this.cursor?.setLeftLock(leftLock);
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateCursorEvent>) {
+    onDidUpdate(listener: EventListener<DidUpdateCursorEvent>) {
         return this.cursor?.onDidUpdate(listener) ?? noOpDisposable;
     }
 }

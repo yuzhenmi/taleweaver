@@ -1,7 +1,7 @@
 import { IViewService } from '../../view/service';
-import { ICommandHandler } from '../command';
+import { CommandHandler } from '../command';
 
-export class FocusCommandHandler implements ICommandHandler {
+export class FocusCommandHandler implements CommandHandler {
     static readonly dependencies = ['view'] as const;
 
     constructor(protected viewService: IViewService) {}
@@ -11,7 +11,7 @@ export class FocusCommandHandler implements ICommandHandler {
     }
 }
 
-export class BlurCommandHandler implements ICommandHandler {
+export class BlurCommandHandler implements CommandHandler {
     static readonly dependencies = ['view'] as const;
 
     constructor(protected viewService: IViewService) {}

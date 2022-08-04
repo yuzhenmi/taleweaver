@@ -1,20 +1,15 @@
-import { IConfigService } from '../config/service';
-import { IDidApplyTransformationEvent, ITransformService } from '../transform/service';
-import { ITransformationResult } from '../transform/transformation';
-import { HistoryAction, IHistoryAction } from './action';
+import { ConfigService } from '../config/service';
+import { DidApplyTransformationEvent, TransformService } from '../transform/service';
+import { TransformationResult } from '../transform/transformation';
+import { HistoryAction } from './action';
 
-export interface IHistoryState {
-    undo(): void;
-    redo(): void;
-}
-
-export class HistoryState implements IHistoryState {
+export class HistoryState {
     protected maxCollapseDuration: number;
     protected collapseThreshold: number;
-    protected actions: IHistoryAction[] = [];
+    protected actions: HistoryAction[] = [];
     protected offset: number = -1;
 
-    constructor(protected configService: IConfigService, protected transformService: ITransformService) {
+    constructor(protected configService: ConfigService, protected transformService: TransformService) {
         const config = configService.getConfig();
         this.maxCollapseDuration = config.history.maxCollapseDuration;
         this.collapseThreshold = config.history.collapseThreshold;
@@ -63,7 +58,7 @@ export class HistoryState implements IHistoryState {
         return this.actions[this.offset];
     }
 
-    protected handleDidApplyTransformation = (event: IDidApplyTransformationEvent) => {
+    protected handleDidApplyTransformation = (event: DidApplyTransformationEvent) => {
         const { result } = event;
         // Do not record undo
         if (
@@ -99,7 +94,7 @@ export class HistoryState implements IHistoryState {
         }
     };
 
-    protected recordToNewAction(result: ITransformationResult) {
+    protected recordToNewAction(result: TransformationResult) {
         if (result.operationResults.length === 0) {
             return;
         }
@@ -112,7 +107,7 @@ export class HistoryState implements IHistoryState {
         this.offset++;
     }
 
-    protected recordToLastAction(result: ITransformationResult) {
+    protected recordToLastAction(result: TransformationResult) {
         const action = this.actions[this.offset];
         if (!action) {
             throw new Error('Error recording applied transformation, history is empty.');

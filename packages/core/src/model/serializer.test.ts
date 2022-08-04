@@ -1,7 +1,8 @@
 import { ComponentService } from '../component/service';
 import { ConfigServiceStub } from '../config/service.stub';
-import { BlockModelNode, DocModelNode } from './node';
-import { ISerializable, Serializer } from './serializer';
+import { BlockModelNode } from './nodes/block';
+import { DocModelNode } from './nodes/doc';
+import { ModelNodeData, Serializer } from './serializer';
 
 describe('Serializer', () => {
     let componentService: ComponentService;
@@ -9,18 +10,17 @@ describe('Serializer', () => {
 
     beforeEach(() => {
         const configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService);
+        componentService = new ComponentService(configService as any);
         serializer = new Serializer(componentService);
     });
 
     describe('serialize', () => {
-        let doc: DocModelNode;
+        let doc: DocModelNode<{}>;
 
         beforeEach(() => {
-            doc = new DocModelNode('doc', 'doc');
-            const paragraph = new BlockModelNode('paragraph', 'paragraph');
-            paragraph.insertContent('Hello world!'.split(''), 0);
-            doc.insertChild(paragraph, 0);
+            doc = new DocModelNode('doc', 'doc', {}, [
+                new BlockModelNode('paragraph', 'paragraph', {}, [], 'Hello world!\n'.split('')),
+            ]);
         });
 
         it('builds serializable object from model node', () => {
@@ -34,8 +34,7 @@ describe('Serializer', () => {
                         componentId: 'paragraph',
                         id: 'paragraph',
                         attributes: {},
-                        content: 'Hello world!',
-                        children: [],
+                        children: ['Hello world!\n'],
                         marks: [],
                     },
                 ],
@@ -44,7 +43,7 @@ describe('Serializer', () => {
     });
 
     describe('parse', () => {
-        let data: ISerializable;
+        let data: ModelNodeData;
 
         beforeEach(() => {
             data = {
@@ -56,8 +55,7 @@ describe('Serializer', () => {
                         componentId: 'paragraph',
                         id: 'paragraph',
                         attributes: {},
-                        content: 'Hello world!',
-                        children: [],
+                        children: ['Hello world!\n'],
                         marks: [],
                     },
                 ],
@@ -65,17 +63,17 @@ describe('Serializer', () => {
         });
 
         it('builds model node from serializable object', () => {
-            const doc = serializer.parse(data) as DocModelNode;
+            const doc = serializer.parse(data) as DocModelNode<{}>;
             expect(doc.type).toEqual('doc');
             expect(doc.componentId).toEqual('doc');
             expect(doc.id).toEqual('doc');
             expect(doc.attributes).toEqual({});
             expect(doc.children.length).toEqual(1);
-            const paragraph = doc.children[0] as BlockModelNode;
+            const paragraph = doc.children[0] as BlockModelNode<{}>;
             expect(paragraph.type).toEqual('block');
             expect(paragraph.componentId).toEqual('paragraph');
             expect(paragraph.id).toEqual('paragraph');
-            expect(paragraph.content).toEqual('Hello world!\n'.split(''));
+            expect(paragraph.children).toEqual('Hello world!\n'.split(''));
             expect(paragraph.marks).toEqual([]);
         });
     });

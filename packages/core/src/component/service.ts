@@ -1,15 +1,10 @@
-import { IConfigService } from '../config/service';
-import { IComponent } from './component';
-import { ComponentRegistry, IComponentRegistry } from './registry';
+import { ConfigService } from '../config/service';
+import { ComponentRegistry } from './registry';
 
-export interface IComponentService {
-    getComponent<TAttributes>(componentId: string): IComponent<TAttributes>;
-}
+export class ComponentService {
+    protected registry: ComponentRegistry = new ComponentRegistry();
 
-export class ComponentService implements IComponentService {
-    protected registry: IComponentRegistry = new ComponentRegistry();
-
-    constructor(configService: IConfigService) {
+    constructor(configService: ConfigService) {
         configService.getConfig().components.forEach((component) => {
             this.registry.registerComponent(component);
         });

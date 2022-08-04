@@ -1,6 +1,6 @@
-import { ITextService, ITextStyle, TextService } from './service';
+import { TextStyle, TextService } from './service';
 
-export class TextServiceStub extends TextService implements ITextService {
+export class TextServiceStub extends TextService implements TextService {
     constructor() {
         const canvasStub = {};
         const documentStub = {
@@ -9,7 +9,7 @@ export class TextServiceStub extends TextService implements ITextService {
         super(documentStub as any);
     }
 
-    measure(text: string, style: ITextStyle) {
+    measure(text: string, style: TextStyle) {
         return { width: text.length * 20, height: style.size * 10 };
     }
 }

@@ -1,13 +1,13 @@
-import { IServices } from '../service/registry';
+import { Services } from '../service/registry';
 
-export interface ICommandHandler {
+export interface CommandHandler {
     handle(...args: any): Promise<any>;
 }
 
-type IInjectableServiceName = keyof IServices;
+type InjectableServiceName = keyof Services;
 
-export interface ICommandHandlerClass {
-    readonly dependencies: readonly IInjectableServiceName[];
+export interface CommandHandlerClass {
+    readonly dependencies: readonly InjectableServiceName[];
 
-    new (...args: any): ICommandHandler;
+    new (...args: any): CommandHandler;
 }

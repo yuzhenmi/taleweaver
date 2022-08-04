@@ -1,4 +1,4 @@
-import { IDOMService } from '../dom/service';
+import { DOMService } from '../dom/service';
 import { IBlockLayoutNode } from '../layout/block-node';
 import { IDocLayoutNode } from '../layout/doc-node';
 import { IInlineLayoutNode } from '../layout/inline-node';
@@ -26,7 +26,7 @@ import {
 export class ViewTreeManager {
     protected doc: IDocViewNode | null = null;
 
-    constructor(protected domService: IDOMService) {}
+    constructor(protected domService: DOMService) {}
 
     syncWithLayoutTree(layoutDoc: IDocLayoutNode) {
         this.doc = this.syncWithLayoutNode(this.doc, layoutDoc) as IDocViewNode;

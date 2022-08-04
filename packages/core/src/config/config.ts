@@ -1,14 +1,14 @@
-import { ICommandHandlerClass } from '../command/command';
-import { IComponent } from '../component/component';
-import { IMarkType } from '../mark/mark';
+import { CommandHandlerClass } from '../command/command';
+import { Component } from '../component/component';
+import { MarkType } from '../mark/mark';
 
-export interface ICommandsConfig {
-    [key: string]: ICommandHandlerClass;
+export interface CommandsConfig {
+    [key: string]: CommandHandlerClass;
 }
 
-export type IComponentsConfig = IComponent<any>[];
+export type ComponentsConfig = Component<any>[];
 
-export interface ICursorConfig {
+export interface CursorConfig {
     disable: boolean;
     caretColor: string;
     caretInactiveColor: string;
@@ -16,12 +16,12 @@ export interface ICursorConfig {
     selectionInactiveColor: string;
 }
 
-export interface IHistoryConfig {
+export interface HistoryConfig {
     collapseThreshold: number;
     maxCollapseDuration: number;
 }
 
-export interface IPlatformKeyBindings {
+export interface PlatformKeyBindings {
     [key: string]: {
         command: string;
         args?: any[];
@@ -29,31 +29,31 @@ export interface IPlatformKeyBindings {
     };
 }
 
-export interface IKeyBindingsConfig {
-    common: IPlatformKeyBindings;
-    macos: IPlatformKeyBindings;
-    windows: IPlatformKeyBindings;
-    linux: IPlatformKeyBindings;
+export interface KeyBindingsConfig {
+    common: PlatformKeyBindings;
+    macos: PlatformKeyBindings;
+    windows: PlatformKeyBindings;
+    linux: PlatformKeyBindings;
 }
 
-export type IMarkTypesConfig = IMarkType<any>[];
+export type MarkTypesConfig = MarkType<any>[];
 
-export interface IConfig {
-    commands: ICommandsConfig;
-    components: IComponentsConfig;
-    cursor: ICursorConfig;
-    history: IHistoryConfig;
-    keyBindings: IKeyBindingsConfig;
-    markTypes: IMarkTypesConfig;
+export interface Config {
+    commands: CommandsConfig;
+    components: ComponentsConfig;
+    cursor: CursorConfig;
+    history: HistoryConfig;
+    keyBindings: KeyBindingsConfig;
+    markTypes: MarkTypesConfig;
 }
 
-export type ICoreConfig = Partial<IConfig>;
+export type CoreConfig = Partial<Config>;
 
-export interface IExtensionConfig {
+export interface ExtensionConfig {
     [key: string]: any;
 }
 
-export interface IExternalConfig {
-    'tw.core'?: ICoreConfig;
-    [extensionId: string]: IExtensionConfig | undefined;
+export interface ExternalConfig {
+    'tw.core'?: CoreConfig;
+    [extensionId: string]: ExtensionConfig | undefined;
 }

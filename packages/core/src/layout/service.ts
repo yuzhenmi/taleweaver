@@ -1,33 +1,13 @@
-import { IEventListener } from '../event/listener';
-import { IRenderService } from '../render/service';
-import { ITextService } from '../text/service';
-import { IBlockLayoutNode } from './block-node';
-import { IDocLayoutNode } from './doc-node';
-import { IInlineLayoutNode } from './inline-node';
-import { ILineLayoutNode } from './line-node';
-import { ILayoutPositionLayerDescription, IResolveBoundingBoxesResult } from './node';
-import { IDidUpdateLayoutStateEvent, LayoutState } from './state';
-import { IWordLayoutNode } from './word-node';
+import { EventListener } from '../event/listener';
+import { RenderService } from '../render/service';
+import { TextService } from '../text/service';
+import { LayoutPositionLayerDescription } from './nodes/base';
+import { DidUpdateLayoutStateEvent, LayoutState } from './state';
 
-export interface ILayoutPositionDescription {
-    readonly layers: ILayoutPositionLayerDescription[];
+class LayoutPositionDescription {
+    protected internalLayers: LayoutPositionLayerDescription[];
 
-    atBlock(): ILayoutPositionLayerDescription<IBlockLayoutNode>;
-    atLine(): ILayoutPositionLayerDescription<ILineLayoutNode>;
-    atWord(): ILayoutPositionLayerDescription<IWordLayoutNode | IInlineLayoutNode>;
-}
-
-export interface ILayoutService {
-    getDoc(): IDocLayoutNode;
-    resolveBoundingBoxes(from: number, to: number): IResolveBoundingBoxesResult;
-    describePosition(position: number): ILayoutPositionDescription;
-    onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>): void;
-}
-
-class LayoutPositionDescription implements ILayoutPositionDescription {
-    protected internalLayers: ILayoutPositionLayerDescription[];
-
-    constructor(layers: ILayoutPositionLayerDescription[]) {
+    constructor(layers: LayoutPositionLayerDescription[]) {
         this.internalLayers = layers;
     }
 
@@ -66,10 +46,10 @@ class LayoutPositionDescription implements ILayoutPositionDescription {
     }
 }
 
-export class LayoutService implements ILayoutService {
+export class LayoutService implements LayoutService {
     protected state: LayoutState;
 
-    constructor(renderService: IRenderService, textService: ITextService) {
+    constructor(renderService: RenderService, textService: TextService) {
         this.state = new LayoutState(renderService, textService);
     }
 
@@ -86,7 +66,7 @@ export class LayoutService implements ILayoutService {
         return new LayoutPositionDescription(layers);
     }
 
-    onDidUpdateLayoutState(listener: IEventListener<IDidUpdateLayoutStateEvent>) {
+    onDidUpdateLayoutState(listener: EventListener<DidUpdateLayoutStateEvent>) {
         this.state.onDidUpdate(listener);
     }
 }

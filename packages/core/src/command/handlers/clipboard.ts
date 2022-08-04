@@ -1,13 +1,13 @@
-import { ICursorService } from '../../cursor/service';
-import { IDOMService } from '../../dom/service';
-import { ICommandHandler } from '../command';
+import { CursorService } from '../../cursor/service';
+import { DOMService } from '../../dom/service';
+import { CommandHandler } from '../command';
 
-export class CopyCommandHandler implements ICommandHandler {
+export class CopyCommandHandler implements CommandHandler {
     static dependencies = ['cursor', 'dom'] as const;
 
     private internalIframe?: HTMLIFrameElement;
 
-    constructor(protected cursorService: ICursorService, protected domService: IDOMService) {}
+    constructor(protected cursorService: CursorService, protected domService: DOMService) {}
 
     async handle() {
         const cursor = this.cursorService.getCursor();
@@ -37,7 +37,7 @@ export class CopyCommandHandler implements ICommandHandler {
     }
 }
 
-export class PasteCommandHandler implements ICommandHandler {
+export class PasteCommandHandler implements CommandHandler {
     static dependencies = [] as const;
 
     async handle() {

@@ -1,4 +1,4 @@
-import { ITextStyle } from '../../text/service';
+import { TextStyle } from '../../text/service';
 import { MarkType } from '../mark';
 
 export interface IWeightAttributes {
@@ -6,7 +6,7 @@ export interface IWeightAttributes {
 }
 
 export class Weight extends MarkType<IWeightAttributes> {
-    getStyle(attributes: IWeightAttributes): Partial<ITextStyle> {
+    getStyle(attributes: IWeightAttributes): Partial<TextStyle> {
         return { weight: attributes.weight };
     }
 }

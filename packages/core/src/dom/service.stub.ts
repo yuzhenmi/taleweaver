@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { DOMService, IDOMService } from './service';
+import { DOMService } from './service';
 
 class MutationObserverStub implements MutationObserver {
     constructor(callback: MutationCallback) {}
@@ -13,7 +13,7 @@ class MutationObserverStub implements MutationObserver {
     }
 }
 
-export class DOMServiceStub extends DOMService implements IDOMService {
+export class DOMServiceStub extends DOMService implements DOMService {
     protected dom = new JSDOM();
 
     getWindow() {

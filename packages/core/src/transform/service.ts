@@ -1,39 +1,34 @@
-import { IComponentService } from '../component/service';
-import { ICursorService } from '../cursor/service';
+import { ComponentService } from '../component/service';
+import { CursorService } from '../cursor/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { ILayoutService } from '../layout/service';
-import { IModelService } from '../model/service';
-import { IRenderService } from '../render/service';
-import { ITransformation, ITransformationResult } from './transformation';
+import { EventListener } from '../event/listener';
+import { LayoutService } from '../layout/service';
+import { ModelService } from '../model/service';
+import { RenderService } from '../render/service';
+import { Transformation, TransformationResult } from './transformation';
 
-export interface IDidApplyTransformationEvent {
-    result: ITransformationResult;
+export interface DidApplyTransformationEvent {
+    result: TransformationResult;
 }
 
-export interface ITransformService {
-    applyTransformation(tn: ITransformation): ITransformationResult;
-    onDidApplyTransformation: IOnEvent<IDidApplyTransformationEvent>;
-}
-
-export class TransformService implements ITransformService {
-    protected didApplyTransformationEventEmitter = new EventEmitter<IDidApplyTransformationEvent>();
+export class TransformService {
+    protected didApplyTransformationEventEmitter = new EventEmitter<DidApplyTransformationEvent>();
 
     constructor(
-        protected modelService: IModelService,
-        protected componentService: IComponentService,
-        protected cursorService: ICursorService,
-        protected renderService: IRenderService,
-        protected layoutService: ILayoutService,
+        protected modelService: ModelService,
+        protected componentService: ComponentService,
+        protected cursorService: CursorService,
+        protected renderService: RenderService,
+        protected layoutService: LayoutService,
     ) {}
 
-    applyTransformation(tn: ITransformation) {
+    applyTransformation(tn: Transformation) {
         const result = tn.apply(this.modelService, this.cursorService, this.layoutService);
         this.didApplyTransformationEventEmitter.emit({ result });
         return result;
     }
 
-    onDidApplyTransformation(listener: IEventListener<IDidApplyTransformationEvent>) {
+    onDidApplyTransformation(listener: EventListener<DidApplyTransformationEvent>) {
         return this.didApplyTransformationEventEmitter.on(listener);
     }
 }

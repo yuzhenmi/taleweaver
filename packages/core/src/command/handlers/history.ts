@@ -1,20 +1,20 @@
-import { IHistoryService } from '../../history/service';
-import { ICommandHandler } from '../command';
+import { HistoryService } from '../../history/service';
+import { CommandHandler } from '../command';
 
-export class UndoCommandHandler implements ICommandHandler {
+export class UndoCommandHandler implements CommandHandler {
     static dependencies = ['history'] as const;
 
-    constructor(protected historyService: IHistoryService) {}
+    constructor(protected historyService: HistoryService) {}
 
     async handle() {
         this.historyService.undo();
     }
 }
 
-export class RedoCommandHandler implements ICommandHandler {
+export class RedoCommandHandler implements CommandHandler {
     static dependencies = ['history'] as const;
 
-    constructor(protected historyService: IHistoryService) {}
+    constructor(protected historyService: HistoryService) {}
 
     async handle() {
         this.historyService.redo();

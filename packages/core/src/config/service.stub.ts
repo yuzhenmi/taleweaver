@@ -8,11 +8,11 @@ import { Size } from '../mark/marks/size';
 import { Strikethrough } from '../mark/marks/strikethrough';
 import { Underline } from '../mark/marks/underline';
 import { Weight } from '../mark/marks/weight';
-import { IConfig } from './config';
-import { IConfigService } from './service';
+import { Config } from './config';
+import { ConfigService } from './service';
 
-export class ConfigServiceStub implements IConfigService {
-    protected config: IConfig;
+export class ConfigServiceStub implements Pick<ConfigService, keyof ConfigService> {
+    protected config: Config;
 
     constructor() {
         this.config = {

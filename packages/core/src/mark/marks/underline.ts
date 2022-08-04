@@ -1,4 +1,4 @@
-import { ITextStyle } from '../../text/service';
+import { TextStyle } from '../../text/service';
 import { MarkType } from '../mark';
 
 export interface IUnderlineAttributes {
@@ -6,7 +6,7 @@ export interface IUnderlineAttributes {
 }
 
 export class Underline extends MarkType<IUnderlineAttributes> {
-    getStyle(attributes: IUnderlineAttributes): Partial<ITextStyle> {
+    getStyle(attributes: IUnderlineAttributes): Partial<TextStyle> {
         return { underline: attributes.underline };
     }
 }

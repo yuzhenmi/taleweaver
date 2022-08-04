@@ -1,18 +1,13 @@
-import { IEventListener } from './listener';
+import { EventListener } from './listener';
 
-export interface IDisposable {
+export interface Disposable {
     dispose(): void;
 }
 
-export interface IEventEmitter<TEvent> {
-    on(listener: IEventListener<TEvent>): IDisposable;
-    emit(event: TEvent): void;
-}
-
 export class EventEmitter<TEvent> {
-    protected listeners: IEventListener<TEvent>[] = [];
+    protected listeners: EventListener<TEvent>[] = [];
 
-    on(listener: IEventListener<TEvent>): IDisposable {
+    on(listener: EventListener<TEvent>): Disposable {
         this.listeners.push(listener);
         return {
             dispose: () => {

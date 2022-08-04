@@ -1,38 +1,31 @@
-import { IDOMService } from '../dom/service';
+import { DOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener } from '../event/listener';
+import { EventListener } from '../event/listener';
 import { detectPlatform } from '../util/platform';
 
-export interface IDidInsertEvent {
+export interface DidInsertEvent {
     content: string;
 }
 
-export interface IDidPressKeyEvent {
+export interface DidPressKeyEvent {
     key: string;
     originalKeyboardEvent: KeyboardEvent;
 }
 
-export interface ICompositionDidStart {}
+export interface CompositionDidStart {}
 
-export interface ICompositionDidEnd {}
+export interface CompositionDidEnd {}
 
-export interface IKeyboardObserver {
-    onDidInsert(listener: IEventListener<IDidInsertEvent>): void;
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>): void;
-    onCompositionDidStart(listener: IEventListener<ICompositionDidStart>): void;
-    onCompositionDidEnd(listener: IEventListener<ICompositionDidEnd>): void;
-}
-
-export class KeyboardObserver implements IKeyboardObserver {
+export class KeyboardObserver {
     protected composing: boolean = false;
     protected mutationObserver: MutationObserver;
-    protected didInsertEventEmitter = new EventEmitter<IDidInsertEvent>();
-    protected didPressKeyEventEmitter = new EventEmitter<IDidPressKeyEvent>();
-    protected compositionDidStartEventEmitter = new EventEmitter<ICompositionDidStart>();
-    protected compositionDidEndEventEmitter = new EventEmitter<ICompositionDidEnd>();
+    protected didInsertEventEmitter = new EventEmitter<DidInsertEvent>();
+    protected didPressKeyEventEmitter = new EventEmitter<DidPressKeyEvent>();
+    protected compositionDidStartEventEmitter = new EventEmitter<CompositionDidStart>();
+    protected compositionDidEndEventEmitter = new EventEmitter<CompositionDidEnd>();
     protected keyInterpreter = new KeyInterpreter();
 
-    constructor(protected $contentEditable: HTMLDivElement, protected domService: IDOMService) {
+    constructor(protected $contentEditable: HTMLDivElement, protected domService: DOMService) {
         this.mutationObserver = domService.createMutationObserver(this.handleDidMutate);
         $contentEditable.addEventListener('keydown', this.handleKeyDown);
         $contentEditable.addEventListener('compositionstart', this.handleCompositionStart);
@@ -44,19 +37,19 @@ export class KeyboardObserver implements IKeyboardObserver {
         });
     }
 
-    onDidInsert(listener: IEventListener<IDidInsertEvent>) {
+    onDidInsert(listener: EventListener<DidInsertEvent>) {
         return this.didInsertEventEmitter.on(listener);
     }
 
-    onDidPressKey(listener: IEventListener<IDidPressKeyEvent>) {
+    onDidPressKey(listener: EventListener<DidPressKeyEvent>) {
         return this.didPressKeyEventEmitter.on(listener);
     }
 
-    onCompositionDidStart(listener: IEventListener<ICompositionDidStart>) {
+    onCompositionDidStart(listener: EventListener<CompositionDidStart>) {
         return this.compositionDidStartEventEmitter.on(listener);
     }
 
-    onCompositionDidEnd(listener: IEventListener<ICompositionDidEnd>) {
+    onCompositionDidEnd(listener: EventListener<CompositionDidEnd>) {
         return this.compositionDidEndEventEmitter.on(listener);
     }
 

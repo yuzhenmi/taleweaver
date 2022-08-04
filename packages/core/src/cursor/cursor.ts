@@ -1,35 +1,20 @@
-import { IConfigService } from '../config/service';
+import { ConfigService } from '../config/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
+import { EventListener } from '../event/listener';
 
-export interface IDidUpdateCursorEvent {}
+export interface DidUpdateCursorEvent {}
 
-export interface ICursor {
-    readonly anchor: number;
-    readonly head: number;
-    readonly leftLock: number;
-
-    setAnchor(anchor: number): void;
-    setHead(head: number): void;
-    setLeftLock(leftLock: number): void;
-    onDidUpdate: IOnEvent<IDidUpdateCursorEvent>;
-}
-
-export interface IReadOnlyCursor {
+export interface ReadOnlyCursor {
     readonly anchor: number;
     readonly head: number;
     readonly leftLock: number;
 }
 
-export interface ICursorState {
-    readonly cursor: IReadOnlyCursor | null;
-}
-
-export class Cursor implements ICursor {
+export class Cursor {
     protected internalAnchor = 0;
     protected internalHead = 0;
     protected internalLeftLock: number = 0;
-    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateCursorEvent>();
+    protected didUpdateEventEmitter = new EventEmitter<DidUpdateCursorEvent>();
 
     get anchor() {
         return this.internalAnchor;
@@ -57,15 +42,15 @@ export class Cursor implements ICursor {
         this.internalLeftLock = leftLock;
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateCursorEvent>) {
+    onDidUpdate(listener: EventListener<DidUpdateCursorEvent>) {
         return this.didUpdateEventEmitter.on(listener);
     }
 }
 
-export class CursorState implements ICursorState {
-    protected internalCursor: ICursor | null = null;
+export class CursorState {
+    protected internalCursor: Cursor | null = null;
 
-    constructor(configService: IConfigService) {
+    constructor(configService: ConfigService) {
         if (!configService.getConfig().cursor.disable) {
             this.internalCursor = new Cursor();
         }

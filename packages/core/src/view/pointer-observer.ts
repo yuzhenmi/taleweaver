@@ -1,34 +1,27 @@
-import { IDOMService } from '../dom/service';
+import { DOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener } from '../event/listener';
-import { ILayoutService } from '../layout/service';
+import { EventListener } from '../event/listener';
+import { LayoutService } from '../layout/service';
 import { IViewState } from './state';
 
-export interface IPointerDidDownEvent {
+export interface PointerDidDownEvent {
     position: number;
     consecutive: boolean;
 }
 
-export interface IPointerDidMoveEvent {
+export interface PointerDidMoveEvent {
     pointerDown: boolean;
     position: number;
 }
 
-export interface IPointerDidUpEvent {}
+export interface PointerDidUpEvent {}
 
-export interface IPointerDidClick {
+export interface PointerDidClick {
     position: number;
     consecutiveCount: number;
 }
 
-export interface IPointerObserver {
-    onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>): void;
-    onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>): void;
-    onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>): void;
-    onPointerDidClick(listener: IEventListener<IPointerDidClick>): void;
-}
-
-export class PointerObserver implements IPointerObserver {
+export class PointerObserver {
     protected clickThreshold = 250;
     protected consecutiveClickThreshold = 250;
     protected lastPointerDown: {
@@ -40,16 +33,16 @@ export class PointerObserver implements IPointerObserver {
         position: number;
     } | null = null;
     protected consecutiveClickCount: number = 0;
-    protected pointerDidDownEventEmitter = new EventEmitter<IPointerDidDownEvent>();
-    protected pointerDidMoveEventEmitter = new EventEmitter<IPointerDidMoveEvent>();
-    protected pointerDidUpEventEmitter = new EventEmitter<IPointerDidUpEvent>();
-    protected pointerDidClickEventEmitter = new EventEmitter<IPointerDidClick>();
+    protected pointerDidDownEventEmitter = new EventEmitter<PointerDidDownEvent>();
+    protected pointerDidMoveEventEmitter = new EventEmitter<PointerDidMoveEvent>();
+    protected pointerDidUpEventEmitter = new EventEmitter<PointerDidUpEvent>();
+    protected pointerDidClickEventEmitter = new EventEmitter<PointerDidClick>();
 
     constructor(
         protected instanceId: string,
         protected viewState: IViewState,
-        protected domService: IDOMService,
-        protected layoutService: ILayoutService,
+        protected domService: DOMService,
+        protected layoutService: LayoutService,
     ) {
         const window = domService.getWindow();
         window.addEventListener('mousedown', this.handleMouseDown);
@@ -57,19 +50,19 @@ export class PointerObserver implements IPointerObserver {
         window.addEventListener('mouseup', this.handleMouseUp);
     }
 
-    onPointerDidDown(listener: IEventListener<IPointerDidDownEvent>) {
+    onPointerDidDown(listener: EventListener<PointerDidDownEvent>) {
         return this.pointerDidDownEventEmitter.on(listener);
     }
 
-    onPointerDidMove(listener: IEventListener<IPointerDidMoveEvent>) {
+    onPointerDidMove(listener: EventListener<PointerDidMoveEvent>) {
         return this.pointerDidMoveEventEmitter.on(listener);
     }
 
-    onPointerDidUp(listener: IEventListener<IPointerDidUpEvent>) {
+    onPointerDidUp(listener: EventListener<PointerDidUpEvent>) {
         return this.pointerDidUpEventEmitter.on(listener);
     }
 
-    onPointerDidClick(listener: IEventListener<IPointerDidClick>) {
+    onPointerDidClick(listener: EventListener<PointerDidClick>) {
         return this.pointerDidClickEventEmitter.on(listener);
     }
 

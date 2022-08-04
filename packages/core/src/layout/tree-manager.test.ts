@@ -1,10 +1,12 @@
-import { BlockRenderNode, DocRenderNode, TextRenderNode } from '../render/node';
+import { BlockRenderNode } from '../render/nodes/block';
+import { DocRenderNode } from '../render/nodes/doc';
+import { TextRenderNode } from '../render/nodes/text';
 import { TextService } from '../text/service';
 import { TextServiceStub } from '../text/service.stub';
-import { IDocLayoutNode } from './doc-node';
+import { DocLayoutNode } from './nodes/doc';
 import { LayoutTreeManager } from './tree-manager';
 
-function getContentFromDoc(doc: IDocLayoutNode) {
+function getContentFromDoc(doc: DocLayoutNode) {
     return doc.children.map((page) =>
         page.children.map((block) =>
             block.children.map((line) =>
@@ -34,7 +36,7 @@ describe('LayoutTreeManager', () => {
         let renderDoc: DocRenderNode;
         let renderBlock: BlockRenderNode;
         let renderText: TextRenderNode;
-        let doc: IDocLayoutNode;
+        let doc: DocLayoutNode;
 
         beforeEach(() => {
             renderDoc = new DocRenderNode('doc');
@@ -72,7 +74,7 @@ describe('LayoutTreeManager', () => {
 
         describe('when run for the first time', () => {
             beforeEach(() => {
-                doc = treeManager.syncWithRenderTree(renderDoc);
+                doc = treeManager.syncWithRenderTree(null, renderDoc);
             });
 
             it('builds layout tree', () => {
@@ -103,9 +105,9 @@ describe('LayoutTreeManager', () => {
 
         describe('when run after render tree is updated', () => {
             beforeEach(() => {
-                doc = treeManager.syncWithRenderTree(renderDoc);
+                doc = treeManager.syncWithRenderTree(null, renderDoc);
                 renderText.setContent('Hello beautiful world!');
-                treeManager.syncWithRenderTree(renderDoc);
+                treeManager.syncWithRenderTree(doc, renderDoc);
             });
 
             it('builds updated layout tree', () => {
@@ -118,7 +120,7 @@ describe('LayoutTreeManager', () => {
                 renderText.setContent(
                     'Hello beautiful world! Hello beautiful world! Hello beautiful world! Hello beautiful world! Hello beautiful world!',
                 );
-                doc = treeManager.syncWithRenderTree(renderDoc);
+                doc = treeManager.syncWithRenderTree(null, renderDoc);
             });
 
             it('breaks line', () => {
@@ -140,7 +142,7 @@ describe('LayoutTreeManager', () => {
                 renderText.setContent(
                     'HellobeautifulworldHellobeautifulworldHellobeautifulworldHellobeautifulworldHellobeautifulworld',
                 );
-                doc = treeManager.syncWithRenderTree(renderDoc);
+                doc = treeManager.syncWithRenderTree(null, renderDoc);
             });
 
             it('breaks word', () => {
@@ -169,7 +171,7 @@ describe('LayoutTreeManager', () => {
                     renderBlocks.push(newRenderBlock);
                 }
                 renderDoc.setChildren(renderBlocks);
-                doc = treeManager.syncWithRenderTree(renderDoc);
+                doc = treeManager.syncWithRenderTree(null, renderDoc);
             });
 
             it('breaks page', () => {

@@ -1,7 +1,7 @@
-export type IPath = number[];
+export type Path = number[];
 
 export interface IPoint {
-    path: IPath;
+    path: Path;
     offset: number;
 }
 
@@ -10,13 +10,13 @@ export interface IRange {
     head: IPoint;
 }
 
-export type IPosition = IPath | IPoint;
+export type IPosition = Path | IPoint;
 
 export function arePositionsEqual(position: IPosition, otherPosition: IPosition) {
     return JSON.stringify(position) === JSON.stringify(otherPosition);
 }
 
-export function normalizePosition(position: IPosition): [IPath, number | null] {
+export function normalizePosition(position: IPosition): [Path, number | null] {
     if (Array.isArray(position)) {
         return [position, null];
     }

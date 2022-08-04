@@ -1,31 +1,24 @@
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { IDocModelNode } from './node';
-import { IOperation, IOperationResult } from './operation/operation';
+import { EventListener } from '../event/listener';
+import { DocModelNode } from './nodes/doc';
+import { Operation, OperationResult } from './operation/operation';
 
-export interface IDidUpdateModelStateEvent {
-    operationResult: IOperationResult;
+export interface DidUpdateModelStateEvent {
+    operationResult: OperationResult;
 }
 
-export interface IModelState {
-    readonly doc: IDocModelNode;
+export class ModelState {
+    protected didUpdateEventEmitter = new EventEmitter<DidUpdateModelStateEvent>();
 
-    applyOperation(operation: IOperation): IOperationResult;
-    onDidUpdate: IOnEvent<IDidUpdateModelStateEvent>;
-}
+    constructor(readonly doc: DocModelNode<any>) {}
 
-export class ModelState implements IModelState {
-    protected didUpdateEventEmitter = new EventEmitter<IDidUpdateModelStateEvent>();
-
-    constructor(readonly doc: IDocModelNode) {}
-
-    applyOperation(operation: IOperation) {
+    applyOperation(operation: Operation) {
         const operationResult = operation.apply(this.doc);
         this.didUpdateEventEmitter.emit({ operationResult: operationResult });
         return operationResult;
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateModelStateEvent>) {
+    onDidUpdate(listener: EventListener<DidUpdateModelStateEvent>) {
         return this.didUpdateEventEmitter.on(listener);
     }
 }

@@ -1,4 +1,4 @@
-import { ITextStyle } from '../../text/service';
+import { TextStyle } from '../../text/service';
 import { MarkType } from '../mark';
 
 export interface IColorAttributes {
@@ -6,7 +6,7 @@ export interface IColorAttributes {
 }
 
 export class Color extends MarkType<IColorAttributes> {
-    getStyle(attributes: IColorAttributes): Partial<ITextStyle> {
+    getStyle(attributes: IColorAttributes): Partial<TextStyle> {
         return { color: attributes.color };
     }
 }

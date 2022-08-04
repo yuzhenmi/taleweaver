@@ -1,7 +1,7 @@
-import { IDOMService } from '../dom/service';
+import { DOMService } from '../dom/service';
 import { EventEmitter } from '../event/emitter';
-import { IEventListener, IOnEvent } from '../event/listener';
-import { ILayoutService } from '../layout/service';
+import { EventListener, OnEvent } from '../event/listener';
+import { LayoutService } from '../layout/service';
 import { IDocViewNode } from './node';
 import { ViewTreeManager } from './tree-manager';
 
@@ -12,7 +12,7 @@ export interface IViewState {
     readonly domContainer: HTMLElement | null;
 
     attach(domContainer: HTMLElement): void;
-    onDidUpdate: IOnEvent<IDidUpdateViewStateEvent>;
+    onDidUpdate: OnEvent<IDidUpdateViewStateEvent>;
 }
 
 export class ViewState implements IViewState {
@@ -24,8 +24,8 @@ export class ViewState implements IViewState {
 
     constructor(
         protected instanceId: string,
-        protected layoutService: ILayoutService,
-        protected domService: IDOMService,
+        protected layoutService: LayoutService,
+        protected domService: DOMService,
     ) {
         this.treeManager = new ViewTreeManager(domService);
         this.doc = this.treeManager.syncWithLayoutTree(layoutService.getDoc());
@@ -42,7 +42,7 @@ export class ViewState implements IViewState {
         domContainer.appendChild(this.doc.domContainer);
     }
 
-    onDidUpdate(listener: IEventListener<IDidUpdateViewStateEvent>) {
+    onDidUpdate(listener: EventListener<IDidUpdateViewStateEvent>) {
         return this.didUpdateEventEmitter.on(listener);
     }
 

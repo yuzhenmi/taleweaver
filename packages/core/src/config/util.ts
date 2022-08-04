@@ -45,9 +45,9 @@ import { Size } from '../mark/marks/size';
 import { Strikethrough } from '../mark/marks/strikethrough';
 import { Underline } from '../mark/marks/underline';
 import { Weight } from '../mark/marks/weight';
-import { IConfig } from './config';
+import { Config } from './config';
 
-export function buildBaseConfig(): IConfig {
+export function buildBaseConfig(): Config {
     return {
         commands: {
             'tw.clipboard.copy': CopyCommandHandler,

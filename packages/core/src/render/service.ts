@@ -1,19 +1,13 @@
-import { IComponentService } from '../component/service';
-import { IEventListener } from '../event/listener';
-import { IMarkService } from '../mark/service';
-import { IModelService } from '../model/service';
-import { IDocRenderNode } from './node';
-import { IDidUpdateRenderStateEvent, RenderState } from './state';
+import { ComponentService } from '../component/service';
+import { EventListener } from '../event/listener';
+import { MarkService } from '../mark/service';
+import { ModelService } from '../model/service';
+import { DidUpdateRenderStateEvent, RenderState } from './state';
 
-export interface IRenderService {
-    getDoc(): IDocRenderNode;
-    onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>): void;
-}
-
-export class RenderService implements IRenderService {
+export class RenderService implements RenderService {
     protected state: RenderState;
 
-    constructor(modelService: IModelService, componentService: IComponentService, markService: IMarkService) {
+    constructor(modelService: ModelService, componentService: ComponentService, markService: MarkService) {
         this.state = new RenderState(modelService, componentService, markService);
     }
 
@@ -21,7 +15,7 @@ export class RenderService implements IRenderService {
         return this.state.doc;
     }
 
-    onDidUpdateRenderState(listener: IEventListener<IDidUpdateRenderStateEvent>) {
+    onDidUpdateRenderState(listener: EventListener<DidUpdateRenderStateEvent>) {
         this.state.onDidUpdate(listener);
     }
 }

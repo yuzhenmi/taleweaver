@@ -1,19 +1,14 @@
-import { ITextStyle } from '../text/service';
-
-export interface IMarkType<TAttributes> {
-    readonly id: string;
-    getStyle(attributes: TAttributes): Partial<ITextStyle>;
-}
+import { TextStyle } from '../text/service';
 
 export abstract class MarkType<TAttributes> {
-    abstract getStyle(attributes: TAttributes): Partial<ITextStyle>;
+    abstract getStyle(attributes: TAttributes): Partial<TextStyle>;
 
     constructor(readonly id: string) {}
 }
 
-export interface IMark {
-    readonly typeId: string;
-    readonly start: number;
-    readonly end: number;
-    readonly attributes: any;
+export interface Mark {
+    typeId: string;
+    start: number;
+    end: number;
+    attributes: any;
 }

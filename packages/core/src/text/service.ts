@@ -1,6 +1,6 @@
-import { IDOMService } from '../dom/service';
+import { DOMService } from '../dom/service';
 
-export interface ITextStyle {
+export interface TextStyle {
     weight: number;
     size: number;
     family: string;
@@ -11,7 +11,7 @@ export interface ITextStyle {
     color: string;
 }
 
-export interface ITextMeasurement {
+export interface TextMeasurement {
     width: number;
     height: number;
 }
@@ -21,21 +21,16 @@ interface IWord {
     whitespaceSize: number;
 }
 
-export interface ITextService {
-    measure(text: string, style: ITextStyle): ITextMeasurement;
-    breakIntoWords(text: string): IWord[];
-}
-
 const BREAKABLE_CHARS = [' ', '\n', '\t'];
 
-export class TextService implements ITextService {
+export class TextService implements TextService {
     protected $canvas: HTMLCanvasElement;
 
-    constructor(domService: IDOMService) {
+    constructor(domService: DOMService) {
         this.$canvas = domService.createElement('canvas');
     }
 
-    measure(text: string, style: ITextStyle) {
+    measure(text: string, style: TextStyle) {
         const ctx = this.$canvas.getContext('2d')!;
         const weight = style.weight;
         const size = style.size;

@@ -1,6 +1,6 @@
 import { DocComponent as AbstractDocComponent } from '../component';
 
-export interface IDocAttributes {
+export interface DocAttributes {
     pageWidth: number;
     pageHeight: number;
     pagePaddingTop: number;
@@ -9,8 +9,8 @@ export interface IDocAttributes {
     pagePaddingRight: number;
 }
 
-export class DocComponent extends AbstractDocComponent<IDocAttributes> {
-    render(attributes: Partial<IDocAttributes>) {
+export class DocComponent extends AbstractDocComponent<DocAttributes> {
+    render(attributes: Partial<DocAttributes>) {
         return {
             style: {
                 pageWidth: attributes.pageWidth ?? 816,
