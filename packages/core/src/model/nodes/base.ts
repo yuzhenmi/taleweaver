@@ -1,12 +1,6 @@
 import { EventEmitter } from '../../event/emitter';
 import { EventListener } from '../../event/listener';
-
-export type Path = number[];
-
-export interface Point {
-    path: Path;
-    offset: number;
-}
+import { Point } from '../point';
 
 export interface DidUpdateModelNodeEvent {}
 
