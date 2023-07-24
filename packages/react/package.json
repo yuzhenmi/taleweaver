@@ -12,7 +12,6 @@
         "typescript": "^3.9.6"
     },
     "dependencies": {
-        "@taleweaver/core": "file:../core",
         "react": "^16.13.1"
     }
 }

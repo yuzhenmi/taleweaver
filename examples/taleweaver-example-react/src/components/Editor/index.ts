@@ -1,3 +1,3 @@
-import Taleweaver from "./Editor";
+import Taleweaver from './Editor';
 
 export default Taleweaver;

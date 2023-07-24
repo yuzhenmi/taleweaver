@@ -87,19 +87,7 @@ const App: React.FC = () => {
                     <DemoHint>&darr; Check it out &darr;</DemoHint>
                 </DemoHintWrapper>
             </Hero>
-            <Editor
-                initialDoc={sample}
-                config={{
-                    page: {
-                        width: 816,
-                        height: 1056,
-                        paddingTop: 60,
-                        paddingBottom: 60,
-                        paddingLeft: 60,
-                        paddingRight: 60,
-                    },
-                }}
-            />
+            <Editor initialDoc={sample} config={{}} />
         </Wrapper>
     );
 };

@@ -4,27 +4,16 @@ const ButtonGroup = styled.div`
     flex: 0 0 auto;
     display: flex;
     border-radius: 4px;
-    padding: 0 6px;
+    padding: 4px;
     position: relative;
-    &::before {
+    & + &::before {
         content: '';
         position: absolute;
-        top: 9px;
-        bottom: 9px;
+        top: 8px;
+        bottom: 8px;
         left: 0;
         width: 1px;
-        background: rgba(0, 0, 0, 0.15);
-    }
-    &:last-child {
-        &::after {
-            content: '';
-            position: absolute;
-            top: 9px;
-            bottom: 9px;
-            right: 0;
-            width: 1px;
-            background: rgba(0, 0, 0, 0.15);
-        }
+        background: rgba(0, 0, 0, 0.09);
     }
 `;
 

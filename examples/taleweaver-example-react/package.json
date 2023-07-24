@@ -4,8 +4,6 @@
     "homepage": "https://yuzhenmi.github.io/taleweaver/",
     "dependencies": {
         "@popperjs/core": "^2.4.4",
-        "@taleweaver/core": "file:../../packages/core",
-        "@taleweaver/react": "file:../../packages/react",
         "react": "^16.13.1",
         "react-color": "^2.18.1",
         "react-dom": "^16.13.1",
