@@ -1,48 +1,43 @@
-import { Point } from '../nodes/base';
-import { DocModelNode } from '../nodes/doc';
+import { ModelNode } from '../node';
+import { Path } from '../path';
 import { Mapping } from './mapping';
-import { OperationResult, Operation } from './operation';
+import { Operation, OperationResult } from './operation';
 import { Split } from './split';
 
+/**
+ * A merge operation.
+ */
 export class Merge extends Operation {
-    constructor(protected point: Point) {
+    constructor(protected path: Path) {
         super();
     }
 
     map(mapping: Mapping) {
-        return new Merge(mapping.map(this.point));
+        return new Merge(mapping.map(this.path));
     }
 
-    apply(doc: DocModelNode<any>): OperationResult {
-        const parent = doc.findByPath(this.point.path);
-        let mergedAt: number;
-        switch (parent.type) {
-            case 'doc': {
-                const node = parent.children[this.point.offset];
-                const sibling = parent.children[this.point.offset + 1];
-                switch (node.type) {
-                    case 'block': {
-                        mergedAt = node.children.length - 1;
-                        node.spliceChildren(mergedAt, 1, sibling.children.slice());
-                        break;
-                    }
-                    default:
-                        throw new Error(`Merge is not supported for ${node.type} node.`);
-                }
-                parent.spliceChildren(this.point.offset + 1, 1, []);
-                break;
-            }
-            default:
-                throw new Error(`Merge is not supported for ${parent.type}'s children.`);
+    apply(root: ModelNode<unknown>): OperationResult {
+        const parent = root.findNodeByPath(this.path.slice(0, this.path.length - 1));
+        if (this.path[this.path.length - 1] >= parent.children.length - 1) {
+            throw new Error('Merge is not supported for the last child.');
         }
+        const node = parent.children[this.path[this.path.length - 1]];
+        const sibling = parent.children[this.path[this.path.length - 1] + 1];
+        if (typeof node === 'string' || typeof sibling === 'string') {
+            throw new Error('Merge is not supported for text node.');
+        }
+        const mergedAt = node.children.length - 1;
+        node.spliceChildren(mergedAt, 0, sibling.children.slice());
+        parent.spliceChildren(this.path[this.path.length - 1] + 1, 1, []);
         return {
             operation: this,
-            reverseOperation: new Split({ path: [...this.point.path, this.point.offset], offset: mergedAt }),
+            reverseOperation: new Split([...this.path, mergedAt]),
             mapping: new Mapping([
                 {
-                    start: this.point,
-                    endBefore: this.point.offset + 1,
-                    endAfter: this.point.offset,
+                    path: this.path.slice(0, this.path.length - 1),
+                    start: this.path[this.path.length - 1],
+                    endBefore: this.path[this.path.length - 1] + 1,
+                    endAfter: this.path[this.path.length - 1],
                 },
             ]),
         };

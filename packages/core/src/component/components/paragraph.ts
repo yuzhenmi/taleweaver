@@ -1,17 +1,18 @@
-import { BlockComponent } from '../component';
+import { block } from '../../render/dsl';
+import { Component } from '../component';
 
-export interface ParagraphAttributes {}
+export interface ParagraphProps {}
 
-export class ParagraphComponent extends BlockComponent<ParagraphAttributes> {
-    render(attributes: Partial<ParagraphAttributes>) {
-        return {
-            style: {
-                paddingTop: 0,
-                paddingBottom: 20,
-                paddingLeft: 0,
-                paddingRight: 0,
-                lineHeight: 1.5,
-            },
-        };
-    }
-}
+export const Paragraph: Component<ParagraphProps> = (id, {}, children) => {
+    return block(
+        id,
+        {
+            paddingTop: 0,
+            paddingBottom: 20,
+            paddingLeft: 0,
+            paddingRight: 0,
+            lineHeight: 1.5,
+        },
+        children,
+    );
+};

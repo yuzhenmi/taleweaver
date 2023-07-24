@@ -14,31 +14,10 @@ export interface TextStyle {
 export class TextRenderNode extends BaseRenderNode<TextStyle> {
     readonly type = 'text';
 
-    protected internalContent = '';
+    readonly size: number;
 
-    constructor() {
-        super({
-            weight: 400,
-            size: 16,
-            family: 'sans-serif',
-            letterSpacing: 0,
-            underline: false,
-            italic: false,
-            strikethrough: false,
-            color: 'black',
-        });
-    }
-
-    get content() {
-        return this.internalContent;
-    }
-
-    get size() {
-        return this.internalContent.length;
-    }
-
-    setContent(content: string) {
-        this.internalContent = content;
-        this.didUpdateEventEmitter.emit({});
+    constructor(id: string, style: TextStyle, readonly content: string) {
+        super(id, style);
+        this.size = this.content.length;
     }
 }

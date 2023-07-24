@@ -1,29 +1,47 @@
 import { Disposable, EventEmitter } from '../event/emitter';
 import { EventListener } from '../event/listener';
-import { Point } from './point';
+import { Mark } from '../mark/mark';
+import { Path } from './path';
 
 export interface DidUpdateModelNodeEvent {}
 
-type Child = ModelNode<any> | string;
+type Children = Array<string | ModelNode<unknown>>;
 
-export class ModelNode<TAttributes> {
-    abstract pointToOffset(point: Point): number;
-    abstract offsetToPoint(offset: number): Point;
+interface ModelNodeOptions<TProps> {
+    componentId: string;
+    id: string;
+    props: TProps;
+    marks: Mark[];
+    children: Children;
+}
 
-    protected _attributes: TAttributes;
-    protected _children: Child[];
-    protected _size: number | null = null;
+/**
+ * A node in a tree.
+ * @typeParam TProps The type of the props.
+ */
+export class ModelNode<TProps> {
+    readonly componentId: string;
+    readonly id: string;
+
+    protected _props: TProps;
+    protected _marks: Mark[];
+    protected _children: Children;
     protected _needRender = true;
 
     protected didUpdateEventEmitter = new EventEmitter<DidUpdateModelNodeEvent>();
     protected childDidUpdateDisposableMap: Map<string, Disposable> = new Map();
 
-    constructor(readonly componentId: string, readonly id: string, attributes: TAttributes, children: Child[]) {
-        this._attributes = attributes;
+    constructor({ componentId, id, props, marks, children }: ModelNodeOptions<TProps>) {
+        this.componentId = componentId;
+        this.id = id;
+        this._props = props;
+        this._marks = marks;
         this._children = children;
+
         this.onDidUpdate(() => {
             this._needRender = true;
         });
+
         for (const child of children) {
             if (typeof child !== 'string') {
                 this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate));
@@ -31,37 +49,71 @@ export class ModelNode<TAttributes> {
         }
     }
 
-    get children(): Readonly<Child[]> {
+    setProps(props: TProps) {
+        this._props = props;
+        this.didUpdateEventEmitter.emit({});
+    }
+
+    get props(): Readonly<TProps> {
+        return this._props;
+    }
+
+    setMarks(marks: Mark[]) {
+        this._marks = marks;
+        this.didUpdateEventEmitter.emit({});
+    }
+
+    get marks(): Readonly<Mark[]> {
+        return this._marks;
+    }
+
+    spliceChildren(start: number, deleteCount: number, children: Children) {
+        if (start < 0 || start > this._children.length || start + deleteCount > this._children.length) {
+            throw new Error('Splice is out of range.');
+        }
+        for (const child of children) {
+            if (typeof child === 'string' && child.length !== 1) {
+                throw new Error('Block child must be character or inline node.');
+            }
+        }
+        for (let n = 0; n < deleteCount; n++) {
+            const child = this._children[start + n];
+            if (typeof child !== 'string') {
+                this.childDidUpdateDisposableMap.get(child.id)?.dispose();
+                this.childDidUpdateDisposableMap.delete(child.id);
+            }
+        }
+        for (const child of children) {
+            if (typeof child !== 'string') {
+                this.childDidUpdateDisposableMap.set(child.id, child.onDidUpdate(this.handleChildDidUpdate));
+            }
+        }
+        const removed = this._children.splice(start, deleteCount, ...children);
+        this.didUpdateEventEmitter.emit({});
+        return removed;
+    }
+
+    get children(): Readonly<Children> {
         return this._children;
     }
 
-    get attributes(): Readonly<TAttributes> {
-        return this._attributes;
-    }
-
-    get size(): number {
-        if (this._size === null) {
-            this._size = this._children.reduce((size, child) => {
-                if (typeof child === 'string') {
-                    return size + 1;
-                }
-                return size + child.size;
-            }, 0);
-        }
-        return this._size;
+    markAsRendered() {
+        this._needRender = false;
     }
 
     get needRender() {
         return this._needRender;
     }
 
-    setAttributes(attributes: TAttributes) {
-        this._attributes = attributes;
-        this.didUpdateEventEmitter.emit({});
-    }
-
-    markAsRendered() {
-        this._needRender = false;
+    findNodeByPath(path: Path): ModelNode<unknown> {
+        if (path.length === 0) {
+            return this;
+        }
+        const child = this._children[path[0]];
+        if (typeof child === 'string') {
+            throw new Error('Path is out of range.');
+        }
+        return child.findNodeByPath(path.slice(1));
     }
 
     onDidUpdate(listener: EventListener<DidUpdateModelNodeEvent>) {

@@ -1,5 +1,5 @@
-import { DocComponent } from '../component/components/doc';
-import { ParagraphComponent } from '../component/components/paragraph';
+import { Doc } from '../component/components/doc';
+import { Paragraph } from '../component/components/paragraph';
 import { Color } from '../mark/marks/color';
 import { Family } from '../mark/marks/family';
 import { Italic } from '../mark/marks/italic';
@@ -17,7 +17,7 @@ export class ConfigServiceStub implements Pick<ConfigService, keyof ConfigServic
     constructor() {
         this.config = {
             commands: {},
-            components: [new DocComponent('doc'), new ParagraphComponent('paragraph')],
+            components: { doc: Doc, paragraph: Paragraph },
             markTypes: [
                 new Color('color'),
                 new Family('family'),

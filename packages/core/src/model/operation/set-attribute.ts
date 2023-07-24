@@ -1,24 +1,24 @@
-import { Point } from '../nodes/base';
-import { DocModelNode } from '../nodes/doc';
+import { ModelNode } from '../node';
+import { Path } from '../path';
 import { identity, Mapping } from './mapping';
-import { OperationResult, Operation } from './operation';
+import { Operation, OperationResult } from './operation';
 
 export class SetAttribute<TAttributes> extends Operation {
-    constructor(protected point: Point, protected attributes: TAttributes) {
+    constructor(protected path: Path, protected attributes: TAttributes) {
         super();
     }
 
     map(mapping: Mapping) {
-        return new SetAttribute(mapping.map(this.point), this.attributes);
+        return new SetAttribute(mapping.map(this.path), this.attributes);
     }
 
-    apply(doc: DocModelNode<any>): OperationResult {
-        const node = doc.findByPath([...this.point.path, this.point.offset]);
+    apply(root: ModelNode<unknown>): OperationResult {
+        const node = root.findNodeByPath(this.path);
         const prevAttributes = node.attributes;
         node.setAttributes(this.attributes);
         return {
             operation: this,
-            reverseOperation: new SetAttribute(this.point, prevAttributes),
+            reverseOperation: new SetAttribute(this.path, prevAttributes),
             mapping: identity,
         };
     }

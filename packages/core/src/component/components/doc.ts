@@ -1,6 +1,7 @@
-import { DocComponent as AbstractDocComponent } from '../component';
+import { doc } from '../../render/dsl';
+import { Component } from '../component';
 
-export interface DocAttributes {
+export interface DocProps {
     pageWidth: number;
     pageHeight: number;
     pagePaddingTop: number;
@@ -9,17 +10,28 @@ export interface DocAttributes {
     pagePaddingRight: number;
 }
 
-export class DocComponent extends AbstractDocComponent<DocAttributes> {
-    render(attributes: Partial<DocAttributes>) {
-        return {
-            style: {
-                pageWidth: attributes.pageWidth ?? 816,
-                pageHeight: attributes.pageHeight ?? 1056,
-                pagePaddingTop: attributes.pagePaddingTop ?? 40,
-                pagePaddingBottom: attributes.pagePaddingBottom ?? 40,
-                pagePaddingLeft: attributes.pagePaddingLeft ?? 40,
-                pagePaddingRight: attributes.pagePaddingRight ?? 40,
-            },
-        };
-    }
-}
+export const Doc: Component<DocProps> = (
+    id,
+    {
+        pageWidth = 816,
+        pageHeight = 1056,
+        pagePaddingTop = 40,
+        pagePaddingBottom = 40,
+        pagePaddingLeft = 40,
+        pagePaddingRight = 40,
+    },
+    children,
+) => {
+    return doc(
+        id,
+        {
+            pageWidth,
+            pageHeight,
+            pagePaddingTop,
+            pagePaddingBottom,
+            pagePaddingLeft,
+            pagePaddingRight,
+        },
+        children,
+    );
+};

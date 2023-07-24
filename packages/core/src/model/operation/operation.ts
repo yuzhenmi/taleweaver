@@ -1,9 +1,9 @@
-import { DocModelNode } from '../nodes/doc';
+import { ModelNode } from '../node';
 import { Mapping } from './mapping';
 
 export abstract class Operation {
     abstract map(mapping: Mapping): Operation;
-    abstract apply(root: DocModelNode<any>): OperationResult;
+    abstract apply(root: ModelNode<unknown>): OperationResult;
 }
 
 export interface OperationResult {

@@ -6,7 +6,7 @@ export interface CommandsConfig {
     [key: string]: CommandHandlerClass;
 }
 
-export type ComponentsConfig = Component<any>[];
+export type ComponentsConfig = { [componentId: string]: Component<unknown> };
 
 export interface CursorConfig {
     disable: boolean;

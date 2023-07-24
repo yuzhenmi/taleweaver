@@ -45,6 +45,7 @@ describe('Serializer', () => {
                         componentId: 'paragraph',
                         id: 'paragraph',
                         props: {},
+                        marks: [],
                         children: ['Hello world!'],
                     },
                 ],
@@ -65,6 +66,7 @@ describe('Serializer', () => {
                         componentId: 'paragraph',
                         id: 'paragraph',
                         props: {},
+                        marks: [],
                         children: ['Hello world!'],
                     },
                 ],
@@ -81,7 +83,7 @@ describe('Serializer', () => {
             expect(paragraph.componentId).toEqual('paragraph');
             expect(paragraph.id).toEqual('paragraph');
             expect(paragraph.marks).toEqual([]);
-            expect(paragraph.children).toEqual(['Hello world!']);
+            expect(paragraph.children).toEqual('Hello world!');
         });
     });
 });

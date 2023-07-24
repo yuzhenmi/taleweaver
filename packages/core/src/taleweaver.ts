@@ -9,7 +9,7 @@ import { HistoryService } from './history/service';
 import { KeyBindingService } from './key-binding/service';
 import { LayoutService } from './layout/service';
 import { MarkService } from './mark/service';
-import { ModelNodeData, Serializer } from './model/serializer';
+import { SerializedData, Serializer } from './model/serializer';
 import { ModelService } from './model/service';
 import { RenderService } from './render/service';
 import { ServiceRegistry } from './service/registry';
@@ -36,7 +36,7 @@ export class Taleweaver {
     protected historyService: HistoryService;
     protected keyBindingService: KeyBindingService;
 
-    constructor(doc: ModelNodeData, config: ExternalConfig) {
+    constructor(doc: SerializedData, config: ExternalConfig) {
         this.instanceId = generateId();
         this.serviceRegistry = new ServiceRegistry();
         this.configService = new ConfigService(buildBaseConfig(), config);

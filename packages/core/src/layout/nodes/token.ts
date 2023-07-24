@@ -2,7 +2,7 @@ import { TextService } from '../../text/service';
 import { BaseLayoutNode, LayoutPositionLayerDescription, ResolveBoundingBoxesResult } from './base';
 import { InlineLayoutNode } from './inline';
 
-export interface WordLayoutProps {
+export interface TokenLayoutProps {
     weight: number;
     size: number;
     family: string;
@@ -13,7 +13,7 @@ export interface WordLayoutProps {
     color: string;
 }
 
-export interface WordLayout {
+export interface TokenLayout {
     width: number;
     height: number;
     trimmedWidth: number;
@@ -27,15 +27,15 @@ export interface WordLayout {
     color: string;
 }
 
-export type WordLayoutNodeSibling = WordLayoutNode | InlineLayoutNode;
+export type TokenLayoutNodeSibling = TokenLayoutNode | InlineLayoutNode;
 
-export class WordLayoutNode extends BaseLayoutNode<WordLayoutProps, WordLayout> {
+export class TokenLayoutNode extends BaseLayoutNode<TokenLayoutProps, TokenLayout> {
     readonly type = 'word';
 
-    protected internalPreviousSibling: WordLayoutNodeSibling | null = null;
-    protected internalNextSibling: WordLayoutNodeSibling | null = null;
-    protected internalPreviousCrossParentSibling: WordLayoutNodeSibling | null = null;
-    protected internalNextCrossParentSibling: WordLayoutNodeSibling | null = null;
+    protected internalPreviousSibling: TokenLayoutNodeSibling | null = null;
+    protected internalNextSibling: TokenLayoutNodeSibling | null = null;
+    protected internalPreviousCrossParentSibling: TokenLayoutNodeSibling | null = null;
+    protected internalNextCrossParentSibling: TokenLayoutNodeSibling | null = null;
     protected internalContent: string = '';
     protected internalWhitespaceSize: number = 0;
     protected internalWidth?: number;
@@ -83,19 +83,19 @@ export class WordLayoutNode extends BaseLayoutNode<WordLayoutProps, WordLayout> 
         return this.internalContent.length;
     }
 
-    setPreviousSibling(previousSibling: WordLayoutNodeSibling | null) {
+    setPreviousSibling(previousSibling: TokenLayoutNodeSibling | null) {
         this.internalPreviousSibling = previousSibling;
     }
 
-    setNextSibling(nextSibling: WordLayoutNodeSibling | null) {
+    setNextSibling(nextSibling: TokenLayoutNodeSibling | null) {
         this.internalNextSibling = nextSibling;
     }
 
-    setPreviousCrossParentSibling(previousCrossParentSibling: WordLayoutNodeSibling | null) {
+    setPreviousCrossParentSibling(previousCrossParentSibling: TokenLayoutNodeSibling | null) {
         this.internalPreviousCrossParentSibling = previousCrossParentSibling;
     }
 
-    setNextCrossParentSibling(nextCrossParentSibling: WordLayoutNodeSibling | null) {
+    setNextCrossParentSibling(nextCrossParentSibling: TokenLayoutNodeSibling | null) {
         this.internalNextCrossParentSibling = nextCrossParentSibling;
     }
 

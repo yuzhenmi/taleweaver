@@ -1,53 +1,41 @@
-import { ModelNode } from '../nodes';
-import { Point } from '../nodes/base';
-import { DocModelNode } from '../nodes/doc';
+import { ModelNode } from '../node';
+import { Path } from '../path';
 import { Mapping } from './mapping';
-import { OperationResult, Operation } from './operation';
+import { Operation, OperationResult } from './operation';
 
 export class Splice extends Operation {
-    constructor(protected start: Point, protected deleteCount: number, protected content: Array<ModelNode | string>) {
+    constructor(
+        protected path: Path,
+        protected deleteCount: number,
+        protected content: Array<ModelNode<unknown> | string>,
+    ) {
         super();
     }
 
     map(mapping: Mapping) {
-        const oldStart = this.start;
-        const oldEnd = { path: this.start.path, offset: this.start.offset + this.deleteCount };
-        const newStart = mapping.map(oldStart);
-        const newEnd = mapping.map(oldEnd);
-        const newDeleteCount = newEnd.offset - newStart.offset;
-        return new Splice(newStart, newDeleteCount, this.content);
+        const oldPath = this.path;
+        const oldDeleteToPath = [
+            ...oldPath.slice(0, oldPath.length - 1),
+            oldPath[oldPath.length - 1] + this.deleteCount,
+        ];
+        const newPath = mapping.map(oldPath);
+        const newDeleteToPath = mapping.map(oldDeleteToPath);
+        const newDeleteCount = newDeleteToPath[newDeleteToPath.length - 1] - newPath[newPath.length - 1];
+        return new Splice(newPath, newDeleteCount, this.content);
     }
 
-    apply(doc: DocModelNode<any>): OperationResult {
-        const node = doc.findByPath(this.start.path);
-        let removed: Array<ModelNode | string>;
-        switch (node.type) {
-            case 'doc': {
-                if (!node.validateChildren(this.content)) {
-                    throw new Error('Invalid children for doc.');
-                }
-                removed = node.spliceChildren(this.start.offset, this.deleteCount, this.content as any);
-                break;
-            }
-            case 'block': {
-                if (!node.validateChildren(this.content)) {
-                    throw new Error('Invalid children for block.');
-                }
-                removed = node.spliceChildren(this.start.offset, this.deleteCount, this.content as any);
-                break;
-            }
-            default: {
-                throw new Error('Invalid node for applying Splice operation.');
-            }
-        }
+    apply(root: ModelNode<unknown>): OperationResult {
+        const node = root.findNodeByPath(this.path.slice(0, this.path.length - 1));
+        const deletedContent = node.spliceChildren(this.path[this.path.length - 1], this.deleteCount, this.content);
         return {
             operation: this,
-            reverseOperation: new Splice(this.start, this.content.length, removed),
+            reverseOperation: new Splice(this.path, this.content.length, deletedContent),
             mapping: new Mapping([
                 {
-                    start: this.start,
-                    endBefore: this.start.offset + this.deleteCount,
-                    endAfter: this.start.offset + this.content.length,
+                    path: this.path.slice(0, this.path.length - 1),
+                    start: this.path[this.path.length - 1],
+                    endBefore: this.path[this.path.length - 1] + this.deleteCount,
+                    endAfter: this.path[this.path.length - 1] + this.content.length,
                 },
             ]),
         };

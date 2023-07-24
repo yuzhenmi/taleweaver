@@ -10,7 +10,7 @@ import { InlineLayoutNode } from './nodes/inline';
 import { LineLayoutChildNode, LineLayoutNode, LineLayoutProps } from './nodes/line';
 import { PageLayoutChildNode, PageLayoutNode } from './nodes/page';
 import { TextLayoutNode } from './nodes/text';
-import { WordLayoutNode } from './nodes/word';
+import { WordLayoutNode } from './nodes/token';
 
 interface LayoutNodeWithChildren<TChild extends LayoutNode> {
     children: TChild[];

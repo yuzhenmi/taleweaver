@@ -1,108 +1,100 @@
 import { ComponentService } from '../component/service';
-import { ModelNode } from './nodes';
-import { BlockModelNode, BlockModelNodeChild } from './nodes/block';
-import { DocModelChildNode, DocModelNode } from './nodes/doc';
-import { InlineModelNode } from './nodes/inline';
+import { ModelNode } from './node';
 
-export interface ModelNodeData {
-    componentId: string;
-    id: string;
-    attributes: any;
-    children?: Array<ModelNodeData | string>;
-    marks?: Array<{
-        typeId: string;
-        start: number;
-        end: number;
-        attributes: any;
-    }>;
+interface SerializedMarkData {
+    typeId: string;
+    start: number;
+    end: number;
+    props: unknown;
 }
 
+/**
+ * Data that can be easily transmitted and stored.
+ */
+export interface SerializedData {
+    componentId: string;
+    id: string;
+    props?: unknown;
+    marks?: SerializedMarkData[];
+    children?: Array<SerializedData | string>;
+}
+
+/**
+ * Serializes and deserializes the document.
+ */
 export class Serializer {
     constructor(protected componentService: ComponentService) {}
 
-    parse(data: ModelNodeData): DocModelNode<any> {
-        const doc = this._parse(data);
-        if (doc.type !== 'doc') {
-            throw new Error('Serializable is invalid.');
-        }
-        return doc;
-    }
-
-    serialize(doc: DocModelNode<any>): ModelNodeData {
-        return this._serialize(doc);
-    }
-
-    protected _parse(data: ModelNodeData): ModelNode {
-        const component = this.componentService.getComponent(data.componentId);
-        switch (component.type) {
-            case 'doc': {
-                const children =
-                    data.children?.map((childData) => {
-                        if (typeof childData === 'string') {
-                            throw new Error('Doc child data must be object.');
-                        }
-                        const child = this._parse(childData);
-                        if (!['block'].includes(child.type)) {
-                            throw new Error('Doc child must be block.');
-                        }
-                        return child as DocModelChildNode;
-                    }) ?? [];
-                return new DocModelNode(data.componentId, data.id, data.attributes, children);
-            }
-            case 'block': {
-                const children: BlockModelNodeChild[] = [];
-                if (data.children) {
-                    for (let n = 0, nn = data.children.length; n < nn; n++) {
-                        const childData = data.children[n];
-                        if (typeof childData === 'string') {
-                            children.push(...childData.split(''));
-                        } else {
-                            const child = this._parse(childData);
-                            if (!['inline'].includes(child.type)) {
-                                throw new Error('Block child must be inline.');
-                            }
-                            children.push(child as BlockModelNodeChild);
-                        }
+    /**
+     * Deserializes data into a node.
+     * @param data Serialized data.
+     * @returns The deserialized node.
+     */
+    parse(data: SerializedData): ModelNode<unknown> {
+        const children: Array<string | ModelNode<unknown>> = [];
+        if (data.children) {
+            let substring = '';
+            for (const childData of data.children) {
+                if (typeof childData === 'string') {
+                    substring += childData;
+                } else {
+                    if (substring) {
+                        children.push(substring);
                     }
+                    substring = '';
+                    children.push(this.parse(childData));
                 }
-                return new BlockModelNode(data.componentId, data.id, data.attributes, data.marks ?? [], children);
             }
-            case 'inline': {
-                return new InlineModelNode(data.componentId, data.id, data.attributes);
+            if (substring) {
+                children.push(substring);
             }
         }
+        return new ModelNode({
+            componentId: data.componentId,
+            id: data.id,
+            props: data.props ?? {},
+            marks: data.marks ?? [],
+            children,
+        });
     }
 
-    protected _serialize(node: ModelNode): ModelNodeData {
-        const result: ModelNodeData = {
+    /**
+     * Serializes a node.
+     * @param node The node to serialize.
+     * @returns The serialized data.
+     */
+    serialize(node: ModelNode<unknown>): SerializedData {
+        const data: SerializedData = {
             componentId: node.componentId,
             id: node.id,
-            attributes: node.attributes,
+            props: node.props,
         };
-        switch (node.type) {
-            case 'doc': {
-                result.children = node.children.map(this._serialize);
-                break;
-            }
-            case 'block': {
-                result.marks = node.marks.slice();
-                result.children = [];
-                let substring = '';
-                for (const child of node.children) {
-                    if (typeof child === 'string') {
-                        substring += child;
-                    } else {
-                        result.children.push(substring);
-                        substring = '';
-                        result.children.push(this._serialize(child));
+        if (node.marks.length > 0) {
+            data.marks = node.marks.map((mark) => ({
+                typeId: mark.typeId,
+                start: mark.start,
+                end: mark.end,
+                props: mark.props,
+            }));
+        }
+        if (node.children.length > 0) {
+            data.children = [];
+            let substring = '';
+            for (const child of node.children) {
+                if (typeof child === 'string') {
+                    substring += child;
+                } else {
+                    if (substring) {
+                        data.children.push(substring);
                     }
+                    substring = '';
+                    data.children.push(this.serialize(child));
                 }
-                if (substring) {
-                    result.children.push(substring);
-                }
-                break;
+            }
+            if (substring) {
+                data.children.push(substring);
             }
         }
-        return result;
+        return data;
     }
 }

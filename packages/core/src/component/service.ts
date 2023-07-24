@@ -5,12 +5,12 @@ export class ComponentService {
     protected registry: ComponentRegistry = new ComponentRegistry();
 
     constructor(configService: ConfigService) {
-        configService.getConfig().components.forEach((component) => {
-            this.registry.registerComponent(component);
-        });
+        for (const [componentId, component] of Object.entries(configService.getConfig().components)) {
+            this.registry.registerComponent(componentId, component);
+        }
     }
 
-    getComponent<TAttributes>(componentId: string) {
-        return this.registry.getComponent<TAttributes>(componentId);
+    getComponent(componentId: string) {
+        return this.registry.getComponent(componentId);
     }
 }

@@ -5,7 +5,7 @@ import { InsertContent } from '../../model/operation/insert-content';
 import { Operation } from '../../model/operation/operation';
 import { RemoveContent } from '../../model/operation/remove-content';
 import { RemoveNode } from '../../model/operation/remove-node';
-import { Path, IPosition, normalizePosition } from '../../model/position';
+import { IPosition, Path, normalizePosition } from '../../model/path';
 import { ModelService } from '../../model/service';
 import { TransformService } from '../../transform/service';
 import { Transformation } from '../../transform/transformation';

@@ -4,7 +4,7 @@ import { InlineLayoutNode } from './inline';
 import { LineLayoutNode } from './line';
 import { PageLayoutNode } from './page';
 import { TextLayoutNode } from './text';
-import { WordLayoutNode } from './word';
+import { WordLayoutNode } from './token';
 
 export type LayoutNode =
     | DocLayoutNode
