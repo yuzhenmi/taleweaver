@@ -8,14 +8,11 @@ import { Size } from '../mark/marks/size';
 import { Strikethrough } from '../mark/marks/strikethrough';
 import { Underline } from '../mark/marks/underline';
 import { Weight } from '../mark/marks/weight';
-import { Config } from './config';
 import { ConfigService } from './service';
 
-export class ConfigServiceStub implements Pick<ConfigService, keyof ConfigService> {
-    protected config: Config;
-
-    constructor() {
-        this.config = {
+export function stubConfigService() {
+    return new ConfigService(
+        {
             commands: {},
             components: { doc: Doc, paragraph: Paragraph },
             markTypes: [
@@ -45,10 +42,7 @@ export class ConfigServiceStub implements Pick<ConfigService, keyof ConfigServic
                 windows: {},
                 linux: {},
             },
-        };
-    }
-
-    getConfig() {
-        return this.config;
-    }
+        },
+        {},
+    );
 }

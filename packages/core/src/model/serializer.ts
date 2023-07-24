@@ -33,20 +33,12 @@ export class Serializer {
     parse(data: SerializedData): ModelNode<unknown> {
         const children: Array<string | ModelNode<unknown>> = [];
         if (data.children) {
-            let substring = '';
             for (const childData of data.children) {
                 if (typeof childData === 'string') {
-                    substring += childData;
+                    children.push(...childData.split(''));
                 } else {
-                    if (substring) {
-                        children.push(substring);
-                    }
-                    substring = '';
                     children.push(this.parse(childData));
                 }
-            }
-            if (substring) {
-                children.push(substring);
             }
         }
         return new ModelNode({

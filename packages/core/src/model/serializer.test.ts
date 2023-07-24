@@ -1,5 +1,5 @@
 import { ComponentService } from '../component/service';
-import { ConfigServiceStub } from '../config/service.stub';
+import { stubConfigService } from '../config/service.stub';
 import { ModelNode } from './node';
 import { SerializedData, Serializer } from './serializer';
 
@@ -8,8 +8,8 @@ describe('Serializer', () => {
     let serializer: Serializer;
 
     beforeEach(() => {
-        const configService = new ConfigServiceStub();
-        componentService = new ComponentService(configService as any);
+        const configService = stubConfigService();
+        componentService = new ComponentService(configService);
         serializer = new Serializer(componentService);
     });
 
@@ -28,7 +28,7 @@ describe('Serializer', () => {
                         id: 'paragraph',
                         props: {},
                         marks: [],
-                        children: ['Hello world!'],
+                        children: 'Hello world!'.split(''),
                     }),
                 ],
             });
@@ -81,7 +81,7 @@ describe('Serializer', () => {
             expect(paragraph.componentId).toEqual('paragraph');
             expect(paragraph.id).toEqual('paragraph');
             expect(paragraph.marks).toEqual([]);
-            expect(paragraph.children).toEqual(['Hello world!']);
+            expect(paragraph.children).toEqual('Hello world!'.split(''));
         });
     });
 });
