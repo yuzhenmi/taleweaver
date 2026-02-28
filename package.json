@@ -1,0 +1,5 @@
+{
+  "name": "taleweaver",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

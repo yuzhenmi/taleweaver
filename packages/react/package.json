@@ -1,0 +1,31 @@
+{
+  "name": "@taleweaver/react",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@taleweaver/core": "0.0.1",
+    "@taleweaver/dom": "0.0.1",
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@taleweaver/dom": "0.0.1",
+    "@testing-library/react": "^16",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^26",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
+}
