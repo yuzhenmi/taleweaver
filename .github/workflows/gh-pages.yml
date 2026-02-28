@@ -34,9 +34,10 @@ jobs:
       - name: Build example
         run: npm run build -w packages/example
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: packages/example/dist
+          overwrite: true
 
       - id: deployment
         uses: actions/deploy-pages@v4
