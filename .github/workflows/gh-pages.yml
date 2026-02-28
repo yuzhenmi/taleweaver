@@ -5,12 +5,13 @@ on:
     branches: [main]
 
 permissions:
+  contents: read
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -34,10 +35,17 @@ jobs:
       - name: Build example
         run: npm run build -w packages/example
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/configure-pages@v5
+
+      - name: Delete stale pages artifact
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: github-pages
+          failOnError: false
+
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: packages/example/dist
-          overwrite: true
 
       - id: deployment
         uses: actions/deploy-pages@v4
