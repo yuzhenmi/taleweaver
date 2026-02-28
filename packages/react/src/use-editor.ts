@@ -34,6 +34,7 @@ export function useEditor() {
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -52,5 +53,5 @@ export function useEditor() {
     return () => observer.disconnect();
   }, []);
 
-  return { editorState, dispatch, containerRef, measurer: config.measurer };
+  return { editorState, dispatch, containerRef, textareaRef, measurer: config.measurer };
 }

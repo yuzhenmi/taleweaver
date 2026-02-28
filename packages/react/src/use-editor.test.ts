@@ -28,6 +28,11 @@ describe("useEditor", () => {
     expect(result.current.containerRef).toBeDefined();
   });
 
+  it("returns textareaRef", () => {
+    const { result } = renderHook(() => useEditor());
+    expect(result.current.textareaRef).toBeDefined();
+  });
+
   it("dispatch INSERT_TEXT updates state", () => {
     const { result } = renderHook(() => useEditor());
     act(() => {

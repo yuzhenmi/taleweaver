@@ -101,10 +101,5 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   if (mod && key === "i") return { type: "TOGGLE_STYLE", style: "italic" };
   if (mod && key === "u") return { type: "TOGGLE_STYLE", style: "underline" };
 
-  // Printable characters (single char, no modifier)
-  if (key.length === 1 && !ctrlKey && !metaKey) {
-    return { type: "INSERT_TEXT", text: key };
-  }
-
   return null;
 }

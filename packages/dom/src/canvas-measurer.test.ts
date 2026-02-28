@@ -24,7 +24,7 @@ describe("createCanvasMeasurer", () => {
     const measurer = createCanvasMeasurer(canvas);
 
     const width = measurer.measureWidth("hello", {});
-    expect(ctx.font).toBe("16px monospace");
+    expect(ctx.font).toBe('16px "Inter", sans-serif');
     expect(ctx.measureText).toHaveBeenCalledWith("hello");
     expect(width).toBe(50); // 5 chars * 10px
   });

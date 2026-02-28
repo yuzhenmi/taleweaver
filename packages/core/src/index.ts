@@ -35,6 +35,7 @@ export {
   applyInlineStyle,
   removeInlineStyle,
   isFullyStyled,
+  remapPosition,
 } from "./state/formatting";
 export { extractText } from "./state/extract-text";
 

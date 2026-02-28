@@ -18,19 +18,10 @@ function key(overrides: {
 }
 
 describe("mapKeyEvent", () => {
-  it("maps printable characters to INSERT_TEXT", () => {
-    expect(mapKeyEvent(key({ key: "a" }))).toEqual({
-      type: "INSERT_TEXT",
-      text: "a",
-    });
-    expect(mapKeyEvent(key({ key: " " }))).toEqual({
-      type: "INSERT_TEXT",
-      text: " ",
-    });
-    expect(mapKeyEvent(key({ key: "Z" }))).toEqual({
-      type: "INSERT_TEXT",
-      text: "Z",
-    });
+  it("returns null for printable characters (handled by textarea input)", () => {
+    expect(mapKeyEvent(key({ key: "a" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: " " }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "Z" }))).toBeNull();
   });
 
   it("maps Backspace to DELETE_BACKWARD", () => {
@@ -211,12 +202,8 @@ describe("mapKeyEvent", () => {
 
   // --- Printable chars with shift should still insert ---
 
-  it("maps Shift+letter to INSERT_TEXT with uppercase", () => {
-    // KeyboardEvent with shiftKey=true and key="A" (uppercase)
-    expect(mapKeyEvent(key({ key: "A", shiftKey: true }))).toEqual({
-      type: "INSERT_TEXT",
-      text: "A",
-    });
+  it("returns null for Shift+letter (handled by textarea input)", () => {
+    expect(mapKeyEvent(key({ key: "A", shiftKey: true }))).toBeNull();
   });
 
   // --- Select all ---

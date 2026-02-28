@@ -1,7 +1,7 @@
 import type { RenderStyles } from "@taleweaver/core";
 
 export const FONT_CONFIG = {
-  fontFamily: "monospace",
+  fontFamily: '"Inter", sans-serif',
   fontSize: 16,
   lineHeight: 24,
 } as const;

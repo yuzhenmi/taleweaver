@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-config";
 
 describe("FONT_CONFIG", () => {
-  it("has monospace fontFamily", () => {
-    expect(FONT_CONFIG.fontFamily).toBe("monospace");
+  it("has Inter sans-serif fontFamily", () => {
+    expect(FONT_CONFIG.fontFamily).toBe('"Inter", sans-serif');
   });
 
   it("has fontSize 16", () => {
@@ -17,7 +17,7 @@ describe("FONT_CONFIG", () => {
 
 describe("buildCssFontString", () => {
   it("builds font string from defaults", () => {
-    expect(buildCssFontString({})).toBe("16px monospace");
+    expect(buildCssFontString({})).toBe('16px "Inter", sans-serif');
   });
 
   it("uses provided fontSize and fontFamily", () => {
@@ -28,27 +28,27 @@ describe("buildCssFontString", () => {
 
   it("includes fontWeight when specified", () => {
     expect(buildCssFontString({ fontWeight: "bold" })).toBe(
-      "bold 16px monospace",
+      'bold 16px "Inter", sans-serif',
     );
   });
 
   it("includes fontStyle when specified", () => {
     expect(buildCssFontString({ fontStyle: "italic" })).toBe(
-      "italic 16px monospace",
+      'italic 16px "Inter", sans-serif',
     );
   });
 
   it("includes both fontStyle and fontWeight", () => {
     expect(
       buildCssFontString({ fontStyle: "italic", fontWeight: "bold" }),
-    ).toBe("italic bold 16px monospace");
+    ).toBe('italic bold 16px "Inter", sans-serif');
   });
 });
 
 describe("getEffectiveStyles", () => {
   it("fills defaults for empty styles", () => {
     const result = getEffectiveStyles({});
-    expect(result.fontFamily).toBe("monospace");
+    expect(result.fontFamily).toBe("\"Inter\", sans-serif");
     expect(result.fontSize).toBe(16);
     expect(result.lineHeight).toBe(24);
   });

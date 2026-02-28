@@ -28,6 +28,7 @@ import {
   applyInlineStyle,
   removeInlineStyle,
   isFullyStyled,
+  remapPosition,
   createNode,
   createTextNode,
   getNodeByPath,
@@ -951,14 +952,21 @@ function handleToggleStyle(
 
   if (change.newState === editor.state) return editor;
 
+  // Remap selection through the tree restructuring (paths change but text content doesn't)
+  const newSelection = createSelection(
+    remapPosition(editor.state, change.newState, editor.selection.anchor),
+    remapPosition(editor.state, change.newState, editor.selection.focus),
+  );
+
   return rebuildTrees(
     {
       ...editor,
       state: change.newState,
+      selection: newSelection,
       history: pushEditorChange(editor.history, {
         change,
         selectionBefore: editor.selection,
-        selectionAfter: editor.selection,
+        selectionAfter: newSelection,
       }),
       nextId: editor.nextId + 1,
     },

@@ -41,3 +41,7 @@ export { moveToLine, moveToLineBoundary } from "./line-navigation";
 // Layout utils
 export type { AbsoluteTextBox } from "./layout-utils";
 export { collectAllTextBoxes } from "./layout-utils";
+
+// Canvas renderer
+export type { CursorState } from "./canvas-renderer";
+export { paintCanvas } from "./canvas-renderer";
