@@ -6,6 +6,8 @@ export interface TextMeasurer {
   measureWidth(text: string, styles: RenderStyles): number;
   /** Get the line height for the given styles. */
   measureHeight(styles: RenderStyles): number;
+  /** Get the cursor height for the given styles (font bounding box height). */
+  measureCursorHeight(styles: RenderStyles): number;
 }
 
 /**
@@ -15,6 +17,7 @@ export interface TextMeasurer {
 export function createMockMeasurer(
   charWidth: number = 8,
   lineHeight: number = 16,
+  cursorHeight?: number,
 ): TextMeasurer {
   return {
     measureWidth(text: string, _styles: RenderStyles): number {
@@ -22,6 +25,9 @@ export function createMockMeasurer(
     },
     measureHeight(_styles: RenderStyles): number {
       return lineHeight;
+    },
+    measureCursorHeight(_styles: RenderStyles): number {
+      return cursorHeight ?? lineHeight;
     },
   };
 }

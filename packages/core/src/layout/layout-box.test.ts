@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createBlockLayoutBox } from "./block-layout-box";
 import { createLineLayoutBox } from "./line-layout-box";
+import { createPageLayoutBox } from "./page-layout-box";
 import { createTextLayoutBox } from "./text-layout-box";
 
 describe("createTextLayoutBox", () => {
@@ -109,6 +110,39 @@ describe("createBlockLayoutBox", () => {
     const text = createTextLayoutBox("t1", 0, 0, 40, 16, "hello");
     expect(() =>
       createBlockLayoutBox("b1", 0, 0, 100, 50, [text]),
+    ).toThrow(/cannot directly contain text child/);
+  });
+});
+
+describe("createPageLayoutBox", () => {
+  it("creates a page layout box with correct properties", () => {
+    const line = createLineLayoutBox("line1", 0, 0, 100, 16, []);
+    const block = createBlockLayoutBox("b1", 0, 0, 100, 16, [line]);
+    const page = createPageLayoutBox("page-0", 0, 0, 200, 500, [block]);
+    expect(page.key).toBe("page-0");
+    expect(page.type).toBe("page");
+    expect(page.x).toBe(0);
+    expect(page.y).toBe(0);
+    expect(page.width).toBe(200);
+    expect(page.height).toBe(500);
+    expect(page.children).toHaveLength(1);
+    expect(page.children[0]).toBe(block);
+  });
+
+  it("freezes the returned box", () => {
+    const page = createPageLayoutBox("page-0", 0, 0, 200, 500, []);
+    expect(Object.isFrozen(page)).toBe(true);
+  });
+
+  it("freezes the children array", () => {
+    const page = createPageLayoutBox("page-0", 0, 0, 200, 500, []);
+    expect(Object.isFrozen(page.children)).toBe(true);
+  });
+
+  it("throws if child is a text box", () => {
+    const text = createTextLayoutBox("t1", 0, 0, 40, 16, "hello");
+    expect(() =>
+      createPageLayoutBox("page-0", 0, 0, 200, 500, [text]),
     ).toThrow(/cannot directly contain text child/);
   });
 });

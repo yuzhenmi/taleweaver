@@ -3,7 +3,7 @@ import { createNode, createTextNode } from "./create-node";
 import { createPosition, createSpan } from "./position";
 import { getNodeByPath } from "./operations";
 import { getTextContent } from "./text-utils";
-import { applyInlineStyle, removeInlineStyle, isFullyStyled, remapPosition } from "./formatting";
+import { applyInlineStyle, getStyleInRange, remapPosition } from "./formatting";
 
 function makeDoc(content: string) {
   return createNode("doc", "document", {}, [
@@ -19,7 +19,7 @@ describe("applyInlineStyle", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: "bold" }, "new");
     const result = change.newState;
 
     // Paragraph should now have: [span[text("Hello")], text(" world")]
@@ -28,7 +28,7 @@ describe("applyInlineStyle", () => {
 
     const styledSpan = para.children[0];
     expect(styledSpan.type).toBe("span");
-    expect(styledSpan.properties.fontWeight).toBe("bold");
+    expect(styledSpan.styles.fontWeight).toBe("bold");
     expect(getTextContent(styledSpan.children[0])).toBe("Hello");
 
     expect(getTextContent(para.children[1])).toBe(" world");
@@ -41,7 +41,7 @@ describe("applyInlineStyle", () => {
       createPosition([0, 0], 7),
     );
 
-    const change = applyInlineStyle(doc, span, "fontStyle", "new");
+    const change = applyInlineStyle(doc, span, { fontStyle: "italic" }, "new");
     const result = change.newState;
     const para = result.children[0];
 
@@ -51,7 +51,7 @@ describe("applyInlineStyle", () => {
 
     const styledSpan = para.children[1];
     expect(styledSpan.type).toBe("span");
-    expect(styledSpan.properties.fontStyle).toBe("italic");
+    expect(styledSpan.styles.fontStyle).toBe("italic");
     expect(getTextContent(styledSpan.children[0])).toBe("llo w");
 
     expect(getTextContent(para.children[2])).toBe("orld");
@@ -64,13 +64,13 @@ describe("applyInlineStyle", () => {
       createPosition([0, 0], 2),
     );
 
-    const change = applyInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: "bold" }, "new");
     expect(change.newState).toBe(doc);
   });
 
   it("skips text nodes that already have the style", () => {
     // Document with already-styled content
-    const styledText = createNode("st", "text", { content: "Bold", fontWeight: "bold" });
+    const styledText = createNode("st", "text", { content: "Bold" }, [], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledText]),
     ]);
@@ -80,16 +80,16 @@ describe("applyInlineStyle", () => {
       createPosition([0, 0], 4),
     );
 
-    const change = applyInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: "bold" }, "new");
     // Already styled — no change needed
     expect(change.newState).toBe(doc);
   });
 });
 
-describe("removeInlineStyle", () => {
+describe("applyInlineStyle — remove (undefined value)", () => {
   it("removes style and unwraps span", () => {
     const styledText = createTextNode("t0", "Bold");
-    const styledSpan = createNode("s0", "span", { fontWeight: "bold" }, [styledText]);
+    const styledSpan = createNode("s0", "span", {}, [styledText], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledSpan]),
     ]);
@@ -99,7 +99,7 @@ describe("removeInlineStyle", () => {
       createPosition([0, 0, 0], 4),
     );
 
-    const change = removeInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: undefined }, "new");
     const result = change.newState;
     const para = result.children[0];
 
@@ -111,10 +111,10 @@ describe("removeInlineStyle", () => {
 
   it("keeps span if it has other styles", () => {
     const styledText = createTextNode("t0", "Both");
-    const styledSpan = createNode("s0", "span", {
+    const styledSpan = createNode("s0", "span", {}, [styledText], {
       fontWeight: "bold",
       fontStyle: "italic",
-    }, [styledText]);
+    });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledSpan]),
     ]);
@@ -124,7 +124,7 @@ describe("removeInlineStyle", () => {
       createPosition([0, 0, 0], 4),
     );
 
-    const change = removeInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: undefined }, "new");
     const result = change.newState;
     const para = result.children[0];
 
@@ -132,23 +132,23 @@ describe("removeInlineStyle", () => {
     expect(para.children.length).toBe(1);
     const remaining = para.children[0];
     expect(remaining.type).toBe("span");
-    expect(remaining.properties.fontWeight).toBeUndefined();
-    expect(remaining.properties.fontStyle).toBe("italic");
+    expect(remaining.styles.fontWeight).toBeUndefined();
+    expect(remaining.styles.fontStyle).toBe("italic");
   });
 });
 
-describe("isFullyStyled", () => {
-  it("returns false for unstyled text", () => {
+describe("getStyleInRange", () => {
+  it("returns undefined for unstyled text", () => {
     const doc = makeDoc("Hello");
     const span = createSpan(
       createPosition([0, 0], 0),
       createPosition([0, 0], 5),
     );
-    expect(isFullyStyled(doc, span, "fontWeight")).toBe(false);
+    expect(getStyleInRange(doc, span, "fontWeight")).toBeUndefined();
   });
 
-  it("returns true when all text has the style", () => {
-    const styledText = createNode("t0", "text", { content: "Bold", fontWeight: "bold" });
+  it("returns value when all text has the style", () => {
+    const styledText = createNode("t0", "text", { content: "Bold" }, [], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledText]),
     ]);
@@ -156,21 +156,21 @@ describe("isFullyStyled", () => {
       createPosition([0, 0], 0),
       createPosition([0, 0], 4),
     );
-    expect(isFullyStyled(doc, span, "fontWeight")).toBe(true);
+    expect(getStyleInRange(doc, span, "fontWeight")).toBe("bold");
   });
 
-  it("returns false for collapsed selection", () => {
+  it("returns undefined for collapsed selection", () => {
     const doc = makeDoc("Hello");
     const span = createSpan(
       createPosition([0, 0], 2),
       createPosition([0, 0], 2),
     );
-    expect(isFullyStyled(doc, span, "fontWeight")).toBe(false);
+    expect(getStyleInRange(doc, span, "fontWeight")).toBeUndefined();
   });
 
-  it("returns true when text is inside a styled span ancestor", () => {
+  it("returns value when text is inside a styled span ancestor", () => {
     const text = createNode("t0", "text", { content: "Bold" });
-    const styledSpan = createNode("s0", "span", { fontWeight: "bold" }, [text]);
+    const styledSpan = createNode("s0", "span", {}, [text], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledSpan]),
     ]);
@@ -178,11 +178,11 @@ describe("isFullyStyled", () => {
       createPosition([0, 0, 0], 0),
       createPosition([0, 0, 0], 4),
     );
-    expect(isFullyStyled(doc, span, "fontWeight")).toBe(true);
+    expect(getStyleInRange(doc, span, "fontWeight")).toBe("bold");
   });
 
-  it("returns false when only some text has the style", () => {
-    const styledText = createNode("t0", "text", { content: "Bold", fontWeight: "bold" });
+  it("returns undefined when only some text has the style", () => {
+    const styledText = createNode("t0", "text", { content: "Bold" }, [], { fontWeight: "bold" });
     const plainText = createNode("t1", "text", { content: " plain" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledText, plainText]),
@@ -191,7 +191,7 @@ describe("isFullyStyled", () => {
       createPosition([0, 0], 0),
       createPosition([0, 1], 6),
     );
-    expect(isFullyStyled(doc, span, "fontWeight")).toBe(false);
+    expect(getStyleInRange(doc, span, "fontWeight")).toBeUndefined();
   });
 });
 
@@ -205,14 +205,14 @@ describe("applyInlineStyle edge cases", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: "bold" }, "new");
     const result = change.newState;
     const para = result.children[0];
 
     // Should be: [span[text("Hello")]]
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });
 
@@ -223,10 +223,10 @@ describe("applyInlineStyle edge cases", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, span, "fontStyle", "new");
+    const change = applyInlineStyle(doc, span, { fontStyle: "italic" }, "new");
     const result = change.newState;
     const para = result.children[0];
-    expect(para.children[0].properties.fontStyle).toBe("italic");
+    expect(para.children[0].styles.fontStyle).toBe("italic");
   });
 
   it("applies textDecoration style with correct value", () => {
@@ -236,10 +236,10 @@ describe("applyInlineStyle edge cases", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, span, "textDecoration", "new");
+    const change = applyInlineStyle(doc, span, { textDecoration: "underline" }, "new");
     const result = change.newState;
     const para = result.children[0];
-    expect(para.children[0].properties.textDecoration).toBe("underline");
+    expect(para.children[0].styles.textDecoration).toBe("underline");
   });
 
   it("handles multiple text nodes in a paragraph", () => {
@@ -255,23 +255,23 @@ describe("applyInlineStyle edge cases", () => {
       createPosition([0, 1], 5),
     );
 
-    const change = applyInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: "bold" }, "new");
     const result = change.newState;
     const para = result.children[0];
 
     // Adjacent bold spans are merged into one
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello world");
   });
 });
 
-describe("removeInlineStyle edge cases", () => {
+describe("applyInlineStyle — remove edge cases", () => {
   it("does nothing for collapsed span", () => {
     const styledText = createNode("t0", "text", { content: "Bold" });
-    const styledSpan = createNode("s0", "span", { fontWeight: "bold" }, [styledText]);
+    const styledSpan = createNode("s0", "span", {}, [styledText], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledSpan]),
     ]);
@@ -281,7 +281,7 @@ describe("removeInlineStyle edge cases", () => {
       createPosition([0, 0, 0], 2),
     );
 
-    const change = removeInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: undefined }, "new");
     expect(change.newState).toBe(doc);
   });
 
@@ -292,15 +292,15 @@ describe("removeInlineStyle edge cases", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = removeInlineStyle(doc, span, "fontWeight", "new");
+    const change = applyInlineStyle(doc, span, { fontWeight: undefined }, "new");
     expect(change.newState).toBe(doc);
   });
 });
 
-describe("removeInlineStyle partial span", () => {
+describe("applyInlineStyle — partial span removal", () => {
   it("splits span when removing style from middle subset", () => {
     const text = createTextNode("t0", "Hello world");
-    const boldSpan = createNode("s0", "span", { fontWeight: "bold" }, [text]);
+    const boldSpan = createNode("s0", "span", {}, [text], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [boldSpan]),
     ]);
@@ -310,27 +310,27 @@ describe("removeInlineStyle partial span", () => {
       createPosition([0, 0, 0], 7),
     );
 
-    const change = removeInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: undefined }, "new");
     const para = change.newState.children[0];
 
     // Should be: [span({bold})[text("He")], text("llo w"), span({bold})[text("orld")]]
     expect(para.children.length).toBe(3);
 
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("He");
 
     expect(para.children[1].type).toBe("text");
     expect(getTextContent(para.children[1])).toBe("llo w");
 
     expect(para.children[2].type).toBe("span");
-    expect(para.children[2].properties.fontWeight).toBe("bold");
+    expect(para.children[2].styles.fontWeight).toBe("bold");
     expect(getTextContent(para.children[2].children[0])).toBe("orld");
   });
 
   it("splits span when removing style from the beginning", () => {
     const text = createTextNode("t0", "Hello world");
-    const boldSpan = createNode("s0", "span", { fontWeight: "bold" }, [text]);
+    const boldSpan = createNode("s0", "span", {}, [text], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [boldSpan]),
     ]);
@@ -340,7 +340,7 @@ describe("removeInlineStyle partial span", () => {
       createPosition([0, 0, 0], 5),
     );
 
-    const change = removeInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: undefined }, "new");
     const para = change.newState.children[0];
 
     // Should be: [text("Hello"), span({bold})[text(" world")]]
@@ -350,13 +350,13 @@ describe("removeInlineStyle partial span", () => {
     expect(getTextContent(para.children[0])).toBe("Hello");
 
     expect(para.children[1].type).toBe("span");
-    expect(para.children[1].properties.fontWeight).toBe("bold");
+    expect(para.children[1].styles.fontWeight).toBe("bold");
     expect(getTextContent(para.children[1].children[0])).toBe(" world");
   });
 
   it("splits span when removing style from the end", () => {
     const text = createTextNode("t0", "Hello world");
-    const boldSpan = createNode("s0", "span", { fontWeight: "bold" }, [text]);
+    const boldSpan = createNode("s0", "span", {}, [text], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [boldSpan]),
     ]);
@@ -366,14 +366,14 @@ describe("removeInlineStyle partial span", () => {
       createPosition([0, 0, 0], 11),
     );
 
-    const change = removeInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: undefined }, "new");
     const para = change.newState.children[0];
 
     // Should be: [span({bold})[text("Hello")], text(" world")]
     expect(para.children.length).toBe(2);
 
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
 
     expect(para.children[1].type).toBe("text");
@@ -382,10 +382,10 @@ describe("removeInlineStyle partial span", () => {
 
   it("preserves other styles when partially removing one style", () => {
     const text = createTextNode("t0", "Hello world");
-    const styledSpan = createNode("s0", "span", {
+    const styledSpan = createNode("s0", "span", {}, [text], {
       fontWeight: "bold",
       fontStyle: "italic",
-    }, [text]);
+    });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [styledSpan]),
     ]);
@@ -395,7 +395,7 @@ describe("removeInlineStyle partial span", () => {
       createPosition([0, 0, 0], 7),
     );
 
-    const change = removeInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: undefined }, "new");
     const para = change.newState.children[0];
 
     // Should be: [span({bold,italic})[text("He")], span({italic})[text("llo w")], span({bold,italic})[text("orld")]]
@@ -403,25 +403,25 @@ describe("removeInlineStyle partial span", () => {
 
     // Before: bold+italic
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
-    expect(para.children[0].properties.fontStyle).toBe("italic");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontStyle).toBe("italic");
     expect(getTextContent(para.children[0].children[0])).toBe("He");
 
     // Middle: just italic (bold removed)
     expect(para.children[1].type).toBe("span");
-    expect(para.children[1].properties.fontWeight).toBeUndefined();
-    expect(para.children[1].properties.fontStyle).toBe("italic");
+    expect(para.children[1].styles.fontWeight).toBeUndefined();
+    expect(para.children[1].styles.fontStyle).toBe("italic");
     expect(getTextContent(para.children[1].children[0])).toBe("llo w");
 
     // After: bold+italic
     expect(para.children[2].type).toBe("span");
-    expect(para.children[2].properties.fontWeight).toBe("bold");
-    expect(para.children[2].properties.fontStyle).toBe("italic");
+    expect(para.children[2].styles.fontWeight).toBe("bold");
+    expect(para.children[2].styles.fontStyle).toBe("italic");
     expect(getTextContent(para.children[2].children[0])).toBe("orld");
   });
 });
 
-describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
+describe("normalizeChildren (via applyInlineStyle)", () => {
   it("merges adjacent bold spans after re-bolding unbolded subset", () => {
     // Start: "Hello" → bold all → unbold "ell" → bold "ell" again
     const doc = makeDoc("Hello");
@@ -431,15 +431,15 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
     );
 
     // Step 1: Bold "Hello"
-    const afterBold = applyInlineStyle(doc, fullSpan, "fontWeight", "b1");
+    const afterBold = applyInlineStyle(doc, fullSpan, { fontWeight: "bold" }, "b1");
 
     // Step 2: Unbold "ell" (positions are now inside the bold span)
     const unboldSpan = createSpan(
       createPosition([0, 0, 0], 1),
       createPosition([0, 0, 0], 4),
     );
-    const afterUnbold = removeInlineStyle(
-      afterBold.newState, unboldSpan, "fontWeight", "u1",
+    const afterUnbold = applyInlineStyle(
+      afterBold.newState, unboldSpan, { fontWeight: undefined }, "u1",
     );
 
     // Step 3: Re-bold "ell" — need positions in current tree
@@ -449,14 +449,14 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
       createPosition([0, 1], 3),
     );
     const afterRebold = applyInlineStyle(
-      afterUnbold.newState, reBoldSpan, "fontWeight", "r1",
+      afterUnbold.newState, reBoldSpan, { fontWeight: "bold" }, "r1",
     );
 
     // Result should be a single span({bold})[text("Hello")]
     const para = afterRebold.newState.children[0];
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });
@@ -469,15 +469,15 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
       createPosition([0, 0], 0),
       createPosition([0, 0], 5),
     );
-    const afterBold = applyInlineStyle(doc, fullSpan, "fontWeight", "b1");
+    const afterBold = applyInlineStyle(doc, fullSpan, { fontWeight: "bold" }, "b1");
 
     // Unbold the middle
     const unboldMid = createSpan(
       createPosition([0, 0, 0], 1),
       createPosition([0, 0, 0], 4),
     );
-    const afterUnboldMid = removeInlineStyle(
-      afterBold.newState, unboldMid, "fontWeight", "u1",
+    const afterUnboldMid = applyInlineStyle(
+      afterBold.newState, unboldMid, { fontWeight: undefined }, "u1",
     );
 
     // Now unbold everything remaining: select full paragraph
@@ -486,8 +486,8 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
       createPosition([0, 0, 0], 0),
       createPosition([0, 2, 0], 1),
     );
-    const afterUnboldAll = removeInlineStyle(
-      afterUnboldMid.newState, unboldAll, "fontWeight", "u2",
+    const afterUnboldAll = applyInlineStyle(
+      afterUnboldMid.newState, unboldAll, { fontWeight: undefined }, "u2",
     );
 
     const para = afterUnboldAll.newState.children[0];
@@ -499,9 +499,9 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
 
   it("does not merge spans with different properties", () => {
     const boldText = createTextNode("t0", "Bold");
-    const boldSpan = createNode("s0", "span", { fontWeight: "bold" }, [boldText]);
+    const boldSpan = createNode("s0", "span", {}, [boldText], { fontWeight: "bold" });
     const italicText = createTextNode("t1", "Italic");
-    const italicSpan = createNode("s1", "span", { fontStyle: "italic" }, [italicText]);
+    const italicSpan = createNode("s1", "span", {}, [italicText], { fontStyle: "italic" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [boldSpan, italicSpan]),
     ]);
@@ -513,21 +513,21 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
       createPosition([0, 0, 0], 0),
       createPosition([0, 1, 0], 6),
     );
-    const change = applyInlineStyle(doc, sel, "textDecoration", "n1");
+    const change = applyInlineStyle(doc, sel, { textDecoration: "underline" }, "n1");
     const para = change.newState.children[0];
 
     expect(para.children.length).toBe(2);
     // Outer spans preserve their original properties
-    expect(para.children[0].properties.fontWeight).toBe("bold");
-    expect(para.children[1].properties.fontStyle).toBe("italic");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[1].styles.fontStyle).toBe("italic");
     // Inner textDecoration spans were created
     const inner0 = para.children[0].children[0];
     expect(inner0.type).toBe("span");
-    expect(inner0.properties.textDecoration).toBe("underline");
+    expect(inner0.styles.textDecoration).toBe("underline");
     expect(getTextContent(inner0.children[0])).toBe("Bold");
     const inner1 = para.children[1].children[0];
     expect(inner1.type).toBe("span");
-    expect(inner1.properties.textDecoration).toBe("underline");
+    expect(inner1.styles.textDecoration).toBe("underline");
     expect(getTextContent(inner1.children[0])).toBe("Italic");
   });
 
@@ -543,56 +543,48 @@ describe("normalizeChildren (via applyInlineStyle / removeInlineStyle)", () => {
       createPosition([0, 0], 0),
       createPosition([0, 2], 1),
     );
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
     const para = change.newState.children[0];
 
     // All three should merge into a single bold span with concatenated text
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("ABC");
   });
 
   it("merges spans and concatenates their inner text nodes", () => {
     // Manually construct: para > [span({bold})[text("H")], span({bold})[text("ello")]]
-    const span1 = createNode("s0", "span", { fontWeight: "bold" }, [
+    const span1 = createNode("s0", "span", {}, [
       createTextNode("t0", "H"),
-    ]);
-    const span2 = createNode("s1", "span", { fontWeight: "bold" }, [
+    ], { fontWeight: "bold" });
+    const span2 = createNode("s1", "span", {}, [
       createTextNode("t1", "ello"),
-    ]);
+    ], { fontWeight: "bold" });
     const doc = createNode("doc", "document", {}, [
       createNode("p0", "paragraph", {}, [span1, span2]),
     ]);
 
-    // Apply bold to the whole thing (already bold, so should be no-op structurally,
-    // but we need to trigger normalization). Use removeInlineStyle + applyInlineStyle.
-    // Instead: just apply italic to first char then remove it, to trigger normalization.
-    // Simpler: directly test by applying bold again — text is already inside bold spans
-    // so applyInlineStyle won't change. Let's use a different approach:
-    // Apply bold to the whole text — since it's already bold, nothing happens.
-    // We need to trigger normalization another way.
-    // Actually, we should apply a style change that touches the parent and triggers normalize.
-    // Let's unbold the "H", then re-bold it. That will trigger normalization on the parent.
+    // Unbold the "H", then re-bold it to trigger normalization on the parent.
     const unboldH = createSpan(
       createPosition([0, 0, 0], 0),
       createPosition([0, 0, 0], 1),
     );
-    const afterUnbold = removeInlineStyle(doc, unboldH, "fontWeight", "u1");
+    const afterUnbold = applyInlineStyle(doc, unboldH, { fontWeight: undefined }, "u1");
     // Now: [text("H"), span({bold})[text("ello")]]
 
     const reBoldH = createSpan(
       createPosition([0, 0], 0),
       createPosition([0, 0], 1),
     );
-    const afterRebold = applyInlineStyle(afterUnbold.newState, reBoldH, "fontWeight", "r1");
+    const afterRebold = applyInlineStyle(afterUnbold.newState, reBoldH, { fontWeight: "bold" }, "r1");
 
     // Should merge into single span({bold})[text("Hello")]
     const para = afterRebold.newState.children[0];
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].properties.fontWeight).toBe("bold");
+    expect(para.children[0].styles.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });
@@ -606,7 +598,7 @@ describe("remapPosition", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
     // New tree: para > [span[text("Hello")], text(" world")]
 
     // Old position [0,0]:3 → flat offset 3 → inside span>text("Hello") at offset 3
@@ -622,7 +614,7 @@ describe("remapPosition", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
     // New tree: para > [span[text("Hello")], text(" world")]
 
     // Old position [0,0]:8 → flat offset 8 → text(" world") at offset 3
@@ -638,7 +630,7 @@ describe("remapPosition", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
     // New tree: para > [span[text("Hello")], text(" world")]
 
     // Old position [0,0]:5 → flat offset 5 → end of span>text("Hello")
@@ -658,7 +650,7 @@ describe("remapPosition", () => {
       createPosition([0, 0], 5),
     );
 
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
 
     // Position in second paragraph should be unchanged
     const remapped = remapPosition(doc, change.newState, createPosition([1, 0], 3));
@@ -673,7 +665,7 @@ describe("remapPosition", () => {
       createPosition([0, 0], 7),
     );
 
-    const change = applyInlineStyle(doc, sel, "fontWeight", "new");
+    const change = applyInlineStyle(doc, sel, { fontWeight: "bold" }, "new");
     // New tree: para > [text("He"), span[text("llo w")], text("orld")]
 
     // Old position [0,0]:9 → flat offset 9 → text("orld") at offset 2

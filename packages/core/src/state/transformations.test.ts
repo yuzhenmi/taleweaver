@@ -62,10 +62,21 @@ describe("insertText", () => {
     expect(() => insertText(doc, pos, "X")).toThrow("out of bounds");
   });
 
-  it("throws when offset exceeds content length", () => {
+  it("clamps offset to content length for virtual EOL position", () => {
+    const { doc } = makeDoc();
+    // offset 7 is textLength+1 for "Hello " (length 6) — virtual EOL
+    const pos = createPosition([0, 0], 7);
+    const change = insertText(doc, pos, "X");
+    // Should insert at end (clamped to 6)
+    expect(change.newState.children[0].children[0].properties.content).toBe("Hello X");
+  });
+
+  it("throws when offset is far out of bounds", () => {
     const { doc } = makeDoc();
     const pos = createPosition([0, 0], 100);
-    expect(() => insertText(doc, pos, "X")).toThrow("out of bounds");
+    // Large offsets beyond textLength+1 still clamp (no throw)
+    const change = insertText(doc, pos, "X");
+    expect(change.newState.children[0].children[0].properties.content).toBe("Hello X");
   });
 
   it("uses structural sharing for unchanged nodes", () => {
@@ -425,9 +436,20 @@ describe("splitNode", () => {
     expect(() => splitNode(doc, pos, "new")).toThrow("Invalid position path");
   });
 
-  it("throws when offset is out of bounds", () => {
+  it("throws when offset is negative", () => {
     const { doc } = makeDoc();
     const pos = createPosition([0, 0], -1);
     expect(() => splitNode(doc, pos, "new")).toThrow("out of bounds");
+  });
+
+  it("clamps virtual EOL offset in splitNode", () => {
+    const { doc } = makeDoc();
+    // "Hello " has length 6, offset 7 is virtual EOL
+    const pos = createPosition([0, 0], 7);
+    const change = splitNode(doc, pos, "p2");
+    // Should split at end (clamped to 6), like splitting at the end of the text
+    expect(change.newState.children).toHaveLength(2);
+    expect(change.newState.children[0].children[0].properties.content).toBe("Hello ");
+    expect(change.newState.children[1].children[0].properties.content).toBe("");
   });
 });

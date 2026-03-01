@@ -3,8 +3,16 @@ import type { TextMeasurer } from "./text-measurer";
 import type { LayoutBox } from "./layout-node";
 import { createBlockLayoutBox } from "./block-layout-box";
 import { createLineLayoutBox } from "./line-layout-box";
+import { createPageLayoutBox } from "./page-layout-box";
 import { createTextLayoutBox } from "./text-layout-box";
 import { splitTextIntoWords, type WordBox } from "./text-splitter";
+
+export interface PageMargins {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
 
 /**
  * Layout engine: takes a render tree and a width constraint,
@@ -14,8 +22,92 @@ export function layoutTree(
   renderNode: RenderNode,
   containerWidth: number,
   measurer: TextMeasurer,
+  pageHeight?: number,
+  pageMargins?: PageMargins,
 ): LayoutBox {
-  return layoutNode(renderNode, 0, 0, containerWidth, measurer);
+  const contentWidth = pageMargins
+    ? containerWidth - pageMargins.left - pageMargins.right
+    : containerWidth;
+  const docBox = layoutNode(renderNode, 0, 0, contentWidth, measurer);
+  if (pageHeight === undefined) return docBox;
+  return paginateDocument(docBox, pageHeight, containerWidth, pageMargins);
+}
+
+/**
+ * Distribute the document's children into PageLayoutBox nodes.
+ * Whole-block only — blocks don't split across pages.
+ */
+function paginateDocument(
+  docBox: LayoutBox,
+  pageHeight: number,
+  containerWidth?: number,
+  margins?: PageMargins,
+): LayoutBox {
+  const pageWidth = containerWidth ?? docBox.width;
+  const contentHeight = margins
+    ? pageHeight - margins.top - margins.bottom
+    : pageHeight;
+  const offsetX = margins?.left ?? 0;
+  const offsetY = margins?.top ?? 0;
+
+  const pages: LayoutBox[] = [];
+  let currentPageChildren: LayoutBox[] = [];
+  let currentPageContentHeight = 0;
+  let pageIndex = 0;
+
+  for (const child of docBox.children) {
+    // If this block doesn't fit and current page is non-empty, start a new page
+    if (
+      currentPageChildren.length > 0 &&
+      currentPageContentHeight + child.height > contentHeight
+    ) {
+      pages.push(
+        createPageLayoutBox(
+          `page-${pageIndex}`,
+          0,
+          0,
+          pageWidth,
+          pageHeight,
+          currentPageChildren,
+        ),
+      );
+      pageIndex++;
+      currentPageChildren = [];
+      currentPageContentHeight = 0;
+    }
+
+    // Reposition child: x offset by margin, y = marginTop + accumulated content height
+    const repositioned = Object.freeze({
+      ...child,
+      x: child.x + offsetX,
+      y: offsetY + currentPageContentHeight,
+    });
+    currentPageChildren.push(repositioned);
+    currentPageContentHeight += child.height;
+  }
+
+  // Finish last page
+  if (currentPageChildren.length > 0) {
+    pages.push(
+      createPageLayoutBox(
+        `page-${pageIndex}`,
+        0,
+        0,
+        pageWidth,
+        pageHeight,
+        currentPageChildren,
+      ),
+    );
+  }
+
+  return createBlockLayoutBox(
+    docBox.key,
+    docBox.x,
+    docBox.y,
+    pageWidth,
+    pages.length * pageHeight,
+    pages,
+  );
 }
 
 function layoutNode(
@@ -118,9 +210,10 @@ function layoutInlineContent(
   availableWidth: number,
   measurer: TextMeasurer,
 ): LayoutBox[] {
-  // Collect all word boxes from children, each with a unique key and styles
+  // Collect all word boxes from children, each with a unique key and styles.
+  // Pass availableWidth so oversized words are broken at character boundaries.
   const wordBoxes: { word: WordBox; key: string; styles: RenderStyles }[] = [];
-  collectWordBoxes(renderNode.children, measurer, wordBoxes, new Map(), renderNode.styles);
+  collectWordBoxes(renderNode.children, measurer, wordBoxes, new Map(), renderNode.styles, availableWidth);
 
   // Wrap into lines
   // Line coordinates are relative to the parent block
@@ -192,11 +285,12 @@ function collectWordBoxes(
   out: { word: WordBox; key: string; styles: RenderStyles }[],
   keyCounters: Map<string, number>,
   inheritedStyles: RenderStyles = {},
+  maxWidth?: number,
 ): void {
   for (const child of children) {
     if (child.type === "text") {
       const mergedStyles = { ...inheritedStyles, ...child.styles };
-      const words = splitTextIntoWords(child.text, mergedStyles, measurer);
+      const words = splitTextIntoWords(child.text, mergedStyles, measurer, maxWidth);
       for (let w = 0; w < words.length; w++) {
         const count = keyCounters.get(child.key) ?? 0;
         const key = count === 0 && words.length === 1
@@ -207,7 +301,7 @@ function collectWordBoxes(
       }
     } else if (child.type === "inline") {
       const mergedStyles = { ...inheritedStyles, ...child.styles };
-      collectWordBoxes(child.children, measurer, out, keyCounters, mergedStyles);
+      collectWordBoxes(child.children, measurer, out, keyCounters, mergedStyles, maxWidth);
     }
   }
 }
@@ -235,6 +329,8 @@ export function layoutTreeIncremental(
   oldLayoutTree: LayoutBox,
   containerWidth: number,
   measurer: TextMeasurer,
+  pageHeight?: number,
+  pageMargins?: PageMargins,
 ): LayoutBox {
   // If render node unchanged and container width unchanged, reuse layout
   if (newRenderNode === oldRenderNode && containerWidth === oldLayoutTree.width) {
@@ -262,7 +358,10 @@ export function layoutTreeIncremental(
   const marginBottom = newRenderNode.styles.marginBottom ?? 0;
   const paddingLeft = newRenderNode.styles.paddingLeft ?? 0;
   const paddingRight = newRenderNode.styles.paddingRight ?? 0;
-  const contentWidth = containerWidth - paddingLeft - paddingRight;
+  const layoutWidth = pageMargins
+    ? containerWidth - pageMargins.left - pageMargins.right
+    : containerWidth;
+  const contentWidth = layoutWidth - paddingLeft - paddingRight;
   const contentY = marginTop + paddingTop;
 
   // Build lookup maps from old render/layout by key
@@ -308,14 +407,16 @@ export function layoutTreeIncremental(
     : contentY;
   const totalHeight = contentBottom + paddingBottom + marginBottom;
 
-  return createBlockLayoutBox(
+  const docBox = createBlockLayoutBox(
     newRenderNode.key,
     0,
     0,
-    containerWidth,
+    layoutWidth,
     totalHeight,
     children,
   );
+  if (pageHeight === undefined) return docBox;
+  return paginateDocument(docBox, pageHeight, containerWidth, pageMargins);
 }
 
 /** Reposition a layout box to new coordinates (preserving internal layout). */

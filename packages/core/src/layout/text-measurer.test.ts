@@ -30,4 +30,14 @@ describe("createMockMeasurer", () => {
     expect(m.measureWidth("ab", styles)).toBe(20); // 2 * 10
     expect(m.measureHeight(styles)).toBe(20);
   });
+
+  it("returns configured cursor height", () => {
+    const m = createMockMeasurer(8, 24, 19);
+    expect(m.measureCursorHeight({})).toBe(19);
+  });
+
+  it("defaults cursor height to line height when not specified", () => {
+    const m = createMockMeasurer(8, 16);
+    expect(m.measureCursorHeight({})).toBe(16);
+  });
 });

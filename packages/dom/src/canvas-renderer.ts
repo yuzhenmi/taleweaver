@@ -1,6 +1,5 @@
-import type { LayoutBox } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect } from "@taleweaver/core";
 import { buildCssFontString, FONT_CONFIG } from "./font-config";
-import type { SelectionRect } from "./selection-geometry";
 
 interface PaintState {
   lastFont: string;
@@ -42,6 +41,42 @@ export function paintCanvas(
   } else if (cursorState === "inactive") {
     ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
     ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+  }
+}
+
+export function paintPage(
+  ctx: CanvasRenderingContext2D,
+  pageBox: LayoutBox,
+  selectionRects: SelectionRect[],
+  cursorPos: { x: number; y: number; height: number } | null,
+  cursorState: CursorState,
+): void {
+  // White background
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, pageBox.width, pageBox.height);
+  ctx.textBaseline = "top";
+
+  // Selection rects (already page-relative and filtered by pageIndex)
+  if (selectionRects.length > 0) {
+    ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+    for (const rect of selectionRects) {
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    }
+  }
+
+  // Paint the page box contents (page.y is 0, children are page-relative)
+  const state: PaintState = { lastFont: "" };
+  paintBox(ctx, pageBox, 0, 0, 0, pageBox.height, state);
+
+  // Cursor (null means cursor is not on this page)
+  if (cursorPos) {
+    if (cursorState === "active") {
+      ctx.fillStyle = "black";
+      ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+    } else if (cursorState === "inactive") {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+      ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+    }
   }
 }
 

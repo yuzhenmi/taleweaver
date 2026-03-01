@@ -1,4 +1,4 @@
-import type { StateNode } from "./state-node";
+import type { StateNode, NodeStyles } from "./state-node";
 import type { Span, Position } from "./position";
 import type { Change } from "./change";
 import { createChange } from "./change";
@@ -7,41 +7,62 @@ import { createNode } from "./create-node";
 import { getNodeByPath, updateAtPath } from "./operations";
 import { getTextContent, getTextContentLength } from "./text-utils";
 
-type StyleProperty = "fontWeight" | "fontStyle" | "textDecoration";
-type StyleValue = string;
-
-const STYLE_DEFAULTS: Record<StyleProperty, StyleValue> = {
-  fontWeight: "bold",
-  fontStyle: "italic",
-  textDecoration: "underline",
-};
+/**
+ * Style values to apply. Use `undefined` to remove a property.
+ * Example: `{ fontWeight: "bold", fontStyle: undefined }`
+ */
+type InlineStyles = { [K in keyof NodeStyles]?: NodeStyles[K] | undefined };
 
 /**
- * Check if all text in a span already has the given style property.
+ * Query whether all text in a range has a uniform value for a style property.
+ * Returns the value if uniform, undefined if mixed or unset.
  */
-export function isFullyStyled(
+export function getStyleInRange(
   state: StateNode,
   span: Span,
-  property: StyleProperty,
-): boolean {
+  property: keyof NodeStyles,
+): NodeStyles[keyof NodeStyles] | undefined {
   const normalized = normalizeSpan(span);
-  if (comparePositions(normalized.anchor, normalized.focus) === 0) return false;
+  if (comparePositions(normalized.anchor, normalized.focus) === 0) return undefined;
 
   const textNodes = collectTextNodesInSpan(state, normalized);
-  return textNodes.every(({ node, path }) => {
-    return hasStyleProperty(node, property) ||
-      findStyleSpanAncestor(state, path, property) !== null;
-  });
+  if (textNodes.length === 0) return undefined;
+
+  let uniformValue: NodeStyles[keyof NodeStyles] | undefined = undefined;
+  for (let i = 0; i < textNodes.length; i++) {
+    const { node, path } = textNodes[i];
+    // Check node itself, then ancestor spans
+    let value: NodeStyles[keyof NodeStyles] | undefined = node.styles[property];
+    if (value === undefined) {
+      const ancestor = findStyleSpanAncestor(state, path, property);
+      if (ancestor) {
+        const ancestorNode = getNodeByPath(state, ancestor.spanPath);
+        if (ancestorNode) value = ancestorNode.styles[property];
+      }
+    }
+    if (value === undefined) return undefined;
+    if (i === 0) {
+      uniformValue = value;
+    } else if (value !== uniformValue) {
+      return undefined;
+    }
+  }
+  return uniformValue;
 }
 
 /**
- * Apply an inline style to a span. Wraps text in span nodes with the style property.
- * Splits text nodes at selection boundaries if needed.
+ * Apply inline styles to a span. Sets or removes style properties on text
+ * within the range. Use `undefined` values to remove properties.
+ *
+ * Examples:
+ *   applyInlineStyle(state, span, { fontWeight: "bold" }, idBase)       // set
+ *   applyInlineStyle(state, span, { fontWeight: undefined }, idBase)    // remove
+ *   applyInlineStyle(state, span, { fontWeight: "bold", fontStyle: undefined }, idBase) // both
  */
 export function applyInlineStyle(
   state: StateNode,
   span: Span,
-  property: StyleProperty,
+  styles: InlineStyles,
   newNodeIdBase: string,
 ): Change {
   const normalized = normalizeSpan(span);
@@ -49,134 +70,72 @@ export function applyInlineStyle(
     return createChange(state, state);
   }
 
-  const value = STYLE_DEFAULTS[property];
   let currentState = state;
   let idCounter = 0;
 
-  // Collect text nodes in the span (from original state for path computation)
-  const textEntries = collectTextNodesInSpan(state, normalized);
-
-  // Track modified parent paths for deferred normalization
-  const modifiedParentPaths: number[][] = [];
-
-  // Process each text node that doesn't already have the style
-  // Work backwards to avoid path invalidation from splice operations
-  for (let i = textEntries.length - 1; i >= 0; i--) {
-    const entry = textEntries[i];
-    if (hasStyleProperty(entry.node, property)) continue;
-
-    const { node, path, startOffset, endOffset } = entry;
-    const content = getTextContent(node);
-    const start = startOffset;
-    const end = endOffset;
-
-    // Get current node at this path (may have shifted due to earlier operations)
-    const currentNode = getNodeByPath(currentState, path);
-    if (!currentNode) continue;
-
-    const parentPath = path.slice(0, -1);
-    const childIdx = path[path.length - 1];
-    const parent = getNodeByPath(currentState, parentPath);
-    if (!parent) continue;
-
-    const newChildren: StateNode[] = [...parent.children];
-    const replacements: StateNode[] = [];
-
-    // Split into [before | styled | after]
-    if (start > 0) {
-      const beforeText = createNode(
-        `${newNodeIdBase}-pre-${idCounter++}`,
-        "text",
-        { ...currentNode.properties, content: content.slice(0, start) },
-      );
-      replacements.push(beforeText);
-    }
-
-    const styledText = createNode(
-      `${newNodeIdBase}-st-${idCounter++}`,
-      "text",
-      { ...currentNode.properties, content: content.slice(start, end) },
+  const keys = Object.keys(styles) as (keyof NodeStyles)[];
+  for (const key of keys) {
+    const desiredValue = styles[key];
+    const result = processProperty(
+      currentState, normalized, key, desiredValue, newNodeIdBase, idCounter,
     );
-    const styledSpan = createNode(
-      `${newNodeIdBase}-span-${idCounter++}`,
-      "span",
-      { [property]: value },
-      [styledText],
-    );
-    replacements.push(styledSpan);
+    currentState = result.state;
+    idCounter = result.idCounter;
 
-    if (end < content.length) {
-      const afterText = createNode(
-        `${newNodeIdBase}-post-${idCounter++}`,
-        "text",
-        { ...currentNode.properties, content: content.slice(end) },
-      );
-      replacements.push(afterText);
-    }
-
-    newChildren.splice(childIdx, 1, ...replacements);
-    const newParent = createNode(
-      parent.id,
-      parent.type,
-      { ...parent.properties },
-      newChildren,
-    );
-    currentState = updateAtPath(currentState, parentPath, newParent);
-
-    const key = parentPath.join(",");
-    if (!modifiedParentPaths.some(p => p.join(",") === key)) {
-      modifiedParentPaths.push([...parentPath]);
-    }
+    // If tree changed and there are more keys, remap the span
+    // (not needed here because we reuse the same normalized span —
+    //  processProperty only changes structure, not text content,
+    //  so the normalized span's flat offsets remain valid)
   }
-
-  // Normalize modified parents after all splices are complete (deepest first)
-  currentState = normalizeModifiedParents(currentState, modifiedParentPaths);
 
   return createChange(state, currentState);
 }
 
 /**
- * Remove an inline style from a span. Removes the style property from span nodes
- * and unwraps if no properties remain. Splits spans when the selection only
- * partially covers the span's text content.
+ * Process a single style property across the span.
  */
-export function removeInlineStyle(
+function processProperty(
   state: StateNode,
   span: Span,
-  property: StyleProperty,
-  newNodeIdBase: string,
-): Change {
-  const normalized = normalizeSpan(span);
-  if (comparePositions(normalized.anchor, normalized.focus) === 0) {
-    return createChange(state, state);
-  }
-
+  key: keyof NodeStyles,
+  desiredValue: NodeStyles[keyof NodeStyles] | undefined,
+  idBase: string,
+  idCounter: number,
+): { state: StateNode; idCounter: number } {
   let currentState = state;
-  let idCounter = 0;
-  const textEntries = collectTextNodesInSpan(state, normalized);
+  const textEntries = collectTextNodesInSpan(state, span);
 
-  // Group text entries by their styled span ancestor
+  // Partition text entries into those with an ancestor span for this key
+  // and those without (unstyled)
   const spanGroups = new Map<string, { spanPath: number[]; entries: TextEntry[] }>();
+  const unstyledEntries: TextEntry[] = [];
+
   for (const entry of textEntries) {
-    const spanInfo = findStyleSpanAncestor(state, entry.path, property);
-    if (!spanInfo) continue;
-    const key = spanInfo.spanPath.join(",");
-    if (!spanGroups.has(key)) {
-      spanGroups.set(key, { spanPath: spanInfo.spanPath, entries: [] });
+    // Check if the effective value already matches the desired value
+    const effectiveValue = getEffectiveStyleValue(state, entry, key);
+    if (effectiveValue === desiredValue) continue; // already correct, skip
+
+    const spanInfo = findStyleSpanAncestor(state, entry.path, key);
+    if (spanInfo) {
+      const pathKey = spanInfo.spanPath.join(",");
+      if (!spanGroups.has(pathKey)) {
+        spanGroups.set(pathKey, { spanPath: spanInfo.spanPath, entries: [] });
+      }
+      spanGroups.get(pathKey)!.entries.push(entry);
+    } else {
+      unstyledEntries.push(entry);
     }
-    spanGroups.get(key)!.entries.push(entry);
   }
 
-  // Process each span group, sorted in reverse document order to avoid path invalidation
+  const modifiedParentPaths: number[][] = [];
+
+  // --- Process ancestor span groups (reverse doc order to avoid path invalidation) ---
   const groups = [...spanGroups.values()].sort((a, b) => {
     for (let i = 0; i < Math.min(a.spanPath.length, b.spanPath.length); i++) {
       if (a.spanPath[i] !== b.spanPath[i]) return b.spanPath[i] - a.spanPath[i];
     }
     return b.spanPath.length - a.spanPath.length;
   });
-
-  // Track modified parent paths for deferred normalization
-  const modifiedParentPaths: number[][] = [];
 
   for (const group of groups) {
     const { spanPath, entries } = group;
@@ -187,9 +146,14 @@ export function removeInlineStyle(
     const selectedLen = entries.reduce((sum, e) => sum + (e.endOffset - e.startOffset), 0);
     const isFullyCovered = selectedLen >= spanTotalLen;
 
-    const newProps = { ...spanNode.properties };
-    delete newProps[property];
-    const hasOtherStyles = Object.keys(newProps).length > 0;
+    // Compute new styles for the span
+    const newStyles: Record<string, unknown> = { ...spanNode.styles };
+    if (desiredValue !== undefined) {
+      newStyles[key] = desiredValue;
+    } else {
+      delete newStyles[key];
+    }
+    const hasStyles = Object.keys(newStyles).length > 0;
 
     const spanParentPath = spanPath.slice(0, -1);
     const spanIdx = spanPath[spanPath.length - 1];
@@ -199,11 +163,11 @@ export function removeInlineStyle(
     const newChildren = [...spanParent.children];
 
     if (isFullyCovered) {
-      // Fully covered: original behavior
-      if (hasOtherStyles) {
-        const updatedSpan = createNode(spanNode.id, spanNode.type, newProps, spanNode.children);
+      if (hasStyles) {
+        const updatedSpan = createNode(spanNode.id, spanNode.type, {}, spanNode.children, newStyles as NodeStyles);
         newChildren[spanIdx] = updatedSpan;
       } else {
+        // No styles left — unwrap
         newChildren.splice(spanIdx, 1, ...spanNode.children);
       }
     } else {
@@ -214,43 +178,32 @@ export function removeInlineStyle(
       const selEnd = computeFlatOffset(spanNode, lastEntry.path.slice(spanPath.length), lastEntry.endOffset);
 
       const counter = { value: idCounter };
-      const [beforeChildren, rest] = splitChildrenAtOffset(spanNode.children, selStart, newNodeIdBase, counter);
-      const [middleChildren, afterChildren] = splitChildrenAtOffset(rest, selEnd - selStart, newNodeIdBase, counter);
+      const [beforeChildren, rest] = splitChildrenAtOffset(spanNode.children, selStart, idBase, counter);
+      const [middleChildren, afterChildren] = splitChildrenAtOffset(rest, selEnd - selStart, idBase, counter);
       idCounter = counter.value;
 
       const replacements: StateNode[] = [];
 
-      // Before: keep in original span (with all styles)
+      // Before: keep in original span (with all original styles)
       if (beforeChildren.length > 0) {
         replacements.push(createNode(
-          `${newNodeIdBase}-bspan-${idCounter++}`,
-          "span",
-          { ...spanNode.properties },
-          beforeChildren,
+          `${idBase}-bspan-${idCounter++}`, "span", {}, beforeChildren, { ...spanNode.styles },
         ));
       }
 
-      // Middle: remove the target style
-      if (hasOtherStyles) {
-        // Keep span with remaining styles
+      // Middle: apply new styles
+      if (hasStyles) {
         replacements.push(createNode(
-          `${newNodeIdBase}-mspan-${idCounter++}`,
-          "span",
-          newProps,
-          middleChildren,
+          `${idBase}-mspan-${idCounter++}`, "span", {}, middleChildren, newStyles as NodeStyles,
         ));
       } else {
-        // No other styles: unwrap children directly
         replacements.push(...middleChildren);
       }
 
-      // After: keep in original span (with all styles)
+      // After: keep in original span (with all original styles)
       if (afterChildren.length > 0) {
         replacements.push(createNode(
-          `${newNodeIdBase}-aspan-${idCounter++}`,
-          "span",
-          { ...spanNode.properties },
-          afterChildren,
+          `${idBase}-aspan-${idCounter++}`, "span", {}, afterChildren, { ...spanNode.styles },
         ));
       }
 
@@ -258,23 +211,96 @@ export function removeInlineStyle(
     }
 
     const newParent = createNode(
-      spanParent.id,
-      spanParent.type,
-      { ...spanParent.properties },
-      newChildren,
+      spanParent.id, spanParent.type, { ...spanParent.properties }, newChildren, spanParent.styles,
     );
     currentState = updateAtPath(currentState, spanParentPath, newParent);
 
-    const key = spanParentPath.join(",");
-    if (!modifiedParentPaths.some(p => p.join(",") === key)) {
+    const pathKey = spanParentPath.join(",");
+    if (!modifiedParentPaths.some(p => p.join(",") === pathKey)) {
       modifiedParentPaths.push([...spanParentPath]);
     }
   }
 
-  // Normalize modified parents after all modifications are complete (deepest first)
+  // --- Process unstyled text nodes (only when setting a value) ---
+  if (desiredValue !== undefined && unstyledEntries.length > 0) {
+    // Work backwards to avoid path invalidation
+    for (let i = unstyledEntries.length - 1; i >= 0; i--) {
+      const entry = unstyledEntries[i];
+      const { path, startOffset, endOffset } = entry;
+      const content = getTextContent(entry.node);
+
+      const currentNode = getNodeByPath(currentState, path);
+      if (!currentNode) continue;
+
+      const parentPath = path.slice(0, -1);
+      const childIdx = path[path.length - 1];
+      const parent = getNodeByPath(currentState, parentPath);
+      if (!parent) continue;
+
+      const newChildren: StateNode[] = [...parent.children];
+      const replacements: StateNode[] = [];
+
+      if (startOffset > 0) {
+        replacements.push(createNode(
+          `${idBase}-pre-${idCounter++}`, "text",
+          { ...currentNode.properties, content: content.slice(0, startOffset) },
+          [], currentNode.styles,
+        ));
+      }
+
+      const styledText = createNode(
+        `${idBase}-st-${idCounter++}`, "text",
+        { ...currentNode.properties, content: content.slice(startOffset, endOffset) },
+        [], currentNode.styles,
+      );
+      const styledSpan = createNode(
+        `${idBase}-span-${idCounter++}`, "span", {}, [styledText],
+        { [key]: desiredValue } as NodeStyles,
+      );
+      replacements.push(styledSpan);
+
+      if (endOffset < content.length) {
+        replacements.push(createNode(
+          `${idBase}-post-${idCounter++}`, "text",
+          { ...currentNode.properties, content: content.slice(endOffset) },
+          [], currentNode.styles,
+        ));
+      }
+
+      newChildren.splice(childIdx, 1, ...replacements);
+      const newParent = createNode(
+        parent.id, parent.type, { ...parent.properties }, newChildren, parent.styles,
+      );
+      currentState = updateAtPath(currentState, parentPath, newParent);
+
+      const pathKey = parentPath.join(",");
+      if (!modifiedParentPaths.some(p => p.join(",") === pathKey)) {
+        modifiedParentPaths.push([...parentPath]);
+      }
+    }
+  }
+
+  // Normalize modified parents (deepest first)
   currentState = normalizeModifiedParents(currentState, modifiedParentPaths);
 
-  return createChange(state, currentState);
+  return { state: currentState, idCounter };
+}
+
+/** Get the effective value of a style property for a text entry. */
+function getEffectiveStyleValue(
+  state: StateNode,
+  entry: TextEntry,
+  key: keyof NodeStyles,
+): NodeStyles[keyof NodeStyles] | undefined {
+  // Check the node itself first
+  if (entry.node.styles[key] !== undefined) return entry.node.styles[key];
+  // Then check ancestor spans
+  const ancestor = findStyleSpanAncestor(state, entry.path, key);
+  if (ancestor) {
+    const ancestorNode = getNodeByPath(state, ancestor.spanPath);
+    if (ancestorNode) return ancestorNode.styles[key];
+  }
+  return undefined;
 }
 
 /**
@@ -361,22 +387,17 @@ function collectTextNodesRecursive(
   }
 }
 
-/** Check if a node or any of its ancestors has the given style property. */
-function hasStyleProperty(node: StateNode, property: StyleProperty): boolean {
-  return node.properties[property] !== undefined;
-}
-
 /** Walk up from a text node to find ancestor span with given style. */
 function findStyleSpanAncestor(
   state: StateNode,
   textPath: number[],
-  property: StyleProperty,
+  property: keyof NodeStyles,
 ): { spanPath: number[] } | null {
   // Check each ancestor from the text node upward
   for (let depth = textPath.length - 1; depth >= 0; depth--) {
     const ancestorPath = textPath.slice(0, depth);
     const ancestor = getNodeByPath(state, ancestorPath);
-    if (ancestor && ancestor.type === "span" && ancestor.properties[property] !== undefined) {
+    if (ancestor && ancestor.type === "span" && ancestor.styles[property] !== undefined) {
       return { spanPath: ancestorPath };
     }
   }
@@ -457,7 +478,7 @@ function normalizeModifiedParents(
     if (!parent) continue;
     const normalized = normalizeChildren(parent.children);
     const newParent = createNode(
-      parent.id, parent.type, { ...parent.properties }, normalized,
+      parent.id, parent.type, { ...parent.properties }, normalized, parent.styles,
     );
     currentState = updateAtPath(currentState, pp, newParent);
   }
@@ -493,13 +514,14 @@ function canMergeNodes(a: StateNode, b: StateNode): boolean {
   if (a.type !== b.type) return false;
 
   if (a.type === "text") {
-    // Text nodes: merge if all non-content properties match
-    return propsEqualExcept(a.properties, b.properties, "content");
+    // Text nodes: merge if all non-content properties and styles match
+    return propsEqualExcept(a.properties, b.properties, "content") &&
+      stylesEqual(a.styles, b.styles);
   }
 
   if (a.type === "span") {
-    // Spans: merge if all properties are identical
-    return propsEqual(a.properties, b.properties);
+    // Spans: merge if styles are identical
+    return stylesEqual(a.styles, b.styles);
   }
 
   return false;
@@ -511,21 +533,21 @@ function mergeNodes(a: StateNode, b: StateNode): StateNode {
     return createNode(a.id, "text", {
       ...a.properties,
       content: getTextContent(a) + getTextContent(b),
-    });
+    }, [], a.styles);
   }
 
   // Span: merge children, then normalize recursively
   const merged = normalizeChildren([...a.children, ...b.children]);
-  return createNode(a.id, a.type, { ...a.properties }, merged);
+  return createNode(a.id, a.type, { ...a.properties }, merged, a.styles);
 }
 
-/** Check if two property objects are shallowly equal. */
-function propsEqual(
-  a: Readonly<Record<string, unknown>>,
-  b: Readonly<Record<string, unknown>>,
+/** Check if two NodeStyles objects are shallowly equal. */
+function stylesEqual(
+  a: Readonly<NodeStyles>,
+  b: Readonly<NodeStyles>,
 ): boolean {
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
+  const keysA = Object.keys(a) as (keyof NodeStyles)[];
+  const keysB = Object.keys(b) as (keyof NodeStyles)[];
   if (keysA.length !== keysB.length) return false;
   return keysA.every((k) => b[k] === a[k]);
 }
@@ -582,11 +604,15 @@ function splitChildrenAtOffset(
         `${idBase}-sl${counter.value++}`,
         "text",
         { ...child.properties, content: content.slice(0, remaining) },
+        [],
+        child.styles,
       ));
       right.push(createNode(
         `${idBase}-sr${counter.value++}`,
         "text",
         { ...child.properties, content: content.slice(remaining) },
+        [],
+        child.styles,
       ));
     } else {
       // Recursively split the child's children
@@ -595,12 +621,12 @@ function splitChildrenAtOffset(
       );
       if (childLeft.length > 0) {
         left.push(createNode(
-          `${idBase}-sl${counter.value++}`, child.type, { ...child.properties }, childLeft,
+          `${idBase}-sl${counter.value++}`, child.type, { ...child.properties }, childLeft, child.styles,
         ));
       }
       if (childRight.length > 0) {
         right.push(createNode(
-          `${idBase}-sr${counter.value++}`, child.type, { ...child.properties }, childRight,
+          `${idBase}-sr${counter.value++}`, child.type, { ...child.properties }, childRight, child.styles,
         ));
       }
     }

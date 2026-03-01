@@ -6,7 +6,7 @@ export { spanComponent } from "./span";
 export { headingComponent } from "./heading";
 export { listComponent } from "./list";
 export { listItemComponent } from "./list-item";
-export { pickInlineStyles } from "./pick-inline-styles";
+
 export { ComponentRegistry, createRegistry } from "./component-registry";
 
 import type { ComponentDefinition } from "./component-definition";
