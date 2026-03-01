@@ -4,7 +4,7 @@ import {
   createLineLayoutBox,
   createTextLayoutBox,
 } from "./layout-node";
-import type { LayoutBox } from "./layout-node";
+import type { LayoutBox, PageLayoutBox } from "./layout-node";
 import type { TextLayoutBox } from "./text-layout-box";
 import { createMockMeasurer } from "./text-measurer";
 import { splitTextIntoWords } from "./text-splitter";
@@ -166,6 +166,38 @@ describe("Layout engine", () => {
     expect(line2.y).toBe(16); // after first line
   });
 
+  it("breaks a long word that exceeds available width at character boundaries", () => {
+    // Container width = 40px, each char = 8px → 5 chars per line
+    // "abcdefgh" = 8 chars = 64px > 40px → must break
+    const text = createTextRenderNode("t1", "abcdefgh", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    const layout = layoutTree(doc, 40, measurer);
+    const paraBox = layout.children[0];
+
+    // Should break into 2 lines: "abcde" (40px) and "fgh" (24px)
+    expect(paraBox.children).toHaveLength(2);
+    expect(expectTextBox(paraBox.children[0].children[0]).text).toBe("abcde");
+    expect(expectTextBox(paraBox.children[1].children[0]).text).toBe("fgh");
+  });
+
+  it("breaks a very long word across multiple lines", () => {
+    // Container width = 24px → 3 chars per line
+    // "abcdefg" = 7 chars → lines: "abc", "def", "g"
+    const text = createTextRenderNode("t1", "abcdefg", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    const layout = layoutTree(doc, 24, measurer);
+    const paraBox = layout.children[0];
+
+    expect(paraBox.children).toHaveLength(3);
+    expect(expectTextBox(paraBox.children[0].children[0]).text).toBe("abc");
+    expect(expectTextBox(paraBox.children[1].children[0]).text).toBe("def");
+    expect(expectTextBox(paraBox.children[2].children[0]).text).toBe("g");
+  });
+
   it("stacks block children vertically", () => {
     const t1 = createTextRenderNode("t1", "First", {});
     const t2 = createTextRenderNode("t2", "Second", {});
@@ -290,6 +322,250 @@ describe("Layout engine", () => {
     const line = paraBox.children[0];
     // Two text nodes' word boxes on one line
     expect(line.children.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+function expectPageBox(box: LayoutBox): PageLayoutBox {
+  if (box.type !== "page")
+    throw new Error(`Expected page layout box, got "${box.type}"`);
+  return box;
+}
+
+describe("Pagination", () => {
+  it("produces no page boxes when pageHeight is omitted", () => {
+    const text = createTextRenderNode("t1", "Hello", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    // No page boxes anywhere in the tree
+    expect(layout.type).toBe("block");
+    expect(layout.children.every((c) => c.type !== "page")).toBe(true);
+  });
+
+  it("wraps all content in a single page when it fits", () => {
+    const text = createTextRenderNode("t1", "Hello", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    // pageHeight=100, content is only 16px tall
+    const layout = layoutTree(doc, 200, measurer, 100);
+
+    expect(layout.type).toBe("block"); // document
+    expect(layout.children).toHaveLength(1);
+    const page = expectPageBox(layout.children[0]);
+    expect(page.type).toBe("page");
+    expect(page.y).toBe(0);
+    expect(page.height).toBe(100);
+    // The paragraph is inside the page
+    expect(page.children).toHaveLength(1);
+    expect(page.children[0].type).toBe("block");
+  });
+
+  it("distributes blocks across pages when content exceeds page height", () => {
+    // Two paragraphs, each 16px tall. pageHeight = 20 → one per page.
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", {}, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer, 20);
+
+    expect(layout.children).toHaveLength(2);
+    const page0 = expectPageBox(layout.children[0]);
+    const page1 = expectPageBox(layout.children[1]);
+
+    expect(page0.children).toHaveLength(1); // p1
+    expect(page1.children).toHaveLength(1); // p2
+  });
+
+  it("all pages have y = 0 (per-page coordinate space)", () => {
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", {}, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer, 20);
+
+    const page0 = expectPageBox(layout.children[0]);
+    const page1 = expectPageBox(layout.children[1]);
+    expect(page0.y).toBe(0);
+    expect(page1.y).toBe(0);
+  });
+
+  it("positions content within pages relative to the page (y starts at 0)", () => {
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", {}, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer, 20);
+
+    const page1 = expectPageBox(layout.children[1]);
+    // p2 should start at y=0 within page 1
+    expect(page1.children[0].y).toBe(0);
+  });
+
+  it("keeps oversized block on its page (no infinite loop)", () => {
+    // One paragraph with 2 lines → 32px tall. pageHeight = 10.
+    // Block is first on page and exceeds page height → stays.
+    const text = createTextRenderNode("t1", "hello world", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    // 80px wide → "hello " on line 1, "world" on line 2 → 32px
+    const layout = layoutTree(doc, 80, measurer, 10);
+
+    expect(layout.children).toHaveLength(1);
+    const page = expectPageBox(layout.children[0]);
+    expect(page.children).toHaveLength(1);
+    // The block stays even though it's taller than the page
+    expect(page.children[0].type).toBe("block");
+  });
+
+  it("works with padded blocks", () => {
+    // Padded paragraph: paddingTop=10, content=16, paddingBottom=10 → height=36
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", { paddingTop: 10, paddingBottom: 10 }, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    // pageHeight=40: p1 is 36px, fits on page 0. p1 + p2 = 52px, so p2 goes to page 1.
+    const layout = layoutTree(doc, 200, measurer, 40);
+
+    expect(layout.children).toHaveLength(2);
+    const page0 = expectPageBox(layout.children[0]);
+    const page1 = expectPageBox(layout.children[1]);
+    expect(page0.children).toHaveLength(1); // p1
+    expect(page1.children).toHaveLength(1); // p2
+  });
+});
+
+describe("Pagination with margins", () => {
+  const margins = { top: 96, bottom: 96, left: 72, right: 72 };
+
+  it("positions content at (marginLeft, marginTop) within page", () => {
+    const text = createTextRenderNode("t1", "Hello", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    // containerWidth=816, pageHeight=1056
+    const layout = layoutTree(doc, 816, measurer, 1056, margins);
+
+    const page = expectPageBox(layout.children[0]);
+    expect(page.width).toBe(816);
+    expect(page.height).toBe(1056);
+
+    // Paragraph should be positioned at margins
+    const paraBox = page.children[0];
+    expect(paraBox.x).toBe(72); // marginLeft
+    expect(paraBox.y).toBe(96); // marginTop
+  });
+
+  it("uses content width for line wrapping (containerWidth - left - right)", () => {
+    // contentWidth = 816 - 72 - 72 = 672
+    // 672 / 8 = 84 chars fit per line
+    // "a" repeated 85 times → should wrap to 2 lines
+    const longText = createTextRenderNode("t1", "a ".repeat(42) + "b", {});
+    const para = createBlockNode("p1", {}, [longText]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    const layout = layoutTree(doc, 816, measurer, 1056, margins);
+    const page = expectPageBox(layout.children[0]);
+    const paraBox = page.children[0];
+
+    // Should have multiple lines since text exceeds content width
+    expect(paraBox.children.length).toBeGreaterThan(1);
+  });
+
+  it("distributes blocks across pages by content height (pageHeight - top - bottom)", () => {
+    // contentHeight = 1056 - 96 - 96 = 864
+    // Each para is 16px tall. 864/16 = 54 paras fit per page.
+    // Create 55 paragraphs → should overflow to page 2
+    const paras = Array.from({ length: 55 }, (_, i) => {
+      const t = createTextRenderNode(`t${i}`, `Para ${i}`, {});
+      return createBlockNode(`p${i}`, {}, [t]);
+    });
+    const doc = createBlockNode("doc", {}, paras);
+
+    const layout = layoutTree(doc, 816, measurer, 1056, margins);
+
+    expect(layout.children.length).toBe(2);
+    const page0 = expectPageBox(layout.children[0]);
+    const page1 = expectPageBox(layout.children[1]);
+
+    expect(page0.children.length).toBe(54); // 54 * 16 = 864 = contentHeight
+    expect(page1.children.length).toBe(1);
+  });
+
+  it("blocks on page 1 start at y = margins.top", () => {
+    // Two paragraphs that exceed content height on one page
+    // contentHeight = 100 - 20 - 20 = 60, para height = 16
+    // 4 paras = 64px > 60px → 3 on page 0, 1 on page 1
+    const smallMargins = { top: 20, bottom: 20, left: 10, right: 10 };
+    const paras = Array.from({ length: 4 }, (_, i) => {
+      const t = createTextRenderNode(`t${i}`, `P${i}`, {});
+      return createBlockNode(`p${i}`, {}, [t]);
+    });
+    const doc = createBlockNode("doc", {}, paras);
+
+    const layout = layoutTree(doc, 200, measurer, 100, smallMargins);
+
+    const page1 = expectPageBox(layout.children[1]);
+    // First block on page 1 should start at marginTop
+    expect(page1.children[0].y).toBe(20);
+  });
+
+  it("all pages have y = 0 (per-page coordinate space)", () => {
+    const smallMargins = { top: 10, bottom: 10, left: 5, right: 5 };
+    const paras = Array.from({ length: 3 }, (_, i) => {
+      const t = createTextRenderNode(`t${i}`, `P${i}`, {});
+      return createBlockNode(`p${i}`, {}, [t]);
+    });
+    const doc = createBlockNode("doc", {}, paras);
+
+    // contentHeight = 30 - 10 - 10 = 10, each para = 16px → one per page
+    const layout = layoutTree(doc, 200, measurer, 30, smallMargins);
+
+    expect(layout.children.length).toBe(3);
+    expect(layout.children[0].y).toBe(0);
+    expect(layout.children[1].y).toBe(0);
+    expect(layout.children[2].y).toBe(0);
+  });
+
+  it("document height = pageCount * pageHeight", () => {
+    const smallMargins = { top: 10, bottom: 10, left: 5, right: 5 };
+    const paras = Array.from({ length: 3 }, (_, i) => {
+      const t = createTextRenderNode(`t${i}`, `P${i}`, {});
+      return createBlockNode(`p${i}`, {}, [t]);
+    });
+    const doc = createBlockNode("doc", {}, paras);
+
+    const layout = layoutTree(doc, 200, measurer, 30, smallMargins);
+    expect(layout.height).toBe(90); // 3 pages * 30
+  });
+
+  it("without margins: behavior unchanged (backward compat)", () => {
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", {}, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer, 20);
+
+    const page0 = expectPageBox(layout.children[0]);
+    const page1 = expectPageBox(layout.children[1]);
+    // Without margins, content starts at y=0
+    expect(page0.children[0].y).toBe(0);
+    expect(page1.children[0].y).toBe(0);
+    // Page width = docBox.width (no margins)
+    expect(page0.width).toBe(200);
   });
 });
 

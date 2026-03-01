@@ -3,8 +3,9 @@ import {
   createBlockLayoutBox,
   createLineLayoutBox,
   createTextLayoutBox,
+  createPageLayoutBox,
 } from "@taleweaver/core";
-import { paintCanvas } from "./canvas-renderer";
+import { paintCanvas, paintPage } from "./canvas-renderer";
 
 function createMockCtx() {
   return {
@@ -276,5 +277,124 @@ describe("paintCanvas", () => {
 
     // halfLeading = (32 - 20) / 2 = 6
     expect(ctx.fillText).toHaveBeenCalledWith("big", 0, 6);
+  });
+});
+
+describe("paintPage", () => {
+  let ctx: CanvasRenderingContext2D;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+  });
+
+  it("fills white background", () => {
+    const pageBox = createPageLayoutBox("page-0", 0, 0, 816, 1056, [
+      createBlockLayoutBox("p1", 72, 96, 672, 24, [
+        createLineLayoutBox("l1", 0, 0, 672, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hello"),
+        ]),
+      ]),
+    ]);
+
+    paintPage(ctx, pageBox, [], null, "hidden");
+
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 816, 1056);
+  });
+
+  it("paints text at correct canvas position (margin offset from layout)", () => {
+    // Text at (72, 96) within page → canvas pixel (72, 96)
+    const pageBox = createPageLayoutBox("page-0", 0, 0, 816, 1056, [
+      createBlockLayoutBox("p1", 72, 96, 672, 24, [
+        createLineLayoutBox("l1", 0, 0, 672, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hello"),
+        ]),
+      ]),
+    ]);
+
+    paintPage(ctx, pageBox, [], null, "hidden");
+
+    // (72, 96) + half-leading 4 = (72, 100)
+    expect(ctx.fillText).toHaveBeenCalledWith("hello", 72, 100);
+  });
+
+  it("draws cursor when on this page", () => {
+    const pageBox = createPageLayoutBox("page-0", 0, 0, 200, 100, [
+      createBlockLayoutBox("p1", 0, 0, 200, 24, [
+        createLineLayoutBox("l1", 0, 0, 200, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hi"),
+        ]),
+      ]),
+    ]);
+
+    // Cursor at layout y=10, page starts at y=0, page height=100 → on page
+    paintPage(ctx, pageBox, [], { x: 20, y: 10, height: 24 }, "active");
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    // Should have cursor (2px wide) at (20, 10) on canvas
+    const cursorCall = fillRectCalls.find(
+      ([x, y, w, h]) => x === 20 && y === 10 && w === 2 && h === 24,
+    );
+    expect(cursorCall).toBeDefined();
+  });
+
+  it("skips cursor when not on this page", () => {
+    const pageBox = createPageLayoutBox("page-0", 0, 0, 200, 100, [
+      createBlockLayoutBox("p1", 0, 0, 200, 24, [
+        createLineLayoutBox("l1", 0, 0, 200, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hi"),
+        ]),
+      ]),
+    ]);
+
+    // Cursor is null when not on this page
+    paintPage(ctx, pageBox, [], null, "active");
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    const cursorCall = fillRectCalls.find(([_x, _y, w]) => w === 2);
+    expect(cursorCall).toBeUndefined();
+  });
+
+  it("draws page-relative selection rects directly", () => {
+    // Page 1 with y=0 (per-page coordinate space)
+    const pageBox = createPageLayoutBox("page-1", 0, 0, 200, 100, [
+      createBlockLayoutBox("p1", 0, 0, 200, 24, [
+        createLineLayoutBox("l1", 0, 0, 200, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hi"),
+        ]),
+      ]),
+    ]);
+
+    // Selection rects are already page-relative and pre-filtered by pageIndex
+    const selRects: { x: number; y: number; width: number; height: number; pageIndex: number }[] =
+      [{ x: 5, y: 10, width: 30, height: 24, pageIndex: 1 }];
+
+    paintPage(ctx, pageBox, selRects, null, "hidden");
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    // Should draw selection rect at (5, 10) directly (no translation)
+    const selCall = fillRectCalls.find(
+      ([x, y, w, h]) => x === 5 && y === 10 && w === 30 && h === 24,
+    );
+    expect(selCall).toBeDefined();
+  });
+
+  it("renders empty when no selection rects passed", () => {
+    const pageBox = createPageLayoutBox("page-0", 0, 0, 200, 100, [
+      createBlockLayoutBox("p1", 0, 0, 200, 24, [
+        createLineLayoutBox("l1", 0, 0, 200, 24, [
+          createTextLayoutBox("t1", 0, 0, 40, 24, "hi"),
+        ]),
+      ]),
+    ]);
+
+    // No selection rects passed (already filtered out by caller)
+    paintPage(ctx, pageBox, [], null, "hidden");
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    // Only the white background rect, no selection or cursor rects
+    const selCall = fillRectCalls.find(
+      ([x, y, w, h]) => w === 30 && h === 24,
+    );
+    expect(selCall).toBeUndefined();
   });
 });

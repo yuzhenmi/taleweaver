@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ComponentRegistry, createRegistry } from "./component-registry";
-import { pickInlineStyles } from "./pick-inline-styles";
+
 import { documentComponent } from "./document";
 import { paragraphComponent } from "./paragraph";
 import { textComponent } from "./text";
@@ -52,41 +52,6 @@ describe("createRegistry", () => {
   it("creates registry from empty array", () => {
     const reg = createRegistry([]);
     expect(reg.has("document")).toBe(false);
-  });
-});
-
-describe("pickInlineStyles", () => {
-  it("picks known inline style properties", () => {
-    const result = pickInlineStyles({
-      fontFamily: "serif",
-      fontSize: 20,
-      fontWeight: "bold",
-      fontStyle: "italic",
-      lineHeight: 30,
-    });
-    expect(result.fontFamily).toBe("serif");
-    expect(result.fontSize).toBe(20);
-    expect(result.fontWeight).toBe("bold");
-    expect(result.fontStyle).toBe("italic");
-    expect(result.lineHeight).toBe(30);
-  });
-
-  it("ignores non-inline properties", () => {
-    const result = pickInlineStyles({
-      content: "hello",
-      marginTop: 10,
-      paddingLeft: 5,
-      customProp: true,
-    });
-    expect(result.fontFamily).toBeUndefined();
-    expect(result.fontSize).toBeUndefined();
-    expect(result).not.toHaveProperty("content");
-    expect(result).not.toHaveProperty("customProp");
-  });
-
-  it("returns empty styles for empty properties", () => {
-    const result = pickInlineStyles({});
-    expect(Object.keys(result)).toHaveLength(0);
   });
 });
 
@@ -150,6 +115,7 @@ describe("textComponent", () => {
   it("propagates inline styles from properties", () => {
     const node = createNode("t1", "text", {
       content: "hi",
+    }, [], {
       fontWeight: "bold",
       fontSize: 20,
     });
@@ -165,7 +131,7 @@ describe("spanComponent", () => {
   });
 
   it("renders an inline node with inline styles", () => {
-    const node = createNode("s1", "span", { fontWeight: "bold" });
+    const node = createNode("s1", "span", {}, [], { fontWeight: "bold" });
     const child = createTextRenderNode("t1", "text", {});
     const result = spanComponent.render(node, [child]);
     expect(result.type).toBe("inline");

@@ -19,8 +19,8 @@ const containerWidth = 200;
 function setup() {
   const t1 = createTextNode("t1", "A ");
   const innerText = createTextNode("it", "B");
-  const italic = createNode("i1", "span", { fontStyle: "italic" }, [innerText]);
-  const bold = createNode("b1", "span", { fontWeight: "bold" }, [italic]);
+  const italic = createNode("i1", "span", {}, [innerText], { fontStyle: "italic" });
+  const bold = createNode("b1", "span", {}, [italic], { fontWeight: "bold" });
   const t2 = createTextNode("t2", " C");
   const para = createNode("p1", "paragraph", {}, [t1, bold, t2]);
   const doc = createNode("doc", "document", {}, [para]);

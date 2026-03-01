@@ -17,7 +17,7 @@ describe("Integration: inline formatting with span", () => {
   it("renders and lays out inline bold text", () => {
     const t1 = createTextNode("t1", "Hello ");
     const spanText = createTextNode("bt", "World");
-    const span = createNode("s1", "span", { fontWeight: "bold" }, [spanText]);
+    const span = createNode("s1", "span", {}, [spanText], { fontWeight: "bold" });
     const para = createNode("p1", "paragraph", {}, [t1, span]);
     const doc = createNode("doc", "document", {}, [para]);
 
@@ -51,7 +51,7 @@ describe("Integration: inline formatting with span", () => {
   it("cursor moves through span boundary", () => {
     const t1 = createTextNode("t1", "Hi ");
     const spanText = createTextNode("bt", "Bold");
-    const span = createNode("s1", "span", { fontWeight: "bold" }, [spanText]);
+    const span = createNode("s1", "span", {}, [spanText], { fontWeight: "bold" });
     const para = createNode("p1", "paragraph", {}, [t1, span]);
     const doc = createNode("doc", "document", {}, [para]);
 

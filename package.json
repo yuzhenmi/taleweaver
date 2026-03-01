@@ -1,5 +1,5 @@
 {
   "name": "taleweaver",
   "private": true,
-  "workspaces": ["packages/*"]
+  "workspaces": ["packages/*", "examples/*"]
 }

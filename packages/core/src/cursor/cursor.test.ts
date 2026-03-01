@@ -8,7 +8,7 @@ import {
   selectionStart,
   selectionEnd,
 } from "./selection";
-import { moveByCharacter, moveByWord, expandSelection, selectWord } from "./cursor-ops";
+import { moveByCharacter, moveByWord, expandSelection, expandSelectionByCharacter, selectWord } from "./cursor-ops";
 
 function makeDoc() {
   const t1 = createTextNode("t1", "Hello ");
@@ -293,6 +293,154 @@ describe("selectWord", () => {
     const sel = selectWord(doc, pos);
 
     expect(isCollapsed(sel)).toBe(true);
+  });
+});
+
+describe("expandSelectionByCharacter", () => {
+  it("expands forward within text (delegates to grapheme boundary)", () => {
+    const doc = makeDoc();
+    const sel = createCursor([0, 0], 2);
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.anchor.offset).toBe(2);
+    expect(expanded.focus.offset).toBe(3);
+  });
+
+  it("expands backward within text (delegates to grapheme boundary)", () => {
+    const doc = makeDoc();
+    const sel = createCursor([0, 0], 3);
+    const expanded = expandSelectionByCharacter(doc, sel, "backward");
+    expect(expanded.anchor.offset).toBe(3);
+    expect(expanded.focus.offset).toBe(2);
+  });
+
+  it("forward from textLength goes to textLength+1 (virtual EOL)", () => {
+    const doc = makeTwoParagraphDoc();
+    // "First" has length 5, focus at 5 (end of text)
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 5),
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.anchor.offset).toBe(0);
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(6); // textLength + 1
+  });
+
+  it("forward from textLength+1 crosses to next text node at offset 0", () => {
+    const doc = makeTwoParagraphDoc();
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 6), // virtual EOL
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.anchor.offset).toBe(0);
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(0);
+  });
+
+  it("backward from textLength+1 goes to textLength (deselect just EOL)", () => {
+    const doc = makeTwoParagraphDoc();
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 6), // virtual EOL
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "backward");
+    expect(expanded.anchor.offset).toBe(0);
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(5); // textLength
+  });
+
+  it("backward from offset 0 goes to previous text node's textLength+1 (virtual EOL)", () => {
+    const doc = makeTwoParagraphDoc();
+    const sel = createSelection(
+      createPosition([1, 0], 3),
+      createPosition([1, 0], 0),
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "backward");
+    expect(expanded.anchor.path).toEqual([1, 0]);
+    expect(expanded.anchor.offset).toBe(3);
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(6); // prev node's textLength + 1
+  });
+
+  it("forward from textLength on last node goes to textLength+1 (virtual EOL)", () => {
+    const t1 = createTextNode("t1", "Hello");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 5),
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.offset).toBe(6); // textLength + 1
+  });
+
+  it("forward from textLength+1 on last node stays put", () => {
+    const t1 = createTextNode("t1", "Hello");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 6), // virtual EOL on last node (reached via boundary op)
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(6); // stays at virtual EOL
+  });
+
+  it("backward from offset 0 on first node stays put", () => {
+    const t1 = createTextNode("t1", "Hello");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    const sel = createSelection(
+      createPosition([0, 0], 3),
+      createPosition([0, 0], 0),
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "backward");
+    expect(expanded.focus.offset).toBe(0);
+  });
+
+  it("empty paragraph — forward from 0 goes to virtual EOL (offset 1)", () => {
+    const t1 = createTextNode("t1", "");
+    const t2 = createTextNode("t2", "World");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const p2 = createNode("p2", "paragraph", {}, [t2]);
+    const doc = createNode("doc", "document", {}, [p1, p2]);
+
+    const sel = createCursor([0, 0], 0);
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(1); // virtual EOL for empty node
+  });
+
+  it("empty paragraph — forward from virtual EOL crosses to next node", () => {
+    const t1 = createTextNode("t1", "");
+    const t2 = createTextNode("t2", "World");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const p2 = createNode("p2", "paragraph", {}, [t2]);
+    const doc = createNode("doc", "document", {}, [p1, p2]);
+
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 1), // virtual EOL
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(0);
+  });
+
+  it("empty paragraph on last node — forward from 0 goes to virtual EOL", () => {
+    const t1 = createTextNode("t1", "");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    const sel = createCursor([0, 0], 0);
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(1); // virtual EOL
   });
 });
 

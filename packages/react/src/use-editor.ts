@@ -1,28 +1,40 @@
-import { useReducer, useRef, useEffect, useCallback } from "react";
-import { createRegistry, defaultComponents } from "@taleweaver/core";
+import { useReducer, useRef, useEffect } from "react";
 import {
+  createRegistry,
+  defaultComponents,
   createInitialEditorState,
   reduceEditor,
-  createCanvasMeasurer,
-  FONT_CONFIG,
+  type PageMargins,
   type EditorAction,
   type EditorState,
   type EditorConfig,
-} from "@taleweaver/dom";
+} from "@taleweaver/core";
+import { createCanvasMeasurer } from "@taleweaver/dom";
 
 const DEFAULT_WIDTH = 600;
 
-function createConfig(): EditorConfig {
+export interface UseEditorOptions {
+  pageHeight?: number;
+  pageMargins?: PageMargins;
+}
+
+function createConfig(options?: UseEditorOptions): EditorConfig {
   const canvas = document.createElement("canvas");
   const measurer = createCanvasMeasurer(canvas);
   const registry = createRegistry([...defaultComponents]);
-  return { measurer, registry, containerWidth: DEFAULT_WIDTH };
+  return {
+    measurer,
+    registry,
+    containerWidth: DEFAULT_WIDTH,
+    pageHeight: options?.pageHeight,
+    pageMargins: options?.pageMargins,
+  };
 }
 
-export function useEditor() {
+export function useEditor(options?: UseEditorOptions) {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
-    configRef.current = createConfig();
+    configRef.current = createConfig(options);
   }
   const config = configRef.current;
 
@@ -34,7 +46,6 @@ export function useEditor() {
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -53,5 +64,11 @@ export function useEditor() {
     return () => observer.disconnect();
   }, []);
 
-  return { editorState, dispatch, containerRef, textareaRef, measurer: config.measurer };
+  return {
+    editorState,
+    dispatch,
+    containerRef,
+    measurer: config.measurer,
+    pageHeight: config.pageHeight,
+  };
 }

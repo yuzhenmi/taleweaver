@@ -45,4 +45,33 @@ describe("StateNode", () => {
     expect(Object.isFrozen(node.properties)).toBe(true);
     expect(Object.isFrozen(node.children)).toBe(true);
   });
+
+  it("has an empty styles object by default", () => {
+    const node = createNode("n1", "paragraph", {});
+    expect(node.styles).toEqual({});
+  });
+
+  it("accepts styles on creation", () => {
+    const node = createNode("n1", "text", { content: "hi" }, [], {
+      fontWeight: "bold",
+      fontStyle: "italic",
+    });
+    expect(node.styles.fontWeight).toBe("bold");
+    expect(node.styles.fontStyle).toBe("italic");
+  });
+
+  it("styles are frozen", () => {
+    const node = createNode("n1", "text", {}, [], {
+      textDecoration: "underline",
+    });
+    expect(Object.isFrozen(node.styles)).toBe(true);
+  });
+
+  it("styles are separate from properties", () => {
+    const node = createNode("n1", "span", {}, [], {
+      fontWeight: "bold",
+    });
+    expect(node.properties).toEqual({});
+    expect(node.styles.fontWeight).toBe("bold");
+  });
 });

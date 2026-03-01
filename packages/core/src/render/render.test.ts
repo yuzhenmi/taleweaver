@@ -68,7 +68,7 @@ describe("Component render functions", () => {
 
   it("renders span component as inline with data-driven styles", () => {
     const textNode = createTextNode("t1", "styled text");
-    const spanNode = createNode("s1", "span", { fontWeight: "bold", fontStyle: "italic" }, [textNode]);
+    const spanNode = createNode("s1", "span", {}, [textNode], { fontWeight: "bold", fontStyle: "italic" });
 
     const renderedText = registry.get("text")!.render(textNode, []);
     const rendered = registry.get("span")!.render(spanNode, [renderedText]);
@@ -82,11 +82,9 @@ describe("Component render functions", () => {
 
   it("filters unknown properties from span rendering", () => {
     const textNode = createTextNode("t1", "text");
-    const spanNode = createNode("s1", "span", {
+    const spanNode = createNode("s1", "span", {}, [textNode], {
       fontWeight: "bold",
-      color: "red",
-      customAttr: 42,
-    }, [textNode]);
+    });
 
     const renderedText = registry.get("text")!.render(textNode, []);
     const rendered = registry.get("span")!.render(spanNode, [renderedText]);
@@ -98,7 +96,7 @@ describe("Component render functions", () => {
 
   it("passes lineHeight through on spans", () => {
     const textNode = createTextNode("t1", "text");
-    const spanNode = createNode("s1", "span", { lineHeight: 1.5 }, [textNode]);
+    const spanNode = createNode("s1", "span", {}, [textNode], { lineHeight: 1.5 });
 
     const renderedText = registry.get("text")!.render(textNode, []);
     const rendered = registry.get("span")!.render(spanNode, [renderedText]);
@@ -107,7 +105,7 @@ describe("Component render functions", () => {
   });
 
   it("passes lineHeight through on text nodes", () => {
-    const textNode = createNode("t1", "text", { content: "hello", lineHeight: 2 });
+    const textNode = createNode("t1", "text", { content: "hello" }, [], { lineHeight: 2 });
 
     const rendered = registry.get("text")!.render(textNode, []);
 

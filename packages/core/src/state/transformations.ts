@@ -5,7 +5,7 @@ import { createChange } from "./change";
 import { normalizeSpan, comparePositions, createPosition } from "./position";
 import { createNode } from "./create-node";
 import { getNodeByPath, updateAtPath } from "./operations";
-import { getTextContent } from "./text-utils";
+import { getTextContent, clampOffset } from "./text-utils";
 
 /** Create a text node with updated content, preserving id and other properties. */
 function withContent(node: StateNode, content: string): StateNode {
@@ -14,6 +14,7 @@ function withContent(node: StateNode, content: string): StateNode {
     node.type,
     { ...node.properties, content },
     node.children,
+    node.styles,
   );
 }
 
@@ -30,13 +31,14 @@ export function insertText(
   }
 
   const content = getTextContent(node);
-  if (position.offset < 0 || position.offset > content.length) {
+  if (position.offset < 0) {
     throw new RangeError(
       `insertText offset ${position.offset} out of bounds for content length ${content.length}`,
     );
   }
+  const offset = clampOffset(position.offset, content.length);
   const newContent =
-    content.slice(0, position.offset) + text + content.slice(position.offset);
+    content.slice(0, offset) + text + content.slice(offset);
   const newNode = withContent(node, newContent);
   const newState = updateAtPath(state, position.path, newNode);
 
@@ -53,13 +55,14 @@ function deleteSameNode(
   if (!node) throw new Error("Invalid position path");
 
   const content = getTextContent(node);
-  if (start.offset < 0 || end.offset > content.length) {
+  if (start.offset < 0) {
     throw new RangeError(
       `deleteRange offsets [${start.offset}, ${end.offset}] out of bounds for content length ${content.length}`,
     );
   }
+  const clampedEnd = clampOffset(end.offset, content.length);
   const newContent =
-    content.slice(0, start.offset) + content.slice(end.offset);
+    content.slice(0, start.offset) + content.slice(clampedEnd);
   const newNode = withContent(node, newContent);
   return updateAtPath(state, start.path, newNode);
 }
@@ -92,7 +95,8 @@ function deleteCrossNode(
   const startContent = getTextContent(startNode);
   const endContent = getTextContent(endNode);
   const fusedContent =
-    startContent.slice(0, start.offset) + endContent.slice(end.offset);
+    startContent.slice(0, clampOffset(start.offset, startContent.length)) +
+    endContent.slice(clampOffset(end.offset, endContent.length));
   const fusedNode = withContent(startNode, fusedContent);
 
   if (commonDepth < start.path.length && commonDepth < end.path.length) {
@@ -125,6 +129,7 @@ function deleteCrossNode(
         trimmedStart.type,
         { ...trimmedStart.properties },
         [...trimmedStart.children, ...endTrailingSiblings],
+        trimmedStart.styles,
       );
     }
 
@@ -148,6 +153,7 @@ function deleteCrossNode(
       commonAncestor.type,
       { ...commonAncestor.properties },
       newChildren,
+      commonAncestor.styles,
     );
     return updateAtPath(state, commonPath, newAncestor);
   } else {
@@ -202,7 +208,7 @@ function trimTrailingChildren(
   }
 
   const newChildren = [...node.children.slice(0, idx), child];
-  return createNode(node.id, node.type, { ...node.properties }, newChildren);
+  return createNode(node.id, node.type, { ...node.properties }, newChildren, node.styles);
 }
 
 /** Delete text in a range. Returns a Change. */
@@ -275,14 +281,15 @@ export function splitNode(
     );
   }
   const content = getTextContent(textNode);
-  if (position.offset < 0 || position.offset > content.length) {
+  if (position.offset < 0) {
     throw new RangeError(
       `splitNode offset ${position.offset} out of bounds for content length ${content.length}`,
     );
   }
+  const offset = clampOffset(position.offset, content.length);
 
-  const beforeContent = content.slice(0, position.offset);
-  const afterContent = content.slice(position.offset);
+  const beforeContent = content.slice(0, offset);
+  const afterContent = content.slice(offset);
 
   // Build the "before" and "after" trees from the text node up to splitDepth.
   // At the text node level:
@@ -291,6 +298,8 @@ export function splitNode(
     newNodeId + "-text",
     textNode.type,
     { ...textNode.properties, content: afterContent },
+    [],
+    textNode.styles,
   );
 
   // Walk up from the text node to the split level, building before/after subtrees.
@@ -310,6 +319,7 @@ export function splitNode(
       parent.type,
       { ...parent.properties },
       [...parent.children.slice(0, childIdx), beforeChild],
+      parent.styles,
     );
 
     // After parent: afterChild + children [childIdx+1..]
@@ -318,6 +328,7 @@ export function splitNode(
       parent.type,
       { ...parent.properties },
       [afterChild, ...parent.children.slice(childIdx + 1)],
+      parent.styles,
     );
 
     beforeChild = beforeParent;
@@ -341,6 +352,7 @@ export function splitNode(
     splitParent.type,
     { ...splitParent.properties },
     newChildren,
+    splitParent.styles,
   );
 
   const result = updateAtPath(state, splitParentPath, newSplitParent);

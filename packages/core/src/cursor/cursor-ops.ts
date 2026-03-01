@@ -230,7 +230,7 @@ export function selectWord(
 
 /**
  * Expand a selection by moving the focus in a direction.
- * Anchor stays fixed, focus moves.
+ * Anchor stays fixed, focus moves. Does NOT stop at virtual EOL.
  */
 export function expandSelection(
   state: StateNode,
@@ -239,6 +239,83 @@ export function expandSelection(
 ): Selection {
   const moved = moveByCharacter(state, selection.focus, direction);
   return createSelection(selection.anchor, moved.focus);
+}
+
+/**
+ * Expand a selection by one character with virtual EOL awareness.
+ * Treats the paragraph break as an implicit character at offset `textLength + 1`.
+ *
+ * - Forward from textLength → textLength + 1 (virtual EOL)
+ * - Forward from textLength + 1 → next text node offset 0
+ * - Backward from textLength + 1 → textLength (deselect just the EOL indicator)
+ * - Backward from 0 → previous text node's textLength + 1 (landing on EOL)
+ * - All other cases: delegate to grapheme boundary movement
+ */
+export function expandSelectionByCharacter(
+  state: StateNode,
+  selection: Selection,
+  direction: "forward" | "backward",
+): Selection {
+  const focus = selection.focus;
+  const node = getNodeByPath(state, focus.path);
+  if (!node) return selection;
+
+  const textLength = getTextContentLength(node);
+
+  if (direction === "forward") {
+    if (focus.offset > textLength) {
+      // At virtual EOL (textLength + 1) — cross to next text node
+      const next = findNextTextNode(state, focus.path);
+      if (next) {
+        return createSelection(selection.anchor, createPosition(next, 0));
+      }
+      // No next node — stay put
+      return selection;
+    }
+    if (focus.offset === textLength) {
+      // At end of text — go to virtual EOL
+      return createSelection(
+        selection.anchor,
+        createPosition(focus.path, textLength + 1),
+      );
+    }
+    // Within text — delegate to grapheme boundary
+    const content = getTextContent(node);
+    const nextBoundary = nextGraphemeBoundary(content, focus.offset);
+    return createSelection(
+      selection.anchor,
+      createPosition(focus.path, nextBoundary),
+    );
+  } else {
+    // backward
+    if (focus.offset > textLength) {
+      // At virtual EOL — go back to textLength
+      return createSelection(
+        selection.anchor,
+        createPosition(focus.path, textLength),
+      );
+    }
+    if (focus.offset === 0) {
+      // At start of node — go to previous text node's virtual EOL
+      const prev = findPrevTextNode(state, focus.path);
+      if (prev) {
+        const prevNode = getNodeByPath(state, prev)!;
+        return createSelection(
+          selection.anchor,
+          createPosition(prev, getTextContentLength(prevNode) + 1),
+        );
+      }
+      // No previous node — stay put
+      return selection;
+    }
+    // Within text — delegate to grapheme boundary
+    const content = getTextContent(node);
+    const prevBoundary = prevGraphemeBoundary(content, focus.offset);
+    return createSelection(
+      selection.anchor,
+      createPosition(focus.path, prevBoundary),
+    );
+  }
 }
 
 // --- Tree traversal helpers ---
