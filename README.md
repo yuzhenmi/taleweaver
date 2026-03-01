@@ -23,7 +23,6 @@ Taleweaver takes the same approach: it includes its own layout engine, renders t
 | [`@taleweaver/core`](packages/core) | Editor engine — document model, state management, transforms |
 | [`@taleweaver/dom`](packages/dom) | DOM rendering layer |
 | [`@taleweaver/react`](packages/react) | React bindings |
-| [`@taleweaver/example`](packages/example) | Example app |
 
 ## Getting started
 
@@ -34,7 +33,7 @@ Prerequisites: Node >= 24 (see `.nvmrc`).
 npm install
 
 # Start the dev server (example app)
-npm run dev -w packages/example
+npm run dev -w examples/react
 
 # Run tests
 npm test -w packages/core
