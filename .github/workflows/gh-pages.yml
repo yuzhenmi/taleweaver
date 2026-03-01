@@ -33,7 +33,7 @@ jobs:
         run: npm run build -w packages/core -w packages/dom -w packages/react
 
       - name: Build example
-        run: npm run build -w packages/example
+        run: npm run build -w examples/react
 
       - uses: actions/configure-pages@v5
 
@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/example/dist
+          path: examples/react/dist
 
       - id: deployment
         uses: actions/deploy-pages@v4
