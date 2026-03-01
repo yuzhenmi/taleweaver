@@ -103,7 +103,7 @@ export function computeSelectionRects(
 
   // Offset-based virtual EOL check: end.offset > textContentLength means virtual EOL
   const endNode = getNodeByPath(state, end.path);
-  const isVirtualEol = endNode !== null && end.offset > getTextContentLength(endNode);
+  const isVirtualEol = endNode != null && end.offset > getTextContentLength(endNode);
 
   // Same line, same page
   if (startPos.pageIndex === endPos.pageIndex && startPos.lineY === endPos.lineY) {
