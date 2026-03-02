@@ -1,4 +1,4 @@
-import { useReducer, useRef, useEffect } from "react";
+import { useReducer, useRef, useEffect, useCallback } from "react";
 import {
   createRegistry,
   defaultComponents,
@@ -64,11 +64,17 @@ export function useEditor(options?: UseEditorOptions) {
     return () => observer.disconnect();
   }, []);
 
+  const focus = useCallback(() => {
+    const textarea = containerRef.current?.querySelector("textarea");
+    if (textarea) textarea.focus();
+  }, []);
+
   return {
     editorState,
     dispatch,
     containerRef,
     measurer: config.measurer,
     pageHeight: config.pageHeight,
+    focus,
   };
 }

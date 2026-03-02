@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createSpan } from "../../state/position";
+import { createSpan, positionsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { rebuildTrees, deleteSelectionRange } from "./helpers";
@@ -20,11 +20,7 @@ export function handleDeleteWord(
   const targetPos = target.focus;
 
   // If we didn't move, nothing to delete
-  if (
-    targetPos.path.every((v, i) => v === pos.path[i]) &&
-    targetPos.path.length === pos.path.length &&
-    targetPos.offset === pos.offset
-  ) {
+  if (positionsEqual(targetPos, pos)) {
     return editor;
   }
 

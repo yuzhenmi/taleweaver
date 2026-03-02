@@ -37,4 +37,35 @@ describe("useEditor", () => {
       result.current.editorState.state.children[0].children[0];
     expect(textNode.properties.content).toBe("a");
   });
+
+  it("dispatch INSERT_BLOCK inserts image without crashing", () => {
+    const { result } = renderHook(() => useEditor());
+    act(() => {
+      result.current.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    });
+    act(() => {
+      result.current.dispatch({
+        type: "INSERT_BLOCK",
+        blockType: "image",
+        properties: { src: "data:image/png;base64,abc", width: 200, height: 100 },
+      });
+    });
+    expect(result.current.editorState.state.children).toHaveLength(3);
+    expect(result.current.editorState.state.children[1].type).toBe("image");
+  });
+
+  it("dispatch INSERT_BLOCK inserts horizontal-line without crashing", () => {
+    const { result } = renderHook(() => useEditor());
+    act(() => {
+      result.current.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    });
+    act(() => {
+      result.current.dispatch({
+        type: "INSERT_BLOCK",
+        blockType: "horizontal-line",
+      });
+    });
+    expect(result.current.editorState.state.children).toHaveLength(3);
+    expect(result.current.editorState.state.children[1].type).toBe("horizontal-line");
+  });
 });

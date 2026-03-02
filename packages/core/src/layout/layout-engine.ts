@@ -1,7 +1,9 @@
 import type { RenderNode, RenderStyles, TextRenderNode } from "../render/render-node";
+import type { GridRenderNode } from "../render/grid-render-node";
 import type { TextMeasurer } from "./text-measurer";
 import type { LayoutBox } from "./layout-node";
 import { createBlockLayoutBox } from "./block-layout-box";
+import { createGridLayoutBox } from "./grid-layout-box";
 import { createLineLayoutBox } from "./line-layout-box";
 import { createPageLayoutBox } from "./page-layout-box";
 import { createTextLayoutBox } from "./text-layout-box";
@@ -77,11 +79,7 @@ function paginateDocument(
     }
 
     // Reposition child: x offset by margin, y = marginTop + accumulated content height
-    const repositioned = Object.freeze({
-      ...child,
-      x: child.x + offsetX,
-      y: offsetY + currentPageContentHeight,
-    });
+    const repositioned = repositionBox(child, child.x + offsetX, offsetY + currentPageContentHeight);
     currentPageChildren.push(repositioned);
     currentPageContentHeight += child.height;
   }
@@ -120,6 +118,8 @@ function layoutNode(
   switch (renderNode.type) {
     case "block":
       return layoutBlock(renderNode, x, y, availableWidth, measurer);
+    case "grid":
+      return layoutGrid(renderNode, x, y, availableWidth, measurer);
     case "inline":
       // Inline nodes are always children of a block's inline formatting context,
       // where they are handled by collectWordBoxes. This path only runs for a
@@ -193,6 +193,7 @@ function layoutBlock(
   const totalHeight = contentBottom + paddingBottom + marginBottom;
 
   const marker = renderNode.type === "block" ? renderNode.marker : undefined;
+  const metadata = renderNode.type === "block" ? renderNode.metadata : undefined;
   return createBlockLayoutBox(
     renderNode.key,
     x,
@@ -201,6 +202,69 @@ function layoutBlock(
     totalHeight,
     children,
     marker,
+    metadata,
+  );
+}
+
+/** Layout a grid render node (table). */
+function layoutGrid(
+  renderNode: GridRenderNode,
+  x: number,
+  y: number,
+  availableWidth: number,
+  measurer: TextMeasurer,
+): LayoutBox {
+  const { columnWidths, rowHeights } = renderNode;
+
+  // For each row: layout each cell at its column x offset, track max height
+  const rowBoxes: LayoutBox[] = [];
+  let rowY = 0;
+
+  for (let r = 0; r < renderNode.children.length; r++) {
+    const rowNode = renderNode.children[r];
+    const cellBoxes: LayoutBox[] = [];
+    let maxCellHeight = 0;
+    let cellX = 0;
+
+    // Layout each cell within the row
+    const cellChildren = rowNode.children;
+    for (let c = 0; c < cellChildren.length; c++) {
+      const cellNode = cellChildren[c];
+      const colWidth = c < columnWidths.length ? columnWidths[c] : 0;
+      const cellBox = layoutNode(cellNode, cellX, 0, colWidth, measurer);
+      cellBoxes.push(cellBox);
+      maxCellHeight = Math.max(maxCellHeight, cellBox.height);
+      cellX += colWidth;
+    }
+
+    // Resolve row height: explicit height (rowHeights[r]) or auto (tallest cell)
+    const explicitHeight = r < rowHeights.length ? rowHeights[r] : 0;
+    const resolvedRowHeight = Math.max(maxCellHeight, explicitHeight);
+
+    // Wrap cell boxes in a BlockLayoutBox for the row
+    const rowBox = createBlockLayoutBox(
+      rowNode.key,
+      0,
+      rowY,
+      availableWidth,
+      resolvedRowHeight,
+      cellBoxes,
+    );
+    rowBoxes.push(rowBox);
+    rowY += resolvedRowHeight;
+  }
+
+  const resolvedRowHeights = rowBoxes.map((rb) => rb.height);
+
+  return createGridLayoutBox(
+    renderNode.key,
+    x,
+    y,
+    availableWidth,
+    rowY,
+    rowBoxes,
+    columnWidths as number[],
+    resolvedRowHeights,
   );
 }
 
@@ -340,8 +404,13 @@ export function layoutTreeIncremental(
   }
 
   // Only attempt subtree reuse for blocks with block children
-  if (newRenderNode.type !== "block" && newRenderNode.type !== "inline") {
+  if (newRenderNode.type !== "block" && newRenderNode.type !== "inline" && newRenderNode.type !== "grid") {
     return layoutTree(newRenderNode, containerWidth, measurer);
+  }
+
+  // Grid nodes: full re-layout (incremental optimization can come later)
+  if (newRenderNode.type === "grid") {
+    return layoutTree(newRenderNode, containerWidth, measurer, pageHeight, pageMargins);
   }
 
   const hasInlineContent = newRenderNode.children.some(
@@ -410,6 +479,7 @@ export function layoutTreeIncremental(
   const totalHeight = contentBottom + paddingBottom + marginBottom;
 
   const marker = newRenderNode.type === "block" ? newRenderNode.marker : undefined;
+  const metadata = newRenderNode.type === "block" ? newRenderNode.metadata : undefined;
   const docBox = createBlockLayoutBox(
     newRenderNode.key,
     0,
@@ -418,6 +488,7 @@ export function layoutTreeIncremental(
     totalHeight,
     children,
     marker,
+    metadata,
   );
   if (pageHeight === undefined) return docBox;
   return paginateDocument(docBox, pageHeight, containerWidth, pageMargins);

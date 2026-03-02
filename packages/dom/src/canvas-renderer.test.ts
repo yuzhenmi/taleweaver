@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createBlockLayoutBox,
+  createGridLayoutBox,
   createLineLayoutBox,
   createTextLayoutBox,
   createPageLayoutBox,
@@ -12,10 +13,18 @@ function createMockCtx() {
     clearRect: vi.fn(),
     fillText: vi.fn(),
     fillRect: vi.fn(),
+    drawImage: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
+    strokeRect: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
     font: "",
     fillStyle: "" as string | CanvasGradient | CanvasPattern,
+    strokeStyle: "" as string | CanvasGradient | CanvasPattern,
+    lineWidth: 1,
     textBaseline: "" as CanvasTextBaseline,
     globalAlpha: 1,
   } as unknown as CanvasRenderingContext2D;
@@ -337,6 +346,54 @@ describe("list marker painting", () => {
   });
 });
 
+describe("horizontal line painting", () => {
+  let ctx: CanvasRenderingContext2D;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+  });
+
+  it("draws a horizontal line for block with horizontal-line metadata", () => {
+    const hrBox = createBlockLayoutBox("hr1", 0, 0, 200, 32, [], undefined, { type: "horizontal-line" });
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 32, [hrBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    // Should draw a 1px-high line centered vertically in the box
+    const hrCall = fillRectCalls.find(
+      ([x, y, w, h]) => x === 8 && w === 184 && h === 1,
+    );
+    expect(hrCall).toBeDefined();
+  });
+
+  it("does not paint text inside HR block", () => {
+    const hrBox = createBlockLayoutBox("hr1", 0, 0, 200, 32, [], undefined, { type: "horizontal-line" });
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 32, [hrBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
+  it("applies HR color #dadce0", () => {
+    const fillStyles: string[] = [];
+    vi.mocked(ctx.fillRect).mockImplementation(() => {
+      fillStyles.push(ctx.fillStyle as string);
+    });
+
+    const hrBox = createBlockLayoutBox("hr1", 0, 0, 200, 32, [], undefined, { type: "horizontal-line" });
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 32, [hrBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
+    const hrIdx = fillRectCalls.findIndex(([x, , w, h]) => x === 8 && w === 184 && h === 1);
+    expect(hrIdx).toBeGreaterThanOrEqual(0);
+    expect(fillStyles[hrIdx]).toBe("#dadce0");
+  });
+});
+
 describe("paintPage", () => {
   let ctx: CanvasRenderingContext2D;
 
@@ -453,5 +510,97 @@ describe("paintPage", () => {
       ([x, y, w, h]) => w === 30 && h === 24,
     );
     expect(selCall).toBeUndefined();
+  });
+});
+
+describe("grid border painting", () => {
+  let ctx: CanvasRenderingContext2D;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+  });
+
+  it("draws outer border for grid box", () => {
+    const cellBox = createBlockLayoutBox("c0", 0, 0, 100, 24, [
+      createLineLayoutBox("l0", 0, 0, 100, 24, [
+        createTextLayoutBox("t0", 0, 0, 40, 24, "hi"),
+      ]),
+    ]);
+    const rowBox = createBlockLayoutBox("r0", 0, 0, 100, 24, [cellBox]);
+    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
+    const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    // Should call strokeRect for the outer border
+    expect(ctx.strokeRect).toHaveBeenCalledWith(0.5, 0.5, 99, 23);
+  });
+
+  it("draws column separator lines", () => {
+    const cell0 = createBlockLayoutBox("c0", 0, 0, 100, 24, []);
+    const cell1 = createBlockLayoutBox("c1", 100, 0, 200, 24, []);
+    const rowBox = createBlockLayoutBox("r0", 0, 0, 300, 24, [cell0, cell1]);
+    const gridBox = createGridLayoutBox("g1", 0, 0, 300, 24, [rowBox], [100, 200], [24]);
+    const tree = createBlockLayoutBox("doc", 0, 0, 300, 24, [gridBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 300, 100, 0, 100);
+
+    // Should draw vertical line at x=100 (column separator)
+    const moveToCall = vi.mocked(ctx.moveTo).mock.calls.find(
+      ([x, y]) => x === 100.5 && y === 0.5,
+    );
+    expect(moveToCall).toBeDefined();
+    const lineToCall = vi.mocked(ctx.lineTo).mock.calls.find(
+      ([x, y]) => x === 100.5 && y === 23.5,
+    );
+    expect(lineToCall).toBeDefined();
+  });
+
+  it("draws row separator lines", () => {
+    const row0 = createBlockLayoutBox("r0", 0, 0, 200, 24, []);
+    const row1 = createBlockLayoutBox("r1", 0, 24, 200, 24, []);
+    const gridBox = createGridLayoutBox("g1", 0, 0, 200, 48, [row0, row1], [200], [24, 24]);
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 48, [gridBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 48 }, "hidden", 200, 100, 0, 100);
+
+    // Should draw horizontal line at y=24 (row separator)
+    const moveToCall = vi.mocked(ctx.moveTo).mock.calls.find(
+      ([x, y]) => x === 0.5 && y === 24.5,
+    );
+    expect(moveToCall).toBeDefined();
+    const lineToCall = vi.mocked(ctx.lineTo).mock.calls.find(
+      ([x, y]) => x === 199.5 && y === 24.5,
+    );
+    expect(lineToCall).toBeDefined();
+  });
+
+  it("paints cell text inside grid", () => {
+    const cellBox = createBlockLayoutBox("c0", 0, 0, 100, 24, [
+      createLineLayoutBox("l0", 0, 0, 100, 24, [
+        createTextLayoutBox("t0", 0, 0, 40, 24, "hello"),
+      ]),
+    ]);
+    const rowBox = createBlockLayoutBox("r0", 0, 0, 100, 24, [cellBox]);
+    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
+    const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    expect(ctx.fillText).toHaveBeenCalledWith("hello", 0, 4);
+  });
+
+  it("sets stroke style to #dadce0", () => {
+    const strokeStyles: string[] = [];
+    vi.mocked(ctx.strokeRect).mockImplementation(() => {
+      strokeStyles.push(ctx.strokeStyle as string);
+    });
+
+    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [], [100], [24]);
+    const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    expect(strokeStyles[0]).toBe("#dadce0");
   });
 });

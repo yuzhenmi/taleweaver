@@ -3,8 +3,8 @@ import { createNode, createTextNode } from "../state/create-node";
 import { createPosition } from "../state/position";
 import { insertText } from "../state/transformations";
 import { defaultComponents } from "../components";
-import { ComponentRegistry, createRegistry } from "../components/component-registry";
-import { createBlockNode, createTextRenderNode, type RenderNode } from "./render-node";
+import { createRegistry } from "../components/component-registry";
+import type { RenderNode } from "./render-node";
 import type { TextRenderNode } from "./text-render-node";
 import { renderTree, renderTreeIncremental } from "./render";
 
@@ -22,96 +22,6 @@ function makeDoc() {
   const p1 = createNode("p1", "paragraph", {}, [t1, t2]);
   return createNode("doc", "document", {}, [p1]);
 }
-
-describe("Component render functions", () => {
-  it("renders a text component", () => {
-    const textNode = createTextNode("t1", "hello");
-    const rendered = registry.get("text")!.render(textNode, []);
-
-    expect(rendered.type).toBe("text");
-    expect(expectTextRender(rendered).text).toBe("hello");
-    expect(rendered.key).toBe("t1");
-  });
-
-  it("renders a paragraph component", () => {
-    const child = createTextRenderNode("t1", "hello", {});
-    const paraNode = createNode("p1", "paragraph", {}, []);
-    const rendered = registry.get("paragraph")!.render(paraNode, [child]);
-
-    expect(rendered.type).toBe("block");
-    expect(rendered.children).toHaveLength(1);
-    expect(rendered.children[0]).toBe(child);
-  });
-
-  it("renders a document component", () => {
-    const child = createBlockNode("p1", {}, []);
-    const docNode = createNode("doc", "document", {}, []);
-    const rendered = registry.get("document")!.render(docNode, [child]);
-
-    expect(rendered.type).toBe("block");
-    expect(rendered.children).toHaveLength(1);
-  });
-
-  it("custom component can be registered", () => {
-    const customRegistry = new ComponentRegistry();
-    customRegistry.register({
-      type: "heading",
-      render: (node, children) =>
-        createBlockNode(node.id, { fontSize: 24, fontWeight: "bold" }, children),
-    });
-
-    expect(customRegistry.has("heading")).toBe(true);
-    const headingNode = createNode("h1", "heading", {}, []);
-    const rendered = customRegistry.get("heading")!.render(headingNode, []);
-    expect(rendered.styles.fontSize).toBe(24);
-  });
-
-  it("renders span component as inline with data-driven styles", () => {
-    const textNode = createTextNode("t1", "styled text");
-    const spanNode = createNode("s1", "span", {}, [textNode], { fontWeight: "bold", fontStyle: "italic" });
-
-    const renderedText = registry.get("text")!.render(textNode, []);
-    const rendered = registry.get("span")!.render(spanNode, [renderedText]);
-
-    expect(rendered.type).toBe("inline");
-    expect(rendered.styles.fontWeight).toBe("bold");
-    expect(rendered.styles.fontStyle).toBe("italic");
-    expect(rendered.children).toHaveLength(1);
-    expect(expectTextRender(rendered.children[0]).text).toBe("styled text");
-  });
-
-  it("filters unknown properties from span rendering", () => {
-    const textNode = createTextNode("t1", "text");
-    const spanNode = createNode("s1", "span", {}, [textNode], {
-      fontWeight: "bold",
-    });
-
-    const renderedText = registry.get("text")!.render(textNode, []);
-    const rendered = registry.get("span")!.render(spanNode, [renderedText]);
-
-    expect(rendered.styles.fontWeight).toBe("bold");
-    expect(rendered.styles).not.toHaveProperty("color");
-    expect(rendered.styles).not.toHaveProperty("customAttr");
-  });
-
-  it("passes lineHeight through on spans", () => {
-    const textNode = createTextNode("t1", "text");
-    const spanNode = createNode("s1", "span", {}, [textNode], { lineHeight: 1.5 });
-
-    const renderedText = registry.get("text")!.render(textNode, []);
-    const rendered = registry.get("span")!.render(spanNode, [renderedText]);
-
-    expect(rendered.styles.lineHeight).toBe(1.5);
-  });
-
-  it("passes lineHeight through on text nodes", () => {
-    const textNode = createNode("t1", "text", { content: "hello" }, [], { lineHeight: 2 });
-
-    const rendered = registry.get("text")!.render(textNode, []);
-
-    expect(rendered.styles.lineHeight).toBe(2);
-  });
-});
 
 describe("Full render pass", () => {
   it("renders a complete document tree", () => {

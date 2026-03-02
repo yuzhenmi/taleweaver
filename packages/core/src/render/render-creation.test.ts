@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createBlockNode } from "./block-render-node";
+import { createGridNode } from "./grid-render-node";
 import { createInlineNode } from "./inline-render-node";
 import { createTextRenderNode } from "./text-render-node";
 
@@ -66,12 +67,66 @@ describe("createBlockNode", () => {
     expect(block.children).toHaveLength(1);
   });
 
+  it("accepts optional metadata", () => {
+    const block = createBlockNode("b1", {}, [], undefined, { type: "image", src: "data:image/png;base64,abc" });
+    expect(block.metadata).toEqual({ type: "image", src: "data:image/png;base64,abc" });
+  });
+
+  it("freezes metadata", () => {
+    const block = createBlockNode("b1", {}, [], undefined, { type: "hr" });
+    expect(Object.isFrozen(block.metadata)).toBe(true);
+  });
+
+  it("omits metadata when not provided", () => {
+    const block = createBlockNode("b1", {}, []);
+    expect(block.metadata).toBeUndefined();
+  });
+
   it("accepts any child types without constraint", () => {
     const text = createTextRenderNode("t1", "hi", {});
     const inline = createInlineNode("i1", {}, [text]);
     const innerBlock = createBlockNode("inner", {}, []);
     const block = createBlockNode("outer", {}, [text, inline, innerBlock]);
     expect(block.children).toHaveLength(3);
+  });
+});
+
+describe("createGridNode", () => {
+  it("creates a grid render node with correct properties", () => {
+    const child = createBlockNode("row1", {}, []);
+    const grid = createGridNode("g1", {}, [child], [100, 200], [0, 50]);
+    expect(grid.key).toBe("g1");
+    expect(grid.type).toBe("grid");
+    expect(grid.children).toHaveLength(1);
+    expect(grid.children[0]).toBe(child);
+    expect(grid.columnWidths).toEqual([100, 200]);
+    expect(grid.rowHeights).toEqual([0, 50]);
+  });
+
+  it("freezes the node", () => {
+    const grid = createGridNode("g1", {}, [], [100], [0]);
+    expect(Object.isFrozen(grid)).toBe(true);
+  });
+
+  it("freezes styles, children, columnWidths, and rowHeights", () => {
+    const grid = createGridNode("g1", {}, [], [100], [0]);
+    expect(Object.isFrozen(grid.styles)).toBe(true);
+    expect(Object.isFrozen(grid.children)).toBe(true);
+    expect(Object.isFrozen(grid.columnWidths)).toBe(true);
+    expect(Object.isFrozen(grid.rowHeights)).toBe(true);
+  });
+
+  it("copies arrays defensively", () => {
+    const children = [createBlockNode("row1", {}, [])];
+    const colWidths = [100, 200];
+    const rowHeights = [0, 50];
+    const grid = createGridNode("g1", {}, children, colWidths, rowHeights);
+    children.push(createBlockNode("row2", {}, []));
+    colWidths.push(300);
+    rowHeights.push(60);
+    expect(grid.children).toHaveLength(1);
+    expect(grid.columnWidths).toHaveLength(2);
+    expect(grid.rowHeights).toHaveLength(2);
   });
 });
 

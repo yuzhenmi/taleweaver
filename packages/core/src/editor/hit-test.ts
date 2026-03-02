@@ -25,7 +25,7 @@ export function resolvePositionFromPixel(
   collectAllTextBoxes(layoutTree, 0, 0, allBoxes);
 
   // Filter to target page (when paginated)
-  const hasPagination = allBoxes.some((b) => b.pageIndex > 0) || allBoxes.length > 0;
+  const hasPagination = allBoxes.some((b) => b.pageIndex > 0);
   const boxes = hasPagination
     ? allBoxes.filter((b) => b.pageIndex === pageIndex)
     : allBoxes;
@@ -64,7 +64,14 @@ export function resolvePositionFromPixel(
 
   // 4. Find target text box by X coordinate
   let targetBox = lineBoxes[lineBoxes.length - 1]; // default: last box
-  for (const b of lineBoxes) {
+  for (let i = 0; i < lineBoxes.length; i++) {
+    const b = lineBoxes[i];
+    if (x < b.absoluteX) {
+      // Click is in a gap before this box (e.g. empty space in a table cell) —
+      // pick the previous box if one exists
+      targetBox = i > 0 ? lineBoxes[i - 1] : b;
+      break;
+    }
     if (x < b.absoluteX + b.box.width) {
       targetBox = b;
       break;

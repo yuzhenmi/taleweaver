@@ -22,6 +22,7 @@ import {
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
 import { paintCanvas, paintPage, type CursorState } from "./canvas-renderer";
+import { ImageCache } from "./image-cache";
 
 const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
@@ -35,6 +36,7 @@ export interface EditorControllerOptions {
 
 export interface EditorController {
   update(editorState: EditorState): void;
+  focus(): void;
   destroy(): void;
 }
 
@@ -58,6 +60,9 @@ export function createEditorController(
   let dragAnchor: Position | null = null;
   let isComposing = false;
   let destroyed = false;
+
+  // Image cache for rendering image blocks
+  const imageCache = new ImageCache(() => paint());
 
   // Computed on update
   let cursorPos = { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 24, pageIndex: 0 };
@@ -178,6 +183,7 @@ export function createEditorController(
       logicalHeight,
       visibleTop,
       visibleBottom,
+      imageCache,
     );
   }
 
@@ -210,7 +216,7 @@ export function createEditorController(
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageCursor, cs);
+      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache);
     }
   }
 
@@ -776,5 +782,9 @@ export function createEditorController(
     textarea.remove();
   }
 
-  return { update, destroy };
+  function focus() {
+    textarea.focus();
+  }
+
+  return { update, focus, destroy };
 }

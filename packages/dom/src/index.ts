@@ -8,6 +8,7 @@ export type { CursorState } from "./canvas-renderer";
 export { paintCanvas, paintPage } from "./canvas-renderer";
 export { createEditorController } from "./editor-controller";
 export type { EditorController, EditorControllerOptions } from "./editor-controller";
+export { ImageCache } from "./image-cache";
 
 // Re-exports from core (backward compatibility)
 export type { EditorAction, PixelPosition, SelectionRect, AbsoluteTextBox } from "@taleweaver/core";

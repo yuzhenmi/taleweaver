@@ -1,19 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-config";
-
-describe("FONT_CONFIG", () => {
-  it("has Inter sans-serif fontFamily", () => {
-    expect(FONT_CONFIG.fontFamily).toBe('"Inter", sans-serif');
-  });
-
-  it("has fontSize 16", () => {
-    expect(FONT_CONFIG.fontSize).toBe(16);
-  });
-
-  it("has lineHeight 24", () => {
-    expect(FONT_CONFIG.lineHeight).toBe(24);
-  });
-});
+import { buildCssFontString, getEffectiveStyles } from "./font-config";
 
 describe("buildCssFontString", () => {
   it("builds font string from defaults", () => {

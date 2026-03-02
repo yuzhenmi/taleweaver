@@ -1,10 +1,10 @@
 import type { StateNode } from "./state-node";
 import type { Span, Position } from "./position";
-import { normalizeSpan, comparePositions, createPosition } from "./position";
+import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
 import { getTextContent, getTextContentLength } from "./text-utils";
 import { getNodeByPath } from "./operations";
 
-const BLOCK_TYPES = new Set(["document", "paragraph", "heading", "list", "list-item"]);
+const BLOCK_TYPES = new Set(["paragraph", "heading", "list-item"]);
 
 /**
  * Extract plain text from a document within a selection span.
@@ -34,7 +34,7 @@ function findBlockAncestorPath(root: StateNode, textPath: number[]): number[] {
   for (let depth = textPath.length - 1; depth >= 0; depth--) {
     const ancestorPath = textPath.slice(0, depth);
     const ancestor = getNodeByPath(root, ancestorPath);
-    if (ancestor && BLOCK_TYPES.has(ancestor.type) && ancestor.type !== "document" && ancestor.type !== "list") {
+    if (ancestor && BLOCK_TYPES.has(ancestor.type)) {
       return ancestorPath;
     }
   }
@@ -59,11 +59,9 @@ function collectText(
     if (comparePositions(pos, end) >= 0) return;
 
     const content = getTextContent(node);
-    const samePath = (a: readonly number[], b: readonly number[]) =>
-      a.length === b.length && a.every((v, i) => v === b[i]);
 
-    const effectiveStart = samePath(path, [...start.path]) ? start.offset : 0;
-    const effectiveEnd = samePath(path, [...end.path]) ? end.offset : content.length;
+    const effectiveStart = pathsEqual(path, start.path) ? start.offset : 0;
+    const effectiveEnd = pathsEqual(path, end.path) ? end.offset : content.length;
 
     // Find the nearest block-level ancestor to determine paragraph boundaries
     const blockPath = findBlockAncestorPath(root, path);

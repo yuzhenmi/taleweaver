@@ -86,4 +86,38 @@ describe("resolvePositionFromPixel", () => {
     const pos = resolvePositionFromPixel(state, layout, measurer, 0, 0);
     expect(pos).toBeNull();
   });
+
+  it("clicking empty space after text in first table column stays in first column", () => {
+    // Table: 2 columns [200, 200], one row
+    // Cell 0: paragraph with "Hi" (16px wide at 8px/char)
+    // Cell 1: paragraph with "There"
+    const state = createNode("doc", "document", {}, [
+      createNode("t1", "table", { columnWidths: [200, 200], rowHeights: [0] }, [
+        createNode("r1", "table-row", {}, [
+          createNode("c1", "table-cell", {}, [
+            createNode("p0", "paragraph", {}, [createTextNode("t0", "Hi")]),
+          ]),
+          createNode("c2", "table-cell", {}, [
+            createNode("p1", "paragraph", {}, [createTextNode("t1", "There")]),
+          ]),
+        ]),
+      ]),
+    ]);
+
+    const render = renderTree(state, registry);
+    const layout = layoutTree(render, 400, measurer);
+
+    // Click at x=100: well past "Hi" text (16px) but within column 0 (0–200px)
+    // Should resolve to end of "Hi" in cell 0, NOT to "There" in cell 1
+    const pos = resolvePositionFromPixel(state, layout, measurer, 100, 5);
+    expect(pos).not.toBeNull();
+    expect(pos!.path[0]).toBe(0); // table
+    expect(pos!.offset).toBe(2); // end of "Hi"
+
+    // Verify the node is t0 (cell 0's text), not t1 (cell 1's text)
+    // by checking that clicking at x=210 does resolve to cell 1
+    const pos2 = resolvePositionFromPixel(state, layout, measurer, 210, 5);
+    expect(pos2).not.toBeNull();
+    expect(pos2!.offset).toBeLessThanOrEqual(5); // within "There"
+  });
 });
