@@ -162,6 +162,18 @@ describe("moveByWord", () => {
     expect(sel.focus.offset).toBe(5);
   });
 
+  it("moves forward by word, skipping spaces", () => {
+    const t1 = createTextNode("t1", "hello world foo");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    // From end of "hello" (offset 5, before space), should skip space
+    // and land at end of "world" (offset 11)
+    const pos = createPosition([0, 0], 5);
+    const sel = moveByWord(doc, pos, "forward");
+    expect(sel.focus.offset).toBe(11);
+  });
+
   it("moves backward by word", () => {
     const t1 = createTextNode("t1", "hello world foo");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
@@ -313,7 +325,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(2);
   });
 
-  it("forward from textLength goes to textLength+1 (virtual EOL)", () => {
+  it("forward from textLength crosses to next text node when one exists", () => {
     const doc = makeTwoParagraphDoc();
     // "First" has length 5, focus at 5 (end of text)
     const sel = createSelection(
@@ -322,11 +334,11 @@ describe("expandSelectionByCharacter", () => {
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.anchor.offset).toBe(0);
-    expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(6); // textLength + 1
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(0); // start of next node
   });
 
-  it("forward from textLength+1 crosses to next text node at offset 0", () => {
+  it("forward from textLength+1 crosses to next text node at first grapheme", () => {
     const doc = makeTwoParagraphDoc();
     const sel = createSelection(
       createPosition([0, 0], 0),
@@ -335,7 +347,7 @@ describe("expandSelectionByCharacter", () => {
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.anchor.offset).toBe(0);
     expect(expanded.focus.path).toEqual([1, 0]);
-    expect(expanded.focus.offset).toBe(0);
+    expect(expanded.focus.offset).toBe(1); // first grapheme boundary of "Second"
   });
 
   it("backward from textLength+1 goes to textLength (deselect just EOL)", () => {
@@ -350,7 +362,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(5); // textLength
   });
 
-  it("backward from offset 0 goes to previous text node's textLength+1 (virtual EOL)", () => {
+  it("backward from offset 0 goes to previous text node's textLength (EOL position)", () => {
     const doc = makeTwoParagraphDoc();
     const sel = createSelection(
       createPosition([1, 0], 3),
@@ -360,7 +372,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.anchor.path).toEqual([1, 0]);
     expect(expanded.anchor.offset).toBe(3);
     expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(6); // prev node's textLength + 1
+    expect(expanded.focus.offset).toBe(5); // prev node's textLength
   });
 
   it("forward from textLength on last node goes to textLength+1 (virtual EOL)", () => {
@@ -403,7 +415,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(0);
   });
 
-  it("empty paragraph — forward from 0 goes to virtual EOL (offset 1)", () => {
+  it("empty paragraph — forward from 0 crosses to next text node when one exists", () => {
     const t1 = createTextNode("t1", "");
     const t2 = createTextNode("t2", "World");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
@@ -412,11 +424,22 @@ describe("expandSelectionByCharacter", () => {
 
     const sel = createCursor([0, 0], 0);
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
-    expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(1); // virtual EOL for empty node
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(0); // start of next node
   });
 
-  it("empty paragraph — forward from virtual EOL crosses to next node", () => {
+  it("empty paragraph — forward from 0 goes to virtual EOL when no next node", () => {
+    const t1 = createTextNode("t1", "");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const doc = createNode("doc", "document", {}, [p1]);
+
+    const sel = createCursor([0, 0], 0);
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([0, 0]);
+    expect(expanded.focus.offset).toBe(1); // virtual EOL for last node
+  });
+
+  it("empty paragraph — forward from virtual EOL crosses to next node at first grapheme", () => {
     const t1 = createTextNode("t1", "");
     const t2 = createTextNode("t2", "World");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
@@ -429,7 +452,43 @@ describe("expandSelectionByCharacter", () => {
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([1, 0]);
-    expect(expanded.focus.offset).toBe(0);
+    expect(expanded.focus.offset).toBe(1); // first grapheme of "World"
+  });
+
+  it("forward from textLength+1 to empty next node goes to virtual EOL", () => {
+    const t1 = createTextNode("t1", "Hello");
+    const t2 = createTextNode("t2", "");
+    const t3 = createTextNode("t3", "World");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const p2 = createNode("p2", "paragraph", {}, [t2]);
+    const p3 = createNode("p3", "paragraph", {}, [t3]);
+    const doc = createNode("doc", "document", {}, [p1, p2, p3]);
+
+    const sel = createSelection(
+      createPosition([0, 0], 0),
+      createPosition([0, 0], 6), // virtual EOL of "Hello"
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "forward");
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(1); // virtual EOL of empty node
+  });
+
+  it("backward from offset 0 to empty prev node goes to textLength (0)", () => {
+    const t1 = createTextNode("t1", "Hello");
+    const t2 = createTextNode("t2", "");
+    const t3 = createTextNode("t3", "World");
+    const p1 = createNode("p1", "paragraph", {}, [t1]);
+    const p2 = createNode("p2", "paragraph", {}, [t2]);
+    const p3 = createNode("p3", "paragraph", {}, [t3]);
+    const doc = createNode("doc", "document", {}, [p1, p2, p3]);
+
+    const sel = createSelection(
+      createPosition([2, 0], 3),
+      createPosition([2, 0], 0),
+    );
+    const expanded = expandSelectionByCharacter(doc, sel, "backward");
+    expect(expanded.focus.path).toEqual([1, 0]);
+    expect(expanded.focus.offset).toBe(0); // textLength of empty node = 0
   });
 
   it("empty paragraph on last node — forward from 0 goes to virtual EOL", () => {

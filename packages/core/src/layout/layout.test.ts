@@ -569,6 +569,241 @@ describe("Pagination with margins", () => {
   });
 });
 
+describe("List marker layout", () => {
+  it("passes marker through from render node to layout box", () => {
+    const text = createTextRenderNode("t1", "Item", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const listItem = createBlockNode("li1", { paddingLeft: 24 }, [para], "\u2022");
+    const list = createBlockNode("list1", {}, [listItem]);
+    const doc = createBlockNode("doc", {}, [list]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    // list > list-item
+    const listBox = layout.children[0];
+    const listItemBox = listBox.children[0];
+    expect(listItemBox.type).toBe("block");
+    if (listItemBox.type === "block") {
+      expect(listItemBox.marker).toBe("\u2022");
+    }
+  });
+
+  it("does not set marker on blocks without marker", () => {
+    const text = createTextRenderNode("t1", "Hello", {});
+    const para = createBlockNode("p1", {}, [text]);
+    const doc = createBlockNode("doc", {}, [para]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    const paraBox = layout.children[0];
+    if (paraBox.type === "block") {
+      expect(paraBox.marker).toBeUndefined();
+    }
+  });
+});
+
+describe("Incremental layout for lists", () => {
+  it("text Y position stays stable when inserting characters into a list item", () => {
+    const registry = createRegistry(defaultComponents);
+    const state1 = createNode("doc", "document", {}, [
+      createNode("list-1", "list", { listType: "unordered" }, [
+        createNode("li-1", "list-item", {}, [
+          createNode("p1", "paragraph", {}, [createTextNode("t1", "hello")]),
+        ]),
+      ]),
+    ]);
+
+    const rendered1 = renderTree(state1, registry);
+    const layout1 = layoutTree(rendered1, 200, measurer);
+
+    // Find the text box Y position in the initial layout
+    function findTextBox(box: LayoutBox): LayoutBox | null {
+      if (box.type === "text") return box;
+      for (const child of box.children) {
+        const found = findTextBox(child);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function getAbsoluteY(layout: LayoutBox, targetKey: string, parentY = 0): number | null {
+      const absY = parentY + layout.y;
+      if (layout.type === "text" && layout.key.startsWith(targetKey)) return absY;
+      for (const child of layout.children) {
+        const found = getAbsoluteY(child, targetKey, absY);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    const initialY = getAbsoluteY(layout1, "t1");
+    expect(initialY).not.toBeNull();
+
+    // Insert a character
+    const change = insertText(state1, createPosition([0, 0, 0, 0], 5), "!");
+    const rendered2 = renderTreeIncremental(
+      change.newState,
+      state1,
+      rendered1,
+      registry,
+    );
+    const layout2 = layoutTreeIncremental(
+      rendered2,
+      rendered1,
+      layout1,
+      200,
+      measurer,
+    );
+
+    const afterY = getAbsoluteY(layout2, "t1");
+    expect(afterY).toBe(initialY);
+
+    // Insert another character
+    const change2 = insertText(change.newState, createPosition([0, 0, 0, 0], 6), "!");
+    const rendered3 = renderTreeIncremental(
+      change2.newState,
+      change.newState,
+      rendered2,
+      registry,
+    );
+    const layout3 = layoutTreeIncremental(
+      rendered3,
+      rendered2,
+      layout2,
+      200,
+      measurer,
+    );
+
+    const afterY2 = getAbsoluteY(layout3, "t1");
+    expect(afterY2).toBe(initialY);
+  });
+
+  it("text Y stays stable without paragraph wrapper (handleToggleList state)", () => {
+    // handleToggleList puts text directly under list-item (no paragraph)
+    const registry = createRegistry(defaultComponents);
+    const state1 = createNode("doc", "document", {}, [
+      createNode("list-1", "list", { listType: "unordered" }, [
+        createNode("li-1", "list-item", {}, [
+          createTextNode("t1", "hello"),
+        ]),
+      ]),
+    ]);
+
+    const rendered1 = renderTree(state1, registry);
+    const layout1 = layoutTree(rendered1, 200, measurer);
+
+    function getAbsoluteY(layout: LayoutBox, targetKey: string, parentY = 0): number | null {
+      const absY = parentY + layout.y;
+      if (layout.type === "text" && layout.key.startsWith(targetKey)) return absY;
+      for (const child of layout.children) {
+        const found = getAbsoluteY(child, targetKey, absY);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    const initialY = getAbsoluteY(layout1, "t1");
+    expect(initialY).not.toBeNull();
+
+    // Insert characters one at a time (path [0, 0, 0] = doc > list > list-item > text)
+    let prevState = state1;
+    let prevRendered = rendered1;
+    let prevLayout = layout1;
+
+    for (let i = 0; i < 5; i++) {
+      const change = insertText(prevState, createPosition([0, 0, 0], 5 + i), "!");
+      const rendered = renderTreeIncremental(change.newState, prevState, prevRendered, registry);
+      const layout = layoutTreeIncremental(rendered, prevRendered, prevLayout, 200, measurer);
+
+      const textY = getAbsoluteY(layout, "t1");
+      expect(textY).toBe(initialY);
+
+      prevState = change.newState;
+      prevRendered = rendered;
+      prevLayout = layout;
+    }
+  });
+
+  it("text Y stays stable with pagination when inserting into a list item", () => {
+    const registry = createRegistry(defaultComponents);
+    const margins = { top: 96, bottom: 96, left: 72, right: 72 };
+    const state1 = createNode("doc", "document", {}, [
+      createNode("list-1", "list", { listType: "unordered" }, [
+        createNode("li-1", "list-item", {}, [
+          createNode("p1", "paragraph", {}, [createTextNode("t1", "hello")]),
+        ]),
+      ]),
+    ]);
+
+    const rendered1 = renderTree(state1, registry);
+    const layout1 = layoutTree(rendered1, 816, measurer, 1056, margins);
+
+    function getAbsoluteY(layout: LayoutBox, targetKey: string, parentY = 0): number | null {
+      const absY = parentY + layout.y;
+      if (layout.type === "text" && layout.key.startsWith(targetKey)) return absY;
+      for (const child of layout.children) {
+        const found = getAbsoluteY(child, targetKey, absY);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    const initialY = getAbsoluteY(layout1, "t1");
+    expect(initialY).not.toBeNull();
+
+    // Insert a character
+    const change = insertText(state1, createPosition([0, 0, 0, 0], 5), "!");
+    const rendered2 = renderTreeIncremental(change.newState, state1, rendered1, registry);
+    const layout2 = layoutTreeIncremental(rendered2, rendered1, layout1, 816, measurer, 1056, margins);
+
+    const afterY = getAbsoluteY(layout2, "t1");
+    expect(afterY).toBe(initialY);
+
+    // Insert another character
+    const change2 = insertText(change.newState, createPosition([0, 0, 0, 0], 6), "!");
+    const rendered3 = renderTreeIncremental(change2.newState, change.newState, rendered2, registry);
+    const layout3 = layoutTreeIncremental(rendered3, rendered2, layout2, 816, measurer, 1056, margins);
+
+    const afterY2 = getAbsoluteY(layout3, "t1");
+    expect(afterY2).toBe(initialY);
+  });
+
+  it("preserves marker through incremental layout", () => {
+    const registry = createRegistry(defaultComponents);
+    const state1 = createNode("doc", "document", {}, [
+      createNode("list-1", "list", { listType: "unordered" }, [
+        createNode("li-1", "list-item", {}, [
+          createNode("p1", "paragraph", {}, [createTextNode("t1", "hello")]),
+        ]),
+      ]),
+    ]);
+
+    const rendered1 = renderTree(state1, registry);
+    const layout1 = layoutTree(rendered1, 200, measurer);
+
+    // Verify marker exists initially
+    const listBox1 = layout1.children[0];
+    const listItemBox1 = listBox1.children[0];
+    expect(listItemBox1.type).toBe("block");
+    if (listItemBox1.type === "block") {
+      expect(listItemBox1.marker).toBe("\u2022");
+    }
+
+    // Insert a character and do incremental layout
+    const change = insertText(state1, createPosition([0, 0, 0, 0], 5), "!");
+    const rendered2 = renderTreeIncremental(change.newState, state1, rendered1, registry);
+    const layout2 = layoutTreeIncremental(rendered2, rendered1, layout1, 200, measurer);
+
+    // Marker should still be present after incremental layout
+    const listBox2 = layout2.children[0];
+    const listItemBox2 = listBox2.children[0];
+    expect(listItemBox2.type).toBe("block");
+    if (listItemBox2.type === "block") {
+      expect(listItemBox2.marker).toBe("\u2022");
+    }
+  });
+});
+
 describe("Incremental layout", () => {
   it("reuses layout when render tree is unchanged", () => {
     const text = createTextRenderNode("t1", "Hello", {});

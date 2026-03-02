@@ -51,31 +51,25 @@ describe("Integration: multiple edits with incremental pipeline", () => {
     // Start at beginning, move forward word by word
     let pos = createPosition([0, 0], 0);
 
-    // Word segmenter stops at each word/non-word boundary:
+    // Forward word movement always lands at word ends, skipping spaces:
     // "one" (0-3), " " (3-4), "two" (4-7), " " (7-8), "three" (8-13)
     const sel1 = moveByWord(doc, pos, "forward");
     expect(sel1.focus.offset).toBe(3); // end of "one"
 
     const sel2 = moveByWord(doc, sel1.focus, "forward");
-    expect(sel2.focus.offset).toBe(4); // start of "two" (past space)
+    expect(sel2.focus.offset).toBe(7); // end of "two" (skips space)
 
     const sel3 = moveByWord(doc, sel2.focus, "forward");
-    expect(sel3.focus.offset).toBe(7); // end of "two"
-
-    const sel4 = moveByWord(doc, sel3.focus, "forward");
-    expect(sel4.focus.offset).toBe(8); // start of "three" (past space)
-
-    const sel5 = moveByWord(doc, sel4.focus, "forward");
-    expect(sel5.focus.offset).toBe(13); // end of "three"
+    expect(sel3.focus.offset).toBe(13); // end of "three" (skips space)
 
     // Move backward
+    const sel4 = moveByWord(doc, sel3.focus, "backward");
+    expect(sel4.focus.offset).toBe(8); // start of "three"
+
+    const sel5 = moveByWord(doc, sel4.focus, "backward");
+    expect(sel5.focus.offset).toBe(4); // start of "two"
+
     const sel6 = moveByWord(doc, sel5.focus, "backward");
-    expect(sel6.focus.offset).toBe(8); // start of "three"
-
-    const sel7 = moveByWord(doc, sel6.focus, "backward");
-    expect(sel7.focus.offset).toBe(4); // start of "two"
-
-    const sel8 = moveByWord(doc, sel7.focus, "backward");
-    expect(sel8.focus.offset).toBe(0); // start of "one"
+    expect(sel6.focus.offset).toBe(0); // start of "one"
   });
 });

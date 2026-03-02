@@ -35,25 +35,14 @@ function prevGraphemeBoundary(text: string, offset: number): number {
   return lastStart;
 }
 
-/** Find the next word boundary after `offset` in `text`. */
+/** Find the next word boundary after `offset` in `text`.
+ *  Always lands at the END of a word, skipping any whitespace/punctuation. */
 function nextWordBoundary(text: string, offset: number): number {
   if (offset >= text.length) return text.length;
-  // Find the next word-like segment boundary after offset
-  let passedCurrent = false;
   for (const seg of wordSegmenter.segment(text)) {
     const end = seg.index + seg.segment.length;
-    if (seg.index >= offset && passedCurrent && seg.isWordLike) {
-      return seg.index;
-    }
-    if (end > offset) {
-      passedCurrent = true;
-      // If we're inside a word, jump to its end first
-      if (seg.isWordLike && seg.index < offset) {
-        return end;
-      }
-      if (seg.isWordLike) {
-        return end;
-      }
+    if (seg.isWordLike && end > offset) {
+      return end;
     }
   }
   return text.length;
@@ -264,16 +253,30 @@ export function expandSelectionByCharacter(
 
   if (direction === "forward") {
     if (focus.offset > textLength) {
-      // At virtual EOL (textLength + 1) — cross to next text node
+      // At virtual EOL (textLength + 1) — equivalent to next node's offset 0.
+      // Advance into the next node to avoid an invisible step.
       const next = findNextTextNode(state, focus.path);
-      if (next) {
-        return createSelection(selection.anchor, createPosition(next, 0));
+      if (!next) return selection;
+      const nextNode = getNodeByPath(state, next)!;
+      const nextLength = getTextContentLength(nextNode);
+      if (nextLength === 0) {
+        // Empty next node — go to its virtual EOL (offset 1)
+        return createSelection(selection.anchor, createPosition(next, 1));
       }
-      // No next node — stay put
-      return selection;
+      const nextContent = getTextContent(nextNode);
+      const boundary = nextGraphemeBoundary(nextContent, 0);
+      return createSelection(selection.anchor, createPosition(next, boundary));
     }
     if (focus.offset === textLength) {
-      // At end of text — go to virtual EOL
+      // At end of text — if there's a next text node, go directly to its start.
+      // Only use virtual EOL when there is no next line.
+      const next = findNextTextNode(state, focus.path);
+      if (next) {
+        return createSelection(
+          selection.anchor,
+          createPosition(next, 0),
+        );
+      }
       return createSelection(
         selection.anchor,
         createPosition(focus.path, textLength + 1),
@@ -296,13 +299,15 @@ export function expandSelectionByCharacter(
       );
     }
     if (focus.offset === 0) {
-      // At start of node — go to previous text node's virtual EOL
+      // At start of node — go to previous text node's EOL position (textLength).
+      // textLength+1 (past the EOL) is the same conceptual position as this node's
+      // offset 0, so landing there would be an invisible step.
       const prev = findPrevTextNode(state, focus.path);
       if (prev) {
         const prevNode = getNodeByPath(state, prev)!;
         return createSelection(
           selection.anchor,
-          createPosition(prev, getTextContentLength(prevNode) + 1),
+          createPosition(prev, getTextContentLength(prevNode)),
         );
       }
       // No previous node — stay put

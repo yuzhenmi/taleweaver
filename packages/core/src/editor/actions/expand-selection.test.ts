@@ -54,16 +54,29 @@ describe("EXPAND_SELECTION", () => {
     expect(s.selection.focus.offset).toBe(3);
   });
 
-  it("expand forward from textLength stops at virtual EOL before crossing paragraph", () => {
+  it("expand forward from textLength crosses to next paragraph when one exists", () => {
     let s = stateWithTwoParagraphs();
     // Select from offset 0 to textLength (3) on first paragraph
     s = withSelection(s, createSelection(
       createPosition([0, 0], 0),
       createPosition([0, 0], 3),
     ));
-    // Shift+Right should stop at virtual EOL (4), not cross to next paragraph
+    // Shift+Right should cross to next paragraph's offset 0, not virtual EOL
     s = reduceEditor(s, { type: "EXPAND_SELECTION", direction: "forward" }, config);
-    expect(s.selection.focus.path).toEqual([0, 0]);
+    expect(s.selection.focus.path).toEqual([1, 0]);
+    expect(s.selection.focus.offset).toBe(0);
+  });
+
+  it("expand forward from textLength stops at virtual EOL on last paragraph", () => {
+    let s = stateWithTwoParagraphs();
+    // Select from offset 0 to textLength (3) on LAST paragraph
+    s = withSelection(s, createSelection(
+      createPosition([1, 0], 0),
+      createPosition([1, 0], 3),
+    ));
+    // Shift+Right should stop at virtual EOL since there's no next paragraph
+    s = reduceEditor(s, { type: "EXPAND_SELECTION", direction: "forward" }, config);
+    expect(s.selection.focus.path).toEqual([1, 0]);
     expect(s.selection.focus.offset).toBe(4); // virtual EOL
   });
 });
