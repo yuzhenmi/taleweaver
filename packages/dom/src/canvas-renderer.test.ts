@@ -280,6 +280,63 @@ describe("paintCanvas", () => {
   });
 });
 
+describe("list marker painting", () => {
+  let ctx: CanvasRenderingContext2D;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+  });
+
+  it("paints bullet marker in the padding area of a block", () => {
+    // List-item block at (24, 0) with marker, inside a list at (0,0)
+    const listItemBox = Object.freeze({
+      ...createBlockLayoutBox("li1", 0, 0, 176, 24, [
+        createBlockLayoutBox("p1", 24, 0, 152, 24, [
+          createLineLayoutBox("l1", 0, 0, 152, 24, [
+            createTextLayoutBox("t1", 0, 0, 40, 24, "Item"),
+          ]),
+        ]),
+      ]),
+      marker: "\u2022",
+    });
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 24, [
+      createBlockLayoutBox("list1", 0, 0, 200, 24, [listItemBox]),
+    ]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
+    // Marker should be painted at (0 + small offset, 0 + halfLeading)
+    const markerCall = fillTextCalls.find(([text]) => text === "\u2022");
+    expect(markerCall).toBeDefined();
+    // "Item" should also be painted
+    const itemCall = fillTextCalls.find(([text]) => text === "Item");
+    expect(itemCall).toBeDefined();
+  });
+
+  it("paints ordered marker in the padding area", () => {
+    const listItemBox = Object.freeze({
+      ...createBlockLayoutBox("li1", 0, 0, 176, 24, [
+        createBlockLayoutBox("p1", 24, 0, 152, 24, [
+          createLineLayoutBox("l1", 0, 0, 152, 24, [
+            createTextLayoutBox("t1", 0, 0, 40, 24, "Item"),
+          ]),
+        ]),
+      ]),
+      marker: "1.",
+    });
+    const tree = createBlockLayoutBox("doc", 0, 0, 200, 24, [
+      createBlockLayoutBox("list1", 0, 0, 200, 24, [listItemBox]),
+    ]);
+
+    paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
+
+    const fillTextCalls = vi.mocked(ctx.fillText).mock.calls;
+    const markerCall = fillTextCalls.find(([text]) => text === "1.");
+    expect(markerCall).toBeDefined();
+  });
+});
+
 describe("paintPage", () => {
   let ctx: CanvasRenderingContext2D;
 

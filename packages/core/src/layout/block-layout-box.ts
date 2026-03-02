@@ -9,6 +9,7 @@ export interface BlockLayoutBox {
   readonly width: number;
   readonly height: number;
   readonly children: readonly LayoutBox[];
+  readonly marker?: string;
 }
 
 /** Create a block layout box. Throws if any child is a text box. */
@@ -19,6 +20,7 @@ export function createBlockLayoutBox(
   width: number,
   height: number,
   children: readonly LayoutBox[],
+  marker?: string,
 ): BlockLayoutBox {
   for (const child of children) {
     if (child.type === "text") {
@@ -35,5 +37,6 @@ export function createBlockLayoutBox(
     width,
     height,
     children: Object.freeze([...children]),
+    ...(marker !== undefined ? { marker } : {}),
   });
 }

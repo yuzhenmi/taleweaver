@@ -658,6 +658,38 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
 
+    it("hides cursor on blur when selection is active", () => {
+      vi.mocked(core.computeSelectionRects).mockReturnValue([
+        { x: 0, y: 0, width: 40, height: 16, pageIndex: 0 },
+      ]);
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions());
+      // Non-collapsed selection
+      ctrl.update(
+        makeFakeEditorState({
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 3 },
+          },
+        }),
+      );
+
+      const textarea = container.querySelector("textarea")!;
+      vi.mocked(canvasRenderer.paintCanvas).mockClear();
+      textarea.dispatchEvent(new Event("blur"));
+
+      expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
+      // Cursor should be hidden (not inactive) because there's a selection
+      const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
+      expect(lastCall[4]).toBe("hidden");
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+      vi.mocked(core.computeSelectionRects).mockReturnValue([]);
+    });
+
     it("does not blink when unfocused", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);

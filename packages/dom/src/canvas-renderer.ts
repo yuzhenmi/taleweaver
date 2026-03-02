@@ -95,6 +95,19 @@ function paintBox(
   // Viewport culling: skip entire subtree if out of visible range
   if (absY + box.height < visibleTop || absY > visibleBottom) return;
 
+  if (box.type === "block" && box.marker) {
+    const fontSize = FONT_CONFIG.fontSize;
+    const lineHeight = FONT_CONFIG.lineHeight;
+    const halfLeading = (lineHeight - fontSize) / 2;
+    const markerFontStr = buildCssFontString({});
+    if (markerFontStr !== state.lastFont) {
+      ctx.font = markerFontStr;
+      state.lastFont = markerFontStr;
+    }
+    ctx.fillStyle = "black";
+    ctx.fillText(box.marker, absX + 2, absY + halfLeading);
+  }
+
   if (box.type === "text") {
     const styles = box.styles ?? {};
     const fontStr = buildCssFontString(styles);

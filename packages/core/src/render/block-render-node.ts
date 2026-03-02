@@ -7,6 +7,7 @@ export interface BlockRenderNode {
   readonly type: "block";
   readonly styles: RenderStyles;
   readonly children: readonly RenderNode[];
+  readonly marker?: string;
 }
 
 /** Create a block render node. */
@@ -14,11 +15,13 @@ export function createBlockNode(
   key: string,
   styles: RenderStyles,
   children: readonly RenderNode[],
+  marker?: string,
 ): BlockRenderNode {
   return Object.freeze({
     key,
     type: "block" as const,
     styles: Object.freeze({ ...styles }),
     children: Object.freeze([...children]),
+    ...(marker !== undefined ? { marker } : {}),
   });
 }

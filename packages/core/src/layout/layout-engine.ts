@@ -192,6 +192,7 @@ function layoutBlock(
 
   const totalHeight = contentBottom + paddingBottom + marginBottom;
 
+  const marker = renderNode.type === "block" ? renderNode.marker : undefined;
   return createBlockLayoutBox(
     renderNode.key,
     x,
@@ -199,6 +200,7 @@ function layoutBlock(
     availableWidth,
     totalHeight,
     children,
+    marker,
   );
 }
 
@@ -407,6 +409,7 @@ export function layoutTreeIncremental(
     : contentY;
   const totalHeight = contentBottom + paddingBottom + marginBottom;
 
+  const marker = newRenderNode.type === "block" ? newRenderNode.marker : undefined;
   const docBox = createBlockLayoutBox(
     newRenderNode.key,
     0,
@@ -414,6 +417,7 @@ export function layoutTreeIncremental(
     layoutWidth,
     totalHeight,
     children,
+    marker,
   );
   if (pageHeight === undefined) return docBox;
   return paginateDocument(docBox, pageHeight, containerWidth, pageMargins);

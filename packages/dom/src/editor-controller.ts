@@ -126,8 +126,8 @@ export function createEditorController(
   // ── Paint ──────────────────────────────────────────────────────────────
 
   function getCursorState(): CursorState {
-    if (!focused) return "inactive";
     if (selectionRects.length > 0) return "hidden";
+    if (!focused) return "inactive";
     if (cursorVisible) return "active";
     return "hidden";
   }
