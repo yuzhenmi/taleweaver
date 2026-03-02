@@ -1,12 +1,13 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, createSpan } from "../../state/position";
+import { createPosition, createSpan, positionsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { getNodeByPath } from "../../state/operations";
 import { getTextContentLength } from "../../state/text-utils";
-import { rebuildTrees, deleteSelectionRange } from "./helpers";
+import { createNode } from "../../state/create-node";
+import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant, isAtCellBoundary } from "./helpers";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -22,6 +23,51 @@ export function handleDeleteBackward(
   // At very start of document — nothing to delete
   if (pos.path.every((v) => v === 0) && pos.offset === 0) {
     return editor;
+  }
+
+  // At start of a table cell — prevent cross-cell merge
+  if (isAtCellBoundary(editor.state, pos, "start")) {
+    return editor;
+  }
+
+  // At start of a block (offset 0), check if previous sibling is a void block
+  if (pos.offset === 0 && pos.path[0] > 0) {
+    const prevIdx = pos.path[0] - 1;
+    const prevBlock = editor.state.children[prevIdx];
+    if (prevBlock && prevBlock.children.length === 0) {
+      // Remove the void block
+      const docChildren = [...editor.state.children];
+      docChildren.splice(prevIdx, 1);
+      const newDoc = createNode(
+        editor.state.id,
+        editor.state.type,
+        { ...editor.state.properties },
+        docChildren,
+      );
+
+      // Adjust cursor path: the current block moved up by 1
+      const newBlockIdx = pos.path[0] - 1;
+      const currentBlock = newDoc.children[newBlockIdx];
+      const firstText = currentBlock ? findFirstTextDescendant(currentBlock, [newBlockIdx]) : null;
+      const newSelection = firstText
+        ? createCursor(firstText.path, 0)
+        : createCursor([newBlockIdx, 0], 0);
+
+      return rebuildTrees(
+        {
+          ...editor,
+          state: newDoc,
+          selection: newSelection,
+          history: pushEditorChange(editor.history, {
+            change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
+            selectionBefore: editor.selection,
+            selectionAfter: newSelection,
+          }),
+        },
+        editor,
+        config,
+      );
+    }
   }
 
   if (pos.offset > 0) {
@@ -53,11 +99,7 @@ export function handleDeleteBackward(
   const prevPos = prevSel.focus;
 
   // If we didn't move (already at document start), nothing to delete
-  if (
-    prevPos.path.length === pos.path.length &&
-    prevPos.path.every((v, i) => v === pos.path[i]) &&
-    prevPos.offset === pos.offset
-  ) {
+  if (positionsEqual(prevPos, pos)) {
     return editor;
   }
 

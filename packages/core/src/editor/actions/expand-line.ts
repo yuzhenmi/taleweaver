@@ -1,6 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createSelection } from "../../cursor/selection";
-import { createPosition } from "../../state/position";
 import { moveToLine } from "../line-navigation";
 
 export function handleExpandLine(
@@ -21,7 +20,7 @@ export function handleExpandLine(
     ...editor,
     selection: createSelection(
       editor.selection.anchor,
-      createPosition(result.position.path, result.position.offset),
+      result.position,
     ),
     targetX: result.targetX,
   };

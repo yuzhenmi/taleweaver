@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createBlockLayoutBox } from "./block-layout-box";
+import { createGridLayoutBox } from "./grid-layout-box";
 import { createLineLayoutBox } from "./line-layout-box";
 import { createPageLayoutBox } from "./page-layout-box";
 import { createTextLayoutBox } from "./text-layout-box";
@@ -112,6 +113,21 @@ describe("createBlockLayoutBox", () => {
       createBlockLayoutBox("b1", 0, 0, 100, 50, [text]),
     ).toThrow(/cannot directly contain text child/);
   });
+
+  it("accepts optional metadata", () => {
+    const block = createBlockLayoutBox("b1", 0, 0, 100, 50, [], undefined, { type: "horizontal-line" });
+    expect(block.metadata).toEqual({ type: "horizontal-line" });
+  });
+
+  it("freezes metadata", () => {
+    const block = createBlockLayoutBox("b1", 0, 0, 100, 50, [], undefined, { type: "image" });
+    expect(Object.isFrozen(block.metadata)).toBe(true);
+  });
+
+  it("omits metadata when not provided", () => {
+    const block = createBlockLayoutBox("b1", 0, 0, 100, 50, []);
+    expect(block.metadata).toBeUndefined();
+  });
 });
 
 describe("createPageLayoutBox", () => {
@@ -144,5 +160,47 @@ describe("createPageLayoutBox", () => {
     expect(() =>
       createPageLayoutBox("page-0", 0, 0, 200, 500, [text]),
     ).toThrow(/cannot directly contain text child/);
+  });
+});
+
+describe("createGridLayoutBox", () => {
+  it("creates a grid layout box with correct properties", () => {
+    const row = createBlockLayoutBox("row1", 0, 0, 300, 24, []);
+    const grid = createGridLayoutBox("g1", 10, 20, 300, 48, [row], [100, 200], [24, 24]);
+    expect(grid.key).toBe("g1");
+    expect(grid.type).toBe("grid");
+    expect(grid.x).toBe(10);
+    expect(grid.y).toBe(20);
+    expect(grid.width).toBe(300);
+    expect(grid.height).toBe(48);
+    expect(grid.children).toHaveLength(1);
+    expect(grid.children[0]).toBe(row);
+    expect(grid.columnWidths).toEqual([100, 200]);
+    expect(grid.rowHeights).toEqual([24, 24]);
+  });
+
+  it("freezes the returned box", () => {
+    const grid = createGridLayoutBox("g1", 0, 0, 100, 50, [], [100], [0]);
+    expect(Object.isFrozen(grid)).toBe(true);
+  });
+
+  it("freezes children, columnWidths, and rowHeights", () => {
+    const grid = createGridLayoutBox("g1", 0, 0, 100, 50, [], [100], [0]);
+    expect(Object.isFrozen(grid.children)).toBe(true);
+    expect(Object.isFrozen(grid.columnWidths)).toBe(true);
+    expect(Object.isFrozen(grid.rowHeights)).toBe(true);
+  });
+
+  it("copies arrays defensively", () => {
+    const children = [createBlockLayoutBox("row1", 0, 0, 100, 24, [])];
+    const colWidths = [100];
+    const rowHeights = [24];
+    const grid = createGridLayoutBox("g1", 0, 0, 100, 24, children, colWidths, rowHeights);
+    children.push(createBlockLayoutBox("row2", 0, 0, 100, 24, []));
+    colWidths.push(200);
+    rowHeights.push(30);
+    expect(grid.children).toHaveLength(1);
+    expect(grid.columnWidths).toHaveLength(1);
+    expect(grid.rowHeights).toHaveLength(1);
   });
 });

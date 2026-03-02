@@ -26,8 +26,13 @@ export function handleSplitNode(
     return handleSplitListItem(current, editor, config);
   }
 
+  // Special handling: enter inside table cell
+  if (block.type === "table" && pos.path.length >= 5) {
+    return handleSplitTableCell(current, editor, config);
+  }
+
   const nodeId = `node-${current.nextId}`;
-  const change = splitNode(current.state, pos, nodeId);
+  const change = splitNode(current.state, pos, nodeId, 0);
 
   // Special handling: enter on heading → new paragraph (convert the new block)
   let newState = change.newState;
@@ -143,6 +148,49 @@ function handleSplitListItem(
   const newSelection = firstText
     ? createCursor(firstText.path, 0)
     : createCursor([listIdx, itemIdx + 1, 0], 0);
+
+  return rebuildTrees(
+    {
+      ...current,
+      state: change.newState,
+      selection: newSelection,
+      history: pushEditorChange(current.history, {
+        change,
+        selectionBefore: originalEditor.selection,
+        selectionAfter: newSelection,
+      }),
+      nextId: current.nextId + 1,
+    },
+    current,
+    config,
+  );
+}
+
+function handleSplitTableCell(
+  current: EditorState,
+  originalEditor: EditorState,
+  config: EditorConfig,
+): EditorState {
+  const pos = current.selection.focus;
+  const tableIdx = pos.path[0];
+  const rowIdx = pos.path[1];
+  const cellIdx = pos.path[2];
+  const paraIdx = pos.path[3];
+
+  const nodeId = `node-${current.nextId}`;
+
+  // Split within the cell: splitDepth = 3 splits the paragraph within the cell
+  const change = splitNode(current.state, pos, nodeId, 3);
+
+  // Cursor → first text in the new paragraph within the same cell
+  const newCell = change.newState.children[tableIdx]?.children[rowIdx]?.children[cellIdx];
+  const newPara = newCell?.children[paraIdx + 1];
+  const firstText = newPara
+    ? findFirstTextDescendant(newPara, [tableIdx, rowIdx, cellIdx, paraIdx + 1])
+    : null;
+  const newSelection = firstText
+    ? createCursor(firstText.path, 0)
+    : createCursor([tableIdx, rowIdx, cellIdx, paraIdx + 1, 0], 0);
 
   return rebuildTrees(
     {

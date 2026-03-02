@@ -2,7 +2,7 @@ import type { StateNode } from "./state-node";
 import type { Position, Span } from "./position";
 import type { Change } from "./change";
 import { createChange } from "./change";
-import { normalizeSpan, comparePositions, createPosition } from "./position";
+import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
 import { createNode } from "./create-node";
 import { getNodeByPath, updateAtPath } from "./operations";
 import { getTextContent, clampOffset } from "./text-utils";
@@ -220,11 +220,7 @@ export function deleteRange(state: StateNode, range: Span): Change {
     return createChange(state, state);
   }
 
-  const samePath =
-    start.path.length === end.path.length &&
-    start.path.every((v, i) => v === end.path[i]);
-
-  const newState = samePath
+  const newState = pathsEqual(start.path, end.path)
     ? deleteSameNode(state, start, end)
     : deleteCrossNode(state, start, end);
 

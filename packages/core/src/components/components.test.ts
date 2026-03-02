@@ -57,10 +57,6 @@ describe("createRegistry", () => {
 });
 
 describe("documentComponent", () => {
-  it("has type 'document'", () => {
-    expect(documentComponent.type).toBe("document");
-  });
-
   it("renders a block node with empty styles", () => {
     const node = createNode("doc", "document");
     const result = documentComponent.render(node, []);
@@ -79,10 +75,6 @@ describe("documentComponent", () => {
 });
 
 describe("paragraphComponent", () => {
-  it("has type 'paragraph'", () => {
-    expect(paragraphComponent.type).toBe("paragraph");
-  });
-
   it("renders a block node with zero margins", () => {
     const node = createNode("p1", "paragraph");
     const result = paragraphComponent.render(node, []);
@@ -93,10 +85,6 @@ describe("paragraphComponent", () => {
 });
 
 describe("textComponent", () => {
-  it("has type 'text'", () => {
-    expect(textComponent.type).toBe("text");
-  });
-
   it("renders a text node with content from properties", () => {
     const node = createTextNode("t1", "hello");
     const result = textComponent.render(node, []);
@@ -127,10 +115,6 @@ describe("textComponent", () => {
 });
 
 describe("spanComponent", () => {
-  it("has type 'span'", () => {
-    expect(spanComponent.type).toBe("span");
-  });
-
   it("renders an inline node with inline styles", () => {
     const node = createNode("s1", "span", {}, [], { fontWeight: "bold" });
     const child = createTextRenderNode("t1", "text", {});
@@ -142,10 +126,6 @@ describe("spanComponent", () => {
 });
 
 describe("headingComponent", () => {
-  it("has type 'heading'", () => {
-    expect(headingComponent.type).toBe("heading");
-  });
-
   it("renders a block node with bold fontWeight", () => {
     const node = createNode("h1", "heading", { level: 1 });
     const result = headingComponent.render(node, []);
@@ -205,10 +185,6 @@ describe("headingComponent", () => {
 });
 
 describe("listComponent", () => {
-  it("has type 'list'", () => {
-    expect(listComponent.type).toBe("list");
-  });
-
   it("renders a block node without paddingLeft on itself", () => {
     const node = createNode("ol1", "list", { listType: "unordered" });
     const result = listComponent.render(node, []);
@@ -253,10 +229,6 @@ describe("listComponent", () => {
 });
 
 describe("listItemComponent", () => {
-  it("has type 'list-item'", () => {
-    expect(listItemComponent.type).toBe("list-item");
-  });
-
   it("renders a block node with zero margins", () => {
     const node = createNode("li1", "list-item", {});
     const result = listItemComponent.render(node, []);
@@ -275,7 +247,7 @@ describe("listItemComponent", () => {
 });
 
 describe("defaultComponents", () => {
-  it("contains all seven default component types", () => {
+  it("contains all default component types", () => {
     const types = defaultComponents.map((c) => c.type);
     expect(types).toContain("document");
     expect(types).toContain("paragraph");
@@ -284,5 +256,11 @@ describe("defaultComponents", () => {
     expect(types).toContain("heading");
     expect(types).toContain("list");
     expect(types).toContain("list-item");
+    expect(types).toContain("image");
+    expect(types).toContain("horizontal-line");
+    expect(types).toContain("table");
+    expect(types).toContain("table-row");
+    expect(types).toContain("table-cell");
+    expect(defaultComponents).toHaveLength(12);
   });
 });

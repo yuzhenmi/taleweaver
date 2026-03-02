@@ -8,6 +8,7 @@ import { getTextContentLength } from "../state/text-utils";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
+import { findFirstTextDescendant, findLastTextDescendant } from "./actions/helpers";
 
 interface PageLine {
   y: number;
@@ -47,10 +48,10 @@ export function moveToLine(
   if (direction === "up") {
     if (currentLineIdx <= 0) {
       // At first line → move to start of document
-      const firstTextPath = findFirstTextPath(state);
-      if (!firstTextPath) return null;
+      const first = findFirstTextDescendant(state, []);
+      if (!first) return null;
       return {
-        position: createPosition(firstTextPath, 0),
+        position: createPosition(first.path, 0),
         targetX: x,
       };
     }
@@ -61,11 +62,10 @@ export function moveToLine(
   } else {
     if (currentLineIdx >= lines.length - 1) {
       // At last line → move to end of document
-      const lastTextPath = findLastTextPath(state);
-      if (!lastTextPath) return null;
-      const lastNode = getNodeByPath(state, lastTextPath)!;
+      const last = findLastTextDescendant(state, []);
+      if (!last) return null;
       return {
-        position: createPosition(lastTextPath, getTextContentLength(lastNode)),
+        position: createPosition(last.path, getTextContentLength(last.node)),
         targetX: x,
       };
     }
@@ -131,22 +131,3 @@ function findCurrentLine(lines: PageLine[], y: number, pageIndex: number): numbe
   return best;
 }
 
-/** Find path to first text node in document. */
-function findFirstTextPath(state: StateNode): number[] | null {
-  if (state.type === "text") return [];
-  for (let i = 0; i < state.children.length; i++) {
-    const result = findFirstTextPath(state.children[i]);
-    if (result !== null) return [i, ...result];
-  }
-  return null;
-}
-
-/** Find path to last text node in document. */
-function findLastTextPath(state: StateNode): number[] | null {
-  if (state.type === "text") return [];
-  for (let i = state.children.length - 1; i >= 0; i--) {
-    const result = findLastTextPath(state.children[i]);
-    if (result !== null) return [i, ...result];
-  }
-  return null;
-}

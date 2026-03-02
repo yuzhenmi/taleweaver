@@ -16,7 +16,7 @@ export function App() {
     <TooltipProvider>
       <div className="flex flex-col h-screen bg-white">
         <Header />
-        <DocMenuBar dispatch={editor.dispatch} editorState={editor.editorState} />
+        <DocMenuBar dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
         <Toolbar dispatch={editor.dispatch} editorState={editor.editorState} />
         <div className="flex-1 overflow-y-auto bg-[#f9fbfd]">
           <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>

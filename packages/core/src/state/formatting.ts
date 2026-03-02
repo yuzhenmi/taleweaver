@@ -2,7 +2,7 @@ import type { StateNode, NodeStyles } from "./state-node";
 import type { Span, Position } from "./position";
 import type { Change } from "./change";
 import { createChange } from "./change";
-import { normalizeSpan, comparePositions, createPosition } from "./position";
+import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
 import { createNode } from "./create-node";
 import { getNodeByPath, updateAtPath } from "./operations";
 import { getTextContent, getTextContentLength } from "./text-utils";
@@ -367,11 +367,9 @@ function collectTextNodesRecursive(
     if (comparePositions(pos, end) >= 0) return; // entirely after
 
     const contentLen = getTextContentLength(node);
-    const samePath = (a: readonly number[], b: readonly number[]) =>
-      a.length === b.length && a.every((v, i) => v === b[i]);
 
-    const effectiveStart = samePath(path, [...start.path]) ? start.offset : 0;
-    const effectiveEnd = samePath(path, [...end.path]) ? end.offset : contentLen;
+    const effectiveStart = pathsEqual(path, start.path) ? start.offset : 0;
+    const effectiveEnd = pathsEqual(path, end.path) ? end.offset : contentLen;
 
     entries.push({
       node,

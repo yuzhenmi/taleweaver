@@ -333,13 +333,14 @@ function findNextTextNode(
   // Walk right: try next sibling, then parent's next sibling, etc.
   const path = [...currentPath];
   while (path.length > 0) {
-    const idx = path[path.length - 1] + 1;
     const parentPath = path.slice(0, -1);
     const parent = getNodeByPath(root, parentPath)!;
-    if (idx < parent.children.length) {
-      // Found a sibling — descend to its first text node
-      path[path.length - 1] = idx;
-      return descendToFirstText(root, path);
+    let idx = path[path.length - 1] + 1;
+    while (idx < parent.children.length) {
+      const result = descendToFirstText(root, [...parentPath, idx]);
+      if (result) return result;
+      // Void block (no text children) — try next sibling
+      idx++;
     }
     // No more siblings at this level — go up
     path.pop();
@@ -354,10 +355,13 @@ function findPrevTextNode(
 ): number[] | null {
   const path = [...currentPath];
   while (path.length > 0) {
-    const idx = path[path.length - 1] - 1;
-    if (idx >= 0) {
-      path[path.length - 1] = idx;
-      return descendToLastText(root, path);
+    let idx = path[path.length - 1] - 1;
+    const parentPath = path.slice(0, -1);
+    while (idx >= 0) {
+      const result = descendToLastText(root, [...parentPath, idx]);
+      if (result) return result;
+      // Void block (no text children) — try previous sibling
+      idx--;
     }
     path.pop();
   }

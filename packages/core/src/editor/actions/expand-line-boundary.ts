@@ -1,6 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createSelection } from "../../cursor/selection";
-import { createPosition } from "../../state/position";
 import { moveToLineBoundary } from "../line-navigation";
 
 export function handleExpandLineBoundary(
@@ -20,7 +19,7 @@ export function handleExpandLineBoundary(
     ...editor,
     selection: createSelection(
       editor.selection.anchor,
-      createPosition(pos.path, pos.offset),
+      pos,
     ),
   };
 }

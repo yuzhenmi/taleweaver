@@ -44,11 +44,13 @@ export type {
   RenderNodeType,
   RenderStyles,
   BlockRenderNode,
+  GridRenderNode,
   InlineRenderNode,
   TextRenderNode,
 } from "./render/render-node";
 export {
   createBlockNode,
+  createGridNode,
   createInlineNode,
   createTextRenderNode,
 } from "./render/render-node";
@@ -65,6 +67,11 @@ export {
   headingComponent,
   listComponent,
   listItemComponent,
+  imageComponent,
+  horizontalLineComponent,
+  tableComponent,
+  tableRowComponent,
+  tableCellComponent,
   ComponentRegistry,
   createRegistry,
 } from "./components";
@@ -73,12 +80,14 @@ export {
 export type {
   LayoutBox,
   BlockLayoutBox,
+  GridLayoutBox,
   LineLayoutBox,
   PageLayoutBox,
   TextLayoutBox,
 } from "./layout/layout-node";
 export {
   createBlockLayoutBox,
+  createGridLayoutBox,
   createLineLayoutBox,
   createPageLayoutBox,
   createTextLayoutBox,

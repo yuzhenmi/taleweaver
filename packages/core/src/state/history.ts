@@ -16,13 +16,22 @@ export interface History {
   readonly maxDepth: number;
 }
 
-/** Create an empty history with optional max depth. */
-export function createHistory(maxDepth: number = DEFAULT_MAX_DEPTH): History {
+/** Create a frozen History from mutable stacks. */
+function createFrozenHistory(
+  undoStack: Change[],
+  redoStack: Change[],
+  maxDepth: number,
+): History {
   return Object.freeze({
-    undoStack: Object.freeze([]),
-    redoStack: Object.freeze([]),
+    undoStack: Object.freeze(undoStack),
+    redoStack: Object.freeze(redoStack),
     maxDepth,
   });
+}
+
+/** Create an empty history with optional max depth. */
+export function createHistory(maxDepth: number = DEFAULT_MAX_DEPTH): History {
+  return createFrozenHistory([], [], maxDepth);
 }
 
 /**
@@ -50,11 +59,7 @@ export function pushChange(
         newState: change.newState,
         timestamp: last.timestamp, // keep original timestamp
       });
-      return Object.freeze({
-        undoStack: Object.freeze(undoStack),
-        redoStack: Object.freeze([]),
-        maxDepth: history.maxDepth,
-      });
+      return createFrozenHistory(undoStack, [], history.maxDepth);
     }
   }
 
@@ -65,11 +70,7 @@ export function pushChange(
     undoStack.splice(0, undoStack.length - history.maxDepth);
   }
 
-  return Object.freeze({
-    undoStack: Object.freeze(undoStack),
-    redoStack: Object.freeze([]),
-    maxDepth: history.maxDepth,
-  });
+  return createFrozenHistory(undoStack, [], history.maxDepth);
 }
 
 /** Undo the most recent change. Returns the new history and restored state, or null if nothing to undo. */
@@ -83,11 +84,7 @@ export function undo(
   const redoStack = [...history.redoStack, change];
 
   return {
-    history: Object.freeze({
-      undoStack: Object.freeze(undoStack),
-      redoStack: Object.freeze(redoStack),
-      maxDepth: history.maxDepth,
-    }),
+    history: createFrozenHistory(undoStack, redoStack, history.maxDepth),
     state: change.oldState,
   };
 }
@@ -103,11 +100,7 @@ export function redo(
   const undoStack = [...history.undoStack, change];
 
   return {
-    history: Object.freeze({
-      undoStack: Object.freeze(undoStack),
-      redoStack: Object.freeze(redoStack),
-      maxDepth: history.maxDepth,
-    }),
+    history: createFrozenHistory(undoStack, redoStack, history.maxDepth),
     state: change.newState,
   };
 }

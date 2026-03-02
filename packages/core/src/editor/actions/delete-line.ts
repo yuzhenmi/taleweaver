@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createSpan } from "../../state/position";
+import { createSpan, positionsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations";
 import { moveToLineBoundary } from "../line-navigation";
 import { rebuildTrees, deleteSelectionRange } from "./helpers";
@@ -25,11 +25,7 @@ export function handleDeleteLine(
   if (!lineStart) return editor;
 
   // If already at line start, nothing to delete
-  if (
-    lineStart.path.every((v, i) => v === pos.path[i]) &&
-    lineStart.path.length === pos.path.length &&
-    lineStart.offset === pos.offset
-  ) {
+  if (positionsEqual(lineStart, pos)) {
     return editor;
   }
 

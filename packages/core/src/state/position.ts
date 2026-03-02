@@ -44,6 +44,16 @@ export function comparePositions(a: Position, b: Position): number {
   return a.offset - b.offset;
 }
 
+/** Check if two paths are equal. */
+export function pathsEqual(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/** Check if two positions are equal (same path and offset). */
+export function positionsEqual(a: Position, b: Position): boolean {
+  return pathsEqual(a.path, b.path) && a.offset === b.offset;
+}
+
 /** Normalize a span so anchor <= focus. */
 export function normalizeSpan(span: Span): Span {
   if (comparePositions(span.anchor, span.focus) > 0) {

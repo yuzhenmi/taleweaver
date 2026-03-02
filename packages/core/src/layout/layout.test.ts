@@ -1,18 +1,14 @@
 import { describe, it, expect } from "vitest";
-import {
-  createBlockLayoutBox,
-  createLineLayoutBox,
-  createTextLayoutBox,
-} from "./layout-node";
 import type { LayoutBox, PageLayoutBox } from "./layout-node";
 import type { TextLayoutBox } from "./text-layout-box";
 import { createMockMeasurer } from "./text-measurer";
-import { splitTextIntoWords } from "./text-splitter";
 import { layoutTree, layoutTreeIncremental } from "./layout-engine";
 import {
   createBlockNode,
+  createGridNode,
   createTextRenderNode,
 } from "../render/render-node";
+import type { GridLayoutBox } from "./grid-layout-box";
 import { createNode, createTextNode } from "../state/create-node";
 import { defaultComponents } from "../components";
 import { createRegistry } from "../components/component-registry";
@@ -27,94 +23,6 @@ function expectTextBox(box: LayoutBox): TextLayoutBox {
 }
 
 const measurer = createMockMeasurer(8, 16); // 8px per char, 16px line height
-
-describe("LayoutBox", () => {
-  it("creates a block layout box", () => {
-    const box = createBlockLayoutBox("b1", 0, 0, 100, 50, []);
-    expect(box.x).toBe(0);
-    expect(box.y).toBe(0);
-    expect(box.width).toBe(100);
-    expect(box.height).toBe(50);
-    expect(box.key).toBe("b1");
-    expect(box.type).toBe("block");
-  });
-
-  it("creates a text layout box", () => {
-    const box = createTextLayoutBox("t1", 0, 0, 40, 16, "hello");
-    expect(box.type).toBe("text");
-    expect(box.text).toBe("hello");
-    expect(box.children).toHaveLength(0);
-  });
-
-  it("creates a line layout box", () => {
-    const textBox = createTextLayoutBox("t1", 0, 0, 40, 16, "hello");
-    const line = createLineLayoutBox("l1", 0, 0, 200, 16, [textBox]);
-    expect(line.type).toBe("line");
-    expect(line.children).toHaveLength(1);
-  });
-
-  it("is frozen", () => {
-    const box = createBlockLayoutBox("b1", 0, 0, 100, 50, []);
-    expect(Object.isFrozen(box)).toBe(true);
-  });
-
-  it("createBlockLayoutBox throws if any child is a text box", () => {
-    const textBox = createTextLayoutBox("t1", 0, 0, 40, 16, "hello");
-    expect(() => createBlockLayoutBox("b1", 0, 0, 100, 50, [textBox])).toThrow();
-  });
-
-  it("createLineLayoutBox throws if any child is not a text box", () => {
-    const block = createBlockLayoutBox("b1", 0, 0, 100, 50, []);
-    expect(() => createLineLayoutBox("l1", 0, 0, 200, 16, [block])).toThrow();
-  });
-});
-
-describe("TextMeasurer (mock)", () => {
-  it("measures width based on character count", () => {
-    expect(measurer.measureWidth("hello", {})).toBe(40); // 5 * 8
-    expect(measurer.measureWidth("", {})).toBe(0);
-  });
-
-  it("measures line height", () => {
-    expect(measurer.measureHeight({})).toBe(16);
-  });
-});
-
-describe("splitTextIntoWords", () => {
-  it("splits text into word boxes", () => {
-    const words = splitTextIntoWords("hello world", {}, measurer);
-
-    expect(words).toHaveLength(2);
-    expect(words[0].text).toBe("hello ");
-    expect(words[0].width).toBe(48); // 6 * 8 (including trailing space)
-    expect(words[0].trailingSpace).toBe(true);
-    expect(words[1].text).toBe("world");
-    expect(words[1].width).toBe(40); // 5 * 8
-  });
-
-  it("handles empty text", () => {
-    const words = splitTextIntoWords("", {}, measurer);
-    expect(words).toHaveLength(1);
-    expect(words[0].text).toBe("");
-    expect(words[0].width).toBe(0);
-  });
-
-  it("handles single word", () => {
-    const words = splitTextIntoWords("hello", {}, measurer);
-    expect(words).toHaveLength(1);
-    expect(words[0].text).toBe("hello");
-    expect(words[0].trailingSpace).toBe(false);
-  });
-
-  it("preserves leading whitespace", () => {
-    const words = splitTextIntoWords("  hello", {}, measurer);
-    expect(words).toHaveLength(2);
-    expect(words[0].text).toBe("  ");
-    expect(words[0].trailingSpace).toBe(true);
-    expect(words[0].width).toBe(16); // 2 * 8
-    expect(words[1].text).toBe("hello");
-  });
-});
 
 describe("Layout engine", () => {
   it("lays out a simple document with one paragraph", () => {
@@ -869,5 +777,91 @@ describe("Incremental layout", () => {
     expect(expectTextBox(layout2.children[0].children[0].children[0]).text).toBe("First");
     // p2 should have new content
     expect(expectTextBox(layout2.children[1].children[0].children[0]).text).toBe("Second!");
+  });
+});
+
+function expectGridBox(box: LayoutBox): GridLayoutBox {
+  if (box.type !== "grid")
+    throw new Error(`Expected grid layout box, got "${box.type}"`);
+  return box;
+}
+
+describe("Grid layout", () => {
+  it("lays out a 2x2 grid with cells positioned horizontally", () => {
+    // 2 cols: 100px, 200px
+    const cell00 = createBlockNode("c00", {}, [createTextRenderNode("t00", "A", {})]);
+    const cell01 = createBlockNode("c01", {}, [createTextRenderNode("t01", "B", {})]);
+    const row0 = createBlockNode("r0", {}, [cell00, cell01]);
+    const cell10 = createBlockNode("c10", {}, [createTextRenderNode("t10", "C", {})]);
+    const cell11 = createBlockNode("c11", {}, [createTextRenderNode("t11", "D", {})]);
+    const row1 = createBlockNode("r1", {}, [cell10, cell11]);
+    const grid = createGridNode("g1", {}, [row0, row1], [100, 200], [0, 0]);
+    const doc = createBlockNode("doc", {}, [grid]);
+
+    const layout = layoutTree(doc, 300, measurer);
+    const gridBox = expectGridBox(layout.children[0]);
+
+    expect(gridBox.type).toBe("grid");
+    expect(gridBox.columnWidths).toEqual([100, 200]);
+
+    // Row 0
+    const rowBox0 = gridBox.children[0];
+    expect(rowBox0.y).toBe(0);
+    // Cell 0,0 at x=0 with width=100
+    expect(rowBox0.children[0].x).toBe(0);
+    expect(rowBox0.children[0].width).toBe(100);
+    // Cell 0,1 at x=100 with width=200
+    expect(rowBox0.children[1].x).toBe(100);
+    expect(rowBox0.children[1].width).toBe(200);
+
+    // Row 1 stacked below row 0
+    const rowBox1 = gridBox.children[1];
+    expect(rowBox1.y).toBe(rowBox0.height);
+  });
+
+  it("auto row height equals tallest cell content", () => {
+    // Cell with padding will be taller
+    const cell0 = createBlockNode("c0", { paddingTop: 10, paddingBottom: 10 }, [
+      createTextRenderNode("t0", "Tall", {}),
+    ]);
+    const cell1 = createBlockNode("c1", {}, [createTextRenderNode("t1", "Short", {})]);
+    const row = createBlockNode("r0", {}, [cell0, cell1]);
+    const grid = createGridNode("g1", {}, [row], [100, 100], [0]);
+    const doc = createBlockNode("doc", {}, [grid]);
+
+    const layout = layoutTree(doc, 200, measurer);
+    const gridBox = expectGridBox(layout.children[0]);
+
+    // cell0 height = 10 + 16 + 10 = 36, cell1 height = 16
+    // auto row height = max(36, 16) = 36
+    expect(gridBox.rowHeights[0]).toBe(36);
+  });
+
+  it("explicit row height is used when larger than content", () => {
+    const cell = createBlockNode("c0", {}, [createTextRenderNode("t0", "Hi", {})]);
+    const row = createBlockNode("r0", {}, [cell]);
+    const grid = createGridNode("g1", {}, [row], [200], [50]);
+    const doc = createBlockNode("doc", {}, [grid]);
+
+    const layout = layoutTree(doc, 200, measurer);
+    const gridBox = expectGridBox(layout.children[0]);
+
+    // content height = 16, explicit = 50 → max = 50
+    expect(gridBox.rowHeights[0]).toBe(50);
+  });
+
+  it("single-row single-column edge case", () => {
+    const cell = createBlockNode("c0", {}, [createTextRenderNode("t0", "Only", {})]);
+    const row = createBlockNode("r0", {}, [cell]);
+    const grid = createGridNode("g1", {}, [row], [150], [0]);
+    const doc = createBlockNode("doc", {}, [grid]);
+
+    const layout = layoutTree(doc, 200, measurer);
+    const gridBox = expectGridBox(layout.children[0]);
+
+    expect(gridBox.children).toHaveLength(1);
+    expect(gridBox.columnWidths).toEqual([150]);
+    expect(gridBox.rowHeights).toEqual([16]);
+    expect(gridBox.height).toBe(16);
   });
 });

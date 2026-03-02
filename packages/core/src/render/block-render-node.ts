@@ -8,6 +8,7 @@ export interface BlockRenderNode {
   readonly styles: RenderStyles;
   readonly children: readonly RenderNode[];
   readonly marker?: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 /** Create a block render node. */
@@ -16,6 +17,7 @@ export function createBlockNode(
   styles: RenderStyles,
   children: readonly RenderNode[],
   marker?: string,
+  metadata?: Record<string, unknown>,
 ): BlockRenderNode {
   return Object.freeze({
     key,
@@ -23,5 +25,6 @@ export function createBlockNode(
     styles: Object.freeze({ ...styles }),
     children: Object.freeze([...children]),
     ...(marker !== undefined ? { marker } : {}),
+    ...(metadata !== undefined ? { metadata: Object.freeze({ ...metadata }) } : {}),
   });
 }

@@ -25,4 +25,6 @@ export type EditorAction =
   | { type: "EXPAND_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
-  | { type: "DELETE_LINE" };
+  | { type: "DELETE_LINE" }
+  | { type: "INSERT_BLOCK"; blockType: string; properties?: Record<string, unknown> }
+  | { type: "INSERT_TABLE"; rows: number; columns: number; columnWidths?: number[] };

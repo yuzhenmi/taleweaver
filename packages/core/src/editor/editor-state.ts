@@ -1,4 +1,4 @@
-import type { StateNode, NodeStyles } from "../state/state-node";
+import type { StateNode } from "../state/state-node";
 import type { Selection } from "../cursor/selection";
 import type { Change } from "../state/change";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -41,6 +41,8 @@ import {
   handleUndo,
   handleRedo,
   handlePaste,
+  handleInsertBlock,
+  handleInsertTable,
 } from "./actions";
 
 // Re-export helpers that are part of the public API
@@ -240,6 +242,12 @@ export function reduceEditor(
       break;
     case "DELETE_LINE":
       result = handleDeleteLine(editor, config);
+      break;
+    case "INSERT_BLOCK":
+      result = handleInsertBlock(editor, action.blockType, action.properties ?? {}, config);
+      break;
+    case "INSERT_TABLE":
+      result = handleInsertTable(editor, action.rows, action.columns, action.columnWidths, config);
       break;
     default: {
       const _exhaustive: never = action;
