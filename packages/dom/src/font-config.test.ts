@@ -36,18 +36,18 @@ describe("getEffectiveStyles", () => {
     const result = getEffectiveStyles({});
     expect(result.fontFamily).toBe("\"Inter\", sans-serif");
     expect(result.fontSize).toBe(16);
-    expect(result.lineHeight).toBe(24);
+    expect(result.lineHeight).toBe(1.2);
   });
 
   it("preserves provided values", () => {
     const result = getEffectiveStyles({
       fontFamily: "serif",
       fontSize: 20,
-      lineHeight: 30,
+      lineHeight: 2,
     });
     expect(result.fontFamily).toBe("serif");
     expect(result.fontSize).toBe(20);
-    expect(result.lineHeight).toBe(30);
+    expect(result.lineHeight).toBe(2);
   });
 
   it("passes through other style properties", () => {

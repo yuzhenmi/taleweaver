@@ -62,9 +62,9 @@ describe("insertText", () => {
     expect(() => insertText(doc, pos, "X")).toThrow("out of bounds");
   });
 
-  it("clamps offset to content length for virtual EOL position", () => {
+  it("clamps offset to content length for virtual line break position", () => {
     const { doc } = makeDoc();
-    // offset 7 is textLength+1 for "Hello " (length 6) — virtual EOL
+    // offset 7 is textLength+1 for "Hello " (length 6) — virtual line break
     const pos = createPosition([0, 0], 7);
     const change = insertText(doc, pos, "X");
     // Should insert at end (clamped to 6)
@@ -442,9 +442,9 @@ describe("splitNode", () => {
     expect(() => splitNode(doc, pos, "new")).toThrow("out of bounds");
   });
 
-  it("clamps virtual EOL offset in splitNode", () => {
+  it("clamps virtual line break offset in splitNode", () => {
     const { doc } = makeDoc();
-    // "Hello " has length 6, offset 7 is virtual EOL
+    // "Hello " has length 6, offset 7 is virtual line break
     const pos = createPosition([0, 0], 7);
     const change = splitNode(doc, pos, "p2");
     // Should split at end (clamped to 6), like splitting at the end of the text

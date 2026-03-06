@@ -572,12 +572,12 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
 
-      // Non-collapsed selection with virtual EOL (like select-all in empty doc)
+      // Non-collapsed selection with virtual line break (like select-all in empty doc)
       ctrl.update(
         makeFakeEditorState({
           selection: {
             anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 1 }, // virtual EOL
+            focus: { path: [0, 0], offset: 1 }, // virtual line break
           },
         }),
       );

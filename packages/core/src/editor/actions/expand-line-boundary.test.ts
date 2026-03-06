@@ -16,11 +16,11 @@ describe("EXPAND_LINE_BOUNDARY", () => {
     expect(s.selection.focus.offset).toBe(0);
   });
 
-  it("expands selection to end of line (no virtual EOL)", () => {
+  it("expands selection to end of line (no virtual line break)", () => {
     let s = stateWithText("hello");
     s = withSelection(s, createCursor([0, 0], 2));
     s = reduceEditor(s, { type: "EXPAND_LINE_BOUNDARY", boundary: "end" }, config);
     expect(s.selection.anchor.offset).toBe(2);
-    expect(s.selection.focus.offset).toBe(5); // textLength, not virtual EOL
+    expect(s.selection.focus.offset).toBe(5); // textLength, not virtual line break
   });
 });

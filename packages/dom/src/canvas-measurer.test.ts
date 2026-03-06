@@ -52,8 +52,8 @@ describe("createCanvasMeasurer", () => {
     const canvas = createMockCanvas(ctx);
     const measurer = createCanvasMeasurer(canvas);
 
-    expect(measurer.measureHeight({})).toBe(24);
-    expect(measurer.measureHeight({ lineHeight: 32 })).toBe(32);
+    expect(measurer.measureHeight({})).toBe(19.2);
+    expect(measurer.measureHeight({ lineHeight: 2 })).toBe(32);
   });
 
   it("measureCursorHeight returns font bounding box height", () => {

@@ -11,7 +11,7 @@ export function getTextContentLength(node: StateNode): number {
   return getTextContent(node).length;
 }
 
-/** Clamp an offset to the content length (handles virtual EOL offsets). */
+/** Clamp an offset to the content length (handles virtual line break offsets). */
 export function clampOffset(offset: number, contentLength: number): number {
   return Math.min(offset, contentLength);
 }

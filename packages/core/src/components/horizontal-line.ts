@@ -6,7 +6,7 @@ export const horizontalLineComponent: ComponentDefinition = {
   render: (node) =>
     createBlockNode(
       node.id,
-      { paddingTop: 12, paddingBottom: 12, marginTop: 4, marginBottom: 4 },
+      { paddingTop: 12, paddingBottom: 12, lineMarginTop: 0, lineMarginBottom: 0, blockMarginTop: 0.2, blockMarginBottom: 0.2 },
       [],
       undefined,
       { type: "horizontal-line" },

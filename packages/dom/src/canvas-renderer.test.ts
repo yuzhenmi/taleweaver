@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createBlockLayoutBox,
-  createGridLayoutBox,
+  createTableLayoutBox,
   createLineLayoutBox,
   createTextLayoutBox,
   createPageLayoutBox,
@@ -50,7 +50,7 @@ describe("paintCanvas", () => {
   });
 
   it("paints text with half-leading offset for line height centering", () => {
-    // Default: fontSize=16, lineHeight=24, so half-leading = (24-16)/2 = 4
+    // Default: fontSize=16, lineHeight=19.2 (1.2*16), so half-leading = (19.2-16)/2 = 1.6
     const tree = createBlockLayoutBox("b", 0, 0, 200, 24, [
       createLineLayoutBox("l", 0, 0, 200, 24, [
         createTextLayoutBox("t", 0, 0, 40, 24, "hello"),
@@ -59,8 +59,8 @@ describe("paintCanvas", () => {
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
 
-    // y should be 0 + 4 (half-leading offset)
-    expect(ctx.fillText).toHaveBeenCalledWith("hello", 0, 4);
+    // y should be 0 + 1.6 (half-leading offset)
+    expect(ctx.fillText).toHaveBeenCalledWith("hello", 0, expect.closeTo(1.6));
   });
 
   it("accumulates parent offsets for nested boxes", () => {
@@ -72,8 +72,8 @@ describe("paintCanvas", () => {
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
 
-    // block(10,20) + line(5,10) + text(3,0) = (18, 30), plus half-leading +4 = (18, 34)
-    expect(ctx.fillText).toHaveBeenCalledWith("ok", 18, 34);
+    // block(10,20) + line(5,10) + text(3,0) = (18, 30), plus half-leading +1.6 = (18, 31.6)
+    expect(ctx.fillText).toHaveBeenCalledWith("ok", 18, expect.closeTo(31.6));
   });
 
   it("sets font from text box styles", () => {
@@ -123,10 +123,10 @@ describe("paintCanvas", () => {
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
 
-    // halfLeading=4, underlineY = 0 + 4 (halfLeading) + 16 (fontSize) + 1 = 21
+    // halfLeading=1.6, underlineY = 0 + 1.6 (halfLeading) + 16 (fontSize) + 1 = 18.6
     const fillRectCalls = vi.mocked(ctx.fillRect).mock.calls;
     const underline = fillRectCalls.find(
-      ([x, y, w, h]) => x === 0 && y === 21 && w === 40 && h === 1,
+      ([x, y, w, h]) => x === 0 && Math.abs(y - 18.6) < 0.01 && w === 40 && h === 1,
     );
     expect(underline).toBeDefined();
   });
@@ -256,8 +256,8 @@ describe("paintCanvas", () => {
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 6000, 0, 100);
 
-    // y=50 + 4 (half-leading) = 54
-    expect(ctx.fillText).toHaveBeenCalledWith("visible", 0, 54);
+    // y=50 + 1.6 (half-leading) = 51.6
+    expect(ctx.fillText).toHaveBeenCalledWith("visible", 0, expect.closeTo(51.6));
   });
 
   it("paints partially-visible boxes at boundary", () => {
@@ -271,14 +271,14 @@ describe("paintCanvas", () => {
     // visibleTop=100, but line at y=90 with height=24 extends to y=114
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 6000, 100, 200);
 
-    // y=90 + 4 (half-leading) = 94
-    expect(ctx.fillText).toHaveBeenCalledWith("boundary", 0, 94);
+    // y=90 + 1.6 (half-leading) = 91.6
+    expect(ctx.fillText).toHaveBeenCalledWith("boundary", 0, expect.closeTo(91.6));
   });
 
   it("uses custom lineHeight and fontSize for half-leading", () => {
     const tree = createBlockLayoutBox("b", 0, 0, 200, 32, [
       createLineLayoutBox("l", 0, 0, 200, 32, [
-        createTextLayoutBox("t", 0, 0, 40, 32, "big", { fontSize: 20, lineHeight: 32 }),
+        createTextLayoutBox("t", 0, 0, 40, 32, "big", { fontSize: 20, lineHeight: 1.6 }),
       ]),
     ]);
 
@@ -427,8 +427,8 @@ describe("paintPage", () => {
 
     paintPage(ctx, pageBox, [], null, "hidden");
 
-    // (72, 96) + half-leading 4 = (72, 100)
-    expect(ctx.fillText).toHaveBeenCalledWith("hello", 72, 100);
+    // (72, 96) + half-leading 1.6 = (72, 97.6)
+    expect(ctx.fillText).toHaveBeenCalledWith("hello", 72, expect.closeTo(97.6));
   });
 
   it("draws cursor when on this page", () => {
@@ -513,7 +513,7 @@ describe("paintPage", () => {
   });
 });
 
-describe("grid border painting", () => {
+describe("table border painting", () => {
   let ctx: CanvasRenderingContext2D;
 
   beforeEach(() => {
@@ -527,7 +527,7 @@ describe("grid border painting", () => {
       ]),
     ]);
     const rowBox = createBlockLayoutBox("r0", 0, 0, 100, 24, [cellBox]);
-    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
+    const gridBox = createTableLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
     const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
@@ -540,7 +540,7 @@ describe("grid border painting", () => {
     const cell0 = createBlockLayoutBox("c0", 0, 0, 100, 24, []);
     const cell1 = createBlockLayoutBox("c1", 100, 0, 200, 24, []);
     const rowBox = createBlockLayoutBox("r0", 0, 0, 300, 24, [cell0, cell1]);
-    const gridBox = createGridLayoutBox("g1", 0, 0, 300, 24, [rowBox], [100, 200], [24]);
+    const gridBox = createTableLayoutBox("g1", 0, 0, 300, 24, [rowBox], [100, 200], [24]);
     const tree = createBlockLayoutBox("doc", 0, 0, 300, 24, [gridBox]);
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 300, 100, 0, 100);
@@ -559,7 +559,7 @@ describe("grid border painting", () => {
   it("draws row separator lines", () => {
     const row0 = createBlockLayoutBox("r0", 0, 0, 200, 24, []);
     const row1 = createBlockLayoutBox("r1", 0, 24, 200, 24, []);
-    const gridBox = createGridLayoutBox("g1", 0, 0, 200, 48, [row0, row1], [200], [24, 24]);
+    const gridBox = createTableLayoutBox("g1", 0, 0, 200, 48, [row0, row1], [200], [24, 24]);
     const tree = createBlockLayoutBox("doc", 0, 0, 200, 48, [gridBox]);
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 48 }, "hidden", 200, 100, 0, 100);
@@ -582,12 +582,12 @@ describe("grid border painting", () => {
       ]),
     ]);
     const rowBox = createBlockLayoutBox("r0", 0, 0, 100, 24, [cellBox]);
-    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
+    const gridBox = createTableLayoutBox("g1", 0, 0, 100, 24, [rowBox], [100], [24]);
     const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);
 
-    expect(ctx.fillText).toHaveBeenCalledWith("hello", 0, 4);
+    expect(ctx.fillText).toHaveBeenCalledWith("hello", 0, expect.closeTo(1.6));
   });
 
   it("sets stroke style to #dadce0", () => {
@@ -596,7 +596,7 @@ describe("grid border painting", () => {
       strokeStyles.push(ctx.strokeStyle as string);
     });
 
-    const gridBox = createGridLayoutBox("g1", 0, 0, 100, 24, [], [100], [24]);
+    const gridBox = createTableLayoutBox("g1", 0, 0, 100, 24, [], [100], [24]);
     const tree = createBlockLayoutBox("doc", 0, 0, 100, 24, [gridBox]);
 
     paintCanvas(ctx, tree, [], { x: 0, y: 0, height: 24 }, "hidden", 200, 100, 0, 100);

@@ -61,8 +61,8 @@ describe("resolvePositionFromPixel", () => {
     const render = renderTree(state, registry);
     const layout = layoutTree(render, 400, measurer);
 
-    // Second paragraph starts at y=16
-    const pos = resolvePositionFromPixel(state, layout, measurer, 0, 16);
+    // Second paragraph starts at y=19.2 (first para height = 16 + 3.2 marginBottom)
+    const pos = resolvePositionFromPixel(state, layout, measurer, 0, 20);
     expect(pos).not.toBeNull();
     expect(pos!.path).toEqual([1, 0]);
     expect(pos!.offset).toBe(0);
@@ -88,11 +88,11 @@ describe("resolvePositionFromPixel", () => {
   });
 
   it("clicking empty space after text in first table column stays in first column", () => {
-    // Table: 2 columns [200, 200], one row
+    // Table: 2 columns [0.5, 0.5] of 400px → 200px, 200px
     // Cell 0: paragraph with "Hi" (16px wide at 8px/char)
     // Cell 1: paragraph with "There"
     const state = createNode("doc", "document", {}, [
-      createNode("t1", "table", { columnWidths: [200, 200], rowHeights: [0] }, [
+      createNode("t1", "table", { columnWidths: [0.5, 0.5], rowHeights: [0] }, [
         createNode("r1", "table-row", {}, [
           createNode("c1", "table-cell", {}, [
             createNode("p0", "paragraph", {}, [createTextNode("t0", "Hi")]),

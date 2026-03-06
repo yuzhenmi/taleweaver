@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createBlockNode } from "./block-render-node";
-import { createGridNode } from "./grid-render-node";
+import { createTableNode } from "./table-render-node";
 import { createInlineNode } from "./inline-render-node";
 import { createTextRenderNode } from "./text-render-node";
 
@@ -40,10 +40,10 @@ describe("createTextRenderNode", () => {
 describe("createBlockNode", () => {
   it("creates a block render node", () => {
     const child = createTextRenderNode("t1", "hi", {});
-    const block = createBlockNode("b1", { marginTop: 10 }, [child]);
+    const block = createBlockNode("b1", { lineMarginTop: 10 }, [child]);
     expect(block.key).toBe("b1");
     expect(block.type).toBe("block");
-    expect(block.styles.marginTop).toBe(10);
+    expect(block.styles.lineMarginTop).toBe(10);
     expect(block.children).toHaveLength(1);
     expect(block.children[0]).toBe(child);
   });
@@ -91,42 +91,42 @@ describe("createBlockNode", () => {
   });
 });
 
-describe("createGridNode", () => {
-  it("creates a grid render node with correct properties", () => {
+describe("createTableNode", () => {
+  it("creates a table render node with correct properties", () => {
     const child = createBlockNode("row1", {}, []);
-    const grid = createGridNode("g1", {}, [child], [100, 200], [0, 50]);
-    expect(grid.key).toBe("g1");
-    expect(grid.type).toBe("grid");
-    expect(grid.children).toHaveLength(1);
-    expect(grid.children[0]).toBe(child);
-    expect(grid.columnWidths).toEqual([100, 200]);
-    expect(grid.rowHeights).toEqual([0, 50]);
+    const table = createTableNode("g1", {}, [child], [0.4, 0.6], [0, 50]);
+    expect(table.key).toBe("g1");
+    expect(table.type).toBe("table");
+    expect(table.children).toHaveLength(1);
+    expect(table.children[0]).toBe(child);
+    expect(table.columnWidths).toEqual([0.4, 0.6]);
+    expect(table.rowHeights).toEqual([0, 50]);
   });
 
   it("freezes the node", () => {
-    const grid = createGridNode("g1", {}, [], [100], [0]);
-    expect(Object.isFrozen(grid)).toBe(true);
+    const table = createTableNode("g1", {}, [], [1], [0]);
+    expect(Object.isFrozen(table)).toBe(true);
   });
 
   it("freezes styles, children, columnWidths, and rowHeights", () => {
-    const grid = createGridNode("g1", {}, [], [100], [0]);
-    expect(Object.isFrozen(grid.styles)).toBe(true);
-    expect(Object.isFrozen(grid.children)).toBe(true);
-    expect(Object.isFrozen(grid.columnWidths)).toBe(true);
-    expect(Object.isFrozen(grid.rowHeights)).toBe(true);
+    const table = createTableNode("g1", {}, [], [1], [0]);
+    expect(Object.isFrozen(table.styles)).toBe(true);
+    expect(Object.isFrozen(table.children)).toBe(true);
+    expect(Object.isFrozen(table.columnWidths)).toBe(true);
+    expect(Object.isFrozen(table.rowHeights)).toBe(true);
   });
 
   it("copies arrays defensively", () => {
     const children = [createBlockNode("row1", {}, [])];
-    const colWidths = [100, 200];
+    const colWidths = [0.4, 0.6];
     const rowHeights = [0, 50];
-    const grid = createGridNode("g1", {}, children, colWidths, rowHeights);
+    const table = createTableNode("g1", {}, children, colWidths, rowHeights);
     children.push(createBlockNode("row2", {}, []));
-    colWidths.push(300);
+    colWidths.push(0.3);
     rowHeights.push(60);
-    expect(grid.children).toHaveLength(1);
-    expect(grid.columnWidths).toHaveLength(2);
-    expect(grid.rowHeights).toHaveLength(2);
+    expect(table.children).toHaveLength(1);
+    expect(table.columnWidths).toHaveLength(2);
+    expect(table.rowHeights).toHaveLength(2);
   });
 });
 

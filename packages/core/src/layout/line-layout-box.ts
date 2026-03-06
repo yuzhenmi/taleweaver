@@ -8,6 +8,10 @@ export interface LineLayoutBox {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  /** Resolved top margin in px (ratio × line height). */
+  readonly marginTop: number;
+  /** Resolved bottom margin in px (ratio × line height). */
+  readonly marginBottom: number;
   readonly children: readonly LayoutBox[];
 }
 
@@ -19,6 +23,8 @@ export function createLineLayoutBox(
   width: number,
   height: number,
   children: readonly LayoutBox[],
+  marginTop: number = 0,
+  marginBottom: number = 0,
 ): LineLayoutBox {
   for (const child of children) {
     if (child.type !== "text") {
@@ -34,6 +40,8 @@ export function createLineLayoutBox(
     y,
     width,
     height,
+    marginTop,
+    marginBottom,
     children: Object.freeze([...children]),
   });
 }

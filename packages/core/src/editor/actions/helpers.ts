@@ -8,7 +8,7 @@ import { createCursor } from "../../cursor/selection";
 import { normalizeSpan, pathsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations";
 import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
+import { getTextContent, getTextContentLength } from "../../state/text-utils";
 
 /** Find the last text node descendant of a node at the given base path. */
 export function findLastTextDescendant(
@@ -34,6 +34,14 @@ export function findFirstTextDescendant(
     if (result) return result;
   }
   return null;
+}
+
+/** Check if a node is an empty paragraph (single empty text child). */
+export function isEmptyParagraph(node: StateNode): boolean {
+  return node.type === "paragraph"
+    && node.children.length === 1
+    && node.children[0].type === "text"
+    && getTextContent(node.children[0]) === "";
 }
 
 export function rebuildTrees(

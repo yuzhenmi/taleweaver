@@ -23,8 +23,8 @@ describe("imageComponent", () => {
   it("sets margins", () => {
     const node = createNode("img1", "image", { src: "data:image/png;base64,abc", width: 200, height: 100 });
     const result = imageComponent.render(node, []);
-    expect(result.styles.marginTop).toBe(8);
-    expect(result.styles.marginBottom).toBe(8);
+    expect(result.styles.blockMarginTop).toBe(0.4);
+    expect(result.styles.blockMarginBottom).toBe(0.4);
   });
 
   it("sets metadata with image properties", () => {

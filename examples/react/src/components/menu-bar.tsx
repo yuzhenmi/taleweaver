@@ -89,7 +89,7 @@ export function DocMenuBar({ dispatch, focus }: DocMenuBarProps) {
         <MenubarTrigger className="text-sm font-normal px-2 py-0.5">Insert</MenubarTrigger>
         <MenubarContent>
           <MenubarItem onSelect={() => insertImage(dispatch, focus)}>Image</MenubarItem>
-          <MenubarItem onSelect={() => { dispatch({ type: "INSERT_TABLE", rows: 2, columns: 3 }); focus?.(); }}>Table</MenubarItem>
+          <MenubarItem onSelect={() => { dispatch({ type: "INSERT_BLOCK", blockType: "table", properties: { rows: 2, columns: 3 } }); focus?.(); }}>Table</MenubarItem>
           <MenubarItem onSelect={() => { dispatch({ type: "INSERT_BLOCK", blockType: "horizontal-line" }); focus?.(); }}>Horizontal line</MenubarItem>
         </MenubarContent>
       </MenubarMenu>

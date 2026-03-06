@@ -21,11 +21,11 @@ describe("horizontalLineComponent", () => {
     expect(result.styles.paddingBottom).toBe(12);
   });
 
-  it("sets marginTop and marginBottom", () => {
+  it("sets blockMarginTop and blockMarginBottom", () => {
     const node = createNode("hr1", "horizontal-line");
     const result = horizontalLineComponent.render(node, []);
-    expect(result.styles.marginTop).toBe(4);
-    expect(result.styles.marginBottom).toBe(4);
+    expect(result.styles.blockMarginTop).toBe(0.2);
+    expect(result.styles.blockMarginBottom).toBe(0.2);
   });
 
   it("sets metadata with type horizontal-line", () => {

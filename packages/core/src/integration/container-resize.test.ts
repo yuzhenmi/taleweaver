@@ -46,7 +46,7 @@ describe("Integration: container resize re-layout", () => {
 
     // Lines are stacked vertically
     expect(para.children[0].y).toBe(0);
-    expect(para.children[1].y).toBe(16);
+    expect(para.children[1].y).toBe(19.2);
   });
 
   it("text content is identical across wide, narrow, and very wide layouts", () => {

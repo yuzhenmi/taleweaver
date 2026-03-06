@@ -44,13 +44,13 @@ export type {
   RenderNodeType,
   RenderStyles,
   BlockRenderNode,
-  GridRenderNode,
+  TableRenderNode,
   InlineRenderNode,
   TextRenderNode,
 } from "./render/render-node";
 export {
   createBlockNode,
-  createGridNode,
+  createTableNode,
   createInlineNode,
   createTextRenderNode,
 } from "./render/render-node";
@@ -80,14 +80,14 @@ export {
 export type {
   LayoutBox,
   BlockLayoutBox,
-  GridLayoutBox,
+  TableLayoutBox,
   LineLayoutBox,
   PageLayoutBox,
   TextLayoutBox,
 } from "./layout/layout-node";
 export {
   createBlockLayoutBox,
-  createGridLayoutBox,
+  createTableLayoutBox,
   createLineLayoutBox,
   createPageLayoutBox,
   createTextLayoutBox,

@@ -15,4 +15,9 @@ export type ComponentRenderFn = (
 export interface ComponentDefinition {
   readonly type: string;
   readonly render: ComponentRenderFn;
+  readonly createInitialState?: (
+    id: string,
+    properties: Record<string, unknown>,
+    allocateId: () => string,
+  ) => StateNode;
 }

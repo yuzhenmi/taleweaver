@@ -219,7 +219,7 @@ export function selectWord(
 
 /**
  * Expand a selection by moving the focus in a direction.
- * Anchor stays fixed, focus moves. Does NOT stop at virtual EOL.
+ * Anchor stays fixed, focus moves. Does NOT stop at virtual line break.
  */
 export function expandSelection(
   state: StateNode,
@@ -231,13 +231,13 @@ export function expandSelection(
 }
 
 /**
- * Expand a selection by one character with virtual EOL awareness.
+ * Expand a selection by one character with virtual line break awareness.
  * Treats the paragraph break as an implicit character at offset `textLength + 1`.
  *
- * - Forward from textLength → textLength + 1 (virtual EOL)
+ * - Forward from textLength → textLength + 1 (virtual line break)
  * - Forward from textLength + 1 → next text node offset 0
- * - Backward from textLength + 1 → textLength (deselect just the EOL indicator)
- * - Backward from 0 → previous text node's textLength + 1 (landing on EOL)
+ * - Backward from textLength + 1 → textLength (deselect just the line break indicator)
+ * - Backward from 0 → previous text node's textLength + 1 (landing on line break)
  * - All other cases: delegate to grapheme boundary movement
  */
 export function expandSelectionByCharacter(
@@ -253,14 +253,14 @@ export function expandSelectionByCharacter(
 
   if (direction === "forward") {
     if (focus.offset > textLength) {
-      // At virtual EOL (textLength + 1) — equivalent to next node's offset 0.
+      // At virtual line break (textLength + 1) — equivalent to next node's offset 0.
       // Advance into the next node to avoid an invisible step.
       const next = findNextTextNode(state, focus.path);
       if (!next) return selection;
       const nextNode = getNodeByPath(state, next)!;
       const nextLength = getTextContentLength(nextNode);
       if (nextLength === 0) {
-        // Empty next node — go to its virtual EOL (offset 1)
+        // Empty next node — go to its virtual line break (offset 1)
         return createSelection(selection.anchor, createPosition(next, 1));
       }
       const nextContent = getTextContent(nextNode);
@@ -269,7 +269,7 @@ export function expandSelectionByCharacter(
     }
     if (focus.offset === textLength) {
       // At end of text — if there's a next text node, go directly to its start.
-      // Only use virtual EOL when there is no next line.
+      // Only use virtual line break when there is no next line.
       const next = findNextTextNode(state, focus.path);
       if (next) {
         return createSelection(
@@ -292,15 +292,15 @@ export function expandSelectionByCharacter(
   } else {
     // backward
     if (focus.offset > textLength) {
-      // At virtual EOL — go back to textLength
+      // At virtual line break — go back to textLength
       return createSelection(
         selection.anchor,
         createPosition(focus.path, textLength),
       );
     }
     if (focus.offset === 0) {
-      // At start of node — go to previous text node's EOL position (textLength).
-      // textLength+1 (past the EOL) is the same conceptual position as this node's
+      // At start of node — go to previous text node's line break position (textLength).
+      // textLength+1 (past the line break) is the same conceptual position as this node's
       // offset 0, so landing there would be an invisible step.
       const prev = findPrevTextNode(state, focus.path);
       if (prev) {

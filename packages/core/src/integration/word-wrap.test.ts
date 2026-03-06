@@ -90,7 +90,7 @@ describe("Integration: insert character causes word wrap", () => {
 
     // Lines are stacked vertically (relative to para)
     expect(line1.y).toBe(0);
-    expect(line2.y).toBe(16);
+    expect(line2.y).toBe(19.2);
   });
 
   it("cursor advances to after the inserted character", () => {

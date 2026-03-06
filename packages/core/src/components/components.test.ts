@@ -75,12 +75,12 @@ describe("documentComponent", () => {
 });
 
 describe("paragraphComponent", () => {
-  it("renders a block node with zero margins", () => {
+  it("renders a block node with default margins", () => {
     const node = createNode("p1", "paragraph");
     const result = paragraphComponent.render(node, []);
     expect(result.type).toBe("block");
-    expect(result.styles.marginTop).toBe(0);
-    expect(result.styles.marginBottom).toBe(0);
+    expect(result.styles.lineMarginTop).toBe(0);
+    expect(result.styles.lineMarginBottom).toBe(0.2);
   });
 });
 
@@ -160,19 +160,26 @@ describe("headingComponent", () => {
   it("sets lineHeight proportional to fontSize for level 1", () => {
     const node = createNode("h1", "heading", { level: 1 });
     const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(40);
+    expect(result.styles.lineHeight).toBe(1.25);
   });
 
   it("sets lineHeight proportional to fontSize for level 2", () => {
     const node = createNode("h2", "heading", { level: 2 });
     const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(30);
+    expect(result.styles.lineHeight).toBe(1.25);
   });
 
   it("sets lineHeight proportional to fontSize for level 3", () => {
     const node = createNode("h3", "heading", { level: 3 });
     const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(25);
+    expect(result.styles.lineHeight).toBe(1.25);
+  });
+
+  it("sets block margins for inter-block spacing", () => {
+    const node = createNode("h1", "heading", { level: 1 });
+    const result = headingComponent.render(node, []);
+    expect(result.styles.blockMarginTop).toBe(0.85);
+    expect(result.styles.blockMarginBottom).toBe(0.25);
   });
 
   it("passes children through", () => {
@@ -193,7 +200,7 @@ describe("listComponent", () => {
   });
 
   it("adds paddingLeft 24 and bullet marker to unordered list-item children", () => {
-    const child = createBlockNode("li1", { marginTop: 0, marginBottom: 0 }, []);
+    const child = createBlockNode("li1", { lineMarginTop: 0, lineMarginBottom: 0 }, []);
     const node = createNode("ol1", "list", { listType: "unordered" });
     const result = listComponent.render(node, [child]);
     expect(result.children).toHaveLength(1);
@@ -206,8 +213,8 @@ describe("listComponent", () => {
   });
 
   it("adds numbered markers to ordered list-item children", () => {
-    const child1 = createBlockNode("li1", { marginTop: 0 }, []);
-    const child2 = createBlockNode("li2", { marginTop: 0 }, []);
+    const child1 = createBlockNode("li1", { lineMarginTop: 0 }, []);
+    const child2 = createBlockNode("li2", { lineMarginTop: 0 }, []);
     const node = createNode("ol1", "list", { listType: "ordered" });
     const result = listComponent.render(node, [child1, child2]);
     expect(result.children).toHaveLength(2);
@@ -233,8 +240,8 @@ describe("listItemComponent", () => {
     const node = createNode("li1", "list-item", {});
     const result = listItemComponent.render(node, []);
     expect(result.type).toBe("block");
-    expect(result.styles.marginTop).toBe(0);
-    expect(result.styles.marginBottom).toBe(0);
+    expect(result.styles.lineMarginTop).toBe(0);
+    expect(result.styles.lineMarginBottom).toBe(0);
   });
 
   it("passes children through", () => {

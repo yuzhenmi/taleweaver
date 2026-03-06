@@ -56,32 +56,31 @@ describe("DELETE_BACKWARD", () => {
     expect(s.selection.focus.offset).toBe(1);
   });
 
-  it("removes void block when backspacing at start of paragraph after it", () => {
-    let s = stateWithText("abc");
-    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
-    // State: para("abc"), HR, para("")  — cursor at [2, 0] offset 0
-    expect(s.state.children).toHaveLength(3);
-    expect(s.state.children[1].type).toBe("horizontal-line");
-
-    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
-    // HR should be removed, leaving: para("abc"), para("")
-    expect(s.state.children).toHaveLength(2);
-    expect(s.state.children[0].type).toBe("paragraph");
-    expect(s.state.children[1].type).toBe("paragraph");
-    expect(getTextAt(s, [0, 0])).toBe("abc");
-  });
-
-  it("removes void block and adjusts cursor path", () => {
+  it("removes void block when backspacing from non-structural paragraph", () => {
+    // Build: para("abc"), HR, para("def") — the trailing para has content, so it's non-structural
     let s = stateWithText("abc");
     s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, config);
-    // State: para("abc"), HR, para("def")  — cursor at [2, 0] offset 3
-    s = withSelection(s, createCursor([2, 0], 0));
+    // Move cursor to start of the paragraph after the HR
+    const hrIdx = s.state.children.findIndex(c => c.type === "horizontal-line");
+    s = withSelection(s, createCursor([hrIdx + 1, 0], 0));
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    // HR should be removed
+    expect(s.state.children.every(c => c.type !== "horizontal-line")).toBe(true);
+  });
 
-    expect(s.state.children).toHaveLength(2);
-    expect(s.selection.focus.path).toEqual([1, 0]);
-    expect(s.selection.focus.offset).toBe(0);
+  it("does not remove void block when backspacing from structural paragraph", () => {
+    let s = stateWithText("abc");
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
+    // State: para("abc"), HR, para("")  — trailing para is structural
+    const hrIdx = s.state.children.findIndex(c => c.type === "horizontal-line");
+    expect(hrIdx).toBeGreaterThanOrEqual(0);
+
+    // Cursor should be in trailing structural para
+    const before = s.state;
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    // Should be no-op — structural paragraph is protected
+    expect(s.state).toBe(before);
   });
 });
 
@@ -89,13 +88,17 @@ describe("DELETE_BACKWARD in table cell", () => {
   function stateWithTable() {
     let s = stateWithText("");
     s = withSelection(s, createCursor([0, 0], 0));
-    s = reduceEditor(s, { type: "INSERT_TABLE", rows: 2, columns: 2 }, config);
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "table", properties: { rows: 2, columns: 2 } }, config);
     return s;
+  }
+
+  function tableIndex(s: ReturnType<typeof stateWithTable>): number {
+    return s.state.children.findIndex(c => c.type === "table");
   }
 
   it("does nothing at start of first cell", () => {
     let s = stateWithTable();
-    // Cursor at [1, 0, 0, 0, 0] offset 0 (start of first cell)
+    // Cursor should already be at first cell
     const before = s.state;
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
     expect(s.state).toBe(before);
@@ -103,8 +106,9 @@ describe("DELETE_BACKWARD in table cell", () => {
 
   it("does nothing at start of any cell", () => {
     let s = stateWithTable();
-    // Move cursor to start of cell [0,1] (second column, first row)
-    s = withSelection(s, createCursor([1, 0, 1, 0, 0], 0));
+    const ti = tableIndex(s);
+    // Move cursor to start of cell [ti,0,1] (second column, first row)
+    s = withSelection(s, createCursor([ti, 0, 1, 0, 0], 0));
     const before = s.state;
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
     expect(s.state).toBe(before);
@@ -112,21 +116,78 @@ describe("DELETE_BACKWARD in table cell", () => {
 
   it("allows normal deletion within a cell", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
-    // cursor at [1, 0, 0, 0, 0] offset 3
+    // cursor at [ti, 0, 0, 0, 0] offset 3
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
-    expect(getTextAt(s, [1, 0, 0, 0, 0])).toBe("ab");
+    expect(getTextAt(s, [ti, 0, 0, 0, 0])).toBe("ab");
   });
 
   it("merges paragraphs within same cell when backspace at start of 2nd para", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    // Cursor now at [1, 0, 0, 1, 0] offset 0 (start of 2nd paragraph in cell)
+    // Cursor now at [ti, 0, 0, 1, 0] offset 0 (start of 2nd paragraph in cell)
     // This is NOT a cell boundary (it's a paragraph boundary within the cell)
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
     // Should merge the two paragraphs within the cell
-    const cell = s.state.children[1].children[0].children[0];
+    const cell = s.state.children[ti].children[0].children[0];
     expect(cell.children).toHaveLength(1);
+  });
+});
+
+describe("DELETE_BACKWARD on structural paragraphs", () => {
+  it("is a no-op on empty paragraph between two HRs", () => {
+    // Build: para, HR, structural-para, HR, para
+    let s = stateWithText("abc");
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
+    // Now at trailing para. Insert another HR:
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
+
+    // Find the structural paragraph between the two HRs
+    const types = s.state.children.map(c => c.type);
+    let structuralIdx = -1;
+    for (let i = 0; i < types.length; i++) {
+      if (types[i] === "paragraph" && i > 0 && types[i - 1] === "horizontal-line" && i < types.length - 1 && types[i + 1] === "horizontal-line") {
+        structuralIdx = i;
+        break;
+      }
+    }
+    expect(structuralIdx).toBeGreaterThan(0);
+
+    s = withSelection(s, createCursor([structuralIdx, 0], 0));
+    const before = s.state;
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    expect(s.state).toBe(before);
+  });
+
+  it("is a no-op on empty paragraph at doc start before table", () => {
+    let s = createInitialEditorState(config);
+    s = reduceEditor(s, {
+      type: "INSERT_BLOCK",
+      blockType: "table",
+      properties: { rows: 1, columns: 2 },
+    }, config);
+
+    // After normalization: [structural-para, table, para]
+    expect(s.state.children[0].type).toBe("paragraph");
+    s = withSelection(s, createCursor([0, 0], 0));
+    const before = s.state;
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    expect(s.state).toBe(before);
+  });
+
+  it("still deletes non-structural empty paragraphs normally", () => {
+    // Build: para("abc"), empty-para, para("def") — the empty-para is NOT structural
+    let s = stateWithText("abc");
+    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, config);
+    // Move cursor to empty middle paragraph
+    s = withSelection(s, createCursor([1, 0], 0));
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    // Should merge — the empty para was not structural
+    expect(s.state.children).toHaveLength(2);
   });
 });

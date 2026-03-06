@@ -42,7 +42,6 @@ import {
   handleRedo,
   handlePaste,
   handleInsertBlock,
-  handleInsertTable,
 } from "./actions";
 
 // Re-export helpers that are part of the public API
@@ -245,9 +244,6 @@ export function reduceEditor(
       break;
     case "INSERT_BLOCK":
       result = handleInsertBlock(editor, action.blockType, action.properties ?? {}, config);
-      break;
-    case "INSERT_TABLE":
-      result = handleInsertTable(editor, action.rows, action.columns, action.columnWidths, config);
       break;
     default: {
       const _exhaustive: never = action;

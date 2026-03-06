@@ -16,8 +16,8 @@ export const listComponent: ComponentDefinition = {
       );
     });
     return createBlockNode(node.id, {
-      marginTop: 0,
-      marginBottom: 0,
+      lineMarginTop: 0,
+      lineMarginBottom: 0,
     }, markedChildren);
   },
 };

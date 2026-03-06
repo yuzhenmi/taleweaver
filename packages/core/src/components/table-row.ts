@@ -4,5 +4,5 @@ import { createBlockNode } from "../render/block-render-node";
 export const tableRowComponent: ComponentDefinition = {
   type: "table-row",
   render: (node, children) =>
-    createBlockNode(node.id, { marginTop: 0, marginBottom: 0 }, children),
+    createBlockNode(node.id, { lineMarginTop: 0, lineMarginBottom: 0 }, children),
 };

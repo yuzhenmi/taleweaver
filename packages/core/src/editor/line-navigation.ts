@@ -89,7 +89,16 @@ export function moveToLineBoundary(
 ): Position | null {
   const currentPixel = resolvePixelPosition(state, position, layoutTree, measurer);
   const x = boundary === "start" ? 0 : Infinity;
-  return resolvePositionFromPixel(state, layoutTree, measurer, x, currentPixel.lineY, currentPixel.pageIndex);
+  const result = resolvePositionFromPixel(state, layoutTree, measurer, x, currentPixel.lineY, currentPixel.pageIndex);
+  if (!result || boundary === "start") return result;
+
+  // When End lands at a soft-wrap boundary that resolves to the next line,
+  // back up one offset so the cursor stays at the visual end of the current line.
+  const resultPixel = resolvePixelPosition(state, result, layoutTree, measurer);
+  if (resultPixel.lineY !== currentPixel.lineY || resultPixel.pageIndex !== currentPixel.pageIndex) {
+    return createPosition(result.path, Math.max(0, result.offset - 1));
+  }
+  return result;
 }
 
 /** Collect unique (pageIndex, Y) pairs for all lines, sorted by page then Y. */

@@ -7,7 +7,7 @@ import { selectionStart, selectionEnd } from "../cursor/selection";
 import { getNodeByPath } from "../state/operations";
 import { getTextContentLength } from "../state/text-utils";
 import { resolvePixelPosition } from "./cursor-position";
-import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
+import { collectAllTextBoxes, collectBlockBoundaryLines, type AbsoluteTextBox } from "./layout-utils";
 
 export interface SelectionRect {
   x: number;
@@ -26,13 +26,17 @@ interface LineEdgeInfo {
   lineStartMap: Map<string, number>;
   lineEndMap: Map<string, number>;
   lineEndStylesMap: Map<string, RenderStyles>;
+  lineMarginTopMap: Map<string, number>;
+  lineMarginBottomMap: Map<string, number>;
 }
 
-/** Build maps from (pageIndex, lineY) → leftmost/rightmost edge and trailing styles. */
+/** Build maps from (pageIndex, lineY) → leftmost/rightmost edge, trailing styles, and margins. */
 function buildLineEdgeMaps(boxes: AbsoluteTextBox[]): LineEdgeInfo {
   const lineStartMap = new Map<string, number>();
   const lineEndMap = new Map<string, number>();
   const lineEndStylesMap = new Map<string, RenderStyles>();
+  const lineMarginTopMap = new Map<string, number>();
+  const lineMarginBottomMap = new Map<string, number>();
   for (const b of boxes) {
     const key = lineKey(b.pageIndex, b.absoluteY);
     const leftEdge = b.absoluteX;
@@ -47,8 +51,12 @@ function buildLineEdgeMaps(boxes: AbsoluteTextBox[]): LineEdgeInfo {
       lineEndMap.set(key, rightEdge);
       lineEndStylesMap.set(key, b.box.styles ?? {});
     }
+    if (!lineMarginTopMap.has(key)) {
+      lineMarginTopMap.set(key, b.lineMarginTop);
+      lineMarginBottomMap.set(key, b.lineMarginBottom);
+    }
   }
-  return { lineStartMap, lineEndMap, lineEndStylesMap };
+  return { lineStartMap, lineEndMap, lineEndStylesMap, lineMarginTopMap, lineMarginBottomMap };
 }
 
 /** Collect sorted unique line Y values per page. */
@@ -74,7 +82,7 @@ function collectPageLines(
 /**
  * Compute visual highlight rectangles for a text selection.
  * Zero-width rects (e.g. from collapsed selections mid-line) are filtered out.
- * Collapsed selections in empty text nodes produce an EOL indicator rect;
+ * Collapsed selections in empty text nodes produce a line break indicator rect;
  * callers should gate on isCollapsed() when a cursor shouldn't show highlights.
  */
 export function computeSelectionRects(
@@ -94,35 +102,38 @@ export function computeSelectionRects(
   // Collect text boxes to find actual line content edges
   const boxes: AbsoluteTextBox[] = [];
   collectAllTextBoxes(layoutTree, 0, 0, boxes);
-  const { lineStartMap, lineEndMap, lineEndStylesMap } = buildLineEdgeMaps(boxes);
+  const { lineStartMap, lineEndMap, lineEndStylesMap, lineMarginTopMap, lineMarginBottomMap } = buildLineEdgeMaps(boxes);
   const pageLines = collectPageLines(boxes);
 
-  /** Measure an end-of-line indicator using the trailing text styles on a line. */
-  const eolIndicatorWidth = (pageIndex: number, lineY: number) =>
+  // Collect which lines are at paragraph boundaries (last line of a block)
+  const blockBoundaryLines = new Set<string>();
+  collectBlockBoundaryLines(layoutTree, 0, 0, blockBoundaryLines);
+
+  /** Measure a line break indicator using the trailing text styles on a line. */
+  const lineBreakIndicatorWidth = (pageIndex: number, lineY: number) =>
     measurer.measureWidth("  ", lineEndStylesMap.get(lineKey(pageIndex, lineY)) ?? {});
 
-  // Offset-based virtual EOL check: end.offset > textContentLength means virtual EOL
+  // Offset-based virtual line break check: end.offset > textContentLength means virtual line break
   const endNode = getNodeByPath(state, end.path);
-  const isVirtualEol = endNode != null && end.offset > getTextContentLength(endNode);
+  const isVirtualLineBreak = endNode != null && end.offset > getTextContentLength(endNode);
 
   // Same line, same page
   if (startPos.pageIndex === endPos.pageIndex && startPos.lineY === endPos.lineY) {
-    const eol = isVirtualEol ? eolIndicatorWidth(startPos.pageIndex, startPos.lineY) : 0;
-    const width = endPos.x - startPos.x + eol;
+    const lb = isVirtualLineBreak ? lineBreakIndicatorWidth(startPos.pageIndex, startPos.lineY) : 0;
+    const width = endPos.x - startPos.x + lb;
     if (width <= 0) return [];
     return [
       {
         x: startPos.x,
-        y: startPos.lineY,
+        y: startPos.lineY - startPos.lineMarginTop,
         width,
-        height: startPos.lineHeight,
+        height: startPos.lineMarginTop + startPos.lineHeight + startPos.lineMarginBottom,
         pageIndex: startPos.pageIndex,
       },
     ];
   }
 
   const rects: SelectionRect[] = [];
-  const lineHeight = startPos.lineHeight;
 
   // Iterate pages from startPos.pageIndex to endPos.pageIndex
   for (let pi = startPos.pageIndex; pi <= endPos.pageIndex; pi++) {
@@ -151,63 +162,67 @@ export function computeSelectionRects(
     }
 
     for (let li = firstLineIdx; li <= lastLineIdx; li++) {
-      const y = lines[li];
-      const key = lineKey(pi, y);
+      const lineY = lines[li];
+      const key = lineKey(pi, lineY);
       const isFirstLine = isFirstPage && li === firstLineIdx;
       const isLastLine = isLastPage && li === lastLineIdx;
 
       const lineEnd = lineEndMap.get(key);
+      const mt = lineMarginTopMap.get(key) ?? 0;
+      const mb = lineMarginBottomMap.get(key) ?? 0;
+
+      /** Rect y and height spanning the margin area. */
+      const rectY = lineY - mt;
+      const rectHeight = (lh: number) => mt + lh + mb;
 
       if (isFirstLine && isLastLine) {
-        const eol = isVirtualEol ? eolIndicatorWidth(pi, y) : 0;
+        const lb = isVirtualLineBreak ? lineBreakIndicatorWidth(pi, lineY) : 0;
         rects.push({
           x: startPos.x,
-          y,
-          width: endPos.x - startPos.x + eol,
-          height: lineHeight,
+          y: rectY,
+          width: endPos.x - startPos.x + lb,
+          height: rectHeight(startPos.lineHeight),
           pageIndex: pi,
         });
       } else if (isFirstLine) {
-        // First line of selection: always includes paragraph break → EOL indicator
         const lineEndX = lineEnd ?? startPos.x;
+        const indicator = blockBoundaryLines.has(key) ? lineBreakIndicatorWidth(pi, lineY) : 0;
         rects.push({
           x: startPos.x,
-          y,
-          width: Math.max(lineEndX + eolIndicatorWidth(pi, y) - startPos.x, 0),
-          height: lineHeight,
+          y: rectY,
+          width: Math.max(lineEndX + indicator - startPos.x, 0),
+          height: rectHeight(startPos.lineHeight),
           pageIndex: pi,
         });
       } else if (isLastLine) {
-        // Last line of selection: EOL indicator only if virtual EOL offset
         const lineStart = lineStartMap.get(key) ?? 0;
-        const eol = isVirtualEol ? eolIndicatorWidth(pi, y) : 0;
-        if (endPos.x > 0 || eol > 0) {
+        const lb = isVirtualLineBreak ? lineBreakIndicatorWidth(pi, lineY) : 0;
+        if (endPos.x > 0 || lb > 0) {
           rects.push({
             x: lineStart,
-            y,
-            width: endPos.x - lineStart + eol,
-            height: endPos.lineHeight,
+            y: rectY,
+            width: endPos.x - lineStart + lb,
+            height: rectHeight(endPos.lineHeight),
             pageIndex: pi,
           });
         }
       } else {
-        // Middle line: always includes paragraph break → EOL indicator
         const lineStart = lineStartMap.get(key) ?? 0;
+        const indicator = blockBoundaryLines.has(key) ? lineBreakIndicatorWidth(pi, lineY) : 0;
         if (lineEnd !== undefined) {
           rects.push({
             x: lineStart,
-            y,
-            width: lineEnd + eolIndicatorWidth(pi, y) - lineStart,
-            height: lineHeight,
+            y: rectY,
+            width: lineEnd + indicator - lineStart,
+            height: rectHeight(startPos.lineHeight),
             pageIndex: pi,
           });
-        } else {
-          // Empty line
+        } else if (indicator > 0) {
           rects.push({
             x: lineStart,
-            y,
-            width: eolIndicatorWidth(pi, y),
-            height: lineHeight,
+            y: rectY,
+            width: indicator,
+            height: rectHeight(startPos.lineHeight),
             pageIndex: pi,
           });
         }

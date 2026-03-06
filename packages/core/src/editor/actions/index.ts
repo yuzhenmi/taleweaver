@@ -25,4 +25,3 @@ export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";
 export { handleInsertBlock } from "./insert-block";
-export { handleInsertTable } from "./insert-table";

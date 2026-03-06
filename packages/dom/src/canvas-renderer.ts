@@ -1,4 +1,4 @@
-import type { LayoutBox, GridLayoutBox, SelectionRect } from "@taleweaver/core";
+import type { LayoutBox, TableLayoutBox, SelectionRect } from "@taleweaver/core";
 import { buildCssFontString, FONT_CONFIG } from "./font-config";
 import type { ImageCache } from "./image-cache";
 
@@ -122,7 +122,7 @@ function paintBox(
 
   if (box.type === "block" && box.marker) {
     const fontSize = FONT_CONFIG.fontSize;
-    const lineHeight = FONT_CONFIG.lineHeight;
+    const lineHeight = FONT_CONFIG.lineHeight * fontSize;
     const halfLeading = (lineHeight - fontSize) / 2;
     const markerFontStr = buildCssFontString({});
     if (markerFontStr !== state.lastFont) {
@@ -143,7 +143,8 @@ function paintBox(
 
     // Half-leading: center text glyphs vertically within the line height
     const fontSize = styles.fontSize ?? FONT_CONFIG.fontSize;
-    const lineHeight = styles.lineHeight ?? FONT_CONFIG.lineHeight;
+    const lineHeightMultiplier = styles.lineHeight ?? FONT_CONFIG.lineHeight;
+    const lineHeight = lineHeightMultiplier * fontSize;
     const halfLeading = (lineHeight - fontSize) / 2;
 
     ctx.fillStyle = "black";
@@ -157,13 +158,13 @@ function paintBox(
     return;
   }
 
-  if (box.type === "grid") {
+  if (box.type === "table") {
     // Paint children (rows → cells → text)
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
     }
     // Draw outer border + column/row separator lines
-    paintGridBorders(ctx, box, absX, absY);
+    paintTableBorders(ctx, box, absX, absY);
     return;
   }
 
@@ -172,9 +173,9 @@ function paintBox(
   }
 }
 
-function paintGridBorders(
+function paintTableBorders(
   ctx: CanvasRenderingContext2D,
-  box: GridLayoutBox,
+  box: TableLayoutBox,
   absX: number,
   absY: number,
 ): void {

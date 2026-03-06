@@ -5,8 +5,8 @@ export const listItemComponent: ComponentDefinition = {
   type: "list-item",
   render: (node, children) => {
     return createBlockNode(node.id, {
-      marginTop: 0,
-      marginBottom: 0,
+      lineMarginTop: 0,
+      lineMarginBottom: 0,
     }, children);
   },
 };
