@@ -50,7 +50,7 @@ describe("clampOffset", () => {
     expect(clampOffset(5, 5)).toBe(5);
   });
 
-  it("clamps offset to contentLength when offset exceeds it (virtual EOL)", () => {
+  it("clamps offset to contentLength when offset exceeds it (virtual line break)", () => {
     expect(clampOffset(6, 5)).toBe(5);
   });
 

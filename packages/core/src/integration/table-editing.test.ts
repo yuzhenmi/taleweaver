@@ -17,7 +17,11 @@ import {
 const config: EditorConfig = { measurer, registry, containerWidth: 600 };
 
 function insertTable(s: EditorState, rows = 2, columns = 3): EditorState {
-  return reduceEditor(s, { type: "INSERT_TABLE", rows, columns }, config);
+  return reduceEditor(s, {
+    type: "INSERT_BLOCK",
+    blockType: "table",
+    properties: { rows, columns },
+  }, config);
 }
 
 function withSelection(
@@ -27,14 +31,21 @@ function withSelection(
   return reduceEditor(s, { type: "SET_SELECTION", selection: sel }, config);
 }
 
+/** Find the index of the table in the document children. */
+function tableIdx(s: EditorState): number {
+  return s.state.children.findIndex(c => c.type === "table");
+}
+
 describe("Table editing integration", () => {
-  it("INSERT_TABLE creates correct state/render/layout tree structure", () => {
+  it("INSERT_BLOCK table creates correct state/render/layout tree structure", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s);
 
-    // State: empty-para, table, empty-para
+    // Normalizer inserts structural para before table
     expect(s.state.children).toHaveLength(3);
-    const table = s.state.children[1];
+    const ti = tableIdx(s);
+    expect(ti).toBe(1);
+    const table = s.state.children[ti];
     expect(table.type).toBe("table");
     expect(table.children).toHaveLength(2); // 2 rows
 
@@ -51,26 +62,27 @@ describe("Table editing integration", () => {
       }
     }
 
-    // Render tree should have a grid node
+    // Render tree should have a table node
     const renderDoc = s.renderTree;
     expect(renderDoc.type).toBe("block");
-    const renderTable = renderDoc.children[1];
-    expect(renderTable.type).toBe("grid");
+    const renderTable = renderDoc.children[ti];
+    expect(renderTable.type).toBe("table");
 
-    // Layout tree should have a grid box
+    // Layout tree should have a table box
     const layoutDoc = s.layoutTree;
-    const layoutTable = layoutDoc.children[1];
-    expect(layoutTable.type).toBe("grid");
+    const layoutTable = layoutDoc.children[ti];
+    expect(layoutTable.type).toBe("table");
   });
 
   it("type text in a cell and verify content", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s);
+    const ti = tableIdx(s);
     // Cursor should be in first cell
-    expect(s.selection.focus.path).toEqual([1, 0, 0, 0, 0]);
+    expect(s.selection.focus.path).toEqual([ti, 0, 0, 0, 0]);
 
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "Hello" }, config);
-    const textNode = getNodeByPath(s.state, [1, 0, 0, 0, 0]);
+    const textNode = getNodeByPath(s.state, [ti, 0, 0, 0, 0]);
     expect(textNode).toBeDefined();
     expect(getTextContent(textNode!)).toBe("Hello");
   });
@@ -78,15 +90,16 @@ describe("Table editing integration", () => {
   it("Enter in cell creates new paragraph within cell", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s);
+    const ti = tableIdx(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    const cell = s.state.children[1].children[0].children[0];
+    const cell = s.state.children[ti].children[0].children[0];
     expect(cell.children).toHaveLength(2);
     expect(cell.children[0].type).toBe("paragraph");
     expect(cell.children[1].type).toBe("paragraph");
     // Cursor in new paragraph
-    expect(s.selection.focus.path).toEqual([1, 0, 0, 1, 0]);
+    expect(s.selection.focus.path).toEqual([ti, 0, 0, 1, 0]);
   });
 
   it("backspace at cell start does nothing", () => {
@@ -110,18 +123,18 @@ describe("Table editing integration", () => {
   it("arrow key navigation between cells", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s);
-    // Cursor at first cell [1, 0, 0, 0, 0]
+    const ti = tableIdx(s);
+    // Cursor at first cell [ti, 0, 0, 0, 0]
     // Move forward should traverse to second cell
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "forward" }, config);
-    // Should be at second cell's text: [1, 0, 1, 0, 0]
-    expect(s.selection.focus.path).toEqual([1, 0, 1, 0, 0]);
+    // Should be at second cell's text: [ti, 0, 1, 0, 0]
+    expect(s.selection.focus.path).toEqual([ti, 0, 1, 0, 0]);
     expect(s.selection.focus.offset).toBe(0);
   });
 
-  it("undo after INSERT_TABLE restores pre-table state", () => {
+  it("undo after table insertion restores pre-table state", () => {
     let s = createInitialEditorState(config);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" }, config);
-    const before = s.state;
     s = insertTable(s);
     expect(s.state.children.length).toBeGreaterThan(1);
 
@@ -133,10 +146,11 @@ describe("Table editing integration", () => {
   it("layout: cells positioned horizontally, rows stacked vertically", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s, 2, 2);
+    const ti = tableIdx(s);
 
-    const gridBox = s.layoutTree.children[1];
-    expect(gridBox.type).toBe("grid");
-    if (gridBox.type !== "grid") return;
+    const gridBox = s.layoutTree.children[ti];
+    expect(gridBox.type).toBe("table");
+    if (gridBox.type !== "table") return;
 
     // Two rows
     expect(gridBox.children).toHaveLength(2);
@@ -155,12 +169,13 @@ describe("Table editing integration", () => {
   it("auto row height adjusts to content", () => {
     let s = createInitialEditorState(config);
     s = insertTable(s, 1, 2);
+    const ti = tableIdx(s);
     // Type in first cell to make it have content
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "text" }, config);
 
-    const gridBox = s.layoutTree.children[1];
-    expect(gridBox.type).toBe("grid");
-    if (gridBox.type !== "grid") return;
+    const gridBox = s.layoutTree.children[ti];
+    expect(gridBox.type).toBe("table");
+    if (gridBox.type !== "table") return;
 
     // Row height should be at least the cell content height
     expect(gridBox.rowHeights[0]).toBeGreaterThan(0);

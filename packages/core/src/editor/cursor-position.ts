@@ -6,14 +6,18 @@ import { getNodeByPath } from "../state/operations";
 
 export interface PixelPosition {
   x: number;
-  /** Cursor y (page-relative, offset by half-leading within the line). */
+  /** Cursor y (top of line box, page-relative). */
   y: number;
-  /** Cursor height (font bounding box height). */
+  /** Cursor height (line height, excluding margins). */
   height: number;
-  /** Top of the line box (page-relative, no half-leading offset). */
+  /** Top of the line box (page-relative, no margin offset). */
   lineY: number;
-  /** Full line height. */
+  /** Full line height (excluding margins). */
   lineHeight: number;
+  /** Resolved top margin of the line in px. */
+  lineMarginTop: number;
+  /** Resolved bottom margin of the line in px. */
+  lineMarginBottom: number;
   /** Page this position is on. */
   pageIndex: number;
 }
@@ -24,6 +28,8 @@ interface TextBoxMatch {
   absoluteY: number;
   keySuffix: number; // -1 for unsuffixed, N for :N
   pageIndex: number;
+  lineMarginTop: number;
+  lineMarginBottom: number;
 }
 
 /** Resolve a state Position to pixel coordinates using the layout tree. */
@@ -34,7 +40,7 @@ export function resolvePixelPosition(
   measurer: TextMeasurer,
 ): PixelPosition {
   const node = getNodeByPath(state, position.path);
-  if (!node) return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, pageIndex: 0 };
+  if (!node) return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
 
   const nodeId = node.id;
 
@@ -43,7 +49,7 @@ export function resolvePixelPosition(
   collectTextBoxes(layoutTree, nodeId, 0, 0, matches);
 
   if (matches.length === 0) {
-    return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, pageIndex: 0 };
+    return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
   }
 
   // Sort by key suffix order
@@ -51,20 +57,37 @@ export function resolvePixelPosition(
 
   // Walk matches consuming offset characters
   let remaining = position.offset;
-  for (const match of matches) {
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
     const textLen = match.box.text.length;
     if (remaining <= textLen) {
-      // Cursor falls within this box
+      // At a soft-wrap boundary: prefer start of next line
+      if (remaining === textLen) {
+        const next = matches[i + 1];
+        if (next && (next.absoluteY !== match.absoluteY || next.pageIndex !== match.pageIndex)) {
+          return {
+            x: next.absoluteX,
+            y: next.absoluteY,
+            height: next.box.height,
+            lineY: next.absoluteY,
+            lineHeight: next.box.height,
+            lineMarginTop: next.lineMarginTop,
+            lineMarginBottom: next.lineMarginBottom,
+            pageIndex: next.pageIndex,
+          };
+        }
+      }
+      // Cursor falls within this box (or end of box on same line)
       const prefix = match.box.text.slice(0, remaining);
       const xOffset = measurer.measureWidth(prefix, match.box.styles ?? {});
-      const cursorHeight = measurer.measureCursorHeight(match.box.styles ?? {});
-      const halfLeading = (match.box.height - cursorHeight) / 2;
       return {
         x: match.absoluteX + xOffset,
-        y: match.absoluteY + halfLeading,
-        height: cursorHeight,
+        y: match.absoluteY,
+        height: match.box.height,
         lineY: match.absoluteY,
         lineHeight: match.box.height,
+        lineMarginTop: match.lineMarginTop,
+        lineMarginBottom: match.lineMarginBottom,
         pageIndex: match.pageIndex,
       };
     }
@@ -73,14 +96,14 @@ export function resolvePixelPosition(
 
   // Offset past all boxes — position at end of last box
   const last = matches[matches.length - 1];
-  const cursorHeight = measurer.measureCursorHeight(last.box.styles ?? {});
-  const halfLeading = (last.box.height - cursorHeight) / 2;
   return {
     x: last.absoluteX + last.box.width,
-    y: last.absoluteY + halfLeading,
-    height: cursorHeight,
+    y: last.absoluteY,
+    height: last.box.height,
     lineY: last.absoluteY,
     lineHeight: last.box.height,
+    lineMarginTop: last.lineMarginTop,
+    lineMarginBottom: last.lineMarginBottom,
     pageIndex: last.pageIndex,
   };
 }
@@ -93,6 +116,8 @@ function collectTextBoxes(
   parentY: number,
   out: TextBoxMatch[],
   pageIndex: number = 0,
+  lineMarginTop: number = 0,
+  lineMarginBottom: number = 0,
 ): void {
   if (box.type === "text") {
     const match = matchKey(box.key, nodeId);
@@ -103,6 +128,8 @@ function collectTextBoxes(
         absoluteY: parentY + box.y,
         keySuffix: match,
         pageIndex,
+        lineMarginTop,
+        lineMarginBottom,
       });
     }
     return;
@@ -110,16 +137,22 @@ function collectTextBoxes(
 
   const absX = parentX + box.x;
   const absY = parentY + box.y;
+  let mt = lineMarginTop;
+  let mb = lineMarginBottom;
+  if (box.type === "line") {
+    mt = box.marginTop;
+    mb = box.marginBottom;
+  }
   if (box.type === "page") {
     const idx = parseInt(box.key.slice(5), 10);
     const pi = isNaN(idx) ? pageIndex : idx;
     for (const child of box.children) {
-      collectTextBoxes(child, nodeId, absX, absY, out, pi);
+      collectTextBoxes(child, nodeId, absX, absY, out, pi, mt, mb);
     }
     return;
   }
   for (const child of box.children) {
-    collectTextBoxes(child, nodeId, absX, absY, out, pageIndex);
+    collectTextBoxes(child, nodeId, absX, absY, out, pageIndex, mt, mb);
   }
 }
 

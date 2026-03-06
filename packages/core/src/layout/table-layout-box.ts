@@ -1,9 +1,9 @@
 import type { LayoutBox } from "./layout-node";
 
-/** A grid layout box (for tables). */
-export interface GridLayoutBox {
+/** A table layout box. */
+export interface TableLayoutBox {
   readonly key: string;
-  readonly type: "grid";
+  readonly type: "table";
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -13,8 +13,8 @@ export interface GridLayoutBox {
   readonly rowHeights: readonly number[];
 }
 
-/** Create a grid layout box. */
-export function createGridLayoutBox(
+/** Create a table layout box. */
+export function createTableLayoutBox(
   key: string,
   x: number,
   y: number,
@@ -23,10 +23,10 @@ export function createGridLayoutBox(
   children: readonly LayoutBox[],
   columnWidths: readonly number[],
   rowHeights: readonly number[],
-): GridLayoutBox {
+): TableLayoutBox {
   return Object.freeze({
     key,
-    type: "grid" as const,
+    type: "table" as const,
     x,
     y,
     width,

@@ -116,16 +116,30 @@ describe("Cursor navigation with void blocks", () => {
 });
 
 describe("Delete with void blocks", () => {
-  it("backspace at paragraph start after HR removes HR only", () => {
+  it("backspace on structural paragraph after HR is a no-op", () => {
     let s = createInitialEditorState(config);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
     s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
-    // para("abc"), HR, para("")  cursor at [2, 0] offset 0
+    // para("abc"), HR, para("")  cursor at trailing structural para
+
+    const before = s.state;
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    // Structural paragraph is protected — no-op
+    expect(s.state).toBe(before);
+  });
+
+  it("backspace removes HR from non-structural paragraph", () => {
+    let s = createInitialEditorState(config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "horizontal-line" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, config);
+    // para("abc"), HR, para("def") — trailing para has content, not structural
+    const hrIdx = s.state.children.findIndex(c => c.type === "horizontal-line");
+    s = withSelection(s, createCursor([hrIdx + 1, 0], 0));
 
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
 
-    expect(s.state.children).toHaveLength(2);
-    expect(s.state.children.every(c => c.type === "paragraph")).toBe(true);
+    expect(s.state.children.every(c => c.type !== "horizontal-line")).toBe(true);
   });
 
   it("forward-delete at paragraph end before HR removes HR only", () => {

@@ -1,27 +1,27 @@
 import type { RenderNode } from "./render-node";
 import type { RenderStyles } from "./render-styles";
 
-/** A grid render node (for tables). */
-export interface GridRenderNode {
+/** A table render node. */
+export interface TableRenderNode {
   readonly key: string;
-  readonly type: "grid";
+  readonly type: "table";
   readonly styles: RenderStyles;
   readonly children: readonly RenderNode[];
   readonly columnWidths: readonly number[];
   readonly rowHeights: readonly number[];
 }
 
-/** Create a grid render node. */
-export function createGridNode(
+/** Create a table render node. */
+export function createTableNode(
   key: string,
   styles: RenderStyles,
   children: readonly RenderNode[],
   columnWidths: readonly number[],
   rowHeights: readonly number[],
-): GridRenderNode {
+): TableRenderNode {
   return Object.freeze({
     key,
-    type: "grid" as const,
+    type: "table" as const,
     styles: Object.freeze({ ...styles }),
     children: Object.freeze([...children]),
     columnWidths: Object.freeze([...columnWidths]),

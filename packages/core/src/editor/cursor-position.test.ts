@@ -29,7 +29,7 @@ describe("resolvePixelPosition", () => {
     const pos = createPosition([0, 0], 0);
 
     const result = resolvePixelPosition(state, pos, layout, measurer);
-    expect(result).toEqual({ x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, pageIndex: 0 });
+    expect(result).toEqual({ x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 3.2, pageIndex: 0 });
   });
 
   it("returns correct x for cursor in middle of text", () => {
@@ -65,11 +65,11 @@ describe("resolvePixelPosition", () => {
     const pos = createPosition([1, 0], 1);
     const result = resolvePixelPosition(state, pos, layout, measurer);
     expect(result.x).toBe(8); // 1 char * 8px
-    expect(result.y).toBe(16); // second line
+    expect(result.y).toBe(19.2); // second line (first para height = 16 + 3.2 marginBottom)
   });
 
-  it("cursor height uses measureCursorHeight, centered in line", () => {
-    // lineHeight=24, cursorHeight=20 → halfLeading = (24-20)/2 = 2
+  it("caret covers line height only, not margins", () => {
+    // lineHeight=24, marginBottom=0.1*24=2.4
     const tallMeasurer = createMockMeasurer(8, 24, 20);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "hello").newState;
@@ -79,13 +79,13 @@ describe("resolvePixelPosition", () => {
 
     const result = resolvePixelPosition(state, pos, layout, tallMeasurer);
     expect(result.x).toBe(24); // 3 * 8
-    expect(result.y).toBe(2); // halfLeading offset from top of line
-    expect(result.height).toBe(20); // cursorHeight, not lineHeight
+    expect(result.y).toBe(0); // top of line box
+    expect(result.height).toBe(24); // line height only
     expect(result.lineY).toBe(0); // raw line box top
     expect(result.lineHeight).toBe(24); // full line height
   });
 
-  it("cursor at end of text has half-leading offset", () => {
+  it("cursor at end of text covers line height only", () => {
     const tallMeasurer = createMockMeasurer(8, 24, 20);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "hi").newState;
@@ -95,13 +95,13 @@ describe("resolvePixelPosition", () => {
 
     const result = resolvePixelPosition(state, pos, layout, tallMeasurer);
     expect(result.x).toBe(16); // 2 * 8
-    expect(result.y).toBe(2); // halfLeading
-    expect(result.height).toBe(20); // cursorHeight
+    expect(result.y).toBe(0); // top of line box
+    expect(result.height).toBe(24); // line height only
     expect(result.lineY).toBe(0);
     expect(result.lineHeight).toBe(24);
   });
 
-  it("cursor in second paragraph has half-leading offset", () => {
+  it("cursor in second paragraph covers line height only", () => {
     const tallMeasurer = createMockMeasurer(8, 24, 20);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "abc").newState;
@@ -113,9 +113,9 @@ describe("resolvePixelPosition", () => {
     const pos = createPosition([1, 0], 1);
     const result = resolvePixelPosition(state, pos, layout, tallMeasurer);
     expect(result.x).toBe(8); // 1 * 8
-    expect(result.y).toBe(24 + 2); // second line (y=24) + halfLeading (2)
-    expect(result.height).toBe(20); // cursorHeight
-    expect(result.lineY).toBe(24); // raw line box top of second line
+    expect(result.y).toBe(28.8); // second para (first para height = 24 + 4.8 = 28.8)
+    expect(result.height).toBe(24); // line height only
+    expect(result.lineY).toBe(28.8); // raw line box top of second line
     expect(result.lineHeight).toBe(24);
   });
 
@@ -130,17 +130,17 @@ describe("resolvePixelPosition", () => {
     // Cursor at offset 6 → within "fgh" on line 2, after "f"
     const pos6 = resolvePixelPosition(state, createPosition([0, 0], 6), layout, measurer);
     expect(pos6.x).toBe(8); // 1 char into "fgh"
-    expect(pos6.y).toBe(16); // second line
+    expect(pos6.y).toBe(19.2); // second line (y=16 + max(3.2, 0) inter-line gap)
 
     // Cursor at offset 3 → within "abcde" on line 1, after "abc"
     const pos3 = resolvePixelPosition(state, createPosition([0, 0], 3), layout, measurer);
     expect(pos3.x).toBe(24); // 3 chars * 8px
     expect(pos3.y).toBe(0); // first line
 
-    // Cursor at boundary (offset 5) → end of "abcde" on line 1
+    // Cursor at boundary (offset 5) → start of line 2 (soft-wrap prefers next line)
     const pos5 = resolvePixelPosition(state, createPosition([0, 0], 5), layout, measurer);
-    expect(pos5.x).toBe(40); // 5 chars * 8px = end of first line
-    expect(pos5.y).toBe(0);
+    expect(pos5.x).toBe(0);
+    expect(pos5.y).toBe(19.2);
   });
 
   it("handles word-wrapped text across multiple layout boxes", () => {
@@ -161,5 +161,35 @@ describe("resolvePixelPosition", () => {
     expect(result.x).toBeGreaterThanOrEqual(0);
     expect(result.y).toBeGreaterThanOrEqual(0);
     expect(result.height).toBe(16);
+  });
+
+  it("soft-wrap boundary renders at start of next line (word-level wrap)", () => {
+    // "hello world" in 80px container wraps: "hello " (48px) + "world" (40px)
+    const text = createTextNode("t0", "hello world");
+    const para = createNode("p0", "paragraph", {}, [text]);
+    const state = createNode("doc", "document", {}, [para]);
+    const render = renderTree(state, registry);
+    const layout = layoutTree(render, 80, measurer);
+
+    // Offset 6 = boundary between "hello " and "world" → start of line 2
+    const pos6 = resolvePixelPosition(state, createPosition([0, 0], 6), layout, measurer);
+    expect(pos6.x).toBe(0);
+    expect(pos6.y).toBe(19.2); // line 2
+
+    // Offset 5 = within "hello " → still on line 1
+    const pos5 = resolvePixelPosition(state, createPosition([0, 0], 5), layout, measurer);
+    expect(pos5.x).toBe(40); // 5 * 8px
+    expect(pos5.y).toBe(0); // line 1
+  });
+
+  it("end of last text box in paragraph stays on its line (no next line to jump to)", () => {
+    // Single paragraph "hello" (not wrapped) — offset at textLength stays at end
+    let state = createEmptyDocument();
+    state = insertText(state, createPosition([0, 0], 0), "hello").newState;
+    const layout = buildLayout(state);
+
+    const pos = resolvePixelPosition(state, createPosition([0, 0], 5), layout, measurer);
+    expect(pos.x).toBe(40); // end of "hello"
+    expect(pos.y).toBe(0);
   });
 });

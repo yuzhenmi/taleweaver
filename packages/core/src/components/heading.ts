@@ -10,15 +10,6 @@ const HEADING_SIZES: Record<number, number> = {
   6: 12,
 };
 
-const HEADING_LINE_HEIGHTS: Record<number, number> = {
-  1: 40,
-  2: 30,
-  3: 25,
-  4: 20,
-  5: 18,
-  6: 15,
-};
-
 export const headingComponent: ComponentDefinition = {
   type: "heading",
   render: (node, children) => {
@@ -26,13 +17,14 @@ export const headingComponent: ComponentDefinition = {
       ? node.properties.level
       : 1;
     const fontSize = HEADING_SIZES[level] ?? 16;
-    const lineHeight = HEADING_LINE_HEIGHTS[level] ?? Math.ceil(fontSize * 1.25);
     return createBlockNode(node.id, {
       fontSize,
-      lineHeight,
+      lineHeight: 1.25,
       fontWeight: "bold",
-      marginTop: 0,
-      marginBottom: 0,
+      lineMarginTop: 0,
+      lineMarginBottom: 0.2,
+      blockMarginTop: 0.85,
+      blockMarginBottom: 0.25,
     }, children);
   },
 };

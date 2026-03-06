@@ -3,9 +3,9 @@ export {
   createBlockLayoutBox,
 } from "./block-layout-box";
 export {
-  type GridLayoutBox,
-  createGridLayoutBox,
-} from "./grid-layout-box";
+  type TableLayoutBox,
+  createTableLayoutBox,
+} from "./table-layout-box";
 export {
   type LineLayoutBox,
   createLineLayoutBox,
@@ -20,10 +20,10 @@ export {
 } from "./text-layout-box";
 
 /** Discriminated union of all layout box types. */
-export type LayoutBox = BlockLayoutBox | GridLayoutBox | LineLayoutBox | PageLayoutBox | TextLayoutBox;
+export type LayoutBox = BlockLayoutBox | TableLayoutBox | LineLayoutBox | PageLayoutBox | TextLayoutBox;
 
 import type { BlockLayoutBox } from "./block-layout-box";
-import type { GridLayoutBox } from "./grid-layout-box";
+import type { TableLayoutBox } from "./table-layout-box";
 import type { LineLayoutBox } from "./line-layout-box";
 import type { PageLayoutBox } from "./page-layout-box";
 import type { TextLayoutBox } from "./text-layout-box";

@@ -76,7 +76,7 @@ export function createEditorController(
   container.style.outline = "none";
   container.style.fontFamily = FONT_CONFIG.fontFamily;
   container.style.fontSize = `${FONT_CONFIG.fontSize}px`;
-  container.style.lineHeight = `${FONT_CONFIG.lineHeight}px`;
+  container.style.lineHeight = `${FONT_CONFIG.lineHeight * FONT_CONFIG.fontSize}px`; // 1.2 * 16 = 19.2px
   container.style.cursor = "text";
   container.style.userSelect = "none";
 

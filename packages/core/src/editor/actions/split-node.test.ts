@@ -144,18 +144,23 @@ describe("SPLIT_NODE in table cell", () => {
   function stateWithTable(): ReturnType<typeof createInitialEditorState> {
     let s = stateWithText("");
     s = withSelection(s, createCursor([0, 0], 0));
-    s = reduceEditor(s, { type: "INSERT_TABLE", rows: 2, columns: 2 }, config);
+    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "table", properties: { rows: 2, columns: 2 } }, config);
     return s;
+  }
+
+  function tableIndex(s: ReturnType<typeof stateWithTable>): number {
+    return s.state.children.findIndex(c => c.type === "table");
   }
 
   it("creates new paragraph within same cell (not a new row)", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     // Type text in first cell
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" }, config);
     // Enter → should split paragraph within the cell
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    const table = s.state.children[1];
+    const table = s.state.children[ti];
     expect(table.type).toBe("table");
     // Still 2 rows (no new row created)
     expect(table.children).toHaveLength(2);
@@ -169,24 +174,26 @@ describe("SPLIT_NODE in table cell", () => {
 
   it("places cursor at start of new paragraph in cell", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
     // Move to middle
-    s = withSelection(s, createCursor([1, 0, 0, 0, 0], 1));
+    s = withSelection(s, createCursor([ti, 0, 0, 0, 0], 1));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    // Cursor at new paragraph in first cell: [1, 0, 0, 1, 0]
-    expect(s.selection.focus.path).toEqual([1, 0, 0, 1, 0]);
+    // Cursor at new paragraph in first cell
+    expect(s.selection.focus.path).toEqual([ti, 0, 0, 1, 0]);
     expect(s.selection.focus.offset).toBe(0);
   });
 
   it("splits at start of cell paragraph", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "text" }, config);
     // Move cursor to start of the text in first cell
-    s = withSelection(s, createCursor([1, 0, 0, 0, 0], 0));
+    s = withSelection(s, createCursor([ti, 0, 0, 0, 0], 0));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    const cell00 = s.state.children[1].children[0].children[0];
+    const cell00 = s.state.children[ti].children[0].children[0];
     expect(cell00.children).toHaveLength(2);
     expect(getTextContent(cell00.children[0].children[0])).toBe("");
     expect(getTextContent(cell00.children[1].children[0])).toBe("text");
@@ -194,11 +201,12 @@ describe("SPLIT_NODE in table cell", () => {
 
   it("splits at end of cell paragraph", () => {
     let s = stateWithTable();
+    const ti = tableIndex(s);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "text" }, config);
-    // Cursor should already be at end: [1, 0, 0, 0, 0] offset 4
+    // Cursor should already be at end: [ti, 0, 0, 0, 0] offset 4
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    const cell00 = s.state.children[1].children[0].children[0];
+    const cell00 = s.state.children[ti].children[0].children[0];
     expect(cell00.children).toHaveLength(2);
     expect(getTextContent(cell00.children[0].children[0])).toBe("text");
     expect(getTextContent(cell00.children[1].children[0])).toBe("");

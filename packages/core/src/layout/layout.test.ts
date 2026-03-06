@@ -5,10 +5,10 @@ import { createMockMeasurer } from "./text-measurer";
 import { layoutTree, layoutTreeIncremental } from "./layout-engine";
 import {
   createBlockNode,
-  createGridNode,
+  createTableNode,
   createTextRenderNode,
 } from "../render/render-node";
-import type { GridLayoutBox } from "./grid-layout-box";
+import type { TableLayoutBox } from "./table-layout-box";
 import { createNode, createTextNode } from "../state/create-node";
 import { defaultComponents } from "../components";
 import { createRegistry } from "../components/component-registry";
@@ -477,6 +477,93 @@ describe("Pagination with margins", () => {
   });
 });
 
+describe("Block margins", () => {
+  it("adds inter-block spacing from block margins", () => {
+    // Two blocks with blockMarginBottom/blockMarginTop
+    // measurer: lineHeight = 16px
+    // blockMarginBottom=0.5 → 0.5 * 16 = 8px, blockMarginTop=0.25 → 0.25 * 16 = 4px
+    // Max gap = max(8, 4) = 8px
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", { blockMarginBottom: 0.5 }, [t1]);
+    const p2 = createBlockNode("p2", { blockMarginTop: 0.25 }, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    const para1 = layout.children[0];
+    const para2 = layout.children[1];
+
+    expect(para1.y).toBe(0);
+    expect(para1.height).toBe(16);
+    // p2 should be offset by the block margin gap (8px)
+    expect(para2.y).toBe(16 + 8);
+  });
+
+  it("block margin does not add extra space when line margins already exceed it", () => {
+    // lineMarginBottom=0.5 → 8px, lineMarginTop=0.5 → 8px
+    // Line margins collapse: overlap = min(8, 8) = 8, lineGap = 8 + 8 - 8 = 8
+    // blockMarginBottom=0.25 → 4px, blockMarginTop=0.25 → 4px
+    // blockGap = max(4, 4) = 4. Since lineGap (8) >= blockGap (4), extraSpace = 0
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", { lineMarginBottom: 0.5, blockMarginBottom: 0.25 }, [t1]);
+    const p2 = createBlockNode("p2", { lineMarginTop: 0.5, blockMarginTop: 0.25 }, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    const para1 = layout.children[0];
+    const para2 = layout.children[1];
+
+    // Line margins: p1 bottom margin = 8px (included in line), p2 top margin = 8px
+    // overlap = 8, so childY -= 8 after stacking
+    // Block margin gap doesn't add more since line margins already cover it
+    // p1 height = 16 + 8 (line marginBottom on last line)
+    // p2 starts at p1.y + p1.height - overlap = 0 + 24 - 8 = 16
+    // Then extraSpace = max(0, 4 - 8) = 0
+    expect(para1.y).toBe(0);
+    expect(para2.y).toBe(16);
+  });
+
+  it("block margin acts as minimum gap when line margins are smaller", () => {
+    // lineMarginBottom=0.1 → 1.6px, lineMarginTop=0.1 → 1.6px
+    // overlap = min(1.6, 1.6) = 1.6, lineGap = 1.6 + 1.6 - 1.6 = 1.6
+    // blockMarginBottom=0.5 → 8px, blockMarginTop=0.5 → 8px
+    // blockGap = max(8, 8) = 8. extraSpace = max(0, 8 - 1.6) = 6.4
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", { lineMarginBottom: 0.1, blockMarginBottom: 0.5 }, [t1]);
+    const p2 = createBlockNode("p2", { lineMarginTop: 0.1, blockMarginTop: 0.5 }, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    const para1 = layout.children[0];
+    const para2 = layout.children[1];
+
+    // p1 height = 16 + 1.6 (last line marginBottom)
+    // p2 starts at p1.y + p1.height - overlap + extraSpace
+    //   = 0 + 17.6 - 1.6 + 6.4 = 22.4
+    expect(para1.y).toBe(0);
+    expect(para2.y).toBeCloseTo(22.4, 5);
+  });
+
+  it("without block margins behavior is unchanged", () => {
+    const t1 = createTextRenderNode("t1", "First", {});
+    const t2 = createTextRenderNode("t2", "Second", {});
+    const p1 = createBlockNode("p1", {}, [t1]);
+    const p2 = createBlockNode("p2", {}, [t2]);
+    const doc = createBlockNode("doc", {}, [p1, p2]);
+
+    const layout = layoutTree(doc, 200, measurer);
+
+    expect(layout.children[0].y).toBe(0);
+    expect(layout.children[0].height).toBe(16);
+    expect(layout.children[1].y).toBe(16);
+  });
+});
+
 describe("List marker layout", () => {
   it("passes marker through from render node to layout box", () => {
     const text = createTextRenderNode("t1", "Item", {});
@@ -780,32 +867,33 @@ describe("Incremental layout", () => {
   });
 });
 
-function expectGridBox(box: LayoutBox): GridLayoutBox {
-  if (box.type !== "grid")
-    throw new Error(`Expected grid layout box, got "${box.type}"`);
+function expectTableBox(box: LayoutBox): TableLayoutBox {
+  if (box.type !== "table")
+    throw new Error(`Expected table layout box, got "${box.type}"`);
   return box;
 }
 
-describe("Grid layout", () => {
-  it("lays out a 2x2 grid with cells positioned horizontally", () => {
-    // 2 cols: 100px, 200px
+describe("Table layout", () => {
+  it("lays out a 2x2 table with cells positioned horizontally", () => {
+    // 2 cols: 1/3, 2/3 of 300px → 100px, 200px
     const cell00 = createBlockNode("c00", {}, [createTextRenderNode("t00", "A", {})]);
     const cell01 = createBlockNode("c01", {}, [createTextRenderNode("t01", "B", {})]);
     const row0 = createBlockNode("r0", {}, [cell00, cell01]);
     const cell10 = createBlockNode("c10", {}, [createTextRenderNode("t10", "C", {})]);
     const cell11 = createBlockNode("c11", {}, [createTextRenderNode("t11", "D", {})]);
     const row1 = createBlockNode("r1", {}, [cell10, cell11]);
-    const grid = createGridNode("g1", {}, [row0, row1], [100, 200], [0, 0]);
-    const doc = createBlockNode("doc", {}, [grid]);
+    const table = createTableNode("g1", {}, [row0, row1], [1/3, 2/3], [0, 0]);
+    const doc = createBlockNode("doc", {}, [table]);
 
     const layout = layoutTree(doc, 300, measurer);
-    const gridBox = expectGridBox(layout.children[0]);
+    const tableBox = expectTableBox(layout.children[0]);
 
-    expect(gridBox.type).toBe("grid");
-    expect(gridBox.columnWidths).toEqual([100, 200]);
+    expect(tableBox.type).toBe("table");
+    // Resolved to pixels: 1/3 * 300 = 100, 2/3 * 300 = 200
+    expect(tableBox.columnWidths).toEqual([100, 200]);
 
     // Row 0
-    const rowBox0 = gridBox.children[0];
+    const rowBox0 = tableBox.children[0];
     expect(rowBox0.y).toBe(0);
     // Cell 0,0 at x=0 with width=100
     expect(rowBox0.children[0].x).toBe(0);
@@ -815,7 +903,7 @@ describe("Grid layout", () => {
     expect(rowBox0.children[1].width).toBe(200);
 
     // Row 1 stacked below row 0
-    const rowBox1 = gridBox.children[1];
+    const rowBox1 = tableBox.children[1];
     expect(rowBox1.y).toBe(rowBox0.height);
   });
 
@@ -826,42 +914,43 @@ describe("Grid layout", () => {
     ]);
     const cell1 = createBlockNode("c1", {}, [createTextRenderNode("t1", "Short", {})]);
     const row = createBlockNode("r0", {}, [cell0, cell1]);
-    const grid = createGridNode("g1", {}, [row], [100, 100], [0]);
-    const doc = createBlockNode("doc", {}, [grid]);
+    const table = createTableNode("g1", {}, [row], [0.5, 0.5], [0]);
+    const doc = createBlockNode("doc", {}, [table]);
 
     const layout = layoutTree(doc, 200, measurer);
-    const gridBox = expectGridBox(layout.children[0]);
+    const tableBox = expectTableBox(layout.children[0]);
 
     // cell0 height = 10 + 16 + 10 = 36, cell1 height = 16
     // auto row height = max(36, 16) = 36
-    expect(gridBox.rowHeights[0]).toBe(36);
+    expect(tableBox.rowHeights[0]).toBe(36);
   });
 
   it("explicit row height is used when larger than content", () => {
     const cell = createBlockNode("c0", {}, [createTextRenderNode("t0", "Hi", {})]);
     const row = createBlockNode("r0", {}, [cell]);
-    const grid = createGridNode("g1", {}, [row], [200], [50]);
-    const doc = createBlockNode("doc", {}, [grid]);
+    const table = createTableNode("g1", {}, [row], [1], [50]);
+    const doc = createBlockNode("doc", {}, [table]);
 
     const layout = layoutTree(doc, 200, measurer);
-    const gridBox = expectGridBox(layout.children[0]);
+    const tableBox = expectTableBox(layout.children[0]);
 
     // content height = 16, explicit = 50 → max = 50
-    expect(gridBox.rowHeights[0]).toBe(50);
+    expect(tableBox.rowHeights[0]).toBe(50);
   });
 
   it("single-row single-column edge case", () => {
     const cell = createBlockNode("c0", {}, [createTextRenderNode("t0", "Only", {})]);
     const row = createBlockNode("r0", {}, [cell]);
-    const grid = createGridNode("g1", {}, [row], [150], [0]);
-    const doc = createBlockNode("doc", {}, [grid]);
+    const table = createTableNode("g1", {}, [row], [1], [0]);
+    const doc = createBlockNode("doc", {}, [table]);
 
     const layout = layoutTree(doc, 200, measurer);
-    const gridBox = expectGridBox(layout.children[0]);
+    const tableBox = expectTableBox(layout.children[0]);
 
-    expect(gridBox.children).toHaveLength(1);
-    expect(gridBox.columnWidths).toEqual([150]);
-    expect(gridBox.rowHeights).toEqual([16]);
-    expect(gridBox.height).toBe(16);
+    expect(tableBox.children).toHaveLength(1);
+    // Resolved: 1 * 200 = 200
+    expect(tableBox.columnWidths).toEqual([200]);
+    expect(tableBox.rowHeights).toEqual([16]);
+    expect(tableBox.height).toBe(16);
   });
 });

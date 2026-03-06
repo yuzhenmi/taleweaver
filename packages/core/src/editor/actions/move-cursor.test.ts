@@ -50,12 +50,12 @@ describe("MOVE_CURSOR", () => {
     expect(s.selection.focus.offset).toBe(1);
   });
 
-  it("collapses from virtual EOL offset to textLength when moving forward", () => {
+  it("collapses from virtual line break offset to textLength when moving forward", () => {
     let s = stateWithText("hello");
-    // Selection with virtual EOL at focus (textLength + 1 = 6)
+    // Selection with virtual line break at focus (textLength + 1 = 6)
     s = withSelection(s, createSelection(
       createPosition([0, 0], 2),
-      createPosition([0, 0], 6), // virtual EOL
+      createPosition([0, 0], 6), // virtual line break
     ));
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "forward" }, config);
     expect(isCollapsed(s.selection)).toBe(true);
@@ -63,14 +63,14 @@ describe("MOVE_CURSOR", () => {
     expect(s.selection.focus.offset).toBe(5);
   });
 
-  it("pressing right after selecting to EOL moves to next line", () => {
+  it("pressing right after selecting to line break moves to next line", () => {
     let s = stateWithTwoParagraphs();
-    // Select from offset 1 to end of first paragraph, then shift+right to EOL
+    // Select from offset 1 to end of first paragraph, then shift+right to line break
     s = withSelection(s, createSelection(
       createPosition([0, 0], 1),
       createPosition([0, 0], 3), // textLength of "abc"
     ));
-    // Shift+Right expands to next line (no virtual EOL step)
+    // Shift+Right expands to next line (no virtual line break step)
     s = reduceEditor(s, { type: "EXPAND_SELECTION", direction: "forward" }, config);
     // Now press right arrow to collapse selection
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "forward" }, config);
@@ -80,11 +80,11 @@ describe("MOVE_CURSOR", () => {
     expect(s.selection.focus.offset).toBe(0);
   });
 
-  it("collapses from virtual EOL offset to anchor when moving backward", () => {
+  it("collapses from virtual line break offset to anchor when moving backward", () => {
     let s = stateWithText("hello");
     s = withSelection(s, createSelection(
       createPosition([0, 0], 2),
-      createPosition([0, 0], 6), // virtual EOL
+      createPosition([0, 0], 6), // virtual line break
     ));
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
     expect(isCollapsed(s.selection)).toBe(true);

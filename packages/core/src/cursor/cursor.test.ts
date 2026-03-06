@@ -342,7 +342,7 @@ describe("expandSelectionByCharacter", () => {
     const doc = makeTwoParagraphDoc();
     const sel = createSelection(
       createPosition([0, 0], 0),
-      createPosition([0, 0], 6), // virtual EOL
+      createPosition([0, 0], 6), // virtual line break
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.anchor.offset).toBe(0);
@@ -350,11 +350,11 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(1); // first grapheme boundary of "Second"
   });
 
-  it("backward from textLength+1 goes to textLength (deselect just EOL)", () => {
+  it("backward from textLength+1 goes to textLength (deselect just line break)", () => {
     const doc = makeTwoParagraphDoc();
     const sel = createSelection(
       createPosition([0, 0], 0),
-      createPosition([0, 0], 6), // virtual EOL
+      createPosition([0, 0], 6), // virtual line break
     );
     const expanded = expandSelectionByCharacter(doc, sel, "backward");
     expect(expanded.anchor.offset).toBe(0);
@@ -362,7 +362,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(5); // textLength
   });
 
-  it("backward from offset 0 goes to previous text node's textLength (EOL position)", () => {
+  it("backward from offset 0 goes to previous text node's textLength (line break position)", () => {
     const doc = makeTwoParagraphDoc();
     const sel = createSelection(
       createPosition([1, 0], 3),
@@ -375,7 +375,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(5); // prev node's textLength
   });
 
-  it("forward from textLength on last node goes to textLength+1 (virtual EOL)", () => {
+  it("forward from textLength on last node goes to textLength+1 (virtual line break)", () => {
     const t1 = createTextNode("t1", "Hello");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
     const doc = createNode("doc", "document", {}, [p1]);
@@ -395,11 +395,11 @@ describe("expandSelectionByCharacter", () => {
 
     const sel = createSelection(
       createPosition([0, 0], 0),
-      createPosition([0, 0], 6), // virtual EOL on last node (reached via boundary op)
+      createPosition([0, 0], 6), // virtual line break on last node (reached via boundary op)
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(6); // stays at virtual EOL
+    expect(expanded.focus.offset).toBe(6); // stays at virtual line break
   });
 
   it("backward from offset 0 on first node stays put", () => {
@@ -428,7 +428,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(0); // start of next node
   });
 
-  it("empty paragraph — forward from 0 goes to virtual EOL when no next node", () => {
+  it("empty paragraph — forward from 0 goes to virtual line break when no next node", () => {
     const t1 = createTextNode("t1", "");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
     const doc = createNode("doc", "document", {}, [p1]);
@@ -436,10 +436,10 @@ describe("expandSelectionByCharacter", () => {
     const sel = createCursor([0, 0], 0);
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(1); // virtual EOL for last node
+    expect(expanded.focus.offset).toBe(1); // virtual line break for last node
   });
 
-  it("empty paragraph — forward from virtual EOL crosses to next node at first grapheme", () => {
+  it("empty paragraph — forward from virtual line break crosses to next node at first grapheme", () => {
     const t1 = createTextNode("t1", "");
     const t2 = createTextNode("t2", "World");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
@@ -448,14 +448,14 @@ describe("expandSelectionByCharacter", () => {
 
     const sel = createSelection(
       createPosition([0, 0], 0),
-      createPosition([0, 0], 1), // virtual EOL
+      createPosition([0, 0], 1), // virtual line break
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([1, 0]);
     expect(expanded.focus.offset).toBe(1); // first grapheme of "World"
   });
 
-  it("forward from textLength+1 to empty next node goes to virtual EOL", () => {
+  it("forward from textLength+1 to empty next node goes to virtual line break", () => {
     const t1 = createTextNode("t1", "Hello");
     const t2 = createTextNode("t2", "");
     const t3 = createTextNode("t3", "World");
@@ -466,11 +466,11 @@ describe("expandSelectionByCharacter", () => {
 
     const sel = createSelection(
       createPosition([0, 0], 0),
-      createPosition([0, 0], 6), // virtual EOL of "Hello"
+      createPosition([0, 0], 6), // virtual line break of "Hello"
     );
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([1, 0]);
-    expect(expanded.focus.offset).toBe(1); // virtual EOL of empty node
+    expect(expanded.focus.offset).toBe(1); // virtual line break of empty node
   });
 
   it("backward from offset 0 to empty prev node goes to textLength (0)", () => {
@@ -491,7 +491,7 @@ describe("expandSelectionByCharacter", () => {
     expect(expanded.focus.offset).toBe(0); // textLength of empty node = 0
   });
 
-  it("empty paragraph on last node — forward from 0 goes to virtual EOL", () => {
+  it("empty paragraph on last node — forward from 0 goes to virtual line break", () => {
     const t1 = createTextNode("t1", "");
     const p1 = createNode("p1", "paragraph", {}, [t1]);
     const doc = createNode("doc", "document", {}, [p1]);
@@ -499,7 +499,7 @@ describe("expandSelectionByCharacter", () => {
     const sel = createCursor([0, 0], 0);
     const expanded = expandSelectionByCharacter(doc, sel, "forward");
     expect(expanded.focus.path).toEqual([0, 0]);
-    expect(expanded.focus.offset).toBe(1); // virtual EOL
+    expect(expanded.focus.offset).toBe(1); // virtual line break
   });
 });
 

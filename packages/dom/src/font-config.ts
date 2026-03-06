@@ -3,7 +3,7 @@ import type { RenderStyles } from "@taleweaver/core";
 export const FONT_CONFIG = {
   fontFamily: '"Inter", sans-serif',
   fontSize: 16,
-  lineHeight: 24,
+  lineHeight: 1.2,
 } as const;
 
 /** Build a CSS font shorthand string from render styles, filling defaults from FONT_CONFIG. */
@@ -17,8 +17,11 @@ export function buildCssFontString(styles: RenderStyles): string {
   return parts.join(" ");
 }
 
+export type EffectiveStyles = RenderStyles &
+  Required<Pick<RenderStyles, "fontFamily" | "fontSize" | "lineHeight">>;
+
 /** Return styles with FONT_CONFIG defaults filled in for fontFamily, fontSize, lineHeight. */
-export function getEffectiveStyles(styles: RenderStyles): RenderStyles {
+export function getEffectiveStyles(styles: RenderStyles): EffectiveStyles {
   return {
     ...styles,
     fontFamily: styles.fontFamily ?? FONT_CONFIG.fontFamily,

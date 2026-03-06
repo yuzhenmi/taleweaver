@@ -19,7 +19,7 @@ export function handleMoveCursor(
       direction === "forward"
         ? selectionEnd(editor.selection)
         : selectionStart(editor.selection);
-    // Clamp virtual EOL offset to textLength
+    // Clamp virtual line break offset to textLength
     const node = getNodeByPath(editor.state, pos.path);
     const maxOffset = node ? getTextContentLength(node) : pos.offset;
     const offset = Math.min(pos.offset, maxOffset);

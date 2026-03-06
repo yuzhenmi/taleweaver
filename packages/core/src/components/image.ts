@@ -11,7 +11,7 @@ export const imageComponent: ComponentDefinition = {
 
     return createBlockNode(
       node.id,
-      { paddingTop: height, marginTop: 8, marginBottom: 8 },
+      { paddingTop: height, lineMarginTop: 0, lineMarginBottom: 0, blockMarginTop: 0.4, blockMarginBottom: 0.4 },
       [],
       undefined,
       { type: "image", src, alt, width, height },

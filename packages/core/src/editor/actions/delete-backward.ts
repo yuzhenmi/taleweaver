@@ -7,6 +7,7 @@ import { moveByCharacter } from "../../cursor/cursor-ops";
 import { getNodeByPath } from "../../state/operations";
 import { getTextContentLength } from "../../state/text-utils";
 import { createNode } from "../../state/create-node";
+import { isStructuralParagraph } from "../../state/normalize";
 import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant, isAtCellBoundary } from "./helpers";
 
 export function handleDeleteBackward(
@@ -27,6 +28,11 @@ export function handleDeleteBackward(
 
   // At start of a table cell — prevent cross-cell merge
   if (isAtCellBoundary(editor.state, pos, "start")) {
+    return editor;
+  }
+
+  // At offset 0 of a structural paragraph — no-op to preserve cursor landing spot
+  if (pos.offset === 0 && pos.path.length === 2 && isStructuralParagraph(editor.state, pos.path[0])) {
     return editor;
   }
 

@@ -18,7 +18,7 @@ describe("EXPAND_DOCUMENT_BOUNDARY", () => {
     expect(s.selection.focus.offset).toBe(0);
   });
 
-  it("expands selection to end of document with virtual EOL", () => {
+  it("expands selection to end of document with virtual line break", () => {
     let s = stateWithTwoParagraphs();
     s = withSelection(s, createCursor([0, 0], 1));
     s = reduceEditor(s, { type: "EXPAND_DOCUMENT_BOUNDARY", boundary: "end" }, config);

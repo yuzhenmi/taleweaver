@@ -9,7 +9,7 @@ import {
 } from "./test-helpers";
 
 describe("SELECT_ALL", () => {
-  it("selects all text in single paragraph with virtual EOL", () => {
+  it("selects all text in single paragraph with virtual line break", () => {
     let s = stateWithText("hello");
     s = reduceEditor(s, { type: "SELECT_ALL" }, config);
     expect(s.selection.anchor.offset).toBe(0);
@@ -18,7 +18,7 @@ describe("SELECT_ALL", () => {
     expect(isCollapsed(s.selection)).toBe(false);
   });
 
-  it("selects all text across paragraphs with virtual EOL", () => {
+  it("selects all text across paragraphs with virtual line break", () => {
     let s = stateWithTwoParagraphs(); // "abc" + "def"
     s = reduceEditor(s, { type: "SELECT_ALL" }, config);
     expect(s.selection.anchor.path[0]).toBe(0);

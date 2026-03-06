@@ -37,7 +37,7 @@ export function createCanvasMeasurer(
 
     measureHeight(styles: RenderStyles): number {
       const effective = getEffectiveStyles(styles);
-      return effective.lineHeight!;
+      return effective.lineHeight * effective.fontSize;
     },
 
     measureCursorHeight(styles: RenderStyles): number {
