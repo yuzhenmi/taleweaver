@@ -41,7 +41,7 @@ import {
   handleUndo,
   handleRedo,
   handlePaste,
-  handleInsertBlock,
+  handleInsertNode,
 } from "./actions";
 
 // Re-export helpers that are part of the public API
@@ -241,8 +241,8 @@ export function reduceEditor(
     case "DELETE_LINE":
       result = handleDeleteLine(editor, config);
       break;
-    case "INSERT_BLOCK":
-      result = handleInsertBlock(editor, action.blockType, action.properties ?? {}, config);
+    case "INSERT_NODE":
+      result = handleInsertNode(editor, action.node, action.position, config);
       break;
     default: {
       const _exhaustive: never = action;

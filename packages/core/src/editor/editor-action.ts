@@ -1,4 +1,6 @@
 import type { Selection } from "../cursor/selection";
+import type { NewNode } from "../state/new-node";
+import type { Position } from "../state/position";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -26,4 +28,4 @@ export type EditorAction =
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
   | { type: "DELETE_LINE" }
-  | { type: "INSERT_BLOCK"; blockType: string; properties?: Record<string, unknown> };
+  | { type: "INSERT_NODE"; node: NewNode; position?: Position };

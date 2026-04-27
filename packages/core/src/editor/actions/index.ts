@@ -24,4 +24,4 @@ export { handleToggleStyle } from "./toggle-style";
 export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";
-export { handleInsertBlock } from "./insert-block";
+export { handleInsertNode } from "./insert-node";
