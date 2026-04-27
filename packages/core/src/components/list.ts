@@ -1,23 +1,9 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import { createElementBox } from "../render/render-node";
 
 export const listComponent: ComponentDefinition = {
   type: "list",
-  render: (node, children) => {
-    const listType = node.properties.listType as string;
-    const markedChildren = children.map((child, index) => {
-      if (child.type !== "block") return child;
-      const marker = listType === "ordered" ? `${index + 1}.` : "\u2022";
-      return createBlockNode(
-        child.key,
-        { ...child.styles, paddingLeft: 24 },
-        child.children,
-        marker,
-      );
-    });
-    return createBlockNode(node.id, {
-      lineMarginTop: 0,
-      lineMarginBottom: 0,
-    }, markedChildren);
-  },
+  // TODO Plan 2 — real list rendering (ordered/unordered with markers)
+  render: (state, children) =>
+    createElementBox(state.id, { display: "block" }, children),
 };

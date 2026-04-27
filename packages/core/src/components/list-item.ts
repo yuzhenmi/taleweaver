@@ -1,12 +1,9 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import { createElementBox } from "../render/render-node";
 
 export const listItemComponent: ComponentDefinition = {
   type: "list-item",
-  render: (node, children) => {
-    return createBlockNode(node.id, {
-      lineMarginTop: 0,
-      lineMarginBottom: 0,
-    }, children);
-  },
+  // TODO Plan 2 — real list-item rendering
+  render: (state, children) =>
+    createElementBox(state.id, { display: "block" }, children),
 };

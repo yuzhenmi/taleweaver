@@ -1,8 +1,9 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createInlineNode } from "../render/render-node";
+import { createElementBox } from "../render/render-node";
 
 export const spanComponent: ComponentDefinition = {
   type: "span",
-  render: (node, children) =>
-    createInlineNode(node.id, { ...node.styles }, children),
+  // TODO Plan 2 — real inline span rendering (display: inline, pass-through styles)
+  render: (state, children) =>
+    createElementBox(state.id, { display: "inline", ...state.style }, children),
 };
