@@ -5,7 +5,7 @@ import type { TextMeasurer } from "./text-measurer";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
- * Plan 1 D.3 scope: stacked block children, padding, no margin collapse.
+ * Plan 1 D.4 scope: stacked block children, padding, adjacent-sibling margin collapse.
  */
 export function layoutBlock(
   node: ElementBox,
@@ -27,23 +27,37 @@ export function layoutBlock(
   let childY = paddingTop;
   const layoutChildren: LayoutBox[] = [];
 
+  let prevMarginBottom = 0;
   for (const child of node.children) {
-    if (child.type !== "element") continue;     // text/inline skipped in Plan 1 D.3 stub
+    if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
+    const childCs = child.computedStyle;
+
+    const childMarginTop    = lengthOrZero(childCs.marginTop);
+    const childMarginBottom = lengthOrZero(childCs.marginBottom);
+
+    // Adjacent-siblings collapse:
+    // gap = max(prevMarginBottom, childMarginTop)
+    if (layoutChildren.length > 0) {
+      childY += Math.max(prevMarginBottom, childMarginTop);
+    } else {
+      childY += childMarginTop;
+    }
 
     const childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
-    // Resolve child height: explicit or 0 (no auto sizing yet — Task D.5/D.7)
-    const explicitHeight = lengthToPx(child.computedStyle.height === "auto" ? 0 : child.computedStyle.height);
+    const explicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
     const finalHeight = explicitHeight > 0 ? explicitHeight : childLayout.height;
     const placedChild = explicitHeight > 0
-      ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, child.computedStyle, [])
+      ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, childCs, [])
       : childLayout;
 
     layoutChildren.push(placedChild);
     childY += placedChild.height;
+    prevMarginBottom = childMarginBottom;
   }
 
-  const totalHeight = childY + paddingBottom;
+  // Note: parent/last-child collapse comes in D.5; for now include final marginBottom
+  const totalHeight = childY + prevMarginBottom + paddingBottom;
 
   return createBlockBox(
     node.key, x, y, availableWidth, totalHeight, cs, layoutChildren,
@@ -58,4 +72,8 @@ function lengthToPx(v: unknown): number {
   }
   // percent left for layout-time resolution (not yet supported in Plan 1)
   return 0;
+}
+
+function lengthOrZero(v: unknown): number {
+  return typeof v === "number" ? v : 0;
 }

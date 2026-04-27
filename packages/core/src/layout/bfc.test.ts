@@ -51,3 +51,21 @@ describe("layoutBlock — basic stacking", () => {
     expect(out.height).toBe(60);  // paddingTop + child + paddingBottom
   });
 });
+
+describe("layoutBlock — margin collapse: adjacent siblings", () => {
+  it("collapses adjacent sibling margins to max", () => {
+    const c1 = createElementBox("c1", {
+      display: "block", height: 20, marginBottom: 30,
+    }, []);
+    const c2 = createElementBox("c2", {
+      display: "block", height: 20, marginTop: 10,
+    }, []);
+    const tree = createElementBox("root", { display: "block" }, [c1, c2]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    if (out.children[1].type !== "block") throw new Error("?");
+    expect(out.children[0].y).toBe(0);
+    // c1 ends at 20; gap = max(30, 10) = 30; c2 starts at 50
+    expect(out.children[1].y).toBe(50);
+  });
+});
