@@ -1,8 +1,12 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import { createElementBox } from "../render/render-node-v2";
 
 export const paragraphComponent: ComponentDefinition = {
   type: "paragraph",
-  render: (node, children) =>
-    createBlockNode(node.id, { lineMarginTop: 0, lineMarginBottom: 0.2 }, children),
+  render: (state, children) =>
+    createElementBox(state.id, {
+      display: "block",
+      marginBottom: { unit: "em", value: 0.5 },
+      ...state.style,
+    }, children),
 };
