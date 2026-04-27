@@ -1,10 +1,18 @@
 // @taleweaver/core — word processor engine
 
 // Styles
-export type { ComputedStyle } from "./styles/computed-style";
+export type {
+  Style, ComputedStyle, Length, LengthOrAuto, Color,
+  Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
+  WhiteSpace, VerticalAlign, Float, Clear,
+  BreakBefore, BreakAfter, BreakInside,
+  ListStyleType, ListStylePosition, BoxSizing,
+} from "./styles";
+export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
 // State tree
-export type { StateNode, NodeStyles } from "./state/state-node";
+export type { StateNode } from "./state/state-node";
+export type { NewNode } from "./state/new-node";
 export { createNode, createTextNode } from "./state/create-node";
 export {
   updateProperties,
@@ -41,6 +49,9 @@ export {
 } from "./state/formatting";
 export { extractText } from "./state/extract-text";
 
+// Cascade
+export { cascadePass, composeComputed, resolveLength } from "./cascade";
+
 // Render tree
 export type {
   RenderNode,
@@ -52,26 +63,6 @@ export {
   createTextBox,
 } from "./render/render-node";
 export { renderTree } from "./render/render";
-
-// Components
-export type { ComponentRenderFn, ComponentDefinition } from "./components";
-export {
-  defaultComponents,
-  documentComponent,
-  paragraphComponent,
-  textComponent,
-  spanComponent,
-  headingComponent,
-  listComponent,
-  listItemComponent,
-  imageComponent,
-  horizontalLineComponent,
-  tableComponent,
-  tableRowComponent,
-  tableCellComponent,
-  ComponentRegistry,
-  createRegistry,
-} from "./components";
 
 // Layout tree
 export type {
@@ -88,6 +79,23 @@ export {
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer } from "./layout/text-measurer";
 export { layoutTree } from "./layout/layout-engine";
+
+// Components
+export type { ComponentRenderFn, ComponentDefinition } from "./components";
+export {
+  defaultComponents,
+  documentComponent,
+  paragraphComponent,
+  textComponent,
+  headingComponent,
+  ComponentRegistry,
+  createRegistry,
+} from "./components";
+export {
+  createParagraph,
+  createHeading,
+  createText,
+} from "./components/factories";
 
 // Cursor
 export type { Selection } from "./cursor/selection";
