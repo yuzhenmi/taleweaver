@@ -134,3 +134,26 @@ describe("layoutBlock — margin collapse: empty block", () => {
     expect(out.children[2].y).toBe(40);
   });
 });
+
+describe("layoutBlock — sizing", () => {
+  it("auto height = content height including padding", () => {
+    const c = createElementBox("c", { display: "block", height: 50 }, []);
+    const tree = createElementBox("root", {
+      display: "block", paddingTop: 10, paddingBottom: 10,
+    }, [c]);
+    const out = layoutOf(tree);
+    expect(out.height).toBe(70);
+  });
+
+  it("explicit width applied", () => {
+    const tree = createElementBox("root", { display: "block", width: 200 }, []);
+    const out = layoutOf(tree);
+    expect(out.width).toBe(200);
+  });
+
+  it("auto width fills available", () => {
+    const tree = createElementBox("root", { display: "block" }, []);
+    const out = layoutOf(tree);
+    expect(out.width).toBe(600);
+  });
+});

@@ -29,7 +29,9 @@ export function layoutBlock(
   const noTopBoundary = paddingTop === 0 && lengthOrZero(cs.borderTopWidth) === 0;
   const noBottomBoundary = paddingBottom === 0 && lengthOrZero(cs.borderBottomWidth) === 0;
 
-  const contentWidth = availableWidth - paddingLeft - paddingRight;
+  const explicitWidth = cs.width === "auto" ? null : lengthToPx(cs.width);
+  const finalWidth = explicitWidth !== null && explicitWidth > 0 ? explicitWidth : availableWidth;
+  const contentWidth = finalWidth - paddingLeft - paddingRight;
 
   let childY = paddingTop;
   const layoutChildren: LayoutBox[] = [];
@@ -89,7 +91,7 @@ export function layoutBlock(
   const totalHeight = childY + lastMarginBottom + paddingBottom;
 
   return createBlockBox(
-    node.key, x, y, availableWidth, totalHeight, cs, layoutChildren,
+    node.key, x, y, finalWidth, totalHeight, cs, layoutChildren,
   );
 }
 
