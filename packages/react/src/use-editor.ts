@@ -4,7 +4,6 @@ import {
   defaultComponents,
   createInitialEditorState,
   reduceEditor,
-  type PageMargins,
   type EditorAction,
   type EditorState,
   type EditorConfig,
@@ -14,11 +13,10 @@ import { createCanvasMeasurer } from "@taleweaver/dom";
 const DEFAULT_WIDTH = 600;
 
 export interface UseEditorOptions {
-  pageHeight?: number;
-  pageMargins?: PageMargins;
+  // Plan 2: pageHeight and pageMargins will be added here
 }
 
-function createConfig(options?: UseEditorOptions): EditorConfig {
+function createConfig(_options?: UseEditorOptions): EditorConfig {
   const canvas = document.createElement("canvas");
   const measurer = createCanvasMeasurer(canvas);
   const registry = createRegistry([...defaultComponents]);
@@ -26,8 +24,6 @@ function createConfig(options?: UseEditorOptions): EditorConfig {
     measurer,
     registry,
     containerWidth: DEFAULT_WIDTH,
-    pageHeight: options?.pageHeight,
-    pageMargins: options?.pageMargins,
   };
 }
 
@@ -74,7 +70,6 @@ export function useEditor(options?: UseEditorOptions) {
     dispatch,
     containerRef,
     measurer: config.measurer,
-    pageHeight: config.pageHeight,
     focus,
   };
 }

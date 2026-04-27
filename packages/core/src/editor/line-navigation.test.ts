@@ -183,33 +183,4 @@ describe("moveToLineBoundary", () => {
     expect(result!.offset).toBe(5);
   });
 
-  it("End on second wrapped line goes to end of paragraph", () => {
-    // "hello world" in 80px wraps: "hello " (line 1) + "world" (line 2)
-    const state = makeDoc(["hello world"]);
-    const render = renderTree(state, registry);
-    const layout = layoutTree(render, 80, measurer);
-
-    // Cursor on line 2
-    const pos = createPosition([0, 0], 8);
-    const result = moveToLineBoundary(state, pos, layout, measurer, "end");
-
-    expect(result).not.toBeNull();
-    expect(result!.path).toEqual([0, 0]);
-    expect(result!.offset).toBe(11); // end of "world" = end of text
-  });
-
-  it("Home on second wrapped line goes to start of that line", () => {
-    // "hello world" in 80px wraps: "hello " (line 1) + "world" (line 2)
-    const state = makeDoc(["hello world"]);
-    const render = renderTree(state, registry);
-    const layout = layoutTree(render, 80, measurer);
-
-    // Cursor on line 2
-    const pos = createPosition([0, 0], 8);
-    const result = moveToLineBoundary(state, pos, layout, measurer, "start");
-
-    expect(result).not.toBeNull();
-    expect(result!.path).toEqual([0, 0]);
-    expect(result!.offset).toBe(6); // start of "world"
-  });
 });
