@@ -1,6 +1,7 @@
-import type { StateNode, NodeStyles } from "./state-node";
+import type { StateNode } from "./state-node";
+import type { Style } from "../styles";
 
-const EMPTY_STYLES: Readonly<NodeStyles> = Object.freeze({});
+const EMPTY_STYLE: Readonly<Style> = Object.freeze({});
 
 /** Create an immutable state node. Children array is copied and frozen. */
 export function createNode(
@@ -8,15 +9,15 @@ export function createNode(
   type: string,
   properties: Record<string, unknown> = {},
   children: readonly StateNode[] = [],
-  styles: NodeStyles = {},
+  style: Style = {},
 ): StateNode {
   const node: StateNode = {
     id,
     type,
     properties: Object.freeze({ ...properties }),
-    styles: Object.keys(styles).length === 0
-      ? EMPTY_STYLES
-      : Object.freeze({ ...styles }),
+    style: Object.keys(style).length === 0
+      ? EMPTY_STYLE
+      : Object.freeze({ ...style }),
     children: Object.freeze([...children]),
   };
   return Object.freeze(node);
