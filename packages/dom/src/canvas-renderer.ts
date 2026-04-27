@@ -1,5 +1,5 @@
-import type { LayoutBox, TableLayoutBox, SelectionRect } from "@taleweaver/core";
-import { buildCssFontString, FONT_CONFIG } from "./font-config";
+import type { LayoutBox, SelectionRect, ComputedStyle } from "@taleweaver/core";
+import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
 
 interface PaintState {
@@ -99,111 +99,75 @@ function paintBox(
   // Viewport culling: skip entire subtree if out of visible range
   if (absY + box.height < visibleTop || absY > visibleBottom) return;
 
-  if (box.type === "block" && box.metadata) {
-    if (box.metadata.type === "horizontal-line") {
-      ctx.fillStyle = "#dadce0";
-      ctx.fillRect(absX + 8, absY + box.height / 2 - 0.5, box.width - 16, 1);
-      return;
-    }
-    if (box.metadata.type === "image" && typeof box.metadata.src === "string") {
-      const imgWidth = typeof box.metadata.width === "number" ? box.metadata.width : box.width;
-      const imgHeight = typeof box.metadata.height === "number" ? box.metadata.height : box.height;
-      const imgY = absY + (box.height - imgHeight) / 2;
-      const img = state.imageCache?.get(box.metadata.src);
-      if (img) {
-        ctx.drawImage(img, absX, imgY, imgWidth, imgHeight);
-      } else {
-        ctx.fillStyle = "#f0f0f0";
-        ctx.fillRect(absX, imgY, imgWidth, imgHeight);
-      }
-      return;
-    }
-  }
+  const cs = box.computedStyle;
 
-  if (box.type === "block" && box.marker) {
-    const fontSize = FONT_CONFIG.fontSize;
-    const lineHeight = FONT_CONFIG.lineHeight * fontSize;
-    const halfLeading = (lineHeight - fontSize) / 2;
-    const markerFontStr = buildCssFontString({});
-    if (markerFontStr !== state.lastFont) {
-      ctx.font = markerFontStr;
-      state.lastFont = markerFontStr;
-    }
-    ctx.fillStyle = "black";
-    ctx.fillText(box.marker, absX + 2, absY + halfLeading);
-  }
-
-  if (box.type === "text") {
-    const styles = box.styles ?? {};
-    const fontStr = buildCssFontString(styles);
+  if (box.type === "text-run") {
+    const fontStr = buildCssFontString(cs);
     if (fontStr !== state.lastFont) {
       ctx.font = fontStr;
       state.lastFont = fontStr;
     }
-
-    // Half-leading: center text glyphs vertically within the line height
-    const fontSize = styles.fontSize ?? FONT_CONFIG.fontSize;
-    const lineHeightMultiplier = styles.lineHeight ?? FONT_CONFIG.lineHeight;
+    ctx.fillStyle = cs.color;
+    const fontSize = cs.fontSize as number;
+    const lineHeightMultiplier = cs.lineHeight as number;
     const lineHeight = lineHeightMultiplier * fontSize;
     const halfLeading = (lineHeight - fontSize) / 2;
-
-    ctx.fillStyle = "black";
     ctx.fillText(box.text, absX, absY + halfLeading);
-
-    // Underline
-    if (styles.textDecoration === "underline") {
-      const underlineY = absY + halfLeading + fontSize + 1;
-      ctx.fillRect(absX, underlineY, box.width, 1);
+    if (cs.textDecoration === "underline") {
+      const ulY = absY + halfLeading + fontSize + 1;
+      ctx.fillRect(absX, ulY, box.width, 1);
     }
     return;
   }
 
-  if (box.type === "table") {
-    // Paint children (rows → cells → text)
+  if (box.type === "block") {
+    // Background
+    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+      ctx.fillStyle = cs.backgroundColor;
+      ctx.fillRect(absX, absY, box.width, box.height);
+    }
+    // Borders
+    paintBorders(ctx, cs, absX, absY, box.width, box.height);
+    // Recurse into children
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
     }
-    // Draw outer border + column/row separator lines
-    paintTableBorders(ctx, box, absX, absY);
     return;
   }
 
-  for (const child of box.children) {
-    paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+  if (box.type === "line") {
+    // Lines don't paint themselves; just recurse into children.
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
   }
+
+  // Plan 2/3 types: skip silently (not produced in Plan 1)
 }
 
-function paintTableBorders(
+function paintBorders(
   ctx: CanvasRenderingContext2D,
-  box: TableLayoutBox,
-  absX: number,
-  absY: number,
+  cs: Readonly<ComputedStyle>,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
 ): void {
-  ctx.strokeStyle = "#dadce0";
-  ctx.lineWidth = 1;
-
-  // Outer border
-  ctx.strokeRect(absX + 0.5, absY + 0.5, box.width - 1, box.height - 1);
-
-  // Vertical column separator lines
-  let colX = 0;
-  for (let c = 0; c < box.columnWidths.length - 1; c++) {
-    colX += box.columnWidths[c];
-    const lineX = absX + colX + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(lineX, absY + 0.5);
-    ctx.lineTo(lineX, absY + box.height - 0.5);
-    ctx.stroke();
+  if (cs.borderTopWidth > 0 && cs.borderTopStyle !== "none") {
+    ctx.fillStyle = cs.borderTopColor;
+    ctx.fillRect(x, y, w, cs.borderTopWidth);
   }
-
-  // Horizontal row separator lines
-  let rowY = 0;
-  for (let r = 0; r < box.rowHeights.length - 1; r++) {
-    rowY += box.rowHeights[r];
-    const lineY = absY + rowY + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(absX + 0.5, lineY);
-    ctx.lineTo(absX + box.width - 0.5, lineY);
-    ctx.stroke();
+  if (cs.borderBottomWidth > 0 && cs.borderBottomStyle !== "none") {
+    ctx.fillStyle = cs.borderBottomColor;
+    ctx.fillRect(x, y + h - cs.borderBottomWidth, w, cs.borderBottomWidth);
+  }
+  if (cs.borderLeftWidth > 0 && cs.borderLeftStyle !== "none") {
+    ctx.fillStyle = cs.borderLeftColor;
+    ctx.fillRect(x, y, cs.borderLeftWidth, h);
+  }
+  if (cs.borderRightWidth > 0 && cs.borderRightStyle !== "none") {
+    ctx.fillStyle = cs.borderRightColor;
+    ctx.fillRect(x + w - cs.borderRightWidth, y, cs.borderRightWidth, h);
   }
 }

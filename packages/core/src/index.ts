@@ -1,5 +1,8 @@
 // @taleweaver/core — word processor engine
 
+// Styles
+export type { ComputedStyle } from "./styles/computed-style";
+
 // State tree
 export type { StateNode, NodeStyles } from "./state/state-node";
 export { createNode, createTextNode } from "./state/create-node";
@@ -41,20 +44,14 @@ export { extractText } from "./state/extract-text";
 // Render tree
 export type {
   RenderNode,
-  RenderNodeType,
-  RenderStyles,
-  BlockRenderNode,
-  TableRenderNode,
-  InlineRenderNode,
-  TextRenderNode,
+  ElementBox,
+  TextBox,
 } from "./render/render-node";
 export {
-  createBlockNode,
-  createTableNode,
-  createInlineNode,
-  createTextRenderNode,
+  createElementBox,
+  createTextBox,
 } from "./render/render-node";
-export { renderTree, renderTreeIncremental } from "./render/render";
+export { renderTree } from "./render/render";
 
 // Components
 export type { ComponentRenderFn, ComponentDefinition } from "./components";
@@ -79,25 +76,18 @@ export {
 // Layout tree
 export type {
   LayoutBox,
-  BlockLayoutBox,
-  TableLayoutBox,
-  LineLayoutBox,
-  PageLayoutBox,
-  TextLayoutBox,
+  BlockBox,
+  LineBox,
+  TextRunBox,
 } from "./layout/layout-node";
 export {
-  createBlockLayoutBox,
-  createTableLayoutBox,
-  createLineLayoutBox,
-  createPageLayoutBox,
-  createTextLayoutBox,
+  createBlockBox,
+  createLineBox,
+  createTextRunBox,
 } from "./layout/layout-node";
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer } from "./layout/text-measurer";
-export type { WordBox } from "./layout/text-splitter";
-export { splitTextIntoWords } from "./layout/text-splitter";
-export type { PageMargins } from "./layout/layout-engine";
-export { layoutTree, layoutTreeIncremental } from "./layout/layout-engine";
+export { layoutTree } from "./layout/layout-engine";
 
 // Cursor
 export type { Selection } from "./cursor/selection";

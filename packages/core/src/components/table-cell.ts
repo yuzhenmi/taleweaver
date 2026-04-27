@@ -1,10 +1,10 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/block-render-node";
+import { createElementBox } from "../render/render-node";
 
 export const tableCellComponent: ComponentDefinition = {
   type: "table-cell",
   render: (node, children) =>
-    createBlockNode(node.id, {
+    createElementBox(node.id, {
       paddingTop: 4,
       paddingBottom: 4,
       paddingLeft: 4,

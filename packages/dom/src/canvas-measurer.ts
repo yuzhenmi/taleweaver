@@ -1,5 +1,5 @@
-import type { TextMeasurer, RenderStyles } from "@taleweaver/core";
-import { buildCssFontString, getEffectiveStyles } from "./font-config";
+import type { TextMeasurer, ComputedStyle } from "@taleweaver/core";
+import { buildCssFontString } from "./font-config";
 
 const DEFAULT_CACHE_SIZE = 10_000;
 
@@ -17,11 +17,10 @@ export function createCanvasMeasurer(
 
   const maxSize = options?.cacheSize ?? DEFAULT_CACHE_SIZE;
   const widthCache = new Map<string, number>();
-  const cursorHeightCache = new Map<string, number>();
 
   return {
-    measureWidth(text: string, styles: RenderStyles): number {
-      const font = buildCssFontString(styles);
+    measureWidth(text: string, style: Readonly<ComputedStyle>): number {
+      const font = buildCssFontString(style);
       const key = font + "\0" + text;
       let width = widthCache.get(key);
       if (width === undefined) {
@@ -35,21 +34,8 @@ export function createCanvasMeasurer(
       return width;
     },
 
-    measureHeight(styles: RenderStyles): number {
-      const effective = getEffectiveStyles(styles);
-      return effective.lineHeight * effective.fontSize;
-    },
-
-    measureCursorHeight(styles: RenderStyles): number {
-      const font = buildCssFontString(styles);
-      let height = cursorHeightCache.get(font);
-      if (height === undefined) {
-        ctx.font = font;
-        const metrics = ctx.measureText("\u200b"); // zero-width space
-        height = metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent;
-        cursorHeightCache.set(font, height);
-      }
-      return height;
+    measureHeight(style: Readonly<ComputedStyle>): number {
+      return (style.lineHeight as number) * (style.fontSize as number);
     },
   };
 }
