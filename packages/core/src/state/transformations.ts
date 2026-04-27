@@ -14,7 +14,7 @@ function withContent(node: StateNode, content: string): StateNode {
     node.type,
     { ...node.properties, content },
     node.children,
-    node.styles,
+    node.style,
   );
 }
 
@@ -129,7 +129,7 @@ function deleteCrossNode(
         trimmedStart.type,
         { ...trimmedStart.properties },
         [...trimmedStart.children, ...endTrailingSiblings],
-        trimmedStart.styles,
+        trimmedStart.style,
       );
     }
 
@@ -153,7 +153,7 @@ function deleteCrossNode(
       commonAncestor.type,
       { ...commonAncestor.properties },
       newChildren,
-      commonAncestor.styles,
+      commonAncestor.style,
     );
     return updateAtPath(state, commonPath, newAncestor);
   } else {
@@ -208,7 +208,7 @@ function trimTrailingChildren(
   }
 
   const newChildren = [...node.children.slice(0, idx), child];
-  return createNode(node.id, node.type, { ...node.properties }, newChildren, node.styles);
+  return createNode(node.id, node.type, { ...node.properties }, newChildren, node.style);
 }
 
 /** Delete text in a range. Returns a Change. */
@@ -295,7 +295,7 @@ export function splitNode(
     textNode.type,
     { ...textNode.properties, content: afterContent },
     [],
-    textNode.styles,
+    textNode.style,
   );
 
   // Walk up from the text node to the split level, building before/after subtrees.
@@ -315,7 +315,7 @@ export function splitNode(
       parent.type,
       { ...parent.properties },
       [...parent.children.slice(0, childIdx), beforeChild],
-      parent.styles,
+      parent.style,
     );
 
     // After parent: afterChild + children [childIdx+1..]
@@ -324,7 +324,7 @@ export function splitNode(
       parent.type,
       { ...parent.properties },
       [afterChild, ...parent.children.slice(childIdx + 1)],
-      parent.styles,
+      parent.style,
     );
 
     beforeChild = beforeParent;
@@ -348,7 +348,7 @@ export function splitNode(
     splitParent.type,
     { ...splitParent.properties },
     newChildren,
-    splitParent.styles,
+    splitParent.style,
   );
 
   const result = updateAtPath(state, splitParentPath, newSplitParent);

@@ -1,4 +1,5 @@
-import type { StateNode, NodeStyles } from "./state-node";
+import type { StateNode } from "./state-node";
+import type { Style } from "../styles";
 import type { Span, Position } from "./position";
 import type { Change } from "./change";
 import { createChange } from "./change";
@@ -11,7 +12,7 @@ import { getTextContent, getTextContentLength } from "./text-utils";
  * Style values to apply. Use `undefined` to remove a property.
  * Example: `{ fontWeight: "bold", fontStyle: undefined }`
  */
-type InlineStyles = { [K in keyof NodeStyles]?: NodeStyles[K] | undefined };
+type InlineStyles = { [K in keyof Style]?: Style[K] | undefined };
 
 /**
  * Query whether all text in a range has a uniform value for a style property.
@@ -20,24 +21,24 @@ type InlineStyles = { [K in keyof NodeStyles]?: NodeStyles[K] | undefined };
 export function getStyleInRange(
   state: StateNode,
   span: Span,
-  property: keyof NodeStyles,
-): NodeStyles[keyof NodeStyles] | undefined {
+  property: keyof Style,
+): Style[keyof Style] | undefined {
   const normalized = normalizeSpan(span);
   if (comparePositions(normalized.anchor, normalized.focus) === 0) return undefined;
 
   const textNodes = collectTextNodesInSpan(state, normalized);
   if (textNodes.length === 0) return undefined;
 
-  let uniformValue: NodeStyles[keyof NodeStyles] | undefined = undefined;
+  let uniformValue: Style[keyof Style] | undefined = undefined;
   for (let i = 0; i < textNodes.length; i++) {
     const { node, path } = textNodes[i];
     // Check node itself, then ancestor spans
-    let value: NodeStyles[keyof NodeStyles] | undefined = node.styles[property];
+    let value: Style[keyof Style] | undefined = node.style[property];
     if (value === undefined) {
       const ancestor = findStyleSpanAncestor(state, path, property);
       if (ancestor) {
         const ancestorNode = getNodeByPath(state, ancestor.spanPath);
-        if (ancestorNode) value = ancestorNode.styles[property];
+        if (ancestorNode) value = ancestorNode.style[property];
       }
     }
     if (value === undefined) return undefined;
@@ -73,7 +74,7 @@ export function applyInlineStyle(
   let currentState = state;
   let idCounter = 0;
 
-  const keys = Object.keys(styles) as (keyof NodeStyles)[];
+  const keys = Object.keys(styles) as (keyof Style)[];
   for (const key of keys) {
     const desiredValue = styles[key];
     const result = processProperty(
@@ -97,8 +98,8 @@ export function applyInlineStyle(
 function processProperty(
   state: StateNode,
   span: Span,
-  key: keyof NodeStyles,
-  desiredValue: NodeStyles[keyof NodeStyles] | undefined,
+  key: keyof Style,
+  desiredValue: Style[keyof Style] | undefined,
   idBase: string,
   idCounter: number,
 ): { state: StateNode; idCounter: number } {
@@ -147,7 +148,7 @@ function processProperty(
     const isFullyCovered = selectedLen >= spanTotalLen;
 
     // Compute new styles for the span
-    const newStyles: Record<string, unknown> = { ...spanNode.styles };
+    const newStyles: Record<string, unknown> = { ...spanNode.style };
     if (desiredValue !== undefined) {
       newStyles[key] = desiredValue;
     } else {
@@ -164,7 +165,7 @@ function processProperty(
 
     if (isFullyCovered) {
       if (hasStyles) {
-        const updatedSpan = createNode(spanNode.id, spanNode.type, {}, spanNode.children, newStyles as NodeStyles);
+        const updatedSpan = createNode(spanNode.id, spanNode.type, {}, spanNode.children, newStyles as Style);
         newChildren[spanIdx] = updatedSpan;
       } else {
         // No styles left — unwrap
@@ -187,14 +188,14 @@ function processProperty(
       // Before: keep in original span (with all original styles)
       if (beforeChildren.length > 0) {
         replacements.push(createNode(
-          `${idBase}-bspan-${idCounter++}`, "span", {}, beforeChildren, { ...spanNode.styles },
+          `${idBase}-bspan-${idCounter++}`, "span", {}, beforeChildren, { ...spanNode.style },
         ));
       }
 
       // Middle: apply new styles
       if (hasStyles) {
         replacements.push(createNode(
-          `${idBase}-mspan-${idCounter++}`, "span", {}, middleChildren, newStyles as NodeStyles,
+          `${idBase}-mspan-${idCounter++}`, "span", {}, middleChildren, newStyles as Style,
         ));
       } else {
         replacements.push(...middleChildren);
@@ -203,7 +204,7 @@ function processProperty(
       // After: keep in original span (with all original styles)
       if (afterChildren.length > 0) {
         replacements.push(createNode(
-          `${idBase}-aspan-${idCounter++}`, "span", {}, afterChildren, { ...spanNode.styles },
+          `${idBase}-aspan-${idCounter++}`, "span", {}, afterChildren, { ...spanNode.style },
         ));
       }
 
@@ -211,7 +212,7 @@ function processProperty(
     }
 
     const newParent = createNode(
-      spanParent.id, spanParent.type, { ...spanParent.properties }, newChildren, spanParent.styles,
+      spanParent.id, spanParent.type, { ...spanParent.properties }, newChildren, spanParent.style,
     );
     currentState = updateAtPath(currentState, spanParentPath, newParent);
 
@@ -244,18 +245,18 @@ function processProperty(
         replacements.push(createNode(
           `${idBase}-pre-${idCounter++}`, "text",
           { ...currentNode.properties, content: content.slice(0, startOffset) },
-          [], currentNode.styles,
+          [], currentNode.style,
         ));
       }
 
       const styledText = createNode(
         `${idBase}-st-${idCounter++}`, "text",
         { ...currentNode.properties, content: content.slice(startOffset, endOffset) },
-        [], currentNode.styles,
+        [], currentNode.style,
       );
       const styledSpan = createNode(
         `${idBase}-span-${idCounter++}`, "span", {}, [styledText],
-        { [key]: desiredValue } as NodeStyles,
+        { [key]: desiredValue } as Style,
       );
       replacements.push(styledSpan);
 
@@ -263,13 +264,13 @@ function processProperty(
         replacements.push(createNode(
           `${idBase}-post-${idCounter++}`, "text",
           { ...currentNode.properties, content: content.slice(endOffset) },
-          [], currentNode.styles,
+          [], currentNode.style,
         ));
       }
 
       newChildren.splice(childIdx, 1, ...replacements);
       const newParent = createNode(
-        parent.id, parent.type, { ...parent.properties }, newChildren, parent.styles,
+        parent.id, parent.type, { ...parent.properties }, newChildren, parent.style,
       );
       currentState = updateAtPath(currentState, parentPath, newParent);
 
@@ -290,15 +291,15 @@ function processProperty(
 function getEffectiveStyleValue(
   state: StateNode,
   entry: TextEntry,
-  key: keyof NodeStyles,
-): NodeStyles[keyof NodeStyles] | undefined {
+  key: keyof Style,
+): Style[keyof Style] | undefined {
   // Check the node itself first
-  if (entry.node.styles[key] !== undefined) return entry.node.styles[key];
+  if (entry.node.style[key] !== undefined) return entry.node.style[key];
   // Then check ancestor spans
   const ancestor = findStyleSpanAncestor(state, entry.path, key);
   if (ancestor) {
     const ancestorNode = getNodeByPath(state, ancestor.spanPath);
-    if (ancestorNode) return ancestorNode.styles[key];
+    if (ancestorNode) return ancestorNode.style[key];
   }
   return undefined;
 }
@@ -389,13 +390,13 @@ function collectTextNodesRecursive(
 function findStyleSpanAncestor(
   state: StateNode,
   textPath: number[],
-  property: keyof NodeStyles,
+  property: keyof Style,
 ): { spanPath: number[] } | null {
   // Check each ancestor from the text node upward
   for (let depth = textPath.length - 1; depth >= 0; depth--) {
     const ancestorPath = textPath.slice(0, depth);
     const ancestor = getNodeByPath(state, ancestorPath);
-    if (ancestor && ancestor.type === "span" && ancestor.styles[property] !== undefined) {
+    if (ancestor && ancestor.type === "span" && ancestor.style[property] !== undefined) {
       return { spanPath: ancestorPath };
     }
   }
@@ -476,7 +477,7 @@ function normalizeModifiedParents(
     if (!parent) continue;
     const normalized = normalizeChildren(parent.children);
     const newParent = createNode(
-      parent.id, parent.type, { ...parent.properties }, normalized, parent.styles,
+      parent.id, parent.type, { ...parent.properties }, normalized, parent.style,
     );
     currentState = updateAtPath(currentState, pp, newParent);
   }
@@ -514,12 +515,12 @@ function canMergeNodes(a: StateNode, b: StateNode): boolean {
   if (a.type === "text") {
     // Text nodes: merge if all non-content properties and styles match
     return propsEqualExcept(a.properties, b.properties, "content") &&
-      stylesEqual(a.styles, b.styles);
+      stylesEqual(a.style, b.style);
   }
 
   if (a.type === "span") {
     // Spans: merge if styles are identical
-    return stylesEqual(a.styles, b.styles);
+    return stylesEqual(a.style, b.style);
   }
 
   return false;
@@ -531,21 +532,21 @@ function mergeNodes(a: StateNode, b: StateNode): StateNode {
     return createNode(a.id, "text", {
       ...a.properties,
       content: getTextContent(a) + getTextContent(b),
-    }, [], a.styles);
+    }, [], a.style);
   }
 
   // Span: merge children, then normalize recursively
   const merged = normalizeChildren([...a.children, ...b.children]);
-  return createNode(a.id, a.type, { ...a.properties }, merged, a.styles);
+  return createNode(a.id, a.type, { ...a.properties }, merged, a.style);
 }
 
-/** Check if two NodeStyles objects are shallowly equal. */
+/** Check if two Style objects are shallowly equal. */
 function stylesEqual(
-  a: Readonly<NodeStyles>,
-  b: Readonly<NodeStyles>,
+  a: Readonly<Style>,
+  b: Readonly<Style>,
 ): boolean {
-  const keysA = Object.keys(a) as (keyof NodeStyles)[];
-  const keysB = Object.keys(b) as (keyof NodeStyles)[];
+  const keysA = Object.keys(a) as (keyof Style)[];
+  const keysB = Object.keys(b) as (keyof Style)[];
   if (keysA.length !== keysB.length) return false;
   return keysA.every((k) => b[k] === a[k]);
 }
@@ -603,14 +604,14 @@ function splitChildrenAtOffset(
         "text",
         { ...child.properties, content: content.slice(0, remaining) },
         [],
-        child.styles,
+        child.style,
       ));
       right.push(createNode(
         `${idBase}-sr${counter.value++}`,
         "text",
         { ...child.properties, content: content.slice(remaining) },
         [],
-        child.styles,
+        child.style,
       ));
     } else {
       // Recursively split the child's children
@@ -619,12 +620,12 @@ function splitChildrenAtOffset(
       );
       if (childLeft.length > 0) {
         left.push(createNode(
-          `${idBase}-sl${counter.value++}`, child.type, { ...child.properties }, childLeft, child.styles,
+          `${idBase}-sl${counter.value++}`, child.type, { ...child.properties }, childLeft, child.style,
         ));
       }
       if (childRight.length > 0) {
         right.push(createNode(
-          `${idBase}-sr${counter.value++}`, child.type, { ...child.properties }, childRight, child.styles,
+          `${idBase}-sr${counter.value++}`, child.type, { ...child.properties }, childRight, child.style,
         ));
       }
     }

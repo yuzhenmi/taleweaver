@@ -11,7 +11,7 @@ export function updateProperties(
     node.type,
     { ...node.properties, ...properties },
     node.children, // pass directly — createNode will copy
-    node.styles,
+    node.style,
   );
 }
 
@@ -28,7 +28,7 @@ export function insertChild(
   }
   const children = [...node.children];
   children.splice(index, 0, child);
-  return createNode(node.id, node.type, { ...node.properties }, children, node.styles);
+  return createNode(node.id, node.type, { ...node.properties }, children, node.style);
 }
 
 /** Return a new node with the child at the given index removed. */
@@ -40,7 +40,7 @@ export function removeChild(node: StateNode, index: number): StateNode {
   }
   const children = [...node.children];
   children.splice(index, 1);
-  return createNode(node.id, node.type, { ...node.properties }, children, node.styles);
+  return createNode(node.id, node.type, { ...node.properties }, children, node.style);
 }
 
 /** Look up a node at the given path (array of child indices). */
@@ -77,5 +77,5 @@ export function updateAtPath(
 
   const children = [...root.children];
   children[index] = updatedChild;
-  return createNode(root.id, root.type, { ...root.properties }, children, root.styles);
+  return createNode(root.id, root.type, { ...root.properties }, children, root.style);
 }
