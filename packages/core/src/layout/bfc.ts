@@ -1,6 +1,7 @@
 import type { ElementBox, RenderNode } from "../render/render-node-v2";
 import type { LayoutBox } from "./layout-box-v2";
 import { createBlockBox } from "./layout-box-v2";
+import { layoutInlineContent } from "./ifc";
 import type { TextMeasurer } from "./text-measurer";
 
 /**
@@ -32,6 +33,20 @@ export function layoutBlock(
   const explicitWidth = cs.width === "auto" ? null : lengthToPx(cs.width);
   const finalWidth = explicitWidth !== null && explicitWidth > 0 ? explicitWidth : availableWidth;
   const contentWidth = finalWidth - paddingLeft - paddingRight;
+
+  const hasInlineContent = node.children.some(
+    (c) => c.type === "text" || (c.type === "element" && c.computedStyle?.display === "inline"),
+  );
+
+  if (hasInlineContent) {
+    const lines = layoutInlineContent(node, paddingLeft, paddingTop, contentWidth, measurer);
+    let lineMaxY = paddingTop;
+    for (const line of lines) {
+      if (line.y + line.height > lineMaxY) lineMaxY = line.y + line.height;
+    }
+    const totalHeight = lineMaxY + paddingBottom;
+    return createBlockBox(node.key, x, y, finalWidth, totalHeight, cs, lines);
+  }
 
   let childY = paddingTop;
   const layoutChildren: LayoutBox[] = [];

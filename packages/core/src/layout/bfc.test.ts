@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createElementBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { createMockMeasurer } from "./text-measurer";
 import { layoutBlock } from "./bfc";
@@ -155,5 +155,19 @@ describe("layoutBlock — sizing", () => {
     const tree = createElementBox("root", { display: "block" }, []);
     const out = layoutOf(tree);
     expect(out.width).toBe(600);
+  });
+});
+
+describe("layoutBlock — inline content (IFC dispatch)", () => {
+  it("a block with text children produces line boxes", () => {
+    const tree = createElementBox("p", { display: "block" }, [
+      createTextBox("t", {}, "hello world"),
+    ]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutBlock(cascaded, 0, 0, 200, measurer);
+    if (out.type !== "block") throw new Error("?");
+    expect(out.children).toHaveLength(1);
+    expect(out.children[0].type).toBe("line");
   });
 });
