@@ -1,23 +1,17 @@
 import type { StateNode } from "../state/state-node";
-import type { RenderNode } from "../render/render-node";
+import type { RenderNode } from "../render/render-node-v2";
 
 /**
  * A component render function.
- * Takes a state node and its already-rendered children,
- * returns a render node (or tree of render nodes).
+ * Pure function of state + already-rendered children → render node.
  */
 export type ComponentRenderFn = (
   node: StateNode,
   renderedChildren: readonly RenderNode[],
 ) => RenderNode;
 
-/** A component definition unifying rendering and schema constraints. */
+/** A component definition — type identifier plus a render function. */
 export interface ComponentDefinition {
   readonly type: string;
   readonly render: ComponentRenderFn;
-  readonly createInitialState?: (
-    id: string,
-    properties: Record<string, unknown>,
-    allocateId: () => string,
-  ) => StateNode;
 }
