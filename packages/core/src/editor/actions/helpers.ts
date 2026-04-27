@@ -2,8 +2,9 @@ import type { StateNode } from "../../state/state-node";
 import type { Position } from "../../state/position";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
-import { renderTreeIncremental } from "../../render/render";
-import { layoutTreeIncremental } from "../../layout/layout-engine";
+import { renderTree } from "../../render/render";
+import { cascadePass } from "../../cascade";
+import { layoutTree } from "../../layout/layout-engine";
 import { createCursor } from "../../cursor/selection";
 import { normalizeSpan, pathsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations";
@@ -46,29 +47,16 @@ export function isEmptyParagraph(node: StateNode): boolean {
 
 export function rebuildTrees(
   newEditor: EditorState,
-  oldEditor: EditorState,
+  _oldEditor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  const newRender = renderTreeIncremental(
-    newEditor.state,
-    oldEditor.state,
-    oldEditor.renderTree,
-    config.registry,
-  );
-  const newLayout = layoutTreeIncremental(
-    newRender,
-    oldEditor.renderTree,
-    oldEditor.layoutTree,
-    newEditor.containerWidth,
-    config.measurer,
-    config.pageHeight,
-    config.pageMargins,
-  );
-
+  const rendered = renderTree(newEditor.state, config.registry);
+  const cascaded = cascadePass(rendered);
+  const layout = layoutTree(cascaded, newEditor.containerWidth, config.measurer);
   return {
     ...newEditor,
-    renderTree: newRender,
-    layoutTree: newLayout,
+    renderTree: cascaded,
+    layoutTree: layout,
   };
 }
 

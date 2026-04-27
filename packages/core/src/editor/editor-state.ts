@@ -4,7 +4,6 @@ import type { Change } from "../state/change";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
-import type { PageMargins } from "../layout/layout-engine";
 import {
   createEmptyDocument,
 } from "../state/initial-state";
@@ -12,6 +11,7 @@ import {
   createCursor,
 } from "../cursor/selection";
 import { renderTree } from "../render/render";
+import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/layout-engine";
 import { ComponentRegistry } from "../components";
 import type { EditorAction } from "./editor-action";
@@ -134,21 +134,20 @@ export interface EditorConfig {
   measurer: TextMeasurer;
   registry: ComponentRegistry;
   containerWidth: number;
-  pageHeight?: number;
-  pageMargins?: PageMargins;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
   const state = createEmptyDocument();
   const selection = createCursor([0, 0], 0);
-  const render = renderTree(state, config.registry);
-  const layout = layoutTree(render, config.containerWidth, config.measurer, config.pageHeight, config.pageMargins);
+  const rendered = renderTree(state, config.registry);
+  const cascaded = cascadePass(rendered);
+  const layout = layoutTree(cascaded, config.containerWidth, config.measurer);
 
   return {
     state,
     selection,
     history: createEditorHistory(),
-    renderTree: render,
+    renderTree: cascaded,
     layoutTree: layout,
     containerWidth: config.containerWidth,
     nextId: 1,
