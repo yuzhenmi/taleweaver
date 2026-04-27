@@ -116,3 +116,21 @@ describe("layoutBlock — margin collapse: parent / last child", () => {
     expect(out.height).toBe(55);   // 20 + 30 + 5
   });
 });
+
+describe("layoutBlock — margin collapse: empty block", () => {
+  it("empty block margins collapse together", () => {
+    const c1 = createElementBox("c1", { display: "block", height: 10 }, []);
+    const empty = createElementBox("e", {
+      display: "block", marginTop: 20, marginBottom: 30,
+    }, []);
+    const c2 = createElementBox("c2", { display: "block", height: 10 }, []);
+    const tree = createElementBox("root", { display: "block" }, [c1, empty, c2]);
+    const out = layoutOf(tree);
+    // Expected layout:
+    //   c1 at y=0..10 (no margins involved)
+    //   empty's combined contribution to gap = max(20, 30) = 30
+    //   c2 starts at y = 10 + 30 = 40
+    if (out.children[2].type !== "block") throw new Error("?");
+    expect(out.children[2].y).toBe(40);
+  });
+});

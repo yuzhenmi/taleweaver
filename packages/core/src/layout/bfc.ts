@@ -45,6 +45,7 @@ export function layoutBlock(
 
     // Adjacent-siblings collapse:
     // gap = max(prevMarginBottom, childMarginTop)
+    const preAdvanceY = childY;
     if (layoutChildren.length > 0) {
       childY += Math.max(prevMarginBottom, childMarginTop);
     } else {
@@ -58,9 +59,30 @@ export function layoutBlock(
       ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, childCs, [])
       : childLayout;
 
-    layoutChildren.push(placedChild);
-    childY += placedChild.height;
-    prevMarginBottom = childMarginBottom;
+    // CSS empty-block rule: a block with no content, padding, border, or explicit height
+    // has its top and bottom margins collapsed together. The combined margin is passed to
+    // the next sibling collapse, and the empty block does not advance childY.
+    const childPaddingV = lengthOrZero(childCs.paddingTop) + lengthOrZero(childCs.paddingBottom);
+    const childBorderV  = lengthOrZero(childCs.borderTopWidth) + lengthOrZero(childCs.borderBottomWidth);
+    const childExplicitHeight = childCs.height === "auto" ? null : lengthToPx(childCs.height);
+    const isEmpty = (childExplicitHeight === null || childExplicitHeight === 0)
+                 && childPaddingV === 0
+                 && childBorderV === 0
+                 && childLayout.height === 0;
+
+    if (isEmpty) {
+      // Undo the marginTop advance; the combined margin is held for the next sibling collapse
+      childY = preAdvanceY;
+      prevMarginBottom = Math.max(prevMarginBottom, childMarginTop, childMarginBottom);
+      // Place the empty block at preAdvanceY (zero height, no y-slot consumed)
+      layoutChildren.push(
+        createBlockBox(child.key, paddingLeft, preAdvanceY, contentWidth, 0, childCs, []),
+      );
+    } else {
+      layoutChildren.push(placedChild);
+      childY += placedChild.height;
+      prevMarginBottom = childMarginBottom;
+    }
   }
 
   const lastMarginBottom = noBottomBoundary ? 0 : prevMarginBottom;
