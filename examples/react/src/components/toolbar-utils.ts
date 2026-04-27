@@ -25,7 +25,7 @@ function hasStyleAtNode(
   // Walk from root down to the text node, checking span ancestors
   let node = state;
   for (let i = 0; i < path.length; i++) {
-    if (node.type === "span" && node.styles[property] !== undefined) {
+    if (node.type === "span" && node.style[property] !== undefined) {
       return true;
     }
     const child = node.children[path[i]];
@@ -33,7 +33,7 @@ function hasStyleAtNode(
     node = child;
   }
   // Check the node itself
-  if (node.type === "span" && node.styles[property] !== undefined) {
+  if (node.type === "span" && node.style[property] !== undefined) {
     return true;
   }
   return false;
