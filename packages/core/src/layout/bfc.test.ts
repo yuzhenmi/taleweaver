@@ -69,3 +69,50 @@ describe("layoutBlock — margin collapse: adjacent siblings", () => {
     expect(out.children[1].y).toBe(50);
   });
 });
+
+describe("layoutBlock — margin collapse: parent / first child", () => {
+  it("first child marginTop is suppressed when parent has no top padding/border", () => {
+    const child = createElementBox("c", {
+      display: "block", height: 20, marginTop: 30,
+    }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    expect(out.children[0].y).toBe(0);   // marginTop suppressed
+    expect(out.height).toBe(20);
+  });
+
+  it("first child marginTop is honored when parent has top padding", () => {
+    const child = createElementBox("c", {
+      display: "block", height: 20, marginTop: 30,
+    }, []);
+    const tree = createElementBox("root", {
+      display: "block", paddingTop: 10,
+    }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    expect(out.children[0].y).toBe(40);   // padding + margin
+  });
+});
+
+describe("layoutBlock — margin collapse: parent / last child", () => {
+  it("last child marginBottom is suppressed when parent has no bottom padding/border", () => {
+    const child = createElementBox("c", {
+      display: "block", height: 20, marginBottom: 30,
+    }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    expect(out.height).toBe(20);   // marginBottom suppressed
+  });
+
+  it("last child marginBottom is honored when parent has bottom padding", () => {
+    const child = createElementBox("c", {
+      display: "block", height: 20, marginBottom: 30,
+    }, []);
+    const tree = createElementBox("root", {
+      display: "block", paddingBottom: 5,
+    }, [child]);
+    const out = layoutOf(tree);
+    expect(out.height).toBe(55);   // 20 + 30 + 5
+  });
+});

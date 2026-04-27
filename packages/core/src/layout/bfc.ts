@@ -22,6 +22,13 @@ export function layoutBlock(
   const paddingBottom = lengthToPx(cs.paddingBottom);
   const paddingLeft   = lengthToPx(cs.paddingLeft);
 
+  // CSS parent/first and parent/last collapse rules:
+  // if the parent has no top padding/border, the first child's marginTop
+  // is suppressed (collapses with parent's outside margin).
+  // Symmetric for bottom.
+  const noTopBoundary = paddingTop === 0 && lengthOrZero(cs.borderTopWidth) === 0;
+  const noBottomBoundary = paddingBottom === 0 && lengthOrZero(cs.borderBottomWidth) === 0;
+
   const contentWidth = availableWidth - paddingLeft - paddingRight;
 
   let childY = paddingTop;
@@ -41,7 +48,7 @@ export function layoutBlock(
     if (layoutChildren.length > 0) {
       childY += Math.max(prevMarginBottom, childMarginTop);
     } else {
-      childY += childMarginTop;
+      childY += noTopBoundary ? 0 : childMarginTop;
     }
 
     const childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
@@ -56,8 +63,8 @@ export function layoutBlock(
     prevMarginBottom = childMarginBottom;
   }
 
-  // Note: parent/last-child collapse comes in D.5; for now include final marginBottom
-  const totalHeight = childY + prevMarginBottom + paddingBottom;
+  const lastMarginBottom = noBottomBoundary ? 0 : prevMarginBottom;
+  const totalHeight = childY + lastMarginBottom + paddingBottom;
 
   return createBlockBox(
     node.key, x, y, availableWidth, totalHeight, cs, layoutChildren,
