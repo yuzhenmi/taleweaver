@@ -1,9 +1,13 @@
 import type { ComponentDefinition } from "./component-definition";
-import { createElementBox } from "../render/render-node";
+import { createElementBox } from "../render/render-node-v2";
 
 export const horizontalLineComponent: ComponentDefinition = {
   type: "horizontal-line",
-  // TODO Plan 2 — real horizontal-line rendering
-  render: (state, children) =>
-    createElementBox(state.id, { display: "block" }, children),
+  render: (state, _children) =>
+    createElementBox(
+      state.id,
+      { display: "block", height: 16, ...state.style },
+      [],
+      { horizontalLine: true },
+    ),
 };

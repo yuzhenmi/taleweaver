@@ -154,6 +154,11 @@ function paintBox(
         ctx.fillRect(absX, absY, img.width, img.height);
       }
     }
+    // Horizontal line
+    if (box.metadata?.horizontalLine) {
+      ctx.fillStyle = "#dadce0";
+      ctx.fillRect(absX + 8, absY + box.height / 2 - 0.5, box.width - 16, 1);
+    }
     // Recurse into children
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
