@@ -1,8 +1,10 @@
 import type { ElementBox, RenderNode } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
-import { createBlockBox } from "./layout-box-v2";
+import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import { layoutInlineContent } from "./ifc";
 import type { TextMeasurer } from "./text-measurer";
+import type { ComputedStyle } from "../styles";
+import { formatCounter, type CounterStyle } from "./list-counter";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -34,7 +36,13 @@ export function layoutBlock(
   const finalWidth = explicitWidth !== null && explicitWidth > 0 ? explicitWidth : availableWidth;
   const contentWidth = finalWidth - paddingLeft - paddingRight;
 
-  const hasInlineContent = node.children.some(
+  const hasBlockContent = node.children.some(
+    (c) =>
+      c.type === "element" &&
+      (c.computedStyle?.display === "block" ||
+       c.computedStyle?.display === "list-item"),
+  );
+  const hasInlineContent = !hasBlockContent && node.children.some(
     (c) =>
       c.type === "text" ||
       (c.type === "element" &&
@@ -55,6 +63,7 @@ export function layoutBlock(
   const layoutChildren: LayoutBox[] = [];
 
   let prevMarginBottom = 0;
+  let listCounter = 0;
   for (const child of node.children) {
     if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
@@ -70,6 +79,27 @@ export function layoutBlock(
       childY += Math.max(prevMarginBottom, childMarginTop);
     } else {
       childY += noTopBoundary ? 0 : childMarginTop;
+    }
+
+    // List-item marker generation
+    if (childCs.display === "list-item") {
+      listCounter++;
+      const markerText = resolveMarkerText(childCs, listCounter);
+      if (markerText !== null) {
+        const markerWidth = measurer.measureWidth(markerText, childCs);
+        const markerHeight = measurer.measureHeight(childCs);
+        const markerGap = 4;
+        const markerX = childCs.listStylePosition === "inside"
+          ? paddingLeft
+          : paddingLeft - markerWidth - markerGap;
+        const markerBox = createMarkerBox(
+          `${child.key}-marker`,
+          markerX, childY,
+          markerWidth, markerHeight,
+          childCs, markerText,
+        );
+        layoutChildren.push(markerBox);
+      }
     }
 
     const childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
@@ -111,6 +141,24 @@ export function layoutBlock(
   return createBlockBox(
     node.key, x, y, finalWidth, totalHeight, cs, layoutChildren,
   );
+}
+
+function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
+  const lst = cs.listStyleType;
+  if (lst === "none") return null;
+  if (typeof lst === "object") return lst.content;
+  switch (lst) {
+    case "disc":   return "•";
+    case "circle": return "○";
+    case "square": return "▪";
+    case "decimal":
+    case "lower-alpha":
+    case "upper-alpha":
+    case "lower-roman":
+    case "upper-roman":
+      return formatCounter(counter, lst as CounterStyle);
+  }
+  return null;
 }
 
 function lengthToPx(v: unknown): number {

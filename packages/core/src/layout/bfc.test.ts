@@ -171,3 +171,78 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
     expect(out.children[0].type).toBe("line");
   });
 });
+
+describe("BFC — list-item markers (outside)", () => {
+  it("decimal markers count up: 1., 2., 3.", () => {
+    const tree = cascadePass(
+      createElementBox("ol", {
+        display: "block", paddingLeft: 30, listStyleType: "decimal",
+      }, [
+        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "first")]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "second")]),
+        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "third")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+
+    const markers: { text: string }[] = [];
+    function walk(b: any) {
+      if (!b) return;
+      if (b.type === "marker") markers.push({ text: b.text });
+      if (b.children) for (const c of b.children) walk(c);
+    }
+    walk(out);
+    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "3."]);
+  });
+
+  it("disc markers are bullet glyphs", () => {
+    const tree = cascadePass(
+      createElementBox("ul", {
+        display: "block", paddingLeft: 30, listStyleType: "disc",
+      }, [
+        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "x")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    let foundMarker: { text: string } | null = null;
+    function walk(b: any) {
+      if (!b) return;
+      if (b.type === "marker") foundMarker = { text: b.text };
+      if (b.children) for (const c of b.children) walk(c);
+    }
+    walk(out);
+    expect(foundMarker).toBeTruthy();
+    if (foundMarker) expect((foundMarker as { text: string }).text).toBe("•");
+  });
+
+  it("nested lists have independent counters", () => {
+    const tree = cascadePass(
+      createElementBox("ol", { display: "block", paddingLeft: 30, listStyleType: "decimal" }, [
+        createElementBox("li1", { display: "list-item" }, [
+          createTextBox("t1", {}, "outer 1"),
+          createElementBox("ol2", { display: "block", paddingLeft: 30, listStyleType: "decimal" }, [
+            createElementBox("li2a", { display: "list-item" }, [createTextBox("t2a", {}, "inner 1")]),
+            createElementBox("li2b", { display: "list-item" }, [createTextBox("t2b", {}, "inner 2")]),
+          ]),
+        ]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "outer 2")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const markers: { text: string }[] = [];
+    function walk(b: any) {
+      if (!b) return;
+      if (b.type === "marker") markers.push({ text: b.text });
+      if (b.children) for (const c of b.children) walk(c);
+    }
+    walk(out);
+    // Document order: outer 1 marker, inner 1, inner 2, outer 2
+    expect(markers.map(m => m.text)).toEqual(["1.", "1.", "2.", "2."]);
+  });
+});
