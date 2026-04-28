@@ -59,9 +59,9 @@ function flattenLengths(cs: ComputedStyle): ComputedStyle {
 }
 
 const LENGTH_PROPERTIES = [
-  "width", "height", "minWidth", "minHeight", "maxWidth", "maxHeight",
-  "marginTop", "marginRight", "marginBottom", "marginLeft",
-  "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  "inlineSize", "blockSize", "minInlineSize", "minBlockSize", "maxInlineSize", "maxBlockSize",
+  "marginBlockStart", "marginBlockEnd", "marginInlineStart", "marginInlineEnd",
+  "paddingBlockStart", "paddingBlockEnd", "paddingInlineStart", "paddingInlineEnd",
 ] as const;
 
 /**

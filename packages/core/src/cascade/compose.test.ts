@@ -21,16 +21,16 @@ describe("composeComputed", () => {
   });
 
   it("uses initial value when unspecified and not inheritable", () => {
-    const parent = { ...INITIAL_COMPUTED_STYLE, marginTop: 100 };
+    const parent = { ...INITIAL_COMPUTED_STYLE, marginBlockStart: 100 };
     const result = composeComputed({}, parent);
-    expect(result.marginTop).toBe(0);          // marginTop does NOT inherit
+    expect(result.marginBlockStart).toBe(0);          // marginBlockStart does NOT inherit
   });
 
   it("resolves with no parent (root cascade)", () => {
     const result = composeComputed({ display: "block" }, null);
     expect(result.display).toBe("block");
-    expect(result.color).toBe("black");        // initial
+    expect(result.color).toBe("#000");        // initial
     expect(result.fontSize).toBe(16);          // initial
-    expect(result.marginTop).toBe(0);
+    expect(result.marginBlockStart).toBe(0);
   });
 });

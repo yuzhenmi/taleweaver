@@ -47,7 +47,7 @@ describe("cascadePass", () => {
   });
 
   it("does NOT propagate non-inheritable properties", () => {
-    const tree = createElementBox("root", { marginTop: 50 }, [
+    const tree = createElementBox("root", { marginBlockStart: 50 }, [
       createElementBox("p", {}, []),
     ]);
 
@@ -55,18 +55,18 @@ describe("cascadePass", () => {
     if (cascaded.type !== "element") throw new Error("?");
     const p = cascaded.children[0];
     if (p.type !== "element") throw new Error("?");
-    expect(p.computedStyle?.marginTop).toBe(0);  // initial, not inherited
+    expect(p.computedStyle?.marginBlockStart).toBe(0);  // initial, not inherited
   });
 
   it("flattens em values using own fontSize", () => {
     const tree = createElementBox("root", {
       fontSize: 20,
-      marginTop: { unit: "em", value: 0.5 },
+      marginBlockStart: { unit: "em", value: 0.5 },
     }, []);
 
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    expect(cascaded.computedStyle?.marginTop).toBe(10);  // 20 * 0.5
+    expect(cascaded.computedStyle?.marginBlockStart).toBe(10);  // 20 * 0.5
   });
 });
 
