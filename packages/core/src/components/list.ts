@@ -3,7 +3,14 @@ import { createElementBox } from "../render/render-node";
 
 export const listComponent: ComponentDefinition = {
   type: "list",
-  // TODO Plan 2 — real list rendering (ordered/unordered with markers)
-  render: (state, children) =>
-    createElementBox(state.id, { display: "block" }, children),
+  render: (state, children) => {
+    const listType = state.properties.listType as string | undefined;
+    const listStyleType = listType === "ordered" ? "decimal" : "disc";
+    return createElementBox(state.id, {
+      display: "block",
+      paddingLeft: 30,
+      listStyleType,
+      ...state.style,
+    }, children);
+  },
 };
