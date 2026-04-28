@@ -79,6 +79,7 @@ export {
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer } from "./layout/text-measurer";
 export { layoutTree } from "./layout/layout-engine";
+export { layoutTreeIncremental } from "./layout/layout-incremental";
 
 // Components
 export type { ComponentRenderFn, ComponentDefinition } from "./components";
