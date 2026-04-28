@@ -1,6 +1,6 @@
 import type { StateNode } from "../state/state-node";
 import type { Position } from "../state/position";
-import type { LayoutBox, TextLayoutBox } from "../layout/layout-node";
+import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { getNodeByPath } from "../state/operations";
 
@@ -23,7 +23,7 @@ export interface PixelPosition {
 }
 
 interface TextBoxMatch {
-  box: TextLayoutBox;
+  box: TextRunBox;
   absoluteX: number;
   absoluteY: number;
   keySuffix: number; // -1 for unsuffixed, N for :N
@@ -44,7 +44,7 @@ export function resolvePixelPosition(
 
   const nodeId = node.id;
 
-  // Collect all TextLayoutBox nodes matching this state node id
+  // Collect all TextRunBox nodes matching this state node id
   const matches: TextBoxMatch[] = [];
   collectTextBoxes(layoutTree, nodeId, 0, 0, matches);
 
@@ -79,7 +79,7 @@ export function resolvePixelPosition(
       }
       // Cursor falls within this box (or end of box on same line)
       const prefix = match.box.text.slice(0, remaining);
-      const xOffset = measurer.measureWidth(prefix, match.box.styles ?? {});
+      const xOffset = measurer.measureWidth(prefix, match.box.computedStyle);
       return {
         x: match.absoluteX + xOffset,
         y: match.absoluteY,
@@ -108,7 +108,7 @@ export function resolvePixelPosition(
   };
 }
 
-/** Recursively collect TextLayoutBox nodes whose key matches the given node id. */
+/** Recursively collect TextRunBox nodes whose key matches the given node id. */
 function collectTextBoxes(
   box: LayoutBox,
   nodeId: string,
@@ -119,7 +119,7 @@ function collectTextBoxes(
   lineMarginTop: number = 0,
   lineMarginBottom: number = 0,
 ): void {
-  if (box.type === "text") {
+  if (box.type === "text-run") {
     const match = matchKey(box.key, nodeId);
     if (match !== null) {
       out.push({
@@ -134,23 +134,13 @@ function collectTextBoxes(
     }
     return;
   }
+  if (box.type === "marker") return;
 
   const absX = parentX + box.x;
   const absY = parentY + box.y;
-  let mt = lineMarginTop;
-  let mb = lineMarginBottom;
-  if (box.type === "line") {
-    mt = box.marginTop;
-    mb = box.marginBottom;
-  }
-  if (box.type === "page") {
-    const idx = parseInt(box.key.slice(5), 10);
-    const pi = isNaN(idx) ? pageIndex : idx;
-    for (const child of box.children) {
-      collectTextBoxes(child, nodeId, absX, absY, out, pi, mt, mb);
-    }
-    return;
-  }
+  // TODO Plan 2 — use actual line margins when available
+  const mt = lineMarginTop;
+  const mb = lineMarginBottom;
   for (const child of box.children) {
     collectTextBoxes(child, nodeId, absX, absY, out, pageIndex, mt, mb);
   }

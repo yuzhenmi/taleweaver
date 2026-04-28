@@ -1,13 +1,11 @@
 /**
  * Integration: re-layout on container width change.
- *
- * A word processor must handle window resizing. The same text should
- * wrap differently at different widths, but the content stays identical.
  */
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
+import type { LayoutBox } from "../layout/layout-node";
 import { registry, measurer } from "./setup";
 
 function setup() {
@@ -20,15 +18,12 @@ function setup() {
 }
 
 /** Collect all text from a layout tree's word boxes. */
-function collectText(layout: { children: readonly any[] }): string {
+function collectText(layout: LayoutBox): string {
+  if (layout.type === "text-run") return layout.text;
+  if (layout.type === "marker") return "";
   let text = "";
   for (const child of layout.children) {
-    if (child.text != null) {
-      text += child.text;
-    }
-    if (child.children?.length > 0) {
-      text += collectText(child);
-    }
+    text += collectText(child);
   }
   return text;
 }
@@ -38,7 +33,9 @@ describe("Integration: container resize re-layout", () => {
     const { rendered } = setup();
     const layout = layoutTree(rendered, 80, measurer);
 
+    if (layout.type !== "block") throw new Error("expected block");
     const para = layout.children[0];
+    if (para.type !== "block") throw new Error("expected block");
     // 80px = 10 chars. "The quick " (80px) on line 1, "brown fox" (72px) on line 2.
     expect(para.children).toHaveLength(2);
     expect(para.children[0].type).toBe("line");
@@ -46,7 +43,7 @@ describe("Integration: container resize re-layout", () => {
 
     // Lines are stacked vertically
     expect(para.children[0].y).toBe(0);
-    expect(para.children[1].y).toBe(19.2);
+    expect(para.children[1].y).toBe(16); // line height=16, no margins in Plan 1
   });
 
   it("text content is identical across wide, narrow, and very wide layouts", () => {
@@ -61,12 +58,19 @@ describe("Integration: container resize re-layout", () => {
     expect(collectText(layoutNarrow)).toBe("The quick brown fox");
     expect(collectText(layoutVeryWide)).toBe("The quick brown fox");
 
-    // Wide and very wide: single line
-    expect(layoutWide.children[0].children).toHaveLength(1);
-    expect(layoutVeryWide.children[0].children).toHaveLength(1);
+    if (layoutWide.type !== "block") throw new Error("expected block");
+    if (layoutVeryWide.type !== "block") throw new Error("expected block");
+    if (layoutNarrow.type !== "block") throw new Error("expected block");
+
+    // Wide and very wide: single line in the paragraph
+    const wideParaChildren = layoutWide.children[0].type === "block" ? layoutWide.children[0].children : [];
+    const vwParaChildren = layoutVeryWide.children[0].type === "block" ? layoutVeryWide.children[0].children : [];
+    const narrowParaChildren = layoutNarrow.children[0].type === "block" ? layoutNarrow.children[0].children : [];
+    expect(wideParaChildren).toHaveLength(1);
+    expect(vwParaChildren).toHaveLength(1);
 
     // Narrow: multiple lines
-    expect(layoutNarrow.children[0].children.length).toBeGreaterThan(1);
+    expect(narrowParaChildren.length).toBeGreaterThan(1);
 
     // Geometry differs
     expect(layoutWide.width).toBe(200);

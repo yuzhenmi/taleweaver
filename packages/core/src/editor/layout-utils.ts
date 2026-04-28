@@ -1,7 +1,7 @@
-import type { LayoutBox, TextLayoutBox } from "../layout/layout-node";
+import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 
 export interface AbsoluteTextBox {
-  box: TextLayoutBox;
+  box: TextRunBox;
   absoluteX: number;
   absoluteY: number;
   lineMarginTop: number;
@@ -9,7 +9,7 @@ export interface AbsoluteTextBox {
   pageIndex: number;
 }
 
-/** Collect all text layout boxes with absolute coordinates from a layout tree. */
+/** Collect all text-run layout boxes with absolute coordinates from a layout tree. */
 export function collectAllTextBoxes(
   box: LayoutBox,
   parentX: number,
@@ -19,7 +19,7 @@ export function collectAllTextBoxes(
   lineMarginTop: number = 0,
   lineMarginBottom: number = 0,
 ): void {
-  if (box.type === "text") {
+  if (box.type === "text-run") {
     out.push({
       box,
       absoluteX: parentX + box.x,
@@ -30,23 +30,18 @@ export function collectAllTextBoxes(
     });
     return;
   }
+  if (box.type === "marker") return;
   const absX = parentX + box.x;
   const absY = parentY + box.y;
-  // Thread margins from line boxes to their text children
+  // Thread margins from line boxes to their text-run children
   let mt = lineMarginTop;
   let mb = lineMarginBottom;
   if (box.type === "line") {
-    mt = box.marginTop;
-    mb = box.marginBottom;
+    // TODO Plan 2 — use actual line margin when available
+    mt = 0;
+    mb = 0;
   }
-  if (box.type === "page") {
-    const idx = parseInt(box.key.slice(5), 10);
-    const pi = isNaN(idx) ? pageIndex : idx;
-    for (const child of box.children) {
-      collectAllTextBoxes(child, absX, absY, out, pi, mt, mb);
-    }
-    return;
-  }
+  // BlockBox or LineBox — recurse into children
   for (const child of box.children) {
     collectAllTextBoxes(child, absX, absY, out, pageIndex, mt, mb);
   }
@@ -60,19 +55,10 @@ export function collectBlockBoundaryLines(
   out: Set<string>,
   pageIndex: number = 0,
 ): void {
-  if (box.type === "text") return;
+  if (box.type === "text-run" || box.type === "marker") return;
 
   const absX = parentX + box.x;
   const absY = parentY + box.y;
-
-  if (box.type === "page") {
-    const idx = parseInt(box.key.slice(5), 10);
-    const pi = isNaN(idx) ? pageIndex : idx;
-    for (const child of box.children) {
-      collectBlockBoundaryLines(child, absX, absY, out, pi);
-    }
-    return;
-  }
 
   // A block whose children are lines represents a paragraph.
   // The last line is the paragraph boundary.
@@ -86,7 +72,7 @@ export function collectBlockBoundaryLines(
   }
 }
 
-/** Add lineKeys for all text boxes within a subtree. */
+/** Add lineKeys for all text-run boxes within a subtree. */
 function addTextLineKeys(
   box: LayoutBox,
   parentX: number,
@@ -94,10 +80,11 @@ function addTextLineKeys(
   out: Set<string>,
   pageIndex: number,
 ): void {
-  if (box.type === "text") {
+  if (box.type === "text-run") {
     out.add(`${pageIndex}:${parentY + box.y}`);
     return;
   }
+  if (box.type === "marker") return;
   const absX = parentX + box.x;
   const absY = parentY + box.y;
   for (const child of box.children) {
