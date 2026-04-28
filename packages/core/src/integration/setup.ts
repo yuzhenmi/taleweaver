@@ -7,30 +7,40 @@ import { defaultComponents } from "../components";
 import { createRegistry } from "../components/component-registry";
 import { createMockMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
-import type { TextRenderNode } from "../render/text-render-node";
-import type { LayoutBox } from "../layout/layout-node";
-import type { TextLayoutBox } from "../layout/text-layout-box";
+import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 
 export const registry = createRegistry(defaultComponents);
 export const measurer = createMockMeasurer(8, 16); // 8px per char, 16px line height
 
 /** Narrow a RenderNode to text type, throwing if it isn't one. */
-export function expectTextRender(node: RenderNode): TextRenderNode {
+export function expectTextRender(node: RenderNode): Extract<RenderNode, { type: "text" }> {
   if (node.type !== "text") {
     throw new Error(`Expected text render node, got "${node.type}"`);
   }
   return node;
 }
 
-/** Narrow a LayoutBox to text type, throwing if it isn't one. */
-export function expectTextBox(box: LayoutBox): TextLayoutBox {
-  if (box.type !== "text") {
-    throw new Error(`Expected text layout box, got "${box.type}"`);
+/** Narrow a LayoutBox to text-run type, throwing if it isn't one. */
+export function expectTextBox(box: LayoutBox): TextRunBox {
+  if (box.type !== "text-run") {
+    throw new Error(`Expected text-run layout box, got "${box.type}"`);
   }
   return box;
 }
 
-/** Collect all text content from a layout line's text box children. */
+/** Recursively collect all text from text-run boxes within a layout box. */
+function collectText(box: LayoutBox): string {
+  if (box.type === "text-run") return box.text;
+  if (box.type === "line" || box.type === "inline" || box.type === "block" || box.type === "inline-block") {
+    return box.children.map(collectText).join("");
+  }
+  return "";
+}
+
+/** Collect all text content from a layout line's text-run box descendants. */
 export function lineText(line: LayoutBox): string {
-  return line.children.map((c) => expectTextBox(c).text).join("");
+  if (line.type === "line") {
+    return line.children.map(collectText).join("");
+  }
+  return "";
 }

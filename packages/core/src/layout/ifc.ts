@@ -1,7 +1,8 @@
+import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox } from "./layout-box-v2";
-import { createLineBox, createTextRunBox } from "./layout-box-v2";
+import { createInlineBox, createLineBox, createTextRunBox } from "./layout-box-v2";
 import type { TextMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 
@@ -13,6 +14,10 @@ interface Token {
   style: ComputedStyle;
   isSpace: boolean;
   isLineBreak: boolean;
+  /** ElementBox keys of all inline ancestors, root-most first. */
+  inlineAncestors: readonly string[];
+  /** Computed styles of all inline ancestors (parallel to inlineAncestors). */
+  inlineAncestorStyles: readonly ComputedStyle[];
 }
 
 /**
@@ -26,6 +31,61 @@ interface WrapUnit {
   totalWidth: number;
   sourceKey: string;
   isLineBreak: boolean;
+  /** Ancestor stack from the first token in this unit (all tokens share the same stack). */
+  inlineAncestors: readonly string[];
+  /** Ancestor styles from the first token in this unit (parallel to inlineAncestors). */
+  inlineAncestorStyles: readonly ComputedStyle[];
+}
+
+/**
+ * Recursively collect tokens from inline content, accumulating the ancestor
+ * stack as we descend into display:inline element children.
+ */
+function collectInlineTokens(
+  children: readonly RenderNode[],
+  ancestors: readonly string[],
+  ancestorStyles: readonly ComputedStyle[],
+  measurer: TextMeasurer,
+  out: Token[],
+): void {
+  for (const child of children) {
+    if (!child.computedStyle) throw new Error("cascade required");
+    const cs = child.computedStyle;
+
+    if (child.type === "text") {
+      const parts = tokenize(child.text, cs.whiteSpace);
+      for (const part of parts) {
+        if (part === LINE_BREAK) {
+          out.push({
+            sourceKey: child.key,
+            text: LINE_BREAK,
+            width: 0,
+            style: cs,
+            isSpace: false,
+            isLineBreak: true,
+            inlineAncestors: ancestors,
+            inlineAncestorStyles: ancestorStyles,
+          });
+          continue;
+        }
+        out.push({
+          sourceKey: child.key,
+          text: part,
+          width: measurer.measureWidth(part, cs),
+          style: cs,
+          isSpace: /^\s+$/.test(part),
+          isLineBreak: false,
+          inlineAncestors: ancestors,
+          inlineAncestorStyles: ancestorStyles,
+        });
+      }
+    } else if (child.type === "element" && cs.display === "inline") {
+      const newAncestors = [...ancestors, child.key];
+      const newStyles = [...ancestorStyles, cs];
+      collectInlineTokens(child.children, newAncestors, newStyles, measurer, out);
+    }
+    // Other display values (block, inline-block, etc.) are ignored at this level for B.2.
+  }
 }
 
 /**
@@ -45,35 +105,9 @@ export function layoutInlineContent(
   const ws = parentCs.whiteSpace;
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
-  // Collect tokens from all text children
+  // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  for (const child of parent.children) {
-    if (child.type !== "text") continue;
-    if (!child.computedStyle) throw new Error("cascade required");
-    const cs = child.computedStyle;
-    const parts = tokenize(child.text, cs.whiteSpace);
-    for (const part of parts) {
-      if (part === LINE_BREAK) {
-        tokens.push({
-          sourceKey: child.key,
-          text: LINE_BREAK,
-          width: 0,
-          style: cs,
-          isSpace: false,
-          isLineBreak: true,
-        });
-        continue;
-      }
-      tokens.push({
-        sourceKey: child.key,
-        text: part,
-        width: measurer.measureWidth(part, cs),
-        style: cs,
-        isSpace: /^\s+$/.test(part),
-        isLineBreak: false,
-      });
-    }
-  }
+  collectInlineTokens(parent.children, [], [], measurer, tokens);
 
   // Group tokens into wrap units: non-space + optional trailing space (same source)
   // LINE_BREAK tokens become standalone units with isLineBreak: true.
@@ -82,7 +116,14 @@ export function layoutInlineContent(
   while (i < tokens.length) {
     const tok = tokens[i];
     if (tok.isLineBreak) {
-      units.push({ tokens: [tok], totalWidth: 0, sourceKey: tok.sourceKey, isLineBreak: true });
+      units.push({
+        tokens: [tok],
+        totalWidth: 0,
+        sourceKey: tok.sourceKey,
+        isLineBreak: true,
+        inlineAncestors: tok.inlineAncestors,
+        inlineAncestorStyles: tok.inlineAncestorStyles,
+      });
       i++;
       continue;
     }
@@ -101,7 +142,14 @@ export function layoutInlineContent(
     } else {
       i++;
     }
-    units.push({ tokens: unit, totalWidth: w, sourceKey: tok.sourceKey, isLineBreak: false });
+    units.push({
+      tokens: unit,
+      totalWidth: w,
+      sourceKey: tok.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: tok.inlineAncestors,
+      inlineAncestorStyles: tok.inlineAncestorStyles,
+    });
   }
 
   // Greedy line wrap over units
@@ -114,7 +162,7 @@ export function layoutInlineContent(
   for (const unit of units) {
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
-      const line = buildLine(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+      const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
       lines.push(line);
       lineY += line.height;
       currentUnits = [];
@@ -124,7 +172,7 @@ export function layoutInlineContent(
 
     // Soft wrap — only when canWrap is true
     if (canWrap && currentWidth + unit.totalWidth > contentWidth && currentUnits.length > 0) {
-      const line = buildLine(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+      const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
       lines.push(line);
       lineY += line.height;
       currentUnits = [];
@@ -135,14 +183,14 @@ export function layoutInlineContent(
   }
 
   if (currentUnits.length > 0) {
-    const line = buildLine(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+    const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
     lines.push(line);
   }
 
   return lines;
 }
 
-function buildLine(
+function buildLineWithFragments(
   parentKey: string,
   lineIndex: number,
   x: number,
@@ -152,35 +200,90 @@ function buildLine(
   parentCs: ComputedStyle,
   measurer: TextMeasurer,
 ): LineBox {
+  const lineHeightTracker = { value: 0 };
+  const children = buildLineChildrenForAncestorLevel(
+    parentKey, lineIndex, units, 0, parentCs, measurer, lineHeightTracker,
+  );
+  const lineHeight = lineHeightTracker.value > 0 ? lineHeightTracker.value : measurer.measureHeight(parentCs);
+  return createLineBox(`${parentKey}-l${lineIndex}`, x, y, width, lineHeight, parentCs, children);
+}
+
+/**
+ * Walk wrap units at a given inline-ancestor depth. Units at this level (no deeper ancestor)
+ * become TextRunBoxes; consecutive runs of units that share an ancestor at `depth` get
+ * grouped into an InlineBox containing the recursive result.
+ */
+function buildLineChildrenForAncestorLevel(
+  parentKey: string,
+  lineIndex: number,
+  units: WrapUnit[],
+  depth: number,
+  parentCs: ComputedStyle,
+  measurer: TextMeasurer,
+  lineHeightTracker: { value: number },
+): LayoutBox[] {
+  const out: LayoutBox[] = [];
+  let currentX = 0;
+  let i = 0;
+
   // Track per-source-key run counters for text run box keys.
   // Keys follow the pattern `{sourceKey}:{runIdx}` so that cursor-position.ts
   // can match by state node id.
   const runCounters: Record<string, number> = {};
 
-  const children: LayoutBox[] = [];
-  let runX = 0;
-  let lineHeight = 0;
-  for (const unit of units) {
-    // Merge tokens in the unit into a single text string
-    const text = unit.tokens.map(t => t.text).join("");
-    const unitWidth = unit.tokens.reduce((sum, t) => sum + t.width, 0);
-    const tokStyle = unit.tokens[0].style;
-    const tokHeight = measurer.measureHeight(tokStyle);
-    lineHeight = Math.max(lineHeight, tokHeight);
+  while (i < units.length) {
+    const unit = units[i];
 
-    const runIdx = runCounters[unit.sourceKey] ?? 0;
-    runCounters[unit.sourceKey] = runIdx + 1;
-    const runKey = `${unit.sourceKey}:${runIdx}`;
+    if (unit.inlineAncestors.length <= depth) {
+      // Unit is at this level — emit a TextRunBox (merging tokens in the unit).
+      const text = unit.tokens.map(t => t.text).join("");
+      const unitWidth = unit.tokens.reduce((sum, t) => sum + t.width, 0);
+      const tokStyle = unit.tokens[0].style;
+      const tokHeight = measurer.measureHeight(tokStyle);
+      lineHeightTracker.value = Math.max(lineHeightTracker.value, tokHeight);
 
-    children.push(createTextRunBox(
-      runKey,
-      runX, 0, unitWidth, tokHeight, tokStyle, text,
+      const runIdx = runCounters[unit.sourceKey] ?? 0;
+      runCounters[unit.sourceKey] = runIdx + 1;
+      const runKey = `${unit.sourceKey}:${runIdx}`;
+
+      out.push(createTextRunBox(
+        runKey,
+        currentX, 0, unitWidth, tokHeight, tokStyle, text,
+      ));
+      currentX += unitWidth;
+      i++;
+      continue;
+    }
+
+    // Group consecutive units that share the same ancestor at `depth`.
+    const ancestorKey = unit.inlineAncestors[depth];
+    const ancestorStyle = unit.inlineAncestorStyles[depth];
+    let j = i;
+    while (
+      j < units.length &&
+      units[j].inlineAncestors.length > depth &&
+      units[j].inlineAncestors[depth] === ancestorKey
+    ) j++;
+
+    const innerUnits = units.slice(i, j);
+    const innerHeightTracker = { value: 0 };
+    const innerChildren = buildLineChildrenForAncestorLevel(
+      parentKey, lineIndex, innerUnits, depth + 1,
+      ancestorStyle, measurer, innerHeightTracker,
+    );
+
+    const inlineWidth = innerChildren.reduce((acc, c) => acc + c.width, 0);
+    const inlineHeight = innerHeightTracker.value > 0 ? innerHeightTracker.value : measurer.measureHeight(ancestorStyle);
+    lineHeightTracker.value = Math.max(lineHeightTracker.value, inlineHeight);
+
+    // For B.2, hardcode fragmentEdge to "only". B.3 fixes cross-line resolution.
+    out.push(createInlineBox(
+      `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
+      currentX, 0, inlineWidth, inlineHeight, ancestorStyle, innerChildren, "only",
     ));
-    runX += unitWidth;
+    currentX += inlineWidth;
+    i = j;
   }
-  if (lineHeight === 0) lineHeight = measurer.measureHeight(parentCs);
-  return createLineBox(
-    `${parentKey}-l${lineIndex}`,
-    x, y, width, lineHeight, parentCs, children,
-  );
+
+  return out;
 }

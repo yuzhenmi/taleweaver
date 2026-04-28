@@ -84,3 +84,53 @@ describe("IFC whiteSpace handling", () => {
     expect(lineBoxes.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("IFC — first-class inline boxes", () => {
+  it("produces an InlineBox for a display:inline child", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "before "),
+        createElementBox("span", { display: "inline", color: "red" }, [
+          createTextBox("t2", {}, "middle"),
+        ]),
+        createTextBox("t3", {}, " after"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+
+    const inlineBox = line.children.find(c => c.type === "inline");
+    expect(inlineBox).toBeDefined();
+    if (!inlineBox || inlineBox.type !== "inline") throw new Error("?");
+    expect(inlineBox.computedStyle.color).toBe("red");
+    // For B.2, fragmentEdge is hardcoded "only"; B.3 fixes cross-line resolution.
+    expect(inlineBox.fragmentEdge).toBe("only");
+  });
+
+  it("inline children content is inside the InlineBox", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("span", { display: "inline" }, [
+          createTextBox("t", {}, "hello"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const inlineBox = line.children.find(c => c.type === "inline");
+    expect(inlineBox).toBeDefined();
+    if (!inlineBox || inlineBox.type !== "inline") throw new Error("?");
+    // The InlineBox should contain the text run for "hello"
+    expect(inlineBox.children.length).toBeGreaterThan(0);
+    const textRun = inlineBox.children.find(c => c.type === "text-run");
+    expect(textRun).toBeDefined();
+    if (!textRun || textRun.type !== "text-run") throw new Error("?");
+    expect(textRun.text).toBe("hello");
+  });
+});
