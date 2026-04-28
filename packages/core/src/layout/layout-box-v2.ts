@@ -1,13 +1,28 @@
 import type { ComputedStyle } from "../styles";
+import type { WritingMode, Direction } from "../styles/writing-mode";
 
 export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox;
 
 interface LayoutBoxBase {
   readonly key: string;
+
+  // Logical (FCs read+write these)
+  readonly inlineOffset: number;
+  readonly blockOffset:  number;
+  readonly inlineSize:   number;
+  readonly blockSize:    number;
+
+  // Physical (painter / hit-test / selection-geometry read these)
+  // In Plan 3.A: derived as identity for LTR; Task 11 adds RTL inversion.
   readonly x: number;
   readonly y: number;
-  readonly width: number;
+  readonly width:  number;
   readonly height: number;
+
+  // Containing-block writing-mode + direction at this point
+  readonly writingMode: WritingMode;
+  readonly direction:   Direction;
+
   readonly computedStyle: Readonly<ComputedStyle>;
 }
 
@@ -69,16 +84,35 @@ export interface TableCellBox extends LayoutBoxBase {
   readonly children: readonly LayoutBox[];
 }
 
+/**
+ * Plan 3.A LTR-only identity. Task 11 replaces with logicalToPhysical
+ * (which handles RTL inline-axis inversion).
+ */
+function deriveIdentityPhysical(
+  inlineOffset: number, blockOffset: number,
+  inlineSize: number, blockSize: number,
+): { x: number; y: number; width: number; height: number } {
+  return {
+    x: inlineOffset, y: blockOffset,
+    width: inlineSize, height: blockSize,
+  };
+}
+
 export function createBlockBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
   metadata?: Readonly<Record<string, unknown>>,
 ): BlockBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "block" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
     ...(metadata !== undefined ? { metadata: Object.freeze({ ...metadata }) } : {}),
@@ -87,14 +121,19 @@ export function createBlockBox(
 
 export function createLineBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
-  baseline: number = height,
+  baseline: number = blockSize,
 ): LineBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "line" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
     baseline,
@@ -103,13 +142,18 @@ export function createLineBox(
 
 export function createTextRunBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   text: string,
 ): TextRunBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "text-run" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     text,
   });
@@ -117,14 +161,19 @@ export function createTextRunBox(
 
 export function createInlineBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
   fragmentEdge: InlineFragmentEdge,
 ): InlineBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "inline" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
     fragmentEdge,
@@ -133,13 +182,18 @@ export function createInlineBox(
 
 export function createInlineBlockBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
 ): InlineBlockBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "inline-block" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
   });
@@ -147,13 +201,18 @@ export function createInlineBlockBox(
 
 export function createMarkerBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   text: string,
 ): MarkerBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "marker" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     text,
   });
@@ -161,14 +220,19 @@ export function createMarkerBox(
 
 export function createTableBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
   columnPxWidths: readonly number[],
 ): TableBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "table" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
     columnPxWidths: Object.freeze([...columnPxWidths]),
@@ -177,13 +241,18 @@ export function createTableBox(
 
 export function createTableRowBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
 ): TableRowBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "table-row" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
   });
@@ -191,13 +260,18 @@ export function createTableRowBox(
 
 export function createTableCellBox(
   key: string,
-  x: number, y: number, width: number, height: number,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
 ): TableCellBox {
+  const phys = deriveIdentityPhysical(inlineOffset, blockOffset, inlineSize, blockSize);
   return Object.freeze({
     type: "table-cell" as const,
-    key, x, y, width, height,
+    key,
+    inlineOffset, blockOffset, inlineSize, blockSize,
+    ...phys,
+    writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
   });
