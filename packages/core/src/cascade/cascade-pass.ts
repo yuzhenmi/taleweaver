@@ -63,3 +63,107 @@ const LENGTH_PROPERTIES = [
   "marginTop", "marginRight", "marginBottom", "marginLeft",
   "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
 ] as const;
+
+/**
+ * Incremental cascade. Reuses the old cascaded subtree when:
+ *  - The new render node is reference-equal to the old render node, AND
+ *  - The parent's computed style is reference-equal to the old parent's computed style.
+ *
+ * When parent's computedStyle changed in a way that affects inheritable properties,
+ * we recompute. We don't yet check property-by-property — any parent change triggers
+ * recompute. (Could optimize further by checking only inheritable props if needed.)
+ */
+export function cascadePassIncremental(
+  newRoot: RenderNode,
+  oldRoot: RenderNode | null,
+  oldCascadedRoot: RenderNode | null,
+): RenderNode {
+  return cascadeNodeIncremental(newRoot, oldRoot, oldCascadedRoot, null, null);
+}
+
+function cascadeNodeIncremental(
+  newNode: RenderNode,
+  oldNode: RenderNode | null,
+  oldCascaded: RenderNode | null,
+  parentComputed: ComputedStyle | null,
+  oldParentComputed: ComputedStyle | null,
+): RenderNode {
+  // Short-circuit: same render-node reference AND same parent computed style.
+  if (
+    oldNode !== null && oldCascaded !== null &&
+    newNode === oldNode && parentComputed === oldParentComputed
+  ) {
+    return oldCascaded;
+  }
+
+  // Recompute.
+  const baseComputed = composeComputed(newNode.style, parentComputed);
+  let computed = flattenLengths(baseComputed);
+
+  // If the resulting computed style is structurally identical to the old one,
+  // reuse the old reference so child short-circuits can still fire via ===.
+  const oldComputed = oldCascaded?.computedStyle ?? null;
+  if (oldComputed !== null && computedStylesEqual(computed, oldComputed)) {
+    computed = oldComputed;
+  }
+
+  if (newNode.type === "text") {
+    return Object.freeze({ ...newNode, computedStyle: Object.freeze(computed) });
+  }
+
+  // Recurse into children, matching by key.
+  const oldChildren = oldNode?.type === "element" ? oldNode.children : [];
+  const oldCascadedChildren = oldCascaded?.type === "element" ? oldCascaded.children : [];
+  const oldByKey = new Map<string, { node: RenderNode; cascaded: RenderNode }>();
+  for (let i = 0; i < oldChildren.length; i++) {
+    const o = oldChildren[i];
+    const oc = oldCascadedChildren[i];
+    if (o !== undefined && oc !== undefined) {
+      oldByKey.set(o.key, { node: o, cascaded: oc });
+    }
+  }
+
+  const oldComputedForRecurse = oldCascaded?.computedStyle ?? null;
+  const newChildren = newNode.children.map((child) => {
+    const prev = oldByKey.get(child.key);
+    return cascadeNodeIncremental(
+      child,
+      prev?.node ?? null,
+      prev?.cascaded ?? null,
+      computed,
+      oldComputedForRecurse,
+    );
+  });
+
+  return Object.freeze({
+    ...newNode,
+    computedStyle: Object.freeze(computed),
+    children: Object.freeze(newChildren),
+  });
+}
+
+/** Shallow structural equality for ComputedStyle (all values are primitives or simple objects). */
+function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  if (aKeys.length !== Object.keys(bRecord).length) return false;
+  for (const key of aKeys) {
+    const av = aRecord[key];
+    const bv = bRecord[key];
+    if (av !== bv) {
+      // Handle LengthValue objects ({ unit, value })
+      if (
+        typeof av === "object" && av !== null &&
+        typeof bv === "object" && bv !== null
+      ) {
+        const ao = av as Record<string, unknown>;
+        const bo = bv as Record<string, unknown>;
+        if (ao["unit"] !== bo["unit"] || ao["value"] !== bo["value"]) return false;
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
+}
