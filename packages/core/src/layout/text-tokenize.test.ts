@@ -22,3 +22,15 @@ describe("tokenize (whiteSpace: normal)", () => {
     expect(tokenize("  hi  ", "normal")).toEqual(["hi"]);
   });
 });
+
+describe("tokenize (whiteSpace: nowrap)", () => {
+  it("collapses whitespace like normal", () => {
+    expect(tokenize("hello   world", "nowrap")).toEqual(["hello", " ", "world"]);
+  });
+  it("treats newlines as whitespace", () => {
+    expect(tokenize("a\nb", "nowrap")).toEqual(["a", " ", "b"]);
+  });
+  it("handles empty input", () => {
+    expect(tokenize("", "nowrap")).toEqual([]);
+  });
+});

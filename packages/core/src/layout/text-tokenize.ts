@@ -6,7 +6,8 @@ import type { WhiteSpace } from "../styles";
  */
 export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
   switch (whiteSpace) {
-    case "normal": {
+    case "normal":
+    case "nowrap": {
       const trimmed = text.trim();
       if (trimmed === "") return [];
       const out: string[] = [];
