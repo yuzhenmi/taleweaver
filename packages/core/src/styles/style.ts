@@ -1,5 +1,6 @@
 import type { Length, LengthOrAuto } from "./length";
 import type { Color } from "./color";
+import type { WritingMode, Direction } from "./writing-mode";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
@@ -19,8 +20,8 @@ export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line";
 
 export type VerticalAlign = "baseline" | "top" | "middle" | "bottom";
 
-export type Float = "none" | "left" | "right";
-export type Clear = "none" | "left" | "right" | "both";
+export type Float = "none" | "inline-start" | "inline-end";
+export type Clear = "none" | "inline-start" | "inline-end" | "both";
 
 export type BreakBefore = "auto" | "page" | "avoid";
 export type BreakAfter = "auto" | "page" | "avoid";
@@ -41,45 +42,49 @@ export interface Style {
   // Display & layout participation
   readonly display?: Display;
 
-  // Sizing
-  readonly width?:     LengthOrAuto;
-  readonly height?:    LengthOrAuto;
-  readonly minWidth?:  Length;
-  readonly minHeight?: Length;
-  readonly maxWidth?:  Length | "none";
-  readonly maxHeight?: Length | "none";
-  readonly boxSizing?: BoxSizing;
+  // Writing-mode and direction (Plan 3.A: horizontal-tb only; ltr/rtl both supported)
+  readonly writingMode?: WritingMode;
+  readonly direction?:   Direction;
 
-  // Margin
-  readonly marginTop?:    LengthOrAuto;
-  readonly marginRight?:  LengthOrAuto;
-  readonly marginBottom?: LengthOrAuto;
-  readonly marginLeft?:   LengthOrAuto;
+  // Sizing — logical
+  readonly inlineSize?:    LengthOrAuto;
+  readonly blockSize?:     LengthOrAuto;
+  readonly minInlineSize?: Length;
+  readonly minBlockSize?:  Length;
+  readonly maxInlineSize?: Length | "none";
+  readonly maxBlockSize?:  Length | "none";
+  readonly boxSizing?:     BoxSizing;
 
-  // Padding
-  readonly paddingTop?:    Length;
-  readonly paddingRight?:  Length;
-  readonly paddingBottom?: Length;
-  readonly paddingLeft?:   Length;
+  // Margin — logical
+  readonly marginBlockStart?:  LengthOrAuto;
+  readonly marginBlockEnd?:    LengthOrAuto;
+  readonly marginInlineStart?: LengthOrAuto;
+  readonly marginInlineEnd?:   LengthOrAuto;
 
-  // Border
-  readonly borderTopWidth?:    number;
-  readonly borderRightWidth?:  number;
-  readonly borderBottomWidth?: number;
-  readonly borderLeftWidth?:   number;
-  readonly borderTopStyle?:    BorderStyle;
-  readonly borderRightStyle?:  BorderStyle;
-  readonly borderBottomStyle?: BorderStyle;
-  readonly borderLeftStyle?:   BorderStyle;
-  readonly borderTopColor?:    Color;
-  readonly borderRightColor?:  Color;
-  readonly borderBottomColor?: Color;
-  readonly borderLeftColor?:   Color;
+  // Padding — logical
+  readonly paddingBlockStart?:  Length;
+  readonly paddingBlockEnd?:    Length;
+  readonly paddingInlineStart?: Length;
+  readonly paddingInlineEnd?:   Length;
+
+  // Border — logical
+  readonly borderBlockStartWidth?:  number;
+  readonly borderBlockEndWidth?:    number;
+  readonly borderInlineStartWidth?: number;
+  readonly borderInlineEndWidth?:   number;
+  readonly borderBlockStartStyle?:  BorderStyle;
+  readonly borderBlockEndStyle?:    BorderStyle;
+  readonly borderInlineStartStyle?: BorderStyle;
+  readonly borderInlineEndStyle?:   BorderStyle;
+  readonly borderBlockStartColor?:  Color;
+  readonly borderBlockEndColor?:    Color;
+  readonly borderInlineStartColor?: Color;
+  readonly borderInlineEndColor?:   Color;
 
   // Background
   readonly backgroundColor?: Color;
 
-  // Typography
+  // Typography (unchanged)
   readonly fontFamily?:     string;
   readonly fontSize?:       Length;
   readonly fontWeight?:     FontWeight;
@@ -88,22 +93,20 @@ export interface Style {
   readonly lineHeight?:     number | Length;
   readonly color?:          Color;
 
-  // Inline / text
+  // Inline / text (unchanged)
   readonly whiteSpace?:    WhiteSpace;
   readonly verticalAlign?: VerticalAlign;
 
-  // Float / clear
+  // Float / clear (sides are logical now)
   readonly float?: Float;
   readonly clear?: Clear;
 
-  // Fragmentation
+  // Fragmentation (unchanged)
   readonly breakBefore?: BreakBefore;
   readonly breakAfter?:  BreakAfter;
   readonly breakInside?: BreakInside;
-  readonly widows?:      number;
-  readonly orphans?:     number;
 
-  // List markers
+  // List
   readonly listStyleType?:     ListStyleType;
   readonly listStylePosition?: ListStylePosition;
 }
