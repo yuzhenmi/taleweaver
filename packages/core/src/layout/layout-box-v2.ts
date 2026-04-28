@@ -1,6 +1,6 @@
 import type { ComputedStyle } from "../styles";
 
-export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox;
+export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox;
 
 interface LayoutBoxBase {
   readonly key: string;
@@ -45,6 +45,11 @@ export interface InlineBox extends LayoutBoxBase {
 export interface InlineBlockBox extends LayoutBoxBase {
   readonly type: "inline-block";
   readonly children: readonly LayoutBox[];
+}
+
+export interface MarkerBox extends LayoutBoxBase {
+  readonly type: "marker";
+  readonly text: string;
 }
 
 export function createBlockBox(
@@ -118,5 +123,19 @@ export function createInlineBlockBox(
     key, x, y, width, height,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
+  });
+}
+
+export function createMarkerBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  text: string,
+): MarkerBox {
+  return Object.freeze({
+    type: "marker" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    text,
   });
 }

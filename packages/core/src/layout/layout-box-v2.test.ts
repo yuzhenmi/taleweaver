@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
-  type InlineBox, type InlineBlockBox,
-  createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox,
+  type InlineBox, type InlineBlockBox, type MarkerBox,
+  createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
 } from "./layout-box-v2";
 
 const cs = INITIAL_COMPUTED_STYLE;
@@ -65,5 +65,13 @@ describe("InlineBlockBox", () => {
     const inlineBlock = createInlineBlockBox("ib", 0, 0, 50, 16, cs, [tr]);
     expect(inlineBlock.type).toBe("inline-block");
     expect(inlineBlock.children).toHaveLength(1);
+  });
+});
+
+describe("MarkerBox", () => {
+  it("constructs with text content", () => {
+    const m = createMarkerBox("m", -20, 0, 18, 16, cs, "•");
+    expect(m.type).toBe("marker");
+    expect(m.text).toBe("•");
   });
 });
