@@ -52,3 +52,24 @@ describe("tokenize (whiteSpace: pre)", () => {
     expect(tokenize("", "pre")).toEqual([]);
   });
 });
+
+describe("tokenize (whiteSpace: pre-wrap)", () => {
+  it("preserves whitespace runs", () => {
+    expect(tokenize("a   b", "pre-wrap")).toEqual(["a   b"]);
+  });
+  it("emits LINE_BREAK at newlines", () => {
+    expect(tokenize("a\nb", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+});
+
+describe("tokenize (whiteSpace: pre-line)", () => {
+  it("collapses whitespace runs to single space", () => {
+    expect(tokenize("a   b", "pre-line")).toEqual(["a", " ", "b"]);
+  });
+  it("emits LINE_BREAK at newlines", () => {
+    expect(tokenize("a\nb", "pre-line")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("collapses whitespace within a line but breaks at newlines", () => {
+    expect(tokenize("a   b\nc   d", "pre-line")).toEqual(["a", " ", "b", LINE_BREAK, "c", " ", "d"]);
+  });
+});

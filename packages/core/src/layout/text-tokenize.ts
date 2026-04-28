@@ -32,6 +32,33 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       }
       return out;
     }
+    case "pre-wrap": {
+      // Same as pre — IFC will wrap at word boundaries.
+      const segments = text.split("\n");
+      const out: string[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        out.push(segments[i]);
+        if (i < segments.length - 1) out.push(LINE_BREAK);
+      }
+      return out;
+    }
+    case "pre-line": {
+      // Per-line: collapse whitespace within each line, separate lines by LINE_BREAK.
+      const lines = text.split("\n");
+      const out: string[] = [];
+      for (let li = 0; li < lines.length; li++) {
+        const trimmed = lines[li].trim();
+        if (trimmed !== "") {
+          const parts = trimmed.split(/\s+/);
+          for (let i = 0; i < parts.length; i++) {
+            out.push(parts[i]);
+            if (i < parts.length - 1) out.push(" ");
+          }
+        }
+        if (li < lines.length - 1) out.push(LINE_BREAK);
+      }
+      return out;
+    }
     default:
       throw new Error(`whiteSpace mode "${whiteSpace}" not yet implemented`);
   }
