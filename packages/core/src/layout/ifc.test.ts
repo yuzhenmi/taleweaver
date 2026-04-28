@@ -141,7 +141,7 @@ describe("IFC — inline-block atomic placement", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
         createTextBox("t1", {}, "before "),
-        createElementBox("ib", { display: "inline-block", width: 50, height: 30 }, []),
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
         createTextBox("t2", {}, " after"),
       ]),
     );
@@ -160,7 +160,7 @@ describe("IFC — inline-block atomic placement", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
         createTextBox("t1", {}, "before "),
-        createElementBox("ib", { display: "inline-block", width: 50, height: 30 }, []),
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
@@ -230,7 +230,7 @@ describe("IFC — verticalAlign", () => {
       createElementBox("p", { display: "block" }, [
         createTextBox("t", {}, "x"),
         createElementBox("ib", {
-          display: "inline-block", width: 20, height: 50, verticalAlign: "top",
+          display: "inline-block", inlineSize: 20, blockSize: 50, verticalAlign: "top",
         }, []),
       ]),
     );
@@ -247,7 +247,7 @@ describe("IFC — verticalAlign", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
         createElementBox("ib", {
-          display: "inline-block", width: 20, height: 30, verticalAlign: "bottom",
+          display: "inline-block", inlineSize: 20, blockSize: 30, verticalAlign: "bottom",
         }, []),
       ]),
     );
@@ -266,7 +266,7 @@ describe("IFC — verticalAlign", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
         createElementBox("ib", {
-          display: "inline-block", width: 20, height: 30, verticalAlign: "middle",
+          display: "inline-block", inlineSize: 20, blockSize: 30, verticalAlign: "middle",
         }, []),
       ]),
     );

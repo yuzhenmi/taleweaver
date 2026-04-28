@@ -7,6 +7,7 @@ import type { TextMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { FloatContext } from "./float-context";
+import type { WritingMode, Direction } from "../styles/writing-mode";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -23,7 +24,7 @@ interface Token {
   /** When set, this token represents an inline-block atomic unit. */
   inlineBlock?: {
     key: string;
-    height: number;
+    blockSize: number;
     children: readonly LayoutBox[];
   };
 }
@@ -92,30 +93,30 @@ function collectInlineTokens(
       const newStyles = [...ancestorStyles, cs];
       collectInlineTokens(child.children, newAncestors, newStyles, measurer, out);
     } else if (child.type === "element" && cs.display === "inline-block") {
-      // Resolve width
-      let widthPx: number;
-      if (typeof cs.width === "number") {
-        widthPx = cs.width;
+      // Resolve inlineSize
+      let inlineSizePx: number;
+      if (typeof cs.inlineSize === "number") {
+        inlineSizePx = cs.inlineSize;
       } else {
         // max-content: lay out at very large width
         const bfcInf = layoutBlock(child, 0, 0, 100000, measurer);
-        widthPx = bfcInf.width;
+        inlineSizePx = bfcInf.width;
       }
 
-      // Lay out at resolved width
-      const bfc = layoutBlock(child, 0, 0, widthPx > 0 ? widthPx : 100, measurer);
-      const finalWidth = widthPx > 0 ? widthPx : bfc.width;
-      let finalHeight: number;
-      if (typeof cs.height === "number") {
-        finalHeight = cs.height;
+      // Lay out at resolved inlineSize
+      const bfc = layoutBlock(child, 0, 0, inlineSizePx > 0 ? inlineSizePx : 100, measurer);
+      const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;
+      let finalBlockSize: number;
+      if (typeof cs.blockSize === "number") {
+        finalBlockSize = cs.blockSize;
       } else {
-        finalHeight = bfc.height;
+        finalBlockSize = bfc.height;
       }
 
       out.push({
         sourceKey: child.key,
         text: "",
-        width: finalWidth,
+        width: finalInlineSize,
         style: cs,
         isSpace: false,
         isLineBreak: false,
@@ -123,7 +124,7 @@ function collectInlineTokens(
         inlineAncestorStyles: ancestorStyles,
         inlineBlock: {
           key: child.key,
-          height: finalHeight,
+          blockSize: finalBlockSize,
           children: bfc.type === "block" ? Array.from(bfc.children) : [],
         },
       });
@@ -138,11 +139,13 @@ function collectInlineTokens(
  */
 export function layoutInlineContent(
   parent: ElementBox,
-  contentX: number,
-  contentY: number,
-  contentWidth: number,
+  inlineOffset: number,
+  blockOffset: number,
+  availableInlineSize: number,
   measurer: TextMeasurer,
   floatCtx?: FloatContext,
+  writingMode: WritingMode = "horizontal-tb",
+  direction: Direction = "ltr",
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
@@ -150,13 +153,13 @@ export function layoutInlineContent(
   const ws = parentCs.whiteSpace;
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
-  /** Returns the effective line x and width at a given lineY, accounting for floats. */
-  function effectiveLineDims(lineY: number): { lineX: number; lineWidth: number } {
-    if (!floatCtx) return { lineX: contentX, lineWidth: contentWidth };
-    const active = floatCtx.activeAt(lineY);
+  /** Returns the effective line inlineOffset and inlineSize at a given lineBlockOffset, accounting for floats. */
+  function effectiveLineDims(lineBlockOffset: number): { lineInlineCursor: number; lineInlineSize: number } {
+    if (!floatCtx) return { lineInlineCursor: inlineOffset, lineInlineSize: availableInlineSize };
+    const active = floatCtx.activeAt(lineBlockOffset);
     return {
-      lineX: contentX + active.leftWidth,
-      lineWidth: contentWidth - active.leftWidth - active.rightWidth,
+      lineInlineCursor: inlineOffset + active.leftWidth,
+      lineInlineSize: availableInlineSize - active.leftWidth - active.rightWidth,
     };
   }
 
@@ -209,7 +212,7 @@ export function layoutInlineContent(
 
   // Greedy line wrap over units
   const lines: LayoutBox[] = [];
-  let lineY = contentY;
+  let lineBlockOffset = blockOffset;
   let currentUnits: WrapUnit[] = [];
   let currentWidth = 0;
   let lineIndex = 0;
@@ -217,35 +220,35 @@ export function layoutInlineContent(
   for (const unit of units) {
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
-      const { lineX, lineWidth } = effectiveLineDims(lineY);
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
+      const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
       lines.push(line);
-      lineY += line.height;
+      lineBlockOffset += line.height;
       currentUnits = [];
       currentWidth = 0;
       continue;
     }
 
     // Soft wrap — only when canWrap is true
-    let { lineX, lineWidth } = effectiveLineDims(lineY);
+    let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
 
-    if (canWrap && currentWidth + unit.totalWidth > lineWidth && currentUnits.length > 0) {
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
       lines.push(line);
-      lineY += line.height;
+      lineBlockOffset += line.height;
       currentUnits = [];
       currentWidth = 0;
       // Recompute dims for the new line position
-      ({ lineX, lineWidth } = effectiveLineDims(lineY));
+      ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
     }
 
     // If even an empty line can't fit the token and there are active floats,
-    // advance lineY past the nearest float bottom and retry (CSS "skip past floats").
-    if (canWrap && currentWidth + unit.totalWidth > lineWidth && currentUnits.length === 0 && floatCtx) {
-      const active = floatCtx.activeAt(lineY);
-      if (active.nearestBottom !== Infinity && lineWidth < contentWidth) {
-        lineY = active.nearestBottom;
-        ({ lineX, lineWidth } = effectiveLineDims(lineY));
+    // advance lineBlockOffset past the nearest float bottom and retry (CSS "skip past floats").
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0 && floatCtx) {
+      const active = floatCtx.activeAt(lineBlockOffset);
+      if (active.nearestBottom !== Infinity && lineInlineSize < availableInlineSize) {
+        lineBlockOffset = active.nearestBottom;
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
       }
     }
 
@@ -254,15 +257,15 @@ export function layoutInlineContent(
   }
 
   if (currentUnits.length > 0) {
-    const { lineX, lineWidth } = effectiveLineDims(lineY);
-    const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
     lines.push(line);
   }
 
   return assignFragmentEdges(lines);
 }
 
-function applyVerticalAlign(children: readonly LayoutBox[], lineHeight: number): LayoutBox[] {
+function applyVerticalAlign(children: readonly LayoutBox[], lineBlockSize: number): LayoutBox[] {
   return children.map((c) => {
     const va = c.computedStyle.verticalAlign;
     let y: number;
@@ -271,16 +274,16 @@ function applyVerticalAlign(children: readonly LayoutBox[], lineHeight: number):
         y = 0;
         break;
       case "middle":
-        y = (lineHeight - c.height) / 2;
+        y = (lineBlockSize - c.height) / 2;
         break;
       case "bottom":
-        y = lineHeight - c.height;
+        y = lineBlockSize - c.height;
         break;
       case "baseline":
       default:
-        // Approximation: parent baseline at lineHeight * 0.8; child baseline at child.height * 0.8.
+        // Approximation: parent baseline at lineBlockSize * 0.8; child baseline at child.height * 0.8.
         // Position child so its baseline lines up with the line's baseline.
-        y = lineHeight * 0.8 - c.height * 0.8;
+        y = lineBlockSize * 0.8 - c.height * 0.8;
         break;
     }
     if (c.y === y) return c;
@@ -291,20 +294,22 @@ function applyVerticalAlign(children: readonly LayoutBox[], lineHeight: number):
 function buildLineWithFragments(
   parentKey: string,
   lineIndex: number,
-  x: number,
-  y: number,
-  width: number,
+  lineInlineCursor: number,
+  lineBlockOffset: number,
+  lineInlineSize: number,
   units: WrapUnit[],
   parentCs: ComputedStyle,
   measurer: TextMeasurer,
+  writingMode: WritingMode,
+  direction: Direction,
 ): LineBox {
-  const lineHeightTracker = { value: 0 };
+  const lineBlockSizeTracker = { value: 0 };
   const children = buildLineChildrenForAncestorLevel(
-    parentKey, lineIndex, units, 0, parentCs, measurer, lineHeightTracker,
+    parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction,
   );
-  const lineHeight = lineHeightTracker.value > 0 ? lineHeightTracker.value : measurer.measureHeight(parentCs);
-  const aligned = applyVerticalAlign(children, lineHeight);
-  return createLineBox(`${parentKey}-l${lineIndex}`, x, y, width, lineHeight, parentCs, aligned);
+  const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
+  const aligned = applyVerticalAlign(children, lineBlockSize);
+  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, aligned);
 }
 
 /**
@@ -319,10 +324,12 @@ function buildLineChildrenForAncestorLevel(
   depth: number,
   parentCs: ComputedStyle,
   measurer: TextMeasurer,
-  lineHeightTracker: { value: number },
+  lineBlockSizeTracker: { value: number },
+  writingMode: WritingMode,
+  direction: Direction,
 ): LayoutBox[] {
   const out: LayoutBox[] = [];
-  let currentX = 0;
+  let cursorInlineOffset = 0;
   let i = 0;
 
   // Track per-source-key run counters for text run box keys.
@@ -341,17 +348,17 @@ function buildLineChildrenForAncestorLevel(
       if (firstTok.inlineBlock) {
         // Inline-block atomic unit — emit an InlineBlockBox.
         const ib = firstTok.inlineBlock;
-        const ibHeight = ib.height;
-        lineHeightTracker.value = Math.max(lineHeightTracker.value, ibHeight);
+        const ibBlockSize = ib.blockSize;
+        lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, ibBlockSize);
         out.push(createInlineBlockBox(
           `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
-          currentX, 0, unitWidth, ibHeight, tokStyle, ib.children,
+          cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ib.children,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
         const text = unit.tokens.map(t => t.text).join("");
-        const tokHeight = measurer.measureHeight(tokStyle);
-        lineHeightTracker.value = Math.max(lineHeightTracker.value, tokHeight);
+        const tokBlockSize = measurer.measureHeight(tokStyle);
+        lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, tokBlockSize);
 
         const runIdx = runCounters[unit.sourceKey] ?? 0;
         runCounters[unit.sourceKey] = runIdx + 1;
@@ -359,10 +366,10 @@ function buildLineChildrenForAncestorLevel(
 
         out.push(createTextRunBox(
           runKey,
-          currentX, 0, unitWidth, tokHeight, tokStyle, text,
+          cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, text,
         ));
       }
-      currentX += unitWidth;
+      cursorInlineOffset += unitWidth;
       i++;
       continue;
     }
@@ -378,22 +385,22 @@ function buildLineChildrenForAncestorLevel(
     ) j++;
 
     const innerUnits = units.slice(i, j);
-    const innerHeightTracker = { value: 0 };
+    const innerBlockSizeTracker = { value: 0 };
     const innerChildren = buildLineChildrenForAncestorLevel(
       parentKey, lineIndex, innerUnits, depth + 1,
-      ancestorStyle, measurer, innerHeightTracker,
+      ancestorStyle, measurer, innerBlockSizeTracker, writingMode, direction,
     );
 
-    const inlineWidth = innerChildren.reduce((acc, c) => acc + c.width, 0);
-    const inlineHeight = innerHeightTracker.value > 0 ? innerHeightTracker.value : measurer.measureHeight(ancestorStyle);
-    lineHeightTracker.value = Math.max(lineHeightTracker.value, inlineHeight);
+    const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.width, 0);
+    const boxBlockSize = innerBlockSizeTracker.value > 0 ? innerBlockSizeTracker.value : measurer.measureHeight(ancestorStyle);
+    lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, boxBlockSize);
 
     // For B.2, hardcode fragmentEdge to "only". B.3 fixes cross-line resolution.
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
-      currentX, 0, inlineWidth, inlineHeight, ancestorStyle, innerChildren, "only",
+      cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, innerChildren, "only",
     ));
-    currentX += inlineWidth;
+    cursorInlineOffset += boxInlineSize;
     i = j;
   }
 
