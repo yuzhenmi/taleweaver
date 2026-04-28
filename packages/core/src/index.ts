@@ -87,7 +87,15 @@ export {
   documentComponent,
   paragraphComponent,
   textComponent,
+  spanComponent,
   headingComponent,
+  listComponent,
+  listItemComponent,
+  imageComponent,
+  horizontalLineComponent,
+  tableComponent,
+  tableRowComponent,
+  tableCellComponent,
   ComponentRegistry,
   createRegistry,
 } from "./components";
@@ -95,6 +103,11 @@ export {
   createParagraph,
   createHeading,
   createText,
+  createList,
+  createListItem,
+  createTable,
+  createImage,
+  createHorizontalLine,
 } from "./components/factories";
 
 // Cursor
