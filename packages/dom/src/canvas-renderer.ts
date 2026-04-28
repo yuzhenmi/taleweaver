@@ -120,6 +120,21 @@ function paintBox(
     return;
   }
 
+  if (box.type === "marker") {
+    const fontStr = buildCssFontString(cs);
+    if (fontStr !== state.lastFont) {
+      ctx.font = fontStr;
+      state.lastFont = fontStr;
+    }
+    ctx.fillStyle = cs.color;
+    const fontSize = cs.fontSize as number;
+    const lineHeightMultiplier = cs.lineHeight as number;
+    const lineHeight = lineHeightMultiplier * fontSize;
+    const halfLeading = (lineHeight - fontSize) / 2;
+    ctx.fillText(box.text, absX, absY + halfLeading);
+    return;
+  }
+
   if (box.type === "block") {
     // Background
     if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
