@@ -233,6 +233,32 @@ export function layoutInlineContent(
   return assignFragmentEdges(lines);
 }
 
+function applyVerticalAlign(children: readonly LayoutBox[], lineHeight: number): LayoutBox[] {
+  return children.map((c) => {
+    const va = c.computedStyle.verticalAlign;
+    let y: number;
+    switch (va) {
+      case "top":
+        y = 0;
+        break;
+      case "middle":
+        y = (lineHeight - c.height) / 2;
+        break;
+      case "bottom":
+        y = lineHeight - c.height;
+        break;
+      case "baseline":
+      default:
+        // Approximation: parent baseline at lineHeight * 0.8; child baseline at child.height * 0.8.
+        // Position child so its baseline lines up with the line's baseline.
+        y = lineHeight * 0.8 - c.height * 0.8;
+        break;
+    }
+    if (c.y === y) return c;
+    return Object.freeze({ ...c, y }) as LayoutBox;
+  });
+}
+
 function buildLineWithFragments(
   parentKey: string,
   lineIndex: number,
@@ -248,7 +274,8 @@ function buildLineWithFragments(
     parentKey, lineIndex, units, 0, parentCs, measurer, lineHeightTracker,
   );
   const lineHeight = lineHeightTracker.value > 0 ? lineHeightTracker.value : measurer.measureHeight(parentCs);
-  return createLineBox(`${parentKey}-l${lineIndex}`, x, y, width, lineHeight, parentCs, children);
+  const aligned = applyVerticalAlign(children, lineHeight);
+  return createLineBox(`${parentKey}-l${lineIndex}`, x, y, width, lineHeight, parentCs, aligned);
 }
 
 /**

@@ -222,3 +222,60 @@ describe("IFC — fragmentEdge across lines", () => {
     expect(inlineBox.fragmentEdge).toBe("only");
   });
 });
+
+describe("IFC — verticalAlign", () => {
+  it("inline-block with verticalAlign top is at line top", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "x"),
+        createElementBox("ib", {
+          display: "inline-block", width: 20, height: 50, verticalAlign: "top",
+        }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const ib = out.children[0].children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("?");
+    expect(ib.y).toBe(0);
+  });
+
+  it("inline-block with verticalAlign bottom is at line bottom", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", {
+          display: "inline-block", width: 20, height: 30, verticalAlign: "bottom",
+        }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("?");
+    // ib should sit at the bottom of the line
+    expect(ib.y).toBe(line.height - ib.height);
+  });
+
+  it("inline-block with verticalAlign middle is centered", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", {
+          display: "inline-block", width: 20, height: 30, verticalAlign: "middle",
+        }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("?");
+    expect(ib.y).toBe((line.height - ib.height) / 2);
+  });
+});

@@ -1,5 +1,5 @@
 import type { ElementBox, RenderNode } from "../render/render-node-v2";
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox } from "./layout-box-v2";
 import { layoutInlineContent } from "./ifc";
 import type { TextMeasurer } from "./text-measurer";
@@ -14,7 +14,7 @@ export function layoutBlock(
   y: number,
   availableWidth: number,
   measurer: TextMeasurer,
-): LayoutBox {
+): BlockBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
 
@@ -35,7 +35,10 @@ export function layoutBlock(
   const contentWidth = finalWidth - paddingLeft - paddingRight;
 
   const hasInlineContent = node.children.some(
-    (c) => c.type === "text" || (c.type === "element" && c.computedStyle?.display === "inline"),
+    (c) =>
+      c.type === "text" ||
+      (c.type === "element" &&
+        (c.computedStyle?.display === "inline" || c.computedStyle?.display === "inline-block")),
   );
 
   if (hasInlineContent) {
@@ -114,7 +117,7 @@ function lengthToPx(v: unknown): number {
   if (typeof v === "number") return v;
   if (typeof v === "string") return 0;  // "auto", "none"
   if (v && typeof v === "object" && "unit" in v && v.unit === "px") {
-    return (v as { value: number }).value;
+    return (v as unknown as { value: number }).value;
   }
   // percent left for layout-time resolution (not yet supported in Plan 1)
   return 0;
