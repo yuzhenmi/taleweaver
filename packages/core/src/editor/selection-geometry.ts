@@ -2,7 +2,7 @@ import type { StateNode } from "../state/state-node";
 import type { Selection } from "../cursor/selection";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextMeasurer } from "../layout/text-measurer";
-import type { RenderStyles } from "../render/render-node";
+import type { ComputedStyle } from "../styles";
 import { selectionStart, selectionEnd } from "../cursor/selection";
 import { getNodeByPath } from "../state/operations";
 import { getTextContentLength } from "../state/text-utils";
@@ -25,7 +25,7 @@ function lineKey(pageIndex: number, y: number): string {
 interface LineEdgeInfo {
   lineStartMap: Map<string, number>;
   lineEndMap: Map<string, number>;
-  lineEndStylesMap: Map<string, RenderStyles>;
+  lineEndStylesMap: Map<string, Readonly<ComputedStyle>>;
   lineMarginTopMap: Map<string, number>;
   lineMarginBottomMap: Map<string, number>;
 }
@@ -34,7 +34,7 @@ interface LineEdgeInfo {
 function buildLineEdgeMaps(boxes: AbsoluteTextBox[]): LineEdgeInfo {
   const lineStartMap = new Map<string, number>();
   const lineEndMap = new Map<string, number>();
-  const lineEndStylesMap = new Map<string, RenderStyles>();
+  const lineEndStylesMap = new Map<string, Readonly<ComputedStyle>>();
   const lineMarginTopMap = new Map<string, number>();
   const lineMarginBottomMap = new Map<string, number>();
   for (const b of boxes) {
@@ -49,7 +49,7 @@ function buildLineEdgeMaps(boxes: AbsoluteTextBox[]): LineEdgeInfo {
     const prevEnd = lineEndMap.get(key);
     if (prevEnd === undefined || rightEdge > prevEnd) {
       lineEndMap.set(key, rightEdge);
-      lineEndStylesMap.set(key, b.box.styles ?? {});
+      lineEndStylesMap.set(key, b.box.computedStyle);
     }
     if (!lineMarginTopMap.has(key)) {
       lineMarginTopMap.set(key, b.lineMarginTop);
@@ -110,8 +110,11 @@ export function computeSelectionRects(
   collectBlockBoundaryLines(layoutTree, 0, 0, blockBoundaryLines);
 
   /** Measure a line break indicator using the trailing text styles on a line. */
-  const lineBreakIndicatorWidth = (pageIndex: number, lineY: number) =>
-    measurer.measureWidth("  ", lineEndStylesMap.get(lineKey(pageIndex, lineY)) ?? {});
+  const lineBreakIndicatorWidth = (pageIndex: number, lineY: number): number => {
+    const styles = lineEndStylesMap.get(lineKey(pageIndex, lineY));
+    if (!styles) return 0;
+    return measurer.measureWidth("  ", styles);
+  };
 
   // Offset-based virtual line break check: end.offset > textContentLength means virtual line break
   const endNode = getNodeByPath(state, end.path);

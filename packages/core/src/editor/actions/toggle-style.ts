@@ -1,4 +1,4 @@
-import type { NodeStyles } from "../../state/state-node";
+import type { Style } from "../../styles";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createSelection, isCollapsed } from "../../cursor/selection";
@@ -9,7 +9,7 @@ import {
 } from "../../state/formatting";
 import { rebuildTrees } from "./helpers";
 
-const STYLE_VALUES: Record<string, { property: keyof NodeStyles; value: string }> = {
+const STYLE_VALUES: Record<string, { property: keyof Style; value: string }> = {
   bold: { property: "fontWeight", value: "bold" },
   italic: { property: "fontStyle", value: "italic" },
   underline: { property: "textDecoration", value: "underline" },

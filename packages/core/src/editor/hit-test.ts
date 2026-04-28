@@ -2,7 +2,7 @@ import type { StateNode } from "../state/state-node";
 import type { Position } from "../state/position";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextMeasurer } from "../layout/text-measurer";
-import type { RenderStyles } from "../render/render-node";
+import type { ComputedStyle } from "../styles";
 import { createPosition, } from "../state/position";
 import { findPathById } from "../state/find-path";
 import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
@@ -86,7 +86,7 @@ export function resolvePositionFromPixel(
   // 5. Binary search within text box for character offset
   const localX = x - targetBox.absoluteX;
   const text = targetBox.box.text;
-  const boxStyles = targetBox.box.styles ?? {};
+  const boxStyles = targetBox.box.computedStyle;
   let charOffset = findCharOffset(text, localX, boxStyles, measurer);
 
   // 6. Map box key → node ID, find path, accumulate offset from earlier boxes
@@ -110,7 +110,7 @@ export function resolvePositionFromPixel(
 function findCharOffset(
   text: string,
   localX: number,
-  styles: RenderStyles,
+  styles: Readonly<ComputedStyle>,
   measurer: TextMeasurer,
 ): number {
   if (localX <= 0) return 0;

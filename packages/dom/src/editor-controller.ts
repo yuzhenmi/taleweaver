@@ -314,9 +314,10 @@ export function createEditorController(
 
     const tree = state.layoutTree;
     const newPages: LayoutBox[] = [];
-    if (pageHeight) {
+    if (pageHeight && tree.type === "block") {
       for (const c of tree.children) {
-        if (c.type === "page") newPages.push(c);
+        // Plan 2: "page" type boxes — not present in Plan 1
+        if ((c as { type: string }).type === "page") newPages.push(c);
       }
     }
     const isPaginated = newPages.length > 0;

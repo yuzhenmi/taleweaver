@@ -28,7 +28,7 @@ describe("applyInlineStyle", () => {
 
     const styledSpan = para.children[0];
     expect(styledSpan.type).toBe("span");
-    expect(styledSpan.styles.fontWeight).toBe("bold");
+    expect(styledSpan.style.fontWeight).toBe("bold");
     expect(getTextContent(styledSpan.children[0])).toBe("Hello");
 
     expect(getTextContent(para.children[1])).toBe(" world");
@@ -51,7 +51,7 @@ describe("applyInlineStyle", () => {
 
     const styledSpan = para.children[1];
     expect(styledSpan.type).toBe("span");
-    expect(styledSpan.styles.fontStyle).toBe("italic");
+    expect(styledSpan.style.fontStyle).toBe("italic");
     expect(getTextContent(styledSpan.children[0])).toBe("llo w");
 
     expect(getTextContent(para.children[2])).toBe("orld");
@@ -132,8 +132,8 @@ describe("applyInlineStyle — remove (undefined value)", () => {
     expect(para.children.length).toBe(1);
     const remaining = para.children[0];
     expect(remaining.type).toBe("span");
-    expect(remaining.styles.fontWeight).toBeUndefined();
-    expect(remaining.styles.fontStyle).toBe("italic");
+    expect(remaining.style.fontWeight).toBeUndefined();
+    expect(remaining.style.fontStyle).toBe("italic");
   });
 });
 
@@ -212,7 +212,7 @@ describe("applyInlineStyle edge cases", () => {
     // Should be: [span[text("Hello")]]
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });
 
@@ -226,7 +226,7 @@ describe("applyInlineStyle edge cases", () => {
     const change = applyInlineStyle(doc, span, { fontStyle: "italic" }, "new");
     const result = change.newState;
     const para = result.children[0];
-    expect(para.children[0].styles.fontStyle).toBe("italic");
+    expect(para.children[0].style.fontStyle).toBe("italic");
   });
 
   it("applies textDecoration style with correct value", () => {
@@ -239,7 +239,7 @@ describe("applyInlineStyle edge cases", () => {
     const change = applyInlineStyle(doc, span, { textDecoration: "underline" }, "new");
     const result = change.newState;
     const para = result.children[0];
-    expect(para.children[0].styles.textDecoration).toBe("underline");
+    expect(para.children[0].style.textDecoration).toBe("underline");
   });
 
   it("handles multiple text nodes in a paragraph", () => {
@@ -262,7 +262,7 @@ describe("applyInlineStyle edge cases", () => {
     // Adjacent bold spans are merged into one
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello world");
   });
@@ -317,14 +317,14 @@ describe("applyInlineStyle — partial span removal", () => {
     expect(para.children.length).toBe(3);
 
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("He");
 
     expect(para.children[1].type).toBe("text");
     expect(getTextContent(para.children[1])).toBe("llo w");
 
     expect(para.children[2].type).toBe("span");
-    expect(para.children[2].styles.fontWeight).toBe("bold");
+    expect(para.children[2].style.fontWeight).toBe("bold");
     expect(getTextContent(para.children[2].children[0])).toBe("orld");
   });
 
@@ -350,7 +350,7 @@ describe("applyInlineStyle — partial span removal", () => {
     expect(getTextContent(para.children[0])).toBe("Hello");
 
     expect(para.children[1].type).toBe("span");
-    expect(para.children[1].styles.fontWeight).toBe("bold");
+    expect(para.children[1].style.fontWeight).toBe("bold");
     expect(getTextContent(para.children[1].children[0])).toBe(" world");
   });
 
@@ -373,7 +373,7 @@ describe("applyInlineStyle — partial span removal", () => {
     expect(para.children.length).toBe(2);
 
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
 
     expect(para.children[1].type).toBe("text");
@@ -403,20 +403,20 @@ describe("applyInlineStyle — partial span removal", () => {
 
     // Before: bold+italic
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
-    expect(para.children[0].styles.fontStyle).toBe("italic");
+    expect(para.children[0].style.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontStyle).toBe("italic");
     expect(getTextContent(para.children[0].children[0])).toBe("He");
 
     // Middle: just italic (bold removed)
     expect(para.children[1].type).toBe("span");
-    expect(para.children[1].styles.fontWeight).toBeUndefined();
-    expect(para.children[1].styles.fontStyle).toBe("italic");
+    expect(para.children[1].style.fontWeight).toBeUndefined();
+    expect(para.children[1].style.fontStyle).toBe("italic");
     expect(getTextContent(para.children[1].children[0])).toBe("llo w");
 
     // After: bold+italic
     expect(para.children[2].type).toBe("span");
-    expect(para.children[2].styles.fontWeight).toBe("bold");
-    expect(para.children[2].styles.fontStyle).toBe("italic");
+    expect(para.children[2].style.fontWeight).toBe("bold");
+    expect(para.children[2].style.fontStyle).toBe("italic");
     expect(getTextContent(para.children[2].children[0])).toBe("orld");
   });
 });
@@ -456,7 +456,7 @@ describe("normalizeChildren (via applyInlineStyle)", () => {
     const para = afterRebold.newState.children[0];
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });
@@ -518,16 +518,16 @@ describe("normalizeChildren (via applyInlineStyle)", () => {
 
     expect(para.children.length).toBe(2);
     // Outer spans preserve their original properties
-    expect(para.children[0].styles.fontWeight).toBe("bold");
-    expect(para.children[1].styles.fontStyle).toBe("italic");
+    expect(para.children[0].style.fontWeight).toBe("bold");
+    expect(para.children[1].style.fontStyle).toBe("italic");
     // Inner textDecoration spans were created
     const inner0 = para.children[0].children[0];
     expect(inner0.type).toBe("span");
-    expect(inner0.styles.textDecoration).toBe("underline");
+    expect(inner0.style.textDecoration).toBe("underline");
     expect(getTextContent(inner0.children[0])).toBe("Bold");
     const inner1 = para.children[1].children[0];
     expect(inner1.type).toBe("span");
-    expect(inner1.styles.textDecoration).toBe("underline");
+    expect(inner1.style.textDecoration).toBe("underline");
     expect(getTextContent(inner1.children[0])).toBe("Italic");
   });
 
@@ -549,7 +549,7 @@ describe("normalizeChildren (via applyInlineStyle)", () => {
     // All three should merge into a single bold span with concatenated text
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("ABC");
   });
@@ -584,7 +584,7 @@ describe("normalizeChildren (via applyInlineStyle)", () => {
     const para = afterRebold.newState.children[0];
     expect(para.children.length).toBe(1);
     expect(para.children[0].type).toBe("span");
-    expect(para.children[0].styles.fontWeight).toBe("bold");
+    expect(para.children[0].style.fontWeight).toBe("bold");
     expect(para.children[0].children.length).toBe(1);
     expect(getTextContent(para.children[0].children[0])).toBe("Hello");
   });

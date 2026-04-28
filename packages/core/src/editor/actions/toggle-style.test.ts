@@ -26,7 +26,7 @@ describe("TOGGLE_STYLE", () => {
     // The paragraph should now contain a span with fontWeight: "bold"
     const para = s.state.children[0];
     const hasSpanWithBold = para.children.some(
-      (child) => child.type === "span" && child.styles.fontWeight === "bold",
+      (child) => child.type === "span" && child.style.fontWeight === "bold",
     );
     expect(hasSpanWithBold).toBe(true);
   });
@@ -40,7 +40,7 @@ describe("TOGGLE_STYLE", () => {
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "italic" }, config);
     const para = s.state.children[0];
     const hasSpanWithItalic = para.children.some(
-      (child) => child.type === "span" && child.styles.fontStyle === "italic",
+      (child) => child.type === "span" && child.style.fontStyle === "italic",
     );
     expect(hasSpanWithItalic).toBe(true);
   });
@@ -54,7 +54,7 @@ describe("TOGGLE_STYLE", () => {
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "underline" }, config);
     const para = s.state.children[0];
     const hasSpanWithUnderline = para.children.some(
-      (child) => child.type === "span" && child.styles.textDecoration === "underline",
+      (child) => child.type === "span" && child.style.textDecoration === "underline",
     );
     expect(hasSpanWithUnderline).toBe(true);
   });

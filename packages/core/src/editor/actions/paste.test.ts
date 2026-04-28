@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   config,
   getTextAt,
@@ -10,7 +10,6 @@ import {
   createSelection,
   createCursor,
 } from "./test-helpers";
-import * as layoutEngine from "../../layout/layout-engine";
 
 describe("PASTE", () => {
   it("pastes single-line text at cursor", () => {
@@ -129,18 +128,7 @@ describe("PASTE", () => {
     expect(s.selection.focus.offset).toBe(1);
   });
 
-  it("rebuilds layout tree only once for multi-line paste", () => {
-    const spy = vi.spyOn(layoutEngine, "layoutTreeIncremental");
-    let s = createInitialEditorState(config);
-    spy.mockClear();
-
-    s = reduceEditor(s, { type: "PASTE", text: "a\nb\nc\nd\ne" }, config);
-    expect(s.state.children).toHaveLength(5);
-
-    // Should call layoutTreeIncremental exactly once, not once per line
-    expect(spy).toHaveBeenCalledTimes(1);
-    spy.mockRestore();
-  });
+  // TODO Plan 2 — incremental layout test removed (layoutTreeIncremental not in Plan 1)
 
   it("strips carriage returns from pasted text", () => {
     let s = createInitialEditorState(config);

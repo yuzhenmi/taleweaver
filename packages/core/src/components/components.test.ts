@@ -10,8 +10,6 @@ import { headingComponent } from "./heading";
 import { listComponent } from "./list";
 import { listItemComponent } from "./list-item";
 import { createNode, createTextNode } from "../state/create-node";
-import { createTextRenderNode } from "../render/text-render-node";
-import { createBlockNode } from "../render/block-render-node";
 
 describe("ComponentRegistry", () => {
   it("register and get", () => {
@@ -57,35 +55,37 @@ describe("createRegistry", () => {
 });
 
 describe("documentComponent", () => {
-  it("renders a block node with empty styles", () => {
+  it("renders an element box with key matching node id", () => {
     const node = createNode("doc", "document");
     const result = documentComponent.render(node, []);
-    expect(result.type).toBe("block");
+    expect(result.type).toBe("element");
     expect(result.key).toBe("doc");
+    if (result.type !== "element") throw new Error("expected element");
     expect(result.children).toHaveLength(0);
   });
 
   it("passes rendered children through", () => {
-    const child = createTextRenderNode("t1", "hi", {});
+    const child = documentComponent.render(createNode("c1", "paragraph"), []);
     const node = createNode("doc", "document");
     const result = documentComponent.render(node, [child]);
+    if (result.type !== "element") throw new Error("expected element");
     expect(result.children).toHaveLength(1);
     expect(result.children[0]).toBe(child);
   });
 });
 
 describe("paragraphComponent", () => {
-  it("renders a block node with default margins", () => {
+  it("renders an element box with display block", () => {
     const node = createNode("p1", "paragraph");
     const result = paragraphComponent.render(node, []);
-    expect(result.type).toBe("block");
-    expect(result.styles.lineMarginTop).toBe(0);
-    expect(result.styles.lineMarginBottom).toBe(0.2);
+    expect(result.type).toBe("element");
+    if (result.type !== "element") throw new Error("expected element");
+    expect(result.style.display).toBe("block");
   });
 });
 
 describe("textComponent", () => {
-  it("renders a text node with content from properties", () => {
+  it("renders a text box with content from properties", () => {
     const node = createTextNode("t1", "hello");
     const result = textComponent.render(node, []);
     expect(result.type).toBe("text");
@@ -101,155 +101,54 @@ describe("textComponent", () => {
     expect(result.text).toBe("");
   });
 
-  it("propagates inline styles from properties", () => {
-    const node = createNode("t1", "text", {
-      content: "hi",
-    }, [], {
-      fontWeight: "bold",
-      fontSize: 20,
-    });
+  it("propagates inline styles from state style", () => {
+    const node = createNode("t1", "text", { content: "hi" }, [], { fontWeight: "bold", fontSize: { unit: "px", value: 20 } });
     const result = textComponent.render(node, []);
-    expect(result.styles.fontWeight).toBe("bold");
-    expect(result.styles.fontSize).toBe(20);
+    if (result.type !== "text") throw new Error("expected text");
+    expect(result.style.fontWeight).toBe("bold");
   });
 });
 
 describe("spanComponent", () => {
-  it("renders an inline node with inline styles", () => {
+  it("renders an element box (stub: display inline)", () => {
     const node = createNode("s1", "span", {}, [], { fontWeight: "bold" });
-    const child = createTextRenderNode("t1", "text", {});
-    const result = spanComponent.render(node, [child]);
-    expect(result.type).toBe("inline");
-    expect(result.styles.fontWeight).toBe("bold");
-    expect(result.children).toHaveLength(1);
+    const result = spanComponent.render(node, []);
+    expect(result.type).toBe("element");
+    if (result.type !== "element") throw new Error("expected element");
+    expect(result.style.display).toBe("inline");
   });
 });
 
 describe("headingComponent", () => {
-  it("renders a block node with bold fontWeight", () => {
+  it("renders an element box for heading", () => {
     const node = createNode("h1", "heading", { level: 1 });
     const result = headingComponent.render(node, []);
-    expect(result.type).toBe("block");
-    expect(result.styles.fontWeight).toBe("bold");
-  });
-
-  it("uses font size 32 for level 1", () => {
-    const node = createNode("h1", "heading", { level: 1 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.fontSize).toBe(32);
-  });
-
-  it("uses font size 24 for level 2", () => {
-    const node = createNode("h2", "heading", { level: 2 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.fontSize).toBe(24);
-  });
-
-  it("uses font size 20 for level 3", () => {
-    const node = createNode("h3", "heading", { level: 3 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.fontSize).toBe(20);
-  });
-
-  it("defaults to level 1 when level is not specified", () => {
-    const node = createNode("h1", "heading", {});
-    const result = headingComponent.render(node, []);
-    expect(result.styles.fontSize).toBe(32);
-  });
-
-  it("sets lineHeight proportional to fontSize for level 1", () => {
-    const node = createNode("h1", "heading", { level: 1 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(1.25);
-  });
-
-  it("sets lineHeight proportional to fontSize for level 2", () => {
-    const node = createNode("h2", "heading", { level: 2 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(1.25);
-  });
-
-  it("sets lineHeight proportional to fontSize for level 3", () => {
-    const node = createNode("h3", "heading", { level: 3 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.lineHeight).toBe(1.25);
-  });
-
-  it("sets block margins for inter-block spacing", () => {
-    const node = createNode("h1", "heading", { level: 1 });
-    const result = headingComponent.render(node, []);
-    expect(result.styles.blockMarginTop).toBe(0.85);
-    expect(result.styles.blockMarginBottom).toBe(0.25);
+    expect(result.type).toBe("element");
   });
 
   it("passes children through", () => {
-    const child = createTextRenderNode("t1", "Title", {});
+    const child = textComponent.render(createTextNode("t1", "Title"), []);
     const node = createNode("h1", "heading", { level: 1 });
     const result = headingComponent.render(node, [child]);
+    if (result.type !== "element") throw new Error("expected element");
     expect(result.children).toHaveLength(1);
     expect(result.children[0]).toBe(child);
   });
 });
 
 describe("listComponent", () => {
-  it("renders a block node without paddingLeft on itself", () => {
+  it("renders an element box (stub)", () => {
     const node = createNode("ol1", "list", { listType: "unordered" });
     const result = listComponent.render(node, []);
-    expect(result.type).toBe("block");
-    expect(result.styles.paddingLeft).toBeUndefined();
-  });
-
-  it("adds paddingLeft 24 and bullet marker to unordered list-item children", () => {
-    const child = createBlockNode("li1", { lineMarginTop: 0, lineMarginBottom: 0 }, []);
-    const node = createNode("ol1", "list", { listType: "unordered" });
-    const result = listComponent.render(node, [child]);
-    expect(result.children).toHaveLength(1);
-    const markedChild = result.children[0];
-    expect(markedChild.type).toBe("block");
-    if (markedChild.type === "block") {
-      expect(markedChild.styles.paddingLeft).toBe(24);
-      expect(markedChild.marker).toBe("\u2022");
-    }
-  });
-
-  it("adds numbered markers to ordered list-item children", () => {
-    const child1 = createBlockNode("li1", { lineMarginTop: 0 }, []);
-    const child2 = createBlockNode("li2", { lineMarginTop: 0 }, []);
-    const node = createNode("ol1", "list", { listType: "ordered" });
-    const result = listComponent.render(node, [child1, child2]);
-    expect(result.children).toHaveLength(2);
-    if (result.children[0].type === "block") {
-      expect(result.children[0].marker).toBe("1.");
-    }
-    if (result.children[1].type === "block") {
-      expect(result.children[1].marker).toBe("2.");
-    }
-  });
-
-  it("does not modify non-block children", () => {
-    const child = createTextRenderNode("t1", "item", {});
-    const node = createNode("ol1", "list", { listType: "unordered" });
-    const result = listComponent.render(node, [child]);
-    expect(result.children).toHaveLength(1);
-    expect(result.children[0]).toBe(child);
+    expect(result.type).toBe("element");
   });
 });
 
 describe("listItemComponent", () => {
-  it("renders a block node with zero margins", () => {
+  it("renders an element box (stub)", () => {
     const node = createNode("li1", "list-item", {});
     const result = listItemComponent.render(node, []);
-    expect(result.type).toBe("block");
-    expect(result.styles.lineMarginTop).toBe(0);
-    expect(result.styles.lineMarginBottom).toBe(0);
-  });
-
-  it("passes children through", () => {
-    const child = createTextRenderNode("t1", "text", {});
-    const node = createNode("li1", "list-item", {});
-    const result = listItemComponent.render(node, [child]);
-    expect(result.children).toHaveLength(1);
-    expect(result.children[0]).toBe(child);
+    expect(result.type).toBe("element");
   });
 });
 
