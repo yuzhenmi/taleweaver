@@ -1,6 +1,6 @@
 import type { ComputedStyle } from "../styles";
 
-export type LayoutBox = BlockBox | LineBox | TextRunBox;
+export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox;
 
 interface LayoutBoxBase {
   readonly key: string;
@@ -25,6 +25,26 @@ export interface LineBox extends LayoutBoxBase {
 export interface TextRunBox extends LayoutBoxBase {
   readonly type: "text-run";
   readonly text: string;
+}
+
+/**
+ * `fragmentEdge` indicates which side of an inline element this fragment is:
+ * - "only"   — the element does not fragment (single line); has all paddings and borders.
+ * - "first"  — the leading fragment; has start-side padding/border, no end-side.
+ * - "middle" — neither leading nor trailing; no horizontal padding or border.
+ * - "last"   — the trailing fragment; has end-side padding/border, no start-side.
+ */
+export type InlineFragmentEdge = "first" | "middle" | "last" | "only";
+
+export interface InlineBox extends LayoutBoxBase {
+  readonly type: "inline";
+  readonly children: readonly LayoutBox[];
+  readonly fragmentEdge: InlineFragmentEdge;
+}
+
+export interface InlineBlockBox extends LayoutBoxBase {
+  readonly type: "inline-block";
+  readonly children: readonly LayoutBox[];
 }
 
 export function createBlockBox(
@@ -68,5 +88,35 @@ export function createTextRunBox(
     key, x, y, width, height,
     computedStyle: Object.freeze({ ...computedStyle }),
     text,
+  });
+}
+
+export function createInlineBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  children: readonly LayoutBox[],
+  fragmentEdge: InlineFragmentEdge,
+): InlineBox {
+  return Object.freeze({
+    type: "inline" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    children: Object.freeze([...children]),
+    fragmentEdge,
+  });
+}
+
+export function createInlineBlockBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  children: readonly LayoutBox[],
+): InlineBlockBox {
+  return Object.freeze({
+    type: "inline-block" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    children: Object.freeze([...children]),
   });
 }
