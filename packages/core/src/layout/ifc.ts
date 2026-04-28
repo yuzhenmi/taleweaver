@@ -2,9 +2,10 @@ import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
-import { createInlineBox, createLineBox, createTextRunBox } from "./layout-box-v2";
+import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox } from "./layout-box-v2";
 import type { TextMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
+import { layoutBlock } from "./bfc";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -18,6 +19,12 @@ interface Token {
   inlineAncestors: readonly string[];
   /** Computed styles of all inline ancestors (parallel to inlineAncestors). */
   inlineAncestorStyles: readonly ComputedStyle[];
+  /** When set, this token represents an inline-block atomic unit. */
+  inlineBlock?: {
+    key: string;
+    height: number;
+    children: readonly LayoutBox[];
+  };
 }
 
 /**
@@ -83,8 +90,44 @@ function collectInlineTokens(
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
       collectInlineTokens(child.children, newAncestors, newStyles, measurer, out);
+    } else if (child.type === "element" && cs.display === "inline-block") {
+      // Resolve width
+      let widthPx: number;
+      if (typeof cs.width === "number") {
+        widthPx = cs.width;
+      } else {
+        // max-content: lay out at very large width
+        const bfcInf = layoutBlock(child, 0, 0, 100000, measurer);
+        widthPx = bfcInf.width;
+      }
+
+      // Lay out at resolved width
+      const bfc = layoutBlock(child, 0, 0, widthPx > 0 ? widthPx : 100, measurer);
+      const finalWidth = widthPx > 0 ? widthPx : bfc.width;
+      let finalHeight: number;
+      if (typeof cs.height === "number") {
+        finalHeight = cs.height;
+      } else {
+        finalHeight = bfc.height;
+      }
+
+      out.push({
+        sourceKey: child.key,
+        text: "",
+        width: finalWidth,
+        style: cs,
+        isSpace: false,
+        isLineBreak: false,
+        inlineAncestors: ancestors,
+        inlineAncestorStyles: ancestorStyles,
+        inlineBlock: {
+          key: child.key,
+          height: finalHeight,
+          children: bfc.type === "block" ? Array.from(bfc.children) : [],
+        },
+      });
     }
-    // Other display values (block, inline-block, etc.) are ignored at this level for B.2.
+    // Other display values (block, etc.) are ignored at this level.
   }
 }
 
@@ -235,21 +278,34 @@ function buildLineChildrenForAncestorLevel(
     const unit = units[i];
 
     if (unit.inlineAncestors.length <= depth) {
-      // Unit is at this level — emit a TextRunBox (merging tokens in the unit).
-      const text = unit.tokens.map(t => t.text).join("");
+      const firstTok = unit.tokens[0];
       const unitWidth = unit.tokens.reduce((sum, t) => sum + t.width, 0);
-      const tokStyle = unit.tokens[0].style;
-      const tokHeight = measurer.measureHeight(tokStyle);
-      lineHeightTracker.value = Math.max(lineHeightTracker.value, tokHeight);
+      const tokStyle = firstTok.style;
 
-      const runIdx = runCounters[unit.sourceKey] ?? 0;
-      runCounters[unit.sourceKey] = runIdx + 1;
-      const runKey = `${unit.sourceKey}:${runIdx}`;
+      if (firstTok.inlineBlock) {
+        // Inline-block atomic unit — emit an InlineBlockBox.
+        const ib = firstTok.inlineBlock;
+        const ibHeight = ib.height;
+        lineHeightTracker.value = Math.max(lineHeightTracker.value, ibHeight);
+        out.push(createInlineBlockBox(
+          `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
+          currentX, 0, unitWidth, ibHeight, tokStyle, ib.children,
+        ));
+      } else {
+        // Regular token — emit a TextRunBox (merging tokens in the unit).
+        const text = unit.tokens.map(t => t.text).join("");
+        const tokHeight = measurer.measureHeight(tokStyle);
+        lineHeightTracker.value = Math.max(lineHeightTracker.value, tokHeight);
 
-      out.push(createTextRunBox(
-        runKey,
-        currentX, 0, unitWidth, tokHeight, tokStyle, text,
-      ));
+        const runIdx = runCounters[unit.sourceKey] ?? 0;
+        runCounters[unit.sourceKey] = runIdx + 1;
+        const runKey = `${unit.sourceKey}:${runIdx}`;
+
+        out.push(createTextRunBox(
+          runKey,
+          currentX, 0, unitWidth, tokHeight, tokStyle, text,
+        ));
+      }
       currentX += unitWidth;
       i++;
       continue;

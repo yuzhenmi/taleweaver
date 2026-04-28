@@ -135,6 +135,41 @@ describe("IFC — first-class inline boxes", () => {
   });
 });
 
+describe("IFC — inline-block atomic placement", () => {
+  it("places an inline-block as a single atomic box on the line", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "before "),
+        createElementBox("ib", { display: "inline-block", width: 50, height: 30 }, []),
+        createTextBox("t2", {}, " after"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const ib = out.children[0].children.find(c => c.type === "inline-block");
+    expect(ib).toBeDefined();
+    if (ib?.type !== "inline-block") throw new Error("?");
+    expect(ib.width).toBe(50);
+    expect(ib.height).toBe(30);
+  });
+
+  it("inline-block goes to next line if too wide", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "before "),
+        createElementBox("ib", { display: "inline-block", width: 50, height: 30 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 60, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("IFC — fragmentEdge across lines", () => {
   it("first-line fragment has fragmentEdge='first', last-line has 'last'", () => {
     const tree = cascadePass(
