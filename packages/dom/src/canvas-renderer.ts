@@ -175,6 +175,29 @@ function paintBox(
     return;
   }
 
+  if (box.type === "table" || box.type === "table-row") {
+    // Table and table-row just recurse into children
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
+  }
+
+  if (box.type === "table-cell") {
+    // Background
+    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+      ctx.fillStyle = cs.backgroundColor;
+      ctx.fillRect(absX, absY, box.width, box.height);
+    }
+    // Borders
+    paintBorders(ctx, cs, absX, absY, box.width, box.height);
+    // Recurse into cell content
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
+  }
+
   // Plan 2/3 types: skip silently (not produced in Plan 1)
 }
 
