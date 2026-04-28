@@ -3,7 +3,9 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
   type InlineBox, type InlineBlockBox, type MarkerBox,
+  type TableBox, type TableRowBox, type TableCellBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
+  createTableBox, createTableRowBox, createTableCellBox,
 } from "./layout-box-v2";
 
 const cs = INITIAL_COMPUTED_STYLE;
@@ -73,5 +75,23 @@ describe("MarkerBox", () => {
     const m = createMarkerBox("m", -20, 0, 18, 16, cs, "•");
     expect(m.type).toBe("marker");
     expect(m.text).toBe("•");
+  });
+});
+
+describe("Table layout boxes", () => {
+  it("TableBox has columnPxWidths", () => {
+    const t = createTableBox("t", 0, 0, 500, 200, cs, [], [200, 300]);
+    expect(t.type).toBe("table");
+    expect(t.columnPxWidths).toEqual([200, 300]);
+  });
+
+  it("TableRowBox holds cells", () => {
+    const r = createTableRowBox("r", 0, 0, 500, 50, cs, []);
+    expect(r.type).toBe("table-row");
+  });
+
+  it("TableCellBox holds content", () => {
+    const c = createTableCellBox("c", 0, 0, 100, 30, cs, []);
+    expect(c.type).toBe("table-cell");
   });
 });

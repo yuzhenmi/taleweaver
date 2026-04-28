@@ -1,6 +1,6 @@
 import type { ComputedStyle } from "../styles";
 
-export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox;
+export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox;
 
 interface LayoutBoxBase {
   readonly key: string;
@@ -50,6 +50,22 @@ export interface InlineBlockBox extends LayoutBoxBase {
 export interface MarkerBox extends LayoutBoxBase {
   readonly type: "marker";
   readonly text: string;
+}
+
+export interface TableBox extends LayoutBoxBase {
+  readonly type: "table";
+  readonly children: readonly LayoutBox[];
+  readonly columnPxWidths: readonly number[];
+}
+
+export interface TableRowBox extends LayoutBoxBase {
+  readonly type: "table-row";
+  readonly children: readonly LayoutBox[];
+}
+
+export interface TableCellBox extends LayoutBoxBase {
+  readonly type: "table-cell";
+  readonly children: readonly LayoutBox[];
 }
 
 export function createBlockBox(
@@ -137,5 +153,49 @@ export function createMarkerBox(
     key, x, y, width, height,
     computedStyle: Object.freeze({ ...computedStyle }),
     text,
+  });
+}
+
+export function createTableBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  children: readonly LayoutBox[],
+  columnPxWidths: readonly number[],
+): TableBox {
+  return Object.freeze({
+    type: "table" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    children: Object.freeze([...children]),
+    columnPxWidths: Object.freeze([...columnPxWidths]),
+  });
+}
+
+export function createTableRowBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  children: readonly LayoutBox[],
+): TableRowBox {
+  return Object.freeze({
+    type: "table-row" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    children: Object.freeze([...children]),
+  });
+}
+
+export function createTableCellBox(
+  key: string,
+  x: number, y: number, width: number, height: number,
+  computedStyle: ComputedStyle,
+  children: readonly LayoutBox[],
+): TableCellBox {
+  return Object.freeze({
+    type: "table-cell" as const,
+    key, x, y, width, height,
+    computedStyle: Object.freeze({ ...computedStyle }),
+    children: Object.freeze([...children]),
   });
 }
