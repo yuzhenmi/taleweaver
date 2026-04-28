@@ -23,8 +23,8 @@ describe("layoutBlock — basic stacking", () => {
   });
 
   it("stacks children vertically", () => {
-    const child1 = createElementBox("c1", { display: "block", height: 50 }, []);
-    const child2 = createElementBox("c2", { display: "block", height: 30 }, []);
+    const child1 = createElementBox("c1", { display: "block", blockSize: 50 }, []);
+    const child2 = createElementBox("c2", { display: "block", blockSize: 30 }, []);
     const tree = createElementBox("root", { display: "block" }, [child1, child2]);
     const out = layoutOf(tree);
     expect(out.children).toHaveLength(2);
@@ -38,27 +38,27 @@ describe("layoutBlock — basic stacking", () => {
   });
 
   it("respects padding when laying out children", () => {
-    const child = createElementBox("c", { display: "block", height: 40 }, []);
+    const child = createElementBox("c", { display: "block", blockSize: 40 }, []);
     const tree = createElementBox("root", {
       display: "block",
-      paddingTop: 10, paddingBottom: 10, paddingLeft: 5, paddingRight: 5,
+      paddingBlockStart: 10, paddingBlockEnd: 10, paddingInlineStart: 5, paddingInlineEnd: 5,
     }, [child]);
     const out = layoutOf(tree);
     if (out.children[0].type !== "block") throw new Error("?");
-    expect(out.children[0].y).toBe(10);   // pushed down by paddingTop
-    expect(out.children[0].x).toBe(5);    // pushed right by paddingLeft
-    expect(out.children[0].width).toBe(590);  // 600 - paddingLeft - paddingRight
-    expect(out.height).toBe(60);  // paddingTop + child + paddingBottom
+    expect(out.children[0].y).toBe(10);   // pushed down by paddingBlockStart
+    expect(out.children[0].x).toBe(5);    // pushed right by paddingInlineStart
+    expect(out.children[0].width).toBe(590);  // 600 - paddingInlineStart - paddingInlineEnd
+    expect(out.height).toBe(60);  // paddingBlockStart + child + paddingBlockEnd
   });
 });
 
 describe("layoutBlock — margin collapse: adjacent siblings", () => {
   it("collapses adjacent sibling margins to max", () => {
     const c1 = createElementBox("c1", {
-      display: "block", height: 20, marginBottom: 30,
+      display: "block", blockSize: 20, marginBlockEnd: 30,
     }, []);
     const c2 = createElementBox("c2", {
-      display: "block", height: 20, marginTop: 10,
+      display: "block", blockSize: 20, marginBlockStart: 10,
     }, []);
     const tree = createElementBox("root", { display: "block" }, [c1, c2]);
     const out = layoutOf(tree);
@@ -71,23 +71,23 @@ describe("layoutBlock — margin collapse: adjacent siblings", () => {
 });
 
 describe("layoutBlock — margin collapse: parent / first child", () => {
-  it("first child marginTop is suppressed when parent has no top padding/border", () => {
+  it("first child marginBlockStart is suppressed when parent has no top padding/border", () => {
     const child = createElementBox("c", {
-      display: "block", height: 20, marginTop: 30,
+      display: "block", blockSize: 20, marginBlockStart: 30,
     }, []);
     const tree = createElementBox("root", { display: "block" }, [child]);
     const out = layoutOf(tree);
     if (out.children[0].type !== "block") throw new Error("?");
-    expect(out.children[0].y).toBe(0);   // marginTop suppressed
+    expect(out.children[0].y).toBe(0);   // marginBlockStart suppressed
     expect(out.height).toBe(20);
   });
 
-  it("first child marginTop is honored when parent has top padding", () => {
+  it("first child marginBlockStart is honored when parent has top padding", () => {
     const child = createElementBox("c", {
-      display: "block", height: 20, marginTop: 30,
+      display: "block", blockSize: 20, marginBlockStart: 30,
     }, []);
     const tree = createElementBox("root", {
-      display: "block", paddingTop: 10,
+      display: "block", paddingBlockStart: 10,
     }, [child]);
     const out = layoutOf(tree);
     if (out.children[0].type !== "block") throw new Error("?");
@@ -96,21 +96,21 @@ describe("layoutBlock — margin collapse: parent / first child", () => {
 });
 
 describe("layoutBlock — margin collapse: parent / last child", () => {
-  it("last child marginBottom is suppressed when parent has no bottom padding/border", () => {
+  it("last child marginBlockEnd is suppressed when parent has no bottom padding/border", () => {
     const child = createElementBox("c", {
-      display: "block", height: 20, marginBottom: 30,
+      display: "block", blockSize: 20, marginBlockEnd: 30,
     }, []);
     const tree = createElementBox("root", { display: "block" }, [child]);
     const out = layoutOf(tree);
-    expect(out.height).toBe(20);   // marginBottom suppressed
+    expect(out.height).toBe(20);   // marginBlockEnd suppressed
   });
 
-  it("last child marginBottom is honored when parent has bottom padding", () => {
+  it("last child marginBlockEnd is honored when parent has bottom padding", () => {
     const child = createElementBox("c", {
-      display: "block", height: 20, marginBottom: 30,
+      display: "block", blockSize: 20, marginBlockEnd: 30,
     }, []);
     const tree = createElementBox("root", {
-      display: "block", paddingBottom: 5,
+      display: "block", paddingBlockEnd: 5,
     }, [child]);
     const out = layoutOf(tree);
     expect(out.height).toBe(55);   // 20 + 30 + 5
@@ -119,11 +119,11 @@ describe("layoutBlock — margin collapse: parent / last child", () => {
 
 describe("layoutBlock — margin collapse: empty block", () => {
   it("empty block margins collapse together", () => {
-    const c1 = createElementBox("c1", { display: "block", height: 10 }, []);
+    const c1 = createElementBox("c1", { display: "block", blockSize: 10 }, []);
     const empty = createElementBox("e", {
-      display: "block", marginTop: 20, marginBottom: 30,
+      display: "block", marginBlockStart: 20, marginBlockEnd: 30,
     }, []);
-    const c2 = createElementBox("c2", { display: "block", height: 10 }, []);
+    const c2 = createElementBox("c2", { display: "block", blockSize: 10 }, []);
     const tree = createElementBox("root", { display: "block" }, [c1, empty, c2]);
     const out = layoutOf(tree);
     // Expected layout:
@@ -137,16 +137,16 @@ describe("layoutBlock — margin collapse: empty block", () => {
 
 describe("layoutBlock — sizing", () => {
   it("auto height = content height including padding", () => {
-    const c = createElementBox("c", { display: "block", height: 50 }, []);
+    const c = createElementBox("c", { display: "block", blockSize: 50 }, []);
     const tree = createElementBox("root", {
-      display: "block", paddingTop: 10, paddingBottom: 10,
+      display: "block", paddingBlockStart: 10, paddingBlockEnd: 10,
     }, [c]);
     const out = layoutOf(tree);
     expect(out.height).toBe(70);
   });
 
   it("explicit width applied", () => {
-    const tree = createElementBox("root", { display: "block", width: 200 }, []);
+    const tree = createElementBox("root", { display: "block", inlineSize: 200 }, []);
     const out = layoutOf(tree);
     expect(out.width).toBe(200);
   });
@@ -176,7 +176,7 @@ describe("BFC — list-item markers (outside)", () => {
   it("decimal markers count up: 1., 2., 3.", () => {
     const tree = cascadePass(
       createElementBox("ol", {
-        display: "block", paddingLeft: 30, listStyleType: "decimal",
+        display: "block", paddingInlineStart: 30, listStyleType: "decimal",
       }, [
         createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "first")]),
         createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "second")]),
@@ -200,7 +200,7 @@ describe("BFC — list-item markers (outside)", () => {
   it("disc markers are bullet glyphs", () => {
     const tree = cascadePass(
       createElementBox("ul", {
-        display: "block", paddingLeft: 30, listStyleType: "disc",
+        display: "block", paddingInlineStart: 30, listStyleType: "disc",
       }, [
         createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "x")]),
       ]),
@@ -221,10 +221,10 @@ describe("BFC — list-item markers (outside)", () => {
 
   it("nested lists have independent counters", () => {
     const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingLeft: 30, listStyleType: "decimal" }, [
+      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
         createElementBox("li1", { display: "list-item" }, [
           createTextBox("t1", {}, "outer 1"),
-          createElementBox("ol2", { display: "block", paddingLeft: 30, listStyleType: "decimal" }, [
+          createElementBox("ol2", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
             createElementBox("li2a", { display: "list-item" }, [createTextBox("t2a", {}, "inner 1")]),
             createElementBox("li2b", { display: "list-item" }, [createTextBox("t2b", {}, "inner 2")]),
           ]),
@@ -251,7 +251,7 @@ describe("BFC — floats", () => {
   it("a left-floated child is placed and BFC encloses it", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
-        createElementBox("img", { display: "block", float: "left", width: 100, height: 50 }, []),
+        createElementBox("img", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 50 }, []),
         createTextBox("t", {}, "x"),
       ]),
     );
@@ -262,17 +262,17 @@ describe("BFC — floats", () => {
     expect(out.height).toBeGreaterThanOrEqual(50);
   });
 
-  it("clear: 'left' pushes a block below active floats", () => {
+  it("clear: 'inline-start' pushes a block below active floats", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
-        createElementBox("f", { display: "block", float: "left", width: 50, height: 100 }, []),
-        createElementBox("after", { display: "block", clear: "left", height: 20 }, []),
+        createElementBox("f", { display: "block", float: "inline-start", inlineSize: 50, blockSize: 100 }, []),
+        createElementBox("after", { display: "block", clear: "inline-start", blockSize: 20 }, []),
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
     const out = layoutBlock(tree, 0, 0, 500, measurer);
     if (out.type !== "block") throw new Error("?");
-    // The clear:left block should start at y >= 100 (past the float).
+    // The clear:inline-start block should start at y >= 100 (past the float).
     const afterChild = out.children.find((c) => c.type === "block" && c.key === "after");
     expect(afterChild?.type).toBe("block");
     if (afterChild?.type === "block") {
@@ -283,7 +283,7 @@ describe("BFC — floats", () => {
   it("a right-floated child is placed at the right edge", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
-        createElementBox("img", { display: "block", float: "right", width: 100, height: 50 }, []),
+        createElementBox("img", { display: "block", float: "inline-end", inlineSize: 100, blockSize: 50 }, []),
       ]),
     );
     if (tree.type !== "element") throw new Error("?");

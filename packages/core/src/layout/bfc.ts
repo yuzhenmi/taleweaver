@@ -7,6 +7,7 @@ import type { TextMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
+import type { WritingMode, Direction } from "../styles/writing-mode";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -14,29 +15,31 @@ import { createFloatContext } from "./float-context";
  */
 export function layoutBlock(
   node: ElementBox,
-  x: number,
-  y: number,
-  availableWidth: number,
+  inlineOffset: number,
+  blockOffset: number,
+  availableInlineSize: number,
   measurer: TextMeasurer,
+  writingMode: WritingMode = "horizontal-tb",
+  direction: Direction = "ltr",
 ): BlockBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
 
-  const paddingTop    = lengthToPx(cs.paddingTop);
-  const paddingRight  = lengthToPx(cs.paddingRight);
-  const paddingBottom = lengthToPx(cs.paddingBottom);
-  const paddingLeft   = lengthToPx(cs.paddingLeft);
+  const paddingBlockStart  = lengthToPx(cs.paddingBlockStart);
+  const paddingInlineEnd   = lengthToPx(cs.paddingInlineEnd);
+  const paddingBlockEnd    = lengthToPx(cs.paddingBlockEnd);
+  const paddingInlineStart = lengthToPx(cs.paddingInlineStart);
 
   // CSS parent/first and parent/last collapse rules:
-  // if the parent has no top padding/border, the first child's marginTop
+  // if the parent has no top padding/border, the first child's marginBlockStart
   // is suppressed (collapses with parent's outside margin).
   // Symmetric for bottom.
-  const noTopBoundary = paddingTop === 0 && lengthOrZero(cs.borderTopWidth) === 0;
-  const noBottomBoundary = paddingBottom === 0 && lengthOrZero(cs.borderBottomWidth) === 0;
+  const noTopBoundary = paddingBlockStart === 0 && lengthOrZero(cs.borderBlockStartWidth) === 0;
+  const noBottomBoundary = paddingBlockEnd === 0 && lengthOrZero(cs.borderBlockEndWidth) === 0;
 
-  const explicitWidth = cs.width === "auto" ? null : lengthToPx(cs.width);
-  const finalWidth = explicitWidth !== null && explicitWidth > 0 ? explicitWidth : availableWidth;
-  const contentWidth = finalWidth - paddingLeft - paddingRight;
+  const explicitInlineSize = cs.inlineSize === "auto" ? null : lengthToPx(cs.inlineSize);
+  const finalInlineSize = explicitInlineSize !== null && explicitInlineSize > 0 ? explicitInlineSize : availableInlineSize;
+  const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
 
   const hasBlockContent = node.children.some(
     (c) =>
@@ -53,20 +56,20 @@ export function layoutBlock(
 
   if (hasInlineContent) {
     const floatCtx = createFloatContext();
-    const lines = layoutInlineContent(node, paddingLeft, paddingTop, contentWidth, measurer, floatCtx);
-    let lineMaxY = paddingTop;
+    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, contentInlineSize, measurer, floatCtx, cs.writingMode, cs.direction);
+    let lineMaxBlockEdge = paddingBlockStart;
     for (const line of lines) {
-      if (line.y + line.height > lineMaxY) lineMaxY = line.y + line.height;
+      if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
     }
-    const totalHeight = lineMaxY + paddingBottom;
-    return createBlockBox(node.key, x, y, finalWidth, totalHeight, cs, lines, node.metadata);
+    const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
+    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, cs.writingMode, cs.direction, cs, lines, node.metadata);
   }
 
-  let childY = paddingTop;
+  let childBlockOffset = paddingBlockStart;
   const layoutChildren: LayoutBox[] = [];
   const floatCtx = createFloatContext();
 
-  let prevMarginBottom = 0;
+  let prevMarginBlockEnd = 0;
   let listCounter = 0;
   for (const child of node.children) {
     if (child.type !== "element") continue;
@@ -74,50 +77,53 @@ export function layoutBlock(
     const childCs = child.computedStyle;
 
     // FLOAT BRANCH: floated children are out of normal flow
-    if (childCs.float === "left" || childCs.float === "right") {
-      const floatLayout = layoutBlock(child, 0, 0, contentWidth, measurer);
-      const floatExplicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
-      const floatWidth = floatLayout.width;
-      const floatHeight = floatExplicitHeight > 0 ? floatExplicitHeight : floatLayout.height;
-      const active = floatCtx.activeAt(childY);
-      const placedX = childCs.float === "left"
-        ? paddingLeft + active.leftWidth
-        : paddingLeft + contentWidth - active.rightWidth - floatWidth;
+    if (childCs.float === "inline-start" || childCs.float === "inline-end") {
+      const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, measurer, cs.writingMode, cs.direction);
+      const floatExplicitBlockSize = lengthToPx(childCs.blockSize === "auto" ? 0 : childCs.blockSize);
+      const floatInlineSize = floatLayout.width;
+      const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
+      const active = floatCtx.activeAt(childBlockOffset);
+      const placedInlineOffset = childCs.float === "inline-start"
+        ? paddingInlineStart + active.leftWidth
+        : paddingInlineStart + contentInlineSize - active.rightWidth - floatInlineSize;
       const positioned: LayoutBox = Object.freeze({
         ...floatLayout,
-        x: placedX,
-        y: childY,
+        x: placedInlineOffset,
+        y: childBlockOffset,
       } as LayoutBox);
       floatCtx.placeFloat({
-        side: childCs.float,
-        x: placedX,
-        y: childY,
-        width: floatWidth,
-        height: floatHeight,
+        side: childCs.float === "inline-start" ? "left" : "right",
+        x: placedInlineOffset,
+        y: childBlockOffset,
+        width: floatInlineSize,
+        height: floatBlockSize,
       });
       layoutChildren.push(positioned);
-      // Float is out of normal flow — do NOT advance childY or update prevMarginBottom.
+      // Float is out of normal flow — do NOT advance childBlockOffset or update prevMarginBlockEnd.
       continue;
     }
 
-    // CLEAR BRANCH: advance childY past cleared floats before applying margins
+    // CLEAR BRANCH: advance childBlockOffset past cleared floats before applying margins
     if (childCs.clear !== "none") {
-      const clearedY = floatCtx.clearY(childCs.clear, childY);
-      if (clearedY > childY) {
-        childY = clearedY;
+      const clearSide = childCs.clear === "inline-start" ? "left"
+                      : childCs.clear === "inline-end" ? "right"
+                      : "both";
+      const clearedY = floatCtx.clearY(clearSide, childBlockOffset);
+      if (clearedY > childBlockOffset) {
+        childBlockOffset = clearedY;
       }
     }
 
-    const childMarginTop    = lengthOrZero(childCs.marginTop);
-    const childMarginBottom = lengthOrZero(childCs.marginBottom);
+    const childMarginBlockStart = lengthOrZero(childCs.marginBlockStart);
+    const childMarginBlockEnd   = lengthOrZero(childCs.marginBlockEnd);
 
     // Adjacent-siblings collapse:
-    // gap = max(prevMarginBottom, childMarginTop)
-    const preAdvanceY = childY;
+    // gap = max(prevMarginBlockEnd, childMarginBlockStart)
+    const preAdvanceBlockOffset = childBlockOffset;
     if (layoutChildren.length > 0) {
-      childY += Math.max(prevMarginBottom, childMarginTop);
+      childBlockOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     } else {
-      childY += noTopBoundary ? 0 : childMarginTop;
+      childBlockOffset += noTopBoundary ? 0 : childMarginBlockStart;
     }
 
     // List-item marker generation
@@ -125,16 +131,17 @@ export function layoutBlock(
       listCounter++;
       const markerText = resolveMarkerText(childCs, listCounter);
       if (markerText !== null) {
-        const markerWidth = measurer.measureWidth(markerText, childCs);
-        const markerHeight = measurer.measureHeight(childCs);
+        const markerInlineSize = measurer.measureWidth(markerText, childCs);
+        const markerBlockSize = measurer.measureHeight(childCs);
         const markerGap = 4;
-        const markerX = childCs.listStylePosition === "inside"
-          ? paddingLeft
-          : paddingLeft - markerWidth - markerGap;
+        const markerInlineOffset = childCs.listStylePosition === "inside"
+          ? paddingInlineStart
+          : paddingInlineStart - markerInlineSize - markerGap;
         const markerBox = createMarkerBox(
           `${child.key}-marker`,
-          markerX, childY,
-          markerWidth, markerHeight,
+          markerInlineOffset, childBlockOffset,
+          markerInlineSize, markerBlockSize,
+          cs.writingMode, cs.direction,
           childCs, markerText,
         );
         layoutChildren.push(markerBox);
@@ -143,51 +150,51 @@ export function layoutBlock(
 
     let childLayout: LayoutBox;
     if (childCs.display === "table") {
-      childLayout = layoutTable(child, paddingLeft, childY, contentWidth, measurer);
+      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, contentInlineSize, measurer);
     } else {
-      childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
+      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, measurer, cs.writingMode, cs.direction);
     }
-    const explicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
-    const finalHeight = explicitHeight > 0 ? explicitHeight : childLayout.height;
-    const placedChild = explicitHeight > 0
-      ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, childCs, [], child.metadata)
+    const explicitBlockSize = lengthToPx(childCs.blockSize === "auto" ? 0 : childCs.blockSize);
+    const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
+    const placedChild = explicitBlockSize > 0
+      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, [], child.metadata)
       : childLayout;
 
     // CSS empty-block rule: a block with no content, padding, border, or explicit height
     // has its top and bottom margins collapsed together. The combined margin is passed to
-    // the next sibling collapse, and the empty block does not advance childY.
-    const childPaddingV = lengthOrZero(childCs.paddingTop) + lengthOrZero(childCs.paddingBottom);
-    const childBorderV  = lengthOrZero(childCs.borderTopWidth) + lengthOrZero(childCs.borderBottomWidth);
-    const childExplicitHeight = childCs.height === "auto" ? null : lengthToPx(childCs.height);
-    const isEmpty = (childExplicitHeight === null || childExplicitHeight === 0)
+    // the next sibling collapse, and the empty block does not advance childBlockOffset.
+    const childPaddingV = lengthOrZero(childCs.paddingBlockStart) + lengthOrZero(childCs.paddingBlockEnd);
+    const childBorderV  = lengthOrZero(childCs.borderBlockStartWidth) + lengthOrZero(childCs.borderBlockEndWidth);
+    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : lengthToPx(childCs.blockSize);
+    const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0
                  && childLayout.height === 0;
 
     if (isEmpty) {
-      // Undo the marginTop advance; the combined margin is held for the next sibling collapse
-      childY = preAdvanceY;
-      prevMarginBottom = Math.max(prevMarginBottom, childMarginTop, childMarginBottom);
-      // Place the empty block at preAdvanceY (zero height, no y-slot consumed)
+      // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
+      childBlockOffset = preAdvanceBlockOffset;
+      prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
+      // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed)
       layoutChildren.push(
-        createBlockBox(child.key, paddingLeft, preAdvanceY, contentWidth, 0, childCs, [], child.metadata),
+        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, [], child.metadata),
       );
     } else {
       layoutChildren.push(placedChild);
-      childY += placedChild.height;
-      prevMarginBottom = childMarginBottom;
+      childBlockOffset += placedChild.height;
+      prevMarginBlockEnd = childMarginBlockEnd;
     }
   }
 
-  const lastMarginBottom = noBottomBoundary ? 0 : prevMarginBottom;
-  const inFlowHeight = childY + lastMarginBottom + paddingBottom;
+  const lastMarginBlockEnd = noBottomBoundary ? 0 : prevMarginBlockEnd;
+  const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + paddingBlockEnd;
 
   // FLOAT ENCLOSURE: BFC's content height includes the lowest float bottom.
-  const floatBottom = floatCtx.lowestBottom();
-  const totalHeight = Math.max(inFlowHeight, floatBottom + paddingBottom);
+  const floatBlockEnd = floatCtx.lowestBottom();
+  const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
 
   return createBlockBox(
-    node.key, x, y, finalWidth, totalHeight, cs, layoutChildren, node.metadata,
+    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, cs.writingMode, cs.direction, cs, layoutChildren, node.metadata,
   );
 }
 
