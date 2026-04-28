@@ -9,6 +9,5 @@ export type {
 } from "./style";
 export type { ComputedStyle } from "./computed-style";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./property-meta";
-export type { PropertyMeta } from "./property-meta";
 export type { WritingMode, Direction, LogicalRect, PhysicalRect } from "./writing-mode";
 export { logicalToPhysical } from "./writing-mode";
