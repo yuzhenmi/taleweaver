@@ -2,6 +2,7 @@ import type { ElementBox, RenderNode } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import { layoutInlineContent } from "./ifc";
+import { layoutTable } from "./table-fc";
 import type { TextMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
@@ -102,7 +103,12 @@ export function layoutBlock(
       }
     }
 
-    const childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
+    let childLayout: LayoutBox;
+    if (childCs.display === "table") {
+      childLayout = layoutTable(child, paddingLeft, childY, contentWidth, measurer);
+    } else {
+      childLayout = layoutBlock(child, paddingLeft, childY, contentWidth, measurer);
+    }
     const explicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
     const finalHeight = explicitHeight > 0 ? explicitHeight : childLayout.height;
     const placedChild = explicitHeight > 0

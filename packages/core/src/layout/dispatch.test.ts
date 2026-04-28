@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createElementBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { createMockMeasurer } from "./text-measurer";
 import { layoutTree } from "./dispatch";
@@ -16,10 +16,33 @@ describe("layoutTree", () => {
     expect(result.width).toBe(600);
   });
 
-  it("throws for unsupported display values in Plan 1 scope", () => {
+  it("throws for unsupported display values", () => {
     const tree = cascadePass(
-      createElementBox("root", { display: "table" }, []),
+      createElementBox("root", { display: "inline" }, []),
     );
     expect(() => layoutTree(tree, 600, measurer)).toThrow();
+  });
+
+  it("dispatches display: table at root to layoutTable", () => {
+    const tree = cascadePass(
+      createElementBox("t", { display: "table" }, [], { columnWidths: [1.0] }),
+    );
+    const result = layoutTree(tree, 600, measurer);
+    expect(result.type).toBe("table");
+  });
+
+  it("BFC dispatches a table child to layoutTable", () => {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("t", { display: "table" }, [
+          createElementBox("r", { display: "table-row" }, [
+            createElementBox("c", { display: "table-cell" }, [createTextBox("x", {}, "hi")]),
+          ]),
+        ], { columnWidths: [1.0] }),
+      ]),
+    );
+    const result = layoutTree(tree, 600, measurer);
+    if (result.type !== "block") throw new Error("expected block root");
+    expect(result.children[0].type).toBe("table");
   });
 });
