@@ -4,6 +4,7 @@ import { cascadePass } from "../cascade";
 import { createMockMeasurer } from "./text-measurer";
 import { layoutInlineContent } from "./ifc";
 import { layoutBlock } from "./bfc";
+import { createFloatContext } from "./float-context";
 
 const measurer = createMockMeasurer(8, 16);
 
@@ -277,5 +278,49 @@ describe("IFC — verticalAlign", () => {
     const ib = line.children.find(c => c.type === "inline-block");
     if (ib?.type !== "inline-block") throw new Error("?");
     expect(ib.y).toBe((line.height - ib.height) / 2);
+  });
+});
+
+describe("IFC — text wraps around floats", () => {
+  it("first lines have reduced width when a left float is active", () => {
+    // Set up a float context with one left float.
+    const floatCtx = createFloatContext();
+    floatCtx.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 50 });
+
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "this text should wrap to the right of the float on the first lines"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+
+    // Call layoutInlineContent directly with the floatCtx
+    const cascaded = tree;
+    const lines = layoutInlineContent(cascaded, 0, 0, 200, measurer, floatCtx);
+
+    // The first line's content area should start at x=100 (after the float)
+    // and have width 100 (200 - 100).
+    expect(lines.length).toBeGreaterThan(0);
+    if (lines[0].type === "line") {
+      expect(lines[0].x).toBe(100);
+      expect(lines[0].width).toBe(100);
+    }
+  });
+
+  it("lines past the float bottom return to full width", () => {
+    const floatCtx = createFloatContext();
+    floatCtx.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 16 });
+
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "a b c d e f g h i j k l m n o p q r s t"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const lines = layoutInlineContent(tree, 0, 0, 200, measurer, floatCtx);
+
+    // Eventually some line is at y >= 16 and uses full width 200.
+    const fullWidthLine = lines.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
+    expect(fullWidthLine).toBeDefined();
   });
 });

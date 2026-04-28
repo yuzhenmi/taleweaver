@@ -6,6 +6,7 @@ import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox 
 import type { TextMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
+import type { FloatContext } from "./float-context";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -141,12 +142,23 @@ export function layoutInlineContent(
   contentY: number,
   contentWidth: number,
   measurer: TextMeasurer,
+  floatCtx?: FloatContext,
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
 
   const ws = parentCs.whiteSpace;
   const canWrap = ws !== "nowrap" && ws !== "pre";
+
+  /** Returns the effective line x and width at a given lineY, accounting for floats. */
+  function effectiveLineDims(lineY: number): { lineX: number; lineWidth: number } {
+    if (!floatCtx) return { lineX: contentX, lineWidth: contentWidth };
+    const active = floatCtx.activeAt(lineY);
+    return {
+      lineX: contentX + active.leftWidth,
+      lineWidth: contentWidth - active.leftWidth - active.rightWidth,
+    };
+  }
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
@@ -205,7 +217,8 @@ export function layoutInlineContent(
   for (const unit of units) {
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
-      const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+      const { lineX, lineWidth } = effectiveLineDims(lineY);
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
       lines.push(line);
       lineY += line.height;
       currentUnits = [];
@@ -214,19 +227,35 @@ export function layoutInlineContent(
     }
 
     // Soft wrap — only when canWrap is true
-    if (canWrap && currentWidth + unit.totalWidth > contentWidth && currentUnits.length > 0) {
-      const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+    let { lineX, lineWidth } = effectiveLineDims(lineY);
+
+    if (canWrap && currentWidth + unit.totalWidth > lineWidth && currentUnits.length > 0) {
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
       lines.push(line);
       lineY += line.height;
       currentUnits = [];
       currentWidth = 0;
+      // Recompute dims for the new line position
+      ({ lineX, lineWidth } = effectiveLineDims(lineY));
     }
+
+    // If even an empty line can't fit the token and there are active floats,
+    // advance lineY past the nearest float bottom and retry (CSS "skip past floats").
+    if (canWrap && currentWidth + unit.totalWidth > lineWidth && currentUnits.length === 0 && floatCtx) {
+      const active = floatCtx.activeAt(lineY);
+      if (active.nearestBottom !== Infinity && lineWidth < contentWidth) {
+        lineY = active.nearestBottom;
+        ({ lineX, lineWidth } = effectiveLineDims(lineY));
+      }
+    }
+
     currentUnits.push(unit);
     currentWidth += unit.totalWidth;
   }
 
   if (currentUnits.length > 0) {
-    const line = buildLineWithFragments(parent.key, lineIndex++, contentX, lineY, contentWidth, currentUnits, parentCs, measurer);
+    const { lineX, lineWidth } = effectiveLineDims(lineY);
+    const line = buildLineWithFragments(parent.key, lineIndex++, lineX, lineY, lineWidth, currentUnits, parentCs, measurer);
     lines.push(line);
   }
 

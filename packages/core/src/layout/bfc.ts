@@ -52,7 +52,8 @@ export function layoutBlock(
   );
 
   if (hasInlineContent) {
-    const lines = layoutInlineContent(node, paddingLeft, paddingTop, contentWidth, measurer);
+    const floatCtx = createFloatContext();
+    const lines = layoutInlineContent(node, paddingLeft, paddingTop, contentWidth, measurer, floatCtx);
     let lineMaxY = paddingTop;
     for (const line of lines) {
       if (line.y + line.height > lineMaxY) lineMaxY = line.y + line.height;
