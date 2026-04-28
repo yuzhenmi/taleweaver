@@ -1,4 +1,4 @@
-import type { ElementBox, RenderNode } from "../render/render-node-v2";
+import type { ElementBox } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import { layoutInlineContent } from "./ifc";
@@ -62,7 +62,7 @@ export function layoutBlock(
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
     }
     const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
-    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, cs.writingMode, cs.direction, cs, lines, node.metadata);
+    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, lines, node.metadata);
   }
 
   let childBlockOffset = paddingBlockStart;
@@ -194,7 +194,7 @@ export function layoutBlock(
   const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
 
   return createBlockBox(
-    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, cs.writingMode, cs.direction, cs, layoutChildren, node.metadata,
+    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, layoutChildren, node.metadata,
   );
 }
 
