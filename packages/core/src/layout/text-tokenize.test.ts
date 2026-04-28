@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize } from "./text-tokenize";
+import { tokenize, LINE_BREAK } from "./text-tokenize";
 
 describe("tokenize (whiteSpace: normal)", () => {
   it("splits text into words and collapses whitespace", () => {
@@ -32,5 +32,23 @@ describe("tokenize (whiteSpace: nowrap)", () => {
   });
   it("handles empty input", () => {
     expect(tokenize("", "nowrap")).toEqual([]);
+  });
+});
+
+describe("tokenize (whiteSpace: pre)", () => {
+  it("preserves leading and trailing whitespace", () => {
+    expect(tokenize("  hi  ", "pre")).toEqual(["  hi  "]);
+  });
+  it("preserves internal whitespace runs", () => {
+    expect(tokenize("a   b", "pre")).toEqual(["a   b"]);
+  });
+  it("emits LINE_BREAK at newline boundaries", () => {
+    expect(tokenize("a\nb", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("multiple newlines produce multiple LINE_BREAKs", () => {
+    expect(tokenize("a\n\nb", "pre")).toEqual(["a", LINE_BREAK, "", LINE_BREAK, "b"]);
+  });
+  it("empty string returns empty array", () => {
+    expect(tokenize("", "pre")).toEqual([]);
   });
 });
