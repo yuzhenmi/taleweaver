@@ -143,6 +143,17 @@ function paintBox(
     }
     // Borders
     paintBorders(ctx, cs, absX, absY, box.width, box.height);
+    // Image content
+    if (box.metadata?.image) {
+      const img = box.metadata.image as { src: string; width: number; height: number };
+      const cached = state.imageCache?.get(img.src);
+      if (cached) {
+        ctx.drawImage(cached, absX, absY, img.width, img.height);
+      } else {
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillRect(absX, absY, img.width, img.height);
+      }
+    }
     // Recurse into children
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);

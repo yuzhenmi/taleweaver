@@ -14,6 +14,7 @@ interface LayoutBoxBase {
 export interface BlockBox extends LayoutBoxBase {
   readonly type: "block";
   readonly children: readonly LayoutBox[];
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface LineBox extends LayoutBoxBase {
@@ -73,12 +74,14 @@ export function createBlockBox(
   x: number, y: number, width: number, height: number,
   computedStyle: ComputedStyle,
   children: readonly LayoutBox[],
+  metadata?: Readonly<Record<string, unknown>>,
 ): BlockBox {
   return Object.freeze({
     type: "block" as const,
     key, x, y, width, height,
     computedStyle: Object.freeze({ ...computedStyle }),
     children: Object.freeze([...children]),
+    ...(metadata !== undefined ? { metadata: Object.freeze({ ...metadata }) } : {}),
   });
 }
 

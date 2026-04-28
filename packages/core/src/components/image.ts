@@ -3,7 +3,15 @@ import { createElementBox } from "../render/render-node";
 
 export const imageComponent: ComponentDefinition = {
   type: "image",
-  // TODO Plan 2 — real image rendering
-  render: (state, children) =>
-    createElementBox(state.id, { display: "block" }, children),
+  render: (state, _children) => {
+    const src = state.properties.src as string;
+    const width = state.properties.width as number;
+    const height = state.properties.height as number;
+    return createElementBox(
+      state.id,
+      { display: "block", width, height, ...state.style },
+      [],
+      { image: { src, width, height } },
+    );
+  },
 };

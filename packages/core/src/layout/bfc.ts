@@ -59,7 +59,7 @@ export function layoutBlock(
       if (line.y + line.height > lineMaxY) lineMaxY = line.y + line.height;
     }
     const totalHeight = lineMaxY + paddingBottom;
-    return createBlockBox(node.key, x, y, finalWidth, totalHeight, cs, lines);
+    return createBlockBox(node.key, x, y, finalWidth, totalHeight, cs, lines, node.metadata);
   }
 
   let childY = paddingTop;
@@ -150,7 +150,7 @@ export function layoutBlock(
     const explicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
     const finalHeight = explicitHeight > 0 ? explicitHeight : childLayout.height;
     const placedChild = explicitHeight > 0
-      ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, childCs, [])
+      ? createBlockBox(child.key, paddingLeft, childY, contentWidth, finalHeight, childCs, [], child.metadata)
       : childLayout;
 
     // CSS empty-block rule: a block with no content, padding, border, or explicit height
@@ -170,7 +170,7 @@ export function layoutBlock(
       prevMarginBottom = Math.max(prevMarginBottom, childMarginTop, childMarginBottom);
       // Place the empty block at preAdvanceY (zero height, no y-slot consumed)
       layoutChildren.push(
-        createBlockBox(child.key, paddingLeft, preAdvanceY, contentWidth, 0, childCs, []),
+        createBlockBox(child.key, paddingLeft, preAdvanceY, contentWidth, 0, childCs, [], child.metadata),
       );
     } else {
       layoutChildren.push(placedChild);
@@ -187,7 +187,7 @@ export function layoutBlock(
   const totalHeight = Math.max(inFlowHeight, floatBottom + paddingBottom);
 
   return createBlockBox(
-    node.key, x, y, finalWidth, totalHeight, cs, layoutChildren,
+    node.key, x, y, finalWidth, totalHeight, cs, layoutChildren, node.metadata,
   );
 }
 
