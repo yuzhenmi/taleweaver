@@ -134,3 +134,56 @@ describe("IFC — first-class inline boxes", () => {
     expect(textRun.text).toBe("hello");
   });
 });
+
+describe("IFC — fragmentEdge across lines", () => {
+  it("first-line fragment has fragmentEdge='first', last-line has 'last'", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("span", { display: "inline", backgroundColor: "yellow" }, [
+          createTextBox("t", {}, "long content that wraps across at least three lines"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 60, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    // First line: inline fragment should be "first"
+    if (lines[0].type !== "line") throw new Error("?");
+    const firstInline = lines[0].children.find(c => c.type === "inline");
+    expect(firstInline?.type).toBe("inline");
+    if (firstInline?.type === "inline") {
+      expect(firstInline.fragmentEdge).toBe("first");
+    }
+
+    // Last line: inline fragment should be "last"
+    const lastLine = lines[lines.length - 1];
+    if (lastLine.type !== "line") throw new Error("?");
+    const lastInline = lastLine.children.find(c => c.type === "inline");
+    expect(lastInline?.type).toBe("inline");
+    if (lastInline?.type === "inline") {
+      expect(lastInline.fragmentEdge).toBe("last");
+    }
+  });
+
+  it("inline on a single line has fragmentEdge='only'", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "x "),
+        createElementBox("span", { display: "inline" }, [
+          createTextBox("t2", {}, "y"),
+        ]),
+        createTextBox("t3", {}, " z"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const inlineBox = out.children[0].children.find(c => c.type === "inline");
+    if (inlineBox?.type !== "inline") throw new Error("?");
+    expect(inlineBox.fragmentEdge).toBe("only");
+  });
+});

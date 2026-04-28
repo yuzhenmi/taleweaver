@@ -1,7 +1,7 @@
 import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
-import type { LayoutBox, LineBox } from "./layout-box-v2";
+import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
 import { createInlineBox, createLineBox, createTextRunBox } from "./layout-box-v2";
 import type { TextMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
@@ -187,7 +187,7 @@ export function layoutInlineContent(
     lines.push(line);
   }
 
-  return lines;
+  return assignFragmentEdges(lines);
 }
 
 function buildLineWithFragments(
@@ -286,4 +286,64 @@ function buildLineChildrenForAncestorLevel(
   }
 
   return out;
+}
+
+/**
+ * Walk the lines list and assign correct fragmentEdges per InlineBox.
+ * The same inline element can appear as InlineBox children of multiple lines
+ * (because the inline content wrapped); each fragment gets first/middle/last/only
+ * based on which lines contain it.
+ */
+function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
+  // Phase 1: tally line indices per inline-ancestor key.
+  const lineIndicesByAncestor = new Map<string, number[]>();
+  lines.forEach((line, idx) => {
+    if (line.type !== "line") return;
+    visitInlineBoxes(line.children, (inline) => {
+      const ancestor = extractAncestorKey(inline.key);
+      const arr = lineIndicesByAncestor.get(ancestor) ?? [];
+      if (!arr.includes(idx)) arr.push(idx);
+      lineIndicesByAncestor.set(ancestor, arr);
+    });
+  });
+
+  // Phase 2: rebuild each line with corrected fragmentEdges.
+  return lines.map((line, idx) => {
+    if (line.type !== "line") return line;
+    const newChildren = line.children.map((c) => correctFragmentEdge(c, idx, lineIndicesByAncestor));
+    return Object.freeze({ ...line, children: Object.freeze(newChildren) }) as LayoutBox;
+  });
+}
+
+function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) => void): void {
+  for (const c of children) {
+    if (c.type === "inline") {
+      visit(c);
+      visitInlineBoxes(c.children, visit);
+    }
+  }
+}
+
+/** Extract the ancestor key from an InlineBox key like "<parent>-l<i>-i<idx>-<ancestor>". */
+function extractAncestorKey(inlineBoxKey: string): string {
+  const lastDash = inlineBoxKey.lastIndexOf("-");
+  return lastDash >= 0 ? inlineBoxKey.slice(lastDash + 1) : inlineBoxKey;
+}
+
+function correctFragmentEdge(
+  box: LayoutBox,
+  lineIdx: number,
+  lineIndicesByAncestor: Map<string, number[]>,
+): LayoutBox {
+  if (box.type !== "inline") return box;
+  const ancestor = extractAncestorKey(box.key);
+  const indices = lineIndicesByAncestor.get(ancestor) ?? [lineIdx];
+  let edge: "first" | "middle" | "last" | "only";
+  if (indices.length === 1) edge = "only";
+  else if (lineIdx === indices[0]) edge = "first";
+  else if (lineIdx === indices[indices.length - 1]) edge = "last";
+  else edge = "middle";
+
+  const newChildren = box.children.map((c) => correctFragmentEdge(c, lineIdx, lineIndicesByAncestor));
+  return Object.freeze({ ...box, children: Object.freeze(newChildren), fragmentEdge: edge }) as LayoutBox;
 }
