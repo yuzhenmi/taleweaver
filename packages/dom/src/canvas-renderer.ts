@@ -143,6 +143,23 @@ function paintBox(
     return;
   }
 
+  if (box.type === "inline") {
+    // Background: full fragment
+    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+      ctx.fillStyle = cs.backgroundColor;
+      ctx.fillRect(absX, absY, box.width, box.height);
+    }
+
+    // Borders: edge-aware
+    paintInlineBorders(ctx, cs, absX, absY, box.width, box.height, box.fragmentEdge);
+
+    // Recurse
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
+  }
+
   // Plan 2/3 types: skip silently (not produced in Plan 1)
 }
 
@@ -167,6 +184,38 @@ function paintBorders(
     ctx.fillRect(x, y, cs.borderLeftWidth, h);
   }
   if (cs.borderRightWidth > 0 && cs.borderRightStyle !== "none") {
+    ctx.fillStyle = cs.borderRightColor;
+    ctx.fillRect(x + w - cs.borderRightWidth, y, cs.borderRightWidth, h);
+  }
+}
+
+function paintInlineBorders(
+  ctx: CanvasRenderingContext2D,
+  cs: Readonly<ComputedStyle>,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  edge: "first" | "middle" | "last" | "only",
+): void {
+  const drawTop    = cs.borderTopWidth > 0    && cs.borderTopStyle !== "none";
+  const drawBottom = cs.borderBottomWidth > 0 && cs.borderBottomStyle !== "none";
+  const drawLeft   = (edge === "first" || edge === "only") && cs.borderLeftWidth > 0  && cs.borderLeftStyle !== "none";
+  const drawRight  = (edge === "last"  || edge === "only") && cs.borderRightWidth > 0 && cs.borderRightStyle !== "none";
+
+  if (drawTop) {
+    ctx.fillStyle = cs.borderTopColor;
+    ctx.fillRect(x, y, w, cs.borderTopWidth);
+  }
+  if (drawBottom) {
+    ctx.fillStyle = cs.borderBottomColor;
+    ctx.fillRect(x, y + h - cs.borderBottomWidth, w, cs.borderBottomWidth);
+  }
+  if (drawLeft) {
+    ctx.fillStyle = cs.borderLeftColor;
+    ctx.fillRect(x, y, cs.borderLeftWidth, h);
+  }
+  if (drawRight) {
     ctx.fillStyle = cs.borderRightColor;
     ctx.fillRect(x + w - cs.borderRightWidth, y, cs.borderRightWidth, h);
   }
