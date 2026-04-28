@@ -2,8 +2,6 @@ import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE, type ComputedStyle } from "../styles";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
-  type InlineBox, type InlineBlockBox, type MarkerBox,
-  type TableBox, type TableRowBox, type TableCellBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox,
 } from "./layout-box-v2";
