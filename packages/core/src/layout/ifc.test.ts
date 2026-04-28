@@ -3,6 +3,7 @@ import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { createMockMeasurer } from "./text-measurer";
 import { layoutInlineContent } from "./ifc";
+import { layoutBlock } from "./bfc";
 
 const measurer = createMockMeasurer(8, 16);
 
@@ -38,5 +39,48 @@ describe("layoutInlineContent — wrapping", () => {
     for (let i = 1; i < lines.length; i++) {
       expect(lines[i].y).toBeGreaterThan(lines[i - 1].y);
     }
+  });
+});
+
+describe("IFC whiteSpace handling", () => {
+  it("nowrap produces a single line even when text exceeds width", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "nowrap" }, [
+        createTextBox("t", {}, "this is a long line that would normally wrap"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 50, measurer);
+    if (out.type !== "block") throw new Error("?");
+    // Should produce exactly one line
+    const lineBoxes = out.children.filter(c => c.type === "line");
+    expect(lineBoxes).toHaveLength(1);
+  });
+
+  it("pre breaks at LINE_BREAK and never wraps", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre" }, [
+        createTextBox("t", {}, "line one\nline two"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 200, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const lineBoxes = out.children.filter(c => c.type === "line");
+    expect(lineBoxes).toHaveLength(2);
+  });
+
+  it("pre-wrap wraps at word boundaries AND breaks at LINE_BREAK", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-wrap" }, [
+        createTextBox("t", {}, "long text here\nsecond"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 30, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const lineBoxes = out.children.filter(c => c.type === "line");
+    // Wrap from "long text here" + a hard break + "second" should produce >= 2 lines
+    expect(lineBoxes.length).toBeGreaterThanOrEqual(2);
   });
 });
