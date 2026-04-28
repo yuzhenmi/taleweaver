@@ -1,9 +1,15 @@
 import type { ComponentDefinition } from "./component-definition";
 import { createElementBox } from "../render/render-node";
 
-// Plan 1 stub — Plan 2 will implement properly.
 export const tableComponent: ComponentDefinition = {
   type: "table",
-  render: (state, children) =>
-    createElementBox(state.id, { display: "block", ...state.style }, children),
+  render: (state, children) => {
+    const columnWidths = state.properties.columnWidths as readonly number[] | undefined;
+    return createElementBox(
+      state.id,
+      { display: "table", ...state.style },
+      children,
+      columnWidths ? { columnWidths } : undefined,
+    );
+  },
 };
