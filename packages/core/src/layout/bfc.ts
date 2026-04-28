@@ -6,6 +6,7 @@ import { layoutTable } from "./table-fc";
 import type { TextMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
+import { createFloatContext } from "./float-context";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -62,6 +63,7 @@ export function layoutBlock(
 
   let childY = paddingTop;
   const layoutChildren: LayoutBox[] = [];
+  const floatCtx = createFloatContext();
 
   let prevMarginBottom = 0;
   let listCounter = 0;
@@ -69,6 +71,41 @@ export function layoutBlock(
     if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
     const childCs = child.computedStyle;
+
+    // FLOAT BRANCH: floated children are out of normal flow
+    if (childCs.float === "left" || childCs.float === "right") {
+      const floatLayout = layoutBlock(child, 0, 0, contentWidth, measurer);
+      const floatExplicitHeight = lengthToPx(childCs.height === "auto" ? 0 : childCs.height);
+      const floatWidth = floatLayout.width;
+      const floatHeight = floatExplicitHeight > 0 ? floatExplicitHeight : floatLayout.height;
+      const active = floatCtx.activeAt(childY);
+      const placedX = childCs.float === "left"
+        ? paddingLeft + active.leftWidth
+        : paddingLeft + contentWidth - active.rightWidth - floatWidth;
+      const positioned: LayoutBox = Object.freeze({
+        ...floatLayout,
+        x: placedX,
+        y: childY,
+      } as LayoutBox);
+      floatCtx.placeFloat({
+        side: childCs.float,
+        x: placedX,
+        y: childY,
+        width: floatWidth,
+        height: floatHeight,
+      });
+      layoutChildren.push(positioned);
+      // Float is out of normal flow — do NOT advance childY or update prevMarginBottom.
+      continue;
+    }
+
+    // CLEAR BRANCH: advance childY past cleared floats before applying margins
+    if (childCs.clear !== "none") {
+      const clearedY = floatCtx.clearY(childCs.clear, childY);
+      if (clearedY > childY) {
+        childY = clearedY;
+      }
+    }
 
     const childMarginTop    = lengthOrZero(childCs.marginTop);
     const childMarginBottom = lengthOrZero(childCs.marginBottom);
@@ -142,7 +179,11 @@ export function layoutBlock(
   }
 
   const lastMarginBottom = noBottomBoundary ? 0 : prevMarginBottom;
-  const totalHeight = childY + lastMarginBottom + paddingBottom;
+  const inFlowHeight = childY + lastMarginBottom + paddingBottom;
+
+  // FLOAT ENCLOSURE: BFC's content height includes the lowest float bottom.
+  const floatBottom = floatCtx.lowestBottom();
+  const totalHeight = Math.max(inFlowHeight, floatBottom + paddingBottom);
 
   return createBlockBox(
     node.key, x, y, finalWidth, totalHeight, cs, layoutChildren,

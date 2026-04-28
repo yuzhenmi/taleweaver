@@ -246,3 +246,54 @@ describe("BFC — list-item markers (outside)", () => {
     expect(markers.map(m => m.text)).toEqual(["1.", "1.", "2.", "2."]);
   });
 });
+
+describe("BFC — floats", () => {
+  it("a left-floated child is placed and BFC encloses it", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("img", { display: "block", float: "left", width: 100, height: 50 }, []),
+        createTextBox("t", {}, "x"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    // BFC must enclose the float (height >= 50, the float's height).
+    expect(out.height).toBeGreaterThanOrEqual(50);
+  });
+
+  it("clear: 'left' pushes a block below active floats", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("f", { display: "block", float: "left", width: 50, height: 100 }, []),
+        createElementBox("after", { display: "block", clear: "left", height: 20 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    // The clear:left block should start at y >= 100 (past the float).
+    const afterChild = out.children.find((c) => c.type === "block" && c.key === "after");
+    expect(afterChild?.type).toBe("block");
+    if (afterChild?.type === "block") {
+      expect(afterChild.y).toBeGreaterThanOrEqual(100);
+    }
+  });
+
+  it("a right-floated child is placed at the right edge", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("img", { display: "block", float: "right", width: 100, height: 50 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    if (out.type !== "block") throw new Error("?");
+    const float = out.children.find((c) => c.type === "block" && c.key === "img");
+    expect(float?.type).toBe("block");
+    if (float?.type === "block") {
+      // Float at right edge: x = containerWidth - floatWidth = 500 - 100 = 400
+      expect(float.x).toBe(400);
+    }
+  });
+});
