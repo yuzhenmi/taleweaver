@@ -3,6 +3,7 @@ import type { TableBox, TableRowBox, TableCellBox } from "./layout-box-v2";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box-v2";
 import type { TextMeasurer } from "./text-measurer";
 import { layoutBlock } from "./bfc";
+import type { WritingMode, Direction } from "../styles/writing-mode";
 
 /**
  * Lay out a `display: table` element with fixed percentage column widths.
@@ -12,10 +13,12 @@ import { layoutBlock } from "./bfc";
  */
 export function layoutTable(
   node: ElementBox,
-  x: number,
-  y: number,
-  availableWidth: number,
+  inlineOffset: number,
+  blockOffset: number,
+  availableInlineSize: number,
   measurer: TextMeasurer,
+  writingMode: WritingMode = "horizontal-tb",
+  direction: Direction = "ltr",
 ): TableBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
@@ -26,10 +29,10 @@ export function layoutTable(
     throw new Error("Table requires metadata.columnWidths (array of fractions)");
   }
 
-  const tableContentWidth = availableWidth;
-  const columnPxWidths = columnWidths.map((f) => f * tableContentWidth);
+  const tableInlineSize = availableInlineSize;
+  const columnPxWidths = columnWidths.map((f) => f * tableInlineSize);
 
-  let rowY = 0;
+  let rowBlockOffset = 0;
   const rowBoxes: TableRowBox[] = [];
 
   for (const rowNode of node.children) {
@@ -42,61 +45,67 @@ export function layoutTable(
         c.type === "element" && c.computedStyle?.display === "table-cell",
     );
 
-    let maxHeight = 0;
-    let cellX = 0;
+    let maxBlockSize = 0;
+    let cellInlineOffset = 0;
     const cellBoxes: TableCellBox[] = [];
 
     for (let ci = 0; ci < cells.length; ci++) {
       const cell = cells[ci];
       if (!cell.computedStyle) throw new Error("cascade required");
-      const cellWidth = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
+      const cellInlineSize = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
 
-      // Lay out cell interior as BFC at cellWidth.
-      const interior = layoutBlock(cell, 0, 0, cellWidth, measurer);
+      // Lay out cell interior as BFC at cellInlineSize.
+      const interior = layoutBlock(cell, 0, 0, cellInlineSize, measurer, cs.writingMode, cs.direction);
 
-      const cellHeight = interior.height;
-      maxHeight = Math.max(maxHeight, cellHeight);
+      const cellBlockSize = interior.height;
+      maxBlockSize = Math.max(maxBlockSize, cellBlockSize);
 
       const interiorChildren = Array.from(interior.children);
 
       const cellBox = createTableCellBox(
-        cell.key, cellX, 0, cellWidth, cellHeight,
+        cell.key, cellInlineOffset, 0, cellInlineSize, cellBlockSize,
+        cs.writingMode, cs.direction,
         cell.computedStyle,
         interiorChildren,
       );
       cellBoxes.push(cellBox);
-      cellX += cellWidth;
+      cellInlineOffset += cellInlineSize;
     }
 
-    // Resolve row height: explicit or auto.
-    const explicitH =
-      typeof rowNode.computedStyle.height === "number" ? rowNode.computedStyle.height : null;
-    const rowHeight = explicitH !== null ? Math.max(maxHeight, explicitH) : maxHeight;
+    // Resolve row block-size: explicit or auto.
+    const explicitBlockSize =
+      typeof rowNode.computedStyle.blockSize === "number" ? rowNode.computedStyle.blockSize : null;
+    const rowBlockSize = explicitBlockSize !== null ? Math.max(maxBlockSize, explicitBlockSize) : maxBlockSize;
 
-    // Stretch each cell to the row's resolved height.
+    // Stretch each cell to the row's resolved block-size.
     const stretchedCells = cellBoxes.map((cb) =>
-      cb.height === rowHeight
+      cb.height === rowBlockSize
         ? cb
         : createTableCellBox(
             cb.key,
             cb.x,
             cb.y,
             cb.width,
-            rowHeight,
+            rowBlockSize,
+            cs.writingMode, cs.direction,
             cb.computedStyle,
             Array.from(cb.children),
           ),
     );
 
     rowBoxes.push(createTableRowBox(
-      rowNode.key, 0, rowY, tableContentWidth, rowHeight,
+      rowNode.key, 0, rowBlockOffset, tableInlineSize, rowBlockSize,
+      cs.writingMode, cs.direction,
       rowNode.computedStyle, stretchedCells,
     ));
-    rowY += rowHeight;
+    rowBlockOffset += rowBlockSize;
   }
 
+  const tableBlockSize = rowBlockOffset;
+
   return createTableBox(
-    node.key, x, y, tableContentWidth, rowY,
+    node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
+    writingMode, direction,
     cs, rowBoxes, columnPxWidths,
   );
 }
