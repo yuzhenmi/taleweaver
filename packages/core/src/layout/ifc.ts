@@ -10,6 +10,7 @@ import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { FloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
+import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 
 interface Token {
@@ -351,7 +352,8 @@ function buildLineWithFragments(
   );
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
   const aligned = applyVerticalAlign(children, lineBlockSize);
-  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, aligned,
+  const reordered = reorderLineForBidi(aligned, lineInlineSize);
+  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
     /* containingInlineSize */ containingInlineSize,
   );
@@ -499,6 +501,63 @@ function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) 
 function extractAncestorKey(inlineBoxKey: string): string {
   const lastDash = inlineBoxKey.lastIndexOf("-");
   return lastDash >= 0 ? inlineBoxKey.slice(lastDash + 1) : inlineBoxKey;
+}
+
+/**
+ * Recreate a layout box with a new inline-offset, re-deriving physical x.
+ *
+ * NOTE: This bypasses individual box factories to avoid duplicating their
+ * signatures. It is a Plan 3.D cleanup target.
+ */
+function withInlineOffset(box: LayoutBox, newInlineOffset: number, containingInlineSize: number): LayoutBox {
+  const phys = logicalToPhysical(
+    {
+      inlineOffset: newInlineOffset,
+      blockOffset:  box.blockOffset,
+      inlineSize:   box.inlineSize,
+      blockSize:    box.blockSize,
+    },
+    box.writingMode,
+    box.direction,
+    containingInlineSize,
+  );
+  return Object.freeze({ ...box, inlineOffset: newInlineOffset, ...phys } as LayoutBox);
+}
+
+/**
+ * Reorder a line's child boxes for visual presentation per their bidi
+ * levels. Plan 3.C ships uniform-level reordering (all children share the
+ * same level — produced by mock/canvas shapers). Mixed-level reordering
+ * (Unicode Bidi Algorithm L1–L3) lands in a later plan when bidi-aware
+ * shapers ship.
+ *
+ * @param children logical-order children, each with an `inlineOffset`
+ *   placing it within the line.
+ * @param lineInlineSize the line's inline-extent.
+ * @returns children in visual order with rewritten `inlineOffset`s.
+ */
+function reorderLineForBidi(
+  children: readonly LayoutBox[],
+  lineInlineSize: number,
+): LayoutBox[] {
+  if (children.length === 0) return [];
+
+  // Infer the line's overall bidi direction from the first child's
+  // computedStyle. All children of a uniform RTL paragraph share
+  // direction "rtl" (set by the cascade from the paragraph element).
+  const allRtl = children.every(c => c.computedStyle.direction === "rtl");
+
+  if (!allRtl) {
+    // LTR-uniform (or mixed; mixed treated as LTR for v1) — identity.
+    return [...children];
+  }
+
+  // RTL-uniform: mirror inline offsets so visual order is reversed.
+  // new inlineOffset = lineInlineSize - oldInlineOffset - inlineSize
+  return children.map(child => {
+    const newInlineOffset = lineInlineSize - child.inlineOffset - child.inlineSize;
+    return withInlineOffset(child, newInlineOffset, lineInlineSize);
+  });
 }
 
 function correctFragmentEdge(

@@ -324,3 +324,78 @@ describe("IFC — text wraps around floats", () => {
     expect(fullWidthLine).toBeDefined();
   });
 });
+
+describe("IFC — RTL bidi reordering", () => {
+  it("reorders clusters for RTL paragraph: logical-second child has smaller inlineOffset than logical-first", () => {
+    // mockShaper(8, 16): each char is 8px wide.
+    // "abc" = 3 chars = 24px wide; "def" = 3 chars = 24px wide.
+    // Line available = 200px — both fit on one line.
+    // Logical order: text1("abc") then text2("def").
+    // After RTL reorder: text2 appears visually first (smaller inlineOffset),
+    // text1 appears visually second (larger inlineOffset).
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const lines = layoutInlineContent(
+      tree,
+      0, 0, 200,
+      rtlShaper,
+      createFloatContext(),
+      "horizontal-tb",
+      "rtl",
+    );
+
+    expect(lines.length).toBeGreaterThan(0);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line box");
+    expect(line.children.length).toBeGreaterThanOrEqual(2);
+
+    // Find the two text-run boxes by key prefix (t1 and t2).
+    const t1Box = line.children.find(c => c.key.startsWith("t1"));
+    const t2Box = line.children.find(c => c.key.startsWith("t2"));
+    expect(t1Box).toBeDefined();
+    expect(t2Box).toBeDefined();
+    if (!t1Box || !t2Box) throw new Error("?");
+
+    // After RTL reorder, the logical-second child (t2) should appear visually
+    // before the logical-first child (t1): t2.inlineOffset < t1.inlineOffset.
+    expect(t2Box.inlineOffset).toBeLessThan(t1Box.inlineOffset);
+
+    // Also verify the rightmost child (t1, logical-first) sits at the right edge.
+    // For a 200px line with t1=24px at the visual end:
+    //   t1.inlineOffset = 200 - 0 - 24 = 176 (it was originally at offset 0, size 24)
+    // Wait: logical order places t1 at offset 0, size 24.
+    // Reorder: newInlineOffset = 200 - 0 - 24 = 176.
+    expect(t1Box.inlineOffset).toBe(200 - t1Box.inlineSize);
+  });
+
+  it("LTR paragraph children are not reordered (identity pass)", () => {
+    const ltrShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const lines = layoutInlineContent(tree, 0, 0, 200, ltrShaper);
+
+    expect(lines.length).toBeGreaterThan(0);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line box");
+
+    const t1Box = line.children.find(c => c.key.startsWith("t1"));
+    const t2Box = line.children.find(c => c.key.startsWith("t2"));
+    expect(t1Box).toBeDefined();
+    expect(t2Box).toBeDefined();
+    if (!t1Box || !t2Box) throw new Error("?");
+
+    // LTR: t1 comes before t2 in visual order (smaller inlineOffset).
+    expect(t1Box.inlineOffset).toBeLessThan(t2Box.inlineOffset);
+  });
+});
