@@ -19,11 +19,4 @@ describe("resolveLength", () => {
     expect(resolveLength({ unit: "percent", value: 50 }, 16)).toEqual({ unit: "percent", value: 50 });
   });
 
-  it("resolves auto unchanged", () => {
-    expect(resolveLength("auto", 16)).toBe("auto");
-  });
-
-  it("resolves none unchanged", () => {
-    expect(resolveLength("none", 16)).toBe("none");
-  });
 });

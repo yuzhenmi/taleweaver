@@ -1,5 +1,7 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node-v2";
-import type { ComputedStyle, LengthOrAuto } from "../styles";
+import type { ComputedStyle } from "../styles";
+import type { Length, ComputedLength, ComputedLengthOrAuto } from "../styles/length";
+import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "./compose";
 import { resolveLength } from "./resolve-length";
 
@@ -40,27 +42,71 @@ function cascadeNode(
 
 /** Flatten em values to px using own fontSize. */
 function flattenLengths(cs: ComputedStyle): ComputedStyle {
-  // fontSize is already typed as number in ComputedStyle (em resolved at cascade time)
-  const fontSize = cs.fontSize;
+  // 1. Resolve fontSize first — needed by all subsequent em-resolutions.
+  const fontSize = resolveFontSize(cs);
 
-  // Length-typed properties to flatten
-  const out: Record<string, unknown> = { ...(cs as unknown as Record<string, unknown>) };
-  out.fontSize = fontSize;
+  // 2. Build a new computed style with em-resolved lengths.
+  return {
+    ...cs,
+    fontSize,
+    inlineSize:    flattenLengthOrAuto(cs.inlineSize, fontSize),
+    blockSize:     flattenLengthOrAuto(cs.blockSize, fontSize),
+    minInlineSize: flattenLength(cs.minInlineSize, fontSize),
+    minBlockSize:  flattenLength(cs.minBlockSize, fontSize),
+    maxInlineSize: flattenLengthOrNone(cs.maxInlineSize, fontSize),
+    maxBlockSize:  flattenLengthOrNone(cs.maxBlockSize, fontSize),
 
-  for (const key of LENGTH_PROPERTIES) {
-    const v = (cs as unknown as Record<string, unknown>)[key];
-    if (v !== undefined) {
-      out[key] = resolveLength(v as LengthOrAuto | "none", fontSize);
-    }
-  }
-  return out as unknown as ComputedStyle;
+    marginBlockStart:  flattenLengthOrAuto(cs.marginBlockStart, fontSize),
+    marginBlockEnd:    flattenLengthOrAuto(cs.marginBlockEnd, fontSize),
+    marginInlineStart: flattenLengthOrAuto(cs.marginInlineStart, fontSize),
+    marginInlineEnd:   flattenLengthOrAuto(cs.marginInlineEnd, fontSize),
+
+    paddingBlockStart:  flattenLength(cs.paddingBlockStart, fontSize),
+    paddingBlockEnd:    flattenLength(cs.paddingBlockEnd, fontSize),
+    paddingInlineStart: flattenLength(cs.paddingInlineStart, fontSize),
+    paddingInlineEnd:   flattenLength(cs.paddingInlineEnd, fontSize),
+
+    lineHeight: flattenLineHeight(cs.lineHeight, fontSize),
+  };
 }
 
-const LENGTH_PROPERTIES = [
-  "inlineSize", "blockSize", "minInlineSize", "minBlockSize", "maxInlineSize", "maxBlockSize",
-  "marginBlockStart", "marginBlockEnd", "marginInlineStart", "marginInlineEnd",
-  "paddingBlockStart", "paddingBlockEnd", "paddingInlineStart", "paddingInlineEnd",
-] as const;
+function flattenLength(v: ComputedLength | Length, fontSize: number): ComputedLength {
+  if (typeof v === "number") return v;
+  if (v.unit === "percent") return v;
+  if (v.unit === "px") return v.value;
+  // unit === "em" — should not appear in ComputedStyle inputs, but handle defensively
+  return resolveLength(v as Length, fontSize);
+}
+
+function flattenLengthOrAuto(v: ComputedLengthOrAuto | Length | "auto", fontSize: number): ComputedLengthOrAuto {
+  if (v === "auto") return "auto";
+  return flattenLength(v, fontSize);
+}
+
+function flattenLengthOrNone(v: ComputedLength | Length | "none", fontSize: number): ComputedLength | "none" {
+  if (v === "none") return "none";
+  return flattenLength(v, fontSize);
+}
+
+function flattenLineHeight(v: number | ComputedLength | Length, fontSize: number): number | ComputedLength {
+  if (typeof v === "number") return v;
+  return flattenLength(v, fontSize);
+}
+
+function resolveFontSize(cs: ComputedStyle): number {
+  const v = cs.fontSize;
+  if (typeof v === "number") return v;
+  // Defensive: fontSize is typed as `number` in ComputedStyle. If we somehow
+  // got a Length-shaped value (e.g., before this function ran), resolve it.
+  // Cast to unknown then Length for a type-safe fallback path.
+  const lv = v as unknown as Length;
+  if (typeof lv === "object" && "unit" in lv && lv.unit === "px") return lv.value;
+  if (typeof lv === "object" && "unit" in lv && lv.unit === "em") {
+    // Document root case: no parent fontSize, use the initial.
+    return lv.value * INITIAL_COMPUTED_STYLE.fontSize;
+  }
+  return INITIAL_COMPUTED_STYLE.fontSize;
+}
 
 /**
  * Incremental cascade. Reuses the old cascaded subtree when:
