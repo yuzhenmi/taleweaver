@@ -1,0 +1,166 @@
+/**
+ * Integration: end-to-end intrinsic sizing scenarios.
+ *
+ * Verifies that inline-block, float, min-content, max-content sizing keywords,
+ * and auto-table column distribution all produce correct inline sizes.
+ */
+import { describe, it, expect } from "vitest";
+import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { cascadePass } from "../cascade";
+import { layoutBlock } from "../layout/bfc";
+import { layoutTable } from "../layout/table-fc";
+import { createMockShaper } from "../layout/mock-shaper";
+import { makeRootContext } from "../layout/layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
+import type { LayoutBox } from "../layout/layout-box-v2";
+
+/**
+ * Recursively search the output layout tree for a box whose key contains `keyFragment`.
+ * Useful because IFC-generated inline-block keys embed the source key as a suffix.
+ */
+function findBoxByKeyFragment(box: LayoutBox, keyFragment: string): LayoutBox | null {
+  if (box.key === keyFragment || box.key.endsWith(`-${keyFragment}`)) return box;
+  if ("children" in box) {
+    for (const c of box.children) {
+      const r = findBoxByKeyFragment(c, keyFragment);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+/**
+ * Search for a box whose key exactly matches `key`.
+ */
+function findBoxByKey(box: LayoutBox, key: string): LayoutBox | null {
+  if (box.key === key) return box;
+  if ("children" in box) {
+    for (const c of box.children) {
+      const r = findBoxByKey(c, key);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+// charWidth=10 → each character contributes 10px; minClusterInlineSize=10; lineHeight=16.
+const shaper = createMockShaper(10, 16);
+
+describe("Intrinsic sizing — end-to-end", () => {
+  it("inline-block with auto inline-size shrinks to content max-content", () => {
+    // "abc" → 3 chars × 10px = 30px maxContent
+    const ib = createElementBox(
+      "ib",
+      { display: "inline-block", inlineSize: "auto" },
+      [createTextBox("t", {}, "abc")],
+    );
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    // The inline-block key is composite: "<para-key>-l<n>-ib<n>-ib"
+    const ibBox = findBoxByKeyFragment(out, "ib");
+    expect(ibBox).not.toBeNull();
+    expect(ibBox?.inlineSize).toBe(30);
+  });
+
+  it("float with auto inline-size shrinks to content (clamped to available)", () => {
+    // "hello world!" — 12 chars × 10 = 120px maxContent;
+    // space after "hello" gives a soft break → minContent = 10 (one char cluster).
+    // Shrink-to-fit: Math.min(maxContent=120, available=200) = 120.
+    const text = createTextBox("t", {}, "hello world!");
+    const fl = createElementBox(
+      "fl",
+      { display: "block", float: "inline-start", inlineSize: "auto" },
+      [text],
+    );
+    const para = createElementBox("p", { display: "block" }, [fl]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const flBox = findBoxByKey(out, "fl");
+    expect(flBox).not.toBeNull();
+    // shrink-to-fit: maxContent=120, available=200 → clamp to 120.
+    expect(flBox?.inlineSize).toBe(120);
+  });
+
+  it("block with inline-size: max-content sizes to maxContent", () => {
+    // "hello" → 5 chars × 10px = 50px maxContent
+    const block = createElementBox(
+      "b",
+      { display: "block", inlineSize: "max-content" },
+      [createTextBox("t", {}, "hello")],
+    );
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const innerBox = findBoxByKey(out, "b");
+    expect(innerBox).not.toBeNull();
+    expect(innerBox?.inlineSize).toBe(50); // 5 chars × 10px
+  });
+
+  it("block with inline-size: min-content sizes to minContent (widest cluster)", () => {
+    // "abc" — each cluster is 10px; minContent = minClusterInlineSize = 10px
+    const block = createElementBox(
+      "b",
+      { display: "block", inlineSize: "min-content" },
+      [createTextBox("t", {}, "abc")],
+    );
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const innerBox = findBoxByKey(out, "b");
+    expect(innerBox).not.toBeNull();
+    expect(innerBox?.inlineSize).toBe(10); // minClusterInlineSize = charWidth = 10
+  });
+
+  it("auto-table: column widths from per-cell intrinsics (sumMax fits)", () => {
+    // cell1: "abc" → maxContent=30; cell2: "abcde" → maxContent=50
+    // sumMax=80 ≤ available=200, so each column = its colMax.
+    const cell1 = createElementBox(
+      "c1",
+      { display: "table-cell" },
+      [createTextBox("t1", {}, "abc")],   // maxContent = 30
+    );
+    const cell2 = createElementBox(
+      "c2",
+      { display: "table-cell" },
+      [createTextBox("t2", {}, "abcde")], // maxContent = 50
+    );
+    const row = createElementBox("r", { display: "table-row" }, [cell1, cell2]);
+    const table = createElementBox("tbl", { display: "table" }, [row]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
+    const out = layoutTable(cascaded, 0, 0, ctx, shaper);
+    expect(out.columnPxWidths).toEqual([30, 50]); // sumMax=80 ≤ available=200
+  });
+
+  it("float clamped to available when content max-content exceeds container", () => {
+    // "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" — 40 chars × 10 = 400px maxContent,
+    // no soft breaks → minContent = 10; available = 200.
+    // Shrink-to-fit formula: Math.min(maxContent=400, available=200, Math.max(minContent=10, available=200))
+    //   = Math.min(400, 200, 200) = 200.
+    const text = createTextBox("t", {}, "a".repeat(40));
+    const fl = createElementBox(
+      "fl",
+      { display: "block", float: "inline-start", inlineSize: "auto" },
+      [text],
+    );
+    const para = createElementBox("p", { display: "block" }, [fl]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const flBox = findBoxByKey(out, "fl");
+    expect(flBox).not.toBeNull();
+    // Float is clamped to available (200) since maxContent=400 > available=200.
+    expect(flBox?.inlineSize).toBe(200);
+  });
+});
