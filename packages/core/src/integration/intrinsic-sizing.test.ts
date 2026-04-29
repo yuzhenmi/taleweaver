@@ -164,3 +164,75 @@ describe("Intrinsic sizing — end-to-end", () => {
     expect(flBox?.inlineSize).toBe(200);
   });
 });
+
+describe("Inline-block intrinsic sizing — edge cases", () => {
+  // charWidth=10 per character; lineHeight=16.
+  const shaper = createMockShaper(10, 16);
+
+  it("inline-block with explicit inlineSize (not auto) uses that value, not shrink-to-fit", () => {
+    // Content "abc" has maxContent=30px, but inlineSize is explicitly 200.
+    // The IFC picks up the numeric inlineSize directly — no intrinsic sizing.
+    const ib = createElementBox(
+      "ib",
+      { display: "inline-block", inlineSize: 200 },
+      [createTextBox("t", {}, "abc")],
+    );
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const ibBox = findBoxByKeyFragment(out, "ib");
+    expect(ibBox).not.toBeNull();
+    // Must be exactly 200, NOT 30 (shrink-to-fit) and NOT 500 (fill).
+    expect(ibBox?.inlineSize).toBe(200);
+  });
+
+  it("inline-block with auto inlineSize uses maxContent even when content is wider than container", () => {
+    // 80 chars × 10px = 800px maxContent; no soft-break opportunities (no spaces).
+    // Container is only 500px wide.
+    // The IFC for inline-blocks does NOT clamp to available: inlineSizePx = intrinsic.maxContent.
+    const ib = createElementBox(
+      "ib",
+      { display: "inline-block", inlineSize: "auto" },
+      [createTextBox("t", {}, "a".repeat(80))],
+    );
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const ibBox = findBoxByKeyFragment(out, "ib");
+    expect(ibBox).not.toBeNull();
+    // 800px — uses maxContent directly, no clamping to the 500px container.
+    expect(ibBox?.inlineSize).toBe(800);
+  });
+
+  it("nested inline-block: outer and inner both shrink to their content maxContent", () => {
+    // Inner: "xyz" → 3 chars × 10 = 30px maxContent.
+    // Outer wraps the inner inline-block; outer's maxContent = inner's maxContent = 30px.
+    const inner = createElementBox(
+      "inner",
+      { display: "inline-block", inlineSize: "auto" },
+      [createTextBox("t", {}, "xyz")],
+    );
+    const outer = createElementBox(
+      "outer",
+      { display: "inline-block", inlineSize: "auto" },
+      [inner],
+    );
+    const para = createElementBox("p", { display: "block" }, [outer]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("expected element");
+    const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+
+    const outerBox = findBoxByKeyFragment(out, "outer");
+    expect(outerBox).not.toBeNull();
+    expect(outerBox?.inlineSize).toBe(30);
+
+    const innerBox = findBoxByKeyFragment(out, "inner");
+    expect(innerBox).not.toBeNull();
+    expect(innerBox?.inlineSize).toBe(30);
+  });
+});
