@@ -51,6 +51,7 @@ The work happens in a git worktree, not the main checkout. Every task in this pl
 
 | Task | Subject |
 |---|---|
+| **0** | Schema reservations: typography + pagination Style props (per retrospective D6) |
 | **1** | Define TextShaper interface and types |
 | **2** | Implement `createMockShaper` in core; backwards-compat `TextMeasurer` wrapper |
 | **3** | IFC consumes shaper output: tokenizer + cluster-based line layout (no behavioral change for ASCII LTR; new UAX-14 break-opportunity surface) |
@@ -61,6 +62,226 @@ The work happens in a git worktree, not the main checkout. Every task in this pl
 | **8** | Update all test fixtures: `createMockMeasurer` → `createMockShaper` |
 | **9** | Hyphenation interface reservation (`BreakOpportunity.kind: "hyphen"`); IFC supports hyphen rendering at break-end (no algorithm yet, spec §9.7) |
 | **10** | Smoke test: dev server boots; an Arabic-tagged paragraph (`direction: "rtl"`) renders with cluster-bidi reordering |
+
+---
+
+## Task 0: Schema reservations for typography + pagination
+
+**Files:**
+- Modify: `packages/core/src/styles/style.ts`
+- Modify: `packages/core/src/styles/computed-style.ts`
+- Modify: `packages/core/src/styles/used-style.ts`
+- Modify: `packages/core/src/styles/property-meta.ts`
+- Modify: `packages/core/src/layout/used-style.ts` (`computeUsedStyle`)
+- Modify: tests as needed
+
+Per the Plan 3 retrospective (D6), schema additions are pulled forward
+into Plan 3.C so we don't keep touching `INITIAL_COMPUTED_STYLE` and
+`PROPERTY_META` across multiple later phases. We reserve the values now
+with sensible initials; consumers wire up across Plan 3.G + Plan 4-5.
+
+Properties to add (in order, as listed in Style/ComputedStyle/UsedStyle):
+
+| Property | Style type | ComputedStyle type | UsedStyle type | Initial |
+|---|---|---|---|---|
+| `widows` | number | number | number | 2 |
+| `orphans` | number | number | number | 2 |
+| `textAlign` | `"start" \| "end" \| "center" \| "justify"` | same | same | "start" |
+| `textIndent` | `Length` | `ComputedLength` | `UsedLength` | 0 |
+| `textWrap` | `"wrap" \| "nowrap" \| "balance" \| "pretty" \| "stable"` | same | same | "wrap" |
+| `hyphens` | `"none" \| "manual" \| "auto"` | same | same | "manual" |
+| `letterSpacing` | `Length \| "normal"` | `ComputedLength \| "normal"` | `UsedLength \| "normal"` | "normal" |
+| `wordSpacing` | `Length \| "normal"` | `ComputedLength \| "normal"` | `UsedLength \| "normal"` | "normal" |
+| `textTransform` | `"none" \| "capitalize" \| "uppercase" \| "lowercase"` | same | same | "none" |
+| `fontFeatureSettings` | `string[]` | same | same | [] |
+| `tabSize` | number | number | number | 4 |
+
+**Inheritance** (`PROPERTY_META`):
+- `widows`, `orphans`, `textAlign`, `textIndent`, `textWrap`, `hyphens`,
+  `letterSpacing`, `wordSpacing`, `textTransform`, `fontFeatureSettings`,
+  `tabSize` — ALL inherit (they're text-related, like `font-*`).
+
+**Steps:**
+
+- [ ] **Step 1: Pre-flight check** (worktree + branch, expect HEAD = `db13760` retrospective commit).
+
+- [ ] **Step 2: Update `style.ts`**
+
+Add an "Inline / text" section augment (after the existing `whiteSpace` and
+`verticalAlign` lines) and a "Fragmentation" section augment:
+
+```ts
+  // Text — typography (Plan 3.C reservations; consumers in Plan 3.G + Plan 4)
+  readonly textAlign?:           "start" | "end" | "center" | "justify";
+  readonly textIndent?:          Length;
+  readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  readonly hyphens?:             "none" | "manual" | "auto";
+  readonly letterSpacing?:       Length | "normal";
+  readonly wordSpacing?:         Length | "normal";
+  readonly textTransform?:       "none" | "capitalize" | "uppercase" | "lowercase";
+  readonly fontFeatureSettings?: readonly string[];
+  readonly tabSize?:             number;
+
+  // Fragmentation — additional (Plan 3.C reservations; consumers in Plan 5)
+  readonly widows?:  number;
+  readonly orphans?: number;
+```
+
+(The exact section placement is a judgment call; place each near related properties.)
+
+- [ ] **Step 3: Update `computed-style.ts`**
+
+Mirror Step 2 in `ComputedStyle`. All required (no `?:`). Use `ComputedLength` where Style had `Length`.
+
+```ts
+  textAlign:           "start" | "end" | "center" | "justify";
+  textIndent:          ComputedLength;
+  textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  hyphens:             "none" | "manual" | "auto";
+  letterSpacing:       ComputedLength | "normal";
+  wordSpacing:         ComputedLength | "normal";
+  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  fontFeatureSettings: readonly string[];
+  tabSize:             number;
+
+  widows:  number;
+  orphans: number;
+```
+
+- [ ] **Step 4: Update `used-style.ts`**
+
+Mirror Step 2 in `UsedStyle`. Lengths are `UsedLength` (= number); the
+`"normal"` keyword stays for `letterSpacing`/`wordSpacing`. Real CSS
+resolves `letterSpacing: normal` to a font-derived value at the painter,
+so leaving it as a keyword in UsedStyle is acceptable.
+
+```ts
+  textAlign:           "start" | "end" | "center" | "justify";
+  textIndent:          UsedLength;
+  textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  hyphens:             "none" | "manual" | "auto";
+  letterSpacing:       UsedLength | "normal";
+  wordSpacing:         UsedLength | "normal";
+  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  fontFeatureSettings: readonly string[];
+  tabSize:             number;
+
+  widows:  number;
+  orphans: number;
+```
+
+- [ ] **Step 5: Update `property-meta.ts`**
+
+Add to `PROPERTY_META`:
+
+```ts
+  textAlign:           { inherits: true },
+  textIndent:          { inherits: true },
+  textWrap:            { inherits: true },
+  hyphens:             { inherits: true },
+  letterSpacing:       { inherits: true },
+  wordSpacing:         { inherits: true },
+  textTransform:       { inherits: true },
+  fontFeatureSettings: { inherits: true },
+  tabSize:             { inherits: true },
+
+  widows:  { inherits: true },
+  orphans: { inherits: true },
+```
+
+Add to `INITIAL_COMPUTED_STYLE`:
+
+```ts
+  textAlign:           "start",
+  textIndent:          0,
+  textWrap:            "wrap",
+  hyphens:             "manual",
+  letterSpacing:       "normal",
+  wordSpacing:         "normal",
+  textTransform:       "none",
+  fontFeatureSettings: [],
+  tabSize:             4,
+
+  widows:  2,
+  orphans: 2,
+```
+
+- [ ] **Step 6: Update `computeUsedStyle` in `packages/core/src/layout/used-style.ts`**
+
+Add resolution rows for the new length-typed properties. `letterSpacing` /
+`wordSpacing` need a small helper that handles the `"normal"` keyword:
+
+```ts
+function resolveUsedLengthOrNormal(
+  value: ComputedLength | "normal",
+  containingInlineSize: number,
+): number | "normal" {
+  if (value === "normal") return "normal";
+  if (typeof value === "number") return value;
+  return (value.value / 100) * containingInlineSize;
+}
+```
+
+Then in `computeUsedStyle`:
+```ts
+    textAlign: cs.textAlign,
+    textIndent: resolveUsedLength(cs.textIndent, containingInlineSize, 0),
+    textWrap: cs.textWrap,
+    hyphens: cs.hyphens,
+    letterSpacing: resolveUsedLengthOrNormal(cs.letterSpacing, containingInlineSize),
+    wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),
+    textTransform: cs.textTransform,
+    fontFeatureSettings: cs.fontFeatureSettings,
+    tabSize: cs.tabSize,
+
+    widows: cs.widows,
+    orphans: cs.orphans,
+```
+
+(Note: `textIndent` is `ComputedLength` not `ComputedLengthOrAuto`, so the
+existing `resolveUsedLength` works directly with `0` as the auto fallback.)
+
+- [ ] **Step 7: Update tests**
+
+Search for any test that constructs an `INITIAL_COMPUTED_STYLE`-shaped
+object literal manually (rather than spreading from the constant). Add
+the new properties:
+
+```bash
+grep -rn "marginBlockStart" /Users/hansyu/code/taleweaver/.worktrees/dom-redesign/packages/core/src --include="*.test.ts"
+```
+
+Most test fixtures spread `INITIAL_COMPUTED_STYLE`, so they pick up the
+new defaults automatically. Any test that builds a literal will fail with
+"missing property"; add the new properties.
+
+The `used-style.test.ts` may need updating too (the literal in the
+"accepts fully numeric length values" test).
+
+- [ ] **Step 8: Run all builds + all tests**
+
+```bash
+cd /Users/hansyu/code/taleweaver/.worktrees/dom-redesign && npm run build --workspaces --if-present
+cd /Users/hansyu/code/taleweaver/.worktrees/dom-redesign && npm test --workspace=packages/core
+cd /Users/hansyu/code/taleweaver/.worktrees/dom-redesign && npm test --workspace=packages/dom
+cd /Users/hansyu/code/taleweaver/.worktrees/dom-redesign && npm test --workspace=packages/react
+```
+
+Expected: all clean, all green.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git -C /Users/hansyu/code/taleweaver/.worktrees/dom-redesign add packages/core/src/styles/ packages/core/src/layout/used-style.ts packages/core/src/layout/used-style.test.ts
+git -C /Users/hansyu/code/taleweaver/.worktrees/dom-redesign commit -m "feat(styles): reserve schema for typography + pagination (Plan 3.C Task 0)
+
+Adds widows, orphans, textAlign, textIndent, textWrap, hyphens,
+letterSpacing, wordSpacing, textTransform, fontFeatureSettings, tabSize
+to Style / ComputedStyle / UsedStyle / PROPERTY_META / INITIAL_COMPUTED_STYLE
+with sensible initials. Consumers wire up in Plan 3.G + Plans 4-5.
+Pulled forward per the Plan 3 retrospective (D6) to avoid touching
+INITIAL_COMPUTED_STYLE multiple times across later phases."
+```
 
 ---
 
