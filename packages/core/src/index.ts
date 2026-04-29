@@ -63,7 +63,7 @@ export {
   createElementBox,
   createTextBox,
 } from "./render/render-node";
-export { renderTree } from "./render/render";
+export { renderTree, renderTreeIncremental } from "./render/render";
 
 // Layout tree
 export type {

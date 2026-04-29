@@ -2,7 +2,7 @@ import type { StateNode } from "../../state/state-node";
 import type { Position } from "../../state/position";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
-import { renderTree } from "../../render/render";
+import { renderTreeIncremental } from "../../render/render";
 import { cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import { createCursor } from "../../cursor/selection";
@@ -50,7 +50,17 @@ export function rebuildTrees(
   oldEditor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  const rendered = renderTree(newEditor.state, config.registry);
+  // Use renderTreeIncremental so unchanged subtrees retain reference equality
+  // with `oldEditor.renderTree` (which IS the previously-cascaded tree —
+  // EditorState reuses one field for both because cascade only adds
+  // computedStyle, not different shape). cascadePassIncremental's
+  // `newNode === oldNode` short-circuit then fires for unchanged paragraphs.
+  const rendered = renderTreeIncremental(
+    newEditor.state,
+    oldEditor.state,
+    oldEditor.renderTree,
+    config.registry,
+  );
   const cascaded = cascadePassIncremental(rendered, oldEditor.renderTree, oldEditor.renderTree);
   const layout = layoutTreeIncremental(
     cascaded,
