@@ -60,4 +60,48 @@ describe("layoutTable", () => {
       expect(cell.height).toBe(row.height);
     }
   });
+
+  it("table with no explicit column widths uses auto-layout from per-cell intrinsic sizes", () => {
+    // shaper has charWidth=8: "abc" → minContent=8, maxContent=24
+    //                         "abcde" → minContent=8, maxContent=40
+    // sumMax = 24 + 40 = 64 <= available(200), so each column = colMax.
+    const cell1a = createElementBox("c1a", { display: "table-cell" }, [
+      createTextBox("t1", {}, "abc"),
+    ]);
+    const cell1b = createElementBox("c1b", { display: "table-cell" }, [
+      createTextBox("t2", {}, "abcde"),
+    ]);
+    const row = createElementBox("r", { display: "table-row" }, [cell1a, cell1b]);
+    const table = createElementBox("t", { display: "table" }, [row]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    expect(out.type).toBe("table");
+    expect(out.columnPxWidths).toEqual([24, 40]);
+  });
+
+  it("auto-layout uses colMin widths when table overflows", () => {
+    // shaper charWidth=8: each word has minContent=8 (one char cluster).
+    // "abc" → maxContent=24; "abcde" → maxContent=40.
+    // available=30; sumMin=8+8=16 < 30 < sumMax=64.
+    // slack = 30-16 = 14; totalRange = 64-16 = 48.
+    // col0: min=8, range=16, contribution = 14*(16/48) ≈ 4.67 → 8 + 4.67 ≈ 12.67
+    // col1: min=8, range=32, contribution = 14*(32/48) ≈ 9.33 → 8 + 9.33 ≈ 17.33
+    const cell1a = createElementBox("c2a", { display: "table-cell" }, [
+      createTextBox("t3", {}, "abc"),
+    ]);
+    const cell1b = createElementBox("c2b", { display: "table-cell" }, [
+      createTextBox("t4", {}, "abcde"),
+    ]);
+    const row = createElementBox("r2", { display: "table-row" }, [cell1a, cell1b]);
+    const table = createElementBox("t2", { display: "table" }, [row]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    expect(out.type).toBe("table");
+    // Proportional distribution between colMin and colMax.
+    const [w0, w1] = out.columnPxWidths;
+    expect(w0).toBeCloseTo(8 + 14 * (16 / 48));
+    expect(w1).toBeCloseTo(8 + 14 * (32 / 48));
+  });
 });

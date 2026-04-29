@@ -6,6 +6,7 @@ import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
+import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 
 /**
  * Lay out a `display: table` element with fixed percentage column widths.
@@ -27,15 +28,57 @@ export function layoutTable(
   const direction = ctx.direction;
 
   const meta = node.metadata as { columnWidths?: readonly number[] } | undefined;
-  const columnWidths = meta?.columnWidths;
-  if (!columnWidths || columnWidths.length === 0) {
-    throw new Error("Table requires metadata.columnWidths (array of fractions)");
-  }
+  const explicitColumnWidths = meta?.columnWidths;
 
   const tableUsedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const tableInlineSize = availableInlineSize;
-  const columnPxWidths = columnWidths.map((f) => f * tableInlineSize);
+
+  let columnPxWidths: number[];
+
+  if (explicitColumnWidths && explicitColumnWidths.length > 0) {
+    // Fixed-percentage path: fractions summing to ~1.0.
+    columnPxWidths = explicitColumnWidths.map((f) => f * tableInlineSize);
+  } else {
+    // Auto-layout: compute per-column min/max from per-cell intrinsic sizes,
+    // then distribute the available inline space.
+    const colMins: number[] = [];
+    const colMaxes: number[] = [];
+    const intrinsicCache = ctx.intrinsicCache;
+    for (const rowNode of node.children) {
+      if (rowNode.type !== "element") continue;
+      if (rowNode.computedStyle?.display !== "table-row") continue;
+      let colIdx = 0;
+      for (const cell of rowNode.children) {
+        if (cell.type !== "element") continue;
+        if (cell.computedStyle?.display !== "table-cell") continue;
+        const sizes = computeIntrinsicSizes(cell, shaper, intrinsicCache);
+        colMins[colIdx] = Math.max(colMins[colIdx] ?? 0, sizes.minContent);
+        colMaxes[colIdx] = Math.max(colMaxes[colIdx] ?? 0, sizes.maxContent);
+        colIdx++;
+      }
+    }
+
+    const sumMin = colMins.reduce((s, v) => s + v, 0);
+    const sumMax = colMaxes.reduce((s, v) => s + v, 0);
+    const available = tableInlineSize;
+
+    if (sumMax <= available) {
+      // Table fits comfortably — each column gets its max-content width.
+      columnPxWidths = colMaxes;
+    } else if (sumMin >= available) {
+      // Table overflows even at minimums — each column gets its min-content width.
+      columnPxWidths = colMins;
+    } else {
+      // Distribute proportionally between colMin and colMax.
+      const slack = available - sumMin;
+      const totalRange = sumMax - sumMin;
+      columnPxWidths = colMins.map((min, i) => {
+        const range = (colMaxes[i] ?? 0) - min;
+        return min + (totalRange > 0 ? slack * (range / totalRange) : 0);
+      });
+    }
+  }
 
   let rowBlockOffset = 0;
   const rowBoxes: TableRowBox[] = [];

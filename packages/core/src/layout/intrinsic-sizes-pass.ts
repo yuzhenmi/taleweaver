@@ -47,8 +47,7 @@ function computeUncached(
     case "inline":
       return computeInlineIntrinsicSizes(node, shaper, cache);
     case "table":
-      // TODO Plan 3.D Task 10: implement table intrinsic sizing.
-      return { minContent: 0, maxContent: 0 };
+      return computeTableIntrinsicSizes(node, shaper, cache);
     case "table-row":
     case "none":
     default:
@@ -123,4 +122,34 @@ function computeInlineIntrinsicSizes(
     sum += c.maxContent;
   }
   return { minContent: min, maxContent: sum };
+}
+
+function computeTableIntrinsicSizes(
+  node: ElementBox,
+  shaper: TextShaper,
+  cache: IntrinsicSizesCache,
+): IntrinsicSizes {
+  // Walk rows → cells. For each cell, collect intrinsic sizes.
+  // Per column, colMin = max(cell.min for cells in this column).
+  //              colMax = max(cell.max for cells in this column).
+  // Table min = sum(colMin); table max = sum(colMax).
+
+  const colMins: number[] = [];
+  const colMaxes: number[] = [];
+
+  for (const row of node.children) {
+    if (row.type !== "element" || row.computedStyle?.display !== "table-row") continue;
+    let colIdx = 0;
+    for (const cell of row.children) {
+      if (cell.type !== "element" || cell.computedStyle?.display !== "table-cell") continue;
+      const cellSizes = computeIntrinsicSizes(cell, shaper, cache);
+      colMins[colIdx] = Math.max(colMins[colIdx] ?? 0, cellSizes.minContent);
+      colMaxes[colIdx] = Math.max(colMaxes[colIdx] ?? 0, cellSizes.maxContent);
+      colIdx++;
+    }
+  }
+
+  const tableMin = colMins.reduce((s, v) => s + v, 0);
+  const tableMax = colMaxes.reduce((s, v) => s + v, 0);
+  return { minContent: tableMin, maxContent: tableMax };
 }
