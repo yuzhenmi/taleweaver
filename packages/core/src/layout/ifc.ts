@@ -8,7 +8,6 @@ import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
-import type { FloatEnvironment } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
@@ -230,7 +229,6 @@ export function layoutInlineContent(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-  floatCtx?: FloatEnvironment,
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
@@ -244,10 +242,11 @@ export function layoutInlineContent(
   const ws = parentCs.whiteSpace;
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
+  const floatEnv = ctx.floatEnv;
+
   /** Returns the effective line inlineOffset and inlineSize at a given lineBlockOffset, accounting for floats. */
   function effectiveLineDims(lineBlockOffset: number): { lineInlineCursor: number; lineInlineSize: number } {
-    if (!floatCtx) return { lineInlineCursor: inlineOffset, lineInlineSize: availableInlineSize };
-    const active = floatCtx.availableInlineSizeAt(lineBlockOffset, availableInlineSize);
+    const active = floatEnv.availableInlineSizeAt(lineBlockOffset, availableInlineSize);
     return {
       lineInlineCursor: inlineOffset + active.inlineStartSize,
       lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize,
@@ -464,9 +463,9 @@ export function layoutInlineContent(
 
     // If even an empty line can't fit the token and there are active floats,
     // advance lineBlockOffset past the nearest float bottom and retry (CSS "skip past floats").
-    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0 && floatCtx) {
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
       if (lineInlineSize < availableInlineSize) {
-        const nextClear = floatCtx.clearance("both", lineBlockOffset + 1);
+        const nextClear = floatEnv.clearance("both", lineBlockOffset + 1);
         if (nextClear > lineBlockOffset) {
           lineBlockOffset = nextClear;
           ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));

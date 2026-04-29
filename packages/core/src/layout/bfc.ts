@@ -7,7 +7,6 @@ import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
-import { createFloatEnvironment } from "./float-context";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -49,7 +48,13 @@ export function layoutBlock(
 
   let childBlockOffset = paddingBlockStart;
   const layoutChildren: LayoutBox[] = [];
-  const floatEnv = createFloatEnvironment();
+  // Use the float environment from the context. If this block establishes a new
+  // BFC, makeChildContext (called by our parent) already gave us a fresh env.
+  // If it doesn't, we share the parent's env so floats rise up to the BFC.
+  const floatEnv = ctx.floatEnv;
+  // ctx.isBFCRoot is true when the parent gave this box its OWN fresh float env.
+  // Only a BFC root encloses its floats; non-BFC blocks pass floats to the ancestor BFC.
+  const isOwnBFC = ctx.isBFCRoot;
 
   let prevMarginBlockEnd = 0;
   let listCounter = 0;
@@ -68,8 +73,11 @@ export function layoutBlock(
         children: Object.freeze([...group.children]),
       });
 
+      // Pass floatEnv explicitly via the context: the anonymous IFC element
+      // inherits this block's float env (same BFC), so pass it in ctx.floatEnv.
+      // We create a child context that carries the same floatEnv.
       const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
-      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, floatEnv);
+      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper);
 
       let lineMaxBlockEdge = childBlockOffset;
       for (const line of lines) {
@@ -107,7 +115,9 @@ export function layoutBlock(
       } else {
         floatInlineSizeForCtx = resolveBoxInlineSize(childCs, available, true, child, shaper, ctx);
       }
-      const floatCtxChild = makeChildContext(ctx, cs, floatInlineSizeForCtx, "indefinite");
+      // Float establishes its own BFC (cs.float !== "none"); pass childCs so
+      // makeChildContext detects this and gives the float a fresh float env.
+      const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
       const floatLayout = layoutBlock(child, 0, 0, floatCtxChild, shaper);
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
       const floatInlineSize = floatLayout.width;
@@ -178,7 +188,9 @@ export function layoutBlock(
       }
     }
 
-    const childCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+    // Pass childCs (child's own computed style) so makeChildContext can detect
+    // whether the child establishes a new BFC and create a fresh float env.
+    const childCtx = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
     let childLayout: LayoutBox;
     if (childCs.display === "table") {
       childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
@@ -226,9 +238,16 @@ export function layoutBlock(
   const lastMarginBlockEnd = noBottomBoundary ? 0 : prevMarginBlockEnd;
   const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + paddingBlockEnd;
 
-  // FLOAT ENCLOSURE: BFC's content height includes the lowest float bottom.
-  const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
-  const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
+  // FLOAT ENCLOSURE: only a BFC root encloses its own floats. A non-BFC block
+  // shares the parent BFC's float env — its floats belong to the ancestor BFC,
+  // so this block's height is determined solely by in-flow content.
+  let totalBlockSize: number;
+  if (isOwnBFC) {
+    const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
+    totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
+  } else {
+    totalBlockSize = inFlowBlockSize;
+  }
 
   return createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { makeChildContext, makeRootContext, type LayoutContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { createIntrinsicSizesCache } from "./intrinsic-sizes";
+import { createFloatEnvironment } from "./float-context";
 
 describe("LayoutContext", () => {
   it("makeRootContext from INITIAL_COMPUTED_STYLE", () => {
@@ -19,6 +20,8 @@ describe("LayoutContext", () => {
       containingInlineSize: 800,
       containingBlockSize: "indefinite",
       intrinsicCache: createIntrinsicSizesCache(),
+      floatEnv: createFloatEnvironment(),
+      isBFCRoot: false,
     };
     const childCs = { ...INITIAL_COMPUTED_STYLE, direction: "rtl" as const };
     const child = makeChildContext(parent, childCs, 600, "indefinite");
@@ -26,5 +29,46 @@ describe("LayoutContext", () => {
     expect(child.containingInlineSize).toBe(600);
     // Shared intrinsic-sizes cache must be the same object.
     expect(child.intrinsicCache).toBe(parent.intrinsicCache);
+  });
+
+  it("makeRootContext creates a fresh floatEnv", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 800);
+    expect(ctx.floatEnv).toBeDefined();
+    // Fresh env has no floats; lowestFloatBlockEdge === 0.
+    expect(ctx.floatEnv.lowestFloatBlockEdge()).toBe(0);
+  });
+
+  it("makeChildContext inherits parent floatEnv for non-BFC child (display:block)", () => {
+    const parent: LayoutContext = {
+      writingMode: "horizontal-tb",
+      direction: "ltr",
+      containingInlineSize: 800,
+      containingBlockSize: "indefinite",
+      intrinsicCache: createIntrinsicSizesCache(),
+      floatEnv: createFloatEnvironment(),
+      isBFCRoot: true,
+    };
+    // display:block does NOT establish a new BFC → inherits parent's floatEnv.
+    const blockCs = { ...INITIAL_COMPUTED_STYLE, display: "block" as const };
+    const child = makeChildContext(parent, blockCs, 600, "indefinite");
+    expect(child.floatEnv).toBe(parent.floatEnv);
+    expect(child.isBFCRoot).toBe(false);
+  });
+
+  it("makeChildContext creates fresh floatEnv for flow-root child (BFC establisher)", () => {
+    const parent: LayoutContext = {
+      writingMode: "horizontal-tb",
+      direction: "ltr",
+      containingInlineSize: 800,
+      containingBlockSize: "indefinite",
+      intrinsicCache: createIntrinsicSizesCache(),
+      floatEnv: createFloatEnvironment(),
+      isBFCRoot: true,
+    };
+    // display:flow-root establishes a new BFC → fresh floatEnv.
+    const flowRootCs = { ...INITIAL_COMPUTED_STYLE, display: "flow-root" as const };
+    const child = makeChildContext(parent, flowRootCs, 600, "indefinite");
+    expect(child.floatEnv).not.toBe(parent.floatEnv);
+    expect(child.isBFCRoot).toBe(true);
   });
 });

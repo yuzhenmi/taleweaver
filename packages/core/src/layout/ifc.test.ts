@@ -4,7 +4,6 @@ import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutInlineContent } from "./ifc";
 import { layoutBlock } from "./bfc";
-import { createFloatEnvironment } from "./float-context";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
 import type { ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
@@ -289,9 +288,9 @@ describe("IFC — verticalAlign", () => {
 
 describe("IFC — text wraps around floats", () => {
   it("first lines have reduced width when a left float is active", () => {
-    // Set up a float environment with one left float.
-    const floatCtx = createFloatEnvironment();
-    floatCtx.placeFloat("inline-start", 0, 100, 50, 200);
+    // Pre-populate the root context's float env with one left float.
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    ctx.floatEnv.placeFloat("inline-start", 0, 100, 50, 200);
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -300,9 +299,7 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    // Call layoutInlineContent directly with the floatCtx
-    const cascaded = tree;
-    const lines = layoutInlineContent(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, floatCtx);
+    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
 
     // The first line's content area should start at x=100 (after the float)
     // and have width 100 (200 - 100).
@@ -314,8 +311,8 @@ describe("IFC — text wraps around floats", () => {
   });
 
   it("lines past the float bottom return to full width", () => {
-    const floatCtx = createFloatEnvironment();
-    floatCtx.placeFloat("inline-start", 0, 100, 16, 200);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    ctx.floatEnv.placeFloat("inline-start", 0, 100, 16, 200);
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -323,7 +320,7 @@ describe("IFC — text wraps around floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, floatCtx);
+    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
 
     // Eventually some line is at y >= 16 and uses full width 200.
     const fullWidthLine = lines.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
@@ -352,7 +349,6 @@ describe("IFC — RTL bidi reordering", () => {
       0, 0,
       makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper,
-      createFloatEnvironment(),
     );
 
     expect(lines.length).toBeGreaterThan(0);
@@ -473,7 +469,6 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
-      createFloatEnvironment(),
     );
 
     // Should produce at least 2 lines (the word was split).
@@ -501,7 +496,6 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
-      createFloatEnvironment(),
     );
 
     expect(lines.length).toBeGreaterThanOrEqual(2);

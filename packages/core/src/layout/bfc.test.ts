@@ -460,3 +460,71 @@ describe("BFC — floats", () => {
     }
   });
 });
+
+describe("BFC — float rises to nearest BFC", () => {
+  it("float inside a non-BFC block is visible to siblings via parent BFC", () => {
+    // Layout: flow-root > inner (display:block) > float(100x100)
+    //                   > sibling (display:block, text)
+    // The float is in 'inner', which is NOT a BFC root. The float rises to the
+    // flow-root BFC. The flow-root must enclose the float (height >= 100).
+    const float1 = cascadePass(
+      createElementBox("f1", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 100 }, []),
+    );
+    if (float1.type !== "element") throw new Error("?");
+    const inner = cascadePass(
+      createElementBox("inner", { display: "block" }, [float1]),
+    );
+    if (inner.type !== "element") throw new Error("?");
+    const sibling = cascadePass(
+      createElementBox("sibling", { display: "block" }, [
+        createTextBox("t", {}, "x"),
+      ]),
+    );
+    if (sibling.type !== "element") throw new Error("?");
+    const outer = cascadePass(
+      createElementBox("outer", { display: "flow-root" }, [inner, sibling]),
+    );
+    if (outer.type !== "element") throw new Error("?");
+
+    const out = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (out.type !== "block") throw new Error("?");
+
+    // The flow-root encloses its floats (the float in inner rises to flow-root BFC).
+    expect(out.height).toBeGreaterThanOrEqual(100);
+  });
+
+  it("float inside a flow-root does NOT leak to flow-root's parent BFC", () => {
+    // Layout: outer (display:block, the root BFC)
+    //           > bfc-root (display:flow-root) containing a tall float (300px)
+    //           > after (display:block, text)
+    // The float is scoped to bfc-root; 'after' should NOT be pushed down by it.
+    const tallFloat = cascadePass(
+      createElementBox("tf", { display: "block", float: "inline-start", inlineSize: 50, blockSize: 300 }, []),
+    );
+    if (tallFloat.type !== "element") throw new Error("?");
+    const bfcRoot = cascadePass(
+      createElementBox("bfc", { display: "flow-root", blockSize: 20 }, [tallFloat]),
+    );
+    if (bfcRoot.type !== "element") throw new Error("?");
+    const after = cascadePass(
+      createElementBox("after", { display: "block", blockSize: 20 }, []),
+    );
+    if (after.type !== "element") throw new Error("?");
+    const outer = cascadePass(
+      createElementBox("outer", { display: "block" }, [bfcRoot, after]),
+    );
+    if (outer.type !== "element") throw new Error("?");
+
+    const out = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (out.type !== "block") throw new Error("?");
+
+    // bfc-root has explicit blockSize:20 (truncates float visually, but encloses it for layout);
+    // Actually since bfc-root has explicit blockSize:20, its layout height is 20.
+    // 'after' should start at y=20 (right after bfc-root), not y=300 (not leaked by float).
+    const afterBox = out.children.find((c) => c.type === "block" && c.key === "after");
+    expect(afterBox?.type).toBe("block");
+    if (afterBox?.type === "block") {
+      expect(afterBox.y).toBe(20);
+    }
+  });
+});
