@@ -176,6 +176,65 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
   });
 });
 
+describe("layoutBlock — mixed block + inline children (anonymous box generation)", () => {
+  it("produces line(s) for inline-run groups and a block for block children", () => {
+    const t1 = createTextBox("t1", { display: "inline" }, "intro");
+    const para = createElementBox("p", { display: "block" }, [
+      createTextBox("p-text", { display: "inline" }, "paragraph"),
+    ]);
+    const t2 = createTextBox("t2", { display: "inline" }, "outro");
+    const doc = createElementBox("doc", { display: "block" }, [t1, para, t2]);
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+
+    expect(out.type).toBe("block");
+    if (out.type !== "block") throw new Error();
+
+    // First child should be a line (from anonymous block run for t1).
+    expect(out.children[0].type).toBe("line");
+
+    // There should be a block child for the paragraph.
+    expect(out.children.some(c => c.type === "block" && c.key === "p")).toBe(true);
+
+    // After the paragraph, more line(s) for t2 should appear.
+    const pIndex = out.children.findIndex(c => c.type === "block" && c.key === "p");
+    expect(pIndex).toBeGreaterThan(0);
+    const afterP = out.children.slice(pIndex + 1);
+    expect(afterP.some(c => c.type === "line")).toBe(true);
+  });
+
+  it("a paragraph (all-inline children) still produces line boxes via groupChildren", () => {
+    const tree = createElementBox("p", { display: "block" }, [
+      createTextBox("t", {}, "hello world"),
+    ]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    if (out.type !== "block") throw new Error("?");
+    expect(out.children.length).toBeGreaterThanOrEqual(1);
+    expect(out.children[0].type).toBe("line");
+  });
+
+  it("a document (all-block children) still stacks blocks vertically", () => {
+    const c1 = createElementBox("c1", { display: "block", blockSize: 50 }, []);
+    const c2 = createElementBox("c2", { display: "block", blockSize: 30 }, []);
+    const doc = createElementBox("doc", { display: "block" }, [c1, c2]);
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    if (out.type !== "block") throw new Error("?");
+    expect(out.children).toHaveLength(2);
+    expect(out.children[0].type).toBe("block");
+    expect(out.children[1].type).toBe("block");
+    if (out.children[0].type === "block") expect(out.children[0].y).toBe(0);
+    if (out.children[1].type === "block") expect(out.children[1].y).toBe(50);
+  });
+});
+
 describe("BFC — list-item markers (outside)", () => {
   it("decimal markers count up: 1., 2., 3.", () => {
     const tree = cascadePass(

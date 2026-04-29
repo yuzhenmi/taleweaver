@@ -12,6 +12,7 @@ import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
+import { groupChildren, anonymousBlockKey } from "./group-children";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -46,41 +47,46 @@ export function layoutBlock(
   const finalInlineSize = resolveBoxInlineSize(cs, availableInlineSize, false, node, shaper, ctx);
   const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
 
-  const hasBlockContent = node.children.some(
-    (c) =>
-      c.type === "element" &&
-      (c.computedStyle?.display === "block" ||
-       c.computedStyle?.display === "list-item"),
-  );
-  const hasInlineContent = !hasBlockContent && node.children.some(
-    (c) =>
-      c.type === "text" ||
-      (c.type === "element" &&
-        (c.computedStyle?.display === "inline" || c.computedStyle?.display === "inline-block")),
-  );
-
-  if (hasInlineContent) {
-    const floatCtx = createFloatContext();
-    const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
-    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, ifcCtx, shaper, floatCtx);
-    let lineMaxBlockEdge = paddingBlockStart;
-    for (const line of lines) {
-      if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
-    }
-    const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
-    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, lines,
-      /* containingInlineSize */ availableInlineSize,
-      node.metadata,
-    );
-  }
-
   let childBlockOffset = paddingBlockStart;
   const layoutChildren: LayoutBox[] = [];
   const floatCtx = createFloatContext();
 
   let prevMarginBlockEnd = 0;
   let listCounter = 0;
-  for (const child of node.children) {
+
+  const groups = groupChildren(node);
+
+  for (const group of groups) {
+    if (group.kind === "inline-run") {
+      // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.
+      const anonKey = anonymousBlockKey(node.key, group.positionalIndex);
+      const anonElement: ElementBox = Object.freeze({
+        type: "element" as const,
+        key: anonKey,
+        style: node.style,
+        computedStyle: cs,
+        children: Object.freeze([...group.children]),
+      });
+
+      const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, floatCtx);
+
+      let lineMaxBlockEdge = childBlockOffset;
+      for (const line of lines) {
+        if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
+      }
+      const anonBlockSize = lineMaxBlockEdge - childBlockOffset;
+
+      // Append lines directly to layoutChildren (anonymous boxes are layout-time-only).
+      for (const line of lines) layoutChildren.push(line);
+
+      childBlockOffset += anonBlockSize;
+      prevMarginBlockEnd = 0; // anonymous box has no margin
+      continue;
+    }
+
+    // group.kind === "block"
+    const child = group.child;
     if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
     const childCs = child.computedStyle;
