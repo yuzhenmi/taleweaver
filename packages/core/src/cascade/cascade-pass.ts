@@ -217,28 +217,61 @@ function cascadeNodeIncremental(
   });
 }
 
+const COMPUTED_STYLE_KEYS: readonly (keyof ComputedStyle)[] = [
+  "display",
+  "writingMode", "direction",
+  "inlineSize", "blockSize", "minInlineSize", "minBlockSize", "maxInlineSize", "maxBlockSize",
+  "boxSizing",
+  "marginBlockStart", "marginBlockEnd", "marginInlineStart", "marginInlineEnd",
+  "paddingBlockStart", "paddingBlockEnd", "paddingInlineStart", "paddingInlineEnd",
+  "borderBlockStartWidth", "borderBlockEndWidth", "borderInlineStartWidth", "borderInlineEndWidth",
+  "borderBlockStartStyle", "borderBlockEndStyle", "borderInlineStartStyle", "borderInlineEndStyle",
+  "borderBlockStartColor", "borderBlockEndColor", "borderInlineStartColor", "borderInlineEndColor",
+  "backgroundColor",
+  "fontFamily", "fontSize", "fontWeight", "fontStyle", "textDecoration", "lineHeight", "color",
+  "whiteSpace", "verticalAlign",
+  "float", "clear",
+  "breakBefore", "breakAfter", "breakInside",
+  "listStyleType", "listStylePosition",
+  "textAlign", "textIndent", "textWrap", "hyphens",
+  "letterSpacing", "wordSpacing", "textTransform", "fontFeatureSettings", "tabSize",
+  "widows", "orphans",
+];
+
 /** Shallow structural equality for ComputedStyle (all values are primitives or simple objects). */
-function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {
-  const aRecord = a as unknown as Record<string, unknown>;
-  const bRecord = b as unknown as Record<string, unknown>;
-  const aKeys = Object.keys(aRecord);
-  if (aKeys.length !== Object.keys(bRecord).length) return false;
-  for (const key of aKeys) {
-    const av = aRecord[key];
-    const bv = bRecord[key];
-    if (av !== bv) {
-      // Handle LengthValue objects ({ unit, value })
+export function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {
+  if (a === b) return true;
+  for (const k of COMPUTED_STYLE_KEYS) {
+    const av = a[k];
+    const bv = b[k];
+    if (av === bv) continue;
+
+    // For complex values, compare structurally.
+    if (
+      typeof av === "object" && av !== null &&
+      typeof bv === "object" && bv !== null
+    ) {
+      // Length objects: { unit, value } — compare both fields.
       if (
-        typeof av === "object" && av !== null &&
-        typeof bv === "object" && bv !== null
+        "unit" in av && "value" in av &&
+        "unit" in bv && "value" in bv &&
+        (av as { unit: string; value: number }).unit === (bv as { unit: string; value: number }).unit &&
+        (av as { unit: string; value: number }).value === (bv as { unit: string; value: number }).value
       ) {
-        const ao = av as Record<string, unknown>;
-        const bo = bv as Record<string, unknown>;
-        if (ao["unit"] !== bo["unit"] || ao["value"] !== bo["value"]) return false;
-      } else {
-        return false;
+        continue;
       }
+      // Arrays (e.g., fontFeatureSettings): compare shallowly.
+      if (Array.isArray(av) && Array.isArray(bv)) {
+        if (av.length !== bv.length) return false;
+        let arrEqual = true;
+        for (let i = 0; i < av.length; i++) {
+          if (av[i] !== bv[i]) { arrEqual = false; break; }
+        }
+        if (arrEqual) continue;
+      }
+      return false;
     }
+    return false;
   }
   return true;
 }

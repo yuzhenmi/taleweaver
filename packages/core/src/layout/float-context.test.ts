@@ -50,14 +50,32 @@ describe("FloatEnvironment — CSS 9.5.1 placement", () => {
     expect(env.lowestFloatBlockEdge()).toBe(150);
   });
 
-  it("dirtyBlockOffsetSince: same instance returns +Infinity (no change)", () => {
+  it("dirtyBlockOffsetSince returns +Infinity for same instance", () => {
     const env = createFloatEnvironment();
     expect(env.dirtyBlockOffsetSince(env)).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it("dirtyBlockOffsetSince: different instance returns 0 (full re-wrap)", () => {
-    const env1 = createFloatEnvironment();
-    const env2 = createFloatEnvironment();
-    expect(env1.dirtyBlockOffsetSince(env2)).toBe(0);
+  it("dirtyBlockOffsetSince returns +Infinity for empty equal envs", () => {
+    const a = createFloatEnvironment();
+    const b = createFloatEnvironment();
+    expect(a.dirtyBlockOffsetSince(b)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("dirtyBlockOffsetSince returns lowest differing block-offset", () => {
+    const a = createFloatEnvironment();
+    a.placeFloat("inline-start", 0, 80, 50, 200);
+    a.placeFloat("inline-start", 100, 80, 50, 200);
+    const b = createFloatEnvironment();
+    b.placeFloat("inline-start", 0, 80, 50, 200);
+    // Second float missing from b → diff at block 100.
+    expect(a.dirtyBlockOffsetSince(b)).toBe(100);
+  });
+
+  it("dirtyBlockOffsetSince returns 0 when first float differs", () => {
+    const a = createFloatEnvironment();
+    a.placeFloat("inline-start", 0, 80, 50, 200);
+    const b = createFloatEnvironment();
+    b.placeFloat("inline-start", 0, 100, 50, 200);  // different inline-size
+    expect(a.dirtyBlockOffsetSince(b)).toBe(0);
   });
 });

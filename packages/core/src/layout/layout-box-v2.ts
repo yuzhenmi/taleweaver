@@ -7,13 +7,21 @@ export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBloc
 interface LayoutBoxBase {
   readonly key: string;
 
-  // Logical (FCs read+write these)
+  // PARENT-RELATIVE LOGICAL POSITIONS. inlineOffset and blockOffset are
+  // measured from the parent's content-edge origin. The document root is
+  // placed at (0, 0) relative to nothing.
+  //
+  // Painter, hit-test, and selection-geometry walk the tree accumulating
+  // parent offsets cumulatively (see canvas-renderer.ts:paintBox and
+  // editor/cursor-position.ts:collectTextBoxes for the pattern).
   readonly inlineOffset: number;
   readonly blockOffset:  number;
   readonly inlineSize:   number;
   readonly blockSize:    number;
 
-  // Physical (painter / hit-test / selection-geometry read these)
+  // PARENT-RELATIVE PHYSICAL POSITIONS. Derived from the logical fields via
+  // logicalToPhysical(); `containingInlineSize` is required at factory time
+  // to support RTL inline-axis inversion.
   // In Plan 3.A: derived as identity for LTR; Task 11 adds RTL inversion.
   readonly x: number;
   readonly y: number;

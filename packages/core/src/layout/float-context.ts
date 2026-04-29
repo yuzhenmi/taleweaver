@@ -54,6 +54,9 @@ export interface FloatEnvironment {
    */
   nextFloatBottomBelow(blockOffset: number): number;
 
+  /** For incremental-layout diffing. Returns a frozen reference to the placed floats. */
+  getPlacedFloats(): readonly PlacedFloat[];
+
   /**
    * Forward-compat: returns the lowest block-offset where this environment
    * differs from `prev`. Returns +Infinity when the environments are
@@ -163,14 +166,40 @@ export function createFloatEnvironment(): FloatEnvironment {
       return nextFloatBottomBelow(blockOffset);
     },
 
+    getPlacedFloats() {
+      return placed;
+    },
+
     dirtyBlockOffsetSince(prev) {
-      // Conservative: assume any difference invalidates from the lowest float.
-      // For now (no incremental float reuse), return +Infinity if same instance,
-      // 0 otherwise (forces full re-wrap on any float-env difference).
       if (prev === this) return Number.POSITIVE_INFINITY;
-      return 0;
+
+      const prevFloats = prev.getPlacedFloats();
+      const currFloats = placed;
+
+      // Find lowest block-offset where the two arrays differ in any float's placement.
+      let minDirtyBlock = Number.POSITIVE_INFINITY;
+
+      const maxLen = Math.max(prevFloats.length, currFloats.length);
+      for (let i = 0; i < maxLen; i++) {
+        const p = prevFloats[i];
+        const c = currFloats[i];
+        if (!p || !c || !floatsEqual(p, c)) {
+          const blockOffset = (p?.blockOffset ?? c?.blockOffset ?? 0);
+          if (blockOffset < minDirtyBlock) minDirtyBlock = blockOffset;
+        }
+      }
+
+      return minDirtyBlock;
     },
   };
+}
+
+function floatsEqual(a: PlacedFloat, b: PlacedFloat): boolean {
+  return a.side === b.side
+    && a.inlineOffset === b.inlineOffset
+    && a.blockOffset === b.blockOffset
+    && a.inlineSize === b.inlineSize
+    && a.blockSize === b.blockSize;
 }
 
 // Backwards-compat aliases (sunset path). Marked deprecated; remove in a future plan.
