@@ -14,6 +14,7 @@ import type { LayoutContext } from "./layout-context";
 import { makeRootContext } from "./layout-context";
 import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
+import { findChangePoint } from "./wrap-incremental";
 
 interface Token {
   /** Stable identifier for this token. Format: "{sourceKey}:{offset}" for text tokens
@@ -65,6 +66,16 @@ interface WrapUnit {
   inlineAncestors: readonly string[];
   /** Ancestor styles from the first token in this unit (parallel to inlineAncestors). */
   inlineAncestorStyles: readonly ComputedStyle[];
+  /**
+   * Index of the first token (in the flat tokens array) that this unit represents.
+   * Used to compute per-line token ranges for incremental-wrap cache metadata.
+   */
+  tokenStartIdx: number;
+  /**
+   * Index of the last token (in the flat tokens array) that this unit represents.
+   * Usually tokenStartIdx or tokenStartIdx+1 (for a word + trailing space unit).
+   */
+  tokenEndIdx: number;
 }
 
 /**
@@ -286,6 +297,19 @@ export function layoutInlineContent(
   const tokens: Token[] = [];
   collectInlineTokens(parent.children, [], [], shaper, direction, tokens, ctx.intrinsicCache);
 
+  // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
+  // changed since the last layout, reuse the cached lines (no re-wrap needed).
+  const prevState = ctx.ifcStateCache.get(parent.key);
+  if (prevState !== undefined && prevState.availableInlineSize === availableInlineSize) {
+    if (findChangePoint(prevState.tokens, tokens) === -1) {
+      return Array.from(prevState.lines);
+    }
+  }
+
+  // Per-line token-range metadata for incremental re-wrap (Plan 3.G Task 4+).
+  // Keyed by the LineBox object (via WeakMap) so it doesn't prevent GC.
+  const lineMeta = new WeakMap<LineBox, { startTokenIdx: number; endTokenIdx: number }>();
+
   // Group tokens into wrap units: non-space + optional trailing space (same source)
   // LINE_BREAK tokens become standalone units with isLineBreak: true.
   const units: WrapUnit[] = [];
@@ -300,6 +324,8 @@ export function layoutInlineContent(
         isLineBreak: true,
         inlineAncestors: tok.inlineAncestors,
         inlineAncestorStyles: tok.inlineAncestorStyles,
+        tokenStartIdx: i,
+        tokenEndIdx: i,
       });
       i++;
       continue;
@@ -312,6 +338,7 @@ export function layoutInlineContent(
     // Non-space: collect it + optional trailing space from same source
     const unit: Token[] = [tok];
     let w = tok.width;
+    const unitStartIdx = i;
     if (i + 1 < tokens.length && tokens[i + 1].isSpace && tokens[i + 1].sourceKey === tok.sourceKey) {
       unit.push(tokens[i + 1]);
       w += tokens[i + 1].width;
@@ -326,6 +353,8 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: tok.inlineAncestors,
       inlineAncestorStyles: tok.inlineAncestorStyles,
+      tokenStartIdx: unitStartIdx,
+      tokenEndIdx: i - 1,
     });
   }
 
@@ -336,6 +365,9 @@ export function layoutInlineContent(
   let currentWidth = 0;
   let lineIndex = 0;
   let pendingHyphen: HyphenBreak | null = null;
+  // Track the first and last token index for the units accumulated on the current line.
+  let currentLineStartTokenIdx = -1;
+  let currentLineEndTokenIdx = -1;
 
   /**
    * Try to split `unit` at a hyphen break opportunity so that the prefix
@@ -420,6 +452,9 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: unit.inlineAncestors,
       inlineAncestorStyles: unit.inlineAncestorStyles,
+      // Prefix occupies the same original token start; the split doesn't advance past the token.
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenStartIdx,
     };
 
     // Suffix unit: include trailing space tokens from the original unit (if any).
@@ -432,6 +467,9 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: unit.inlineAncestors,
       inlineAncestorStyles: unit.inlineAncestorStyles,
+      // Suffix still starts at the same original token (it's a sub-token split).
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenEndIdx,
     };
 
     const hyphenBreak: HyphenBreak = {
@@ -444,6 +482,46 @@ export function layoutInlineContent(
     return [prefixUnit, suffixUnit, hyphenBreak];
   }
 
+  /**
+   * Flush the current accumulated units into a line, record its token-range
+   * metadata, and reset accumulation state.
+   */
+  function flushLine(
+    lineInlineCursor: number,
+    lineInlineSize: number,
+    hyphen: HyphenBreak | null,
+  ): LineBox {
+    const line = buildLineWithFragments(
+      parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
+      currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
+      hyphen, shaper,
+    );
+    if (currentLineStartTokenIdx >= 0) {
+      lineMeta.set(line, {
+        startTokenIdx: currentLineStartTokenIdx,
+        endTokenIdx: currentLineEndTokenIdx,
+      });
+    }
+    lines.push(line);
+    lineBlockOffset += line.height;
+    currentUnits = [];
+    currentWidth = 0;
+    pendingHyphen = null;
+    currentLineStartTokenIdx = -1;
+    currentLineEndTokenIdx = -1;
+    return line;
+  }
+
+  /**
+   * Push a unit onto the current line, updating token-range tracking.
+   */
+  function pushUnit(unit: WrapUnit): void {
+    if (currentLineStartTokenIdx < 0) currentLineStartTokenIdx = unit.tokenStartIdx;
+    currentLineEndTokenIdx = unit.tokenEndIdx;
+    currentUnits.push(unit);
+    currentWidth += unit.totalWidth;
+  }
+
   // Units queue: we may inject split suffix units back into the front.
   let unitQueue: WrapUnit[] = [...units];
   let uqi = 0;
@@ -454,12 +532,7 @@ export function layoutInlineContent(
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
-      lines.push(line);
-      lineBlockOffset += line.height;
-      currentUnits = [];
-      currentWidth = 0;
-      pendingHyphen = null;
+      flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
       continue;
     }
 
@@ -473,14 +546,8 @@ export function layoutInlineContent(
       if (split !== null) {
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
         // Add the prefix to the current line, then flush with hyphen.
-        currentUnits.push(prefixUnit);
-        currentWidth += prefixUnit.totalWidth;
-        const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, hyphenBreak, shaper);
-        lines.push(line);
-        lineBlockOffset += line.height;
-        currentUnits = [];
-        currentWidth = 0;
-        pendingHyphen = null;
+        pushUnit(prefixUnit);
+        flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
         // Recompute dims and push the suffix unit back as next to process.
         ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
         // Insert suffix at the current position so it's processed next.
@@ -488,12 +555,7 @@ export function layoutInlineContent(
         continue;
       }
       // No hyphen split possible — normal word wrap.
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
-      lines.push(line);
-      lineBlockOffset += line.height;
-      currentUnits = [];
-      currentWidth = 0;
-      pendingHyphen = null;
+      flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
       // Recompute dims for the new line position
       ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
     }
@@ -525,31 +587,48 @@ export function layoutInlineContent(
       const split = tryHyphenSplit(unit, available);
       if (split !== null) {
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
-        currentUnits.push(prefixUnit);
-        currentWidth += prefixUnit.totalWidth;
-        const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, hyphenBreak, shaper);
-        lines.push(line);
-        lineBlockOffset += line.height;
-        currentUnits = [];
-        currentWidth = 0;
-        pendingHyphen = null;
+        pushUnit(prefixUnit);
+        flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
         ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
     }
 
-    currentUnits.push(unit);
-    currentWidth += unit.totalWidth;
+    pushUnit(unit);
   }
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
-    lines.push(line);
+    flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
   }
 
-  return assignFragmentEdges(lines);
+  const result = assignFragmentEdges(lines);
+
+  // `assignFragmentEdges` creates new frozen objects for each line. Copy
+  // lineMeta from the original LineBox objects to the post-correction ones so
+  // that incremental-wrap convergence detection can find metadata on the
+  // cached lines.
+  const resultLines: LineBox[] = [];
+  for (let ri = 0; ri < result.length; ri++) {
+    const box = result[ri];
+    if (box.type !== "line") continue;
+    const originalLine = lines[ri];
+    if (originalLine !== undefined && originalLine.type === "line") {
+      const meta = lineMeta.get(originalLine);
+      if (meta !== undefined) lineMeta.set(box, meta);
+    }
+    resultLines.push(box);
+  }
+
+  // Save wrap state to cache for subsequent incremental re-wraps.
+  ctx.ifcStateCache.set(parent.key, {
+    tokens,
+    lines: resultLines,
+    availableInlineSize,
+  });
+
+  return result;
 }
 
 function applyVerticalAlign(children: readonly LayoutBox[], lineBlockSize: number): LayoutBox[] {

@@ -4,6 +4,8 @@ import { createIntrinsicSizesCache } from "./intrinsic-sizes";
 import type { FloatEnvironment } from "./float-context";
 import { createFloatEnvironment } from "./float-context";
 import { establishesNewBFC } from "./bfc-establishment";
+import type { IFCStateCache } from "./ifc-state";
+import { createIFCStateCache } from "./ifc-state";
 
 /**
  * Layout context for a node being laid out. Carries the writing-mode,
@@ -22,6 +24,8 @@ export interface LayoutContext {
   readonly containingBlockSize:  number | "indefinite";
   /** Shared per-render-node cache for intrinsic sizes, reused across the whole layout pass. */
   readonly intrinsicCache: IntrinsicSizesCache;
+  /** Shared per-paragraph cache for IFC wrap state (tokens + lines), reused across the whole layout pass. */
+  readonly ifcStateCache: IFCStateCache;
   /**
    * The nearest ancestor BFC's float environment. Floats are registered here
    * and siblings query it to wrap text around them.
@@ -75,6 +79,7 @@ export function makeChildContext(
     containingInlineSize: contentInlineSize,
     containingBlockSize:  contentBlockSize,
     intrinsicCache: parent.intrinsicCache,
+    ifcStateCache: parent.ifcStateCache,
     floatEnv,
     isBFCRoot,
   };
@@ -95,6 +100,7 @@ export function makeRootContext(
     containingInlineSize: containerInlineSize,
     containingBlockSize:  "indefinite",
     intrinsicCache: createIntrinsicSizesCache(),
+    ifcStateCache: createIFCStateCache(),
     // The document root is always a BFC root; it always gets a fresh float env.
     floatEnv: createFloatEnvironment(),
     isBFCRoot: true,

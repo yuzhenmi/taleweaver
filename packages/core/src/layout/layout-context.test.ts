@@ -3,6 +3,7 @@ import { makeChildContext, makeRootContext, type LayoutContext } from "./layout-
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { createIntrinsicSizesCache } from "./intrinsic-sizes";
 import { createFloatEnvironment } from "./float-context";
+import { createIFCStateCache } from "./ifc-state";
 
 describe("LayoutContext", () => {
   it("makeRootContext from INITIAL_COMPUTED_STYLE", () => {
@@ -20,6 +21,7 @@ describe("LayoutContext", () => {
       containingInlineSize: 800,
       containingBlockSize: "indefinite",
       intrinsicCache: createIntrinsicSizesCache(),
+      ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: false,
     };
@@ -29,6 +31,8 @@ describe("LayoutContext", () => {
     expect(child.containingInlineSize).toBe(600);
     // Shared intrinsic-sizes cache must be the same object.
     expect(child.intrinsicCache).toBe(parent.intrinsicCache);
+    // Shared IFC state cache must be the same object.
+    expect(child.ifcStateCache).toBe(parent.ifcStateCache);
   });
 
   it("makeRootContext creates a fresh floatEnv", () => {
@@ -45,6 +49,7 @@ describe("LayoutContext", () => {
       containingInlineSize: 800,
       containingBlockSize: "indefinite",
       intrinsicCache: createIntrinsicSizesCache(),
+      ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: true,
     };
@@ -62,6 +67,7 @@ describe("LayoutContext", () => {
       containingInlineSize: 800,
       containingBlockSize: "indefinite",
       intrinsicCache: createIntrinsicSizesCache(),
+      ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: true,
     };
