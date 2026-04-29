@@ -151,6 +151,41 @@ depends on measurement data:
 
 ## Findings (added during execution)
 
+### F3K.D — Even idle, 1000p browser tab is unusable
+
+**Discovered:** during Plan 3.K.2 Task 2 measurement (2026-04-29).
+
+**What:** With Tasks 1+2 landed, the engine's per-keystroke and per-cursor
+work at 1000 paragraphs are within order of an order of the < 16ms target.
+But the browser tab itself is unusable — even at idle, with no input,
+the page consumes enough resources that the user reported it "constantly
+requires a lot of resources to maintain". Killing the tab restored the
+machine.
+
+**Root cause:** F3K.A consequence — at 1000 paragraphs, the canvas
+backing buffer is 1632 × 27184 = ~44M pixels = ~177MB at 4 bytes/px.
+Browser bookkeeping (compositor tiling, scroll anchoring, GPU memory
+pressure) is continuous regardless of JS activity.
+
+**Implication:** browser-based perf measurement at ≥1000p is impractical
+on the current architecture. Even successful algorithmic O(1) wouldn't
+help — the browser overhead lives below our JS code.
+
+**Adjusted Plan 3.K.2 measurement strategy:** future browser
+measurements use 100p / 500p fixtures only (under the canvas-overflow
+threshold). Engine-side scaling beyond 500p is inferred from the linear
+trends visible in those small fixtures plus engine-only test harnesses
+that don't render to a live canvas.
+
+**Architectural implication:** canvas tiling / virtual scrolling /
+pagination must land before the engine can be tested at the user's
+target scale (10K paragraphs / hundreds of pages). This was Plan 5's
+deliverable; pulling it forward as a hard prerequisite for the perf
+goal. Plan 3.K may need a 3.K.3 or this may move directly to Plan 5
+beginning.
+
+**Tracking:** track alongside F3K.A.
+
 ### F3K.A — Canvas height overflow above ~800 paragraphs
 
 **Discovered:** during Plan 3.K.1 Task 2 smoke-test (commit `3b94269`).
