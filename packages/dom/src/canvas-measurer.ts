@@ -35,7 +35,12 @@ export function createCanvasMeasurer(
     },
 
     measureHeight(style: Readonly<ComputedStyle>): number {
-      return (style.lineHeight as number) * (style.fontSize as number);
+      const lh = style.lineHeight;
+      const resolvedLineHeight =
+        typeof lh === "number"
+          ? lh * style.fontSize
+          : (lh.value / 100) * style.fontSize;
+      return resolvedLineHeight;
     },
   };
 }

@@ -2,7 +2,7 @@
 
 // Styles
 export type {
-  Style, ComputedStyle, Length, LengthOrAuto, Color,
+  Style, ComputedStyle, UsedStyle, Length, LengthOrAuto, Color,
   Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
   WhiteSpace, VerticalAlign, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,

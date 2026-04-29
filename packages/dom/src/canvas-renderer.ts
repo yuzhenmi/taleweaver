@@ -1,4 +1,4 @@
-import type { LayoutBox, SelectionRect, ComputedStyle, BorderStyle, Color } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect, ComputedStyle, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
 
@@ -6,23 +6,27 @@ interface PhysicalBorderSides {
   topWidth: number; rightWidth: number; bottomWidth: number; leftWidth: number;
   topStyle: BorderStyle; rightStyle: BorderStyle; bottomStyle: BorderStyle; leftStyle: BorderStyle;
   topColor: Color; rightColor: Color; bottomColor: Color; leftColor: Color;
+  topPadding: number; rightPadding: number; bottomPadding: number; leftPadding: number;
 }
 
-function physicalSides(cs: Readonly<ComputedStyle>): PhysicalBorderSides {
+function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSides {
   // Plan 3.A: horizontal-tb only.
   // LTR: blockStart=top, blockEnd=bottom, inlineStart=left, inlineEnd=right.
   // RTL: blockStart=top, blockEnd=bottom, inlineStart=right, inlineEnd=left.
-  const isRtl = cs.direction === "rtl";
+  const isRtl = us.direction === "rtl";
   return {
-    topWidth: cs.borderBlockStartWidth, bottomWidth: cs.borderBlockEndWidth,
-    leftWidth: isRtl ? cs.borderInlineEndWidth : cs.borderInlineStartWidth,
-    rightWidth: isRtl ? cs.borderInlineStartWidth : cs.borderInlineEndWidth,
-    topStyle: cs.borderBlockStartStyle, bottomStyle: cs.borderBlockEndStyle,
-    leftStyle: isRtl ? cs.borderInlineEndStyle : cs.borderInlineStartStyle,
-    rightStyle: isRtl ? cs.borderInlineStartStyle : cs.borderInlineEndStyle,
-    topColor: cs.borderBlockStartColor, bottomColor: cs.borderBlockEndColor,
-    leftColor: isRtl ? cs.borderInlineEndColor : cs.borderInlineStartColor,
-    rightColor: isRtl ? cs.borderInlineStartColor : cs.borderInlineEndColor,
+    topWidth: us.borderBlockStartWidth, bottomWidth: us.borderBlockEndWidth,
+    leftWidth: isRtl ? us.borderInlineEndWidth : us.borderInlineStartWidth,
+    rightWidth: isRtl ? us.borderInlineStartWidth : us.borderInlineEndWidth,
+    topStyle: us.borderBlockStartStyle, bottomStyle: us.borderBlockEndStyle,
+    leftStyle: isRtl ? us.borderInlineEndStyle : us.borderInlineStartStyle,
+    rightStyle: isRtl ? us.borderInlineStartStyle : us.borderInlineEndStyle,
+    topColor: us.borderBlockStartColor, bottomColor: us.borderBlockEndColor,
+    leftColor: isRtl ? us.borderInlineEndColor : us.borderInlineStartColor,
+    rightColor: isRtl ? us.borderInlineStartColor : us.borderInlineEndColor,
+    topPadding: us.paddingBlockStart, bottomPadding: us.paddingBlockEnd,
+    leftPadding: isRtl ? us.paddingInlineEnd : us.paddingInlineStart,
+    rightPadding: isRtl ? us.paddingInlineStart : us.paddingInlineEnd,
   };
 }
 
@@ -124,6 +128,7 @@ function paintBox(
   if (absY + box.height < visibleTop || absY > visibleBottom) return;
 
   const cs = box.computedStyle;
+  const us = box.usedStyle;
 
   if (box.type === "text-run") {
     const fontStr = buildCssFontString(cs);
@@ -132,9 +137,8 @@ function paintBox(
       state.lastFont = fontStr;
     }
     ctx.fillStyle = cs.color;
-    const fontSize = cs.fontSize as number;
-    const lineHeightMultiplier = cs.lineHeight as number;
-    const lineHeight = lineHeightMultiplier * fontSize;
+    const fontSize = cs.fontSize;
+    const lineHeight = us.lineHeight;
     const halfLeading = (lineHeight - fontSize) / 2;
     ctx.fillText(box.text, absX, absY + halfLeading);
     if (cs.textDecoration === "underline") {
@@ -151,9 +155,8 @@ function paintBox(
       state.lastFont = fontStr;
     }
     ctx.fillStyle = cs.color;
-    const fontSize = cs.fontSize as number;
-    const lineHeightMultiplier = cs.lineHeight as number;
-    const lineHeight = lineHeightMultiplier * fontSize;
+    const fontSize = cs.fontSize;
+    const lineHeight = us.lineHeight;
     const halfLeading = (lineHeight - fontSize) / 2;
     ctx.fillText(box.text, absX, absY + halfLeading);
     return;
@@ -166,7 +169,7 @@ function paintBox(
       ctx.fillRect(absX, absY, box.width, box.height);
     }
     // Borders
-    paintBorders(ctx, cs, absX, absY, box.width, box.height);
+    paintBorders(ctx, us, absX, absY, box.width, box.height);
     // Image content
     if (box.metadata?.image) {
       const img = box.metadata.image as { src: string; width: number; height: number };
@@ -206,7 +209,7 @@ function paintBox(
     }
 
     // Borders: edge-aware
-    paintInlineBorders(ctx, cs, absX, absY, box.width, box.height, box.fragmentEdge);
+    paintInlineBorders(ctx, us, absX, absY, box.width, box.height, box.fragmentEdge);
 
     // Recurse
     for (const child of box.children) {
@@ -230,7 +233,7 @@ function paintBox(
       ctx.fillRect(absX, absY, box.width, box.height);
     }
     // Borders
-    paintBorders(ctx, cs, absX, absY, box.width, box.height);
+    paintBorders(ctx, us, absX, absY, box.width, box.height);
     // Recurse into cell content
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
@@ -243,13 +246,13 @@ function paintBox(
 
 function paintBorders(
   ctx: CanvasRenderingContext2D,
-  cs: Readonly<ComputedStyle>,
+  us: Readonly<UsedStyle>,
   x: number,
   y: number,
   w: number,
   h: number,
 ): void {
-  const sides = physicalSides(cs);
+  const sides = physicalBorderSides(us);
   if (sides.topWidth > 0 && sides.topStyle !== "none") {
     ctx.fillStyle = sides.topColor;
     ctx.fillRect(x, y, w, sides.topWidth);
@@ -270,14 +273,14 @@ function paintBorders(
 
 function paintInlineBorders(
   ctx: CanvasRenderingContext2D,
-  cs: Readonly<ComputedStyle>,
+  us: Readonly<UsedStyle>,
   x: number,
   y: number,
   w: number,
   h: number,
   edge: "first" | "middle" | "last" | "only",
 ): void {
-  const sides = physicalSides(cs);
+  const sides = physicalBorderSides(us);
   const drawTop    = sides.topWidth > 0    && sides.topStyle !== "none";
   const drawBottom = sides.bottomWidth > 0 && sides.bottomStyle !== "none";
   const drawLeft   = (edge === "first" || edge === "only") && sides.leftWidth > 0  && sides.leftStyle !== "none";
