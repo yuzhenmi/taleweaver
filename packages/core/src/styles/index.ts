@@ -1,4 +1,8 @@
-export type { Length, LengthOrAuto } from "./length";
+export type {
+  Length, LengthOrAuto,
+  ComputedLength, ComputedLengthOrAuto,
+  UsedLength, UsedLengthOrAuto,
+} from "./length";
 export type { Color } from "./color";
 export type {
   Style,
