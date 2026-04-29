@@ -78,6 +78,9 @@ export {
 } from "./layout/layout-node";
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer } from "./layout/text-measurer";
+export type {
+  TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
+} from "./layout/text-shaper";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 
