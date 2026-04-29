@@ -151,40 +151,58 @@ depends on measurement data:
 
 ## Findings (added during execution)
 
-### F3K.D — Even idle, 1000p browser tab is unusable
+### F3K.D — Browser tab unusable at 1000p (root cause unconfirmed)
 
 **Discovered:** during Plan 3.K.2 Task 2 measurement (2026-04-29).
 
-**What:** With Tasks 1+2 landed, the engine's per-keystroke and per-cursor
-work at 1000 paragraphs are within order of an order of the < 16ms target.
-But the browser tab itself is unusable — even at idle, with no input,
-the page consumes enough resources that the user reported it "constantly
-requires a lot of resources to maintain". Killing the tab restored the
-machine.
+**What:** With Tasks 1+2 landed, the user reported the browser tab
+became unusable while running typed-input scenarios at 1000 paragraphs;
+killing the tab restored the machine. The user further noted that paint
+is already viewport-culled (`paintBox` early-returns out-of-viewport
+boxes), so paint *drawing* doesn't scale with doc size — meaning canvas
+virtualization is **not** on the critical path the way an earlier
+revision of this entry claimed.
 
-**Root cause:** F3K.A consequence — at 1000 paragraphs, the canvas
-backing buffer is 1632 × 27184 = ~44M pixels = ~177MB at 4 bytes/px.
-Browser bookkeeping (compositor tiling, scroll anchoring, GPU memory
-pressure) is continuous regardless of JS activity.
+**Plausible causes (unverified):**
 
-**Implication:** browser-based perf measurement at ≥1000p is impractical
-on the current architecture. Even successful algorithmic O(1) wouldn't
-help — the browser overhead lives below our JS code.
+1. **Canvas backing buffer.** At 1000p the canvas is ~177MB
+   (1632 × 27184 × 4 bytes). Compositor tiling and GPU memory pressure
+   continue even when paint is short-circuited. **Strength of evidence:**
+   anecdotal — based on the canvas-overflow threshold from F3K.A. Not
+   verified with browser memory profiling.
+
+2. **LayoutBox tree memory pressure.** 1000 paragraphs × ~15-20 boxes per
+   paragraph = 15-20K immutable LayoutBox objects, each carrying frozen
+   ComputedStyle + UsedStyle. Estimated ~50MB of GC-managed objects.
+   GC pauses and heap traversal during state changes could feel heavy.
+
+3. **`React.Profiler` wrapper around EditorView.** The Profiler component
+   captures fiber stats per render; deep React subtrees may be expensive
+   to walk regardless of how cheap the actual paint is.
+
+4. **Vite HMR / dev-server overhead** at high module counts.
+
+5. **`walkAndDetectChanges` per keystroke.** Even with the root
+   short-circuit, edits change the layout-tree root reference, forcing
+   a per-box hash walk at ~7μs × 15K boxes = ~100ms / keystroke. Task 3
+   (layoutTreeIncremental) preserving root reference equality on
+   unchanged-children edits would close this.
+
+**Strategy going forward:** stay on the Plan 3.K.2 task list. Task 3
+(layoutTreeIncremental incremental fix) will preserve root reference
+equality across edits where only one paragraph changed, which means the
+per-keystroke walk re-fires the root short-circuit — eliminating the
+per-keystroke `paint.walk` cost too. After Task 3 lands, if 1000p is
+still heavy at idle, investigate the freeze cause with Chrome devtools
+performance panel (not JS-side instrumentation) to discriminate among
+causes 1-4 above.
 
 **Adjusted Plan 3.K.2 measurement strategy:** future browser
-measurements use 100p / 500p fixtures only (under the canvas-overflow
-threshold). Engine-side scaling beyond 500p is inferred from the linear
-trends visible in those small fixtures plus engine-only test harnesses
-that don't render to a live canvas.
+measurements use 100p / 500p fixtures only (engine remains responsive
+below the F3K.A canvas-overflow threshold). Engine-side scaling beyond
+500p is inferred from linear trends visible in small fixtures.
 
-**Architectural implication:** canvas tiling / virtual scrolling /
-pagination must land before the engine can be tested at the user's
-target scale (10K paragraphs / hundreds of pages). This was Plan 5's
-deliverable; pulling it forward as a hard prerequisite for the perf
-goal. Plan 3.K may need a 3.K.3 or this may move directly to Plan 5
-beginning.
-
-**Tracking:** track alongside F3K.A.
+**Tracking:** observe; revisit after Task 3.
 
 ### F3K.A — Canvas height overflow above ~800 paragraphs
 
