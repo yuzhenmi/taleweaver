@@ -77,7 +77,8 @@ export {
   createTextRunBox,
 } from "./layout/layout-node";
 export type { TextMeasurer } from "./layout/text-measurer";
-export { createMockMeasurer } from "./layout/text-measurer";
+export { createMockMeasurer, adaptShaperToMeasurer } from "./layout/text-measurer";
+export { createMockShaper } from "./layout/mock-shaper";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";
