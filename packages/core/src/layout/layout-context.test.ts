@@ -24,6 +24,8 @@ describe("LayoutContext", () => {
       ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: false,
+      prevLayoutCache: null,
+      prevFloatEnv: null,
     };
     const childCs = { ...INITIAL_COMPUTED_STYLE, direction: "rtl" as const };
     const child = makeChildContext(parent, childCs, 600, "indefinite");
@@ -52,6 +54,8 @@ describe("LayoutContext", () => {
       ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: true,
+      prevLayoutCache: null,
+      prevFloatEnv: null,
     };
     // display:block does NOT establish a new BFC → inherits parent's floatEnv.
     const blockCs = { ...INITIAL_COMPUTED_STYLE, display: "block" as const };
@@ -70,6 +74,8 @@ describe("LayoutContext", () => {
       ifcStateCache: createIFCStateCache(),
       floatEnv: createFloatEnvironment(),
       isBFCRoot: true,
+      prevLayoutCache: null,
+      prevFloatEnv: null,
     };
     // display:flow-root establishes a new BFC → fresh floatEnv.
     const flowRootCs = { ...INITIAL_COMPUTED_STYLE, display: "flow-root" as const };
