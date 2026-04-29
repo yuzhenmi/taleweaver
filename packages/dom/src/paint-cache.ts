@@ -75,10 +75,17 @@ export interface PaintCache {
   set(box: LayoutBox, hash: PaintInputHash): void;
   /** Returns true if the cached hash matches the current input hash. */
   isUnchanged(box: LayoutBox): boolean;
+  /** Returns true if the cached hash matches the current input hash. */
+  clear(): void;
+  /** Get the root of the last walked tree, or null if no walk has happened. */
+  getLastRoot(): LayoutBox | null;
+  /** Record the root of the just-walked tree. Pass null to clear. */
+  setLastRoot(root: LayoutBox | null): void;
 }
 
 export function createPaintCache(): PaintCache {
   const map = new WeakMap<LayoutBox, PaintInputHash>();
+  let lastRoot: LayoutBox | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -91,6 +98,16 @@ export function createPaintCache(): PaintCache {
       if (cached === undefined) return false;
       const current = hashPaintInputs(box);
       return cached === current;
+    },
+    clear() {
+      lastRoot = null;
+      // WeakMap entries auto-clear when keys are GC'd
+    },
+    getLastRoot() {
+      return lastRoot;
+    },
+    setLastRoot(r) {
+      lastRoot = r;
     },
   };
 }

@@ -79,7 +79,8 @@ export function paintCanvas(
   if (cache) {
     // Incremental path: detect changes, clear only dirty regions.
     const dirty: Rect[] = [];
-    walkAndDetectChanges(layoutTree, 0, 0, cache, dirty);
+    walkAndDetectChanges(layoutTree, 0, 0, cache, dirty, true);
+    cache.setLastRoot(layoutTree);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
@@ -170,7 +171,8 @@ export function paintPage(
   if (cache) {
     // Incremental path.
     const dirty: Rect[] = [];
-    walkAndDetectChanges(pageBox, 0, 0, cache, dirty);
+    walkAndDetectChanges(pageBox, 0, 0, cache, dirty, true);
+    cache.setLastRoot(pageBox);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
@@ -266,9 +268,22 @@ function walkAndDetectChanges(
   parentY: number,
   cache: PaintCache,
   dirty: Rect[],
+  isRoot: boolean = false,
 ): void {
   const t = markStart("paint.walk");
   try {
+  // Root short-circuit: when the entire layout tree is reference-equal to
+  // the previously walked root, no LayoutBox in the tree can have changed
+  // (Plan 3.H subtree-reuse machinery guarantees that subtrees with the
+  // same reference have the same content). Skip the entire walk.
+  //
+  // This is the difference between O(N-boxes) and O(1) on cursor moves:
+  // when cursor changes don't touch the layout tree, the new tree is
+  // reference-equal to the previous one and the walk returns immediately.
+  if (isRoot && cache.getLastRoot() === box) {
+    return;
+  }
+
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
@@ -284,7 +299,7 @@ function walkAndDetectChanges(
   // Always recurse — children may have changed even if parent hash is the same.
   if ("children" in box) {
     for (const child of box.children) {
-      walkAndDetectChanges(child, absX, absY, cache, dirty);
+      walkAndDetectChanges(child, absX, absY, cache, dirty, false);
     }
   }
   } finally {

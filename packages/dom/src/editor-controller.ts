@@ -23,6 +23,7 @@ import {
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
 import { paintCanvas, paintPage, type CursorState } from "./canvas-renderer";
+import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
 
 const DEFAULT_PAGE_GAP = 24;
@@ -64,6 +65,24 @@ export function createEditorController(
 
   // Image cache for rendering image blocks
   const imageCache = new ImageCache(() => paint());
+
+  // Paint caches: one for the single-canvas mode, one per page index for
+  // paginated mode. Plan 3.K.2 Task 1 wires these so paint takes the
+  // incremental path with root-reference short-circuit. Without these,
+  // every paint pass clears the entire canvas and repaints every box —
+  // O(N) per cursor move.
+  // TODO: prune pageCaches when pages are removed (currently leaks one
+  // PaintCache per removed page; benign in practice, page count is small).
+  const canvasCache: PaintCache = createPaintCache();
+  const pageCaches: Map<number, PaintCache> = new Map();
+  function getOrCreatePageCache(idx: number): PaintCache {
+    let c = pageCaches.get(idx);
+    if (!c) {
+      c = createPaintCache();
+      pageCaches.set(idx, c);
+    }
+    return c;
+  }
 
   // Computed on update
   let cursorPos = { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 24, pageIndex: 0 };
@@ -185,6 +204,7 @@ export function createEditorController(
       visibleTop,
       visibleBottom,
       imageCache,
+      canvasCache,
     );
   }
 
@@ -217,7 +237,7 @@ export function createEditorController(
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache);
+      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 

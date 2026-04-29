@@ -96,3 +96,26 @@ describe("createPaintCache", () => {
     expect(cache.isUnchanged(b)).toBe(true);
   });
 });
+
+describe("PaintCache last-root tracking", () => {
+  it("returns null for the last-walked root when never set", () => {
+    const cache = createPaintCache();
+    expect(cache.getLastRoot()).toBe(null);
+  });
+
+  it("remembers the last-walked root", () => {
+    const cache = createPaintCache();
+    // Use a minimal LayoutBox stub; the cache only stores the reference.
+    const root = { type: "block" } as never;
+    cache.setLastRoot(root);
+    expect(cache.getLastRoot()).toBe(root);
+  });
+
+  it("setLastRoot(null) clears the reference", () => {
+    const cache = createPaintCache();
+    const root = { type: "block" } as never;
+    cache.setLastRoot(root);
+    cache.setLastRoot(null);
+    expect(cache.getLastRoot()).toBe(null);
+  });
+});

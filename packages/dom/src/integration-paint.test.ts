@@ -192,26 +192,97 @@ describe("paintCanvas incremental (cache)", () => {
   });
 
   it("paint after layout change: dirty regions correspond to changed box", () => {
+    // A layout change produces a FRESH root tree — LayoutBox factories
+    // freeze their output, so per Plan 3.H mutation in place doesn't
+    // happen in production. Build the second tree from scratch with the
+    // updated text run.
     const text1 = makeTextRun({ key: "t1", x: 0, y: 0, width: 100, height: 20, text: "hello" });
-    const root = makeBlock({ children: [text1] });
+    const rootA = makeBlock({ children: [text1] });
     const cache = createPaintCache();
 
     // First paint seeds cache.
-    paintCanvas(ctx, root, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    paintCanvas(ctx, rootA, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
-    // Mutate the text box (simulates a layout update).
-    (text1 as unknown as Record<string, unknown>)["text"] = "world!";
-    (text1 as unknown as Record<string, unknown>)["width"] = 120;
+    // Build a fresh tree representing the post-layout-change state.
+    const text1b = makeTextRun({ key: "t1", x: 0, y: 0, width: 120, height: 20, text: "world!" });
+    const rootB = makeBlock({ children: [text1b] });
 
     ctx._clearRects.length = 0;
 
-    const dirty = paintCanvas(ctx, root, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, rootB, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     // The changed text-run must appear in dirty regions.
     expect(dirty.length).toBeGreaterThan(0);
     // At least one dirty region should cover the text run's position.
     const coversText = dirty.some((r) => r.x === 0 && r.y === 0);
     expect(coversText).toBe(true);
+  });
+});
+
+describe("paintCanvas root short-circuit", () => {
+  let ctx: MockCtx;
+  const noCursor = { x: 0, y: 0, height: 0 };
+  const noCursorState = "hidden" as const;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+  });
+
+  it("identical second paint short-circuits — zero per-box hash work, zero dirty regions", () => {
+    // Build a small layout tree with multiple boxes.
+    const children: LayoutBox[] = Array.from({ length: 10 }, (_, i) =>
+      makeTextRun({ key: `t${i}`, x: 0, y: i * 20, width: 100, height: 20, text: `line${i}` }),
+    );
+    const root = makeBlock({ width: 800, height: 600, children });
+
+    // Wrap the cache so we can count `get` calls — `walkAndDetectChanges`
+    // hits `cache.get(box)` once per box. The root short-circuit means
+    // ZERO `get` calls when the root reference is unchanged. Without the
+    // short-circuit the existing per-box hash equality would still produce
+    // zero dirty regions (returning [] from the walk), so dirty.length === 0
+    // alone doesn't validate the optimization — we need the call counter.
+    const baseCache = createPaintCache();
+    let getCount = 0;
+    const cache = {
+      get(b: LayoutBox) { getCount++; return baseCache.get(b); },
+      set(b: LayoutBox, h: string) { baseCache.set(b, h); },
+      clear() { baseCache.clear(); },
+      isUnchanged(b: LayoutBox) { return baseCache.isUnchanged(b); },
+      getLastRoot() { return baseCache.getLastRoot(); },
+      setLastRoot(r: LayoutBox | null) { baseCache.setLastRoot(r); },
+    };
+
+    // First paint: walks the whole tree, populates cache. Many `get` calls.
+    const dirty1 = paintCanvas(ctx, root, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    expect(dirty1.length).toBeGreaterThan(0);
+    expect(getCount).toBeGreaterThan(0);
+
+    // Second paint with SAME root reference: short-circuit fires.
+    getCount = 0;
+    const dirty2 = paintCanvas(ctx, root, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    expect(dirty2.length).toBe(0);
+    expect(getCount).toBe(0); // Zero hash work — the optimization is real.
+  });
+
+  it("paint after layout-tree change still detects per-box dirty regions", () => {
+    // Two trees with the same shape but DIFFERENT references — simulates
+    // a layout pass that produced a fresh tree even though most boxes are
+    // semantically unchanged. The short-circuit must NOT fire, and per-box
+    // hashing must produce the right dirty regions.
+    const treeA = makeBlock({
+      width: 800, height: 600,
+      children: [makeTextRun({ key: "t0", x: 0, y: 0, width: 100, height: 20, text: "hello" })],
+    });
+    const treeB = makeBlock({
+      width: 800, height: 600,
+      children: [makeTextRun({ key: "t0", x: 0, y: 0, width: 100, height: 20, text: "world" })], // different text
+    });
+    const cache = createPaintCache();
+
+    paintCanvas(ctx, treeA, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, treeB, [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    // The text-run with different text produces a dirty region.
+    expect(dirty.length).toBeGreaterThan(0);
   });
 });
 
@@ -246,17 +317,19 @@ describe("paintPage incremental (cache)", () => {
   });
 
   it("paint after layout change: dirty regions non-empty", () => {
+    // Layout changes produce a fresh tree — see paintCanvas counterpart above.
     const text1 = makeTextRun({ key: "t1", x: 0, y: 0, width: 100, height: 20, text: "hello" });
-    const page = makeBlock({ width: 600, height: 800, backgroundColor: "white", children: [text1] });
+    const pageA = makeBlock({ width: 600, height: 800, backgroundColor: "white", children: [text1] });
     const cache = createPaintCache();
 
     // First paint.
-    paintPage(ctx, page, [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx, pageA, [], noCursor, noCursorState, undefined, cache);
 
-    // Mutate.
-    (text1 as unknown as Record<string, unknown>)["text"] = "changed";
+    // Build a fresh page tree with the updated text.
+    const text1b = makeTextRun({ key: "t1", x: 0, y: 0, width: 100, height: 20, text: "changed" });
+    const pageB = makeBlock({ width: 600, height: 800, backgroundColor: "white", children: [text1b] });
 
-    const dirty = paintPage(ctx, page, [], noCursor, noCursorState, undefined, cache);
+    const dirty = paintPage(ctx, pageB, [], noCursor, noCursorState, undefined, cache);
 
     expect(dirty.length).toBeGreaterThan(0);
   });
