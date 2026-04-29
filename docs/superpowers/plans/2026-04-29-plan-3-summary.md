@@ -119,14 +119,27 @@ uses **clear-dirty + full-repaint strategy** (clears changed boxes then
 repaints the entire tree on top). Per-page canvas structure documented but
 inactive until pagination. Tests: 724 core / 128 dom.
 
-### Plan 3.J — Test cleanup + value-resolution test suite (queued)
+### Plan 3.J — Test cleanup + value-resolution test suite (deferred behind 3.K)
 
-5 tasks pending. Owns:
+5 tasks. Task 5 (this summary doc) completed 2026-04-29. Tasks 1–4 deferred behind Plan 3.K. Owns:
 1. Value-resolution pipeline test suite (closes retrospective D11).
 2. Inline-block intrinsic sizing edge cases (closes Plan 1 F6.x).
 3. Floats edge cases (closes Plan 1 F6.x).
 4. `bfc.ts` unreachable code audit (closes preexisting Plan 1 F7.x).
-5. This summary doc (you are reading it; Plan 3.J Task 5 absorbs the gap-inventory work).
+5. **Done** — this summary doc.
+
+### Plan 3.K — Performance (in progress)
+
+Inserted 2026-04-29 after user testing on a 10K-paragraph fixture showed perceptible latency on both character insertion and cursor movement. Plan 3 shipped the *infrastructure* for incremental layout + paint, but several known O(N) paths still run on every interaction. The gap inventory above (sections C and the read-path implications of "cursor is also slow") drives this phase.
+
+**Target:** O(1) for steady-state editing (per-keystroke + per-cursor-move work independent of document size). < 16ms total at 10K-paragraph fixture, per scenario.
+
+**Sub-plans:**
+- **3.K.1 — Measurement.** Profile-driven prioritization. Build fixture, instrument mutation + read paths, capture baseline at 1K / 5K / 10K, identify top offenders. No fixes ship in this phase.
+- **3.K.2+ — Fixes.** One sub-plan per top offender, written after 3.K.1 lands data.
+
+Spec: `docs/superpowers/specs/2026-04-29-plan-3k-performance-design.md`.
+Plans: `docs/superpowers/plans/2026-04-29-plan-3k1-perf-measurement.md`, plus 3.K.2+ TBD.
 
 ---
 
@@ -268,6 +281,7 @@ Per the original Plan 3 spec §13:
 | 3.H | `2026-04-29-plan-3h-incremental-layout.md` | `2026-04-29-plan-3h-followups.md` |
 | 3.I | `2026-04-29-plan-3i-paint-incremental.md` | `2026-04-29-plan-3i-followups.md` |
 | 3.J | `2026-04-29-plan-3j-test-cleanup.md` | (pending — written at 3.J completion) |
+| 3.K | `2026-04-29-plan-3k-performance-design.md` (spec); `2026-04-29-plan-3k1-perf-measurement.md` (plan) | (pending) |
 
 Original Plan 3 spec: `docs/superpowers/specs/2026-04-29-plan-3-architectural-foundation-rewrite.md`.
 Plan 3 retrospective + revisions: `docs/superpowers/plans/2026-04-29-plan-3-retrospective-and-revisions.md`.
