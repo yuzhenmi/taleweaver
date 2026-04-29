@@ -6,7 +6,7 @@ import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
-import { formatCounter, type CounterStyle } from "./list-counter";
+import { formatCounter } from "./list-counter";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -394,7 +394,13 @@ function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
     case "upper-alpha":
     case "lower-roman":
     case "upper-roman":
-      return formatCounter(counter, lst as CounterStyle);
+      return formatCounter(counter, lst);
+    default: {
+      // Exhaustiveness check: if a new ListStyleType literal is added, this
+      // forces TS to flag the missing case here instead of silently returning
+      // null. Closes Plan 1 F7.x preexisting unreachable-code diagnostic.
+      const _exhaustive: never = lst;
+      return _exhaustive;
+    }
   }
-  return null;
 }
