@@ -160,3 +160,10 @@ export {
   findFirstTextDescendant,
   findLastTextDescendant,
 } from "./editor/editor-state";
+
+// Performance tracing
+export type { PerfReport } from "./perf/perf-trace";
+export {
+  setPerfTraceEnabled, isPerfTraceEnabled,
+  markStart, markEnd, report, resetPerfTrace,
+} from "./perf/perf-trace";
