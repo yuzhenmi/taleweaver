@@ -14,7 +14,6 @@ import {
 
 const PAGE_HEIGHT = 1056; // US Letter height at 96 DPI
 const PAGE_GAP = 24;
-const PAGE_MARGINS = { top: 96, bottom: 96, left: 72, right: 72 };
 const PAGE_WIDTH = 816; // US Letter width at 96 DPI
 
 async function init() {
