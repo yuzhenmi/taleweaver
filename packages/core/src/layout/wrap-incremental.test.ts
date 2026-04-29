@@ -101,7 +101,6 @@ describe("findChangePoint", () => {
   });
 
   it("compares inlineAncestors", () => {
-    const styleObj = {} as any;
     const t1 = { ...makeToken("t:0"), inlineAncestors: ["a", "b"] };
     const t2 = { ...makeToken("t:0"), inlineAncestors: ["a", "c"] };
     expect(findChangePoint([t1], [t2])).toBe(0);
