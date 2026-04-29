@@ -24,6 +24,16 @@ export function resolveUsedLength(
   return (value.value / 100) * containingInlineSize;
 }
 
+/** Resolve a `ComputedLength | "normal"` slot (letter/word-spacing). `"normal"` stays as-is. */
+export function resolveUsedLengthOrNormal(
+  value: ComputedLength | "normal",
+  containingInlineSize: number,
+): number | "normal" {
+  if (value === "normal") return "normal";
+  if (typeof value === "number") return value;
+  return (value.value / 100) * containingInlineSize;
+}
+
 /** Resolve a `ComputedLength | "none"` slot (max-size). `"none"` → +∞. */
 export function resolveUsedLengthOrNone(
   value: ComputedLength | "none",
@@ -101,12 +111,25 @@ export function computeUsedStyle(
     whiteSpace: cs.whiteSpace,
     verticalAlign: cs.verticalAlign,
 
+    textAlign: cs.textAlign,
+    textIndent: resolveUsedLength(cs.textIndent, containingInlineSize, 0),
+    textWrap: cs.textWrap,
+    hyphens: cs.hyphens,
+    letterSpacing: resolveUsedLengthOrNormal(cs.letterSpacing, containingInlineSize),
+    wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),
+    textTransform: cs.textTransform,
+    fontFeatureSettings: cs.fontFeatureSettings,
+    tabSize: cs.tabSize,
+
     float: cs.float,
     clear: cs.clear,
 
     breakBefore: cs.breakBefore,
     breakAfter: cs.breakAfter,
     breakInside: cs.breakInside,
+
+    widows: cs.widows,
+    orphans: cs.orphans,
 
     listStyleType: cs.listStyleType,
     listStylePosition: cs.listStylePosition,

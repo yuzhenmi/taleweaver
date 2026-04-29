@@ -63,12 +63,25 @@ export interface UsedStyle {
   whiteSpace:    WhiteSpace;
   verticalAlign: VerticalAlign;
 
+  textAlign:           "start" | "end" | "center" | "justify";
+  textIndent:          UsedLength;
+  textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  hyphens:             "none" | "manual" | "auto";
+  letterSpacing:       UsedLength | "normal";
+  wordSpacing:         UsedLength | "normal";
+  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  fontFeatureSettings: readonly string[];
+  tabSize:             number;
+
   float: Float;
   clear: Clear;
 
   breakBefore: BreakBefore;
   breakAfter:  BreakAfter;
   breakInside: BreakInside;
+
+  widows:  number;
+  orphans: number;
 
   listStyleType:     ListStyleType;
   listStylePosition: ListStylePosition;

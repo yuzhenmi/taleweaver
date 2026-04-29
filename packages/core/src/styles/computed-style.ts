@@ -63,12 +63,27 @@ export interface ComputedStyle {
   whiteSpace:    WhiteSpace;
   verticalAlign: VerticalAlign;
 
+  // Text typography
+  textAlign:           "start" | "end" | "center" | "justify";
+  textIndent:          ComputedLength;
+  textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  hyphens:             "none" | "manual" | "auto";
+  letterSpacing:       ComputedLength | "normal";
+  wordSpacing:         ComputedLength | "normal";
+  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  fontFeatureSettings: readonly string[];
+  tabSize:             number;
+
   float: Float;
   clear: Clear;
 
   breakBefore: BreakBefore;
   breakAfter:  BreakAfter;
   breakInside: BreakInside;
+
+  // Fragmentation extras
+  widows:  number;
+  orphans: number;
 
   listStyleType:     ListStyleType;
   listStylePosition: ListStylePosition;

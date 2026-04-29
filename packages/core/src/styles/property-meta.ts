@@ -51,12 +51,25 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   whiteSpace:    { inherits: true },
   verticalAlign: { inherits: false },
 
+  textAlign:           { inherits: true },
+  textIndent:          { inherits: true },
+  textWrap:            { inherits: true },
+  hyphens:             { inherits: true },
+  letterSpacing:       { inherits: true },
+  wordSpacing:         { inherits: true },
+  textTransform:       { inherits: true },
+  fontFeatureSettings: { inherits: true },
+  tabSize:             { inherits: true },
+
   float: { inherits: false },
   clear: { inherits: false },
 
   breakBefore: { inherits: false },
   breakAfter:  { inherits: false },
   breakInside: { inherits: false },
+
+  widows:  { inherits: true },
+  orphans: { inherits: true },
 
   listStyleType:     { inherits: true },
   listStylePosition: { inherits: true },
@@ -112,12 +125,25 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   whiteSpace:    "normal",
   verticalAlign: "baseline",
 
+  textAlign:           "start",
+  textIndent:          0,
+  textWrap:            "wrap",
+  hyphens:             "manual",
+  letterSpacing:       "normal",
+  wordSpacing:         "normal",
+  textTransform:       "none",
+  fontFeatureSettings: [],
+  tabSize:             4,
+
   float: "none",
   clear: "none",
 
   breakBefore: "auto",
   breakAfter:  "auto",
   breakInside: "auto",
+
+  widows:  2,
+  orphans: 2,
 
   listStyleType:     "disc",
   listStylePosition: "outside",

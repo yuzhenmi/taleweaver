@@ -40,9 +40,22 @@ describe("UsedStyle", () => {
       whiteSpace: "normal",
       verticalAlign: "baseline",
 
+      textAlign: "start",
+      textIndent: 0,
+      textWrap: "wrap",
+      hyphens: "manual",
+      letterSpacing: "normal",
+      wordSpacing: "normal",
+      textTransform: "none",
+      fontFeatureSettings: [],
+      tabSize: 4,
+
       float: "none", clear: "none",
 
       breakBefore: "auto", breakAfter: "auto", breakInside: "auto",
+
+      widows: 2,
+      orphans: 2,
 
       listStyleType: "disc",
       listStylePosition: "outside",

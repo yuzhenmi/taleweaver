@@ -97,6 +97,17 @@ export interface Style {
   readonly whiteSpace?:    WhiteSpace;
   readonly verticalAlign?: VerticalAlign;
 
+  // Text — typography (Plan 3.C reservations; consumers in Plan 3.G + Plan 4)
+  readonly textAlign?:           "start" | "end" | "center" | "justify";
+  readonly textIndent?:          Length;
+  readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
+  readonly hyphens?:             "none" | "manual" | "auto";
+  readonly letterSpacing?:       Length | "normal";
+  readonly wordSpacing?:         Length | "normal";
+  readonly textTransform?:       "none" | "capitalize" | "uppercase" | "lowercase";
+  readonly fontFeatureSettings?: readonly string[];
+  readonly tabSize?:             number;
+
   // Float / clear (sides are logical now)
   readonly float?: Float;
   readonly clear?: Clear;
@@ -105,6 +116,10 @@ export interface Style {
   readonly breakBefore?: BreakBefore;
   readonly breakAfter?:  BreakAfter;
   readonly breakInside?: BreakInside;
+
+  // Fragmentation — additional (Plan 3.C reservations; consumers in Plan 5)
+  readonly widows?:  number;
+  readonly orphans?: number;
 
   // List
   readonly listStyleType?:     ListStyleType;
