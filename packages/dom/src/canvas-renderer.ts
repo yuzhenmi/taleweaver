@@ -1,6 +1,8 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
+import { hashPaintInputs } from "./paint-cache";
+import type { PaintCache, Rect } from "./paint-cache";
 
 interface PhysicalBorderSides {
   topWidth: number; rightWidth: number; bottomWidth: number; leftWidth: number;
@@ -37,6 +39,25 @@ interface PaintState {
 
 export type CursorState = "active" | "inactive" | "hidden";
 
+/**
+ * Paint the editor's scrollable canvas.
+ *
+ * When `cache` is provided (incremental mode):
+ *   1. Walk the layout tree to detect which boxes changed since the last paint.
+ *   2. Issue `ctx.clearRect` only over dirty regions.
+ *   3. Repaint the full layout tree (changed boxes redraw over cleared regions;
+ *      unchanged boxes repaint on top of their still-valid canvas pixels).
+ *   4. Return the list of dirty rectangles for this pass.
+ *
+ * When `cache` is null/omitted (non-incremental, default):
+ *   - Clear the whole canvas and repaint everything (original behaviour).
+ *   - Return an empty array.
+ *
+ * Note — "true skip-painting" (where unchanged boxes are not repainted at all)
+ * requires careful management of parent-background re-clearing and is deferred
+ * to a future plan.  The current "clear-dirty + full-repaint" strategy is safe
+ * and already avoids the full-canvas clear on unchanged frames.
+ */
 export function paintCanvas(
   ctx: CanvasRenderingContext2D,
   layoutTree: LayoutBox,
@@ -48,9 +69,48 @@ export function paintCanvas(
   visibleTop: number,
   visibleBottom: number,
   imageCache?: ImageCache,
-): void {
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  cache?: PaintCache | null,
+): Rect[] {
   ctx.textBaseline = "top";
+
+  if (cache) {
+    // Incremental path: detect changes, clear only dirty regions.
+    const dirty: Rect[] = [];
+    walkAndDetectChanges(layoutTree, 0, 0, cache, dirty);
+
+    if (dirty.length > 0) {
+      for (const r of dirty) {
+        ctx.clearRect(r.x, r.y, r.w, r.h);
+      }
+
+      // Selection rects (drawn first, behind text)
+      if (selectionRects.length > 0) {
+        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        for (const rect of selectionRects) {
+          if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
+      }
+
+      // Layout tree
+      const state: PaintState = { lastFont: "", imageCache };
+      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state);
+
+      // Cursor
+      if (cursorState === "active") {
+        ctx.fillStyle = "black";
+        ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+      } else if (cursorState === "inactive") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+      }
+    }
+
+    return dirty;
+  }
+
+  // Non-incremental path (cache = null / undefined): original behaviour.
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
   // Selection rects (drawn first, behind text)
   if (selectionRects.length > 0) {
@@ -73,8 +133,21 @@ export function paintCanvas(
     ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
     ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
   }
+
+  return [];
 }
 
+/**
+ * Paint a single page onto its dedicated canvas.
+ *
+ * Incremental behaviour mirrors `paintCanvas`:
+ * - With `cache`: detect changes; clear only dirty regions; repaint full tree.
+ *   Returns dirty rectangles.
+ * - Without `cache`: clear+paint everything (original behaviour); returns [].
+ *
+ * PaintCache instances are 1:1 with canvases.  When Plan 5 introduces
+ * pagination, each page canvas will carry its own PaintCache.
+ */
 export function paintPage(
   ctx: CanvasRenderingContext2D,
   pageBox: LayoutBox,
@@ -82,11 +155,57 @@ export function paintPage(
   cursorPos: { x: number; y: number; height: number } | null,
   cursorState: CursorState,
   imageCache?: ImageCache,
-): void {
+  cache?: PaintCache | null,
+): Rect[] {
+  ctx.textBaseline = "top";
+
+  if (cache) {
+    // Incremental path.
+    const dirty: Rect[] = [];
+    walkAndDetectChanges(pageBox, 0, 0, cache, dirty);
+
+    if (dirty.length > 0) {
+      for (const r of dirty) {
+        ctx.clearRect(r.x, r.y, r.w, r.h);
+      }
+
+      // White background (re-paint only over dirty areas is sufficient
+      // because clearRect already erased those pixels; paint the full box
+      // so that cleared regions within the page get the white fill back).
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, pageBox.width, pageBox.height);
+
+      // Selection rects
+      if (selectionRects.length > 0) {
+        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        for (const rect of selectionRects) {
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
+      }
+
+      // Paint the page box contents.
+      const state: PaintState = { lastFont: "", imageCache };
+      paintBox(ctx, pageBox, 0, 0, 0, pageBox.height, state);
+
+      // Cursor
+      if (cursorPos) {
+        if (cursorState === "active") {
+          ctx.fillStyle = "black";
+          ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+        } else if (cursorState === "inactive") {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+          ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+        }
+      }
+    }
+
+    return dirty;
+  }
+
+  // Non-incremental path: original behaviour.
   // White background
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, pageBox.width, pageBox.height);
-  ctx.textBaseline = "top";
 
   // Selection rects (already page-relative and filtered by pageIndex)
   if (selectionRects.length > 0) {
@@ -108,6 +227,51 @@ export function paintPage(
     } else if (cursorState === "inactive") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
       ctx.fillRect(cursorPos.x, cursorPos.y, 2, cursorPos.height);
+    }
+  }
+
+  return [];
+}
+
+// ── Dirty-region detection (Task 3 + 4) ─────────────────────────────────────
+
+/**
+ * Walk the layout tree and record the bounding rectangle of every box whose
+ * paint-input hash differs from what is in `cache`.
+ *
+ * After the walk `cache` is updated so the next call sees the latest hashes.
+ * The caller uses the returned `dirty` list to issue targeted clearRect calls
+ * before a full repaint.
+ *
+ * @param box       Current node.
+ * @param parentX   Accumulated x offset from parent nodes.
+ * @param parentY   Accumulated y offset from parent nodes.
+ * @param cache     Per-canvas PaintCache (1:1 with paint target).
+ * @param dirty     Accumulator — rectangles of changed boxes are appended here.
+ */
+function walkAndDetectChanges(
+  box: LayoutBox,
+  parentX: number,
+  parentY: number,
+  cache: PaintCache,
+  dirty: Rect[],
+): void {
+  const absX = parentX + box.x;
+  const absY = parentY + box.y;
+
+  const currentHash = hashPaintInputs(box);
+  const cachedHash = cache.get(box);
+
+  if (cachedHash !== currentHash) {
+    // Box changed (or is new): record its region as dirty and update cache.
+    dirty.push({ x: absX, y: absY, w: box.width, h: box.height });
+    cache.set(box, currentHash);
+  }
+
+  // Always recurse — children may have changed even if parent hash is the same.
+  if ("children" in box) {
+    for (const child of box.children) {
+      walkAndDetectChanges(child, absX, absY, cache, dirty);
     }
   }
 }

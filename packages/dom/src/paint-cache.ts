@@ -1,6 +1,21 @@
 import type { LayoutBox } from "@taleweaver/core";
 
 /**
+ * An axis-aligned rectangle used for dirty-region tracking.
+ * All values are in canvas (device-independent) pixels.
+ *
+ * PaintCache instances are 1:1 with paint targets (canvases / pages).
+ * When Plan 5 introduces pagination (one canvas per page), each canvas
+ * will carry its own PaintCache so dirty-region tracking is per-page.
+ */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
  * A hash representing all paint-relevant inputs for a LayoutBox.
  * Two boxes with the same hash produce identical paint output.
  *
