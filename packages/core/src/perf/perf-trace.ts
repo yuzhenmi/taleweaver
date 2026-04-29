@@ -44,6 +44,13 @@ export function report(): PerfReport {
   return { entries };
 }
 
+/** Record a pre-measured duration. Useful for callbacks that already provide elapsed ms (e.g., React.Profiler). */
+export function recordSample(label: string, ms: number): void {
+  if (!enabled) return;
+  counts.set(label, (counts.get(label) ?? 0) + 1);
+  totals.set(label, (totals.get(label) ?? 0) + ms);
+}
+
 /** Reset all measurements (useful between scenarios). */
 export function resetPerfTrace(): void {
   counts.clear();

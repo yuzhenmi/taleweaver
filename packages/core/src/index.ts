@@ -165,5 +165,5 @@ export {
 export type { PerfReport } from "./perf/perf-trace";
 export {
   setPerfTraceEnabled, isPerfTraceEnabled,
-  markStart, markEnd, report, resetPerfTrace,
+  markStart, markEnd, recordSample, report, resetPerfTrace,
 } from "./perf/perf-trace";

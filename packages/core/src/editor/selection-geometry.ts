@@ -10,6 +10,7 @@ import { getNodeByPath } from "../state/operations";
 import { getTextContentLength } from "../state/text-utils";
 import { resolvePixelPosition } from "./cursor-position";
 import { collectAllTextBoxes, collectBlockBoundaryLines, type AbsoluteTextBox } from "./layout-utils";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 export interface SelectionRect {
   x: number;
@@ -94,6 +95,8 @@ export function computeSelectionRects(
   shaperOrMeasurer: TextShaper | TextMeasurer,
   _containerWidth: number,
 ): SelectionRect[] {
+  const t = markStart("editor.selection-geometry");
+  try {
   const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
     ? adaptShaperToMeasurer(shaperOrMeasurer)
     : shaperOrMeasurer;
@@ -239,4 +242,7 @@ export function computeSelectionRects(
   }
 
   return rects.filter((r) => r.width > 0);
+  } finally {
+    markEnd("editor.selection-geometry", t);
+  }
 }

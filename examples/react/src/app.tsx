@@ -5,6 +5,7 @@ import { Header } from "@/components/header";
 import { DocMenuBar } from "@/components/menu-bar";
 import { Toolbar } from "@/components/toolbar";
 import { usePerfEditor } from "./use-perf-editor";
+import { setPerfTraceEnabled, report, resetPerfTrace } from "@taleweaver/core";
 import "./app.css";
 
 // Plan 3 will re-add: pageHeight / pageMargins / pageGap for paginated layout
@@ -14,6 +15,21 @@ export function App() {
   // and initializes the editor with a synthetic N-paragraph document when set.
   const editor = usePerfEditor();
   const seededRef = useRef(false);
+
+  // When a perf fixture is active: enable tracing and expose dev console hooks.
+  useEffect(() => {
+    if (!editor.isPerfFixture) return;
+    setPerfTraceEnabled(true);
+    (window as unknown as { __perfReport: () => unknown; __perfReset: () => void }).__perfReport = () => {
+      const r = report();
+      console.table(r.entries);
+      return r;
+    };
+    (window as unknown as { __perfReset: () => void }).__perfReset = () => {
+      resetPerfTrace();
+      console.log("Perf trace reset");
+    };
+  }, [editor.isPerfFixture]);
 
   useEffect(() => {
     // Skip default seeding when a perf fixture is already loaded via URL.

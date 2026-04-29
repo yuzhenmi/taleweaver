@@ -8,6 +8,7 @@ import type { ComputedStyle } from "../styles";
 import { createPosition, } from "../state/position";
 import { findPathById } from "../state/find-path";
 import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Resolve a pixel (x, y) coordinate to a document Position using the layout tree.
@@ -22,6 +23,8 @@ export function resolvePositionFromPixel(
   y: number,
   pageIndex: number = 0,
 ): Position | null {
+  const t = markStart("editor.hit-test");
+  try {
   const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
     ? adaptShaperToMeasurer(shaperOrMeasurer)
     : shaperOrMeasurer;
@@ -109,6 +112,9 @@ export function resolvePositionFromPixel(
   }
 
   return createPosition(path, baseOffset + charOffset);
+  } finally {
+    markEnd("editor.hit-test", t);
+  }
 }
 
 /** Find the character offset closest to a given X position within text. */

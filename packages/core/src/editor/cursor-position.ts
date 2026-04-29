@@ -5,6 +5,7 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getNodeByPath } from "../state/operations";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 export interface PixelPosition {
   x: number;
@@ -41,76 +42,81 @@ export function resolvePixelPosition(
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
 ): PixelPosition {
-  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
-    ? adaptShaperToMeasurer(shaperOrMeasurer)
-    : shaperOrMeasurer;
-  const node = getNodeByPath(state, position.path);
-  if (!node) return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
+  const t = markStart("editor.cursor-position");
+  try {
+    const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+      ? adaptShaperToMeasurer(shaperOrMeasurer)
+      : shaperOrMeasurer;
+    const node = getNodeByPath(state, position.path);
+    if (!node) return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
 
-  const nodeId = node.id;
+    const nodeId = node.id;
 
-  // Collect all TextRunBox nodes matching this state node id
-  const matches: TextBoxMatch[] = [];
-  collectTextBoxes(layoutTree, nodeId, 0, 0, matches);
+    // Collect all TextRunBox nodes matching this state node id
+    const matches: TextBoxMatch[] = [];
+    collectTextBoxes(layoutTree, nodeId, 0, 0, matches);
 
-  if (matches.length === 0) {
-    return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
-  }
-
-  // Sort by key suffix order
-  matches.sort((a, b) => a.keySuffix - b.keySuffix);
-
-  // Walk matches consuming offset characters
-  let remaining = position.offset;
-  for (let i = 0; i < matches.length; i++) {
-    const match = matches[i];
-    const textLen = match.box.text.length;
-    if (remaining <= textLen) {
-      // At a soft-wrap boundary: prefer start of next line
-      if (remaining === textLen) {
-        const next = matches[i + 1];
-        if (next && (next.absoluteY !== match.absoluteY || next.pageIndex !== match.pageIndex)) {
-          return {
-            x: next.absoluteX,
-            y: next.absoluteY,
-            height: next.box.height,
-            lineY: next.absoluteY,
-            lineHeight: next.box.height,
-            lineMarginTop: next.lineMarginTop,
-            lineMarginBottom: next.lineMarginBottom,
-            pageIndex: next.pageIndex,
-          };
-        }
-      }
-      // Cursor falls within this box (or end of box on same line)
-      const prefix = match.box.text.slice(0, remaining);
-      const xOffset = measurer.measureWidth(prefix, match.box.computedStyle);
-      return {
-        x: match.absoluteX + xOffset,
-        y: match.absoluteY,
-        height: match.box.height,
-        lineY: match.absoluteY,
-        lineHeight: match.box.height,
-        lineMarginTop: match.lineMarginTop,
-        lineMarginBottom: match.lineMarginBottom,
-        pageIndex: match.pageIndex,
-      };
+    if (matches.length === 0) {
+      return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
     }
-    remaining -= textLen;
-  }
 
-  // Offset past all boxes — position at end of last box
-  const last = matches[matches.length - 1];
-  return {
-    x: last.absoluteX + last.box.width,
-    y: last.absoluteY,
-    height: last.box.height,
-    lineY: last.absoluteY,
-    lineHeight: last.box.height,
-    lineMarginTop: last.lineMarginTop,
-    lineMarginBottom: last.lineMarginBottom,
-    pageIndex: last.pageIndex,
-  };
+    // Sort by key suffix order
+    matches.sort((a, b) => a.keySuffix - b.keySuffix);
+
+    // Walk matches consuming offset characters
+    let remaining = position.offset;
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i];
+      const textLen = match.box.text.length;
+      if (remaining <= textLen) {
+        // At a soft-wrap boundary: prefer start of next line
+        if (remaining === textLen) {
+          const next = matches[i + 1];
+          if (next && (next.absoluteY !== match.absoluteY || next.pageIndex !== match.pageIndex)) {
+            return {
+              x: next.absoluteX,
+              y: next.absoluteY,
+              height: next.box.height,
+              lineY: next.absoluteY,
+              lineHeight: next.box.height,
+              lineMarginTop: next.lineMarginTop,
+              lineMarginBottom: next.lineMarginBottom,
+              pageIndex: next.pageIndex,
+            };
+          }
+        }
+        // Cursor falls within this box (or end of box on same line)
+        const prefix = match.box.text.slice(0, remaining);
+        const xOffset = measurer.measureWidth(prefix, match.box.computedStyle);
+        return {
+          x: match.absoluteX + xOffset,
+          y: match.absoluteY,
+          height: match.box.height,
+          lineY: match.absoluteY,
+          lineHeight: match.box.height,
+          lineMarginTop: match.lineMarginTop,
+          lineMarginBottom: match.lineMarginBottom,
+          pageIndex: match.pageIndex,
+        };
+      }
+      remaining -= textLen;
+    }
+
+    // Offset past all boxes — position at end of last box
+    const last = matches[matches.length - 1];
+    return {
+      x: last.absoluteX + last.box.width,
+      y: last.absoluteY,
+      height: last.box.height,
+      lineY: last.absoluteY,
+      lineHeight: last.box.height,
+      lineMarginTop: last.lineMarginTop,
+      lineMarginBottom: last.lineMarginBottom,
+      pageIndex: last.pageIndex,
+    };
+  } finally {
+    markEnd("editor.cursor-position", t);
+  }
 }
 
 /** Recursively collect TextRunBox nodes whose key matches the given node id. */

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   setPerfTraceEnabled, isPerfTraceEnabled,
   markStart, markEnd, report, resetPerfTrace,
+  recordSample,
 } from "./perf-trace";
 
 describe("PerfTrace", () => {
@@ -49,6 +50,23 @@ describe("PerfTrace", () => {
     const t = markStart("foo");
     markEnd("foo", t);
     resetPerfTrace();
+    expect(report().entries).toEqual([]);
+  });
+
+  it("recordSample accumulates pre-measured durations", () => {
+    setPerfTraceEnabled(true);
+    recordSample("foo", 5);
+    recordSample("foo", 7);
+    const r = report();
+    expect(r.entries[0].label).toBe("foo");
+    expect(r.entries[0].count).toBe(2);
+    expect(r.entries[0].totalMs).toBe(12);
+    expect(r.entries[0].avgMs).toBe(6);
+  });
+
+  it("recordSample is a no-op when disabled", () => {
+    setPerfTraceEnabled(false);
+    recordSample("foo", 5);
     expect(report().entries).toEqual([]);
   });
 });
