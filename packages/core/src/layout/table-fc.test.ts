@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
-import { createMockMeasurer } from "./text-measurer";
+import { createMockShaper } from "./mock-shaper";
 import { layoutTable } from "./table-fc";
 
-const measurer = createMockMeasurer(8, 16);
+const shaper = createMockShaper(8, 16);
 
 function tableOf(rows: Array<Array<ReturnType<typeof createTextBox>[]>>, columnWidths: number[]) {
   return cascadePass(createElementBox(
@@ -26,7 +26,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 600, measurer);
+    const out = layoutTable(tree, 0, 0, 600, shaper);
     expect(out.type).toBe("table");
     expect(out.columnPxWidths).toEqual([300, 300]);
   });
@@ -37,7 +37,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 200, measurer);
+    const out = layoutTable(tree, 0, 0, 200, shaper);
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Each cell is 100px wide; longer text wraps to 2+ lines
@@ -50,7 +50,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 200, measurer);
+    const out = layoutTable(tree, 0, 0, 200, shaper);
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Both cells should have row.height

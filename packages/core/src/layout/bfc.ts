@@ -3,7 +3,8 @@ import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
-import type { TextMeasurer } from "./text-measurer";
+import type { TextShaper } from "./text-shaper";
+import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
@@ -19,7 +20,7 @@ export function layoutBlock(
   inlineOffset: number,
   blockOffset: number,
   availableInlineSize: number,
-  measurer: TextMeasurer,
+  shaper: TextShaper,
   writingMode: WritingMode = "horizontal-tb",
   direction: Direction = "ltr",
 ): BlockBox {
@@ -58,7 +59,7 @@ export function layoutBlock(
 
   if (hasInlineContent) {
     const floatCtx = createFloatContext();
-    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, contentInlineSize, measurer, floatCtx, cs.writingMode, cs.direction);
+    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, contentInlineSize, shaper, floatCtx, cs.writingMode, cs.direction);
     let lineMaxBlockEdge = paddingBlockStart;
     for (const line of lines) {
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
@@ -83,7 +84,7 @@ export function layoutBlock(
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
-      const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, measurer, cs.writingMode, cs.direction);
+      const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, shaper, cs.writingMode, cs.direction);
       const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
@@ -133,6 +134,8 @@ export function layoutBlock(
       listCounter++;
       const markerText = resolveMarkerText(childCs, listCounter);
       if (markerText !== null) {
+        // Use a measurer adapter for the simple width/height calls needed for marker boxes.
+        const measurer = adaptShaperToMeasurer(shaper);
         const markerInlineSize = measurer.measureWidth(markerText, childCs);
         const markerBlockSize = measurer.measureHeight(childCs);
         const markerGap = 4;
@@ -154,9 +157,9 @@ export function layoutBlock(
 
     let childLayout: LayoutBox;
     if (childCs.display === "table") {
-      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, contentInlineSize, measurer);
+      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, contentInlineSize, shaper);
     } else {
-      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, measurer, cs.writingMode, cs.direction);
+      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, shaper, cs.writingMode, cs.direction);
     }
     const explicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;

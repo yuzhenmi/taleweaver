@@ -1,5 +1,6 @@
 import type { RenderNode } from "../render/render-node-v2";
 import type { LayoutBox } from "./layout-box-v2";
+import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { layoutTree } from "./dispatch";
 
@@ -18,10 +19,10 @@ export function layoutTreeIncremental(
   _oldRoot: RenderNode | null,
   oldLayout: LayoutBox | null,
   containerWidth: number,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
 ): LayoutBox {
   if (newRoot === _oldRoot && oldLayout && oldLayout.width === containerWidth) {
     return oldLayout;
   }
-  return layoutTree(newRoot, containerWidth, measurer);
+  return layoutTree(newRoot, containerWidth, shaperOrMeasurer);
 }

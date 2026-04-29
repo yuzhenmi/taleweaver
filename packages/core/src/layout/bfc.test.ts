@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
-import { createMockMeasurer } from "./text-measurer";
+import { createMockShaper } from "./mock-shaper";
 import { layoutBlock } from "./bfc";
 
-const measurer = createMockMeasurer(8, 16);
+const shaper = createMockShaper(8, 16);
 
 function layoutOf(tree: ReturnType<typeof createElementBox>) {
   const cascaded = cascadePass(tree);
   if (cascaded.type !== "element") throw new Error("?");
-  return layoutBlock(cascaded, 0, 0, 600, measurer);
+  return layoutBlock(cascaded, 0, 0, 600, shaper);
 }
 
 describe("layoutBlock — basic stacking", () => {
@@ -165,7 +165,7 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
     ]);
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutBlock(cascaded, 0, 0, 200, measurer);
+    const out = layoutBlock(cascaded, 0, 0, 200, shaper);
     if (out.type !== "block") throw new Error("?");
     expect(out.children).toHaveLength(1);
     expect(out.children[0].type).toBe("line");
@@ -184,7 +184,7 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
 
     const markers: { text: string }[] = [];
@@ -206,7 +206,7 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
     let foundMarker: { text: string } | null = null;
     function walk(b: any) {
@@ -233,7 +233,7 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
     const markers: { text: string }[] = [];
     function walk(b: any) {
@@ -256,7 +256,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
     // BFC must enclose the float (height >= 50, the float's height).
     expect(out.height).toBeGreaterThanOrEqual(50);
@@ -270,7 +270,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
     // The clear:inline-start block should start at y >= 100 (past the float).
     const afterChild = out.children.find((c) => c.type === "block" && c.key === "after");
@@ -287,7 +287,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, measurer);
+    const out = layoutBlock(tree, 0, 0, 500, shaper);
     if (out.type !== "block") throw new Error("?");
     const float = out.children.find((c) => c.type === "block" && c.key === "img");
     expect(float?.type).toBe("block");

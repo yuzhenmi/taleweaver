@@ -1,7 +1,7 @@
 import type { ElementBox } from "../render/render-node-v2";
 import type { TableBox, TableRowBox, TableCellBox } from "./layout-box-v2";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box-v2";
-import type { TextMeasurer } from "./text-measurer";
+import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
@@ -17,7 +17,7 @@ export function layoutTable(
   inlineOffset: number,
   blockOffset: number,
   availableInlineSize: number,
-  measurer: TextMeasurer,
+  shaper: TextShaper,
   writingMode: WritingMode = "horizontal-tb",
   direction: Direction = "ltr",
 ): TableBox {
@@ -62,7 +62,7 @@ export function layoutTable(
       const cellInlineSize = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
 
       // Lay out cell interior as BFC at cellInlineSize.
-      const interior = layoutBlock(cell, 0, 0, cellInlineSize, measurer, cs.writingMode, cs.direction);
+      const interior = layoutBlock(cell, 0, 0, cellInlineSize, shaper, cs.writingMode, cs.direction);
 
       const cellBlockSize = interior.height;
       maxBlockSize = Math.max(maxBlockSize, cellBlockSize);

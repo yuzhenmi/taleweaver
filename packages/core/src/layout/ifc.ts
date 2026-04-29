@@ -3,7 +3,9 @@ import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox } from "./layout-box-v2";
+import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
+import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { FloatContext } from "./float-context";
@@ -55,7 +57,8 @@ function collectInlineTokens(
   children: readonly RenderNode[],
   ancestors: readonly string[],
   ancestorStyles: readonly ComputedStyle[],
-  measurer: TextMeasurer,
+  shaper: TextShaper,
+  direction: Direction,
   out: Token[],
 ): void {
   for (const child of children) {
@@ -63,9 +66,31 @@ function collectInlineTokens(
     const cs = child.computedStyle;
 
     if (child.type === "text") {
-      const parts = tokenize(child.text, cs.whiteSpace);
+      // Shape the entire text node once; then sum cluster advances per token.
+      const fullText = child.text;
+      const shapedRun = fullText.length > 0 ? shaper.shape(fullText, cs, direction) : null;
+
+      /**
+       * Return the total inline advance for the substring [start, end) of the
+       * shaped run. Clusters that start within the range are included.
+       */
+      function widthOfRange(start: number, end: number): number {
+        if (!shapedRun) return 0;
+        let w = 0;
+        for (const c of shapedRun.clusters) {
+          if (c.start >= start && c.start < end) w += c.inlineAdvance;
+        }
+        return w;
+      }
+
+      // Tokenize by white-space rules, then map each token string back to an
+      // offset range in fullText so we can look up its cluster width.
+      const parts = tokenize(fullText, cs.whiteSpace);
+      let cursor = 0;
       for (const part of parts) {
         if (part === LINE_BREAK) {
+          // LINE_BREAK is a sentinel string — advance past any \n at cursor.
+          if (cursor < fullText.length && fullText[cursor] === "\n") cursor++;
           out.push({
             sourceKey: child.key,
             text: LINE_BREAK,
@@ -78,21 +103,30 @@ function collectInlineTokens(
           });
           continue;
         }
+
+        // Find part in fullText starting at cursor (handles collapsed whitespace).
+        let matchStart = fullText.indexOf(part, cursor);
+        if (matchStart === -1) matchStart = cursor;
+        const matchEnd = matchStart + part.length;
+
+        const width = widthOfRange(matchStart, matchEnd);
         out.push({
           sourceKey: child.key,
           text: part,
-          width: measurer.measureWidth(part, cs),
+          width,
           style: cs,
           isSpace: /^\s+$/.test(part),
           isLineBreak: false,
           inlineAncestors: ancestors,
           inlineAncestorStyles: ancestorStyles,
         });
+
+        cursor = matchEnd;
       }
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, measurer, out);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out);
     } else if (child.type === "element" && cs.display === "inline-block") {
       // Resolve inlineSize
       let inlineSizePx: number;
@@ -100,12 +134,12 @@ function collectInlineTokens(
         inlineSizePx = cs.inlineSize;
       } else {
         // max-content: lay out at very large width
-        const bfcInf = layoutBlock(child, 0, 0, 100000, measurer);
+        const bfcInf = layoutBlock(child, 0, 0, 100000, shaper);
         inlineSizePx = bfcInf.width;
       }
 
       // Lay out at resolved inlineSize
-      const bfc = layoutBlock(child, 0, 0, inlineSizePx > 0 ? inlineSizePx : 100, measurer);
+      const bfc = layoutBlock(child, 0, 0, inlineSizePx > 0 ? inlineSizePx : 100, shaper);
       const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;
       let finalBlockSize: number;
       if (typeof cs.blockSize === "number") {
@@ -143,13 +177,16 @@ export function layoutInlineContent(
   inlineOffset: number,
   blockOffset: number,
   availableInlineSize: number,
-  measurer: TextMeasurer,
+  shaper: TextShaper,
   floatCtx?: FloatContext,
   writingMode: WritingMode = "horizontal-tb",
   direction: Direction = "ltr",
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
+
+  // Derive a legacy measurer for height-only calls (line height, marker text, etc.)
+  const measurer = adaptShaperToMeasurer(shaper);
 
   const ws = parentCs.whiteSpace;
   const canWrap = ws !== "nowrap" && ws !== "pre";
@@ -166,7 +203,7 @@ export function layoutInlineContent(
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, [], [], measurer, tokens);
+  collectInlineTokens(parent.children, [], [], shaper, direction, tokens);
 
   // Group tokens into wrap units: non-space + optional trailing space (same source)
   // LINE_BREAK tokens become standalone units with isLineBreak: true.
