@@ -83,6 +83,8 @@ export { createMockShaper } from "./layout/mock-shaper";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";
+export type { IntrinsicSizes, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 
