@@ -12,7 +12,7 @@ import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
-import { isLayoutBoxReusable } from "./layout-reuse";
+import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -36,13 +36,23 @@ export function layoutBlock(
 
   // Subtree reuse: if a previous layout exists, check whether this block's
   // output is still valid. Conservative — only reuse when all inputs match.
+  //
+  // The render-node identity gate accepts two equivalence levels:
+  //   (a) `node === entry.renderNode` — strictly the same reference.
+  //   (b) `renderNodesLayoutEquivalent(node, entry.renderNode)` — the parent
+  //       was rebuilt because its children-array changed, but its children
+  //       are reference-equal to the cached version (a "structurally inert"
+  //       rebuild). This is the common case for the document root after a
+  //       single-paragraph edit: 999 of 1000 children flow through unchanged
+  //       via renderTreeIncremental + cascadePassIncremental, the parent's
+  //       children array is fresh, and only one child actually mutated.
+  //       Without this gate, every keystroke would force the document root
+  //       to iterate all N children — O(N) reuse-cache hits even when 999
+  //       are inert.
   if (ctx.prevLayoutCache !== null) {
     const entry = ctx.prevLayoutCache.get(node.key);
     if (entry !== undefined && entry.box.type === "block") {
-      // Guard: the render node must be reference-equal to the one that
-      // produced the cached box. If content changed (e.g., text edits),
-      // the render node reference will differ even if styles are identical.
-      if (entry.renderNode === node) {
+      if (renderNodesLayoutEquivalent(node, entry.renderNode)) {
         const dirtyOffset = ctx.prevFloatEnv !== null
           ? ctx.floatEnv.dirtyBlockOffsetSince(ctx.prevFloatEnv)
           : Number.POSITIVE_INFINITY;

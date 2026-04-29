@@ -74,6 +74,52 @@ export function buildLayoutBoxCacheFromTree(
   return cache;
 }
 
+/**
+ * True when two render nodes would produce identical layout output.
+ *
+ * This is a STRONGER condition than `===` — used by BFC's reuse gate to
+ * recognize the case where the upstream pipeline (renderTreeIncremental +
+ * cascadePassIncremental) rebuilt a parent node because its children array
+ * changed, but the children themselves are reference-equal to the cached
+ * version. In that case the parent's layout output is provably identical
+ * to the cached one and we can short-circuit the entire subtree.
+ *
+ * Without this, every paragraph edit forces the document root to iterate
+ * all N children even when only one paragraph actually changed — O(N)
+ * per keystroke despite per-child reuse hitting the cache.
+ *
+ * The check is shallow on children (per-position reference equality only)
+ * and relies on cascadePassIncremental having reused subtree references
+ * for unchanged subtrees. Combined: O(children-count) ref comparisons,
+ * orders of magnitude cheaper than O(children-count) layoutBlock calls.
+ */
+export function renderNodesLayoutEquivalent(a: RenderNode, b: RenderNode): boolean {
+  if (a === b) return true;
+  if (a.type !== b.type) return false;
+  if (a.key !== b.key) return false;
+  // ComputedStyle drives layout — not the raw `style` (which is rebuilt by
+  // createElementBox on every call regardless of content). cascade's
+  // structural-equality path reuses the old computedStyle reference when
+  // the value is unchanged, so reference equality here means "no relevant
+  // style change for layout purposes".
+  if (a.computedStyle !== b.computedStyle) return false;
+
+  if (a.type === "element" && b.type === "element") {
+    // Element-specific: metadata reference, then children per-position refs.
+    if (a.metadata !== b.metadata) return false;
+    if (a.children.length !== b.children.length) return false;
+    for (let i = 0; i < a.children.length; i++) {
+      if (a.children[i] !== b.children[i]) return false;
+    }
+    return true;
+  }
+  if (a.type === "text" && b.type === "text") {
+    // Text-specific: text content.
+    return a.text === b.text;
+  }
+  return false;
+}
+
 export interface ReuseInputs {
   readonly computedStyle: ComputedStyle;
   readonly availableInlineSize: number;

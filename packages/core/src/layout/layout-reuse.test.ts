@@ -9,6 +9,7 @@ import {
   isLayoutBoxReusable,
   createLayoutBoxCache,
   buildLayoutBoxCacheFromTree,
+  renderNodesLayoutEquivalent,
   type ReuseInputs,
 } from "./layout-reuse";
 import { createBlockBox } from "./layout-box-v2";
@@ -266,5 +267,98 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
     expect(out.type).toBe("block");
     expect(out.height).toBe(40);
+  });
+
+  // Plan 3.K.2 Task 3 — when the parent render-node was rebuilt but its
+  // children are reference-equal to the cached version (a "structurally inert"
+  // rebuild), the parent's layout output is provably identical and we should
+  // reuse the cached LayoutBox without iterating children.
+  it("reuses the parent box when its render-node was rebuilt but children are ref-equal", () => {
+    // Cascade an element. Then synthesize a "rebuilt parent" with the SAME
+    // children references but a different parent reference.
+    const c1 = createElementBox("c1", { display: "block", blockSize: 30 }, []);
+    const c2 = createElementBox("c2", { display: "block", blockSize: 40 }, []);
+    const docA = createElementBox("doc", { display: "block" }, [c1, c2]);
+    const cascadedA = cascadePass(docA);
+    if (cascadedA.type !== "element") throw new Error("?");
+
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(cascadedA, 0, 0, ctx1, shaper);
+    const docBox1 = out1;
+
+    // Simulate "parent rebuilt, children unchanged": cascade A again with
+    // same children list but a fresh parent. Use cascadePassIncremental to
+    // preserve children-reference equality.
+    const docB = createElementBox("doc", { display: "block" }, [c1, c2]);
+    expect(docB).not.toBe(docA); // fresh parent reference
+    const cascadedB = cascadePassIncremental(docB, docA, cascadedA);
+    if (cascadedB.type !== "element") throw new Error("?");
+    // Sanity: parent's reference is fresh; children are unchanged via cascade reuse.
+    expect(cascadedB).not.toBe(cascadedA);
+    expect(cascadedB.children[0]).toBe(cascadedA.children[0]);
+    expect(cascadedB.children[1]).toBe(cascadedA.children[1]);
+
+    const prevCache = buildLayoutBoxCacheFromTree(out1, cascadedA);
+    const ctx2: LayoutContext = {
+      ...makeRootContext(INITIAL_COMPUTED_STYLE, 500),
+      prevLayoutCache: prevCache,
+      prevFloatEnv: null,
+    };
+    const out2 = layoutBlock(cascadedB, 0, 0, ctx2, shaper);
+
+    // The parent box itself is reused: same reference as before.
+    expect(out2).toBe(docBox1);
+  });
+});
+
+describe("renderNodesLayoutEquivalent", () => {
+  it("returns true when both nodes are the same reference", () => {
+    const a = createElementBox("a", { display: "block" }, []);
+    expect(renderNodesLayoutEquivalent(a, a)).toBe(true);
+  });
+
+  it("returns true when an ElementBox was rebuilt with the same children references", () => {
+    const c1 = createElementBox("c1", { display: "block" }, []);
+    const c2 = createElementBox("c2", { display: "block" }, []);
+    const a = createElementBox("doc", { display: "block" }, [c1, c2]);
+    // Build a "rebuilt" parent. Compose its computedStyle to match a's via
+    // cascade reuse so the comparison's computedStyle ref-equality holds.
+    const cascadedA = cascadePass(a);
+    const b = createElementBox("doc", { display: "block" }, [c1, c2]);
+    const cascadedB = cascadePassIncremental(b, a, cascadedA);
+    expect(renderNodesLayoutEquivalent(cascadedA, cascadedB)).toBe(true);
+  });
+
+  it("returns false when keys differ", () => {
+    const a = createElementBox("doc", { display: "block" }, []);
+    const b = createElementBox("DIFFERENT", { display: "block" }, []);
+    expect(renderNodesLayoutEquivalent(a, b)).toBe(false);
+  });
+
+  it("returns false when child references differ", () => {
+    const c1 = createElementBox("c1", { display: "block" }, []);
+    const c1b = createElementBox("c1", { display: "block" }, []); // different reference, same key
+    const a = createElementBox("doc", { display: "block" }, [c1]);
+    const b = createElementBox("doc", { display: "block" }, [c1b]);
+    expect(renderNodesLayoutEquivalent(a, b)).toBe(false);
+  });
+
+  it("returns false when children-array length differs", () => {
+    const c1 = createElementBox("c1", { display: "block" }, []);
+    const a = createElementBox("doc", { display: "block" }, [c1]);
+    const b = createElementBox("doc", { display: "block" }, []);
+    expect(renderNodesLayoutEquivalent(a, b)).toBe(false);
+  });
+
+  it("returns false when types differ", () => {
+    const a = createElementBox("a", { display: "block" }, []);
+    const b = createTextBox("a", { display: "inline" }, "hello");
+    expect(renderNodesLayoutEquivalent(a, b)).toBe(false);
+  });
+
+  it("compares text content for text nodes (different text → false)", () => {
+    const a = createTextBox("t", { display: "inline" }, "hello");
+    const b = createTextBox("t", { display: "inline" }, "world");
+    expect(renderNodesLayoutEquivalent(a, b)).toBe(false);
   });
 });
