@@ -8,6 +8,7 @@ import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
+import { computeUsedStyle } from "./used-style";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -24,20 +25,21 @@ export function layoutBlock(
 ): BlockBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
+  const usedStyle = computeUsedStyle(cs, availableInlineSize);
 
-  const paddingBlockStart  = lengthToPx(cs.paddingBlockStart);
-  const paddingInlineEnd   = lengthToPx(cs.paddingInlineEnd);
-  const paddingBlockEnd    = lengthToPx(cs.paddingBlockEnd);
-  const paddingInlineStart = lengthToPx(cs.paddingInlineStart);
+  const paddingBlockStart  = usedStyle.paddingBlockStart;
+  const paddingInlineEnd   = usedStyle.paddingInlineEnd;
+  const paddingBlockEnd    = usedStyle.paddingBlockEnd;
+  const paddingInlineStart = usedStyle.paddingInlineStart;
 
   // CSS parent/first and parent/last collapse rules:
   // if the parent has no top padding/border, the first child's marginBlockStart
   // is suppressed (collapses with parent's outside margin).
   // Symmetric for bottom.
-  const noTopBoundary = paddingBlockStart === 0 && lengthOrZero(cs.borderBlockStartWidth) === 0;
-  const noBottomBoundary = paddingBlockEnd === 0 && lengthOrZero(cs.borderBlockEndWidth) === 0;
+  const noTopBoundary = paddingBlockStart === 0 && usedStyle.borderBlockStartWidth === 0;
+  const noBottomBoundary = paddingBlockEnd === 0 && usedStyle.borderBlockEndWidth === 0;
 
-  const explicitInlineSize = cs.inlineSize === "auto" ? null : lengthToPx(cs.inlineSize);
+  const explicitInlineSize = cs.inlineSize === "auto" ? null : usedStyle.inlineSize;
   const finalInlineSize = explicitInlineSize !== null && explicitInlineSize > 0 ? explicitInlineSize : availableInlineSize;
   const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
 
@@ -62,7 +64,7 @@ export function layoutBlock(
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
     }
     const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
-    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, lines, node.metadata,
+    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, lines, node.metadata,
       /* containingInlineSize */ availableInlineSize,
     );
   }
@@ -77,11 +79,12 @@ export function layoutBlock(
     if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
     const childCs = child.computedStyle;
+    const childUsedStyle = computeUsedStyle(childCs, contentInlineSize);
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
       const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, measurer, cs.writingMode, cs.direction);
-      const floatExplicitBlockSize = lengthToPx(childCs.blockSize === "auto" ? 0 : childCs.blockSize);
+      const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
       const active = floatCtx.activeAt(childBlockOffset);
@@ -113,8 +116,8 @@ export function layoutBlock(
       }
     }
 
-    const childMarginBlockStart = lengthOrZero(childCs.marginBlockStart);
-    const childMarginBlockEnd   = lengthOrZero(childCs.marginBlockEnd);
+    const childMarginBlockStart = childUsedStyle.marginBlockStart;
+    const childMarginBlockEnd   = childUsedStyle.marginBlockEnd;
 
     // Adjacent-siblings collapse:
     // gap = max(prevMarginBlockEnd, childMarginBlockStart)
@@ -141,7 +144,8 @@ export function layoutBlock(
           markerInlineOffset, childBlockOffset,
           markerInlineSize, markerBlockSize,
           cs.writingMode, cs.direction,
-          childCs, markerText,
+          childCs, childUsedStyle,
+          markerText,
           /* containingInlineSize */ contentInlineSize,
         );
         layoutChildren.push(markerBox);
@@ -154,10 +158,10 @@ export function layoutBlock(
     } else {
       childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, measurer, cs.writingMode, cs.direction);
     }
-    const explicitBlockSize = lengthToPx(childCs.blockSize === "auto" ? 0 : childCs.blockSize);
+    const explicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
-      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, [], child.metadata,
+      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [], child.metadata,
           /* containingInlineSize */ contentInlineSize,
         )
       : childLayout;
@@ -165,9 +169,9 @@ export function layoutBlock(
     // CSS empty-block rule: a block with no content, padding, border, or explicit height
     // has its top and bottom margins collapsed together. The combined margin is passed to
     // the next sibling collapse, and the empty block does not advance childBlockOffset.
-    const childPaddingV = lengthOrZero(childCs.paddingBlockStart) + lengthOrZero(childCs.paddingBlockEnd);
-    const childBorderV  = lengthOrZero(childCs.borderBlockStartWidth) + lengthOrZero(childCs.borderBlockEndWidth);
-    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : lengthToPx(childCs.blockSize);
+    const childPaddingV = childUsedStyle.paddingBlockStart + childUsedStyle.paddingBlockEnd;
+    const childBorderV  = childUsedStyle.borderBlockStartWidth + childUsedStyle.borderBlockEndWidth;
+    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : childUsedStyle.blockSize;
     const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0
@@ -179,7 +183,7 @@ export function layoutBlock(
       prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
       // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed)
       layoutChildren.push(
-        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, [], child.metadata,
+        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [], child.metadata,
           /* containingInlineSize */ contentInlineSize,
         ),
       );
@@ -198,7 +202,7 @@ export function layoutBlock(
   const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
 
   return createBlockBox(
-    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, layoutChildren, node.metadata,
+    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren, node.metadata,
     /* containingInlineSize */ availableInlineSize,
   );
 }
@@ -219,18 +223,4 @@ function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
       return formatCounter(counter, lst as CounterStyle);
   }
   return null;
-}
-
-function lengthToPx(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "string") return 0;  // "auto", "none"
-  if (v && typeof v === "object" && "unit" in v && v.unit === "px") {
-    return (v as unknown as { value: number }).value;
-  }
-  // percent left for layout-time resolution (not yet supported in Plan 1)
-  return 0;
-}
-
-function lengthOrZero(v: unknown): number {
-  return typeof v === "number" ? v : 0;
 }
