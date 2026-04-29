@@ -563,4 +563,19 @@ describe("BFC — float rises to nearest BFC", () => {
       expect(afterBox.y).toBe(20);
     }
   });
+
+  it("flow-root block containing only floats encloses them (clearfix)", () => {
+    const float1 = createElementBox(
+      "f1",
+      { display: "block", float: "inline-start", inlineSize: 100, blockSize: 50 },
+      [],
+    );
+    const container = createElementBox("c", { display: "flow-root" }, [float1]);
+    const cascaded = cascadePass(container);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    // The flow-root container should be at least 50px tall (encloses the float).
+    expect(out.blockSize).toBeGreaterThanOrEqual(50);
+  });
 });
