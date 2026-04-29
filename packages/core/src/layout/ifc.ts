@@ -280,6 +280,10 @@ export function layoutInlineContent(
   const measurer = adaptShaperToMeasurer(shaper);
 
   const ws = parentCs.whiteSpace;
+  // Plan 3.G Task 7: textWrap value pass-through. Only "wrap" / "nowrap" affect
+  // behavior; "balance" / "pretty" / "stable" are reserved for future work
+  // (Knuth-Plass-style optimal wrap; not yet implemented). They are treated as
+  // "wrap" by default.
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
   const floatEnv = ctx.floatEnv;
@@ -675,7 +679,7 @@ function buildLineWithFragments(
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
   let children = buildLineChildrenForAncestorLevel(
-    parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
+    parentKey, lineIndex, units, 0, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
   );
 
   // Append synthetic hyphen TextRunBox when this line ends at a hyphen break.
@@ -718,7 +722,6 @@ function buildLineChildrenForAncestorLevel(
   lineIndex: number,
   units: WrapUnit[],
   depth: number,
-  parentCs: ComputedStyle,
   measurer: TextMeasurer,
   lineBlockSizeTracker: { value: number },
   writingMode: WritingMode,
@@ -789,7 +792,7 @@ function buildLineChildrenForAncestorLevel(
     const innerBlockSizeTracker = { value: 0 };
     const innerChildren = buildLineChildrenForAncestorLevel(
       parentKey, lineIndex, innerUnits, depth + 1,
-      ancestorStyle, measurer, innerBlockSizeTracker, writingMode, direction, lineInlineSize,
+      measurer, innerBlockSizeTracker, writingMode, direction, lineInlineSize,
     );
 
     const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.width, 0);

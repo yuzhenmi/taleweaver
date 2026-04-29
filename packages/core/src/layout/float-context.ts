@@ -53,6 +53,14 @@ export interface FloatEnvironment {
    * detect "no progress").
    */
   nextFloatBottomBelow(blockOffset: number): number;
+
+  /**
+   * Forward-compat: returns the lowest block-offset where this environment
+   * differs from `prev`. Returns +Infinity when the environments are
+   * effectively the same (no float changes affect later lines). Plan 3.G
+   * Task 5 reserves; consumers (Plan 3.H) implement.
+   */
+  dirtyBlockOffsetSince(prev: FloatEnvironment): number;
 }
 
 export function createFloatEnvironment(): FloatEnvironment {
@@ -153,6 +161,14 @@ export function createFloatEnvironment(): FloatEnvironment {
 
     nextFloatBottomBelow(blockOffset) {
       return nextFloatBottomBelow(blockOffset);
+    },
+
+    dirtyBlockOffsetSince(prev) {
+      // Conservative: assume any difference invalidates from the lowest float.
+      // For now (no incremental float reuse), return +Infinity if same instance,
+      // 0 otherwise (forces full re-wrap on any float-env difference).
+      if (prev === this) return Number.POSITIVE_INFINITY;
+      return 0;
     },
   };
 }

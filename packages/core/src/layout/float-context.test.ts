@@ -49,4 +49,15 @@ describe("FloatEnvironment — CSS 9.5.1 placement", () => {
     env.placeFloat("inline-start", 0, 200, 50, 200);  // pushed to 100; ends at 150
     expect(env.lowestFloatBlockEdge()).toBe(150);
   });
+
+  it("dirtyBlockOffsetSince: same instance returns +Infinity (no change)", () => {
+    const env = createFloatEnvironment();
+    expect(env.dirtyBlockOffsetSince(env)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("dirtyBlockOffsetSince: different instance returns 0 (full re-wrap)", () => {
+    const env1 = createFloatEnvironment();
+    const env2 = createFloatEnvironment();
+    expect(env1.dirtyBlockOffsetSince(env2)).toBe(0);
+  });
 });
