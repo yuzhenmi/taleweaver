@@ -86,6 +86,57 @@ export interface TableCellBox extends LayoutBoxBase {
   readonly children: readonly LayoutBox[];
 }
 
+interface BoxBaseFields {
+  readonly key: string;
+  readonly inlineOffset: number;
+  readonly blockOffset:  number;
+  readonly inlineSize:   number;
+  readonly blockSize:    number;
+  readonly x: number;
+  readonly y: number;
+  readonly width:  number;
+  readonly height: number;
+  readonly writingMode: WritingMode;
+  readonly direction:   Direction;
+  readonly computedStyle: Readonly<ComputedStyle>;
+  readonly usedStyle:     Readonly<UsedStyle>;
+}
+
+function createBoxBase(args: {
+  key: string;
+  inlineOffset: number;
+  blockOffset: number;
+  inlineSize: number;
+  blockSize: number;
+  writingMode: WritingMode;
+  direction: Direction;
+  computedStyle: ComputedStyle;
+  usedStyle: UsedStyle;
+  containingInlineSize: number;
+}): BoxBaseFields {
+  const phys = logicalToPhysical(
+    {
+      inlineOffset: args.inlineOffset,
+      blockOffset:  args.blockOffset,
+      inlineSize:   args.inlineSize,
+      blockSize:    args.blockSize,
+    },
+    args.writingMode, args.direction, args.containingInlineSize,
+  );
+  return {
+    key: args.key,
+    inlineOffset: args.inlineOffset,
+    blockOffset:  args.blockOffset,
+    inlineSize:   args.inlineSize,
+    blockSize:    args.blockSize,
+    ...phys,
+    writingMode: args.writingMode,
+    direction:   args.direction,
+    computedStyle: Object.freeze({ ...args.computedStyle }),
+    usedStyle:     Object.freeze({ ...args.usedStyle }),
+  };
+}
+
 export function createBlockBox(
   key: string,
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
@@ -96,18 +147,13 @@ export function createBlockBox(
   containingInlineSize: number,
   metadata?: Readonly<Record<string, unknown>>,
 ): BlockBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "block" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
     ...(metadata !== undefined ? { metadata: Object.freeze({ ...metadata }) } : {}),
   });
@@ -123,18 +169,13 @@ export function createLineBox(
   baseline: number = blockSize,
   containingInlineSize: number,
 ): LineBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "line" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
     baseline,
   });
@@ -149,18 +190,13 @@ export function createTextRunBox(
   text: string,
   containingInlineSize: number,
 ): TextRunBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "text-run" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     text,
   });
 }
@@ -175,18 +211,13 @@ export function createInlineBox(
   fragmentEdge: InlineFragmentEdge,
   containingInlineSize: number,
 ): InlineBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "inline" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
     fragmentEdge,
   });
@@ -201,18 +232,13 @@ export function createInlineBlockBox(
   children: readonly LayoutBox[],
   containingInlineSize: number,
 ): InlineBlockBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "inline-block" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
   });
 }
@@ -226,18 +252,13 @@ export function createMarkerBox(
   text: string,
   containingInlineSize: number,
 ): MarkerBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "marker" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     text,
   });
 }
@@ -252,18 +273,13 @@ export function createTableBox(
   columnPxWidths: readonly number[],
   containingInlineSize: number,
 ): TableBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "table" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
     columnPxWidths: Object.freeze([...columnPxWidths]),
   });
@@ -278,18 +294,13 @@ export function createTableRowBox(
   children: readonly LayoutBox[],
   containingInlineSize: number,
 ): TableRowBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "table-row" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
   });
 }
@@ -303,18 +314,85 @@ export function createTableCellBox(
   children: readonly LayoutBox[],
   containingInlineSize: number,
 ): TableCellBox {
-  const phys = logicalToPhysical(
-    { inlineOffset, blockOffset, inlineSize, blockSize },
-    writingMode, direction, containingInlineSize,
-  );
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+  });
   return Object.freeze({
     type: "table-cell" as const,
-    key,
-    inlineOffset, blockOffset, inlineSize, blockSize,
-    ...phys,
-    writingMode, direction,
-    computedStyle: Object.freeze({ ...computedStyle }),
-    usedStyle:     Object.freeze({ ...usedStyle }),
+    ...base,
     children: Object.freeze([...children]),
   });
+}
+
+/**
+ * Recreate a layout box with a new inline-offset. Used by IFC bidi
+ * reordering and similar passes that need to reposition a box without
+ * re-running its children's layout.
+ *
+ * @param containingInlineSize the box's containing-block inline-size
+ *   (used for RTL physical-x derivation; same value passed to original
+ *   factory).
+ */
+export function withInlineOffset(
+  box: LayoutBox,
+  newInlineOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
+  switch (box.type) {
+    case "block":
+      return createBlockBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize, box.metadata,
+      );
+    case "line":
+      return createLineBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.baseline, containingInlineSize,
+      );
+    case "text-run":
+      return createTextRunBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize,
+      );
+    case "inline":
+      return createInlineBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.fragmentEdge, containingInlineSize,
+      );
+    case "inline-block":
+      return createInlineBlockBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+    case "marker":
+      return createMarkerBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize,
+      );
+    case "table":
+      return createTableBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.columnPxWidths, containingInlineSize,
+      );
+    case "table-row":
+      return createTableRowBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+    case "table-cell":
+      return createTableCellBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+  }
 }

@@ -2,7 +2,7 @@ import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
-import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox } from "./layout-box-v2";
+import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset } from "./layout-box-v2";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
@@ -10,7 +10,6 @@ import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { FloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
-import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext } from "./layout-context";
@@ -726,27 +725,6 @@ function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) 
 function extractAncestorKey(inlineBoxKey: string): string {
   const lastDash = inlineBoxKey.lastIndexOf("-");
   return lastDash >= 0 ? inlineBoxKey.slice(lastDash + 1) : inlineBoxKey;
-}
-
-/**
- * Recreate a layout box with a new inline-offset, re-deriving physical x.
- *
- * NOTE: This bypasses individual box factories to avoid duplicating their
- * signatures. It is a Plan 3.D cleanup target.
- */
-function withInlineOffset(box: LayoutBox, newInlineOffset: number, containingInlineSize: number): LayoutBox {
-  const phys = logicalToPhysical(
-    {
-      inlineOffset: newInlineOffset,
-      blockOffset:  box.blockOffset,
-      inlineSize:   box.inlineSize,
-      blockSize:    box.blockSize,
-    },
-    box.writingMode,
-    box.direction,
-    containingInlineSize,
-  );
-  return Object.freeze({ ...box, inlineOffset: newInlineOffset, ...phys } as LayoutBox);
 }
 
 /**
