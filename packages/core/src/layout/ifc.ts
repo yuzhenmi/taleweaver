@@ -158,8 +158,8 @@ export function layoutInlineContent(
     if (!floatCtx) return { lineInlineCursor: inlineOffset, lineInlineSize: availableInlineSize };
     const active = floatCtx.activeAt(lineBlockOffset);
     return {
-      lineInlineCursor: inlineOffset + active.leftWidth,
-      lineInlineSize: availableInlineSize - active.leftWidth - active.rightWidth,
+      lineInlineCursor: inlineOffset + active.inlineStartSize,
+      lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize,
     };
   }
 
@@ -245,10 +245,12 @@ export function layoutInlineContent(
     // If even an empty line can't fit the token and there are active floats,
     // advance lineBlockOffset past the nearest float bottom and retry (CSS "skip past floats").
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0 && floatCtx) {
-      const active = floatCtx.activeAt(lineBlockOffset);
-      if (active.nearestBottom !== Infinity && lineInlineSize < availableInlineSize) {
-        lineBlockOffset = active.nearestBottom;
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+      if (lineInlineSize < availableInlineSize) {
+        const nextClear = floatCtx.clearY("both", lineBlockOffset + 1);
+        if (nextClear > lineBlockOffset) {
+          lineBlockOffset = nextClear;
+          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+        }
       }
     }
 

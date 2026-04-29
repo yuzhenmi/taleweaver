@@ -285,7 +285,7 @@ describe("IFC — text wraps around floats", () => {
   it("first lines have reduced width when a left float is active", () => {
     // Set up a float context with one left float.
     const floatCtx = createFloatContext();
-    floatCtx.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 50 });
+    floatCtx.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 50 });
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -309,7 +309,7 @@ describe("IFC — text wraps around floats", () => {
 
   it("lines past the float bottom return to full width", () => {
     const floatCtx = createFloatContext();
-    floatCtx.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 16 });
+    floatCtx.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 16 });
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [

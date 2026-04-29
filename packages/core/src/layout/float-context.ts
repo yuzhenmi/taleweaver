@@ -1,52 +1,63 @@
 export interface PlacedFloat {
-  side: "left" | "right";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  readonly side: "inline-start" | "inline-end";
+  readonly inlineOffset: number;
+  readonly blockOffset: number;
+  readonly inlineSize: number;
+  readonly blockSize: number;
 }
 
 export interface FloatContext {
   placeFloat(f: PlacedFloat): void;
-  activeAt(y: number): { leftWidth: number; rightWidth: number; nearestBottom: number };
-  clearY(side: "left" | "right" | "both", y: number): number;
+  /**
+   * @returns the inline-size occupied at `blockOffset` by floats on each side.
+   * Caller subtracts these from the containing inline-size to get the free
+   * inline-size at that block-offset.
+   */
+  activeAt(blockOffset: number): { inlineStartSize: number; inlineEndSize: number };
+  /**
+   * @returns the block-offset at which all floats on the cleared side(s) end.
+   * Used by `clear: inline-start | inline-end | both`.
+   */
+  clearY(side: "inline-start" | "inline-end" | "both", blockOffset: number): number;
   lowestBottom(): number;
 }
 
 export function createFloatContext(): FloatContext {
-  const floats: PlacedFloat[] = [];
-
+  const placed: PlacedFloat[] = [];
   return {
-    placeFloat(f) { floats.push(f); },
-
-    activeAt(y) {
-      let leftWidth = 0;
-      let rightWidth = 0;
-      let nearestBottom = Infinity;
-      for (const f of floats) {
-        const bottom = f.y + f.height;
-        if (y >= f.y && y < bottom) {
-          if (f.side === "left") leftWidth += f.width;
-          else rightWidth += f.width;
-          if (bottom < nearestBottom) nearestBottom = bottom;
+    placeFloat(f) {
+      placed.push(f);
+    },
+    activeAt(blockOffset) {
+      let inlineStartSize = 0;
+      let inlineEndSize = 0;
+      for (const f of placed) {
+        if (blockOffset < f.blockOffset) continue;
+        if (blockOffset >= f.blockOffset + f.blockSize) continue;
+        if (f.side === "inline-start") {
+          inlineStartSize = Math.max(inlineStartSize, f.inlineOffset + f.inlineSize);
+        } else {
+          inlineEndSize = Math.max(inlineEndSize, f.inlineSize);
         }
       }
-      return { leftWidth, rightWidth, nearestBottom };
+      return { inlineStartSize, inlineEndSize };
     },
-
-    clearY(side, y) {
-      let result = y;
-      for (const f of floats) {
-        const matches = side === "both" || f.side === side;
-        if (!matches) continue;
-        const bottom = f.y + f.height;
-        if (bottom > result) result = bottom;
+    clearY(side, blockOffset) {
+      let bottom = blockOffset;
+      for (const f of placed) {
+        const isMatch =
+          side === "both" ||
+          (side === "inline-start" && f.side === "inline-start") ||
+          (side === "inline-end" && f.side === "inline-end");
+        if (!isMatch) continue;
+        bottom = Math.max(bottom, f.blockOffset + f.blockSize);
       }
-      return result;
+      return bottom;
     },
-
     lowestBottom() {
-      return floats.reduce((m, f) => Math.max(m, f.y + f.height), 0);
+      let b = 0;
+      for (const f of placed) b = Math.max(b, f.blockOffset + f.blockSize);
+      return b;
     },
   };
 }

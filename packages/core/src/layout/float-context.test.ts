@@ -4,37 +4,30 @@ import { createFloatContext } from "./float-context";
 describe("FloatContext", () => {
   it("starts empty", () => {
     const fc = createFloatContext();
-    expect(fc.activeAt(0)).toEqual({ leftWidth: 0, rightWidth: 0, nearestBottom: Infinity });
+    expect(fc.activeAt(0)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
   });
 
-  it("tracks a left float", () => {
+  it("tracks an inline-start float", () => {
     const fc = createFloatContext();
-    fc.placeFloat({ side: "left", x: 0, y: 10, width: 100, height: 50 });
-    expect(fc.activeAt(20).leftWidth).toBe(100);
-    expect(fc.activeAt(0).leftWidth).toBe(0);
-    expect(fc.activeAt(60).leftWidth).toBe(0);     // float ends at y=60
+    fc.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 10, inlineSize: 100, blockSize: 50 });
+    expect(fc.activeAt(20).inlineStartSize).toBe(100);
+    expect(fc.activeAt(0).inlineStartSize).toBe(0);
+    expect(fc.activeAt(60).inlineStartSize).toBe(0);     // float ends at blockOffset=60
   });
 
-  it("stacks left floats horizontally on overlapping y", () => {
+  it("stacks inline-start floats horizontally on overlapping blockOffset", () => {
     const fc = createFloatContext();
-    fc.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 50 });
-    fc.placeFloat({ side: "left", x: 100, y: 0, width: 50, height: 50 });
-    expect(fc.activeAt(10).leftWidth).toBe(150);
+    fc.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 50 });
+    fc.placeFloat({ side: "inline-start", inlineOffset: 100, blockOffset: 0, inlineSize: 50, blockSize: 50 });
+    expect(fc.activeAt(10).inlineStartSize).toBe(150);
   });
 
-  it("nearestBottom returns the closest float bottom in active set", () => {
+  it("clear: 'inline-start' returns blockOffset past all inline-start floats", () => {
     const fc = createFloatContext();
-    fc.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 30 });
-    fc.placeFloat({ side: "left", x: 100, y: 0, width: 50, height: 50 });
-    expect(fc.activeAt(10).nearestBottom).toBe(30);
-  });
-
-  it("clear: 'left' returns y past all left floats", () => {
-    const fc = createFloatContext();
-    fc.placeFloat({ side: "left", x: 0, y: 0, width: 100, height: 50 });
-    fc.placeFloat({ side: "right", x: 200, y: 0, width: 100, height: 100 });
-    expect(fc.clearY("left", 10)).toBe(50);
-    expect(fc.clearY("right", 10)).toBe(100);
+    fc.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 50 });
+    fc.placeFloat({ side: "inline-end", inlineOffset: 200, blockOffset: 0, inlineSize: 100, blockSize: 100 });
+    expect(fc.clearY("inline-start", 10)).toBe(50);
+    expect(fc.clearY("inline-end", 10)).toBe(100);
     expect(fc.clearY("both", 10)).toBe(100);
   });
 });

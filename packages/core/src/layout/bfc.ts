@@ -84,19 +84,19 @@ export function layoutBlock(
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
       const active = floatCtx.activeAt(childBlockOffset);
       const placedInlineOffset = childCs.float === "inline-start"
-        ? paddingInlineStart + active.leftWidth
-        : paddingInlineStart + contentInlineSize - active.rightWidth - floatInlineSize;
+        ? paddingInlineStart + active.inlineStartSize
+        : paddingInlineStart + contentInlineSize - active.inlineEndSize - floatInlineSize;
       const positioned: LayoutBox = Object.freeze({
         ...floatLayout,
         x: placedInlineOffset,
         y: childBlockOffset,
       } as LayoutBox);
       floatCtx.placeFloat({
-        side: childCs.float === "inline-start" ? "left" : "right",
-        x: placedInlineOffset,
-        y: childBlockOffset,
-        width: floatInlineSize,
-        height: floatBlockSize,
+        side: childCs.float === "inline-start" ? "inline-start" : "inline-end",
+        inlineOffset: placedInlineOffset,
+        blockOffset: childBlockOffset,
+        inlineSize: floatInlineSize,
+        blockSize: floatBlockSize,
       });
       layoutChildren.push(positioned);
       // Float is out of normal flow — do NOT advance childBlockOffset or update prevMarginBlockEnd.
@@ -105,10 +105,7 @@ export function layoutBlock(
 
     // CLEAR BRANCH: advance childBlockOffset past cleared floats before applying margins
     if (childCs.clear !== "none") {
-      const clearSide = childCs.clear === "inline-start" ? "left"
-                      : childCs.clear === "inline-end" ? "right"
-                      : "both";
-      const clearedY = floatCtx.clearY(clearSide, childBlockOffset);
+      const clearedY = floatCtx.clearY(childCs.clear, childBlockOffset);
       if (clearedY > childBlockOffset) {
         childBlockOffset = clearedY;
       }
