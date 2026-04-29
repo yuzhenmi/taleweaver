@@ -3,6 +3,7 @@
 // DOM-specific (local)
 export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-config";
 export { createCanvasMeasurer } from "./canvas-measurer";
+export { createCanvasShaper } from "./canvas-shaper";
 export { mapKeyEvent } from "./key-handler";
 export type { CursorState } from "./canvas-renderer";
 export { paintCanvas, paintPage } from "./canvas-renderer";
