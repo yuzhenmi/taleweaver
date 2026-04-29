@@ -1,4 +1,4 @@
-import type { ComputedStyle } from "../styles";
+import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 
@@ -25,6 +25,7 @@ interface LayoutBoxBase {
   readonly direction:   Direction;
 
   readonly computedStyle: Readonly<ComputedStyle>;
+  readonly usedStyle:     Readonly<UsedStyle>;
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -90,6 +91,7 @@ export function createBlockBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   metadata?: Readonly<Record<string, unknown>>,
   containingInlineSize?: number,
@@ -105,6 +107,7 @@ export function createBlockBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
     ...(metadata !== undefined ? { metadata: Object.freeze({ ...metadata }) } : {}),
   });
@@ -115,6 +118,7 @@ export function createLineBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   baseline: number = blockSize,
   containingInlineSize?: number,
@@ -130,6 +134,7 @@ export function createLineBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
     baseline,
   });
@@ -140,6 +145,7 @@ export function createTextRunBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   text: string,
   containingInlineSize?: number,
 ): TextRunBox {
@@ -154,6 +160,7 @@ export function createTextRunBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     text,
   });
 }
@@ -163,6 +170,7 @@ export function createInlineBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   fragmentEdge: InlineFragmentEdge,
   containingInlineSize?: number,
@@ -178,6 +186,7 @@ export function createInlineBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
     fragmentEdge,
   });
@@ -188,6 +197,7 @@ export function createInlineBlockBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize?: number,
 ): InlineBlockBox {
@@ -202,6 +212,7 @@ export function createInlineBlockBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
   });
 }
@@ -211,6 +222,7 @@ export function createMarkerBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   text: string,
   containingInlineSize?: number,
 ): MarkerBox {
@@ -225,6 +237,7 @@ export function createMarkerBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     text,
   });
 }
@@ -234,6 +247,7 @@ export function createTableBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   columnPxWidths: readonly number[],
   containingInlineSize?: number,
@@ -249,6 +263,7 @@ export function createTableBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
     columnPxWidths: Object.freeze([...columnPxWidths]),
   });
@@ -259,6 +274,7 @@ export function createTableRowBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize?: number,
 ): TableRowBox {
@@ -273,6 +289,7 @@ export function createTableRowBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
   });
 }
@@ -282,6 +299,7 @@ export function createTableCellBox(
   inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
   writingMode: WritingMode, direction: Direction,
   computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize?: number,
 ): TableCellBox {
@@ -296,6 +314,7 @@ export function createTableCellBox(
     ...phys,
     writingMode, direction,
     computedStyle: Object.freeze({ ...computedStyle }),
+    usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
   });
 }
