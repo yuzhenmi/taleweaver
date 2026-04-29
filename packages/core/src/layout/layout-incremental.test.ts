@@ -9,7 +9,7 @@ const measurer = createMockMeasurer(8, 16);
 
 describe("layoutTreeIncremental", () => {
   it("reuses unchanged layout box when reference is the same and width unchanged", () => {
-    const subtree = createElementBox("inner", { display: "block", height: 50 }, []);
+    const subtree = createElementBox("inner", { display: "block", blockSize: 50 }, []);
     const treeA = cascadePass(createElementBox("root", { display: "block" }, [subtree]));
     const treeB = cascadePass(createElementBox("root", { display: "block" }, [subtree]));
 
@@ -26,14 +26,14 @@ describe("layoutTreeIncremental", () => {
   });
 
   it("short-circuits when newRoot === oldRoot AND width unchanged", () => {
-    const tree = cascadePass(createElementBox("root", { display: "block", height: 50 }, []));
+    const tree = cascadePass(createElementBox("root", { display: "block", blockSize: 50 }, []));
     const layoutA = layoutTree(tree, 600, measurer);
     const layoutB = layoutTreeIncremental(tree, tree, layoutA, 600, measurer);
     expect(layoutB).toBe(layoutA);  // exact same reference
   });
 
   it("falls back to full layout when width changes", () => {
-    const tree = cascadePass(createElementBox("root", { display: "block", height: 50 }, []));
+    const tree = cascadePass(createElementBox("root", { display: "block", blockSize: 50 }, []));
     const layoutA = layoutTree(tree, 600, measurer);
     const layoutB = layoutTreeIncremental(tree, tree, layoutA, 800, measurer);
     expect(layoutB.width).toBe(800);

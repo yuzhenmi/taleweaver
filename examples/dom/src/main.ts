@@ -35,8 +35,6 @@ async function init() {
     measurer,
     registry,
     containerWidth: PAGE_WIDTH,
-    pageHeight: PAGE_HEIGHT,
-    pageMargins: PAGE_MARGINS,
   };
 
   let editorState: EditorState = createInitialEditorState(config);

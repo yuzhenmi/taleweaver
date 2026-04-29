@@ -1,6 +1,30 @@
-import type { LayoutBox, SelectionRect, ComputedStyle } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect, ComputedStyle, BorderStyle, Color } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
+
+interface PhysicalBorderSides {
+  topWidth: number; rightWidth: number; bottomWidth: number; leftWidth: number;
+  topStyle: BorderStyle; rightStyle: BorderStyle; bottomStyle: BorderStyle; leftStyle: BorderStyle;
+  topColor: Color; rightColor: Color; bottomColor: Color; leftColor: Color;
+}
+
+function physicalSides(cs: Readonly<ComputedStyle>): PhysicalBorderSides {
+  // Plan 3.A: horizontal-tb only.
+  // LTR: blockStart=top, blockEnd=bottom, inlineStart=left, inlineEnd=right.
+  // RTL: blockStart=top, blockEnd=bottom, inlineStart=right, inlineEnd=left.
+  const isRtl = cs.direction === "rtl";
+  return {
+    topWidth: cs.borderBlockStartWidth, bottomWidth: cs.borderBlockEndWidth,
+    leftWidth: isRtl ? cs.borderInlineEndWidth : cs.borderInlineStartWidth,
+    rightWidth: isRtl ? cs.borderInlineStartWidth : cs.borderInlineEndWidth,
+    topStyle: cs.borderBlockStartStyle, bottomStyle: cs.borderBlockEndStyle,
+    leftStyle: isRtl ? cs.borderInlineEndStyle : cs.borderInlineStartStyle,
+    rightStyle: isRtl ? cs.borderInlineStartStyle : cs.borderInlineEndStyle,
+    topColor: cs.borderBlockStartColor, bottomColor: cs.borderBlockEndColor,
+    leftColor: isRtl ? cs.borderInlineEndColor : cs.borderInlineStartColor,
+    rightColor: isRtl ? cs.borderInlineStartColor : cs.borderInlineEndColor,
+  };
+}
 
 interface PaintState {
   lastFont: string;
@@ -225,21 +249,22 @@ function paintBorders(
   w: number,
   h: number,
 ): void {
-  if (cs.borderTopWidth > 0 && cs.borderTopStyle !== "none") {
-    ctx.fillStyle = cs.borderTopColor;
-    ctx.fillRect(x, y, w, cs.borderTopWidth);
+  const sides = physicalSides(cs);
+  if (sides.topWidth > 0 && sides.topStyle !== "none") {
+    ctx.fillStyle = sides.topColor;
+    ctx.fillRect(x, y, w, sides.topWidth);
   }
-  if (cs.borderBottomWidth > 0 && cs.borderBottomStyle !== "none") {
-    ctx.fillStyle = cs.borderBottomColor;
-    ctx.fillRect(x, y + h - cs.borderBottomWidth, w, cs.borderBottomWidth);
+  if (sides.bottomWidth > 0 && sides.bottomStyle !== "none") {
+    ctx.fillStyle = sides.bottomColor;
+    ctx.fillRect(x, y + h - sides.bottomWidth, w, sides.bottomWidth);
   }
-  if (cs.borderLeftWidth > 0 && cs.borderLeftStyle !== "none") {
-    ctx.fillStyle = cs.borderLeftColor;
-    ctx.fillRect(x, y, cs.borderLeftWidth, h);
+  if (sides.leftWidth > 0 && sides.leftStyle !== "none") {
+    ctx.fillStyle = sides.leftColor;
+    ctx.fillRect(x, y, sides.leftWidth, h);
   }
-  if (cs.borderRightWidth > 0 && cs.borderRightStyle !== "none") {
-    ctx.fillStyle = cs.borderRightColor;
-    ctx.fillRect(x + w - cs.borderRightWidth, y, cs.borderRightWidth, h);
+  if (sides.rightWidth > 0 && sides.rightStyle !== "none") {
+    ctx.fillStyle = sides.rightColor;
+    ctx.fillRect(x + w - sides.rightWidth, y, sides.rightWidth, h);
   }
 }
 
@@ -252,25 +277,26 @@ function paintInlineBorders(
   h: number,
   edge: "first" | "middle" | "last" | "only",
 ): void {
-  const drawTop    = cs.borderTopWidth > 0    && cs.borderTopStyle !== "none";
-  const drawBottom = cs.borderBottomWidth > 0 && cs.borderBottomStyle !== "none";
-  const drawLeft   = (edge === "first" || edge === "only") && cs.borderLeftWidth > 0  && cs.borderLeftStyle !== "none";
-  const drawRight  = (edge === "last"  || edge === "only") && cs.borderRightWidth > 0 && cs.borderRightStyle !== "none";
+  const sides = physicalSides(cs);
+  const drawTop    = sides.topWidth > 0    && sides.topStyle !== "none";
+  const drawBottom = sides.bottomWidth > 0 && sides.bottomStyle !== "none";
+  const drawLeft   = (edge === "first" || edge === "only") && sides.leftWidth > 0  && sides.leftStyle !== "none";
+  const drawRight  = (edge === "last"  || edge === "only") && sides.rightWidth > 0 && sides.rightStyle !== "none";
 
   if (drawTop) {
-    ctx.fillStyle = cs.borderTopColor;
-    ctx.fillRect(x, y, w, cs.borderTopWidth);
+    ctx.fillStyle = sides.topColor;
+    ctx.fillRect(x, y, w, sides.topWidth);
   }
   if (drawBottom) {
-    ctx.fillStyle = cs.borderBottomColor;
-    ctx.fillRect(x, y + h - cs.borderBottomWidth, w, cs.borderBottomWidth);
+    ctx.fillStyle = sides.bottomColor;
+    ctx.fillRect(x, y + h - sides.bottomWidth, w, sides.bottomWidth);
   }
   if (drawLeft) {
-    ctx.fillStyle = cs.borderLeftColor;
-    ctx.fillRect(x, y, cs.borderLeftWidth, h);
+    ctx.fillStyle = sides.leftColor;
+    ctx.fillRect(x, y, sides.leftWidth, h);
   }
   if (drawRight) {
-    ctx.fillStyle = cs.borderRightColor;
-    ctx.fillRect(x + w - cs.borderRightWidth, y, cs.borderRightWidth, h);
+    ctx.fillStyle = sides.rightColor;
+    ctx.fillRect(x + w - sides.rightWidth, y, sides.rightWidth, h);
   }
 }

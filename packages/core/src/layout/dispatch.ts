@@ -4,6 +4,7 @@ import type { TextMeasurer } from "./text-measurer";
 import { layoutBlock } from "./bfc";
 import { layoutTable } from "./table-fc";
 import { cascadePass } from "../cascade";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -12,7 +13,7 @@ import { cascadePass } from "../cascade";
  */
 export function layoutTree(
   root: RenderNode,
-  containerWidth: number,
+  containerInlineSize: number,
   measurer: TextMeasurer,
 ): LayoutBox {
   if (root.type !== "element") {
@@ -23,14 +24,13 @@ export function layoutTree(
     ? root
     : (cascadePass(root) as ElementBox);
 
-  const cs = layoutRoot.computedStyle;
-  if (!cs) throw new Error("Cascade must run before layout");
+  const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
 
   switch (cs.display) {
     case "block":
-      return layoutBlock(layoutRoot, 0, 0, containerWidth, measurer);
+      return layoutBlock(layoutRoot, 0, 0, containerInlineSize, measurer, cs.writingMode, cs.direction);
     case "table":
-      return layoutTable(layoutRoot, 0, 0, containerWidth, measurer);
+      return layoutTable(layoutRoot, 0, 0, containerInlineSize, measurer, cs.writingMode, cs.direction);
     default:
       throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
   }
