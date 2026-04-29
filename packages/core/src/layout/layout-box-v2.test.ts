@@ -110,3 +110,29 @@ describe("Logical-to-physical mapping", () => {
     expect(b.height).toBe(50);
   });
 });
+
+it("RTL horizontal-tb inverts physical x from inline-offset", () => {
+  const testCs: ComputedStyle = INITIAL_COMPUTED_STYLE;
+  // Place a 100px box at inline-offset 30 in a 500px-inline-size container.
+  // RTL: physical x = 500 - 30 - 100 = 370
+  const b = createBlockBox(
+    "k", 30, 0, 100, 50, "horizontal-tb", "rtl", testCs, [],
+    /* metadata */ undefined,
+    /* containingInlineSize */ 500,
+  );
+  expect(b.inlineOffset).toBe(30);
+  expect(b.x).toBe(370);
+  expect(b.y).toBe(0);
+  expect(b.width).toBe(100);
+  expect(b.height).toBe(50);
+});
+
+it("LTR horizontal-tb is unaffected by containingInlineSize", () => {
+  const testCs: ComputedStyle = INITIAL_COMPUTED_STYLE;
+  const b = createBlockBox(
+    "k", 30, 0, 100, 50, "horizontal-tb", "ltr", testCs, [],
+    /* metadata */ undefined,
+    /* containingInlineSize */ 500,
+  );
+  expect(b.x).toBe(30);
+});

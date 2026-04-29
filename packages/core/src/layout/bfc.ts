@@ -62,7 +62,9 @@ export function layoutBlock(
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
     }
     const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
-    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, lines, node.metadata);
+    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, lines, node.metadata,
+      /* containingInlineSize */ availableInlineSize,
+    );
   }
 
   let childBlockOffset = paddingBlockStart;
@@ -140,6 +142,7 @@ export function layoutBlock(
           markerInlineSize, markerBlockSize,
           cs.writingMode, cs.direction,
           childCs, markerText,
+          /* containingInlineSize */ contentInlineSize,
         );
         layoutChildren.push(markerBox);
       }
@@ -154,7 +157,9 @@ export function layoutBlock(
     const explicitBlockSize = lengthToPx(childCs.blockSize === "auto" ? 0 : childCs.blockSize);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
-      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, [], child.metadata)
+      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, [], child.metadata,
+          /* containingInlineSize */ contentInlineSize,
+        )
       : childLayout;
 
     // CSS empty-block rule: a block with no content, padding, border, or explicit height
@@ -174,7 +179,9 @@ export function layoutBlock(
       prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
       // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed)
       layoutChildren.push(
-        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, [], child.metadata),
+        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, [], child.metadata,
+          /* containingInlineSize */ contentInlineSize,
+        ),
       );
     } else {
       layoutChildren.push(placedChild);
@@ -192,6 +199,7 @@ export function layoutBlock(
 
   return createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, layoutChildren, node.metadata,
+    /* containingInlineSize */ availableInlineSize,
   );
 }
 

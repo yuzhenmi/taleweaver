@@ -67,6 +67,7 @@ export function layoutTable(
         cs.writingMode, cs.direction,
         cell.computedStyle,
         interiorChildren,
+        /* containingInlineSize */ tableInlineSize,
       );
       cellBoxes.push(cellBox);
       cellInlineOffset += cellInlineSize;
@@ -83,13 +84,14 @@ export function layoutTable(
         ? cb
         : createTableCellBox(
             cb.key,
-            cb.x,
-            cb.y,
-            cb.width,
+            cb.inlineOffset,
+            cb.blockOffset,
+            cb.inlineSize,
             rowBlockSize,
             cs.writingMode, cs.direction,
             cb.computedStyle,
             Array.from(cb.children),
+            /* containingInlineSize */ tableInlineSize,
           ),
     );
 
@@ -97,6 +99,7 @@ export function layoutTable(
       rowNode.key, 0, rowBlockOffset, tableInlineSize, rowBlockSize,
       cs.writingMode, cs.direction,
       rowNode.computedStyle, stretchedCells,
+      /* containingInlineSize */ tableInlineSize,
     ));
     rowBlockOffset += rowBlockSize;
   }
@@ -107,5 +110,6 @@ export function layoutTable(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, direction,
     cs, rowBoxes, columnPxWidths,
+    /* containingInlineSize */ availableInlineSize,
   );
 }

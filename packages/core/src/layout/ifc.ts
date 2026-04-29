@@ -221,7 +221,7 @@ export function layoutInlineContent(
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
       lines.push(line);
       lineBlockOffset += line.height;
       currentUnits = [];
@@ -233,7 +233,7 @@ export function layoutInlineContent(
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
 
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
       lines.push(line);
       lineBlockOffset += line.height;
       currentUnits = [];
@@ -260,7 +260,7 @@ export function layoutInlineContent(
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction);
+    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
     lines.push(line);
   }
 
@@ -304,14 +304,18 @@ function buildLineWithFragments(
   measurer: TextMeasurer,
   writingMode: WritingMode,
   direction: Direction,
+  containingInlineSize: number,
 ): LineBox {
   const lineBlockSizeTracker = { value: 0 };
   const children = buildLineChildrenForAncestorLevel(
-    parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction,
+    parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
   );
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
   const aligned = applyVerticalAlign(children, lineBlockSize);
-  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, aligned);
+  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, aligned,
+    /* baseline */ lineBlockSize,
+    /* containingInlineSize */ containingInlineSize,
+  );
 }
 
 /**
@@ -329,6 +333,7 @@ function buildLineChildrenForAncestorLevel(
   lineBlockSizeTracker: { value: number },
   writingMode: WritingMode,
   direction: Direction,
+  lineInlineSize: number,
 ): LayoutBox[] {
   const out: LayoutBox[] = [];
   let cursorInlineOffset = 0;
@@ -355,6 +360,7 @@ function buildLineChildrenForAncestorLevel(
         out.push(createInlineBlockBox(
           `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
           cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ib.children,
+          /* containingInlineSize */ lineInlineSize,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
@@ -369,6 +375,7 @@ function buildLineChildrenForAncestorLevel(
         out.push(createTextRunBox(
           runKey,
           cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, text,
+          /* containingInlineSize */ lineInlineSize,
         ));
       }
       cursorInlineOffset += unitWidth;
@@ -390,7 +397,7 @@ function buildLineChildrenForAncestorLevel(
     const innerBlockSizeTracker = { value: 0 };
     const innerChildren = buildLineChildrenForAncestorLevel(
       parentKey, lineIndex, innerUnits, depth + 1,
-      ancestorStyle, measurer, innerBlockSizeTracker, writingMode, direction,
+      ancestorStyle, measurer, innerBlockSizeTracker, writingMode, direction, lineInlineSize,
     );
 
     const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.width, 0);
@@ -401,6 +408,7 @@ function buildLineChildrenForAncestorLevel(
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
       cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, innerChildren, "only",
+      /* containingInlineSize */ lineInlineSize,
     ));
     cursorInlineOffset += boxInlineSize;
     i = j;
