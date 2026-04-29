@@ -1,4 +1,4 @@
-import type { LayoutBox, SelectionRect, ComputedStyle, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
 
