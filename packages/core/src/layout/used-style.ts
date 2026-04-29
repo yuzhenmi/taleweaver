@@ -1,0 +1,114 @@
+import type { ComputedStyle, UsedStyle } from "../styles";
+import type { ComputedLength, ComputedLengthOrAuto } from "../styles/length";
+
+/**
+ * Resolve a `ComputedLength` to numeric pixels at layout time.
+ *
+ * @param value the computed-length value (number, percent, or "auto")
+ * @param containingInlineSize the inline-size of the containing block in
+ *   pixels. Used to resolve `percent`. For block-axis percents, the caller
+ *   should pass the containing block's BLOCK-axis size; CSS allows percent
+ *   block-sizes to resolve only when the containing block has a definite
+ *   block-size, otherwise they fall back to `auto` (handled by caller).
+ * @param fallbackForAuto the value to use when input is `"auto"`. Caller
+ *   provides FC-specific fallback (block: containing inline-size; etc.).
+ */
+export function resolveUsedLength(
+  value: ComputedLengthOrAuto,
+  containingInlineSize: number,
+  fallbackForAuto: number,
+): number {
+  if (value === "auto") return fallbackForAuto;
+  if (typeof value === "number") return value;
+  // percent
+  return (value.value / 100) * containingInlineSize;
+}
+
+/** Resolve a `ComputedLength | "none"` slot (max-size). `"none"` → +∞. */
+export function resolveUsedLengthOrNone(
+  value: ComputedLength | "none",
+  containingInlineSize: number,
+): number {
+  if (value === "none") return Number.POSITIVE_INFINITY;
+  if (typeof value === "number") return value;
+  return (value.value / 100) * containingInlineSize;
+}
+
+/**
+ * Compute a full `UsedStyle` from `ComputedStyle` and the containing
+ * block's inline-size. Inline-axis sizes/insets resolve against
+ * `containingInlineSize`. Block-axis percents resolve against the same
+ * value here as a placeholder; CSS resolves block percents against the
+ * containing block's BLOCK size, but Plan 3.B doesn't yet propagate
+ * containing-block block-size at the call site (in-flow blocks have
+ * `auto` block-size which is content-derived). Plan 3.D refines this.
+ */
+export function computeUsedStyle(
+  cs: ComputedStyle,
+  containingInlineSize: number,
+  fallbackForAutoInlineSize: number = containingInlineSize,
+  fallbackForAutoBlockSize: number = 0,
+  fallbackForAutoMargin: number = 0,
+): UsedStyle {
+  return {
+    display: cs.display,
+    writingMode: cs.writingMode,
+    direction: cs.direction,
+
+    inlineSize: resolveUsedLength(cs.inlineSize, containingInlineSize, fallbackForAutoInlineSize),
+    blockSize:  resolveUsedLength(cs.blockSize,  containingInlineSize, fallbackForAutoBlockSize),
+    minInlineSize: resolveUsedLength(cs.minInlineSize, containingInlineSize, 0),
+    minBlockSize:  resolveUsedLength(cs.minBlockSize,  containingInlineSize, 0),
+    maxInlineSize: resolveUsedLengthOrNone(cs.maxInlineSize, containingInlineSize),
+    maxBlockSize:  resolveUsedLengthOrNone(cs.maxBlockSize,  containingInlineSize),
+    boxSizing: cs.boxSizing,
+
+    marginBlockStart:  resolveUsedLength(cs.marginBlockStart,  containingInlineSize, fallbackForAutoMargin),
+    marginBlockEnd:    resolveUsedLength(cs.marginBlockEnd,    containingInlineSize, fallbackForAutoMargin),
+    marginInlineStart: resolveUsedLength(cs.marginInlineStart, containingInlineSize, fallbackForAutoMargin),
+    marginInlineEnd:   resolveUsedLength(cs.marginInlineEnd,   containingInlineSize, fallbackForAutoMargin),
+
+    paddingBlockStart:  resolveUsedLength(cs.paddingBlockStart,  containingInlineSize, 0),
+    paddingBlockEnd:    resolveUsedLength(cs.paddingBlockEnd,    containingInlineSize, 0),
+    paddingInlineStart: resolveUsedLength(cs.paddingInlineStart, containingInlineSize, 0),
+    paddingInlineEnd:   resolveUsedLength(cs.paddingInlineEnd,   containingInlineSize, 0),
+
+    borderBlockStartWidth:  cs.borderBlockStartWidth,
+    borderBlockEndWidth:    cs.borderBlockEndWidth,
+    borderInlineStartWidth: cs.borderInlineStartWidth,
+    borderInlineEndWidth:   cs.borderInlineEndWidth,
+    borderBlockStartStyle:  cs.borderBlockStartStyle,
+    borderBlockEndStyle:    cs.borderBlockEndStyle,
+    borderInlineStartStyle: cs.borderInlineStartStyle,
+    borderInlineEndStyle:   cs.borderInlineEndStyle,
+    borderBlockStartColor:  cs.borderBlockStartColor,
+    borderBlockEndColor:    cs.borderBlockEndColor,
+    borderInlineStartColor: cs.borderInlineStartColor,
+    borderInlineEndColor:   cs.borderInlineEndColor,
+
+    backgroundColor: cs.backgroundColor,
+
+    fontFamily: cs.fontFamily,
+    fontSize: cs.fontSize,
+    fontWeight: cs.fontWeight,
+    fontStyle: cs.fontStyle,
+    textDecoration: cs.textDecoration,
+    lineHeight: typeof cs.lineHeight === "number"
+      ? cs.lineHeight
+      : resolveUsedLength(cs.lineHeight, containingInlineSize, 0),
+    color: cs.color,
+
+    whiteSpace: cs.whiteSpace,
+    verticalAlign: cs.verticalAlign,
+
+    float: cs.float,
+    clear: cs.clear,
+
+    breakBefore: cs.breakBefore,
+    breakAfter: cs.breakAfter,
+    breakInside: cs.breakInside,
+
+    listStyleType: cs.listStyleType,
+    listStylePosition: cs.listStylePosition,
+  };
+}
