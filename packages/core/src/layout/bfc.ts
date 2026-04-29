@@ -9,7 +9,7 @@ import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
-import { computeUsedStyle } from "./used-style";
+import { computeUsedStyle, resolveUsedLength } from "./used-style";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -40,7 +40,7 @@ export function layoutBlock(
   const noTopBoundary = paddingBlockStart === 0 && usedStyle.borderBlockStartWidth === 0;
   const noBottomBoundary = paddingBlockEnd === 0 && usedStyle.borderBlockEndWidth === 0;
 
-  const explicitInlineSize = cs.inlineSize === "auto" ? null : usedStyle.inlineSize;
+  const explicitInlineSize = cs.inlineSize === "auto" ? null : resolveUsedLength(cs.inlineSize, availableInlineSize, availableInlineSize);
   const finalInlineSize = explicitInlineSize !== null && explicitInlineSize > 0 ? explicitInlineSize : availableInlineSize;
   const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
 
@@ -86,7 +86,7 @@ export function layoutBlock(
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
       const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, shaper, cs.writingMode, cs.direction);
-      const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
+      const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
       const active = floatCtx.activeAt(childBlockOffset);
@@ -162,7 +162,7 @@ export function layoutBlock(
     } else {
       childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, shaper, cs.writingMode, cs.direction);
     }
-    const explicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
+    const explicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
       ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
@@ -176,7 +176,7 @@ export function layoutBlock(
     // the next sibling collapse, and the empty block does not advance childBlockOffset.
     const childPaddingV = childUsedStyle.paddingBlockStart + childUsedStyle.paddingBlockEnd;
     const childBorderV  = childUsedStyle.borderBlockStartWidth + childUsedStyle.borderBlockEndWidth;
-    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : childUsedStyle.blockSize;
+    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
     const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0

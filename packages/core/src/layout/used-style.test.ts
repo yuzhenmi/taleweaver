@@ -32,9 +32,7 @@ describe("resolveUsedLengthOrNone", () => {
 describe("computeUsedStyle", () => {
   it("produces fully numeric output for INITIAL_COMPUTED_STYLE", () => {
     const us = computeUsedStyle(INITIAL_COMPUTED_STYLE, 500);
-    expect(us.inlineSize).toBe(500);   // auto → fallbackForAutoInlineSize = 500
     expect(us.marginBlockStart).toBe(0);  // 0 passes through
-    expect(us.maxInlineSize).toBe(Number.POSITIVE_INFINITY);  // "none"
     expect(us.fontSize).toBe(16);
   });
 
@@ -45,10 +43,5 @@ describe("computeUsedStyle", () => {
     };
     const us = computeUsedStyle(cs, 500);
     expect(us.marginBlockStart).toBe(50);
-  });
-
-  it("auto inline-size falls back to containing block", () => {
-    const us = computeUsedStyle(INITIAL_COMPUTED_STYLE, 800);
-    expect(us.inlineSize).toBe(800);
   });
 });

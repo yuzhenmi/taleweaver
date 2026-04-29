@@ -45,19 +45,14 @@ export function resolveUsedLengthOrNone(
 }
 
 /**
- * Compute a full `UsedStyle` from `ComputedStyle` and the containing
- * block's inline-size. Inline-axis sizes/insets resolve against
- * `containingInlineSize`. Block-axis percents resolve against the same
- * value here as a placeholder; CSS resolves block percents against the
- * containing block's BLOCK size, but Plan 3.B doesn't yet propagate
- * containing-block block-size at the call site (in-flow blocks have
- * `auto` block-size which is content-derived). Plan 3.D refines this.
+ * Compute a `UsedStyle` from `ComputedStyle` and the containing block's
+ * inline-size. Resolves margin/padding/border/typography to numeric values.
+ * Sizing fields (inlineSize/blockSize/min-size/max-size) are NOT produced here —
+ * they live on LayoutBox as the authoritative source.
  */
 export function computeUsedStyle(
   cs: ComputedStyle,
   containingInlineSize: number,
-  fallbackForAutoInlineSize: number = containingInlineSize,
-  fallbackForAutoBlockSize: number = 0,
   fallbackForAutoMargin: number = 0,
 ): UsedStyle {
   return {
@@ -65,12 +60,6 @@ export function computeUsedStyle(
     writingMode: cs.writingMode,
     direction: cs.direction,
 
-    inlineSize: resolveUsedLength(cs.inlineSize, containingInlineSize, fallbackForAutoInlineSize),
-    blockSize:  resolveUsedLength(cs.blockSize,  containingInlineSize, fallbackForAutoBlockSize),
-    minInlineSize: resolveUsedLength(cs.minInlineSize, containingInlineSize, 0),
-    minBlockSize:  resolveUsedLength(cs.minBlockSize,  containingInlineSize, 0),
-    maxInlineSize: resolveUsedLengthOrNone(cs.maxInlineSize, containingInlineSize),
-    maxBlockSize:  resolveUsedLengthOrNone(cs.maxBlockSize,  containingInlineSize),
     boxSizing: cs.boxSizing,
 
     marginBlockStart:  resolveUsedLength(cs.marginBlockStart,  containingInlineSize, fallbackForAutoMargin),

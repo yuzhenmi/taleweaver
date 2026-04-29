@@ -8,10 +8,6 @@ describe("UsedStyle", () => {
       writingMode: "horizontal-tb",
       direction: "ltr",
 
-      inlineSize: 500, blockSize: 100,
-      minInlineSize: 0, minBlockSize: 0,
-      maxInlineSize: Number.POSITIVE_INFINITY,
-      maxBlockSize: Number.POSITIVE_INFINITY,
       boxSizing: "content-box",
 
       marginBlockStart: 10, marginBlockEnd: 10,
@@ -60,7 +56,6 @@ describe("UsedStyle", () => {
       listStyleType: "disc",
       listStylePosition: "outside",
     };
-    expect(us.inlineSize).toBe(500);
     expect(us.fontSize).toBe(16);
   });
 });

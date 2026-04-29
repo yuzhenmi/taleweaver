@@ -10,8 +10,8 @@ import type { WritingMode, Direction } from "./writing-mode";
 
 /**
  * Used style — fully numeric. Produced by the layout pass per LayoutBox.
- * Painter and hit-test consume `UsedStyle` for sizes; `ComputedStyle` for
- * inherited / non-positional things (color, font, decoration).
+ * Carries only resolved margin/padding/border/typography values.
+ * Sizing (inlineSize/blockSize/min-size/max-size) lives on LayoutBox exclusively.
  */
 export interface UsedStyle {
   display: Display;
@@ -19,13 +19,8 @@ export interface UsedStyle {
   writingMode: WritingMode;
   direction:   Direction;
 
-  inlineSize:    UsedLength;     // auto resolved; % resolved
-  blockSize:     UsedLength;
-  minInlineSize: UsedLength;
-  minBlockSize:  UsedLength;
-  maxInlineSize: UsedLength;     // "none" resolved to Number.POSITIVE_INFINITY
-  maxBlockSize:  UsedLength;
-  boxSizing:     BoxSizing;
+  // (NO inlineSize / blockSize / min* / max* — those live on LayoutBox.)
+  boxSizing: BoxSizing;
 
   marginBlockStart:  UsedLength;
   marginBlockEnd:    UsedLength;
