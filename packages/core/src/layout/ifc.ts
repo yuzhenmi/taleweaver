@@ -462,13 +462,21 @@ export function layoutInlineContent(
     }
 
     // If even an empty line can't fit the token and there are active floats,
-    // advance lineBlockOffset past the nearest float bottom and retry (CSS "skip past floats").
+    // advance lineBlockOffset past the next float bottom and retry (CSS 9.5
+    // below-min-content line push). We loop incrementally — each iteration
+    // moves to the next float bottom — so we stop as soon as there is enough
+    // space (the float that was squeezing this line may have ended while a
+    // later float on the other side still leaves room).
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
       if (lineInlineSize < availableInlineSize) {
-        const nextClear = floatEnv.clearance("both", lineBlockOffset + 1);
-        if (nextClear > lineBlockOffset) {
-          lineBlockOffset = nextClear;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const next = floatEnv.nextFloatBottomBelow(lineBlockOffset);
+          if (next <= lineBlockOffset) break; // no float below; can't push further
+          lineBlockOffset = next;
           ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+          if (lineInlineSize >= unit.totalWidth) break; // now fits
+          if (lineInlineSize >= availableInlineSize) break; // no more floats squeezing
         }
       }
     }

@@ -326,6 +326,33 @@ describe("IFC — text wraps around floats", () => {
     const fullWidthLine = lines.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
     expect(fullWidthLine).toBeDefined();
   });
+
+  it("line pushes below float when inline-size insufficient for next token", () => {
+    // mockShaper: 8px per char.  Text "abc" = 3 chars × 8px = 24px.
+    // Float occupies the full 200px inline axis from block 0..50.
+    // At block 0, lineInlineSize = 200 - 200 = 0, which is < 24px.
+    // The IFC must push lineBlockOffset to 50 (the float's bottom edge).
+    // At block 50, the float is gone → lineInlineSize = 200 ≥ 24px.
+    // So the first (and only) line should be at y = 50.
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    ctx.floatEnv.placeFloat("inline-start", 0, 200, 50, 200);
+
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+
+    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
+
+    expect(lines.length).toBeGreaterThan(0);
+    const firstLine = lines[0];
+    expect(firstLine.y).toBe(50);
+    if (firstLine.type === "line") {
+      expect(firstLine.width).toBe(200);
+    }
+  });
 });
 
 describe("IFC — RTL bidi reordering", () => {

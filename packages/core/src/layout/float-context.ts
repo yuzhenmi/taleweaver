@@ -46,6 +46,13 @@ export interface FloatEnvironment {
 
   /** Lowest float block-edge across all placed floats. */
   lowestFloatBlockEdge(): number;
+
+  /**
+   * Returns the smallest float block-bottom strictly greater than `blockOffset`.
+   * Returns `blockOffset` if no float bottom is strictly below (so caller can
+   * detect "no progress").
+   */
+  nextFloatBottomBelow(blockOffset: number): number;
 }
 
 export function createFloatEnvironment(): FloatEnvironment {
@@ -142,6 +149,10 @@ export function createFloatEnvironment(): FloatEnvironment {
       let b = 0;
       for (const f of placed) b = Math.max(b, f.blockOffset + f.blockSize);
       return b;
+    },
+
+    nextFloatBottomBelow(blockOffset) {
+      return nextFloatBottomBelow(blockOffset);
     },
   };
 }
