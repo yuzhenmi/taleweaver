@@ -543,7 +543,7 @@ function buildLineWithFragments(
   hyphenBreak: HyphenBreak | null,
   shaper: TextShaper,
 ): LineBox {
-  const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize);
+  const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
   let children = buildLineChildrenForAncestorLevel(
     parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
@@ -558,7 +558,7 @@ function buildLineWithFragments(
 
     // Compute inline offset: sum of all existing children's sizes.
     const cursorInlineOffset = children.reduce((s, c) => s + c.inlineSize, 0);
-    const hyphenUsedStyle = computeUsedStyle(hyphenBreak.style, lineInlineSize);
+    const hyphenUsedStyle = computeUsedStyle(hyphenBreak.style, lineInlineSize, "indefinite");
     const hyphenBox = createTextRunBox(
       `${hyphenBreak.sourceKey}:hyphen-${lineIndex}`,
       cursorInlineOffset, 0, hyphenInlineSize, hyphenBlockSize,
@@ -618,7 +618,7 @@ function buildLineChildrenForAncestorLevel(
         const ib = firstTok.inlineBlock;
         const ibBlockSize = ib.blockSize;
         lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, ibBlockSize);
-        const ibUsedStyle = computeUsedStyle(tokStyle, lineInlineSize);
+        const ibUsedStyle = computeUsedStyle(tokStyle, lineInlineSize, "indefinite");
         out.push(createInlineBlockBox(
           `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
           cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ibUsedStyle, ib.children,
@@ -634,7 +634,7 @@ function buildLineChildrenForAncestorLevel(
         runCounters[unit.sourceKey] = runIdx + 1;
         const runKey = `${unit.sourceKey}:${runIdx}`;
 
-        const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize);
+        const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize, "indefinite");
         out.push(createTextRunBox(
           runKey,
           cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
@@ -667,7 +667,7 @@ function buildLineChildrenForAncestorLevel(
     const boxBlockSize = innerBlockSizeTracker.value > 0 ? innerBlockSizeTracker.value : measurer.measureHeight(ancestorStyle);
     lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, boxBlockSize);
 
-    const ancestorUsedStyle = computeUsedStyle(ancestorStyle, lineInlineSize);
+    const ancestorUsedStyle = computeUsedStyle(ancestorStyle, lineInlineSize, "indefinite");
     // For B.2, hardcode fragmentEdge to "only". B.3 fixes cross-line resolution.
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,

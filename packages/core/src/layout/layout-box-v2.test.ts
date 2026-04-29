@@ -8,7 +8,7 @@ import {
 } from "./layout-box-v2";
 
 const cs = INITIAL_COMPUTED_STYLE;
-const us = computeUsedStyle(cs, 100);
+const us = computeUsedStyle(cs, 100, "indefinite");
 
 describe("BlockBox", () => {
   it("constructs and freezes", () => {
@@ -99,7 +99,7 @@ describe("Table layout boxes", () => {
 describe("Logical-to-physical mapping", () => {
   it("derives identity physical for LTR horizontal-tb", () => {
     const testCs: ComputedStyle = INITIAL_COMPUTED_STYLE;
-    const testUs = computeUsedStyle(testCs, 100);
+    const testUs = computeUsedStyle(testCs, 100, "indefinite");
     const b = createBlockBox(
       "k", 10, 20, 100, 50, "horizontal-tb", "ltr", testCs, testUs, [], 100,
     );
@@ -116,7 +116,7 @@ describe("Logical-to-physical mapping", () => {
 
 it("RTL horizontal-tb inverts physical x from inline-offset", () => {
   const testCs: ComputedStyle = INITIAL_COMPUTED_STYLE;
-  const testUs = computeUsedStyle(testCs, 500);
+  const testUs = computeUsedStyle(testCs, 500, "indefinite");
   // Place a 100px box at inline-offset 30 in a 500px-inline-size container.
   // RTL: physical x = 500 - 30 - 100 = 370
   const b = createBlockBox(
@@ -133,7 +133,7 @@ it("RTL horizontal-tb inverts physical x from inline-offset", () => {
 
 it("LTR horizontal-tb is unaffected by containingInlineSize", () => {
   const testCs: ComputedStyle = INITIAL_COMPUTED_STYLE;
-  const testUs = computeUsedStyle(testCs, 500);
+  const testUs = computeUsedStyle(testCs, 500, "indefinite");
   const b = createBlockBox(
     "k", 30, 0, 100, 50, "horizontal-tb", "ltr", testCs, testUs, [],
     /* containingInlineSize */ 500,

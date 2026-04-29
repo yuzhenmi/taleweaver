@@ -30,7 +30,7 @@ export function layoutTable(
     throw new Error("Table requires metadata.columnWidths (array of fractions)");
   }
 
-  const tableUsedStyle = computeUsedStyle(cs, availableInlineSize);
+  const tableUsedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const tableInlineSize = availableInlineSize;
   const columnPxWidths = columnWidths.map((f) => f * tableInlineSize);
@@ -43,7 +43,7 @@ export function layoutTable(
     if (!rowNode.computedStyle) throw new Error("cascade required");
     if (rowNode.computedStyle.display !== "table-row") continue;
     const rowCs = rowNode.computedStyle;
-    const rowUsedStyle = computeUsedStyle(rowCs, tableInlineSize);
+    const rowUsedStyle = computeUsedStyle(rowCs, tableInlineSize, "indefinite");
 
     const cells = rowNode.children.filter(
       (c): c is ElementBox =>
@@ -58,7 +58,7 @@ export function layoutTable(
       const cell = cells[ci];
       if (!cell.computedStyle) throw new Error("cascade required");
       const cellCs = cell.computedStyle;
-      const cellUsedStyle = computeUsedStyle(cellCs, tableInlineSize);
+      const cellUsedStyle = computeUsedStyle(cellCs, tableInlineSize, "indefinite");
       const cellInlineSize = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
 
       // Lay out cell interior as BFC at cellInlineSize.

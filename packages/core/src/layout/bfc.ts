@@ -26,7 +26,7 @@ export function layoutBlock(
 ): BlockBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
-  const usedStyle = computeUsedStyle(cs, availableInlineSize);
+  const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const paddingBlockStart  = usedStyle.paddingBlockStart;
   const paddingInlineEnd   = usedStyle.paddingInlineEnd;
@@ -81,7 +81,7 @@ export function layoutBlock(
     if (child.type !== "element") continue;
     if (!child.computedStyle) throw new Error("cascade required");
     const childCs = child.computedStyle;
-    const childUsedStyle = computeUsedStyle(childCs, contentInlineSize);
+    const childUsedStyle = computeUsedStyle(childCs, contentInlineSize, "indefinite");
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {

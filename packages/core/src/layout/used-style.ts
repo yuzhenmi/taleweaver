@@ -49,12 +49,27 @@ export function resolveUsedLengthOrNone(
  * inline-size. Resolves margin/padding/border/typography to numeric values.
  * Sizing fields (inlineSize/blockSize/min-size/max-size) are NOT produced here —
  * they live on LayoutBox as the authoritative source.
+ *
+ * @param containingBlockSize the block-axis size of the containing block in
+ *   pixels, or `"indefinite"` when the containing block has no definite
+ *   block-size (e.g., the document root, or any block whose size is
+ *   content-derived). Plumbed for forward-compat: in v1 all percent properties
+ *   on `UsedStyle` resolve against the inline axis (CSS spec for
+ *   margin/padding/textIndent in horizontal-tb), so this parameter is unused
+ *   today. Future schema additions (e.g., `block-size: 50%`) will consume it.
  */
 export function computeUsedStyle(
   cs: ComputedStyle,
   containingInlineSize: number,
+  containingBlockSize: number | "indefinite",
   fallbackForAutoMargin: number = 0,
 ): UsedStyle {
+  // Plan 3.D: containingBlockSize is plumbed for future block-axis-percent
+  // resolution. In v1, all percent properties on UsedStyle resolve against
+  // the inline axis (per CSS for margin/padding/textIndent/etc. in
+  // horizontal-tb), so containingBlockSize is currently unused. Future
+  // schema additions (e.g., block-size: 50%) will consume it.
+  void containingBlockSize;
   return {
     display: cs.display,
     writingMode: cs.writingMode,

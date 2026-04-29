@@ -31,7 +31,7 @@ describe("resolveUsedLengthOrNone", () => {
 
 describe("computeUsedStyle", () => {
   it("produces fully numeric output for INITIAL_COMPUTED_STYLE", () => {
-    const us = computeUsedStyle(INITIAL_COMPUTED_STYLE, 500);
+    const us = computeUsedStyle(INITIAL_COMPUTED_STYLE, 500, "indefinite");
     expect(us.marginBlockStart).toBe(0);  // 0 passes through
     expect(us.fontSize).toBe(16);
   });
@@ -41,7 +41,7 @@ describe("computeUsedStyle", () => {
       ...INITIAL_COMPUTED_STYLE,
       marginBlockStart: { unit: "percent" as const, value: 10 },
     };
-    const us = computeUsedStyle(cs, 500);
+    const us = computeUsedStyle(cs, 500, "indefinite");
     expect(us.marginBlockStart).toBe(50);
   });
 });
