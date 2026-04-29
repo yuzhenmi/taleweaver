@@ -461,6 +461,42 @@ describe("BFC — floats", () => {
   });
 });
 
+describe("BFC — clearance + margin-collapse interaction (CSS 8.3.1)", () => {
+  it("clearance prevents marginBlockStart collapse with parent", () => {
+    // Setup: parent flow-root with no padding/border. Child has clear: inline-start
+    // and a float exists above the child. Without clearance, the child's
+    // marginBlockStart would collapse with the (zero) parent margin. With clearance,
+    // the marginBlockStart is preserved.
+    const float1 = createElementBox(
+      "f1",
+      { display: "block", float: "inline-start", inlineSize: 100, blockSize: 50 },
+      [],
+    );
+    const cleared = createElementBox(
+      "c",
+      {
+        display: "block",
+        clear: "inline-start",
+        marginBlockStart: 20,
+      },
+      [createTextBox("t", { display: "inline" }, "x")],
+    );
+    const parent = createElementBox(
+      "p", { display: "flow-root" }, [float1, cleared],
+    );
+    const cascaded = cascadePass(parent);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+
+    // Find cleared child; expect blockOffset = 50 (clearance) + 20 (margin) = 70.
+    const clearedBox = findBoxByKey(out, "c");
+    expect(clearedBox).toBeDefined();
+    if (!clearedBox) throw new Error();
+    expect(clearedBox.y).toBe(70);
+  });
+});
+
 describe("BFC — float rises to nearest BFC", () => {
   it("float inside a non-BFC block is visible to siblings via parent BFC", () => {
     // Layout: flow-root > inner (display:block) > float(100x100)

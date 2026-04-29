@@ -142,10 +142,12 @@ export function layoutBlock(
       continue;
     }
 
-    // CLEAR BRANCH: advance childBlockOffset past cleared floats before applying margins
+    // CLEAR BRANCH: compute clearance.
+    let clearanceApplied = 0;
     if (childCs.clear !== "none") {
       const clearedY = floatEnv.clearance(childCs.clear, childBlockOffset);
       if (clearedY > childBlockOffset) {
+        clearanceApplied = clearedY - childBlockOffset;
         childBlockOffset = clearedY;
       }
     }
@@ -153,10 +155,17 @@ export function layoutBlock(
     const childMarginBlockStart = childUsedStyle.marginBlockStart;
     const childMarginBlockEnd   = childUsedStyle.marginBlockEnd;
 
-    // Adjacent-siblings collapse:
-    // gap = max(prevMarginBlockEnd, childMarginBlockStart)
     const preAdvanceBlockOffset = childBlockOffset;
-    if (layoutChildren.length > 0) {
+
+    if (clearanceApplied > 0) {
+      // CSS 8.3.1: clearance interrupts margin collapse. The box's
+      // marginBlockStart adds without collapsing with prev sibling's
+      // marginBlockEnd or with parent's marginBlockStart.
+      childBlockOffset += childMarginBlockStart;
+      // prevMarginBlockEnd is consumed by the clearance — reset so it does not
+      // flow through to the next sibling collapse.
+      prevMarginBlockEnd = 0;
+    } else if (layoutChildren.length > 0) {
       childBlockOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     } else {
       childBlockOffset += noTopBoundary ? 0 : childMarginBlockStart;
