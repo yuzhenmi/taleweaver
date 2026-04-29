@@ -1,19 +1,23 @@
 import { useEffect, useRef } from "react";
-import { useEditor, EditorView } from "@taleweaver/react";
+import { EditorView } from "@taleweaver/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/header";
 import { DocMenuBar } from "@/components/menu-bar";
 import { Toolbar } from "@/components/toolbar";
+import { usePerfEditor } from "./use-perf-editor";
 import "./app.css";
 
 // Plan 3 will re-add: pageHeight / pageMargins / pageGap for paginated layout
 
 export function App() {
-  const editor = useEditor();
+  // usePerfEditor mirrors useEditor but also checks ?perfFixture=N on mount
+  // and initializes the editor with a synthetic N-paragraph document when set.
+  const editor = usePerfEditor();
   const seededRef = useRef(false);
 
   useEffect(() => {
-    if (seededRef.current) return;
+    // Skip default seeding when a perf fixture is already loaded via URL.
+    if (seededRef.current || editor.isPerfFixture) return;
     seededRef.current = true;
 
     // Seed the initial document with some demo content so there is visible text
