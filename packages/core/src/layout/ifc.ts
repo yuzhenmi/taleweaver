@@ -13,8 +13,7 @@ import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
-import { makeChildContext, makeRootContext } from "./layout-context";
-import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { makeRootContext } from "./layout-context";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
