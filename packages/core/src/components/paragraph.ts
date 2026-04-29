@@ -6,7 +6,7 @@ export const paragraphComponent: ComponentDefinition = {
   render: (state, children) =>
     createElementBox(state.id, {
       display: "block",
-      marginBottom: { unit: "em", value: 0.5 },
+      marginBlockEnd: { unit: "em", value: 0.5 },
       ...state.style,
     }, children),
 };

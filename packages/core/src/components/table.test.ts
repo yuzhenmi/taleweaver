@@ -48,17 +48,17 @@ describe("tableCellComponent", () => {
     const result = tableCellComponent.render(state, []);
     if (result.type !== "element") throw new Error("?");
     expect(result.style.display).toBe("table-cell");
-    expect(result.style.borderTopWidth).toBeGreaterThan(0);
-    expect(result.style.borderBottomStyle).toBe("solid");
+    expect(result.style.borderBlockStartWidth).toBeGreaterThan(0);
+    expect(result.style.borderBlockEndStyle).toBe("solid");
   });
 
   it("preserves user inline style overrides", () => {
     const state = {
       id: "c", type: "table-cell", properties: {},
-      style: { borderTopWidth: 5 }, children: [],
+      style: { borderBlockStartWidth: 5 }, children: [],
     };
     const result = tableCellComponent.render(state, []);
     if (result.type !== "element") throw new Error("?");
-    expect(result.style.borderTopWidth).toBe(5);
+    expect(result.style.borderBlockStartWidth).toBe(5);
   });
 });

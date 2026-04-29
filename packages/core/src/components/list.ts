@@ -8,7 +8,7 @@ export const listComponent: ComponentDefinition = {
     const listStyleType = listType === "ordered" ? "decimal" : "disc";
     return createElementBox(state.id, {
       display: "block",
-      paddingLeft: 30,
+      paddingInlineStart: 30,
       listStyleType,
       ...state.style,
     }, children);

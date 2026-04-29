@@ -26,6 +26,6 @@ describe("horizontalLineComponent", () => {
     };
     const result = horizontalLineComponent.render(state, []);
     if (result.type !== "element") throw new Error("?");
-    expect(result.style.height).toBeDefined();
+    expect(result.style.blockSize).toBeDefined();
   });
 });

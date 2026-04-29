@@ -9,7 +9,7 @@ export const imageComponent: ComponentDefinition = {
     const height = state.properties.height as number;
     return createElementBox(
       state.id,
-      { display: "block", width, height, ...state.style },
+      { display: "block", inlineSize: width, blockSize: height, ...state.style },
       [],
       { image: { src, width, height } },
     );

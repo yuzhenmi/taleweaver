@@ -12,8 +12,8 @@ export const headingComponent: ComponentDefinition = {
       display: "block",
       fontWeight: "bold",
       fontSize,
-      marginTop:    { unit: "em", value: 0.67 },
-      marginBottom: { unit: "em", value: 0.67 },
+      marginBlockStart: { unit: "em", value: 0.67 },
+      marginBlockEnd:   { unit: "em", value: 0.67 },
       ...state.style,
     }, children);
   },

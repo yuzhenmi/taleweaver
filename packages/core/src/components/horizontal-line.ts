@@ -6,7 +6,7 @@ export const horizontalLineComponent: ComponentDefinition = {
   render: (state, _children) =>
     createElementBox(
       state.id,
-      { display: "block", height: 16, ...state.style },
+      { display: "block", blockSize: 16, ...state.style },
       [],
       { horizontalLine: true },
     ),

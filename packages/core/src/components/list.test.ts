@@ -12,7 +12,7 @@ describe("listComponent", () => {
     if (result.type !== "element") throw new Error("?");
     expect(result.style.display).toBe("block");
     expect(result.style.listStyleType).toBe("decimal");
-    expect(result.style.paddingLeft).toBeDefined();
+    expect(result.style.paddingInlineStart).toBeDefined();
   });
 
   it("unordered list has disc listStyleType", () => {
