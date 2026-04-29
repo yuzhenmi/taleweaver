@@ -88,6 +88,7 @@ export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
+export { establishesNewBFC } from "./layout/bfc-establishment";
 
 // Components
 export type { ComponentRenderFn, ComponentDefinition } from "./components";

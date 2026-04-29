@@ -4,7 +4,7 @@ import type { WritingMode, Direction } from "./writing-mode";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
-  | "table" | "table-row" | "table-cell" | "none";
+  | "table" | "table-row" | "table-cell" | "flow-root" | "none";
 
 export type BorderStyle = "none" | "solid" | "dashed" | "dotted";
 
