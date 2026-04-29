@@ -11,6 +11,7 @@ import { createFloatContext } from "./float-context";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
+import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -88,7 +89,21 @@ export function layoutBlock(
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
-      const floatCtxChild = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+      // Shrink-to-fit: a float with auto inline-size resolves to min(maxContent, available, max(minContent, available)).
+      // CSS Sizing 3 §10.3.5.
+      let floatInlineSizeForCtx: number;
+      if (childCs.inlineSize === "auto") {
+        const intrinsic = computeIntrinsicSizes(child, shaper, ctx.intrinsicCache);
+        const available = contentInlineSize - childUsedStyle.marginInlineStart - childUsedStyle.marginInlineEnd;
+        floatInlineSizeForCtx = Math.min(
+          intrinsic.maxContent,
+          available,
+          Math.max(intrinsic.minContent, available),
+        );
+      } else {
+        floatInlineSizeForCtx = resolveUsedLength(childCs.inlineSize, contentInlineSize, contentInlineSize);
+      }
+      const floatCtxChild = makeChildContext(ctx, cs, floatInlineSizeForCtx, "indefinite");
       const floatLayout = layoutBlock(child, 0, 0, floatCtxChild, shaper);
       const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
       const floatInlineSize = floatLayout.width;

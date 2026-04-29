@@ -1,4 +1,6 @@
 import type { ComputedStyle, WritingMode, Direction } from "../styles";
+import type { IntrinsicSizesCache } from "./intrinsic-sizes";
+import { createIntrinsicSizesCache } from "./intrinsic-sizes";
 
 /**
  * Layout context for a node being laid out. Carries the writing-mode,
@@ -15,6 +17,8 @@ export interface LayoutContext {
   readonly direction:   Direction;
   readonly containingInlineSize: number;
   readonly containingBlockSize:  number | "indefinite";
+  /** Shared per-render-node cache for intrinsic sizes, reused across the whole layout pass. */
+  readonly intrinsicCache: IntrinsicSizesCache;
 }
 
 /**
@@ -34,12 +38,12 @@ export function makeChildContext(
   contentInlineSize: number,
   contentBlockSize: number | "indefinite",
 ): LayoutContext {
-  void parent;  // currently unused; reserved for future inheritance rules
   return {
     writingMode: parentCs.writingMode,
     direction:   parentCs.direction,
     containingInlineSize: contentInlineSize,
     containingBlockSize:  contentBlockSize,
+    intrinsicCache: parent.intrinsicCache,
   };
 }
 
@@ -57,5 +61,6 @@ export function makeRootContext(
     direction:   rootCs.direction,
     containingInlineSize: containerInlineSize,
     containingBlockSize:  "indefinite",
+    intrinsicCache: createIntrinsicSizesCache(),
   };
 }

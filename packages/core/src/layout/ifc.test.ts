@@ -350,7 +350,7 @@ describe("IFC — RTL bidi reordering", () => {
     const lines = layoutInlineContent(
       tree,
       0, 0,
-      { writingMode: "horizontal-tb", direction: "rtl", containingInlineSize: 200, containingBlockSize: "indefinite" },
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper,
       createFloatContext(),
     );

@@ -13,6 +13,8 @@ import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext } from "./layout-context";
+import type { IntrinsicSizesCache } from "./intrinsic-sizes";
+import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -85,6 +87,7 @@ function collectInlineTokens(
   shaper: TextShaper,
   direction: Direction,
   out: Token[],
+  intrinsicCache: IntrinsicSizesCache,
 ): void {
   for (const child of children) {
     if (!child.computedStyle) throw new Error("cascade required");
@@ -174,17 +177,16 @@ function collectInlineTokens(
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, intrinsicCache);
     } else if (child.type === "element" && cs.display === "inline-block") {
-      // Resolve inlineSize
+      // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       let inlineSizePx: number;
       if (typeof cs.inlineSize === "number") {
         inlineSizePx = cs.inlineSize;
       } else {
-        // max-content: lay out at very large width
-        const infCtx = makeRootContext(cs, 100000);
-        const bfcInf = layoutBlock(child, 0, 0, infCtx, shaper);
-        inlineSizePx = bfcInf.width;
+        // auto: use max-content (shrink-to-fit in an IFC means content width).
+        const intrinsic = computeIntrinsicSizes(child, shaper, intrinsicCache);
+        inlineSizePx = intrinsic.maxContent;
       }
 
       // Lay out at resolved inlineSize
@@ -254,7 +256,7 @@ export function layoutInlineContent(
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, [], [], shaper, direction, tokens);
+  collectInlineTokens(parent.children, [], [], shaper, direction, tokens, ctx.intrinsicCache);
 
   // Group tokens into wrap units: non-space + optional trailing space (same source)
   // LINE_BREAK tokens become standalone units with isLineBreak: true.

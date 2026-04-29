@@ -251,6 +251,39 @@ describe("BFC — list-item markers (outside)", () => {
   });
 });
 
+// Recursively find the first LayoutBox whose key contains `keyFragment`.
+function findBoxByKey(root: import("./layout-box-v2").LayoutBox, keyFragment: string): import("./layout-box-v2").LayoutBox | undefined {
+  if (root.key === keyFragment || root.key.includes(keyFragment)) return root;
+  if ("children" in root && root.children) {
+    for (const c of root.children) {
+      const found = findBoxByKey(c, keyFragment);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+describe("BFC — inline-block shrink-to-fit", () => {
+  it("inline-block with auto inline-size shrinks to content (max-content)", () => {
+    // "abc" with charWidth=10 => max-content = 30px
+    const text = createTextBox("t", {}, "abc");
+    const ib = createElementBox("ib", { display: "inline-block" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    expect(out.type).toBe("block");
+    if (out.type !== "block") throw new Error();
+    // Find the inline-block box in the layout tree
+    const ibBox = findBoxByKey(out, "ib");
+    expect(ibBox).toBeDefined();
+    if (!ibBox) throw new Error();
+    // Should shrink-to-fit to "abc" max-content = 30, not fill parent's 500.
+    expect(ibBox.width).toBe(30);
+  });
+});
+
 describe("BFC — floats", () => {
   it("a left-floated child is placed and BFC encloses it", () => {
     const tree = cascadePass(
