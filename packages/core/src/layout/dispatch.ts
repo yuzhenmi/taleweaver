@@ -7,6 +7,7 @@ import { layoutBlock } from "./bfc";
 import { layoutTable } from "./table-fc";
 import { cascadePass } from "../cascade";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { makeRootContext } from "./layout-context";
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -35,12 +36,13 @@ export function layoutTree(
     : (cascadePass(root) as ElementBox);
 
   const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
+  const ctx = makeRootContext(cs, containerInlineSize);
 
   switch (cs.display) {
     case "block":
-      return layoutBlock(layoutRoot, 0, 0, containerInlineSize, shaper, cs.writingMode, cs.direction);
+      return layoutBlock(layoutRoot, 0, 0, ctx, shaper);
     case "table":
-      return layoutTable(layoutRoot, 0, 0, containerInlineSize, shaper, cs.writingMode, cs.direction);
+      return layoutTable(layoutRoot, 0, 0, ctx, shaper);
     default:
       throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
   }

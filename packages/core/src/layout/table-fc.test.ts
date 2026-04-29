@@ -3,6 +3,8 @@ import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutTable } from "./table-fc";
+import { makeRootContext } from "./layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 
 const shaper = createMockShaper(8, 16);
 
@@ -26,7 +28,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 600, shaper);
+    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper);
     expect(out.type).toBe("table");
     expect(out.columnPxWidths).toEqual([300, 300]);
   });
@@ -37,7 +39,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 200, shaper);
+    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Each cell is 100px wide; longer text wraps to 2+ lines
@@ -50,7 +52,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, 200, shaper);
+    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Both cells should have row.height

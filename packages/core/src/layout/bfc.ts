@@ -8,8 +8,9 @@ import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
-import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
+import type { LayoutContext } from "./layout-context";
+import { makeChildContext } from "./layout-context";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -19,11 +20,12 @@ export function layoutBlock(
   node: ElementBox,
   inlineOffset: number,
   blockOffset: number,
-  availableInlineSize: number,
+  ctx: LayoutContext,
   shaper: TextShaper,
-  writingMode: WritingMode = "horizontal-tb",
-  direction: Direction = "ltr",
 ): BlockBox {
+  const availableInlineSize = ctx.containingInlineSize;
+  const writingMode = ctx.writingMode;
+  const direction = ctx.direction;
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
@@ -59,7 +61,8 @@ export function layoutBlock(
 
   if (hasInlineContent) {
     const floatCtx = createFloatContext();
-    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, contentInlineSize, shaper, floatCtx, cs.writingMode, cs.direction);
+    const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+    const lines = layoutInlineContent(node, paddingInlineStart, paddingBlockStart, ifcCtx, shaper, floatCtx);
     let lineMaxBlockEdge = paddingBlockStart;
     for (const line of lines) {
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
@@ -85,7 +88,8 @@ export function layoutBlock(
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
-      const floatLayout = layoutBlock(child, 0, 0, contentInlineSize, shaper, cs.writingMode, cs.direction);
+      const floatCtxChild = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+      const floatLayout = layoutBlock(child, 0, 0, floatCtxChild, shaper);
       const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
@@ -156,11 +160,12 @@ export function layoutBlock(
       }
     }
 
+    const childCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
     let childLayout: LayoutBox;
     if (childCs.display === "table") {
-      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, contentInlineSize, shaper);
+      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
     } else {
-      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, contentInlineSize, shaper, cs.writingMode, cs.direction);
+      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
     }
     const explicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;

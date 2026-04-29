@@ -3,8 +3,9 @@ import type { TableBox, TableRowBox, TableCellBox } from "./layout-box-v2";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box-v2";
 import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
-import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
+import type { LayoutContext } from "./layout-context";
+import { makeChildContext } from "./layout-context";
 
 /**
  * Lay out a `display: table` element with fixed percentage column widths.
@@ -16,13 +17,14 @@ export function layoutTable(
   node: ElementBox,
   inlineOffset: number,
   blockOffset: number,
-  availableInlineSize: number,
+  ctx: LayoutContext,
   shaper: TextShaper,
-  writingMode: WritingMode = "horizontal-tb",
-  direction: Direction = "ltr",
 ): TableBox {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
+  const availableInlineSize = ctx.containingInlineSize;
+  const writingMode = ctx.writingMode;
+  const direction = ctx.direction;
 
   const meta = node.metadata as { columnWidths?: readonly number[] } | undefined;
   const columnWidths = meta?.columnWidths;
@@ -62,7 +64,8 @@ export function layoutTable(
       const cellInlineSize = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
 
       // Lay out cell interior as BFC at cellInlineSize.
-      const interior = layoutBlock(cell, 0, 0, cellInlineSize, shaper, cs.writingMode, cs.direction);
+      const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
+      const interior = layoutBlock(cell, 0, 0, cellCtx, shaper);
 
       const cellBlockSize = interior.height;
       maxBlockSize = Math.max(maxBlockSize, cellBlockSize);

@@ -7,7 +7,9 @@ import { layoutBlock } from "./bfc";
 import { createFloatContext } from "./float-context";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
 import type { ComputedStyle } from "../styles";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Direction } from "../styles/writing-mode";
+import { makeRootContext } from "./layout-context";
 
 const shaper = createMockShaper(8, 16);
 
@@ -18,7 +20,8 @@ function ifcOf(text: string, width: number) {
     ]),
   );
   if (tree.type !== "element") throw new Error("?");
-  return layoutInlineContent(tree, 0, 0, width, shaper);
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+  return layoutInlineContent(tree, 0, 0, ctx, shaper);
 }
 
 describe("layoutInlineContent — single line", () => {
@@ -54,7 +57,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 50, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper);
     if (out.type !== "block") throw new Error("?");
     // Should produce exactly one line
     const lineBoxes = out.children.filter(c => c.type === "line");
@@ -68,7 +71,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 200, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
     if (out.type !== "block") throw new Error("?");
     const lineBoxes = out.children.filter(c => c.type === "line");
     expect(lineBoxes).toHaveLength(2);
@@ -81,7 +84,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 30, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
     if (out.type !== "block") throw new Error("?");
     const lineBoxes = out.children.filter(c => c.type === "line");
     // Wrap from "long text here" + a hard break + "second" should produce >= 2 lines
@@ -101,7 +104,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -123,7 +126,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -149,7 +152,7 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const ib = out.children[0].children.find(c => c.type === "inline-block");
@@ -167,7 +170,7 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 60, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
     if (out.type !== "block") throw new Error("?");
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -184,7 +187,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 60, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
     if (out.type !== "block") throw new Error("?");
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -218,7 +221,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const inlineBox = out.children[0].children.find(c => c.type === "inline");
@@ -238,7 +241,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const ib = out.children[0].children.find(c => c.type === "inline-block");
@@ -255,7 +258,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -274,7 +277,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, 500, shaper);
+    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -299,7 +302,7 @@ describe("IFC — text wraps around floats", () => {
 
     // Call layoutInlineContent directly with the floatCtx
     const cascaded = tree;
-    const lines = layoutInlineContent(cascaded, 0, 0, 200, shaper, floatCtx);
+    const lines = layoutInlineContent(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, floatCtx);
 
     // The first line's content area should start at x=100 (after the float)
     // and have width 100 (200 - 100).
@@ -320,7 +323,7 @@ describe("IFC — text wraps around floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(tree, 0, 0, 200, shaper, floatCtx);
+    const lines = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, floatCtx);
 
     // Eventually some line is at y >= 16 and uses full width 200.
     const fullWidthLine = lines.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
@@ -346,11 +349,10 @@ describe("IFC — RTL bidi reordering", () => {
     if (tree.type !== "element") throw new Error("?");
     const lines = layoutInlineContent(
       tree,
-      0, 0, 200,
+      0, 0,
+      { writingMode: "horizontal-tb", direction: "rtl", containingInlineSize: 200, containingBlockSize: "indefinite" },
       rtlShaper,
       createFloatContext(),
-      "horizontal-tb",
-      "rtl",
     );
 
     expect(lines.length).toBeGreaterThan(0);
@@ -386,7 +388,7 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(tree, 0, 0, 200, ltrShaper);
+    const lines = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper);
 
     expect(lines.length).toBeGreaterThan(0);
     const line = lines[0];
@@ -468,11 +470,10 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     if (tree.type !== "element") throw new Error("expected element");
 
     const lines = layoutInlineContent(
-      tree, 0, 0, 60,
+      tree, 0, 0,
+      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
       createFloatContext(),
-      "horizontal-tb",
-      "ltr",
     );
 
     // Should produce at least 2 lines (the word was split).
@@ -497,11 +498,10 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     if (tree.type !== "element") throw new Error("expected element");
 
     const lines = layoutInlineContent(
-      tree, 0, 0, 60,
+      tree, 0, 0,
+      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
       createFloatContext(),
-      "horizontal-tb",
-      "ltr",
     );
 
     expect(lines.length).toBeGreaterThanOrEqual(2);

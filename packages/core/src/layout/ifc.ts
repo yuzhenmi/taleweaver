@@ -12,6 +12,9 @@ import type { FloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
+import type { LayoutContext } from "./layout-context";
+import { makeChildContext, makeRootContext } from "./layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -181,12 +184,14 @@ function collectInlineTokens(
         inlineSizePx = cs.inlineSize;
       } else {
         // max-content: lay out at very large width
-        const bfcInf = layoutBlock(child, 0, 0, 100000, shaper);
+        const infCtx = makeRootContext(cs, 100000);
+        const bfcInf = layoutBlock(child, 0, 0, infCtx, shaper);
         inlineSizePx = bfcInf.width;
       }
 
       // Lay out at resolved inlineSize
-      const bfc = layoutBlock(child, 0, 0, inlineSizePx > 0 ? inlineSizePx : 100, shaper);
+      const ibCtx = makeRootContext(cs, inlineSizePx > 0 ? inlineSizePx : 100);
+      const bfc = layoutBlock(child, 0, 0, ibCtx, shaper);
       const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;
       let finalBlockSize: number;
       if (typeof cs.blockSize === "number") {
@@ -223,14 +228,15 @@ export function layoutInlineContent(
   parent: ElementBox,
   inlineOffset: number,
   blockOffset: number,
-  availableInlineSize: number,
+  ctx: LayoutContext,
   shaper: TextShaper,
   floatCtx?: FloatContext,
-  writingMode: WritingMode = "horizontal-tb",
-  direction: Direction = "ltr",
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
+  const availableInlineSize = ctx.containingInlineSize;
+  const writingMode = ctx.writingMode;
+  const direction = ctx.direction;
 
   // Derive a legacy measurer for height-only calls (line height, marker text, etc.)
   const measurer = adaptShaperToMeasurer(shaper);
