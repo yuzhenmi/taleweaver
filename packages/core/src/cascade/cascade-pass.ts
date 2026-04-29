@@ -40,22 +40,20 @@ function cascadeNode(
 
 /** Flatten em values to px using own fontSize. */
 function flattenLengths(cs: ComputedStyle): ComputedStyle {
-  const fontSize = typeof cs.fontSize === "number" ? cs.fontSize :
-    typeof cs.fontSize === "object" && cs.fontSize.unit === "px" ? cs.fontSize.value :
-    typeof cs.fontSize === "object" && cs.fontSize.unit === "em" ? cs.fontSize.value * 16 :  // root fallback
-    16;
+  // fontSize is already typed as number in ComputedStyle (em resolved at cascade time)
+  const fontSize = cs.fontSize;
 
   // Length-typed properties to flatten
-  const out: Record<string, unknown> = { ...cs };
+  const out: Record<string, unknown> = { ...(cs as unknown as Record<string, unknown>) };
   out.fontSize = fontSize;
 
   for (const key of LENGTH_PROPERTIES) {
-    const v = (cs as Record<string, unknown>)[key];
+    const v = (cs as unknown as Record<string, unknown>)[key];
     if (v !== undefined) {
       out[key] = resolveLength(v as LengthOrAuto | "none", fontSize);
     }
   }
-  return out as ComputedStyle;
+  return out as unknown as ComputedStyle;
 }
 
 const LENGTH_PROPERTIES = [
@@ -144,8 +142,8 @@ function cascadeNodeIncremental(
 
 /** Shallow structural equality for ComputedStyle (all values are primitives or simple objects). */
 function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {
-  const aRecord = a as Record<string, unknown>;
-  const bRecord = b as Record<string, unknown>;
+  const aRecord = a as unknown as Record<string, unknown>;
+  const bRecord = b as unknown as Record<string, unknown>;
   const aKeys = Object.keys(aRecord);
   if (aKeys.length !== Object.keys(bRecord).length) return false;
   for (const key of aKeys) {
