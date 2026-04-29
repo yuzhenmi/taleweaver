@@ -65,8 +65,9 @@ export function layoutBlock(
       if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
     }
     const totalBlockSize = lineMaxBlockEdge + paddingBlockEnd;
-    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, lines, node.metadata,
+    return createBlockBox(node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, lines,
       /* containingInlineSize */ availableInlineSize,
+      node.metadata,
     );
   }
 
@@ -164,8 +165,9 @@ export function layoutBlock(
     const explicitBlockSize = childCs.blockSize === "auto" ? 0 : childUsedStyle.blockSize;
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
-      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [], child.metadata,
+      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
+          child.metadata,
         )
       : childLayout;
 
@@ -186,8 +188,9 @@ export function layoutBlock(
       prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
       // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed)
       layoutChildren.push(
-        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [], child.metadata,
+        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
+          child.metadata,
         ),
       );
     } else {
@@ -205,8 +208,9 @@ export function layoutBlock(
   const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
 
   return createBlockBox(
-    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren, node.metadata,
+    node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ availableInlineSize,
+    node.metadata,
   );
 }
 
