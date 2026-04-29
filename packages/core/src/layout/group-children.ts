@@ -1,3 +1,31 @@
+/**
+ * @module group-children
+ *
+ * ## Anonymous-box keying convention
+ *
+ * Whenever the layout engine needs to generate a synthetic (anonymous) box
+ * that has no corresponding state-tree node, it must still assign a stable,
+ * deterministic key so that incremental re-layout can match old boxes to new
+ * ones without thrashing.  The convention across all formatting contexts is:
+ *
+ *   ```
+ *   anonymousBlockKey(parentKey, positionalIndex)
+ *   // → "<parentKey>/anon[<positionalIndex>]"
+ *   ```
+ *
+ * where `positionalIndex` is the ordinal position of the anonymous group
+ * within the *output* sequence (i.e. already-emitted groups count toward it).
+ *
+ * Applied sites:
+ * - **BFC** (`bfc.ts`): anonymous block wrapper around each inline-run group
+ *   emitted by `groupChildren`.  Parent key = the BFC container's key.
+ * - **Table FC** (`table-fc.ts`): anonymous `table-row` boxes wrapping bare
+ *   `table-cell` direct children of a `display:table` element.  Parent key =
+ *   the table element's key.
+ * - **Table FC** (`table-fc.ts`): anonymous `table-cell` boxes wrapping
+ *   non-cell content inside a `display:table-row` element.  Parent key =
+ *   the row's key (real or itself anonymous).
+ */
 import type { RenderNode, ElementBox } from "../render/render-node-v2";
 
 export type ChildGroup =

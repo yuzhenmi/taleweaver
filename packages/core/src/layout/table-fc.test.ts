@@ -104,4 +104,99 @@ describe("layoutTable", () => {
     expect(w0).toBeCloseTo(8 + 14 * (16 / 48));
     expect(w1).toBeCloseTo(8 + 14 * (32 / 48));
   });
+
+  it("bare table-cell direct children are wrapped in an anonymous row", () => {
+    // Two table-cell children placed directly inside the table (no table-row).
+    // The layout should produce exactly one TableRowBox (anonymous) containing both cells.
+    const cell1 = createElementBox("c1", { display: "table-cell" }, [
+      createTextBox("t1", {}, "a"),
+    ]);
+    const cell2 = createElementBox("c2", { display: "table-cell" }, [
+      createTextBox("t2", {}, "b"),
+    ]);
+    const table = createElementBox("tbl", { display: "table" }, [cell1, cell2]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    expect(out.type).toBe("table");
+    // Exactly one row.
+    expect(out.children.length).toBe(1);
+    const row = out.children[0];
+    expect(row.type).toBe("table-row");
+    // Row key is anonymous: "tbl/anon[0]".
+    expect(row.key).toBe("tbl/anon[0]");
+    // Two cells inside the anonymous row.
+    if (row.type !== "table-row") throw new Error("?");
+    expect(row.children.length).toBe(2);
+    expect(row.children[0].key).toBe("c1");
+    expect(row.children[1].key).toBe("c2");
+  });
+
+  it("mixed table-cell and table-row direct children: bare cells get anonymous row, real rows pass through", () => {
+    // First two bare cells → anonymous row; then a proper row.
+    const bareCell = createElementBox("bc", { display: "table-cell" }, [
+      createTextBox("bt", {}, "bare"),
+    ]);
+    const realCell = createElementBox("rc", { display: "table-cell" }, [
+      createTextBox("rt", {}, "real"),
+    ]);
+    const realRow = createElementBox("rr", { display: "table-row" }, [realCell]);
+    const table = createElementBox("tbl2", { display: "table" }, [bareCell, realRow]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    expect(out.children.length).toBe(2);
+    // First row is anonymous (key = "tbl2/anon[0]").
+    expect(out.children[0].key).toBe("tbl2/anon[0]");
+    // Second row is the real row (key = "rr").
+    expect(out.children[1].key).toBe("rr");
+  });
+
+  it("table-row with block child wraps it in an anonymous cell", () => {
+    // A paragraph (display:block) inside a table-row should be wrapped in an
+    // anonymous table-cell so the layout tree is structurally valid.
+    const para = createElementBox("p", { display: "block" }, [
+      createTextBox("pt", {}, "hello"),
+    ]);
+    const row = createElementBox("r3", { display: "table-row" }, [para]);
+    const table = createElementBox("tbl3", { display: "table" }, [row]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    expect(out.children.length).toBe(1);
+    const outRow = out.children[0];
+    expect(outRow.type).toBe("table-row");
+    expect(outRow.key).toBe("r3");
+    if (outRow.type !== "table-row") throw new Error("?");
+    // One anonymous cell.
+    expect(outRow.children.length).toBe(1);
+    // Anonymous cell key = "r3/anon[0]".
+    expect(outRow.children[0].key).toBe("r3/anon[0]");
+  });
+
+  it("table-row with mixed cell and non-cell children: non-cell gets anonymous cell", () => {
+    // A row with: [real-cell, block-para, real-cell].
+    // Expected: [cell "rc1", anon-cell "r4/anon[1]", cell "rc2"].
+    const realCell1 = createElementBox("rc1", { display: "table-cell" }, [
+      createTextBox("rt1", {}, "a"),
+    ]);
+    const blockPara = createElementBox("para", { display: "block" }, [
+      createTextBox("bt1", {}, "between"),
+    ]);
+    const realCell2 = createElementBox("rc2", { display: "table-cell" }, [
+      createTextBox("rt2", {}, "b"),
+    ]);
+    const row = createElementBox("r4", { display: "table-row" }, [realCell1, blockPara, realCell2]);
+    const table = createElementBox("tbl4", { display: "table" }, [row]);
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 300), shaper);
+    expect(out.children.length).toBe(1);
+    const outRow = out.children[0];
+    if (outRow.type !== "table-row") throw new Error("?");
+    expect(outRow.children.length).toBe(3);
+    expect(outRow.children[0].key).toBe("rc1");
+    expect(outRow.children[1].key).toBe("r4/anon[1]");
+    expect(outRow.children[2].key).toBe("rc2");
+  });
 });
