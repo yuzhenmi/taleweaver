@@ -94,7 +94,7 @@ export function rewrapIncremental(
 ): readonly LineBox[] {
   // Width changed: full re-wrap.
   if (!prev || prev.availableInlineSize !== availableInlineSize) {
-    return wrapAll(newTokens, availableInlineSize, wrapOneLine, lineMeta);
+    return wrapAll(newTokens, wrapOneLine, lineMeta);
   }
 
   const changePoint = findChangePoint(prev.tokens, newTokens);
@@ -143,7 +143,6 @@ export function rewrapIncremental(
 
 function wrapAll(
   tokens: readonly Token[],
-  availableInlineSize: number,
   wrapOneLine: WrapOneLineFn,
   lineMeta: WeakMap<LineBox, { startTokenIdx: number; endTokenIdx: number }>,
 ): readonly LineBox[] {
