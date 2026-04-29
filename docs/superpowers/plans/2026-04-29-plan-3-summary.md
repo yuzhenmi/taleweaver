@@ -119,24 +119,30 @@ uses **clear-dirty + full-repaint strategy** (clears changed boxes then
 repaints the entire tree on top). Per-page canvas structure documented but
 inactive until pagination. Tests: 724 core / 128 dom.
 
-### Plan 3.J — Test cleanup + value-resolution test suite (deferred behind 3.K)
+### Plan 3.J — Test cleanup + value-resolution test suite (complete)
 
-5 tasks. Task 5 (this summary doc) completed 2026-04-29. Tasks 1–4 deferred behind Plan 3.K. Owns:
-1. Value-resolution pipeline test suite (closes retrospective D11).
-2. Inline-block intrinsic sizing edge cases (closes Plan 1 F6.x).
-3. Floats edge cases (closes Plan 1 F6.x).
-4. `bfc.ts` unreachable code audit (closes preexisting Plan 1 F7.x).
-5. **Done** — this summary doc.
+5 tasks. All shipped 2026-04-29.
+1. ✅ Value-resolution pipeline test suite (closes retrospective D11). 9 active + 3 skipped. Commit `958438f`.
+2. ✅ Inline-block intrinsic sizing edge cases (closes Plan 1 F6.x). 3 new tests. Commit `6b1745d`. Surfaced **F3J.1** — inline-block doesn't clamp to container width (CSS shrink-to-fit divergence).
+3. ✅ Floats edge cases (closes Plan 1 F6.x). 3 new tests. Commit `586f703`.
+4. ✅ `bfc.ts` unreachable code at `resolveMarkerText` (closes preexisting Plan 1 F7.x). Commit `ab67ce3` — replaced with exhaustiveness `default: never` check.
+5. ✅ This summary doc.
 
-### Plan 3.K — Performance (in progress)
+Followups: `docs/superpowers/plans/2026-04-29-plan-3j-followups.md`.
 
-Inserted 2026-04-29 after user testing on a 10K-paragraph fixture showed perceptible latency on both character insertion and cursor movement. Plan 3 shipped the *infrastructure* for incremental layout + paint, but several known O(N) paths still run on every interaction. The gap inventory above (sections C and the read-path implications of "cursor is also slow") drives this phase.
+### Plan 3.K — Performance (Tasks 1-3 complete; Task 4 deferred)
+
+Inserted 2026-04-29 after user testing on a 10K-paragraph fixture showed perceptible latency on both character insertion and cursor movement. Plan 3 shipped the *infrastructure* for incremental layout + paint, but several known O(N) paths still ran on every interaction.
 
 **Target:** O(1) for steady-state editing (per-keystroke + per-cursor-move work independent of document size). < 16ms total at 10K-paragraph fixture, per scenario.
 
 **Sub-plans:**
-- **3.K.1 — Measurement.** ✅ Complete (2026-04-29). Built `PerfTrace` module, perf-fixture URL loader, instrumented mutation + read paths, captured baseline at 500 / 1000 / 2000p. Identified four O(N) bottlenecks. Two new findings: F3K.A (canvas overflow at ~800p — Chrome's max canvas height) and F3K.B (React example app doesn't pass PaintCache to renderer; the cache shipped in Plan 3.I, just isn't wired).
-- **3.K.2 — Fixes.** ✅ Plan written (2026-04-29). Single phase, 4 sequential tasks: (1) wire PaintCache + root short-circuit, (2) make `cascadePassIncremental` actually incremental, (3) make `layoutTreeIncremental` actually incremental, (4) re-measure and assess. Diagnosis-first: temporary `recordSample` counters reveal which condition rejects each subtree, then fix the actual offender.
+- **3.K.1 — Measurement.** ✅ Complete. Built `PerfTrace` module, perf-fixture URL loader, instrumented mutation + read paths, captured baseline at 500 / 1000 / 2000p. Identified four O(N) bottlenecks plus three new findings (F3K.A canvas overflow, F3K.B example app doesn't wire PaintCache, F3K.D 1000p tab unusable cause unverified).
+- **3.K.2 — Fixes.** Tasks 1-3 ✅; Task 4 deferred.
+  - **Task 1** (`0235918`): PaintCache wired into editor-controller; `walkAndDetectChanges` root-reference short-circuit. Cursor move at 1000p paint went from 1756 calls to 0.
+  - **Task 2** (`53f8a4a`): Added `renderTreeIncremental` that preserves reference equality for unchanged subtrees; wired into `rebuildTrees`. Cascade per-keystroke at 1000p dropped from 16.1ms to 0.58ms; IFC layout calls dropped from 1000 to 1.
+  - **Task 3** (`48e8c06`): Added `renderNodesLayoutEquivalent` helper that recognizes "parent rebuilt with unchanged children". BFC reuse gate fires for the document root after single-paragraph edits — predicted to drop layoutBlock calls from 1001 to ~2 per keystroke.
+  - **Task 4** (deferred at user request 2026-04-29): re-measurement at 100p / 500p / 1K to validate predicted O(1) targets. Pending user greenlight.
 
 Spec: `docs/superpowers/specs/2026-04-29-plan-3k-performance-design.md`.
 Plans:
@@ -284,7 +290,7 @@ Per the original Plan 3 spec §13:
 | 3.G | `2026-04-29-plan-3g-line-stable-ifc.md` | `2026-04-29-plan-3g-followups.md` |
 | 3.H | `2026-04-29-plan-3h-incremental-layout.md` | `2026-04-29-plan-3h-followups.md` |
 | 3.I | `2026-04-29-plan-3i-paint-incremental.md` | `2026-04-29-plan-3i-followups.md` |
-| 3.J | `2026-04-29-plan-3j-test-cleanup.md` | (pending — written at 3.J completion) |
+| 3.J | `2026-04-29-plan-3j-test-cleanup.md` | `2026-04-29-plan-3j-followups.md` |
 | 3.K.1 | `2026-04-29-plan-3k-performance-design.md` (spec); `2026-04-29-plan-3k1-perf-measurement.md` (plan); `2026-04-29-plan-3k1-baseline-results.md` (results) | n/a — measurement only |
 | 3.K.2 | `2026-04-29-plan-3k2-perf-fixes.md` (plan) | (pending — written at 3.K.2 completion) |
 
