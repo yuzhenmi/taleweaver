@@ -11,7 +11,7 @@ export function isPerfTraceEnabled(): boolean {
 }
 
 /** Start a measurement region. Returns a token to pass to `markEnd`. */
-export function markStart(label: string): number {
+export function markStart(_label: string): number {
   if (!enabled) return 0;
   return performance.now();
 }
