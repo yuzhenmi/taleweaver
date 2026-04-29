@@ -9,6 +9,7 @@ import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { anonymousBlockKey } from "./group-children";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 // ---------------------------------------------------------------------------
 // Anonymous-box grouping helpers
@@ -201,6 +202,8 @@ export function layoutTable(
   ctx: LayoutContext,
   shaper: TextShaper,
 ): TableBox {
+  const t = markStart("table.layout");
+  try {
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
   const availableInlineSize = ctx.containingInlineSize;
@@ -351,4 +354,7 @@ export function layoutTable(
     rowBoxes, columnPxWidths,
     /* containingInlineSize */ availableInlineSize,
   );
+  } finally {
+    markEnd("table.layout", t);
+  }
 }

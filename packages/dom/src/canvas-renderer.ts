@@ -1,4 +1,5 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
+import { markStart, markEnd } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
@@ -71,6 +72,8 @@ export function paintCanvas(
   imageCache?: ImageCache,
   cache?: PaintCache | null,
 ): Rect[] {
+  const t = markStart("paint.total");
+  try {
   ctx.textBaseline = "top";
 
   if (cache) {
@@ -135,6 +138,9 @@ export function paintCanvas(
   }
 
   return [];
+  } finally {
+    markEnd("paint.total", t);
+  }
 }
 
 /**
@@ -157,6 +163,8 @@ export function paintPage(
   imageCache?: ImageCache,
   cache?: PaintCache | null,
 ): Rect[] {
+  const t = markStart("paint.total");
+  try {
   ctx.textBaseline = "top";
 
   if (cache) {
@@ -231,6 +239,9 @@ export function paintPage(
   }
 
   return [];
+  } finally {
+    markEnd("paint.total", t);
+  }
 }
 
 // ── Dirty-region detection (Task 3 + 4) ─────────────────────────────────────
@@ -256,6 +267,8 @@ function walkAndDetectChanges(
   cache: PaintCache,
   dirty: Rect[],
 ): void {
+  const t = markStart("paint.walk");
+  try {
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
@@ -274,6 +287,9 @@ function walkAndDetectChanges(
       walkAndDetectChanges(child, absX, absY, cache, dirty);
     }
   }
+  } finally {
+    markEnd("paint.walk", t);
+  }
 }
 
 function paintBox(
@@ -285,6 +301,8 @@ function paintBox(
   visibleBottom: number,
   state: PaintState,
 ): void {
+  const t = markStart("paint.draw");
+  try {
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
@@ -406,6 +424,9 @@ function paintBox(
   }
 
   // Plan 2/3 types: skip silently (not produced in Plan 1)
+  } finally {
+    markEnd("paint.draw", t);
+  }
 }
 
 function paintBorders(

@@ -15,6 +15,7 @@ import { makeRootContext } from "./layout-context";
 import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Shared empty arrays for token creation. Used to ensure reference equality
@@ -277,6 +278,8 @@ export function layoutInlineContent(
   ctx: LayoutContext,
   shaper: TextShaper,
 ): LayoutBox[] {
+  const tLayout = markStart("ifc.layout");
+  try {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
   const availableInlineSize = ctx.containingInlineSize;
@@ -313,9 +316,16 @@ export function layoutInlineContent(
   const prevState = ctx.ifcStateCache.get(parent.key);
   if (prevState !== undefined && prevState.availableInlineSize === availableInlineSize) {
     if (findChangePoint(prevState.tokens, tokens) === -1) {
-      return Array.from(prevState.lines);
+      const tHit = markStart("ifc.cache.hit");
+      try {
+        return Array.from(prevState.lines);
+      } finally {
+        markEnd("ifc.cache.hit", tHit);
+      }
     }
   }
+  const tMiss = markStart("ifc.cache.miss");
+  markEnd("ifc.cache.miss", tMiss);
 
   // Per-line token-range metadata for incremental re-wrap (Plan 3.G Task 4+).
   // Keyed by the LineBox object (via WeakMap) so it doesn't prevent GC.
@@ -537,6 +547,8 @@ export function layoutInlineContent(
   let unitQueue: WrapUnit[] = [...units];
   let uqi = 0;
 
+  const tWrap = markStart("ifc.wrap");
+  try {
   while (uqi < unitQueue.length) {
     const unit = unitQueue[uqi++];
 
@@ -608,6 +620,9 @@ export function layoutInlineContent(
 
     pushUnit(unit);
   }
+  } finally {
+    markEnd("ifc.wrap", tWrap);
+  }
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
@@ -640,6 +655,9 @@ export function layoutInlineContent(
   });
 
   return result;
+  } finally {
+    markEnd("ifc.layout", tLayout);
+  }
 }
 
 function applyVerticalAlign(children: readonly LayoutBox[], lineBlockSize: number): LayoutBox[] {

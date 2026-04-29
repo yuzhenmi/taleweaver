@@ -13,6 +13,7 @@ import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { isLayoutBoxReusable } from "./layout-reuse";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -25,6 +26,8 @@ export function layoutBlock(
   ctx: LayoutContext,
   shaper: TextShaper,
 ): BlockBox {
+  const t = markStart("bfc.layoutBlock");
+  try {
   const availableInlineSize = ctx.containingInlineSize;
   const writingMode = ctx.writingMode;
   const direction = ctx.direction;
@@ -289,6 +292,9 @@ export function layoutBlock(
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
   );
+  } finally {
+    markEnd("bfc.layoutBlock", t);
+  }
 }
 
 /**

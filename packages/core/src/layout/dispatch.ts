@@ -8,6 +8,7 @@ import { layoutTable } from "./table-fc";
 import { cascadePass } from "../cascade";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "./layout-context";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -22,28 +23,33 @@ export function layoutTree(
   containerInlineSize: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
 ): LayoutBox {
-  if (root.type !== "element") {
-    throw new Error("Layout root must be an element node");
-  }
+  const t = markStart("layoutTree");
+  try {
+    if (root.type !== "element") {
+      throw new Error("Layout root must be an element node");
+    }
 
-  const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
-    ? shaperOrMeasurer
-    : measurerToShaper(shaperOrMeasurer);
+    const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
+      ? shaperOrMeasurer
+      : measurerToShaper(shaperOrMeasurer);
 
-  // Auto-run cascade if computedStyle is not populated
-  const layoutRoot: ElementBox = root.computedStyle
-    ? root
-    : (cascadePass(root) as ElementBox);
+    // Auto-run cascade if computedStyle is not populated
+    const layoutRoot: ElementBox = root.computedStyle
+      ? root
+      : (cascadePass(root) as ElementBox);
 
-  const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
-  const ctx = makeRootContext(cs, containerInlineSize);
+    const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
+    const ctx = makeRootContext(cs, containerInlineSize);
 
-  switch (cs.display) {
-    case "block":
-      return layoutBlock(layoutRoot, 0, 0, ctx, shaper);
-    case "table":
-      return layoutTable(layoutRoot, 0, 0, ctx, shaper);
-    default:
-      throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+    switch (cs.display) {
+      case "block":
+        return layoutBlock(layoutRoot, 0, 0, ctx, shaper);
+      case "table":
+        return layoutTable(layoutRoot, 0, 0, ctx, shaper);
+      default:
+        throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+    }
+  } finally {
+    markEnd("layoutTree", t);
   }
 }

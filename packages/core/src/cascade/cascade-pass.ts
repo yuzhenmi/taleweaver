@@ -4,13 +4,19 @@ import type { Length, ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeywo
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "./compose";
 import { resolveLength } from "./resolve-length";
+import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Walk the render tree and produce a new tree where every node carries
  * a populated `computedStyle`. The original tree is not mutated.
  */
 export function cascadePass(root: RenderNode): RenderNode {
-  return cascadeNode(root, null);
+  const t = markStart("cascadePass");
+  try {
+    return cascadeNode(root, null);
+  } finally {
+    markEnd("cascadePass", t);
+  }
 }
 
 function cascadeNode(
@@ -153,7 +159,12 @@ export function cascadePassIncremental(
   oldRoot: RenderNode | null,
   oldCascadedRoot: RenderNode | null,
 ): RenderNode {
-  return cascadeNodeIncremental(newRoot, oldRoot, oldCascadedRoot, null, null);
+  const t = markStart("cascadePassIncremental");
+  try {
+    return cascadeNodeIncremental(newRoot, oldRoot, oldCascadedRoot, null, null);
+  } finally {
+    markEnd("cascadePassIncremental", t);
+  }
 }
 
 function cascadeNodeIncremental(
