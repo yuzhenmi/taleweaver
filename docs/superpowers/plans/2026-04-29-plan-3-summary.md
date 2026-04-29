@@ -135,11 +135,15 @@ Inserted 2026-04-29 after user testing on a 10K-paragraph fixture showed percept
 **Target:** O(1) for steady-state editing (per-keystroke + per-cursor-move work independent of document size). < 16ms total at 10K-paragraph fixture, per scenario.
 
 **Sub-plans:**
-- **3.K.1 — Measurement.** Profile-driven prioritization. Build fixture, instrument mutation + read paths, capture baseline at 1K / 5K / 10K, identify top offenders. No fixes ship in this phase.
-- **3.K.2+ — Fixes.** One sub-plan per top offender, written after 3.K.1 lands data.
+- **3.K.1 — Measurement.** ✅ Complete (2026-04-29). Built `PerfTrace` module, perf-fixture URL loader, instrumented mutation + read paths, captured baseline at 500 / 1000 / 2000p. Identified four O(N) bottlenecks. Two new findings: F3K.A (canvas overflow at ~800p — Chrome's max canvas height) and F3K.B (React example app doesn't pass PaintCache to renderer; the cache shipped in Plan 3.I, just isn't wired).
+- **3.K.2 — Fixes.** ✅ Plan written (2026-04-29). Single phase, 4 sequential tasks: (1) wire PaintCache + root short-circuit, (2) make `cascadePassIncremental` actually incremental, (3) make `layoutTreeIncremental` actually incremental, (4) re-measure and assess. Diagnosis-first: temporary `recordSample` counters reveal which condition rejects each subtree, then fix the actual offender.
 
 Spec: `docs/superpowers/specs/2026-04-29-plan-3k-performance-design.md`.
-Plans: `docs/superpowers/plans/2026-04-29-plan-3k1-perf-measurement.md`, plus 3.K.2+ TBD.
+Plans:
+- `docs/superpowers/plans/2026-04-29-plan-3k1-perf-measurement.md`
+- `docs/superpowers/plans/2026-04-29-plan-3k1-baseline-results.md`
+- `docs/superpowers/plans/2026-04-29-plan-3k2-perf-fixes.md`
+- `docs/superpowers/perf/2026-04-29-baseline-raw.md` (raw measurement data)
 
 ---
 
@@ -281,7 +285,8 @@ Per the original Plan 3 spec §13:
 | 3.H | `2026-04-29-plan-3h-incremental-layout.md` | `2026-04-29-plan-3h-followups.md` |
 | 3.I | `2026-04-29-plan-3i-paint-incremental.md` | `2026-04-29-plan-3i-followups.md` |
 | 3.J | `2026-04-29-plan-3j-test-cleanup.md` | (pending — written at 3.J completion) |
-| 3.K | `2026-04-29-plan-3k-performance-design.md` (spec); `2026-04-29-plan-3k1-perf-measurement.md` (plan) | (pending) |
+| 3.K.1 | `2026-04-29-plan-3k-performance-design.md` (spec); `2026-04-29-plan-3k1-perf-measurement.md` (plan); `2026-04-29-plan-3k1-baseline-results.md` (results) | n/a — measurement only |
+| 3.K.2 | `2026-04-29-plan-3k2-perf-fixes.md` (plan) | (pending — written at 3.K.2 completion) |
 
 Original Plan 3 spec: `docs/superpowers/specs/2026-04-29-plan-3-architectural-foundation-rewrite.md`.
 Plan 3 retrospective + revisions: `docs/superpowers/plans/2026-04-29-plan-3-retrospective-and-revisions.md`.
