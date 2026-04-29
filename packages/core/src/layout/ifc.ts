@@ -8,7 +8,7 @@ import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
-import type { FloatContext } from "./float-context";
+import type { FloatEnvironment } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
@@ -230,7 +230,7 @@ export function layoutInlineContent(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-  floatCtx?: FloatContext,
+  floatCtx?: FloatEnvironment,
 ): LayoutBox[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const parentCs = parent.computedStyle;
@@ -247,7 +247,7 @@ export function layoutInlineContent(
   /** Returns the effective line inlineOffset and inlineSize at a given lineBlockOffset, accounting for floats. */
   function effectiveLineDims(lineBlockOffset: number): { lineInlineCursor: number; lineInlineSize: number } {
     if (!floatCtx) return { lineInlineCursor: inlineOffset, lineInlineSize: availableInlineSize };
-    const active = floatCtx.activeAt(lineBlockOffset);
+    const active = floatCtx.availableInlineSizeAt(lineBlockOffset, availableInlineSize);
     return {
       lineInlineCursor: inlineOffset + active.inlineStartSize,
       lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize,
@@ -466,7 +466,7 @@ export function layoutInlineContent(
     // advance lineBlockOffset past the nearest float bottom and retry (CSS "skip past floats").
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0 && floatCtx) {
       if (lineInlineSize < availableInlineSize) {
-        const nextClear = floatCtx.clearY("both", lineBlockOffset + 1);
+        const nextClear = floatCtx.clearance("both", lineBlockOffset + 1);
         if (nextClear > lineBlockOffset) {
           lineBlockOffset = nextClear;
           ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));

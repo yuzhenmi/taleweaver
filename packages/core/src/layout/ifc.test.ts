@@ -4,7 +4,7 @@ import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutInlineContent } from "./ifc";
 import { layoutBlock } from "./bfc";
-import { createFloatContext } from "./float-context";
+import { createFloatEnvironment } from "./float-context";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
 import type { ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
@@ -289,9 +289,9 @@ describe("IFC — verticalAlign", () => {
 
 describe("IFC — text wraps around floats", () => {
   it("first lines have reduced width when a left float is active", () => {
-    // Set up a float context with one left float.
-    const floatCtx = createFloatContext();
-    floatCtx.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 50 });
+    // Set up a float environment with one left float.
+    const floatCtx = createFloatEnvironment();
+    floatCtx.placeFloat("inline-start", 0, 100, 50, 200);
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -314,8 +314,8 @@ describe("IFC — text wraps around floats", () => {
   });
 
   it("lines past the float bottom return to full width", () => {
-    const floatCtx = createFloatContext();
-    floatCtx.placeFloat({ side: "inline-start", inlineOffset: 0, blockOffset: 0, inlineSize: 100, blockSize: 16 });
+    const floatCtx = createFloatEnvironment();
+    floatCtx.placeFloat("inline-start", 0, 100, 16, 200);
 
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -352,7 +352,7 @@ describe("IFC — RTL bidi reordering", () => {
       0, 0,
       makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper,
-      createFloatContext(),
+      createFloatEnvironment(),
     );
 
     expect(lines.length).toBeGreaterThan(0);
@@ -473,7 +473,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
-      createFloatContext(),
+      createFloatEnvironment(),
     );
 
     // Should produce at least 2 lines (the word was split).
@@ -501,7 +501,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
-      createFloatContext(),
+      createFloatEnvironment(),
     );
 
     expect(lines.length).toBeGreaterThanOrEqual(2);

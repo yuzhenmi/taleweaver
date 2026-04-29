@@ -7,7 +7,7 @@ import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import { formatCounter, type CounterStyle } from "./list-counter";
-import { createFloatContext } from "./float-context";
+import { createFloatEnvironment } from "./float-context";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -49,7 +49,7 @@ export function layoutBlock(
 
   let childBlockOffset = paddingBlockStart;
   const layoutChildren: LayoutBox[] = [];
-  const floatCtx = createFloatContext();
+  const floatEnv = createFloatEnvironment();
 
   let prevMarginBlockEnd = 0;
   let listCounter = 0;
@@ -69,7 +69,7 @@ export function layoutBlock(
       });
 
       const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
-      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, floatCtx);
+      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, floatEnv);
 
       let lineMaxBlockEdge = childBlockOffset;
       for (const line of lines) {
@@ -112,22 +112,21 @@ export function layoutBlock(
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
-      const active = floatCtx.activeAt(childBlockOffset);
-      const placedInlineOffset = childCs.float === "inline-start"
-        ? paddingInlineStart + active.inlineStartSize
-        : paddingInlineStart + contentInlineSize - active.inlineEndSize - floatInlineSize;
+      const result = floatEnv.placeFloat(
+        childCs.float === "inline-start" ? "inline-start" : "inline-end",
+        childBlockOffset,
+        floatInlineSize,
+        floatBlockSize,
+        contentInlineSize,
+      );
+      const placedInlineOffset = result.inlineOffset;
+      const placedBlockOffset = result.blockOffset;
+
       const positioned: LayoutBox = Object.freeze({
         ...floatLayout,
-        x: placedInlineOffset,
-        y: childBlockOffset,
+        x: paddingInlineStart + placedInlineOffset,
+        y: placedBlockOffset,
       } as LayoutBox);
-      floatCtx.placeFloat({
-        side: childCs.float === "inline-start" ? "inline-start" : "inline-end",
-        inlineOffset: placedInlineOffset,
-        blockOffset: childBlockOffset,
-        inlineSize: floatInlineSize,
-        blockSize: floatBlockSize,
-      });
       layoutChildren.push(positioned);
       // Float is out of normal flow — do NOT advance childBlockOffset or update prevMarginBlockEnd.
       continue;
@@ -135,7 +134,7 @@ export function layoutBlock(
 
     // CLEAR BRANCH: advance childBlockOffset past cleared floats before applying margins
     if (childCs.clear !== "none") {
-      const clearedY = floatCtx.clearY(childCs.clear, childBlockOffset);
+      const clearedY = floatEnv.clearance(childCs.clear, childBlockOffset);
       if (clearedY > childBlockOffset) {
         childBlockOffset = clearedY;
       }
@@ -228,7 +227,7 @@ export function layoutBlock(
   const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + paddingBlockEnd;
 
   // FLOAT ENCLOSURE: BFC's content height includes the lowest float bottom.
-  const floatBlockEnd = floatCtx.lowestBottom();
+  const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
   const totalBlockSize = Math.max(inFlowBlockSize, floatBlockEnd + paddingBlockEnd);
 
   return createBlockBox(
