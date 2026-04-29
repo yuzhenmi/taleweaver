@@ -1,0 +1,75 @@
+import type {
+  Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
+  WhiteSpace, VerticalAlign, Float, Clear,
+  BreakBefore, BreakAfter, BreakInside,
+  ListStyleType, ListStylePosition, BoxSizing,
+} from "./style";
+import type { Color } from "./color";
+import type { UsedLength } from "./length";
+import type { WritingMode, Direction } from "./writing-mode";
+
+/**
+ * Used style — fully numeric. Produced by the layout pass per LayoutBox.
+ * Painter and hit-test consume `UsedStyle` for sizes; `ComputedStyle` for
+ * inherited / non-positional things (color, font, decoration).
+ */
+export interface UsedStyle {
+  display: Display;
+
+  writingMode: WritingMode;
+  direction:   Direction;
+
+  inlineSize:    UsedLength;     // auto resolved; % resolved
+  blockSize:     UsedLength;
+  minInlineSize: UsedLength;
+  minBlockSize:  UsedLength;
+  maxInlineSize: UsedLength;     // "none" resolved to Number.POSITIVE_INFINITY
+  maxBlockSize:  UsedLength;
+  boxSizing:     BoxSizing;
+
+  marginBlockStart:  UsedLength;
+  marginBlockEnd:    UsedLength;
+  marginInlineStart: UsedLength;
+  marginInlineEnd:   UsedLength;
+
+  paddingBlockStart:  UsedLength;
+  paddingBlockEnd:    UsedLength;
+  paddingInlineStart: UsedLength;
+  paddingInlineEnd:   UsedLength;
+
+  borderBlockStartWidth:  number;
+  borderBlockEndWidth:    number;
+  borderInlineStartWidth: number;
+  borderInlineEndWidth:   number;
+  borderBlockStartStyle:  BorderStyle;
+  borderBlockEndStyle:    BorderStyle;
+  borderInlineStartStyle: BorderStyle;
+  borderInlineEndStyle:   BorderStyle;
+  borderBlockStartColor:  Color;
+  borderBlockEndColor:    Color;
+  borderInlineStartColor: Color;
+  borderInlineEndColor:   Color;
+
+  backgroundColor: Color;
+
+  fontFamily:     string;
+  fontSize:       number;
+  fontWeight:     FontWeight;
+  fontStyle:      FontStyle;
+  textDecoration: TextDecoration;
+  lineHeight:     number;
+  color:          Color;
+
+  whiteSpace:    WhiteSpace;
+  verticalAlign: VerticalAlign;
+
+  float: Float;
+  clear: Clear;
+
+  breakBefore: BreakBefore;
+  breakAfter:  BreakAfter;
+  breakInside: BreakInside;
+
+  listStyleType:     ListStyleType;
+  listStylePosition: ListStylePosition;
+}
