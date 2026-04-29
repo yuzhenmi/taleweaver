@@ -6,6 +6,7 @@ import { createFloatEnvironment } from "./float-context";
 import { establishesNewBFC } from "./bfc-establishment";
 import type { IFCStateCache } from "./ifc-state";
 import { createIFCStateCache } from "./ifc-state";
+import type { LayoutBoxCache } from "./layout-reuse";
 
 /**
  * Layout context for a node being laid out. Carries the writing-mode,
@@ -45,6 +46,19 @@ export interface LayoutContext {
    * `establishesNewBFC(childCs)` is true.
    */
   readonly isBFCRoot: boolean;
+  /**
+   * Cache of LayoutBoxes from the previous layout pass, keyed by render-node key.
+   * Null when no previous layout is available (cold start).
+   *
+   * Used by `layoutBlock` to short-circuit re-layout of unchanged subtrees.
+   */
+  readonly prevLayoutCache: LayoutBoxCache | null;
+  /**
+   * The float environment from the previous layout pass. Used together with
+   * `prevLayoutCache` to check whether float changes affect a cached box.
+   * Null when no previous layout is available or when floats haven't changed.
+   */
+  readonly prevFloatEnv: FloatEnvironment | null;
 }
 
 /**
@@ -82,6 +96,8 @@ export function makeChildContext(
     ifcStateCache: parent.ifcStateCache,
     floatEnv,
     isBFCRoot,
+    prevLayoutCache: parent.prevLayoutCache,
+    prevFloatEnv: parent.prevFloatEnv,
   };
 }
 
@@ -104,5 +120,7 @@ export function makeRootContext(
     // The document root is always a BFC root; it always gets a fresh float env.
     floatEnv: createFloatEnvironment(),
     isBFCRoot: true,
+    prevLayoutCache: null,
+    prevFloatEnv: null,
   };
 }

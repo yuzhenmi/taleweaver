@@ -12,6 +12,7 @@ import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
+import { isLayoutBoxReusable } from "./layout-reuse";
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -29,6 +30,31 @@ export function layoutBlock(
   const direction = ctx.direction;
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
+
+  // Subtree reuse: if a previous layout exists, check whether this block's
+  // output is still valid. Conservative — only reuse when all inputs match.
+  if (ctx.prevLayoutCache !== null) {
+    const entry = ctx.prevLayoutCache.get(node.key);
+    if (entry !== undefined && entry.box.type === "block") {
+      // Guard: the render node must be reference-equal to the one that
+      // produced the cached box. If content changed (e.g., text edits),
+      // the render node reference will differ even if styles are identical.
+      if (entry.renderNode === node) {
+        const dirtyOffset = ctx.prevFloatEnv !== null
+          ? ctx.floatEnv.dirtyBlockOffsetSince(ctx.prevFloatEnv)
+          : Number.POSITIVE_INFINITY;
+        if (isLayoutBoxReusable(entry.box, {
+          computedStyle: cs,
+          availableInlineSize,
+          writingMode,
+          direction,
+          floatEnvDirtyBlockOffset: dirtyOffset,
+        })) {
+          return entry.box;
+        }
+      }
+    }
+  }
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const paddingBlockStart  = usedStyle.paddingBlockStart;

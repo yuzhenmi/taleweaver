@@ -1,28 +1,75 @@
-import type { RenderNode } from "../render/render-node-v2";
+import type { RenderNode, ElementBox } from "../render/render-node-v2";
 import type { LayoutBox } from "./layout-box-v2";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
+import { isTextShaper, measurerToShaper } from "./text-measurer";
 import { layoutTree } from "./dispatch";
+import { layoutBlock } from "./bfc";
+import { layoutTable } from "./table-fc";
+import { cascadePass } from "../cascade";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { makeRootContext } from "./layout-context";
+import { buildLayoutBoxCacheFromTree } from "./layout-reuse";
 
 /**
  * Incremental layout entry point.
- * Plan 2 keeps it simple: short-circuit when the entire tree is reference-equal
- * AND the container width is unchanged. Otherwise, fall back to full layout.
  *
- * (More aggressive subtree-by-subtree incremental layout can be added later
- * if performance demands it. The major win in Plan 2 is the cascade incremental
- * combined with the editor pipeline's structural sharing — many subtrees stay
- * reference-equal across keystrokes.)
+ * Plan 2: short-circuit when the entire tree is reference-equal AND the
+ * container width is unchanged. Otherwise, fall through to Plan 3.H subtree
+ * reuse below.
+ *
+ * Plan 3.H (Tasks 3+4): for changed trees, build a LayoutBoxCache from the
+ * previous layout result and pass it into the root context. `layoutBlock`
+ * consults the cache per-block and reuses any unchanged subtree boxes by
+ * reference, avoiding redundant layout work.
  */
 export function layoutTreeIncremental(
   newRoot: RenderNode,
-  _oldRoot: RenderNode | null,
+  oldRoot: RenderNode | null,
   oldLayout: LayoutBox | null,
   containerWidth: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
 ): LayoutBox {
-  if (newRoot === _oldRoot && oldLayout && oldLayout.width === containerWidth) {
+  // Plan 2: whole-tree identity short-circuit.
+  if (newRoot === oldRoot && oldLayout !== null && oldLayout.width === containerWidth) {
     return oldLayout;
   }
-  return layoutTree(newRoot, containerWidth, shaperOrMeasurer);
+
+  const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
+    ? shaperOrMeasurer
+    : measurerToShaper(shaperOrMeasurer);
+
+  // Auto-run cascade if not yet done.
+  const layoutRoot: ElementBox = newRoot.type === "element" && newRoot.computedStyle
+    ? newRoot
+    : (cascadePass(newRoot) as ElementBox);
+
+  const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
+
+  // Plan 3.H: build a prevLayoutCache from the old layout so that layoutBlock
+  // can reuse unchanged subtrees by reference. We need the old render root to
+  // populate render-node references in the cache entries.
+  const prevCache = (oldLayout !== null && oldRoot !== null)
+    ? buildLayoutBoxCacheFromTree(oldLayout, oldRoot)
+    : null;
+
+  // Build the root context and inject the prev cache + prev float env.
+  // The prev float env is retrieved from the root of the previous layout;
+  // since we don't store it separately, we use null here — the dirtyBlockOffset
+  // will fall back to +Infinity (no dirty floats assumed), which is conservative.
+  const rootCtx = {
+    ...makeRootContext(cs, containerWidth),
+    prevLayoutCache: prevCache,
+    prevFloatEnv: null,
+  };
+
+  switch (cs.display) {
+    case "block":
+      return layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+    case "table":
+      return layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+    default:
+      // Fall back to full layout for unsupported display values.
+      return layoutTree(newRoot, containerWidth, shaperOrMeasurer);
+  }
 }
