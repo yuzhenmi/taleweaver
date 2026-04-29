@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
-import { cascadePass } from "../cascade";
+import { cascadePass, cascadePassIncremental } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { createMockShaper } from "../layout/mock-shaper";
 import { makeRootContext } from "../layout/layout-context";
@@ -87,7 +87,9 @@ describe("Incremental wrap — reference equality", () => {
       createTextBox("t1", { display: "inline" }, "extra first paragraph text"),
     ]);
     const docEdited = createElementBox("doc", { display: "block" }, [p1Edited, p2]);
-    const cascadedEdited = cascadePass(docEdited) as ElementBox;
+    // Use cascadePassIncremental to preserve style object identity for p2's tokens.
+    // This is needed for the cache to work correctly with stricter token equality.
+    const cascadedEdited = cascadePassIncremental(docEdited, doc, cascaded) as ElementBox;
 
     const out2 = layoutBlock(cascadedEdited, 0, 0, ctx, shaper);
 

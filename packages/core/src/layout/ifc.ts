@@ -16,6 +16,13 @@ import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
 
+/**
+ * Shared empty arrays for token creation. Used to ensure reference equality
+ * when comparing tokens with identical empty ancestor stacks across layouts.
+ */
+const emptyAncestors: readonly string[] = [];
+const emptyAncestorStyles: readonly ComputedStyle[] = [];
+
 interface Token {
   /** Stable identifier for this token. Format: "{sourceKey}:{offset}" for text tokens
    * (where offset is the character index within the source text node where the token starts);
@@ -255,7 +262,7 @@ export function collectTokens(
 ): Token[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, [], [], shaper, direction, tokens, intrinsicCache);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, intrinsicCache);
   return tokens;
 }
 
@@ -299,7 +306,7 @@ export function layoutInlineContent(
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, [], [], shaper, direction, tokens, ctx.intrinsicCache);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, ctx.intrinsicCache);
 
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
   // changed since the last layout, reuse the cached lines (no re-wrap needed).

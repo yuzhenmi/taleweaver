@@ -9,17 +9,24 @@ import type { IFCState } from "./ifc-state";
 import type { Token } from "./ifc";
 import type { LineBox } from "./layout-box-v2";
 
-function makeToken(id: string): Token {
+const emptyStyleArray: readonly any[] = [];
+const defaultStyle = {} as any;
+
+function makeToken(
+  id: string,
+  overrides?: Partial<Token>,
+): Token {
   return {
     id,
     sourceKey: "src",
     text: id,
     width: 10,
-    style: {} as Token["style"],
+    style: defaultStyle,
     isSpace: false,
     isLineBreak: false,
     inlineAncestors: [],
-    inlineAncestorStyles: [],
+    inlineAncestorStyles: emptyStyleArray,
+    ...overrides,
   };
 }
 
@@ -77,6 +84,47 @@ describe("findChangePoint", () => {
     const a = [makeToken("a:0"), makeToken("a:1")];
     const b = [makeToken("b:0"), makeToken("a:1")];
     expect(findChangePoint(a, b)).toBe(0);
+  });
+
+  it("detects same-length text replacement (id same, text differs)", () => {
+    // Same id, same width, but text changes — must detect as change.
+    // This is the critical bug fix: ID alone is not sufficient.
+    const a = makeToken("t:0"); // text is "t:0"
+    const a2 = { ...a, text: "different" };
+    expect(findChangePoint([a], [a2])).toBe(0);
+  });
+
+  it("ignores identical tokens (full reuse case)", () => {
+    // Same instance — fast path.
+    const a = makeToken("t:0");
+    expect(findChangePoint([a], [a])).toBe(-1);
+  });
+
+  it("compares inlineAncestors", () => {
+    const styleObj = {} as any;
+    const t1 = { ...makeToken("t:0"), inlineAncestors: ["a", "b"] };
+    const t2 = { ...makeToken("t:0"), inlineAncestors: ["a", "c"] };
+    expect(findChangePoint([t1], [t2])).toBe(0);
+  });
+
+  it("detects isSpace differences", () => {
+    const a = { ...makeToken("t:0"), isSpace: false };
+    const b = { ...makeToken("t:0"), isSpace: true };
+    expect(findChangePoint([a], [b])).toBe(0);
+  });
+
+  it("detects width differences", () => {
+    const a = { ...makeToken("t:0"), width: 10 };
+    const b = { ...makeToken("t:0"), width: 20 };
+    expect(findChangePoint([a], [b])).toBe(0);
+  });
+
+  it("detects style differences (reference equality)", () => {
+    const style1 = {} as any;
+    const style2 = {} as any;
+    const a = { ...makeToken("t:0"), style: style1 };
+    const b = { ...makeToken("t:0"), style: style2 };
+    expect(findChangePoint([a], [b])).toBe(0);
   });
 });
 

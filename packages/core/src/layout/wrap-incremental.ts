@@ -23,8 +23,39 @@ export type WrapOneLineFn = (
 ) => WrapOneLineResult;
 
 /**
- * Find the index of the first token in `next` whose `id` differs from `prev[i].id`,
- * or -1 if every token (up to the shorter length) matches.
+ * Compare two tokens for full content equality.
+ * Compares: id, text, width, isSpace, isLineBreak, style (by reference),
+ * inlineBlock (by reference), inlineAncestors (shallow array equality),
+ * and inlineAncestorStyles (shallow array equality).
+ */
+function tokensEqual(a: Token, b: Token): boolean {
+  if (a === b) return true;
+  if (a.id !== b.id) return false;
+  if (a.text !== b.text) return false;
+  if (a.width !== b.width) return false;
+  if (a.isSpace !== b.isSpace) return false;
+  if (a.isLineBreak !== b.isLineBreak) return false;
+  if (a.style !== b.style) return false;
+  if (a.inlineBlock !== b.inlineBlock) return false;
+  if (!arraysShallowEqual(a.inlineAncestors, b.inlineAncestors)) return false;
+  if (!arraysShallowEqual(a.inlineAncestorStyles, b.inlineAncestorStyles)) return false;
+  return true;
+}
+
+/**
+ * Check if two arrays are equal by shallow reference comparison.
+ */
+function arraysShallowEqual<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * Find the index of the first token in `next` whose content differs from `prev[i]`,
+ * or -1 if every token (up to the shorter length) matches completely.
+ * This includes comparing text content, not just IDs, so same-length edits are detected.
  */
 export function findChangePoint(
   prev: readonly Token[],
@@ -32,7 +63,7 @@ export function findChangePoint(
 ): number {
   const len = Math.min(prev.length, next.length);
   for (let i = 0; i < len; i++) {
-    if (prev[i].id !== next[i].id) return i;
+    if (!tokensEqual(prev[i], next[i])) return i;
   }
   if (prev.length !== next.length) return len; // tokens added/removed at end
   return -1; // identical
