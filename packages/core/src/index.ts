@@ -85,6 +85,7 @@ export type {
 } from "./layout/text-shaper";
 export type { IntrinsicSizes, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 
