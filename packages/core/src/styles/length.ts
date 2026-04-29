@@ -27,3 +27,8 @@ export type ComputedLengthOrAuto = ComputedLength | "auto";
 export type UsedLength = number;
 
 export type UsedLengthOrAuto = UsedLength | "auto";
+
+/**
+ * CSS Sizing 3 intrinsic-sizing keywords. Accepted by all `*-size` properties.
+ */
+export type IntrinsicSizingKeyword = "min-content" | "max-content" | "fit-content";

@@ -263,6 +263,73 @@ function findBoxByKey(root: import("./layout-box-v2").LayoutBox, keyFragment: st
   return undefined;
 }
 
+describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
+  it("inlineSize: 'max-content' sizes to maxContent regardless of containing size", () => {
+    // "abc" with charWidth=10 → maxContent = 30px; containing = 500px
+    const text = createTextBox("t", {}, "abc");
+    const block = createElementBox("b", { display: "block", inlineSize: "max-content" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const inner = findBoxByKey(out, "b");
+    expect(inner).toBeDefined();
+    expect(inner?.width).toBe(30);
+  });
+
+  it("inlineSize: 'min-content' sizes to minContent", () => {
+    // Mock shaper: minContent = minClusterInlineSize = charWidth = 10
+    // (smallest single cluster width, representing per-character min).
+    const text = createTextBox("t", {}, "abc");
+    const block = createElementBox("b", { display: "block", inlineSize: "min-content" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const inner = findBoxByKey(out, "b");
+    expect(inner).toBeDefined();
+    // minContent = max(child.minContent) = minClusterInlineSize = 10 (per mock shaper)
+    expect(inner?.width).toBe(10);
+  });
+
+  it("inlineSize: 'fit-content' clamps to available space when maxContent fits", () => {
+    // "abc" maxContent=30 < available=500 → fit-content = min(30, max(30, 500)) = 30
+    const text = createTextBox("t", {}, "abc");
+    const block = createElementBox("b", { display: "block", inlineSize: "fit-content" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const inner = findBoxByKey(out, "b");
+    expect(inner).toBeDefined();
+    // maxContent=30 fits within available=500, so fit-content = 30
+    expect(inner?.width).toBe(30);
+  });
+
+  it("inlineSize: 'fit-content' uses available space when maxContent exceeds it", () => {
+    // "abcdefghij" maxContent=100 > available=50 → fit-content = min(100, max(100, 50)) = 100
+    // But available is 50, so: min(100, max(100, 50)) = min(100, 100) = 100
+    // Actually fit-content when maxContent > available: min(maxContent, max(minContent, available))
+    // minContent=100 (one word), max(100, 50)=100, min(100, 100)=100
+    // To test clamping, use a two-word text where available < maxContent but > minContent.
+    // "ab cd" charWidth=10 → maxContent=50, minContent=20 (longest word "ab"/"cd" = 2chars*10 = 20)
+    const text = createTextBox("t", {}, "ab cd");
+    const block = createElementBox("b", { display: "block", inlineSize: "fit-content" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
+    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const inner = findBoxByKey(out, "b");
+    expect(inner).toBeDefined();
+    // fit-content = min(maxContent=50, max(minContent=20, available=30)) = min(50, 30) = 30
+    expect(inner?.width).toBe(30);
+  });
+});
+
 describe("BFC — inline-block shrink-to-fit", () => {
   it("inline-block with auto inline-size shrinks to content (max-content)", () => {
     // "abc" with charWidth=10 => max-content = 30px

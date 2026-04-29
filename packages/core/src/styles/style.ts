@@ -1,4 +1,4 @@
-import type { Length, LengthOrAuto } from "./length";
+import type { Length, LengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { Color } from "./color";
 import type { WritingMode, Direction } from "./writing-mode";
 
@@ -47,12 +47,12 @@ export interface Style {
   readonly direction?:   Direction;
 
   // Sizing — logical
-  readonly inlineSize?:    LengthOrAuto;
-  readonly blockSize?:     LengthOrAuto;
-  readonly minInlineSize?: Length;
-  readonly minBlockSize?:  Length;
-  readonly maxInlineSize?: Length | "none";
-  readonly maxBlockSize?:  Length | "none";
+  readonly inlineSize?:    LengthOrAuto | IntrinsicSizingKeyword;
+  readonly blockSize?:     LengthOrAuto | IntrinsicSizingKeyword;
+  readonly minInlineSize?: Length | IntrinsicSizingKeyword;
+  readonly minBlockSize?:  Length | IntrinsicSizingKeyword;
+  readonly maxInlineSize?: Length | "none" | IntrinsicSizingKeyword;
+  readonly maxBlockSize?:  Length | "none" | IntrinsicSizingKeyword;
   readonly boxSizing?:     BoxSizing;
 
   // Margin — logical

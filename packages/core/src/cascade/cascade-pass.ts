@@ -1,6 +1,6 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
-import type { Length, ComputedLength, ComputedLengthOrAuto } from "../styles/length";
+import type { Length, ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "../styles/length";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "./compose";
 import { resolveLength } from "./resolve-length";
@@ -49,12 +49,12 @@ function flattenLengths(cs: ComputedStyle): ComputedStyle {
   return {
     ...cs,
     fontSize,
-    inlineSize:    flattenLengthOrAuto(cs.inlineSize, fontSize),
-    blockSize:     flattenLengthOrAuto(cs.blockSize, fontSize),
-    minInlineSize: flattenLength(cs.minInlineSize, fontSize),
-    minBlockSize:  flattenLength(cs.minBlockSize, fontSize),
-    maxInlineSize: flattenLengthOrNone(cs.maxInlineSize, fontSize),
-    maxBlockSize:  flattenLengthOrNone(cs.maxBlockSize, fontSize),
+    inlineSize:    flattenSizingValue(cs.inlineSize, fontSize),
+    blockSize:     flattenSizingValue(cs.blockSize, fontSize),
+    minInlineSize: flattenSizingOrIntrinsic(cs.minInlineSize, fontSize),
+    minBlockSize:  flattenSizingOrIntrinsic(cs.minBlockSize, fontSize),
+    maxInlineSize: flattenSizingOrNone(cs.maxInlineSize, fontSize),
+    maxBlockSize:  flattenSizingOrNone(cs.maxBlockSize, fontSize),
 
     marginBlockStart:  flattenLengthOrAuto(cs.marginBlockStart, fontSize),
     marginBlockEnd:    flattenLengthOrAuto(cs.marginBlockEnd, fontSize),
@@ -70,6 +70,10 @@ function flattenLengths(cs: ComputedStyle): ComputedStyle {
   };
 }
 
+function isIntrinsicKeyword(v: unknown): v is IntrinsicSizingKeyword {
+  return v === "min-content" || v === "max-content" || v === "fit-content";
+}
+
 function flattenLength(v: ComputedLength | Length, fontSize: number): ComputedLength {
   if (typeof v === "number") return v;
   if (v.unit === "percent") return v;
@@ -83,8 +87,31 @@ function flattenLengthOrAuto(v: ComputedLengthOrAuto | Length | "auto", fontSize
   return flattenLength(v, fontSize);
 }
 
-function flattenLengthOrNone(v: ComputedLength | Length | "none", fontSize: number): ComputedLength | "none" {
+/** Pass through intrinsic keywords; otherwise flatten as LengthOrAuto. */
+function flattenSizingValue(
+  v: ComputedLengthOrAuto | Length | "auto" | IntrinsicSizingKeyword,
+  fontSize: number,
+): ComputedLengthOrAuto | IntrinsicSizingKeyword {
+  if (isIntrinsicKeyword(v)) return v;
+  return flattenLengthOrAuto(v, fontSize);
+}
+
+/** Pass through intrinsic keywords; otherwise flatten as Length (for min-* sizing). */
+function flattenSizingOrIntrinsic(
+  v: ComputedLength | Length | IntrinsicSizingKeyword,
+  fontSize: number,
+): ComputedLength | IntrinsicSizingKeyword {
+  if (isIntrinsicKeyword(v)) return v;
+  return flattenLength(v, fontSize);
+}
+
+/** Pass through intrinsic keywords and "none"; otherwise flatten as Length (for max-* sizing). */
+function flattenSizingOrNone(
+  v: ComputedLength | Length | "none" | IntrinsicSizingKeyword,
+  fontSize: number,
+): ComputedLength | "none" | IntrinsicSizingKeyword {
   if (v === "none") return "none";
+  if (isIntrinsicKeyword(v)) return v;
   return flattenLength(v, fontSize);
 }
 

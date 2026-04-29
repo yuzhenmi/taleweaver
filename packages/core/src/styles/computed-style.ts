@@ -5,7 +5,7 @@ import type {
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
 import type { Color } from "./color";
-import type { ComputedLength, ComputedLengthOrAuto } from "./length";
+import type { ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { WritingMode, Direction } from "./writing-mode";
 
 /**
@@ -19,12 +19,12 @@ export interface ComputedStyle {
   writingMode: WritingMode;
   direction:   Direction;
 
-  inlineSize:    ComputedLengthOrAuto;
-  blockSize:     ComputedLengthOrAuto;
-  minInlineSize: ComputedLength;
-  minBlockSize:  ComputedLength;
-  maxInlineSize: ComputedLength | "none";
-  maxBlockSize:  ComputedLength | "none";
+  inlineSize:    ComputedLengthOrAuto | IntrinsicSizingKeyword;
+  blockSize:     ComputedLengthOrAuto | IntrinsicSizingKeyword;
+  minInlineSize: ComputedLength | IntrinsicSizingKeyword;
+  minBlockSize:  ComputedLength | IntrinsicSizingKeyword;
+  maxInlineSize: ComputedLength | "none" | IntrinsicSizingKeyword;
+  maxBlockSize:  ComputedLength | "none" | IntrinsicSizingKeyword;
   boxSizing:     BoxSizing;
 
   marginBlockStart:  ComputedLengthOrAuto;

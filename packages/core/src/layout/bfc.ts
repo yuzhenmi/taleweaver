@@ -6,6 +6,7 @@ import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
+import type { IntrinsicSizingKeyword } from "../styles/length";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
@@ -43,8 +44,7 @@ export function layoutBlock(
   const noTopBoundary = paddingBlockStart === 0 && usedStyle.borderBlockStartWidth === 0;
   const noBottomBoundary = paddingBlockEnd === 0 && usedStyle.borderBlockEndWidth === 0;
 
-  const explicitInlineSize = cs.inlineSize === "auto" ? null : resolveUsedLength(cs.inlineSize, availableInlineSize, availableInlineSize);
-  const finalInlineSize = explicitInlineSize !== null && explicitInlineSize > 0 ? explicitInlineSize : availableInlineSize;
+  const finalInlineSize = resolveBoxInlineSize(cs, availableInlineSize, false, node, shaper, ctx);
   const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
 
   const hasBlockContent = node.children.some(
@@ -89,23 +89,22 @@ export function layoutBlock(
 
     // FLOAT BRANCH: floated children are out of normal flow
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
-      // Shrink-to-fit: a float with auto inline-size resolves to min(maxContent, available, max(minContent, available)).
-      // CSS Sizing 3 §10.3.5.
+      // Floats shrink-to-fit by default (auto), but also respect intrinsic keywords.
+      const available = contentInlineSize - childUsedStyle.marginInlineStart - childUsedStyle.marginInlineEnd;
       let floatInlineSizeForCtx: number;
       if (childCs.inlineSize === "auto") {
         const intrinsic = computeIntrinsicSizes(child, shaper, ctx.intrinsicCache);
-        const available = contentInlineSize - childUsedStyle.marginInlineStart - childUsedStyle.marginInlineEnd;
         floatInlineSizeForCtx = Math.min(
           intrinsic.maxContent,
           available,
           Math.max(intrinsic.minContent, available),
         );
       } else {
-        floatInlineSizeForCtx = resolveUsedLength(childCs.inlineSize, contentInlineSize, contentInlineSize);
+        floatInlineSizeForCtx = resolveBoxInlineSize(childCs, available, true, child, shaper, ctx);
       }
       const floatCtxChild = makeChildContext(ctx, cs, floatInlineSizeForCtx, "indefinite");
       const floatLayout = layoutBlock(child, 0, 0, floatCtxChild, shaper);
-      const floatExplicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
+      const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
       const active = floatCtx.activeAt(childBlockOffset);
@@ -182,7 +181,7 @@ export function layoutBlock(
     } else {
       childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
     }
-    const explicitBlockSize = childCs.blockSize === "auto" ? 0 : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
+    const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
       ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
@@ -196,7 +195,7 @@ export function layoutBlock(
     // the next sibling collapse, and the empty block does not advance childBlockOffset.
     const childPaddingV = childUsedStyle.paddingBlockStart + childUsedStyle.paddingBlockEnd;
     const childBorderV  = childUsedStyle.borderBlockStartWidth + childUsedStyle.borderBlockEndWidth;
-    const childExplicitBlockSize = childCs.blockSize === "auto" ? null : resolveUsedLength(childCs.blockSize, contentInlineSize, 0);
+    const childExplicitBlockSize = resolveExplicitBlockSizeOrNull(childCs.blockSize, contentInlineSize);
     const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0
@@ -232,6 +231,80 @@ export function layoutBlock(
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
   );
+}
+
+/**
+ * Resolve the inline-size of a box, handling CSS Sizing 3 intrinsic-sizing keywords
+ * (min-content, max-content, fit-content) as well as auto, number, and percent lengths.
+ *
+ * @param isShrinkToFit  true for shrink-to-fit contexts (inline-block, floats, etc.)
+ *   — used only when the keyword is "auto" to decide fill vs. shrink.
+ */
+function resolveBoxInlineSize(
+  cs: ComputedStyle,
+  containingInlineSize: number,
+  isShrinkToFit: boolean,
+  node: ElementBox,
+  shaper: TextShaper,
+  ctx: LayoutContext,
+): number {
+  const v = cs.inlineSize;
+  if (v === "min-content") {
+    const intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache);
+    return intrinsic.minContent;
+  }
+  if (v === "max-content") {
+    const intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache);
+    return intrinsic.maxContent;
+  }
+  if (v === "fit-content") {
+    const intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache);
+    return Math.min(
+      intrinsic.maxContent,
+      Math.max(intrinsic.minContent, containingInlineSize),
+    );
+  }
+  if (v === "auto") {
+    if (isShrinkToFit) {
+      const intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache);
+      return Math.min(
+        intrinsic.maxContent,
+        Math.max(intrinsic.minContent, containingInlineSize),
+      );
+    }
+    return containingInlineSize; // fill
+  }
+  // ComputedLength (number or percent)
+  const resolved = resolveUsedLength(v, containingInlineSize, containingInlineSize);
+  return resolved > 0 ? resolved : containingInlineSize;
+}
+
+/**
+ * Resolve an explicit block-size for layout (returns 0 for "auto" or intrinsic keywords,
+ * which means "use content height").
+ */
+function resolveExplicitBlockSize(
+  blockSize: ComputedStyle["blockSize"],
+  containingInlineSize: number,
+): number {
+  if (blockSize === "auto" || blockSize === "min-content" || blockSize === "max-content" || blockSize === "fit-content") {
+    return 0;
+  }
+  return resolveUsedLength(blockSize, containingInlineSize, 0);
+}
+
+/**
+ * Resolve an explicit block-size, returning null for "auto" or intrinsic keywords.
+ * Used to distinguish "no explicit size given" from "explicit size of 0".
+ */
+function resolveExplicitBlockSizeOrNull(
+  blockSize: ComputedStyle["blockSize"],
+  containingInlineSize: number,
+): number | null {
+  if (blockSize === "auto" || blockSize === "min-content" || blockSize === "max-content" || blockSize === "fit-content") {
+    return null;
+  }
+  return resolveUsedLength(blockSize, containingInlineSize, 0);
 }
 
 function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
