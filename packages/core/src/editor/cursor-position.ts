@@ -1,7 +1,9 @@
 import type { StateNode } from "../state/state-node";
 import type { Position } from "../state/position";
 import type { LayoutBox, TextRunBox } from "../layout/layout-node";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
+import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getNodeByPath } from "../state/operations";
 
 export interface PixelPosition {
@@ -37,8 +39,11 @@ export function resolvePixelPosition(
   state: StateNode,
   position: Position,
   layoutTree: LayoutBox,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
 ): PixelPosition {
+  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+    ? adaptShaperToMeasurer(shaperOrMeasurer)
+    : shaperOrMeasurer;
   const node = getNodeByPath(state, position.path);
   if (!node) return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
 

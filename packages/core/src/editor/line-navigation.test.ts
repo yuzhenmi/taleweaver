@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createNode,
   createTextNode,
-  createMockMeasurer,
+  createMockShaper,
   createRegistry,
   defaultComponents,
   renderTree,
@@ -11,7 +11,7 @@ import {
 } from "@taleweaver/core";
 import { moveToLine, moveToLineBoundary } from "./line-navigation";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);
 
 function makeDoc(texts: string[]) {

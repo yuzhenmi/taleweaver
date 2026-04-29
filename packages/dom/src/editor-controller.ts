@@ -14,6 +14,7 @@ import {
   findLastTextDescendant,
   type LayoutBox,
   type Position,
+  type TextShaper,
   type TextMeasurer,
   type EditorAction,
   type EditorState,
@@ -28,7 +29,7 @@ const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
 
 export interface EditorControllerOptions {
-  measurer: TextMeasurer;
+  measurer: TextShaper | TextMeasurer;
   dispatch: (action: EditorAction) => void;
   pageHeight?: number;
   pageGap?: number;

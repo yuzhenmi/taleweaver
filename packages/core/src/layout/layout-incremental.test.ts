@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
-import { createMockMeasurer } from "./text-measurer";
+import { createMockShaper } from "./mock-shaper";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 
 describe("layoutTreeIncremental", () => {
   it("reuses unchanged layout box when reference is the same and width unchanged", () => {

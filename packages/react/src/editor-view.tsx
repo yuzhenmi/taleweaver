@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
+  type TextShaper,
   type TextMeasurer,
   type EditorAction,
   type EditorState,
@@ -13,7 +14,7 @@ export interface EditorViewProps {
   editorState: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
-  measurer: TextMeasurer;
+  measurer: TextShaper | TextMeasurer;
   pageHeight?: number;
   pageGap?: number;
 }

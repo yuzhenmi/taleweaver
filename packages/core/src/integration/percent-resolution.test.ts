@@ -9,9 +9,9 @@ import { describe, it, expect } from "vitest";
 import { createElementBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
-import { createMockMeasurer } from "../layout/text-measurer";
+import { createMockShaper } from "../layout/mock-shaper";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 
 describe("Percent length resolution at layout time", () => {
   it("marginInlineStart: 10% of containingInlineSize=500 → 50", () => {

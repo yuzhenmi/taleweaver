@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  createMockMeasurer,
+  createMockShaper,
   createRegistry,
   defaultComponents,
   getNodeByPath,
@@ -13,7 +13,7 @@ import {
   type EditorState,
 } from "./editor-state";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);
 const config: EditorConfig = { measurer, registry, containerWidth: 200 };
 

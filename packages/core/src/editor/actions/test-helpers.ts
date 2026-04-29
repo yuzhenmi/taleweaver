@@ -1,5 +1,5 @@
 import {
-  createMockMeasurer,
+  createMockShaper,
   createRegistry,
   defaultComponents,
   getNodeByPath,
@@ -15,7 +15,7 @@ import {
   type EditorState,
 } from "../editor-state";
 
-export const measurer = createMockMeasurer(8, 16);
+export const measurer = createMockShaper(8, 16);
 export const registry = createRegistry([...defaultComponents]);
 export const config: EditorConfig = { measurer, registry, containerWidth: 200 };
 

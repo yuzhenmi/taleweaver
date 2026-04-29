@@ -1,6 +1,7 @@
 import type { StateNode } from "../state/state-node";
 import type { Selection } from "../cursor/selection";
 import type { Change } from "../state/change";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
@@ -131,7 +132,7 @@ export interface EditorState {
 }
 
 export interface EditorConfig {
-  measurer: TextMeasurer;
+  measurer: TextShaper | TextMeasurer;
   registry: ComponentRegistry;
   containerWidth: number;
 }

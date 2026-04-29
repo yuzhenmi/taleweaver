@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
-import { createMockMeasurer } from "./text-measurer";
+import { createMockShaper } from "./mock-shaper";
 import { layoutTree } from "./dispatch";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 
 describe("layoutTree", () => {
   it("lays out a block at given container width", () => {

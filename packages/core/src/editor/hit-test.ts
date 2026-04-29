@@ -1,7 +1,9 @@
 import type { StateNode } from "../state/state-node";
 import type { Position } from "../state/position";
 import type { LayoutBox } from "../layout/layout-node";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
+import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { createPosition, } from "../state/position";
 import { findPathById } from "../state/find-path";
@@ -15,11 +17,14 @@ import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
 export function resolvePositionFromPixel(
   state: StateNode,
   layoutTree: LayoutBox,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
   x: number,
   y: number,
   pageIndex: number = 0,
 ): Position | null {
+  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+    ? adaptShaperToMeasurer(shaperOrMeasurer)
+    : shaperOrMeasurer;
   // 1. Collect all text boxes with absolute coordinates
   const allBoxes: AbsoluteTextBox[] = [];
   collectAllTextBoxes(layoutTree, 0, 0, allBoxes);

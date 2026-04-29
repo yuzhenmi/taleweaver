@@ -1,7 +1,9 @@
 import type { StateNode } from "../state/state-node";
 import type { Position } from "../state/position";
 import type { LayoutBox } from "../layout/layout-node";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
+import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { createPosition } from "../state/position";
 import { getNodeByPath } from "../state/operations";
 import { getTextContentLength } from "../state/text-utils";
@@ -24,10 +26,13 @@ export function moveToLine(
   state: StateNode,
   position: Position,
   layoutTree: LayoutBox,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
 ): { position: Position; targetX: number } | null {
+  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+    ? adaptShaperToMeasurer(shaperOrMeasurer)
+    : shaperOrMeasurer;
   // Resolve current pixel position
   const currentPixel = resolvePixelPosition(
     state,
@@ -84,9 +89,12 @@ export function moveToLineBoundary(
   state: StateNode,
   position: Position,
   layoutTree: LayoutBox,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
   boundary: "start" | "end",
 ): Position | null {
+  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+    ? adaptShaperToMeasurer(shaperOrMeasurer)
+    : shaperOrMeasurer;
   const currentPixel = resolvePixelPosition(state, position, layoutTree, measurer);
   const x = boundary === "start" ? 0 : Infinity;
   const result = resolvePositionFromPixel(state, layoutTree, measurer, x, currentPixel.lineY, currentPixel.pageIndex);

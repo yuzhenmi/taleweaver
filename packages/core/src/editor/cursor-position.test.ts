@@ -4,7 +4,7 @@ import {
   createNode,
   createTextNode,
   createPosition,
-  createMockMeasurer,
+  createMockShaper,
   createRegistry,
   defaultComponents,
   renderTree,
@@ -14,7 +14,7 @@ import {
 } from "@taleweaver/core";
 import { resolvePixelPosition } from "./cursor-position";
 
-const measurer = createMockMeasurer(8, 16);
+const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);
 
 function buildLayout(state: ReturnType<typeof createEmptyDocument>) {
@@ -73,7 +73,7 @@ describe("resolvePixelPosition", () => {
   });
 
   it("caret returns line height", () => {
-    const tallMeasurer = createMockMeasurer(8, 24);
+    const tallMeasurer = createMockShaper(8, 24);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "hello").newState;
     const render = renderTree(state, registry);
@@ -89,7 +89,7 @@ describe("resolvePixelPosition", () => {
   });
 
   it("cursor at end of text stays on its line", () => {
-    const tallMeasurer = createMockMeasurer(8, 24);
+    const tallMeasurer = createMockShaper(8, 24);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "hi").newState;
     const render = renderTree(state, registry);
@@ -105,7 +105,7 @@ describe("resolvePixelPosition", () => {
   });
 
   it("cursor in second paragraph is below first paragraph", () => {
-    const tallMeasurer = createMockMeasurer(8, 24);
+    const tallMeasurer = createMockShaper(8, 24);
     let state = createEmptyDocument();
     state = insertText(state, createPosition([0, 0], 0), "abc").newState;
     state = splitNode(state, createPosition([0, 0], 3), "node-1").newState;

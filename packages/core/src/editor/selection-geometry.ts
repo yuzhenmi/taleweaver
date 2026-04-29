@@ -1,7 +1,9 @@
 import type { StateNode } from "../state/state-node";
 import type { Selection } from "../cursor/selection";
 import type { LayoutBox } from "../layout/layout-node";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
+import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { selectionStart, selectionEnd } from "../cursor/selection";
 import { getNodeByPath } from "../state/operations";
@@ -89,9 +91,12 @@ export function computeSelectionRects(
   state: StateNode,
   selection: Selection,
   layoutTree: LayoutBox,
-  measurer: TextMeasurer,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
   _containerWidth: number,
 ): SelectionRect[] {
+  const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+    ? adaptShaperToMeasurer(shaperOrMeasurer)
+    : shaperOrMeasurer;
 
   const start = selectionStart(selection);
   const end = selectionEnd(selection);

@@ -5,12 +5,12 @@
  */
 import { defaultComponents } from "../components";
 import { createRegistry } from "../components/component-registry";
-import { createMockMeasurer } from "../layout/text-measurer";
+import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 
 export const registry = createRegistry(defaultComponents);
-export const measurer = createMockMeasurer(8, 16); // 8px per char, 16px line height
+export const measurer = createMockShaper(8, 16); // 8px per char, 16px line height
 
 /** Narrow a RenderNode to text type, throwing if it isn't one. */
 export function expectTextRender(node: RenderNode): Extract<RenderNode, { type: "text" }> {

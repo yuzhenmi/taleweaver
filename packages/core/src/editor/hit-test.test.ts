@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createNode,
   createTextNode,
-  createMockMeasurer,
+  createMockShaper,
   createRegistry,
   defaultComponents,
   renderTree,
@@ -10,7 +10,7 @@ import {
 } from "@taleweaver/core";
 import { resolvePositionFromPixel } from "./hit-test";
 
-const measurer = createMockMeasurer(8, 16); // 8px/char, 16px line height
+const measurer = createMockShaper(8, 16); // 8px/char, 16px line height
 const registry = createRegistry([...defaultComponents]);
 
 function makeDoc(texts: string[]) {
