@@ -94,17 +94,21 @@ function flattenLineHeight(v: number | ComputedLength | Length, fontSize: number
 }
 
 function resolveFontSize(cs: ComputedStyle): number {
-  const v = cs.fontSize;
+  const v: unknown = cs.fontSize;
+
   if (typeof v === "number") return v;
-  // Defensive: fontSize is typed as `number` in ComputedStyle. If we somehow
-  // got a Length-shaped value (e.g., before this function ran), resolve it.
-  // Cast to unknown then Length for a type-safe fallback path.
-  const lv = v as unknown as Length;
-  if (typeof lv === "object" && "unit" in lv && lv.unit === "px") return lv.value;
-  if (typeof lv === "object" && "unit" in lv && lv.unit === "em") {
-    // Document root case: no parent fontSize, use the initial.
-    return lv.value * INITIAL_COMPUTED_STYLE.fontSize;
+
+  // Composition may produce Length object values before flattening.
+  // Type-guard the shape to safely access properties without unsafe casts.
+  if (typeof v === "object" && v !== null && "unit" in v) {
+    const lv = v as { unit: string; value: number };
+    if (lv.unit === "px") return lv.value;
+    if (lv.unit === "em") {
+      // Document root case: no parent fontSize, use the initial.
+      return lv.value * INITIAL_COMPUTED_STYLE.fontSize;
+    }
   }
+
   return INITIAL_COMPUTED_STYLE.fontSize;
 }
 
