@@ -8,6 +8,7 @@ import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { FloatContext } from "./float-context";
 import type { WritingMode, Direction } from "../styles/writing-mode";
+import { computeUsedStyle } from "./used-style";
 
 interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
@@ -306,13 +307,14 @@ function buildLineWithFragments(
   direction: Direction,
   containingInlineSize: number,
 ): LineBox {
+  const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize);
   const lineBlockSizeTracker = { value: 0 };
   const children = buildLineChildrenForAncestorLevel(
     parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
   );
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
   const aligned = applyVerticalAlign(children, lineBlockSize);
-  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, aligned,
+  return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, aligned,
     /* baseline */ lineBlockSize,
     /* containingInlineSize */ containingInlineSize,
   );
@@ -357,9 +359,10 @@ function buildLineChildrenForAncestorLevel(
         const ib = firstTok.inlineBlock;
         const ibBlockSize = ib.blockSize;
         lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, ibBlockSize);
+        const ibUsedStyle = computeUsedStyle(tokStyle, lineInlineSize);
         out.push(createInlineBlockBox(
           `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
-          cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ib.children,
+          cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ibUsedStyle, ib.children,
           /* containingInlineSize */ lineInlineSize,
         ));
       } else {
@@ -372,9 +375,10 @@ function buildLineChildrenForAncestorLevel(
         runCounters[unit.sourceKey] = runIdx + 1;
         const runKey = `${unit.sourceKey}:${runIdx}`;
 
+        const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize);
         out.push(createTextRunBox(
           runKey,
-          cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, text,
+          cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
           /* containingInlineSize */ lineInlineSize,
         ));
       }
@@ -404,10 +408,11 @@ function buildLineChildrenForAncestorLevel(
     const boxBlockSize = innerBlockSizeTracker.value > 0 ? innerBlockSizeTracker.value : measurer.measureHeight(ancestorStyle);
     lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, boxBlockSize);
 
+    const ancestorUsedStyle = computeUsedStyle(ancestorStyle, lineInlineSize);
     // For B.2, hardcode fragmentEdge to "only". B.3 fixes cross-line resolution.
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
-      cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, innerChildren, "only",
+      cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, ancestorUsedStyle, innerChildren, "only",
       /* containingInlineSize */ lineInlineSize,
     ));
     cursorInlineOffset += boxInlineSize;
