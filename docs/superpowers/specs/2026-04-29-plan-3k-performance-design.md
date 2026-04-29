@@ -148,3 +148,41 @@ depends on measurement data:
 - **2026-04-29:** Read-path profiling included in scope after the user
   reported cursor-movement slowness — the bottleneck is not exclusively
   on the mutation path.
+
+## Findings (added during execution)
+
+### F3K.A — Canvas height overflow above ~800 paragraphs
+
+**Discovered:** during Plan 3.K.1 Task 2 smoke-test (commit `3b94269`).
+
+**What:** At ~800+ paragraphs, the cumulative canvas height exceeds
+Chrome's max canvas dimension (~32,767px device pixels). At 10K
+paragraphs the app loads, fixture state builds, layout runs, but the
+canvas is visually broken (clipped or fails to allocate). The engine's
+cascade / layout / IFC continue to function correctly — only paint
+output is corrupt.
+
+**Concrete numbers:** 10K paragraphs × ~20px logical line-height × 2
+device-pixel-ratio ≈ 400K device px, well above the ~32,767px ceiling.
+The threshold is roughly 800 paragraphs at default font size + DPR=2.
+
+**Implications:**
+1. **Measurement strategy adjustment.** The Plan 3.K.1 baseline-measurement
+   task can capture cascade / layout / IFC numbers at 10K (the underlying
+   computations still run), but paint numbers above ~800 paragraphs will
+   be either invalid or not representative of a working render.
+   Practical approach: capture full-pipeline numbers at 100 / 500 / 1000
+   paragraphs; capture cascade/layout/IFC-only at 5000 / 10000 to confirm
+   scaling.
+2. **Architectural implication.** The user's stated target ("thousands
+   of paragraphs, hundreds of pages") is unreachable in the current
+   architecture without canvas tiling, virtual scrolling, or proper
+   pagination. The "paint just the visible region" idea was already part
+   of Plan 5 (pagination); this finding pulls it forward — paint
+   virtualization is on the critical path for the perf goal, not just a
+   feature item.
+3. **Possible 3.K.2+ task.** Once measurement identifies the dominant
+   bottlenecks, paint-virtualization may need to land as a 3.K.x task
+   even before its "natural" home in Plan 5.
+
+**Tracking:** Add to followups when 3.K.1 closes.
