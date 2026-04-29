@@ -5,6 +5,9 @@ import { createMockShaper } from "./mock-shaper";
 import { layoutInlineContent } from "./ifc";
 import { layoutBlock } from "./bfc";
 import { createFloatContext } from "./float-context";
+import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
+import type { ComputedStyle } from "../styles";
+import type { Direction } from "../styles/writing-mode";
 
 const shaper = createMockShaper(8, 16);
 
@@ -397,5 +400,118 @@ describe("IFC — RTL bidi reordering", () => {
 
     // LTR: t1 comes before t2 in visual order (smaller inlineOffset).
     expect(t1Box.inlineOffset).toBeLessThan(t2Box.inlineOffset);
+  });
+});
+
+describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
+  /**
+   * Inline shaper for hyphen tests: each char is one cluster, 10px wide.
+   * Hard break at \n. Hyphen break after cluster index 5 (i.e. between
+   * the 5th and 6th character) when the text is at least 6 chars long.
+   */
+  function shaperWithHyphen(): TextShaper {
+    const fontMetrics: FontMetrics = { ascent: 12, descent: 4, lineGap: 0, capHeight: 11, xHeight: 7 };
+
+    function shape(
+      text: string,
+      style: Readonly<ComputedStyle>,
+      baseDirection: Direction,
+    ): ShapedRun {
+      const clusters: Cluster[] = [];
+      for (let i = 0; i < text.length; i++) {
+        clusters.push({
+          start: i,
+          end: i + 1,
+          inlineAdvance: 10,
+          isLigature: false,
+          glyphs: [text.charCodeAt(i)],
+        });
+      }
+      const breakOpportunities: BreakOpportunity[] = [];
+      if (text.length >= 6) {
+        // Hyphen break AFTER cluster index 4 (between chars 4 and 5, 0-based).
+        // clusterIndex: 5 means "break before cluster 5", i.e. the prefix is [0,5).
+        breakOpportunities.push({ clusterIndex: 5, kind: "hyphen" });
+      }
+      return {
+        text,
+        computedStyle: style,
+        clusters,
+        ascent: fontMetrics.ascent,
+        descent: fontMetrics.descent,
+        lineGap: fontMetrics.lineGap,
+        minClusterInlineSize: text.length === 0 ? 0 : 10,
+        unbreakableRunInlineSize: text.length * 10,
+        breakOpportunities,
+        bidiLevel: baseDirection === "rtl" ? 1 : 0,
+      };
+    }
+
+    function measureFontMetrics(_style: Readonly<ComputedStyle>): FontMetrics {
+      return fontMetrics;
+    }
+
+    return { shape, measureFontMetrics };
+  }
+
+  it("inserts hyphen glyph at break-of-kind-hyphen line end", () => {
+    // Text: "abcdefgh" — 8 chars × 10px = 80px total.
+    // Line width: 60px. Without hyphen: "abcdefgh" doesn't fit (80 > 60).
+    // Hyphen break at cluster index 5 (prefix "abcde" = 50px).
+    // Hyphen "-" = 10px. Prefix + hyphen = 60px — fits exactly in 60px line.
+    // So the IFC should wrap with "abcde" + "-" on line 1, "fgh" on line 2.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "abcdefgh"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("expected element");
+
+    const lines = layoutInlineContent(
+      tree, 0, 0, 60,
+      shaperWithHyphen(),
+      createFloatContext(),
+      "horizontal-tb",
+      "ltr",
+    );
+
+    // Should produce at least 2 lines (the word was split).
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    // The first line should end with a "-" text-run box.
+    const firstLine = lines[0];
+    if (firstLine.type !== "line") throw new Error("expected line box");
+    expect(firstLine.children.length).toBeGreaterThan(0);
+    const lastChild = firstLine.children[firstLine.children.length - 1];
+    expect(lastChild.type).toBe("text-run");
+    if (lastChild.type !== "text-run") throw new Error();
+    expect(lastChild.text).toBe("-");
+  });
+
+  it("second line starts with the remainder after hyphen split", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "abcdefgh"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("expected element");
+
+    const lines = layoutInlineContent(
+      tree, 0, 0, 60,
+      shaperWithHyphen(),
+      createFloatContext(),
+      "horizontal-tb",
+      "ltr",
+    );
+
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const secondLine = lines[1];
+    if (secondLine.type !== "line") throw new Error("expected line box");
+    expect(secondLine.children.length).toBeGreaterThan(0);
+    // The first child of line 2 should be the suffix "fgh".
+    const firstChild = secondLine.children[0];
+    expect(firstChild.type).toBe("text-run");
+    if (firstChild.type !== "text-run") throw new Error();
+    expect(firstChild.text).toBe("fgh");
   });
 });

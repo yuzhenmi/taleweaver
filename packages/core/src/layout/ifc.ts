@@ -31,6 +31,17 @@ interface Token {
     blockSize: number;
     children: readonly LayoutBox[];
   };
+  /**
+   * Hyphen break opportunities within this token's text (cluster indices
+   * relative to this token's text). Only present for text tokens from a
+   * shaped run that contains "hyphen" kind break opportunities.
+   */
+  hyphenBreaks?: readonly number[];
+  /**
+   * Width of each character (cluster) in this token's text, in order.
+   * Used to compute the width of a prefix when splitting at a hyphen break.
+   */
+  clusterWidths?: readonly number[];
 }
 
 /**
@@ -48,6 +59,18 @@ interface WrapUnit {
   inlineAncestors: readonly string[];
   /** Ancestor styles from the first token in this unit (parallel to inlineAncestors). */
   inlineAncestorStyles: readonly ComputedStyle[];
+}
+
+/**
+ * Describes a hyphen break chosen for the end of a line.
+ * When set, `buildLineWithFragments` appends a synthetic hyphen TextRunBox
+ * after the last normal token.
+ */
+interface HyphenBreak {
+  style: ComputedStyle;
+  inlineAncestors: readonly string[];
+  inlineAncestorStyles: readonly ComputedStyle[];
+  sourceKey: string;
 }
 
 /**
@@ -111,6 +134,27 @@ function collectInlineTokens(
         const matchEnd = matchStart + part.length;
 
         const width = widthOfRange(matchStart, matchEnd);
+
+        // Collect per-cluster widths and hyphen break opportunities within this token's range.
+        let clusterWidths: number[] | undefined;
+        let hyphenBreaks: number[] | undefined;
+        if (shapedRun && !(/^\s+$/.test(part))) {
+          clusterWidths = [];
+          for (let ci = 0; ci < part.length; ci++) {
+            // Find the cluster in shapedRun that corresponds to matchStart + ci.
+            const clusterStart = matchStart + ci;
+            const cluster = shapedRun.clusters.find(c => c.start === clusterStart);
+            clusterWidths.push(cluster ? cluster.inlineAdvance : 0);
+          }
+
+          // Hyphen breaks: filter shapedRun's "hyphen" kind breaks that fall within this token's range,
+          // and convert clusterIndex (absolute in fullText) to token-relative index.
+          const tokenHyphenBreaks = shapedRun.breakOpportunities.filter(
+            b => b.kind === "hyphen" && b.clusterIndex > matchStart && b.clusterIndex <= matchEnd,
+          ).map(b => b.clusterIndex - matchStart);
+          if (tokenHyphenBreaks.length > 0) hyphenBreaks = tokenHyphenBreaks;
+        }
+
         out.push({
           sourceKey: child.key,
           text: part,
@@ -120,6 +164,8 @@ function collectInlineTokens(
           isLineBreak: false,
           inlineAncestors: ancestors,
           inlineAncestorStyles: ancestorStyles,
+          ...(clusterWidths ? { clusterWidths } : {}),
+          ...(hyphenBreaks ? { hyphenBreaks } : {}),
         });
 
         cursor = matchEnd;
@@ -255,16 +301,123 @@ export function layoutInlineContent(
   let currentUnits: WrapUnit[] = [];
   let currentWidth = 0;
   let lineIndex = 0;
+  let pendingHyphen: HyphenBreak | null = null;
 
-  for (const unit of units) {
+  /**
+   * Try to split `unit` at a hyphen break opportunity so that the prefix
+   * (plus a hyphen glyph) fits within `available` pixels.
+   * Returns [prefixUnit, suffixUnit, hyphenBreak] when a split is found,
+   * or null when no suitable hyphen break exists.
+   */
+  function tryHyphenSplit(
+    unit: WrapUnit,
+    available: number,
+  ): [WrapUnit, WrapUnit, HyphenBreak] | null {
+    const firstTok = unit.tokens[0];
+    if (!firstTok.hyphenBreaks || !firstTok.clusterWidths || firstTok.hyphenBreaks.length === 0) return null;
+    if (firstTok.isSpace || firstTok.inlineBlock) return null;
+
+    // Shape a hyphen with the token's style to get its width.
+    const hyphenRun = shaper.shape("-", firstTok.style, direction);
+    const hyphenInlineSize = hyphenRun.clusters.reduce((s, c) => s + c.inlineAdvance, 0);
+
+    const clusterWidths = firstTok.clusterWidths;
+
+    // Find the last hyphen break point where prefix + hyphen fits.
+    let bestBreakIdx: number | null = null;
+    let bestPrefixWidth = 0;
+    for (const breakAt of firstTok.hyphenBreaks) {
+      // breakAt is the cluster index AFTER the last cluster of the prefix
+      // (i.e. the prefix is [0, breakAt)).
+      let w = 0;
+      for (let ci = 0; ci < breakAt && ci < clusterWidths.length; ci++) {
+        w += clusterWidths[ci];
+      }
+      if (w + hyphenInlineSize <= available) {
+        bestBreakIdx = breakAt;
+        bestPrefixWidth = w;
+      }
+    }
+
+    if (bestBreakIdx === null) return null;
+
+    const prefixText = firstTok.text.slice(0, bestBreakIdx);
+    const suffixText = firstTok.text.slice(bestBreakIdx);
+
+    const prefixToken: Token = {
+      sourceKey: firstTok.sourceKey,
+      text: prefixText,
+      width: bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+    };
+
+    const suffixToken: Token = {
+      sourceKey: firstTok.sourceKey,
+      text: suffixText,
+      width: firstTok.width - bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+      // Pass remaining cluster widths and hyphen breaks to suffix for potential future splits.
+      clusterWidths: firstTok.clusterWidths.slice(bestBreakIdx),
+      hyphenBreaks: firstTok.hyphenBreaks
+        .filter(b => b > bestBreakIdx!)
+        .map(b => b - bestBreakIdx!),
+    };
+
+    const prefixUnit: WrapUnit = {
+      tokens: [prefixToken],
+      totalWidth: bestPrefixWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+    };
+
+    // Suffix unit: include trailing space tokens from the original unit (if any).
+    const trailingTokens = unit.tokens.slice(1); // space tokens after the word
+    const trailingWidth = trailingTokens.reduce((s, t) => s + t.width, 0);
+    const suffixUnit: WrapUnit = {
+      tokens: [suffixToken, ...trailingTokens],
+      totalWidth: suffixToken.width + trailingWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+    };
+
+    const hyphenBreak: HyphenBreak = {
+      style: firstTok.style,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+      sourceKey: firstTok.sourceKey,
+    };
+
+    return [prefixUnit, suffixUnit, hyphenBreak];
+  }
+
+  // Units queue: we may inject split suffix units back into the front.
+  let unitQueue: WrapUnit[] = [...units];
+  let uqi = 0;
+
+  while (uqi < unitQueue.length) {
+    const unit = unitQueue[uqi++];
+
     // Hard break on LINE_BREAK — flush current line and start a new one
     if (unit.isLineBreak) {
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
       lines.push(line);
       lineBlockOffset += line.height;
       currentUnits = [];
       currentWidth = 0;
+      pendingHyphen = null;
       continue;
     }
 
@@ -272,11 +425,33 @@ export function layoutInlineContent(
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
 
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
-      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
+      // Before flushing: try hyphen-split on the overflowing unit.
+      const available = lineInlineSize - currentWidth;
+      const split = tryHyphenSplit(unit, available);
+      if (split !== null) {
+        const [prefixUnit, suffixUnit, hyphenBreak] = split;
+        // Add the prefix to the current line, then flush with hyphen.
+        currentUnits.push(prefixUnit);
+        currentWidth += prefixUnit.totalWidth;
+        const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, hyphenBreak, shaper);
+        lines.push(line);
+        lineBlockOffset += line.height;
+        currentUnits = [];
+        currentWidth = 0;
+        pendingHyphen = null;
+        // Recompute dims and push the suffix unit back as next to process.
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+        // Insert suffix at the current position so it's processed next.
+        unitQueue.splice(uqi, 0, suffixUnit);
+        continue;
+      }
+      // No hyphen split possible — normal word wrap.
+      const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
       lines.push(line);
       lineBlockOffset += line.height;
       currentUnits = [];
       currentWidth = 0;
+      pendingHyphen = null;
       // Recompute dims for the new line position
       ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
     }
@@ -293,13 +468,34 @@ export function layoutInlineContent(
       }
     }
 
+    // Hyphen split on an otherwise-empty line: the unit doesn't fit even alone,
+    // but a hyphen break opportunity allows a prefix to fit.
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
+      const available = lineInlineSize - currentWidth;
+      const split = tryHyphenSplit(unit, available);
+      if (split !== null) {
+        const [prefixUnit, suffixUnit, hyphenBreak] = split;
+        currentUnits.push(prefixUnit);
+        currentWidth += prefixUnit.totalWidth;
+        const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, hyphenBreak, shaper);
+        lines.push(line);
+        lineBlockOffset += line.height;
+        currentUnits = [];
+        currentWidth = 0;
+        pendingHyphen = null;
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+        unitQueue.splice(uqi, 0, suffixUnit);
+        continue;
+      }
+    }
+
     currentUnits.push(unit);
     currentWidth += unit.totalWidth;
   }
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize);
+    const line = buildLineWithFragments(parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize, currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize, pendingHyphen, shaper);
     lines.push(line);
   }
 
@@ -344,12 +540,36 @@ function buildLineWithFragments(
   writingMode: WritingMode,
   direction: Direction,
   containingInlineSize: number,
+  hyphenBreak: HyphenBreak | null,
+  shaper: TextShaper,
 ): LineBox {
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize);
   const lineBlockSizeTracker = { value: 0 };
-  const children = buildLineChildrenForAncestorLevel(
+  let children = buildLineChildrenForAncestorLevel(
     parentKey, lineIndex, units, 0, parentCs, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
   );
+
+  // Append synthetic hyphen TextRunBox when this line ends at a hyphen break.
+  if (hyphenBreak !== null) {
+    const hyphenRun = shaper.shape("-", hyphenBreak.style, direction);
+    const hyphenInlineSize = hyphenRun.clusters.reduce((s, c) => s + c.inlineAdvance, 0);
+    const hyphenBlockSize = hyphenRun.ascent + hyphenRun.descent + hyphenRun.lineGap;
+    lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, hyphenBlockSize);
+
+    // Compute inline offset: sum of all existing children's sizes.
+    const cursorInlineOffset = children.reduce((s, c) => s + c.inlineSize, 0);
+    const hyphenUsedStyle = computeUsedStyle(hyphenBreak.style, lineInlineSize);
+    const hyphenBox = createTextRunBox(
+      `${hyphenBreak.sourceKey}:hyphen-${lineIndex}`,
+      cursorInlineOffset, 0, hyphenInlineSize, hyphenBlockSize,
+      writingMode, direction,
+      hyphenBreak.style, hyphenUsedStyle,
+      "-",
+      /* containingInlineSize */ lineInlineSize,
+    );
+    children = [...children, hyphenBox];
+  }
+
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
   const aligned = applyVerticalAlign(children, lineBlockSize);
   const reordered = reorderLineForBidi(aligned, lineInlineSize);
