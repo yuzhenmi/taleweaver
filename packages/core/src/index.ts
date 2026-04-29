@@ -86,6 +86,8 @@ export type {
 export type { IntrinsicSizes, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
+export type { IFCState, IFCStateCache } from "./layout/ifc-state";
+export { createIFCStateCache } from "./layout/ifc-state";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
