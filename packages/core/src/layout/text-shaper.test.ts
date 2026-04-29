@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Cluster, BreakOpportunity, FontMetrics, ShapedRun } from "./text-shaper";
+import type { Cluster, BreakOpportunity, FontMetrics } from "./text-shaper";
 
 describe("TextShaper types", () => {
   it("compiles a Cluster fixture", () => {
