@@ -6,7 +6,6 @@ import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
-import type { IntrinsicSizingKeyword } from "../styles/length";
 import { formatCounter, type CounterStyle } from "./list-counter";
 import { createFloatContext } from "./float-context";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
