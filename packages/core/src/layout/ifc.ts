@@ -16,6 +16,10 @@ import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 
 interface Token {
+  /** Stable identifier for this token. Format: "{sourceKey}:{offset}" for text tokens
+   * (where offset is the character index within the source text node where the token starts);
+   * "{sourceKey}" for atomic tokens (inline-blocks); "{sourceKey}:lb" for hard-break tokens. */
+  id: string;
   /** Key of the source TextBox (render node) — used for layout key tracing. */
   sourceKey: string;
   text: string;
@@ -119,6 +123,7 @@ function collectInlineTokens(
           // LINE_BREAK is a sentinel string — advance past any \n at cursor.
           if (cursor < fullText.length && fullText[cursor] === "\n") cursor++;
           out.push({
+            id: `${child.key}:lb`,
             sourceKey: child.key,
             text: LINE_BREAK,
             width: 0,
@@ -159,6 +164,7 @@ function collectInlineTokens(
         }
 
         out.push({
+          id: `${child.key}:${matchStart}`,
           sourceKey: child.key,
           text: part,
           width,
@@ -200,6 +206,7 @@ function collectInlineTokens(
       }
 
       out.push({
+        id: child.key,
         sourceKey: child.key,
         text: "",
         width: finalInlineSize,
@@ -217,6 +224,28 @@ function collectInlineTokens(
     }
     // Other display values (block, etc.) are ignored at this level.
   }
+}
+
+/**
+ * Public re-export of the Token type so that tests and future incremental-wrap
+ * code can reference it without going through private internals.
+ */
+export type { Token };
+
+/**
+ * Collect all tokens from `parent`'s inline children. Exposed for testing and
+ * for incremental-wrap logic (Plan 3.G Task 3).
+ */
+export function collectTokens(
+  parent: ElementBox,
+  shaper: TextShaper,
+  direction: Direction,
+  intrinsicCache: IntrinsicSizesCache,
+): Token[] {
+  if (!parent.computedStyle) throw new Error("cascade required");
+  const tokens: Token[] = [];
+  collectInlineTokens(parent.children, [], [], shaper, direction, tokens, intrinsicCache);
+  return tokens;
 }
 
 /**
@@ -349,7 +378,14 @@ export function layoutInlineContent(
     const prefixText = firstTok.text.slice(0, bestBreakIdx);
     const suffixText = firstTok.text.slice(bestBreakIdx);
 
+    // Compute the suffix token's id by adding bestBreakIdx to the original token's source offset.
+    // firstTok.id has the form "{sourceKey}:{offset}" for text tokens.
+    const colonIdx = firstTok.id.lastIndexOf(":");
+    const originalOffset = colonIdx >= 0 ? Number(firstTok.id.slice(colonIdx + 1)) : 0;
+    const suffixOffset = (Number.isFinite(originalOffset) ? originalOffset : 0) + bestBreakIdx;
+
     const prefixToken: Token = {
+      id: firstTok.id,
       sourceKey: firstTok.sourceKey,
       text: prefixText,
       width: bestPrefixWidth,
@@ -361,6 +397,7 @@ export function layoutInlineContent(
     };
 
     const suffixToken: Token = {
+      id: `${firstTok.sourceKey}:${suffixOffset}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
       width: firstTok.width - bestPrefixWidth,

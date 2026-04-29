@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node-v2";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
-import { layoutInlineContent } from "./ifc";
+import { layoutInlineContent, collectTokens } from "./ifc";
 import { layoutBlock } from "./bfc";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
 import type { ComputedStyle } from "../styles";
@@ -534,5 +534,97 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     expect(firstChild.type).toBe("text-run");
     if (firstChild.type !== "text-run") throw new Error();
     expect(firstChild.text).toBe("fgh");
+  });
+});
+
+describe("Token IDs — stability", () => {
+  it("text tokens get id = sourceKey:offset", () => {
+    // "abc def" tokenizes to ["abc", " ", "def"].
+    // Offsets in the source text: "abc" starts at 0, " " at 3, "def" at 4.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "abc def"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    expect(tokens).toHaveLength(3);
+    expect(tokens[0].id).toBe("t:0");   // "abc" starts at offset 0
+    expect(tokens[1].id).toBe("t:3");   // " " starts at offset 3
+    expect(tokens[2].id).toBe("t:4");   // "def" starts at offset 4
+  });
+
+  it("same input produces the same token IDs on repeated calls (stability)", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "hello world"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const ctx2 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens1 = collectTokens(tree, shaper, "ltr", ctx1.intrinsicCache);
+    const tokens2 = collectTokens(tree, shaper, "ltr", ctx2.intrinsicCache);
+
+    expect(tokens1.map(t => t.id)).toEqual(tokens2.map(t => t.id));
+  });
+
+  it("tokens from an unchanged sibling node keep their IDs when another node changes", () => {
+    // "t1" is the unchanged node; "t2" would change. We verify t1's tokens
+    // have the form "t1:<offset>" regardless of t2's content.
+    const treeA = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "foo "),
+        createTextBox("t2", {}, "bar"),
+      ]),
+    );
+    const treeB = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "foo "),
+        createTextBox("t2", {}, "baz qux"),  // t2 changed
+      ]),
+    );
+    if (treeA.type !== "element" || treeB.type !== "element") throw new Error("?");
+    const ctxA = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const ctxB = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokensA = collectTokens(treeA, shaper, "ltr", ctxA.intrinsicCache);
+    const tokensB = collectTokens(treeB, shaper, "ltr", ctxB.intrinsicCache);
+
+    // Tokens from t1 ("foo" and " ") should have the same IDs in both trees.
+    const t1A = tokensA.filter(t => t.sourceKey === "t1");
+    const t1B = tokensB.filter(t => t.sourceKey === "t1");
+    expect(t1A.map(t => t.id)).toEqual(t1B.map(t => t.id));
+  });
+
+  it("inline-block token gets id = sourceKey (no offset)", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].id).toBe("ib");
+    expect(tokens[0].inlineBlock).toBeDefined();
+  });
+
+  it("hard-break token gets id = sourceKey:lb", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre" }, [
+        createTextBox("t", {}, "line one\nline two"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    const lbToken = tokens.find(t => t.isLineBreak);
+    expect(lbToken).toBeDefined();
+    expect(lbToken?.id).toBe("t:lb");
   });
 });
