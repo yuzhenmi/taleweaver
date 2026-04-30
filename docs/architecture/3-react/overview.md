@@ -77,3 +77,11 @@ actions flow up (`dispatch` callback).
 
 1. [`3.1-use-editor.md`](3.1-use-editor.md) — hook responsibilities, `EditorConfig` construction, the reducer wiring.
 2. [`3.2-editor-view.md`](3.2-editor-view.md) — component lifecycle, controller mount/update/destroy, profiler instrumentation.
+
+## Public API surface
+
+`@taleweaver/react` exports:
+
+- `useEditor` — the React hook.
+- `EditorView` — the React component.
+- `EditorViewProps` — the component's props type.

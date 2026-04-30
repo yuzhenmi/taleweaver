@@ -56,6 +56,18 @@ container — paints into it, listens for input on it, animates the cursor,
 syncs scroll. `react` instantiates one per `<EditorView>` mount and
 forwards lifecycle events.
 
+## Build & tooling
+
+The repository is an npm workspaces monorepo.
+
+- **Layout.** Three workspace packages under `packages/` (`core`, `dom`, `react`) plus example apps under `examples/` (`react`, `dom`). Each package has its own `package.json` and `tsconfig.json`.
+- **Language.** TypeScript throughout; strict mode. `tsc` is the build tool for library packages (`packages/*/dist`); the example apps use Vite for bundling.
+- **Test runner.** Vitest. Tests are colocated as `*.test.ts` next to each source file. `npm test --workspace=<pkg>` from the repo root runs one package's suite.
+- **Type-checking.** `npm run build --workspace=<pkg>` runs `tsc` and emits declarations.
+- **Node version.** v24.14 via nvm (pinned in `.nvmrc`).
+- **File naming.** kebab-case across the codebase (`packages/core/src/cascade/cascade-pass.ts`).
+- **Dependency direction enforcement.** Per-package `tsconfig.json` controls `paths` and `references` so `core` cannot import from `dom` or `react`; `dom` cannot import from `react`. `core` has no runtime dependencies on browser APIs.
+
 ## Reading order
 
 To get a complete understanding of how the software works, read in

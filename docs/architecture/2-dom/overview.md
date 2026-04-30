@@ -95,3 +95,19 @@ created on construction and discarded on destroy.
 2. [`2.2-canvas-renderer.md`](2.2-canvas-renderer.md) — paint pipeline, viewport culling, dirty regions.
 3. [`2.3-paint-cache.md`](2.3-paint-cache.md) — paint-input hashing, root short-circuit.
 4. [`2.4-canvas-shaper.md`](2.4-canvas-shaper.md) — `TextShaper` implementation, Unicode algorithm integration.
+
+## Public API surface
+
+`@taleweaver/dom` exports:
+
+**Editor controller** — `EditorController`, `EditorControllerOptions`. `createEditorController`.
+
+**Canvas renderer** — `CursorState`. `paintCanvas`, `paintPage`.
+
+**Paint cache** — `PaintInputHash`, `PaintCache`. `createPaintCache`, `hashPaintInputs`.
+
+**Default text shaper** — `createCanvasShaper`. (Plus the legacy `createCanvasMeasurer` for backwards compatibility.)
+
+**Helpers** — `mapKeyEvent` (DOM keyboard event → `EditorAction`). `ImageCache`. `FONT_CONFIG`, `buildCssFontString`, `getEffectiveStyles` (font defaults).
+
+**Re-exports from core** — `EditorAction`, `PixelPosition`, `SelectionRect`, `AbsoluteTextBox`, `EditorState`, `EditorConfig`, `EditorHistory`, `EditorHistoryEntry`. `resolvePixelPosition`, `resolvePositionFromPixel`, `computeSelectionRects`, `moveToLine`, `moveToLineBoundary`, `collectAllTextBoxes`. `createInitialEditorState`, `reduceEditor`. `findFirstTextDescendant`, `findLastTextDescendant`.

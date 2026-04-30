@@ -87,3 +87,25 @@ module imports its type vocabulary.
 6. [`1.6-text.md`](1.6-text.md) — text shaper interface, Unicode algorithms, hyphens, font metrics.
 7. [`1.7-editor.md`](1.7-editor.md) — reducer, action handlers, geometry queries.
 8. [`1.8-perf.md`](1.8-perf.md) — instrumentation.
+
+## Public API surface
+
+`@taleweaver/core` exports these grouped categories. Per-module overviews above describe each in detail.
+
+**Styles** — `Style`, `ComputedStyle`, `UsedStyle`, `Length`, `LengthOrAuto`, `Color`, `Display`, `BorderStyle`, `FontWeight`, `FontStyle`, `TextDecoration`, `WhiteSpace`, `VerticalAlign`, `Float`, `Clear`, `BreakBefore`, `BreakAfter`, `BreakInside`, `ListStyleType`, `ListStylePosition`, `BoxSizing`, `Direction`, `WritingMode`. `PROPERTY_META`, `INITIAL_COMPUTED_STYLE`.
+
+**State** — `StateNode`, `NewNode`. `createNode`, `createTextNode`. `updateProperties`, `insertChild`, `removeChild`, `getNodeByPath`, `updateAtPath`. `Position`, `Span`. `createPosition`, `createSpan`, `comparePositions`, `normalizeSpan`. `Change`, `createChange`. `insertText`, `deleteRange`, `replaceRange`, `splitNode`. `findDirtyPaths`, `isDirty`. `History`, `createHistory`, `pushChange`, `undo`, `redo`. `createEmptyDocument`. `getTextContent`, `getTextContentLength`, `clampOffset`. `findPathById`. `applyInlineStyle`, `getStyleInRange`, `remapPosition`. `extractText`.
+
+**Cascade** — `cascadePass`, `cascadePassIncremental`, `composeComputed`, `resolveLength`.
+
+**Render tree** — `RenderNode`, `ElementBox`, `TextBox`. `createElementBox`, `createTextBox`. `renderTree`, `renderTreeIncremental`.
+
+**Layout tree** — `LayoutBox`, `BlockBox`, `LineBox`, `TextRunBox`. `createBlockBox`, `createLineBox`, `createTextRunBox`. `layoutTree`, `layoutTreeIncremental`. `establishesNewBFC`. `IntrinsicSizes`, `IntrinsicSizesCache`, `createIntrinsicSizesCache`, `computeIntrinsicSizes`. `IFCState`, `IFCStateCache`, `createIFCStateCache`. `TextShaper`, `ShapedRun`, `Cluster`, `BreakOpportunity`, `FontMetrics`, `GlyphId`. `TextMeasurer`, `createMockMeasurer`, `adaptShaperToMeasurer`. `createMockShaper`.
+
+**Components** — `ComponentRenderFn`, `ComponentDefinition`, `ComponentRegistry`, `createRegistry`. `defaultComponents`, plus individual component definitions (`documentComponent`, `paragraphComponent`, `textComponent`, `spanComponent`, `headingComponent`, `listComponent`, `listItemComponent`, etc.). Factories: `createParagraph`, `createHeading`, `createText`, `createList`, `createListItem`, `createTable`, `createImage`, `createHorizontalLine`.
+
+**Cursor** — `Selection`, `createSelection`, `createCursor`, `isCollapsed`, `selectionStart`, `selectionEnd`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`.
+
+**Editor** — `EditorAction`, `EditorState`, `EditorConfig`, `EditorHistory`, `EditorHistoryEntry`. `createInitialEditorState`, `reduceEditor`. `findFirstTextDescendant`, `findLastTextDescendant`. `PixelPosition`, `SelectionRect`, `AbsoluteTextBox`. `resolvePixelPosition`, `resolvePositionFromPixel`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`. `collectAllTextBoxes`.
+
+**Perf** — `PerfReport`. `setPerfTraceEnabled`, `isPerfTraceEnabled`, `markStart`, `markEnd`, `recordSample`, `report`, `resetPerfTrace`.
