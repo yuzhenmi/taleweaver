@@ -60,6 +60,8 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
     h += `|fragment:${box.fragmentEdge}`;
   } else if (box.type === "table") {
     h += `|cols:${box.columnPxWidths.join(",")}`;
+  } else if (box.type === "page") {
+    h += `|page:${box.pageIndex}`;
   }
 
   return h;
