@@ -22,14 +22,14 @@ Full vocabulary present: `Style`, `ComputedStyle`, `UsedStyle`, `Length`,
 `Color`, `Display`, `WritingMode`, `Direction`, etc. Every other module
 imports from here.
 
-Schema gaps deferred for later plans:
-- `widows`, `orphans` — not yet on `Style`. Required by pagination.
-- `text-align`, `hyphens`, `text-wrap` — not yet on `Style`. Required
-  by typography.
-- `overflow` — not yet on `Style`. Required by `establishesNewBFC`'s
-  full check.
-- `position: absolute / fixed`, `transform`, `opacity`, etc. — not yet
-  on `Style`. Required by positioning + visual-chrome work.
+Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
+- `widows`, `orphans` — required by pagination.
+- `textAlign`, `textIndent`, `textWrap`, `hyphens`, `letterSpacing`, `wordSpacing`, `textTransform`, `fontFeatureSettings`, `tabSize` — required by typography.
+- Vertical writing-mode values (`vertical-rl`, `vertical-lr`) — typed but `logicalToPhysical` throws for them.
+
+Schema items genuinely missing:
+- `overflow` — required by `establishesNewBFC`'s full check.
+- `position: absolute / fixed`, `transform`, `opacity` — required by positioning + visual-chrome work.
 
 ### `state/` `[implemented]`
 
