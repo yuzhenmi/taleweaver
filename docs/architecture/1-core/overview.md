@@ -79,14 +79,16 @@ module imports its type vocabulary.
 
 ## Reading order
 
+0. [`1.0-styles.md`](1.0-styles.md) — type vocabulary, `INITIAL_COMPUTED_STYLE`, logical↔physical axis arithmetic for all writing modes.
 1. [`1.1-state.md`](1.1-state.md) — document model, immutability, history, transformations.
-2. [`1.2-render.md`](1.2-render.md) — components, render functions, the render tree.
+2. [`1.2-render.md`](1.2-render.md) — components, render functions, the render tree, generated content + counters.
 3. [`1.3-cascade.md`](1.3-cascade.md) — value resolution, length flattening, computed-style equality.
-4. [`1.4-layout/overview.md`](1.4-layout/overview.md) — formatting contexts, intrinsic sizing, anonymous boxes, real floats, line wrap.
+4. [`1.4-layout/overview.md`](1.4-layout/overview.md) — formatting contexts, intrinsic sizing, anonymous boxes, real floats, line wrap, used-style resolution.
 5. [`1.5-pagination.md`](1.5-pagination.md) — fragmentation, page templates, headers/footers/footnotes.
 6. [`1.6-text.md`](1.6-text.md) — text shaper interface, Unicode algorithms, hyphens, font metrics.
 7. [`1.7-editor.md`](1.7-editor.md) — reducer, action handlers, geometry queries.
 8. [`1.8-perf.md`](1.8-perf.md) — instrumentation.
+9. [`1.9-positioning.md`](1.9-positioning.md) — `position: relative / absolute`, transforms, opacity, stacking contexts.
 
 ## Public API surface
 

@@ -68,6 +68,21 @@ The repository is an npm workspaces monorepo.
 - **File naming.** kebab-case across the codebase (`packages/core/src/cascade/cascade-pass.ts`).
 - **Dependency direction enforcement.** Per-package `tsconfig.json` controls `paths` and `references` so `core` cannot import from `dom` or `react`; `dom` cannot import from `react`. `core` has no runtime dependencies on browser APIs.
 
+## Zero-runtime-dependencies invariant
+
+`@taleweaver/core` and `@taleweaver/dom` ship with **zero** runtime npm dependencies. Their `package.json` `dependencies` block is empty; their only manifest entries are `devDependencies` (TypeScript, Vitest) and, for `dom`, a `peerDependency` on `@taleweaver/core`. Bundling third-party libraries into either package is not allowed.
+
+`@taleweaver/react` carries `peerDependencies` on `react` and `react-dom` (necessarily — it is a React adapter) plus on the two upstream Taleweaver packages. No other runtime dependencies.
+
+Consequences for the architecture:
+
+- **Unicode algorithms (UAX #9 / #14 / #29).** The canvas shaper uses `Intl.Segmenter` (a built-in browser/Node API, not a dependency) for grapheme + word segmentation. UAX #14 line-break and UAX #9 bidi are hand-rolled — the spec tables are small and embeddable.
+- **Hyphenation.** Hyphenation patterns (multi-megabyte language dictionaries) are provided by the host through an optional callback on the canvas shaper. Dictionaries are not bundled in either package. Consumers who want real hyphenation supply patterns from their own loader.
+- **Heavier text shapers (e.g., HarfBuzz).** Layered as separate packages (`@taleweaver/shaper-harfbuzz`) that the consumer optionally installs. Such packages can have their own runtime dependencies; they implement the `TextShaper` interface and the consumer wires them in via `EditorConfig.measurer`.
+- **Embedded media, charts, equations.** Same pattern — separate optional packages plug in via custom render-fn `ComponentDefinition`s.
+
+This invariant keeps the engine's footprint predictable and small. Consumers pay only for the features they use.
+
 ## Reading order
 
 To get a complete understanding of how the software works, read in

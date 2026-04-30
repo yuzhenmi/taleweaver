@@ -41,17 +41,20 @@ docs/architecture/
 ├── overview.md             ← top-level: packages and inter-package touchpoints
 ├── 1-core/
 │   ├── overview.md         ← core's top-level modules and the pipeline
+│   ├── 1.0-styles.md       ← type vocabulary, INITIAL_COMPUTED_STYLE, logicalToPhysical
 │   ├── 1.1-state.md
 │   ├── 1.2-render.md
 │   ├── 1.3-cascade.md
-│   ├── 1.4-layout/         ← becomes a folder when sub-files exist
+│   ├── 1.4-layout/         ← folder
 │   │   ├── overview.md
 │   │   ├── 1.4.1-bfc.md
-│   │   └── 1.4.2-ifc.md
+│   │   ├── 1.4.2-ifc.md
+│   │   └── 1.4.3-table-fc.md
 │   ├── 1.5-pagination.md
 │   ├── 1.6-text.md
 │   ├── 1.7-editor.md
-│   └── 1.8-perf.md
+│   ├── 1.8-perf.md
+│   └── 1.9-positioning.md  ← position: relative/absolute, transforms, opacity
 ├── 2-dom/
 │   ├── overview.md
 │   ├── 2.1-editor-controller.md

@@ -355,6 +355,124 @@ function renderNodesLayoutEquivalent(a: RenderNode, b: RenderNode): boolean;
 - `a === b`, or
 - `a.type === b.type`, `a.key === b.key`, `a.computedStyle === b.computedStyle`, AND for elements: same `metadata` reference and per-position children reference-equality.
 
+### `computeUsedStyle` and `resolveBoxInlineSize`
+
+Two helpers that resolve `ComputedStyle` to numeric values per box.
+
+```ts
+function computeUsedStyle(
+  cs: ComputedStyle,
+  containingInlineSize: number,
+  containingBlockSize: number | "indefinite",
+): UsedStyle;
+
+function resolveBoxInlineSize(
+  cs: ComputedStyle,
+  containingInlineSize: number,
+  isFloat: boolean,
+  node: ElementBox,
+  shaper: TextShaper,
+  ctx: LayoutContext,
+): number;
+```
+
+#### `computeUsedStyle` algorithm
+
+```
+function computeUsedStyle(cs, containingInlineSize, containingBlockSize):
+  // Margins — auto resolves per CSS rules:
+  //   - For block-level boxes: auto inline-axis margins center when both sides are auto AND inlineSize is explicit.
+  //     Implementation handles centering at the BFC layout pass; computeUsedStyle returns 0 for auto here and the BFC
+  //     applies centering after it knows the box's resolved inlineSize.
+  //   - Block-axis auto margins always resolve to 0 in flow content (CSS spec).
+  used.marginBlockStart  = (cs.marginBlockStart  == "auto") ? 0 : resolveLength(cs.marginBlockStart, containingInlineSize, 0)
+  used.marginBlockEnd    = (cs.marginBlockEnd    == "auto") ? 0 : resolveLength(cs.marginBlockEnd, containingInlineSize, 0)
+  used.marginInlineStart = (cs.marginInlineStart == "auto") ? 0 : resolveLength(cs.marginInlineStart, containingInlineSize, 0)
+  used.marginInlineEnd   = (cs.marginInlineEnd   == "auto") ? 0 : resolveLength(cs.marginInlineEnd, containingInlineSize, 0)
+
+  // Paddings — resolve % against containing inline-size (CSS rule: percent paddings always resolve against inline,
+  // even for block-axis paddings).
+  used.paddingBlockStart  = resolvePercentAgainstInline(cs.paddingBlockStart, containingInlineSize)
+  used.paddingBlockEnd    = resolvePercentAgainstInline(cs.paddingBlockEnd, containingInlineSize)
+  used.paddingInlineStart = resolvePercentAgainstInline(cs.paddingInlineStart, containingInlineSize)
+  used.paddingInlineEnd   = resolvePercentAgainstInline(cs.paddingInlineEnd, containingInlineSize)
+
+  // Border widths — already numeric in ComputedStyle
+  used.borderBlockStartWidth  = cs.borderBlockStartWidth
+  // ... (same for the other three sides)
+
+  // Typography — em is already resolved at cascade time; pass through
+  used.fontSize = cs.fontSize
+  used.lineHeight = (cs.lineHeight is number) ? cs.lineHeight * cs.fontSize : resolveLength(cs.lineHeight, containingInlineSize, cs.fontSize)
+  used.color = cs.color
+  // ... (other typography fields pass through)
+
+  // Sizing fields (inlineSize, blockSize, min/max-*) are NOT on UsedStyle — they live on the LayoutBox itself.
+  // resolveBoxInlineSize handles inline-axis; the BFC handles block-axis from content.
+
+  return used
+
+function resolvePercentAgainstInline(value: ComputedLength, containingInlineSize: number): number:
+  if value is number: return value
+  if value is { unit: "percent", value: pct }: return (pct / 100) * containingInlineSize
+  // unreachable for ComputedLength
+```
+
+#### Auto-margin centering (BFC follow-up to `computeUsedStyle`)
+
+After the BFC resolves a block child's `inlineSize` and the parent's `containingInlineSize`, it applies centering when both inline-axis margins are `auto` AND the child has a definite (non-auto) `inlineSize`:
+
+```
+freeSpace = containingInlineSize - childInlineSize - childUsedStyle.borderInlineStartWidth - childUsedStyle.borderInlineEndWidth
+            - childUsedStyle.paddingInlineStart  - childUsedStyle.paddingInlineEnd
+if cs.marginInlineStart == "auto" && cs.marginInlineEnd == "auto":
+  childUsedStyle.marginInlineStart = freeSpace / 2
+  childUsedStyle.marginInlineEnd   = freeSpace / 2
+else if cs.marginInlineStart == "auto":
+  childUsedStyle.marginInlineStart = freeSpace
+else if cs.marginInlineEnd == "auto":
+  childUsedStyle.marginInlineEnd = freeSpace
+```
+
+This produces CSS-spec margin: 0 auto centering. When `inlineSize` is `auto`, CSS resolves auto margins to 0 first and lets the box fill the container — no centering happens.
+
+#### `resolveBoxInlineSize` algorithm
+
+```
+function resolveBoxInlineSize(cs, containingInlineSize, isFloat, node, shaper, ctx):
+  // Intrinsic keywords first
+  if cs.inlineSize == "min-content":
+    return computeIntrinsicSizes(node, shaper, ctx.intrinsicCache).minContent
+  if cs.inlineSize == "max-content":
+    return computeIntrinsicSizes(node, shaper, ctx.intrinsicCache).maxContent
+  if cs.inlineSize == "fit-content":
+    intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache)
+    available = containingInlineSize - paddingInlineStart - paddingInlineEnd - marginInlineStart - marginInlineEnd
+    return min(intrinsic.maxContent, max(intrinsic.minContent, available))
+
+  // Numeric or percent
+  if cs.inlineSize is { unit: "percent" }:
+    return (cs.inlineSize.value / 100) * containingInlineSize
+  if cs.inlineSize is number:
+    return cs.inlineSize
+
+  // auto
+  if isFloat:
+    // Floats with auto inline-size: shrink-to-fit per CSS Sizing 3 §10.3.5
+    intrinsic = computeIntrinsicSizes(node, shaper, ctx.intrinsicCache)
+    available = containingInlineSize - paddingInlineStart - paddingInlineEnd
+    return min(intrinsic.maxContent, max(intrinsic.minContent, available))
+
+  // Block in flow with auto inline-size: fill the container
+  return containingInlineSize - paddingInlineStart - paddingInlineEnd - marginInlineStart - marginInlineEnd
+```
+
+The BFC additionally applies `min-inline-size` and `max-inline-size` clamping after this step:
+```
+result = clamp(resolveBoxInlineSize(...), resolveMin(cs.minInlineSize, ctx), resolveMax(cs.maxInlineSize, ctx))
+```
+where `resolveMin` returns `0` when the value is `0`, and `resolveMax` returns `+Infinity` when the value is `"none"`.
+
 ### Top-level entries
 
 ```ts
