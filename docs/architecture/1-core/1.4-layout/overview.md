@@ -185,3 +185,198 @@ circuits its entire wrap.
 1. [`1.4.1-bfc.md`](1.4.1-bfc.md) — BFC algorithm: margin collapsing, floats, list markers, fragmentation entry.
 2. [`1.4.2-ifc.md`](1.4.2-ifc.md) — IFC algorithm: line wrap, baseline alignment, cluster reorder, inline-block sizing.
 3. [`1.4.3-table-fc.md`](1.4.3-table-fc.md) — Table FC algorithm: column widths, row heights, anonymous synthesis.
+
+## Reference
+
+### `LayoutBox` discriminated union
+
+```ts
+type LayoutBox =
+  | BlockBox        // type: "block"
+  | LineBox         // type: "line"
+  | TextRunBox      // type: "text-run"
+  | InlineBox       // type: "inline"
+  | InlineBlockBox  // type: "inline-block"
+  | MarkerBox       // type: "marker"
+  | TableBox        // type: "table"
+  | TableRowBox     // type: "table-row"
+  | TableCellBox;   // type: "table-cell"
+```
+
+All variants extend a common base:
+
+```ts
+interface LayoutBoxBase {
+  readonly key: string;
+
+  // Logical (parent-relative)
+  readonly inlineOffset: number;
+  readonly blockOffset:  number;
+  readonly inlineSize:   number;
+  readonly blockSize:    number;
+
+  // Physical (parent-relative; derived from logical via writing-mode)
+  readonly x: number;
+  readonly y: number;
+  readonly width:  number;
+  readonly height: number;
+
+  readonly writingMode: WritingMode;
+  readonly direction:   Direction;
+
+  readonly computedStyle: Readonly<ComputedStyle>;
+  readonly usedStyle:     Readonly<UsedStyle>;
+}
+```
+
+Per-variant additions:
+
+| Type | Adds |
+|---|---|
+| `block` | `children: readonly LayoutBox[]`; optional `metadata: Record<string, unknown>` (e.g., image src). |
+| `line` | `children: readonly LayoutBox[]`; `baseline: number` (offset from top of line). |
+| `text-run` | `text: string`. |
+| `inline` | `children: readonly LayoutBox[]`; `fragmentEdge: "first" \| "middle" \| "last" \| "only"` (which side has padding/border). |
+| `inline-block` | `children: readonly LayoutBox[]`. |
+| `marker` | `text: string` (the resolved bullet / digit / roman). |
+| `table` | `children: readonly LayoutBox[]`; `columnPxWidths: readonly number[]`. |
+| `table-row` | `children: readonly LayoutBox[]`. |
+| `table-cell` | `children: readonly LayoutBox[]`. |
+
+Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
+
+Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+
+### `UsedStyle`
+
+Same key set as `ComputedStyle`, with `percent` and `auto` resolved to numbers — except sizing fields. Sizing (`inlineSize`, `blockSize`, `min*`, `max*`) lives on the LayoutBox itself, not on `UsedStyle`. So `UsedStyle.boxSizing` is present but `UsedStyle.inlineSize` is not. `UsedStyle.lineHeight` is `number` (no `Length` form).
+
+### `LayoutContext`
+
+```ts
+interface LayoutContext {
+  readonly writingMode: WritingMode;
+  readonly direction:   Direction;
+  readonly containingInlineSize: number;
+  readonly containingBlockSize:  number | "indefinite";
+
+  readonly intrinsicCache: IntrinsicSizesCache;
+  readonly ifcStateCache:  IFCStateCache;
+
+  readonly floatEnv:   FloatEnvironment;
+  readonly isBFCRoot:  boolean;
+
+  readonly prevLayoutCache: LayoutBoxCache | null;
+  readonly prevFloatEnv:    FloatEnvironment | null;
+}
+
+function makeRootContext(rootCs: ComputedStyle, containerInlineSize: number): LayoutContext;
+function makeChildContext(parent: LayoutContext, parentCs: ComputedStyle,
+                          contentInlineSize: number, contentBlockSize: number | "indefinite"): LayoutContext;
+```
+
+`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC.
+
+### Display → formatting-context dispatch
+
+The dispatcher in `dispatch.ts` selects the FC by `display`:
+
+| `display` | Dispatch | Notes |
+|---|---|---|
+| `block`, `flow-root`, `list-item` | `layoutBlock` (BFC) | `flow-root` and floats establish new BFC roots. |
+| `inline-block` | `layoutBlock` (BFC) for the box, called from inside the IFC | Sized via shrink-to-fit when `inlineSize: auto`. |
+| `inline`, `text` | Handled inside the IFC (no top-level dispatch) | |
+| `table` | `layoutTable` (Table FC) | |
+| `table-row`, `table-cell` | Inside the Table FC's child loop | Anonymous parents synthesized when missing. |
+| `none` | Box is omitted from the layout tree | |
+
+Top-level `layoutTree(root, containerInlineSize, shaper)` allows `block` and `table` at the root; `inline` at root is invalid (the document root must establish a containing block).
+
+### Anonymous-box generation (`group-children.ts`)
+
+```ts
+type ChildGroup =
+  | { kind: "block"; child: RenderNode; positionalIndex: number }
+  | { kind: "inline-run"; children: readonly RenderNode[]; positionalIndex: number };
+
+function groupChildren(parent: ElementBox): ChildGroup[];
+function anonymousBlockKey(parentKey: string, positionalIndex: number): string;
+```
+
+Walks `parent.children` and partitions them by `display`:
+
+- A child whose `display` is block-level (`block`, `flow-root`, `list-item`, `table`, `table-row`, `table-cell`) becomes a `block` group.
+- A run of consecutive inline-level children (`inline`, `inline-block`, `text`) becomes one `inline-run` group, to be wrapped in an anonymous block (BFC) or anonymous inline-content holder.
+
+`positionalIndex` is the group's index in the parent; `anonymousBlockKey` derives a stable key from `(parentKey, positionalIndex)` so that anonymous boxes get reuse in subsequent passes.
+
+The Table FC has analogous synthesis: `display: table` children that aren't `table-row` get wrapped in anonymous rows; `table-row` children that aren't `table-cell` get wrapped in anonymous cells.
+
+### Reuse
+
+```ts
+interface LayoutBoxCacheEntry {
+  readonly box: LayoutBox;
+  readonly renderNode: RenderNode;
+}
+
+interface LayoutBoxCache {
+  get(renderNodeKey: string): LayoutBoxCacheEntry | undefined;
+  set(renderNodeKey: string, entry: LayoutBoxCacheEntry): void;
+  clear(): void;
+}
+
+function createLayoutBoxCache(): LayoutBoxCache;
+function buildLayoutBoxCacheFromTree(
+  root: LayoutBox,
+  renderRoot: RenderNode,
+  cache?: LayoutBoxCache,
+): LayoutBoxCache;
+
+interface ReuseInputs {
+  readonly computedStyle: ComputedStyle;
+  readonly availableInlineSize: number;
+  readonly writingMode: WritingMode;
+  readonly direction: Direction;
+  readonly floatEnvDirtyBlockOffset: number;  // +Infinity = no dirty floats
+}
+
+function isLayoutBoxReusable(prev: LayoutBox, inputs: ReuseInputs): boolean;
+function renderNodesLayoutEquivalent(a: RenderNode, b: RenderNode): boolean;
+```
+
+`isLayoutBoxReusable` returns `true` when:
+- `prev.computedStyle === inputs.computedStyle` OR `computedStylesEqual(prev.computedStyle, inputs.computedStyle)`.
+- `prev.inlineSize === inputs.availableInlineSize`.
+- `prev.writingMode === inputs.writingMode` and `prev.direction === inputs.direction`.
+- `inputs.floatEnvDirtyBlockOffset > prev.blockOffset + prev.blockSize` (no dirty floats above the box's block-end).
+
+`renderNodesLayoutEquivalent(a, b)` returns `true` when:
+- `a === b`, or
+- `a.type === b.type`, `a.key === b.key`, `a.computedStyle === b.computedStyle`, AND for elements: same `metadata` reference and per-position children reference-equality.
+
+### Top-level entries
+
+```ts
+function layoutTree(
+  root: RenderNode,
+  containerInlineSize: number,
+  shaper: TextShaper | TextMeasurer,
+): LayoutBox;
+
+function layoutTreeIncremental(
+  newRoot: RenderNode,
+  oldRoot: RenderNode | null,
+  oldLayout: LayoutBox | null,
+  containerWidth: number,
+  shaper: TextShaper | TextMeasurer,
+): LayoutBox;
+```
+
+`layoutTree` runs cascade if the root's `computedStyle` is missing, then dispatches by `cs.display`. `layoutTreeIncremental` adds a whole-tree short-circuit (`newRoot === oldRoot && oldLayout != null && oldLayout.width === containerWidth`) and otherwise builds a `LayoutBoxCache` from `oldLayout` + `oldRoot` and threads it through the root context.
+
+### Performance contracts
+
+- Whole-tree layout (cold start): O(N) where N is render-tree size.
+- Incremental layout with single-paragraph edit: O(D) where D is the size of the changed paragraph plus the path from root. Unchanged paragraphs flow through the BFC's reuse gate.
+- Document root with all children unchanged but parent rebuilt (e.g., `INSERT_NODE` outside any paragraph): O(1) via `renderNodesLayoutEquivalent`.
