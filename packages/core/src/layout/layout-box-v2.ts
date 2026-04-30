@@ -1,8 +1,11 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
+import type { PageBox } from "./page-box";
+import { createPageBox } from "./page-box";
+export type { PageBox } from "./page-box";
 
-export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox;
+export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox | PageBox;
 
 interface LayoutBoxBase {
   readonly key: string;
@@ -401,6 +404,12 @@ export function withInlineOffset(
         box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize,
+      );
+    case "page":
+      return createPageBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.pageIndex, containingInlineSize,
       );
   }
 }
