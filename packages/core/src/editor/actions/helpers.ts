@@ -68,6 +68,7 @@ export function rebuildTrees(
     oldEditor.layoutTree,
     newEditor.containerWidth,
     config.measurer,
+    config.pageConfig,
   );
   return {
     ...newEditor,

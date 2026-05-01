@@ -5,6 +5,7 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
+import type { PageConfig } from "../layout/page-config";
 import {
   createEmptyDocument,
 } from "../state/initial-state";
@@ -135,6 +136,7 @@ export interface EditorConfig {
   measurer: TextShaper | TextMeasurer;
   registry: ComponentRegistry;
   containerWidth: number;
+  pageConfig?: PageConfig;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -142,7 +144,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   const selection = createCursor([0, 0], 0);
   const rendered = renderTree(state, config.registry);
   const cascaded = cascadePass(rendered);
-  const layout = layoutTree(cascaded, config.containerWidth, config.measurer);
+  const layout = layoutTree(cascaded, config.containerWidth, config.measurer, config.pageConfig);
 
   return {
     state,
