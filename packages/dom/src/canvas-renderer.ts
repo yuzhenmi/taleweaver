@@ -438,6 +438,19 @@ function paintBox(
     return;
   }
 
+  if (box.type === "page") {
+    // White page background.
+    ctx.fillStyle = "white";
+    ctx.fillRect(absX, absY, box.width, box.height);
+    // Recurse into page's content children (no per-page borders or margins
+    // here — those are managed by paintPage in paginated mode; this branch
+    // is a defensive fallback for single-canvas mode painting a paginated tree).
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
+  }
+
   // Plan 2/3 types: skip silently (not produced in Plan 1)
   } finally {
     markEnd("paint.draw", t);
