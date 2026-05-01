@@ -31,6 +31,15 @@ export function collectAllTextBoxes(
     return;
   }
   if (box.type === "marker") return;
+  if (box.type === "page") {
+    // PageBox is a frame: descend into children with page-content-relative
+    // origin (0, 0) and the page's pageIndex. The page's own (x, y) is
+    // document-relative and not part of the descendant coordinate system.
+    for (const child of box.children) {
+      collectAllTextBoxes(child, 0, 0, out, box.pageIndex, lineMarginTop, lineMarginBottom);
+    }
+    return;
+  }
   const absX = parentX + box.x;
   const absY = parentY + box.y;
   // Thread margins from line boxes to their text-run children
@@ -56,6 +65,13 @@ export function collectBlockBoundaryLines(
   pageIndex: number = 0,
 ): void {
   if (box.type === "text-run" || box.type === "marker") return;
+
+  if (box.type === "page") {
+    for (const child of box.children) {
+      collectBlockBoundaryLines(child, 0, 0, out, box.pageIndex);
+    }
+    return;
+  }
 
   const absX = parentX + box.x;
   const absY = parentY + box.y;
@@ -85,6 +101,12 @@ function addTextLineKeys(
     return;
   }
   if (box.type === "marker") return;
+  if (box.type === "page") {
+    for (const child of box.children) {
+      addTextLineKeys(child, 0, 0, out, box.pageIndex);
+    }
+    return;
+  }
   const absX = parentX + box.x;
   const absY = parentY + box.y;
   for (const child of box.children) {

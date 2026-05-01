@@ -146,6 +146,12 @@ function collectTextBoxes(
     return;
   }
   if (box.type === "marker") return;
+  if (box.type === "page") {
+    for (const child of box.children) {
+      collectTextBoxes(child, nodeId, 0, 0, out, box.pageIndex, lineMarginTop, lineMarginBottom);
+    }
+    return;
+  }
 
   const absX = parentX + box.x;
   const absY = parentY + box.y;
