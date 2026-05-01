@@ -2,6 +2,7 @@ import type { RenderNode, ElementBox } from "../render/render-node-v2";
 import type { LayoutBox } from "./layout-box-v2";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
+import type { PageConfig } from "./page-config";
 import { isTextShaper, measurerToShaper } from "./text-measurer";
 import { layoutTree } from "./dispatch";
 import { layoutBlock } from "./bfc";
@@ -11,6 +12,7 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "./layout-context";
 import { buildLayoutBoxCacheFromTree } from "./layout-reuse";
 import { markStart, markEnd } from "../perf/perf-trace";
+import { paginateRoot } from "./paginate";
 
 /**
  * Incremental layout entry point.
@@ -30,6 +32,7 @@ export function layoutTreeIncremental(
   oldLayout: LayoutBox | null,
   containerWidth: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
+  pageConfig?: PageConfig,
 ): LayoutBox {
   const t = markStart("layoutTreeIncremental");
   try {
@@ -66,15 +69,26 @@ export function layoutTreeIncremental(
       prevFloatEnv: null,
     };
 
+    let result: LayoutBox;
     switch (cs.display) {
       case "block":
-        return layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+        result = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+        break;
       case "table":
-        return layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+        result = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+        break;
       default:
         // Fall back to full layout for unsupported display values.
-        return layoutTree(newRoot, containerWidth, shaperOrMeasurer);
+        result = layoutTree(newRoot, containerWidth, shaperOrMeasurer, pageConfig);
+        break;
     }
+
+    // Pagination: when configured, wrap the BFC's output in PageBoxes.
+    if (pageConfig !== undefined && result.type === "block") {
+      result = paginateRoot(result, pageConfig);
+    }
+
+    return result;
   } finally {
     markEnd("layoutTreeIncremental", t);
   }
