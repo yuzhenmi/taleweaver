@@ -8,7 +8,8 @@ import { usePerfEditor } from "./use-perf-editor";
 import { setPerfTraceEnabled, report, resetPerfTrace } from "@taleweaver/core";
 import "./app.css";
 
-// Plan 3 will re-add: pageHeight / pageMargins / pageGap for paginated layout
+const PAGE_HEIGHT = 1056;            // US Letter at 96 DPI
+const PAGE_GAP = 24;
 
 export function App() {
   // usePerfEditor mirrors useEditor but also checks ?perfFixture=N on mount
@@ -86,7 +87,11 @@ export function App() {
         <Toolbar dispatch={editor.dispatch} editorState={editor.editorState} />
         <div className="flex-1 overflow-y-auto bg-[#f9fbfd]">
           <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>
-            <EditorView {...editor} />
+            <EditorView
+              {...editor}
+              pageHeight={PAGE_HEIGHT}
+              pageGap={PAGE_GAP}
+            />
           </div>
         </div>
       </div>

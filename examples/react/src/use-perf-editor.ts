@@ -17,11 +17,19 @@ import {
   type EditorAction,
   type EditorState,
   type EditorConfig,
+  type PageConfig,
 } from "@taleweaver/core";
 import { createCanvasMeasurer } from "@taleweaver/dom";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 
 const DEFAULT_WIDTH = 600;
+
+const PAGE_CONFIG: PageConfig = {
+  pageInlineSize: 816,                // US Letter at 96 DPI: 8.5 × 96 = 816
+  pageBlockSize:  1056,               // 11 × 96 = 1056
+  pageMargins:    { blockStart: 96, blockEnd: 96, inlineStart: 72, inlineEnd: 72 },
+  pageGap:        24,
+};
 
 function createConfig(): EditorConfig {
   const canvas = document.createElement("canvas");
@@ -31,6 +39,7 @@ function createConfig(): EditorConfig {
     measurer,
     registry,
     containerWidth: DEFAULT_WIDTH,
+    pageConfig: PAGE_CONFIG,
   };
 }
 
