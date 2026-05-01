@@ -91,6 +91,9 @@ export { createIFCStateCache } from "./layout/ifc-state";
 export { layoutTree } from "./layout/layout-engine";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
+export type { PageBox } from "./layout/page-box";
+export { createPageBox } from "./layout/page-box";
+export type { PageConfig, PageMargins } from "./layout/page-config";
 
 // Components
 export type { ComponentRenderFn, ComponentDefinition } from "./components";
