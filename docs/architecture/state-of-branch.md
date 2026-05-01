@@ -97,18 +97,17 @@ Known gaps:
   `rowSpan`/`colSpan`; column-width algorithm uses sequential
   `colIdx++`.
 
-### Pagination `[missing]`
+### Pagination `[partial]`
 
-No `PageBox` type. No fragmenter. No page templates. No
-headers/footers/footnotes. No widows/orphans logic. The `editor-controller`
-in `dom` has dormant per-page-canvas code that activates when paginated
-output is present, but the layout pass never produces `PageBox`es.
+Foundation shipped (P1.A): `PageBox` LayoutBox variant; `paginateRoot` whole-block fragmenter; `EditorConfig.pageConfig` wires through layoutTree / layoutTreeIncremental; the editor controller's per-page-canvas path activates when `PageBox`es appear in the layout tree.
 
-This is a regression vs the pre-redesign main branch (which had naive
-whole-block pagination, though no within-block fragmentation either).
-The redesign deleted the prior `PageLayoutBox` / `paginateDocument`
-during the foundation rewrite with the expectation that a future plan
-would re-implement under the new architecture.
+Still missing (deferred to P1.B / P1.C):
+- Within-block fragmentation. A paragraph taller than a page goes on its own page and overflows past the bottom.
+- `widows` / `orphans` constraints.
+- `break-before` / `break-after` / `break-inside` properties (schema present, no consumer).
+- Page templates: headers, footers, footnotes, first/left/right variants.
+- Generated content / counters consumers (target-counter resolves only after P9b).
+- Cross-page table row repetition.
 
 ### Text `[partial]`
 
