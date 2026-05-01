@@ -413,3 +413,81 @@ export function withInlineOffset(
       );
   }
 }
+
+/**
+ * Re-emit a LayoutBox at a different blockOffset, preserving all other
+ * fields. Children are kept by reference (their blockOffsets are
+ * relative to the parent and don't need updating when only the parent
+ * moves vertically).
+ *
+ * Used by the pagination fragmenter to reposition blocks from
+ * document-relative to page-relative blockOffsets.
+ */
+export function withBlockOffset(
+  box: LayoutBox,
+  newBlockOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
+  switch (box.type) {
+    case "block":
+      return createBlockBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize, box.metadata,
+      );
+    case "line":
+      return createLineBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.baseline, containingInlineSize,
+      );
+    case "text-run":
+      return createTextRunBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize,
+      );
+    case "inline":
+      return createInlineBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.fragmentEdge, containingInlineSize,
+      );
+    case "inline-block":
+      return createInlineBlockBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+    case "marker":
+      return createMarkerBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize,
+      );
+    case "table":
+      return createTableBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.columnPxWidths, containingInlineSize,
+      );
+    case "table-row":
+      return createTableRowBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+    case "table-cell":
+      return createTableCellBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize,
+      );
+    case "page":
+      return createPageBox(
+        box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, box.pageIndex, containingInlineSize,
+      );
+  }
+}
