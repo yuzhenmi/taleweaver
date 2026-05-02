@@ -128,3 +128,42 @@ describe("IFC fragmentation — orphans", () => {
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 5 });
   });
 });
+
+describe("IFC fragmentation — widows", () => {
+  it("backs off split point when fewer than `widows` lines would land on next page", () => {
+    // 7 lines, widows: 3. Available fits 6 lines (6×16=96). k=6, but 7-6=1 < 3 → widows violated.
+    // Back off: k=5 → 7-5=2 < 3 still violated; k=4 → 7-4=3 >= 3 ✓. orphans=2, 4>=2 ✓. Split at 4.
+    const { paragraph, ctx } = buildParagraph(7, { widows: 3 });
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 96, // 6×16
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
+  });
+
+  it("pushes whole paragraph when no valid split exists due to widows + orphans", () => {
+    // 5 lines, orphans: 3, widows: 3. Need k>=3 AND 5-k>=3 → k>=3 AND k<=2. Contradiction.
+    // All lines fit (5×16=80 <= 80) so the fit-loop places all 5, but even if it didn't,
+    // any partial split would violate one constraint. No partial split → push whole.
+    const { paragraph, ctx } = buildParagraph(5, { orphans: 3, widows: 3 });
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 80, // 5×16, fits all — but a partial split would be needed to test
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    // To force a partial split attempt: reduce available to fit only 4 (4×16=64).
+    const fragmentation2: FragmentationContext = {
+      availableBlockSize: 64, // 4×16 → k=4, 5-4=1 < 3 widows violated; back off: k=3 → 5-3=2 < 3; k=2 → 2<3 orphans violated → push whole
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation2);
+    expect(box).toBeNull();
+    expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
+  });
+});

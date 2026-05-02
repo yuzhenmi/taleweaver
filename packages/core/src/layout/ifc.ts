@@ -698,8 +698,23 @@ export function layoutInlineContent(
       return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
     }
 
+    // D.3 — Widows constraint (CSS Fragmentation L4 §5.4).
+    // At least `widows` lines must carry over to the next fragment. Default 2 per CSS spec.
+    // Back off placedLineCount until the constraint is satisfied.
+    const widows = parentCs.widows ?? 2;
+    while (placedLineCount > 0 && placedLineCount < resultLines.length && resultLines.length - placedLineCount < widows) {
+      placedLineCount--;
+    }
+    // After widows back-off, re-check orphans (back-off may have violated it).
+    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    }
+
     if (placedLineCount < resultLines.length) {
       // Partial fit: build a BlockBox with lines[0..placedLineCount-1].
+      // Recompute used block size after widows back-off.
+      let usedAdjusted = 0;
+      for (let i = 0; i < placedLineCount; i++) usedAdjusted += resultLines[i].blockSize;
       const placedLines = resultLines.slice(0, placedLineCount);
       const placedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
       const placedBox = createBlockBox(
@@ -707,7 +722,7 @@ export function layoutInlineContent(
         inlineOffset,
         blockOffset,
         availableInlineSize,
-        used,
+        usedAdjusted,
         writingMode,
         direction,
         parentCs,
