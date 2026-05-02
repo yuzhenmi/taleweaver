@@ -60,8 +60,16 @@ export function resolvePixelPosition(
       return { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 16, lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 0 };
     }
 
-    // Sort by key suffix order
-    matches.sort((a, b) => a.keySuffix - b.keySuffix);
+    // Sort by spatial order: page first, then y (line order), then x (inline
+    // order), then keySuffix as a tiebreaker. This is robust to within-block
+    // fragmentation, where a single text node's run counter resets to 0 on each
+    // page (so keySuffix alone is not a reliable global ordering).
+    matches.sort((a, b) => {
+      if (a.pageIndex !== b.pageIndex) return a.pageIndex - b.pageIndex;
+      if (a.absoluteY !== b.absoluteY) return a.absoluteY - b.absoluteY;
+      if (a.absoluteX !== b.absoluteX) return a.absoluteX - b.absoluteX;
+      return a.keySuffix - b.keySuffix;
+    });
 
     // Walk matches consuming offset characters
     let remaining = position.offset;
