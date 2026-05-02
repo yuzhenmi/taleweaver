@@ -254,11 +254,25 @@ export function layoutTable(
   // Layout pass — walk grouped rows and cells.
   // ---------------------------------------------------------------------------
 
+  // E.3: Determine which body row to start from when resuming.
+  let startBodyRow = 0;
+  if (fragmentation !== undefined && fragmentation.resumeFrom !== null) {
+    if (fragmentation.resumeFrom.type !== "table") {
+      throw new Error(
+        `layoutTable: expected TableBreakToken at top-level resumeFrom, got ${fragmentation.resumeFrom.type}`,
+      );
+    }
+    startBodyRow = fragmentation.resumeFrom.resumeAtRow;
+  }
+
   let rowBlockOffset = 0;
   const rowBoxes: TableRowBox[] = [];
 
   const rows = groupTableRows(node);
-  for (const row of rows) {
+  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+    // E.3: skip rows before the resume point.
+    if (rowIdx < startBodyRow) continue;
+    const row = rows[rowIdx];
     const rowUsedStyle = computeUsedStyle(row.cs, tableInlineSize, "indefinite");
 
     const cellGroups = groupRowCells(row);
@@ -352,6 +366,45 @@ export function layoutTable(
       /* containingInlineSize */ tableInlineSize,
     ));
     rowBlockOffset += rowBlockSize;
+  }
+
+  // E.1: Row-level fit-check.  When fragmenting, trim rowBoxes to those that
+  // fit within availableBlockSize and return a TableBreakToken pointing to the
+  // first row that didn't fit.
+  if (fragmentation !== undefined) {
+    let used = 0;
+    let placedRowCount = 0;
+    for (const rb of rowBoxes) {
+      if (used + rb.blockSize > fragmentation.availableBlockSize) break;
+      used += rb.blockSize;
+      placedRowCount++;
+    }
+
+    if (placedRowCount === 0) {
+      // Even the first row doesn't fit — signal the parent to push to next page.
+      return {
+        box: null,
+        breakToken: { type: "table", resumeAtRow: startBodyRow },
+      };
+    }
+
+    if (placedRowCount < rowBoxes.length) {
+      // Partial fit — emit placed rows only.
+      const placedRows = rowBoxes.slice(0, placedRowCount);
+      const partialBlockSize = used;
+      return {
+        box: createTableBox(
+          node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
+          writingMode, direction,
+          cs, tableUsedStyle,
+          placedRows, columnPxWidths,
+          /* containingInlineSize */ availableInlineSize,
+        ),
+        breakToken: { type: "table", resumeAtRow: startBodyRow + placedRowCount },
+      };
+    }
+
+    // All rows fit — fall through to the full-table return below.
   }
 
   const tableBlockSize = rowBlockOffset;
