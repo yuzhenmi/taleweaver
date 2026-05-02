@@ -165,6 +165,85 @@ describe("BFC fragmentation — break-before", () => {
   });
 });
 
+/** Build a root with one child X that itself has N block-children of fixed size. */
+function buildNestedBlockChildren(
+  innerCount: number,
+  innerBlockSize: number,
+  xStyle: Partial<Style> = {},
+): ElementBox {
+  const innerChildren = Array.from({ length: innerCount }, (_, i) =>
+    createElementBox(`inner-${i}`, { display: "block", blockSize: innerBlockSize }, []),
+  );
+  const x = createElementBox("x", { display: "block", ...xStyle } as Style, innerChildren);
+  const root = createElementBox("root", { display: "block" }, [x]);
+  const cascaded = cascadePass(root);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return cascaded;
+}
+
+describe("BFC fragmentation — break-inside: avoid", () => {
+  it("discards a partial nested-fragment result; pushes child whole when break-inside: avoid", () => {
+    // X has 4 inner children × 50 = 200 total. availableBlockSize = 150 → without
+    // break-inside: avoid, X's BFC would partial (3 children fit). With avoid,
+    // outer BFC discards X's partial and pushes X whole.
+    const root = buildNestedBlockChildren(4, 50, { breakInside: "avoid" });
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 150,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    // X is the first child of root; pushing X whole means root returns box: null.
+    expect(box).toBeNull();
+    expect(breakToken).toEqual({ type: "block", resumeChildIndex: 0, resumeChildToken: null });
+  });
+
+  it("when previous siblings exist, returns them and pushes the avoid child whole", () => {
+    // root has [smallChild, X]. smallChild fits (50). X has 4 inner × 50 = 200,
+    // breakInside: avoid. availableBlockSize = 200 → smallChild fits, X's BFC
+    // would partial (3 inner fit in remaining 150), but avoid pushes X whole.
+    const innerChildren = Array.from({ length: 4 }, (_, i) =>
+      createElementBox(`inner-${i}`, { display: "block", blockSize: 50 }, []),
+    );
+    const x = createElementBox("x", { display: "block", breakInside: "avoid" }, innerChildren);
+    const smallChild = createElementBox("small", { display: "block", blockSize: 50 }, []);
+    const root = createElementBox("root", { display: "block" }, [smallChild, x]);
+    const cascaded = cascadePass(root);
+    if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 200,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, fragmentation);
+    // Expect smallChild placed; X pushed whole.
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // only smallChild
+    expect(breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
+  });
+
+  it("doesn't change behavior when child's recursive call doesn't fragment (no partial to discard)", () => {
+    // X has only 2 inner × 50 = 100. availableBlockSize = 200 → X fits whole.
+    // breakInside: avoid is irrelevant; expect normal placement.
+    const root = buildNestedBlockChildren(2, 50, { breakInside: "avoid" });
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 200,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // X with 2 inner children
+    expect(breakToken).toBeNull();
+  });
+});
+
 describe("BFC fragmentation — break-after", () => {
   it("forces a page break after child K when cs.breakAfter = 'page'", () => {
     // Children 0..3, 100 each. Child 1 has breakAfter: page.

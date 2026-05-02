@@ -361,6 +361,18 @@ export function layoutBlock(
 
     // Propagate child break token if the child itself was mid-fragmenting.
     if (childResultBreakToken !== null) {
+      // Break-inside: avoid (CSS Fragmentation L4 §3.5): discard the partial
+      // fragment and push the whole child to the next fragment instead.
+      if (fragmentation !== undefined) {
+        const breakInside = normalizeBreakValue(childCs.breakInside ?? "auto");
+        if (breakInside === "avoid") {
+          return buildPartialResult(layoutChildren, {
+            type: "block",
+            resumeChildIndex: i,
+            resumeChildToken: null,
+          });
+        }
+      }
       layoutChildren.push(placedChild);
       childBlockOffset += placedChild.height;
       return buildPartialResult(layoutChildren, {
