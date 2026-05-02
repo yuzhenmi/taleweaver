@@ -70,32 +70,34 @@ export function layoutTreeIncremental(
     };
 
     let result: LayoutBox;
-    switch (cs.display) {
-      case "block": {
-        const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
-        if (blockResult.box === null) {
-          throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
-        }
-        result = blockResult.box;
-        break;
-      }
-      case "table": {
-        const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
-        if (tableResult.box === null) {
-          throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
-        }
-        result = tableResult.box;
-        break;
-      }
-      default:
-        // Fall back to full layout for unsupported display values.
-        result = layoutTree(newRoot, containerWidth, shaperOrMeasurer, pageConfig);
-        break;
-    }
 
-    // Pagination: when configured, wrap the BFC's output in PageBoxes.
-    if (pageConfig !== undefined && result.type === "block") {
-      result = paginateRoot(result, pageConfig);
+    if (pageConfig !== undefined && cs.display === "block") {
+      // Paginated mode: paginateRoot drives layoutBlock per page.
+      // Pass rootCtx so that subtree reuse cache flows through.
+      result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig);
+    } else {
+      switch (cs.display) {
+        case "block": {
+          const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+          if (blockResult.box === null) {
+            throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
+          }
+          result = blockResult.box;
+          break;
+        }
+        case "table": {
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+          if (tableResult.box === null) {
+            throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+          }
+          result = tableResult.box;
+          break;
+        }
+        default:
+          // Fall back to full layout for unsupported display values.
+          result = layoutTree(newRoot, containerWidth, shaperOrMeasurer, pageConfig);
+          break;
+      }
     }
 
     return result;

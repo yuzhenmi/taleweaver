@@ -45,30 +45,48 @@ export function layoutTree(
     const ctx = makeRootContext(cs, containerInlineSize);
 
     let result: LayoutBox;
-    switch (cs.display) {
-      case "block": {
-        const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper);
-        if (blockResult.box === null) {
-          throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
-        }
-        result = blockResult.box;
-        break;
-      }
-      case "table": {
-        const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
-        if (tableResult.box === null) {
-          throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
-        }
-        result = tableResult.box;
-        break;
-      }
-      default:
-        throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
-    }
 
-    // Pagination: when configured, wrap the BFC's output in PageBoxes.
-    if (pageConfig !== undefined && result.type === "block") {
-      result = paginateRoot(result, pageConfig);
+    if (pageConfig !== undefined) {
+      // Paginated mode: paginateRoot drives layoutBlock per page and assembles
+      // the PageBox sequence. Only display:block roots are supported in P1.B.
+      // display:table roots with pageConfig are not yet handled — fall through
+      // to unpaginated table layout (acceptable for P1.B scope; table-as-root
+      // with pagination is unusual in real documents).
+      if (cs.display === "block") {
+        result = paginateRoot(layoutRoot, ctx, shaper, pageConfig);
+      } else {
+        // Non-block root with pagination: layout without pagination for now.
+        if (cs.display === "table") {
+          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+          if (tableResult.box === null) {
+            throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
+          }
+          result = tableResult.box;
+        } else {
+          throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+        }
+      }
+    } else {
+      switch (cs.display) {
+        case "block": {
+          const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper);
+          if (blockResult.box === null) {
+            throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
+          }
+          result = blockResult.box;
+          break;
+        }
+        case "table": {
+          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+          if (tableResult.box === null) {
+            throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
+          }
+          result = tableResult.box;
+          break;
+        }
+        default:
+          throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+      }
     }
 
     return result;

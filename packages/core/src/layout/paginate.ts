@@ -1,115 +1,104 @@
 // packages/core/src/layout/paginate.ts
-import type { BlockBox, LayoutBox } from "./layout-box-v2";
-import { createBlockBox, withBlockOffset } from "./layout-box-v2";
-import { createPageBox } from "./page-box";
-import type { PageBox } from "./page-box";
+import type { ElementBox } from "../render/render-node-v2";
+import type { LayoutContext } from "./layout-context";
+import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
+import type { BlockBox, LayoutBox } from "./layout-box-v2";
+import { createBlockBox } from "./layout-box-v2";
+import type { PageBox } from "./page-box";
+import { createPageBox } from "./page-box";
+import { layoutBlock } from "./bfc";
+import { computeUsedStyle } from "./used-style";
+import type { BreakToken, FragmentationContext } from "./fragmentation";
 
 /**
- * Fragment a block-flow tree into a sequence of pages.
+ * Paginate a block-flow document by driving `layoutBlock` per page with the
+ * previous page's breakToken as the next page's resumeFrom.
  *
- * P1.A scope: whole-block placement only. Each child of `rootBlock` is
- * placed on the current page if it fits in the remaining vertical space;
- * otherwise it starts a new page. A block too tall for one page goes on
- * its own page and overflows past the bottom (acceptable for P1.A;
- * P1.B adds within-block fragmentation at line boundaries).
+ * P1.B: interleaved-with-BFC fragmentation. The fragmenter is no longer a
+ * post-hoc pass over a fully-laid-out tree; it's a per-page coordinator
+ * that asks the BFC to produce one page's worth of content at a time.
  *
- * @param rootBlock the BFC's output — a BlockBox whose children are
- *   block-flow content (paragraphs, tables, etc.) with cumulative
- *   blockOffsets across the document.
+ * @param root the cascaded document root element (must have computedStyle set).
+ * @param ctx the root layout context (writingMode, direction, containingInlineSize).
+ * @param shaper the text shaper for inline content measurement.
  * @param pageConfig pagination parameters.
- * @returns a new BlockBox whose children are PageBox instances. Each
- *   PageBox contains the children that fit on it, with their
- *   blockOffsets adjusted to be page-content-relative.
+ * @returns a BlockBox whose children are PageBox instances, one per page.
  */
 export function paginateRoot(
-  rootBlock: BlockBox,
+  root: ElementBox,
+  ctx: LayoutContext,
+  shaper: TextShaper,
   pageConfig: PageConfig,
 ): BlockBox {
-  // Available block-axis space for content within each page (page-block-size minus margins).
-  const pageContentBlockSize = pageConfig.pageBlockSize
-    - pageConfig.pageMargins.blockStart
-    - pageConfig.pageMargins.blockEnd;
+  const pageContentBlockSize =
+    pageConfig.pageBlockSize -
+    pageConfig.pageMargins.blockStart -
+    pageConfig.pageMargins.blockEnd;
 
   if (pageContentBlockSize <= 0) {
     throw new Error(
-      `Invalid PageConfig: pageMargins.blockStart (${pageConfig.pageMargins.blockStart}) + pageMargins.blockEnd (${pageConfig.pageMargins.blockEnd}) must be less than pageBlockSize (${pageConfig.pageBlockSize}). Got pageContentBlockSize=${pageContentBlockSize}.`,
+      `Invalid PageConfig: pageMargins.blockStart (${pageConfig.pageMargins.blockStart}) + pageMargins.blockEnd (${pageConfig.pageMargins.blockEnd}) must be less than pageBlockSize (${pageConfig.pageBlockSize}).`,
     );
   }
 
+  if (!root.computedStyle) {
+    throw new Error("paginateRoot: root must be cascaded (computedStyle missing)");
+  }
+
+  // Compute the root's UsedStyle once; reuse for every PageBox + the wrapping
+  // root BlockBox. The root's containing-inline-size is the page's inline size.
+  const rootComputed = root.computedStyle;
+  const rootUsedStyle = computeUsedStyle(rootComputed, pageConfig.pageInlineSize, "indefinite");
+
   const pages: PageBox[] = [];
-  const remaining = [...rootBlock.children];
-
-  // Containing inline size for repositioning child boxes (used by withBlockOffset for RTL physical-x).
-  const childContainingInlineSize = rootBlock.inlineSize
-    - rootBlock.usedStyle.paddingInlineStart
-    - rootBlock.usedStyle.paddingInlineEnd;
-
+  let resumeFrom: BreakToken | null = null;
   let pageIndex = 0;
 
-  while (remaining.length > 0) {
-    const placed: LayoutBox[] = [];
-    let usedHeight = 0;
-
-    // Greedy: pack children until the next one wouldn't fit.
-    while (remaining.length > 0) {
-      const next = remaining[0];
-      if (usedHeight > 0 && usedHeight + next.blockSize > pageContentBlockSize) {
-        // Doesn't fit and we already placed something — push to next page.
-        break;
-      }
-      // Either the page is empty (place even oversized blocks), or it fits.
-      placed.push(withBlockOffset(next, usedHeight, childContainingInlineSize));
-      usedHeight += next.blockSize;
-      remaining.shift();
-    }
-
-    // Build the page.
+  do {
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: pageContentBlockSize,
+      pageIndex,
+      resumeFrom,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    const placedChildren: readonly LayoutBox[] = box ? box.children : [];
     const pageBlockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
     const page = createPageBox(
       `page-${pageIndex}`,
       0, pageBlockOffset,
       pageConfig.pageInlineSize, pageConfig.pageBlockSize,
-      rootBlock.writingMode, rootBlock.direction,
-      rootBlock.computedStyle, rootBlock.usedStyle,
-      placed,
+      ctx.writingMode, ctx.direction,
+      rootComputed, rootUsedStyle,
+      placedChildren,
       pageIndex,
       pageConfig.pageInlineSize,
     );
     pages.push(page);
-    pageIndex += 1;
-  }
+    resumeFrom = breakToken;
+    pageIndex++;
+  } while (resumeFrom !== null);
 
-  // Empty input: emit a single blank page so the editor renders a blank canvas
-  // rather than nothing. (CSS Paged Media: an empty flow still produces an
-  // initial page box.)
+  // Defensive: the do-while always pushes ≥1 page, so this is unreachable in
+  // normal flow. Kept as a guard against future regressions.
   if (pages.length === 0) {
     pages.push(createPageBox(
-      `page-0`,
-      0, 0,
+      `page-0`, 0, 0,
       pageConfig.pageInlineSize, pageConfig.pageBlockSize,
-      rootBlock.writingMode, rootBlock.direction,
-      rootBlock.computedStyle, rootBlock.usedStyle,
-      [],
-      0,
-      pageConfig.pageInlineSize,
+      ctx.writingMode, ctx.direction,
+      rootComputed, rootUsedStyle,
+      [], 0, pageConfig.pageInlineSize,
     ));
     pageIndex = 1;
   }
 
-  // Build the new root with pages as children.
-  const totalBlockSize = pageIndex > 0
-    ? pageIndex * pageConfig.pageBlockSize + (pageIndex - 1) * pageConfig.pageGap
-    : 0;
-
+  const totalBlockSize = pageIndex * pageConfig.pageBlockSize + (pageIndex - 1) * pageConfig.pageGap;
   return createBlockBox(
-    rootBlock.key,
-    rootBlock.inlineOffset, rootBlock.blockOffset,
+    root.key, 0, 0,
     pageConfig.pageInlineSize, totalBlockSize,
-    rootBlock.writingMode, rootBlock.direction,
-    rootBlock.computedStyle, rootBlock.usedStyle,
+    ctx.writingMode, ctx.direction,
+    rootComputed, rootUsedStyle,
     pages,
     pageConfig.pageInlineSize,
-    rootBlock.metadata,
   );
 }
