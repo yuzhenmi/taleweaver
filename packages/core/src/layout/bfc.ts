@@ -1,7 +1,7 @@
 import type { ElementBox } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
-import type { FragmentationContext, LayoutResult } from "./fragmentation";
+import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
@@ -102,7 +102,39 @@ export function layoutBlock(
 
   const groups = groupChildren(node);
 
-  for (const group of groups) {
+  /**
+   * Build a partial LayoutResult<BlockBox> from the children placed so far
+   * and a non-null break token. Used when fragmentation stops the loop early.
+   */
+  function buildPartialResult(
+    placedChildren: LayoutBox[],
+    breakToken: BlockBreakToken,
+  ): LayoutResult<BlockBox> {
+    if (placedChildren.length === 0) {
+      return { box: null, breakToken };
+    }
+    const lastMarginBlockEndPartial = noBottomBoundary ? 0 : prevMarginBlockEnd;
+    const inFlowBlockSizePartial = childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd;
+    let totalBlockSizePartial: number;
+    if (isOwnBFC) {
+      const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
+      totalBlockSizePartial = Math.max(inFlowBlockSizePartial, floatBlockEnd + paddingBlockEnd);
+    } else {
+      totalBlockSizePartial = inFlowBlockSizePartial;
+    }
+    return {
+      box: createBlockBox(
+        node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSizePartial,
+        writingMode, direction, cs, usedStyle, placedChildren,
+        /* containingInlineSize */ availableInlineSize,
+        node.metadata,
+      ),
+      breakToken,
+    };
+  }
+
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
     if (group.kind === "inline-run") {
       // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.
       const anonKey = anonymousBlockKey(node.key, group.positionalIndex);
@@ -141,7 +173,8 @@ export function layoutBlock(
     const childCs = child.computedStyle;
     const childUsedStyle = computeUsedStyle(childCs, contentInlineSize, "indefinite");
 
-    // FLOAT BRANCH: floated children are out of normal flow
+    // FLOAT BRANCH: floated children are out of normal flow.
+    // Fragmentation is NOT applied to floats in C.1 (deferred to a later task).
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
       // Floats shrink-to-fit by default (auto), but also respect intrinsic keywords.
       const available = contentInlineSize - childUsedStyle.marginInlineStart - childUsedStyle.marginInlineEnd;
@@ -245,20 +278,47 @@ export function layoutBlock(
     // Pass childCs (child's own computed style) so makeChildContext can detect
     // whether the child establishes a new BFC and create a fresh float env.
     const childCtx = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
+
+    // Derive a FragmentationContext for the child with reduced availableBlockSize.
+    // C.7 will plumb resumeFrom tokens; for C.1, resumeFrom is always null on
+    // recursive calls.
+    const childFragmentation: FragmentationContext | undefined =
+      fragmentation === undefined
+        ? undefined
+        : {
+            availableBlockSize: fragmentation.availableBlockSize - childBlockOffset,
+            pageIndex: fragmentation.pageIndex,
+            resumeFrom: null,
+          };
+
     let childLayout: LayoutBox;
+    let childResultBreakToken: BreakToken | null = null;
     if (childCs.display === "table") {
-      const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (tableResult.box === null) {
-        throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+        // Table couldn't fit anything on this fragment. Propagate as a break.
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: tableResult.breakToken,
+        });
       }
       childLayout = tableResult.box;
+      childResultBreakToken = tableResult.breakToken;
     } else {
-      const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (childResult.box === null) {
-        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+        // Child couldn't fit anything on this fragment. Propagate as a break.
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: childResult.breakToken,
+        });
       }
       childLayout = childResult.box;
+      childResultBreakToken = childResult.breakToken;
     }
+
     const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
@@ -267,6 +327,30 @@ export function layoutBlock(
           child.metadata,
         )
       : childLayout;
+
+    // Whole-block fit check: does the placed child fit in remaining space?
+    // This check uses the final placed size (after explicit block-size override).
+    if (fragmentation !== undefined) {
+      const remaining = fragmentation.availableBlockSize - childBlockOffset;
+      if (placedChild.height > remaining) {
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: null,
+        });
+      }
+    }
+
+    // Propagate child break token if the child itself was mid-fragmenting.
+    if (childResultBreakToken !== null) {
+      layoutChildren.push(placedChild);
+      childBlockOffset += placedChild.height;
+      return buildPartialResult(layoutChildren, {
+        type: "block",
+        resumeChildIndex: i,
+        resumeChildToken: childResultBreakToken,
+      });
+    }
 
     // CSS empty-block rule: a block with no content, padding, border, or explicit height
     // has its top and bottom margins collapsed together. The combined margin is passed to
