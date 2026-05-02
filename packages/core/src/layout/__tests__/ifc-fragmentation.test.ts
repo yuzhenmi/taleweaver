@@ -9,6 +9,8 @@ import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node-v2";
 import type { ElementBox } from "../../render/render-node-v2";
 
+import type { Style } from "../../styles/style";
+
 /**
  * Build a paragraph (inline block container) whose text has exactly `numLines`
  * lines, enforced via explicit \n hard-break characters in the text content.
@@ -16,8 +18,10 @@ import type { ElementBox } from "../../render/render-node-v2";
  * numLines LineBoxes regardless of container width.
  *
  * `lineHeight` controls the lineHeight per line via the mock shaper.
+ * `paragraphStyleOverrides` allows overriding paragraph-level Style fields
+ * (e.g. `{ orphans: 3 }` or `{ widows: 3 }`).
  */
-function buildParagraph(numLines: number): {
+function buildParagraph(numLines: number, paragraphStyleOverrides?: Partial<Style>): {
   paragraph: ElementBox;
   ctx: ReturnType<typeof makeChildContext>;
 } {
@@ -32,7 +36,8 @@ function buildParagraph(numLines: number): {
   // whiteSpace: "pre" so that \n characters are emitted as LINE_BREAK tokens,
   // giving the IFC exactly numLines lines regardless of container width.
   const textNode = createTextBox("t", { whiteSpace: "pre" }, text);
-  const rawParagraph = createElementBox("p", { display: "block", whiteSpace: "pre" }, [textNode]);
+  const baseStyle: Style = { display: "block", whiteSpace: "pre", ...paragraphStyleOverrides };
+  const rawParagraph = createElementBox("p", baseStyle, [textNode]);
   const paragraph = cascadePass(rawParagraph);
   if (paragraph.type !== "element") throw new Error("cascadePass returned non-element");
 
@@ -90,5 +95,36 @@ describe("IFC fragmentation — line-level split", () => {
     const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
+  });
+});
+
+describe("IFC fragmentation — orphans", () => {
+  it("pushes whole paragraph when fewer than `orphans` lines fit on current page", () => {
+    // Paragraph wraps to 5 lines. orphans: 3. Available block size = 20px.
+    // lineHeight = 16 → only 1 line fits (16 <= 20). 1 < 3 → orphans violated → push whole.
+    const { paragraph, ctx } = buildParagraph(5, { orphans: 3 });
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 20,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    expect(box).toBeNull();
+    expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
+  });
+
+  it("places K lines when K >= orphans", () => {
+    // 10 lines, orphans: 2 (default). Available fits 5 lines (5×16=80). 5 >= 2 → split at 5.
+    const { paragraph, ctx } = buildParagraph(10);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 80,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 5 });
   });
 });

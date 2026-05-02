@@ -691,6 +691,13 @@ export function layoutInlineContent(
       return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
     }
 
+    // D.2 — Orphans constraint (CSS Fragmentation L4 §5.4).
+    // At least `orphans` lines must remain on the current fragment. Default 2 per CSS spec.
+    const orphans = parentCs.orphans ?? 2;
+    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    }
+
     if (placedLineCount < resultLines.length) {
       // Partial fit: build a BlockBox with lines[0..placedLineCount-1].
       const placedLines = resultLines.slice(0, placedLineCount);
