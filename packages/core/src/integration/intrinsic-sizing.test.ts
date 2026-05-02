@@ -146,7 +146,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutTable(cascaded, 0, 0, ctx, shaper);
+    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper);
+    if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = tableResult.box;
     expect(out.columnPxWidths).toEqual([30, 50]); // sumMax=80 ≤ available=200
   });
 

@@ -247,7 +247,11 @@ export function layoutBlock(
     const childCtx = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
     let childLayout: LayoutBox;
     if (childCs.display === "table") {
-      childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      if (tableResult.box === null) {
+        throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+      }
+      childLayout = tableResult.box;
     } else {
       const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
       if (childResult.box === null) {

@@ -28,7 +28,9 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper);
+    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.type).toBe("table");
     expect(out.columnPxWidths).toEqual([300, 300]);
   });
@@ -39,7 +41,9 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Each cell is 100px wide; longer text wraps to 2+ lines
@@ -52,7 +56,9 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     if (out.children[0].type !== "table-row") throw new Error("?");
     const row = out.children[0];
     // Both cells should have row.height
@@ -75,7 +81,9 @@ describe("layoutTable", () => {
     const table = createElementBox("t", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.type).toBe("table");
     expect(out.columnPxWidths).toEqual([24, 40]);
   });
@@ -97,7 +105,9 @@ describe("layoutTable", () => {
     const table = createElementBox("t2", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.type).toBe("table");
     // Proportional distribution between colMin and colMax.
     const [w0, w1] = out.columnPxWidths;
@@ -117,7 +127,9 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl", { display: "table" }, [cell1, cell2]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.type).toBe("table");
     // Exactly one row.
     expect(out.children.length).toBe(1);
@@ -144,7 +156,9 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl2", { display: "table" }, [bareCell, realRow]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.children.length).toBe(2);
     // First row is anonymous (key = "tbl2/anon[0]").
     expect(out.children[0].key).toBe("tbl2/anon[0]");
@@ -162,7 +176,9 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl3", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.children.length).toBe(1);
     const outRow = out.children[0];
     expect(outRow.type).toBe("table-row");
@@ -190,7 +206,9 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl4", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 300), shaper);
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 300), shaper);
+    if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = result.box;
     expect(out.children.length).toBe(1);
     const outRow = out.children[0];
     if (outRow.type !== "table-row") throw new Error("?");

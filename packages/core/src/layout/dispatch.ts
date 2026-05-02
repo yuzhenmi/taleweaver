@@ -54,9 +54,14 @@ export function layoutTree(
         result = blockResult.box;
         break;
       }
-      case "table":
-        result = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+      case "table": {
+        const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+        if (tableResult.box === null) {
+          throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
+        }
+        result = tableResult.box;
         break;
+      }
       default:
         throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
     }

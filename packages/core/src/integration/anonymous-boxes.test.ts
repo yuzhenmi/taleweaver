@@ -61,7 +61,9 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutTable(cascaded, 0, 0, ctx, shaper);
+    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper);
+    if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = tableResult.box;
 
     expect(out.type).toBe("table");
     // Should have a single (anonymous) row containing both cells.
@@ -86,7 +88,9 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutTable(cascaded, 0, 0, ctx, shaper);
+    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper);
+    if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+    const out = tableResult.box;
 
     expect(out.type).toBe("table");
     // The row should contain at least one cell (anonymous) wrapping the paragraph.

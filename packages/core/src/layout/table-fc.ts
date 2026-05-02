@@ -10,6 +10,7 @@ import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { anonymousBlockKey } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
+import type { FragmentationContext, LayoutResult } from "./fragmentation";
 
 // ---------------------------------------------------------------------------
 // Anonymous-box grouping helpers
@@ -201,7 +202,8 @@ export function layoutTable(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-): TableBox {
+  fragmentation?: FragmentationContext,
+): LayoutResult<TableBox> {
   const t = markStart("table.layout");
   try {
   if (!node.computedStyle) throw new Error("cascade required");
@@ -354,13 +356,13 @@ export function layoutTable(
 
   const tableBlockSize = rowBlockOffset;
 
-  return createTableBox(
+  return { box: createTableBox(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, direction,
     cs, tableUsedStyle,
     rowBoxes, columnPxWidths,
     /* containingInlineSize */ availableInlineSize,
-  );
+  ), breakToken: null };
   } finally {
     markEnd("table.layout", t);
   }

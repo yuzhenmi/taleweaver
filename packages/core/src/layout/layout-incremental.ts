@@ -79,9 +79,14 @@ export function layoutTreeIncremental(
         result = blockResult.box;
         break;
       }
-      case "table":
-        result = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+      case "table": {
+        const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+        if (tableResult.box === null) {
+          throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+        }
+        result = tableResult.box;
         break;
+      }
       default:
         // Fall back to full layout for unsupported display values.
         result = layoutTree(newRoot, containerWidth, shaperOrMeasurer, pageConfig);
