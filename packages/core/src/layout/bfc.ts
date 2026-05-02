@@ -2,6 +2,7 @@ import type { ElementBox } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
+import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
@@ -272,6 +273,23 @@ export function layoutBlock(
           /* containingInlineSize */ contentInlineSize,
         );
         layoutChildren.push(markerBox);
+      }
+    }
+
+    // Break-before consumer (CSS Fragmentation Level 4 §3.4).
+    // Only when paginated AND the fragment already has placed content.
+    // If the fragment is empty (no preceding placed children), suppress the
+    // forced break — a forced break cannot occur before the first piece of
+    // content in a fragmentation flow.
+    if (fragmentation !== undefined) {
+      const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
+      const fragmentHasContent = layoutChildren.length > 0;
+      if (breakBefore === "page" && fragmentHasContent) {
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: null,
+        });
       }
     }
 
