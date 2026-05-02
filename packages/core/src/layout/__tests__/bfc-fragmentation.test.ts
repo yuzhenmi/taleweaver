@@ -365,6 +365,56 @@ describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)",
   });
 });
 
+describe("BFC fragmentation — resume from BlockBreakToken", () => {
+  it("resumes at resumeChildIndex on the next fragment", () => {
+    // 5 children × 100 each. availableBlockSize 250 (fits 2 children).
+    const root = buildBlockChildren(5, 100);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // First fragment: child 0..1 placed, breakToken at 2.
+    const r1 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 250, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    expect(r1.box!.children).toHaveLength(2);
+    expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+
+    // Second fragment: resume at child 2.
+    const r2 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 250, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(r2.box!.children).toHaveLength(2); // children 2, 3
+    expect(r2.breakToken).toEqual({ type: "block", resumeChildIndex: 4, resumeChildToken: null });
+
+    // Third fragment: resume at child 4 (last).
+    const r3 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 250, pageIndex: 2, resumeFrom: r2.breakToken,
+    });
+    expect(r3.box).not.toBeNull();
+    expect(r3.box!.children).toHaveLength(1); // child 4
+    expect(r3.breakToken).toBeNull();
+  });
+
+  it("throws when given an IFCBreakToken as top-level resumeFrom", () => {
+    const root = buildBlockChildren(3, 100);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    expect(() =>
+      layoutBlock(root, 0, 0, ctx, shaper, {
+        availableBlockSize: 250,
+        pageIndex: 0,
+        resumeFrom: { type: "ifc", resumeAtLine: 0 },
+      }),
+    ).toThrow(/expected.*BlockBreakToken|resume.*type/i);
+  });
+
+  it.skip("threads resumeChildToken (IFCBreakToken) into the first child's recursive call (requires D.5)", () => {
+    // TODO: un-skip when D.5 lands. Tests integration of BFC resume with nested IFC resume.
+  });
+});
+
 describe("BFC fragmentation — overflow rule (alone-on-empty-fragment, C.6)", () => {
   it("places oversize child anyway when alone on empty fragment (single child)", () => {
     // Single child block-size 1500 in availableBlockSize 500. No siblings to push.

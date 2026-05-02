@@ -103,6 +103,19 @@ export function layoutBlock(
 
   const groups = groupChildren(node);
 
+  // C.7: Parse the resume token to determine where to start the child loop.
+  let startIndex = 0;
+  let firstChildResumeToken: BreakToken | null = null;
+  if (fragmentation !== undefined && fragmentation.resumeFrom !== null) {
+    if (fragmentation.resumeFrom.type !== "block") {
+      throw new Error(
+        `layoutBlock: expected BlockBreakToken at top-level resumeFrom, got resume type "${fragmentation.resumeFrom.type}"`,
+      );
+    }
+    startIndex = fragmentation.resumeFrom.resumeChildIndex;
+    firstChildResumeToken = fragmentation.resumeFrom.resumeChildToken;
+  }
+
   /**
    * Build a partial LayoutResult<BlockBox> from the children placed so far
    * and a non-null break token. Used when fragmentation stops the loop early.
@@ -134,7 +147,7 @@ export function layoutBlock(
     };
   }
 
-  for (let i = 0; i < groups.length; i++) {
+  for (let i = startIndex; i < groups.length; i++) {
     const group = groups[i];
     if (group.kind === "inline-run") {
       // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.
@@ -306,15 +319,15 @@ export function layoutBlock(
     const childCtx = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
-    // C.7 will plumb resumeFrom tokens; for C.1, resumeFrom is always null on
-    // recursive calls.
+    // C.7: thread firstChildResumeToken into the FIRST iteration (the resumed child);
+    // subsequent iterations get resumeFrom: null (fresh start).
     const childFragmentation: FragmentationContext | undefined =
       fragmentation === undefined
         ? undefined
         : {
             availableBlockSize: fragmentation.availableBlockSize - childBlockOffset,
             pageIndex: fragmentation.pageIndex,
-            resumeFrom: null,
+            resumeFrom: i === startIndex ? firstChildResumeToken : null,
           };
 
     /**
