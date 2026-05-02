@@ -233,6 +233,37 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     expect(r2.breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
   });
 
+  it("rebases line blockOffsets so the first emitted suffix line starts at the parent's blockOffset (not at the original wrap's absolute y)", () => {
+    // 10-line paragraph laid out at outer blockOffset=0. Wrap pass produces
+    // lines at y=0,16,32,...,144. First call: 5 lines fit (availableBlockSize=80).
+    // Second call: resume from line 5 with the SAME outer blockOffset=0.
+    // The emitted lines on page 2 must have y values starting at 0, NOT at
+    // 80 (which is what they were in the original wrap pass). Otherwise paint
+    // renders them past the BlockBox's bottom and they appear to be missing.
+    const { paragraph, ctx } = buildParagraph(10);
+    const shaper = createMockShaper(8, 16);
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 80, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    expect(r1.box!.children.length).toBe(5);
+    // Page 1's first line is at y=0, second at y=16, etc.
+    expect(r1.box!.children[0].blockOffset).toBe(0);
+    expect(r1.box!.children[4].blockOffset).toBe(64);
+
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(r2.box!.children.length).toBe(5);
+    // Page 2's first emitted line (originally line 5 in the wrap pass) must
+    // be at y=0 within the new BlockBox — its blockOffset must be REBASED.
+    expect(r2.box!.children[0].blockOffset).toBe(0);
+    expect(r2.box!.children[4].blockOffset).toBe(64);
+    // The wrapping BlockBox's blockSize equals 5 lines × 16 = 80.
+    expect(r2.box!.blockSize).toBe(80);
+  });
+
   it("throws when given a non-IFC resumeFrom token", () => {
     const { paragraph, ctx } = buildParagraph(3);
     const shaper = createMockShaper(8, 16);

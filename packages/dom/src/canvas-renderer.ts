@@ -171,7 +171,9 @@ export function paintPage(
   if (cache) {
     // Incremental path.
     const dirty: Rect[] = [];
-    walkAndDetectChanges(pageBox, 0, 0, cache, dirty, true);
+    // Walk in page-local coordinates so dirty-rect coords match canvas pixels;
+    // see comment at the paintBox call below.
+    walkAndDetectChanges(pageBox, -pageBox.x, -pageBox.y, cache, dirty, true);
     cache.setLastRoot(pageBox);
 
     if (dirty.length > 0) {
@@ -195,7 +197,14 @@ export function paintPage(
 
       // Paint the page box contents.
       const state: PaintState = { lastFont: "", imageCache };
-      paintBox(ctx, pageBox, 0, 0, 0, pageBox.height, state);
+      // pageBox.x/y are document-relative (the page's offset within the wrapping
+  // root BlockBox). The canvas paints in page-local coordinates (origin at the
+  // page's top-left). Pass negative pageBox offsets so paintBox's first
+  // computed absY is 0 — otherwise the page gets viewport-culled because
+  // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
+  // canvas's visible bound (pageBox.height). This bug was latent until P1.B
+  // since page 0 has y=0 and rendered correctly by accident.
+  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
 
       // Cursor
       if (cursorPos) {
@@ -227,7 +236,14 @@ export function paintPage(
 
   // Paint the page box contents (page.y is 0, children are page-relative)
   const state: PaintState = { lastFont: "", imageCache };
-  paintBox(ctx, pageBox, 0, 0, 0, pageBox.height, state);
+  // pageBox.x/y are document-relative (the page's offset within the wrapping
+  // root BlockBox). The canvas paints in page-local coordinates (origin at the
+  // page's top-left). Pass negative pageBox offsets so paintBox's first
+  // computed absY is 0 — otherwise the page gets viewport-culled because
+  // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
+  // canvas's visible bound (pageBox.height). This bug was latent until P1.B
+  // since page 0 has y=0 and rendered correctly by accident.
+  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
 
   // Cursor (null means cursor is not on this page)
   if (cursorPos) {

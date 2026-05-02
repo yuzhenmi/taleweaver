@@ -742,9 +742,46 @@ export function layoutInlineContent(
     let usedAdjusted = 0;
     for (let i = 0; i < placedLineCount; i++) usedAdjusted += linesToConsider[i].blockSize;
 
+    // Rebase the suffix lines' blockOffsets. The wrap pass produces lines
+    // with blockOffset values relative to the IFC's `blockOffset` parameter
+    // (line K = blockOffset + K * lineHeight). When resuming at line
+    // `startLine`, the first emitted line must land at `blockOffset` again
+    // — it is the first thing on the new fragment — not at its original
+    // wrap-pass position. Without this rebase, paint renders the lines
+    // past the wrapping BlockBox's bottom and they appear to be missing on
+    // page 2+.
+    function rebaseLine(line: LineBox, newBlockOffset: number): LineBox {
+      return createLineBox(
+        line.key,
+        line.inlineOffset,
+        newBlockOffset,
+        line.inlineSize,
+        line.blockSize,
+        line.writingMode,
+        line.direction,
+        line.computedStyle,
+        line.usedStyle,
+        line.children,
+        line.baseline,
+        availableInlineSize,
+        line.endsWithHyphenContinuation,
+      );
+    }
+    const rebasedSuffix: LineBox[] = [];
+    if (startLine === 0) {
+      // No resume — the wrap-pass lines already start at `blockOffset`.
+      rebasedSuffix.push(...linesToConsider);
+    } else {
+      let cursorY = blockOffset;
+      for (const line of linesToConsider) {
+        rebasedSuffix.push(rebaseLine(line, cursorY));
+        cursorY += line.blockSize;
+      }
+    }
+
     if (placedLineCount < linesToConsider.length) {
       // Partial fit: build a BlockBox with the placed suffix slice.
-      const placedLines = linesToConsider.slice(0, placedLineCount);
+      const placedLines = rebasedSuffix.slice(0, placedLineCount);
       const placedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
       const placedBox = createBlockBox(
         parent.key,
@@ -774,7 +811,7 @@ export function layoutInlineContent(
       direction,
       parentCs,
       allSuffixUsedStyle,
-      linesToConsider,
+      rebasedSuffix,
       availableInlineSize,
     );
     return { box: allSuffixBox, breakToken: null };
