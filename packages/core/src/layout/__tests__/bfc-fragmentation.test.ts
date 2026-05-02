@@ -292,3 +292,70 @@ describe("BFC fragmentation — break-after", () => {
     expect(breakToken).toBeNull();
   });
 });
+
+describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)", () => {
+  it("suppresses top-margin of the first child on a fresh fragment", () => {
+    // First child has marginBlockStart: 50, blockSize: 80. availableBlockSize: 100.
+    // Without truncation: offset += 50 (top-margin, noTopBoundary suppresses in
+    // unpaginated), childBlockOffset = 50 before fit-check. The child fits (50 <= 100),
+    // but after placing it offset = 50 + 80 = 130 on the NEXT iteration. For this
+    // single-child test, we check the box is placed (not null) and the parent's
+    // blockSize reflects the truncated margin: blockSize = 80 (not 130 with margin).
+    //
+    // Cleaner way: two children with large margins. Second child's fit depends on whether
+    // first child used the full margin or not.
+    // Child 0: marginBlockStart=60, blockSize=50 → with truncation: offset 0+50=50.
+    // Child 1: marginBlockStart=0, blockSize=60 → collapse max(0,0)=0 → offset 50+60=110 > 100. Break.
+    // Without truncation: child 0 at noTopBoundary → same (margin is suppressed by parent rule too).
+    // To distinguish: use a parent with padding (no noTopBoundary), fragmentation context.
+    // Actually for the simplest demonstrable case: a root with TOP PADDING (so noTopBoundary=false),
+    // first child has marginBlockStart=50, blockSize=80. availableBlockSize=100.
+    // Without fragmentation truncation: childBlockOffset += 50 → 50+10(pad)+80 = … wait, padding complicates.
+    // Simplest: root with no padding. Child marginBlockStart=50, blockSize=80. availableBlockSize=100.
+    //   - unpaginated: noTopBoundary=true → margin suppressed; blockSize=80. (existing behavior)
+    //   - paginated without truncation: same (noTopBoundary still applies). So both paths produce same output.
+    //   - To distinguish, need paginated path where the margin is NOT suppressed by noTopBoundary.
+    //   This means: root WITH padding (noTopBoundary=false), paginated.
+    //   With truncation: first child's margin is 0; childBlockOffset=10(pad)+0+80=90 → fits (90<=100).
+    //   Without truncation: childBlockOffset=10(pad)+50+80=140 → overflow (whole-block fit checks against
+    //     remaining = 100 - 10 = 90; child.height = 80 fits (80 <= 90) → actually placed either way.
+    //   Hmm. The fit check is against childBlockOffset (which includes margin) vs remaining.
+    //   remaining = availableBlockSize - childBlockOffset = 100 - (10 + 50) = 40. child.height=80 > 40 → break.
+    //   With truncation: childBlockOffset=10(pad)+0=10; remaining=100-10=90; 80<=90 → fits.
+    // So: root with paddingBlockStart=10, child marginBlockStart=50 blockSize=80, availableBlockSize=100.
+    const child = createElementBox("c0", { display: "block", blockSize: 80, marginBlockStart: 50 } as Style, []);
+    const root = createElementBox("root", { display: "block", paddingBlockStart: 10 } as Style, [child]);
+    const cascaded = cascadePass(root) as ElementBox;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 100,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, fragmentation);
+    // With truncation: child fits (childBlockOffset=10, remaining=90, blockSize=80<=90).
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1);
+    expect(breakToken).toBeNull();
+  });
+
+  it("does NOT suppress the first child's top-margin in unpaginated mode", () => {
+    // Same setup: root with paddingBlockStart=10, child marginBlockStart=50 blockSize=80.
+    // No fragmentation → no truncation. The existing noTopBoundary=false path applies
+    // (parent has padding), so childBlockOffset=10+50=60 before placing child.
+    // There's no fit check without fragmentation, so the child is placed regardless.
+    // Verifies the non-paginated path is unchanged — margin is NOT suppressed.
+    const child = createElementBox("c0", { display: "block", blockSize: 80, marginBlockStart: 50 } as Style, []);
+    const root = createElementBox("root", { display: "block", paddingBlockStart: 10 } as Style, [child]);
+    const cascaded = cascadePass(root) as ElementBox;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    // No fragmentation context
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    expect(box).not.toBeNull();
+    // blockSize = paddingBlockStart(10) + marginBlockStart(50) + blockSize(80) = 140
+    expect(box!.height).toBe(140);
+    expect(breakToken).toBeNull();
+  });
+});

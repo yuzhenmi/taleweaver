@@ -231,8 +231,16 @@ export function layoutBlock(
       }
     }
 
-    const childMarginBlockStart = childUsedStyle.marginBlockStart;
+    let childMarginBlockStart = childUsedStyle.marginBlockStart;
     const childMarginBlockEnd   = childUsedStyle.marginBlockEnd;
+
+    // Fragmentation truncation (CSS Fragmentation L4 §5.4): the first child placed
+    // on a fresh fragment has its top-margin truncated to 0, since the margin would
+    // otherwise span the fragmentation break. This applies to both the initial
+    // fragment and resumed fragments (first child of each new fragment).
+    if (fragmentation !== undefined && layoutChildren.length === 0) {
+      childMarginBlockStart = 0;
+    }
 
     const preAdvanceBlockOffset = childBlockOffset;
 
