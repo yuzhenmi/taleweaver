@@ -127,3 +127,29 @@ describe("pagination integration — within-block fragmentation", () => {
     }
   });
 });
+
+describe("pagination integration — edits to fragmented content", () => {
+  it("re-paginates after the document grows: 1 page → 2 pages", () => {
+    // 20 words → 1-2 lines (well within 1 page).
+    const small = buildParagraph(20);
+    // 300 words → 20 lines (spans multiple pages).
+    const big = buildParagraph(20 * 15);
+
+    const before = paginatedHarness(buildDocumentRoot([small]), PAGE);
+    expect(before.pages).toHaveLength(1);
+
+    const after = paginatedHarness(buildDocumentRoot([big]), PAGE);
+    expect(after.pages.length).toBeGreaterThan(1);
+  });
+
+  it("re-paginates after the document shrinks: multi-page → 1 page", () => {
+    const big = buildParagraph(20 * 15);
+    const small = buildParagraph(20);
+
+    const before = paginatedHarness(buildDocumentRoot([big]), PAGE);
+    expect(before.pages.length).toBeGreaterThan(1);
+
+    const after = paginatedHarness(buildDocumentRoot([small]), PAGE);
+    expect(after.pages).toHaveLength(1);
+  });
+});
