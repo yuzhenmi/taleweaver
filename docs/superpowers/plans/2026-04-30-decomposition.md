@@ -26,10 +26,11 @@ Closes: F3K.A (canvas overflow at ~800 paragraphs), F3K.D (1000p tab freeze, hyp
 
 Out of scope for P1: incremental pagination (whole-doc repagination on any change is acceptable until profiling says otherwise); generated content's `target-counter()` two-pass resolution (lands with P14).
 
-**Status:** P1.A (foundation — whole-block placement) shipped.
+**Status:** P1.A (foundation — whole-block placement) shipped. P1.B
+(within-block fragmentation, widows/orphans, break-* properties) shipped.
 Follow-ups deferred:
-- P1.B — within-block fragmentation, widows/orphans, break-* properties.
-- P1.C — page templates with headers, footers, footnotes.
+- P1.C — page templates with headers, footers, footnotes; thead row
+  repetition (requires display: table-header-group schema).
 
 ### P2 — Inline-block shrink-to-fit clamping
 

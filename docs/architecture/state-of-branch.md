@@ -101,13 +101,12 @@ Known gaps:
 
 Foundation shipped (P1.A): `PageBox` LayoutBox variant; `paginateRoot` whole-block fragmenter; `EditorConfig.pageConfig` wires through layoutTree / layoutTreeIncremental; the editor controller's per-page-canvas path activates when `PageBox`es appear in the layout tree.
 
-Still missing (deferred to P1.B / P1.C):
-- Within-block fragmentation. A paragraph taller than a page goes on its own page and overflows past the bottom.
-- `widows` / `orphans` constraints.
-- `break-before` / `break-after` / `break-inside` properties (schema present, no consumer).
+Within-block fragmentation shipped (P1.B): `FragmentationContext` and `LayoutResult` types wired through `layoutBlock`, `layoutInlineContent`, and `layoutTable`; `paginateRoot` rewritten as a page-by-page coordinator driving `layoutBlock` with a break token per page; BFC break-aware child loop (`break-before`, `break-after`, `break-inside`, margin truncation, overflow rule, resume from `BlockBreakToken`); IFC orphans/widows/hyphen-pair constraints and resume from `IFCBreakToken`; Table FC row-boundary fragmentation and resume from `TableBreakToken`.
+
+Still missing (deferred to P1.C and later):
 - Page templates: headers, footers, footnotes, first/left/right variants.
 - Generated content / counters consumers (target-counter resolves only after P9b).
-- Cross-page table row repetition.
+- Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
 
 ### Text `[partial]`
 
