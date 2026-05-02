@@ -65,3 +65,22 @@ export interface LayoutResult {
   readonly box: LayoutBox | null;
   readonly breakToken: BreakToken | null;
 }
+
+/**
+ * Normalize a CSS break-* property value to the three values BFC actually
+ * consumes: "auto", "page", or "avoid".
+ *
+ * Mapping rules:
+ *   "always" → "page" (synonym in pagination context)
+ *   "avoid-page" → "avoid"
+ *   "page", "auto", "avoid" → unchanged
+ *   anything else (recto/verso/left/right/column/region/avoid-column/avoid-region/garbage) → "auto"
+ *
+ * P1.B doesn't honor recto/verso/left/right (need P1.C templates) or
+ * column/region (no multi-column or named regions).
+ */
+export function normalizeBreakValue(raw: string): "auto" | "page" | "avoid" {
+  if (raw === "page" || raw === "always") return "page";
+  if (raw === "avoid" || raw === "avoid-page") return "avoid";
+  return "auto";
+}
