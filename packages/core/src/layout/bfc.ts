@@ -52,7 +52,10 @@ export function layoutBlock(
   //       Without this gate, every keystroke would force the document root
   //       to iterate all N children — O(N) reuse-cache hits even when 999
   //       are inert.
-  if (ctx.prevLayoutCache !== null) {
+  // Subtree reuse cache: skip when fragmentation is active. The cache stores
+  // full all-pages results; re-using one would short-circuit fragmentation
+  // and collapse a multi-page document into one page.
+  if (fragmentation === undefined && ctx.prevLayoutCache !== null) {
     const entry = ctx.prevLayoutCache.get(node.key);
     if (entry !== undefined && entry.box.type === "block") {
       if (renderNodesLayoutEquivalent(node, entry.renderNode)) {
@@ -119,8 +122,23 @@ export function layoutBlock(
       firstChildResumeToken = fragmentation.resumeFrom.resumeChildToken;
     } else {
       throw new Error(
-        `layoutBlock: expected BlockBreakToken at top-level resumeFrom, got resume type "${fragmentation.resumeFrom.type}"`,
+        `layoutBlock: unexpected top-level resumeFrom type (expected "block" or "ifc", got "${fragmentation.resumeFrom.type}")`,
       );
+    }
+  }
+
+  // When resuming at startIndex > 0, seed listCounter from preceding list-item
+  // children so ordered-list numbering continues correctly across page breaks.
+  // Without this, list items on page 2+ would restart from 1.
+  if (startIndex > 0) {
+    for (let i = 0; i < startIndex; i++) {
+      const g = groups[i];
+      if (g.kind === "block") {
+        const c = g.child;
+        if (c.type === "element" && c.computedStyle?.display === "list-item") {
+          listCounter++;
+        }
+      }
     }
   }
 
@@ -135,6 +153,13 @@ export function layoutBlock(
     if (placedChildren.length === 0) {
       return { box: null, breakToken };
     }
+    // TODO (P1.C or later): per CSS Fragmentation L4 §5.4, the last placed
+    // child's bottom-margin and the parent's paddingBlockEnd should be
+    // suppressed in non-final partial fragments (margin truncation across
+    // breaks, bottom side). C.5 implemented top-margin truncation only;
+    // the common case (parent with noBottomBoundary) already drops via the
+    // existing collapse rule, so the visible bug is limited to parents with
+    // bottom padding/border on a partial fragment.
     const lastMarginBlockEndPartial = noBottomBoundary ? 0 : prevMarginBlockEnd;
     const inFlowBlockSizePartial = childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd;
     let totalBlockSizePartial: number;
@@ -254,7 +279,7 @@ export function layoutBlock(
       const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
       const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper);
       if (floatResult.box === null) {
-        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+        throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
       const floatLayout = floatResult.box;
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);

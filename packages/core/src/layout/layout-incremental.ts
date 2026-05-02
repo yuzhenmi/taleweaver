@@ -88,7 +88,7 @@ export function layoutTreeIncremental(
         case "table": {
           const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
           if (tableResult.box === null) {
-            throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
+            throw new Error("layoutTable without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
           }
           result = tableResult.box;
           break;

@@ -218,7 +218,7 @@ function collectInlineTokens(
       const ibCtx = makeRootContext(cs, inlineSizePx > 0 ? inlineSizePx : 100);
       const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper);
       if (bfcResult.box === null) {
-        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+        throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
       const bfc = bfcResult.box;
       const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;

@@ -311,7 +311,7 @@ export function layoutTable(
       const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
       const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper);
       if (interiorResult.box === null) {
-        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+        throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
       const interior = interiorResult.box;
       if (interior.type !== "block") {

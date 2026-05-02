@@ -3,8 +3,11 @@ import { describe, it, expect } from "vitest";
 import { paginatedHarness } from "../test-utils/paginated-harness";
 import type { PageConfig } from "../layout/page-config";
 import type { RenderNode } from "../render/render-node-v2";
-import type { LayoutBox } from "../layout/layout-box-v2";
+import type { LayoutBox, BlockBox } from "../layout/layout-box-v2";
 import type { PageBox } from "../layout/page-box";
+import { layoutTreeIncremental } from "../layout/layout-incremental";
+import { createMockShaper } from "../layout/mock-shaper";
+import { cascadePass } from "../cascade";
 
 const PAGE: PageConfig = {
   pageInlineSize: 600,
@@ -151,5 +154,32 @@ describe("pagination integration — edits to fragmented content", () => {
 
     const after = paginatedHarness(buildDocumentRoot([small]), PAGE);
     expect(after.pages).toHaveLength(1);
+  });
+});
+
+describe("pagination integration — layoutTreeIncremental + pageConfig", () => {
+  // Regression test for the BFC reuse-cache bug: when fragmentation is active,
+  // the cached full-document BlockBox must NOT short-circuit layoutBlock —
+  // doing so would collapse a multi-page document into one page.
+  it("preserves multi-page output when layoutTreeIncremental re-lays out an unchanged document", () => {
+    const big = buildParagraph(20 * 15); // 20 lines → multi-page at PAGE
+    const root = buildDocumentRoot([big]);
+    const shaper = createMockShaper(8, 16);
+    const cascaded = cascadePass(root);
+
+    // First pass: cold incremental (no oldRoot/oldLayout).
+    const r1 = layoutTreeIncremental(cascaded, null, null, PAGE.pageInlineSize, shaper, PAGE);
+    expect(r1.type).toBe("block");
+    const r1Pages = (r1 as BlockBox).children.filter((c): c is PageBox => c.type === "page");
+    expect(r1Pages.length).toBeGreaterThan(1);
+
+    // Second pass: same document, prior layout passed in. This is the path
+    // that previously short-circuited via the BFC reuse cache when the root's
+    // children were reference-equal to the cached version.
+    const r2 = layoutTreeIncremental(cascaded, cascaded, r1, PAGE.pageInlineSize, shaper, PAGE);
+    expect(r2.type).toBe("block");
+    const r2Pages = (r2 as BlockBox).children.filter((c): c is PageBox => c.type === "page");
+    // Same page count as r1 — fragmentation must not be short-circuited.
+    expect(r2Pages.length).toBe(r1Pages.length);
   });
 });

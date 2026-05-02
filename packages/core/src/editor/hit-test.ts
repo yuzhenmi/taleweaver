@@ -58,7 +58,8 @@ export function resolvePositionFromPixel(
   // 3. Find target line by Y coordinate (including margin area)
   let targetLineY = lineYs[lineYs.length - 1]; // default: last line
   for (let i = 0; i < lineYs.length; i++) {
-    const lineBoxes = lineMap.get(lineYs[i])!;
+    const lineBoxes = lineMap.get(lineYs[i]);
+    if (!lineBoxes) continue; // unreachable: keys come from lineMap.keys()
     const lineBottom = lineYs[i] + lineBoxes[0].box.height + lineBoxes[0].lineMarginBottom;
     if (y < lineBottom || i === lineYs.length - 1) {
       // At the floating-point boundary between two lines, prefer the later line
@@ -71,7 +72,10 @@ export function resolvePositionFromPixel(
     }
   }
 
-  const lineBoxes = lineMap.get(targetLineY)!;
+  const lineBoxes = lineMap.get(targetLineY);
+  if (!lineBoxes) {
+    throw new Error("hit-test: targetLineY not in lineMap (unreachable: keys come from lineMap.keys())");
+  }
   // Sort by X within the line
   lineBoxes.sort((a, b) => a.absoluteX - b.absoluteX);
 
