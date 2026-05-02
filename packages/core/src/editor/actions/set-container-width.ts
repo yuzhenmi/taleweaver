@@ -7,6 +7,6 @@ export function handleSetContainerWidth(
   config: EditorConfig,
 ): EditorState {
   if (width === editor.containerWidth) return editor;
-  const layout = layoutTree(editor.renderTree, width, config.measurer);
+  const layout = layoutTree(editor.renderTree, width, config.measurer, config.pageConfig);
   return { ...editor, containerWidth: width, layoutTree: layout };
 }
