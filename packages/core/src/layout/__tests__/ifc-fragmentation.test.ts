@@ -151,11 +151,6 @@ describe("IFC fragmentation — widows", () => {
     // any partial split would violate one constraint. No partial split → push whole.
     const { paragraph, ctx } = buildParagraph(5, { orphans: 3, widows: 3 });
     const shaper = createMockShaper(8, 16);
-    const fragmentation: FragmentationContext = {
-      availableBlockSize: 80, // 5×16, fits all — but a partial split would be needed to test
-      pageIndex: 0,
-      resumeFrom: null,
-    };
     // To force a partial split attempt: reduce available to fit only 4 (4×16=64).
     const fragmentation2: FragmentationContext = {
       availableBlockSize: 64, // 4×16 → k=4, 5-4=1 < 3 widows violated; back off: k=3 → 5-3=2 < 3; k=2 → 2<3 orphans violated → push whole
@@ -165,5 +160,20 @@ describe("IFC fragmentation — widows", () => {
     const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation2);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
+  });
+});
+
+describe("IFC fragmentation — hyphen-pair constraint", () => {
+  // Hyphenation dictionaries are not loaded; `hyphens: auto` falls back to no-hyphenation
+  // regardless of language (per CLAUDE.md). The wrap pass therefore never sets
+  // endsWithHyphenContinuation: true on any LineBox in practice.
+  // The algorithmic guard is in place in the split-point search so that when
+  // hyphenation infrastructure (P7 — hyphens) lands, it activates automatically.
+  // TODO: un-skip when hyphenation dictionaries land and the wrap pass produces
+  // real hyphenated lines with endsWithHyphenContinuation: true.
+  it.skip("avoids splitting between two hyphenated lines (requires hyphenation infrastructure)", () => {
+    // Expected behavior once real hyphenation lands:
+    // A paragraph where line N ends with a hyphen continuation (word split across N and N+1).
+    // If the page break would fall between lines N and N+1, the split must be backed off to N-1.
   });
 });

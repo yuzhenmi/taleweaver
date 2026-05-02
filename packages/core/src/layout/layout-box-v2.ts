@@ -49,6 +49,14 @@ export interface LineBox extends LayoutBoxBase {
   readonly type: "line";
   readonly children: readonly LayoutBox[];
   readonly baseline: number;
+  /**
+   * True when the wrap pass inserted a hyphen glyph at the end of this line
+   * because the hyphenated word continues on the next line.
+   * Used by the IFC fragmentation fit-check (D.4) to avoid breaking between
+   * two lines of a hyphenated word (CSS Fragmentation L4 §5).
+   * Defaults to false when not set.
+   */
+  readonly endsWithHyphenContinuation?: boolean;
 }
 
 export interface TextRunBox extends LayoutBoxBase {
@@ -179,6 +187,7 @@ export function createLineBox(
   children: readonly LayoutBox[],
   baseline: number = blockSize,
   containingInlineSize: number,
+  endsWithHyphenContinuation?: boolean,
 ): LineBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -189,6 +198,7 @@ export function createLineBox(
     ...base,
     children: Object.freeze([...children]),
     baseline,
+    ...(endsWithHyphenContinuation === true ? { endsWithHyphenContinuation: true } : {}),
   });
 }
 
@@ -361,7 +371,7 @@ export function withInlineOffset(
       return createLineBox(
         box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.baseline, containingInlineSize,
+        box.children, box.baseline, containingInlineSize, box.endsWithHyphenContinuation,
       );
     case "text-run":
       return createTextRunBox(
@@ -439,7 +449,7 @@ export function withBlockOffset(
       return createLineBox(
         box.key, box.inlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.baseline, containingInlineSize,
+        box.children, box.baseline, containingInlineSize, box.endsWithHyphenContinuation,
       );
     case "text-run":
       return createTextRunBox(

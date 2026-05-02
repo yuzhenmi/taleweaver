@@ -710,6 +710,20 @@ export function layoutInlineContent(
       return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
     }
 
+    // D.4 — Hyphen-pair constraint (CSS Fragmentation L4 §5).
+    // A page break must not fall between two lines of a hyphenated word. If the
+    // last placed line ends with a hyphen continuation, back off past it.
+    // This is a no-op until hyphenation infrastructure produces actual
+    // hyphenated lines (P7 — hyphens); the guard is in place so P7 doesn't
+    // need to revisit this code.
+    while (placedLineCount > 0 && placedLineCount < resultLines.length && resultLines[placedLineCount - 1].endsWithHyphenContinuation === true) {
+      placedLineCount--;
+    }
+    // After hyphen-pair back-off, re-check orphans.
+    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    }
+
     if (placedLineCount < resultLines.length) {
       // Partial fit: build a BlockBox with lines[0..placedLineCount-1].
       // Recompute used block size after widows back-off.
@@ -818,6 +832,7 @@ function buildLineWithFragments(
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
     /* containingInlineSize */ containingInlineSize,
+    /* endsWithHyphenContinuation */ hyphenBreak !== null ? true : undefined,
   );
 }
 
