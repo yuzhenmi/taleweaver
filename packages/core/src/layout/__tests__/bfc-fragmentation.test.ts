@@ -164,3 +164,52 @@ describe("BFC fragmentation — break-before", () => {
     expect(breakToken).toBeNull();
   });
 });
+
+describe("BFC fragmentation — break-after", () => {
+  it("forces a page break after child K when cs.breakAfter = 'page'", () => {
+    // Children 0..3, 100 each. Child 1 has breakAfter: page.
+    const root = buildBlockChildrenWithStyles(4, 100, new Map([[1, { breakAfter: "page" }]]));
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 1000,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(2);
+    expect(breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+  });
+
+  it("is a no-op when break-after fires on the last child", () => {
+    // Children 0..2; child 2 (last) has breakAfter: page.
+    const root = buildBlockChildrenWithStyles(3, 100, new Map([[2, { breakAfter: "page" }]]));
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 1000,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(3);
+    expect(breakToken).toBeNull();
+  });
+
+  it("treats break-after: avoid as auto (no forced break)", () => {
+    const root = buildBlockChildrenWithStyles(4, 100, new Map([[1, { breakAfter: "avoid" }]]));
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 1000,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(4);
+    expect(breakToken).toBeNull();
+  });
+});

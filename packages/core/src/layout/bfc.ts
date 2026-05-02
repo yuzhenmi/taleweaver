@@ -397,6 +397,21 @@ export function layoutBlock(
       childBlockOffset += placedChild.height;
       prevMarginBlockEnd = childMarginBlockEnd;
     }
+
+    // Break-after consumer (CSS Fragmentation Level 4 §3.5).
+    // Only when paginated AND there are remaining children to displace.
+    // If the child was mid-fragmenting, we already returned early above.
+    if (fragmentation !== undefined) {
+      const breakAfter = normalizeBreakValue(childCs.breakAfter ?? "auto");
+      const hasMoreChildren = i + 1 < groups.length;
+      if (breakAfter === "page" && hasMoreChildren) {
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i + 1,
+          resumeChildToken: null,
+        });
+      }
+    }
   }
 
   const lastMarginBlockEnd = noBottomBoundary ? 0 : prevMarginBlockEnd;
