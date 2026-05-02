@@ -670,15 +670,29 @@ export function layoutInlineContent(
     });
   }
 
-  // D.1: Line-level fragmentation fit-check.
-  // After the full wrap pass, determine how many lines fit in the available
-  // block-axis space. Widows/orphans (D.2/D.3) and resume from IFCBreakToken
-  // (D.5) are handled in later tasks; this is the basic greedy split.
+  // D.1-D.5: Line-level fragmentation (fit-check, orphans, widows, hyphen-pair, resume).
+  // Unified block: handles both fresh fragments (resumeFrom === null, startLine = 0)
+  // and resumed fragments (resumeFrom.type === "ifc", startLine = resumeFrom.resumeAtLine).
   if (fragmentation !== undefined) {
+    // D.5 — Determine where to start emitting lines (resume support).
+    let startLine = 0;
+    if (fragmentation.resumeFrom !== null) {
+      if (fragmentation.resumeFrom.type !== "ifc") {
+        throw new Error(
+          `layoutInlineContent: expected IFCBreakToken at top-level resumeFrom, got ${fragmentation.resumeFrom.type}`,
+        );
+      }
+      startLine = fragmentation.resumeFrom.resumeAtLine;
+    }
+
+    // The suffix of lines we consider on this fragment (lines[startLine..end]).
+    const linesToConsider = resultLines.slice(startLine);
+
+    // D.1 — Greedy fit-loop on the suffix.
     let used = 0;
     let placedLineCount = 0;
-    for (let fi = 0; fi < resultLines.length; fi++) {
-      const lineHeight = resultLines[fi].blockSize;
+    for (let fi = 0; fi < linesToConsider.length; fi++) {
+      const lineHeight = linesToConsider[fi].blockSize;
       if (used + lineHeight > fragmentation.availableBlockSize) {
         break;
       }
@@ -687,27 +701,27 @@ export function layoutInlineContent(
     }
 
     if (placedLineCount === 0) {
-      // First line doesn't fit (overflow case). Return null + IFCBreakToken at line 0.
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+      // First suffix line doesn't fit. Resume from startLine (not 0) on next fragment.
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine } };
     }
 
     // D.2 — Orphans constraint (CSS Fragmentation L4 §5.4).
     // At least `orphans` lines must remain on the current fragment. Default 2 per CSS spec.
     const orphans = parentCs.orphans ?? 2;
-    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine } };
     }
 
     // D.3 — Widows constraint (CSS Fragmentation L4 §5.4).
     // At least `widows` lines must carry over to the next fragment. Default 2 per CSS spec.
     // Back off placedLineCount until the constraint is satisfied.
     const widows = parentCs.widows ?? 2;
-    while (placedLineCount > 0 && placedLineCount < resultLines.length && resultLines.length - placedLineCount < widows) {
+    while (placedLineCount > 0 && placedLineCount < linesToConsider.length && linesToConsider.length - placedLineCount < widows) {
       placedLineCount--;
     }
     // After widows back-off, re-check orphans (back-off may have violated it).
-    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine } };
     }
 
     // D.4 — Hyphen-pair constraint (CSS Fragmentation L4 §5).
@@ -716,20 +730,21 @@ export function layoutInlineContent(
     // This is a no-op until hyphenation infrastructure produces actual
     // hyphenated lines (P7 — hyphens); the guard is in place so P7 doesn't
     // need to revisit this code.
-    while (placedLineCount > 0 && placedLineCount < resultLines.length && resultLines[placedLineCount - 1].endsWithHyphenContinuation === true) {
+    while (placedLineCount > 0 && placedLineCount < linesToConsider.length && linesToConsider[placedLineCount - 1].endsWithHyphenContinuation === true) {
       placedLineCount--;
     }
     // After hyphen-pair back-off, re-check orphans.
-    if (placedLineCount < resultLines.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine } };
     }
 
-    if (placedLineCount < resultLines.length) {
-      // Partial fit: build a BlockBox with lines[0..placedLineCount-1].
-      // Recompute used block size after widows back-off.
-      let usedAdjusted = 0;
-      for (let i = 0; i < placedLineCount; i++) usedAdjusted += resultLines[i].blockSize;
-      const placedLines = resultLines.slice(0, placedLineCount);
+    // Recompute used block size after all back-off adjustments.
+    let usedAdjusted = 0;
+    for (let i = 0; i < placedLineCount; i++) usedAdjusted += linesToConsider[i].blockSize;
+
+    if (placedLineCount < linesToConsider.length) {
+      // Partial fit: build a BlockBox with the placed suffix slice.
+      const placedLines = linesToConsider.slice(0, placedLineCount);
       const placedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
       const placedBox = createBlockBox(
         parent.key,
@@ -744,9 +759,25 @@ export function layoutInlineContent(
         placedLines,
         availableInlineSize,
       );
-      return { box: placedBox, breakToken: { type: "ifc", resumeAtLine: placedLineCount } };
+      return { box: placedBox, breakToken: { type: "ifc", resumeAtLine: startLine + placedLineCount } };
     }
-    // All lines placed — fall through to the existing return path.
+
+    // All suffix lines placed — emit them and return no break token.
+    const allSuffixUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+    const allSuffixBox = createBlockBox(
+      parent.key,
+      inlineOffset,
+      blockOffset,
+      availableInlineSize,
+      usedAdjusted,
+      writingMode,
+      direction,
+      parentCs,
+      allSuffixUsedStyle,
+      linesToConsider,
+      availableInlineSize,
+    );
+    return { box: allSuffixBox, breakToken: null };
   }
 
   const totalBlockSize = result.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);

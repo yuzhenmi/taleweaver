@@ -6,7 +6,7 @@ import { makeRootContext } from "../layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../../styles";
 import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
-import { createElementBox } from "../../render/render-node-v2";
+import { createElementBox, createTextBox } from "../../render/render-node-v2";
 import type { ElementBox } from "../../render/render-node-v2";
 import type { Style } from "../../styles";
 
@@ -34,6 +34,23 @@ function buildBlockChildrenWithStyles(
   const cascaded = cascadePass(root);
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;
+}
+
+/**
+ * Build a root ElementBox with one paragraph child.
+ * The paragraph has `numLines` lines of content via explicit \n characters.
+ * Each line produces one LineBox regardless of container width (whiteSpace: "pre").
+ */
+function buildRootWithParagraph(numLines: number): { root: ElementBox } {
+  const parts: string[] = [];
+  for (let i = 0; i < numLines; i++) parts.push("x");
+  const text = parts.join("\n");
+  const textNode = createTextBox("t", { whiteSpace: "pre" }, text);
+  const paragraph = createElementBox("p", { display: "block", whiteSpace: "pre" } as Style, [textNode]);
+  const root = createElementBox("root", { display: "block" } as Style, [paragraph]);
+  const cascaded = cascadePass(root);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return { root: cascaded };
 }
 
 describe("BFC fragmentation — whole-block placement", () => {
@@ -397,21 +414,65 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     expect(r3.breakToken).toBeNull();
   });
 
-  it("throws when given an IFCBreakToken as top-level resumeFrom", () => {
+  it("accepts IFCBreakToken as top-level resumeFrom when block has inline content (D.5)", () => {
+    // layoutBlock now accepts IFCBreakToken at the top level for leaf blocks that contain
+    // inline-run groups. For blocks with block children, the IFC token is set on
+    // inlineRunResumeToken but never consumed (no inline-run groups), so layout proceeds
+    // as if resumeFrom: null. This is the D.5 contract.
     const root = buildBlockChildren(3, 100);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
+    // Should not throw; IFC token is accepted (though not consumed for block children).
     expect(() =>
       layoutBlock(root, 0, 0, ctx, shaper, {
         availableBlockSize: 250,
         pageIndex: 0,
         resumeFrom: { type: "ifc", resumeAtLine: 0 },
       }),
-    ).toThrow(/expected.*BlockBreakToken|resume.*type/i);
+    ).not.toThrow();
   });
 
-  it.skip("threads resumeChildToken (IFCBreakToken) into the first child's recursive call (requires D.5)", () => {
-    // TODO: un-skip when D.5 lands. Tests integration of BFC resume with nested IFC resume.
+  it("threads resumeChildToken (IFCBreakToken) into the first child's recursive call", () => {
+    // Root has one paragraph child with 10 lines (16px each = 160px total).
+    // First fragment: availableBlockSize=80 → paragraph IFC fits 5 lines (5×16=80).
+    // Root BFC break token carries the IFC token nested two levels deep:
+    //   { type: "block", resumeChildIndex: 0, resumeChildToken:
+    //     { type: "block", resumeChildIndex: 0, resumeChildToken:
+    //       { type: "ifc", resumeAtLine: 5 } } }
+    // Second fragment: root BFC threads the nested token down to IFC.
+    // IFC resumes from line 5, all 5 remaining lines fit (availableBlockSize=80).
+    const { root } = buildRootWithParagraph(10);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    const shaper = createMockShaper(8, 16);
+
+    // First fragment: root BFC fragments the paragraph's inline content.
+    const r1 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 80, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    // Root box has one child (the paragraph partial).
+    expect(r1.box!.children).toHaveLength(1);
+    // Root break token: resumes at child 0 with the paragraph's break token.
+    expect(r1.breakToken).not.toBeNull();
+    expect(r1.breakToken!.type).toBe("block");
+    // The nested token chain carries the IFC resume.
+    const rootBT = r1.breakToken as { type: "block"; resumeChildIndex: number; resumeChildToken: unknown };
+    expect(rootBT.resumeChildIndex).toBe(0);
+    const paragraphBT = rootBT.resumeChildToken as { type: "block"; resumeChildIndex: number; resumeChildToken: unknown };
+    expect(paragraphBT.type).toBe("block");
+    expect(paragraphBT.resumeChildIndex).toBe(0);
+    const ifcBT = paragraphBT.resumeChildToken as { type: string; resumeAtLine: number };
+    expect(ifcBT.type).toBe("ifc");
+    expect(ifcBT.resumeAtLine).toBe(5);
+
+    // Second fragment: root BFC resumes; threads IFC token to paragraph.
+    const r2 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 80, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    // Paragraph continuation has the remaining 5 lines.
+    expect(r2.box!.children).toHaveLength(1); // one paragraph child
+    expect(r2.breakToken).toBeNull(); // all content placed
   });
 });
 

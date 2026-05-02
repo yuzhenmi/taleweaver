@@ -106,14 +106,22 @@ export function layoutBlock(
   // C.7: Parse the resume token to determine where to start the child loop.
   let startIndex = 0;
   let firstChildResumeToken: BreakToken | null = null;
+  // D.5: When resumeFrom is an IFCBreakToken, this block element is a leaf block
+  // whose inline content (inline-run group) is being resumed. Thread the token to
+  // layoutInlineContent rather than treating it as a block-level resume.
+  let inlineRunResumeToken: BreakToken | null = null;
   if (fragmentation !== undefined && fragmentation.resumeFrom !== null) {
-    if (fragmentation.resumeFrom.type !== "block") {
+    if (fragmentation.resumeFrom.type === "ifc") {
+      // IFC resume: this block's inline-run group resumes from this token.
+      inlineRunResumeToken = fragmentation.resumeFrom;
+    } else if (fragmentation.resumeFrom.type === "block") {
+      startIndex = fragmentation.resumeFrom.resumeChildIndex;
+      firstChildResumeToken = fragmentation.resumeFrom.resumeChildToken;
+    } else {
       throw new Error(
         `layoutBlock: expected BlockBreakToken at top-level resumeFrom, got resume type "${fragmentation.resumeFrom.type}"`,
       );
     }
-    startIndex = fragmentation.resumeFrom.resumeChildIndex;
-    firstChildResumeToken = fragmentation.resumeFrom.resumeChildToken;
   }
 
   /**
@@ -164,9 +172,35 @@ export function layoutBlock(
       // inherits this block's float env (same BFC), so pass it in ctx.floatEnv.
       // We create a child context that carries the same floatEnv.
       const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
-      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper);
+
+      // Build IFC fragmentation context if paginating. Thread the IFC resume token
+      // (D.5) when this block is being resumed from a previous IFC break.
+      // Two sources of IFC resume tokens:
+      //   1. inlineRunResumeToken — set when layoutBlock received resumeFrom.type === "ifc" directly
+      //      (e.g., when this block IS the resumed paragraph, called from parent with IFC token).
+      //   2. firstChildResumeToken — set when layoutBlock received a BlockBreakToken whose
+      //      resumeChildToken is an IFCBreakToken (e.g., paragraph resumed from its own inline group).
+      const ifcResumeFrom: BreakToken | null =
+        inlineRunResumeToken ??
+        (i === startIndex ? firstChildResumeToken : null);
+      const ifcFragmentation: FragmentationContext | undefined =
+        fragmentation === undefined
+          ? undefined
+          : {
+              availableBlockSize: fragmentation.availableBlockSize - childBlockOffset,
+              pageIndex: fragmentation.pageIndex,
+              resumeFrom: ifcResumeFrom,
+            };
+
+      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, ifcFragmentation);
       if (ifcResult.box === null) {
-        throw new Error("layoutInlineContent returned null box; should be unreachable in B.2 (fragmentation not yet wired)");
+        // IFC couldn't fit anything — propagate as a partial result.
+        // If nothing was placed yet (empty fragment), return null so parent can apply overflow rule.
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: ifcResult.breakToken,
+        });
       }
       const ifcBox = ifcResult.box;
 
@@ -177,6 +211,18 @@ export function layoutBlock(
 
       childBlockOffset += anonBlockSize;
       prevMarginBlockEnd = 0; // anonymous box has no margin
+
+      // If IFC produced a break token, stop here and propagate it.
+      if (ifcResult.breakToken !== null) {
+        return buildPartialResult(layoutChildren, {
+          type: "block",
+          resumeChildIndex: i,
+          resumeChildToken: ifcResult.breakToken,
+        });
+      }
+
+      // Reset inlineRunResumeToken after the first inline-run group is processed.
+      inlineRunResumeToken = null;
       continue;
     }
 

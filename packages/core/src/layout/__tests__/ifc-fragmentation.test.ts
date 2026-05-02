@@ -177,3 +177,70 @@ describe("IFC fragmentation — hyphen-pair constraint", () => {
     // If the page break would fall between lines N and N+1, the split must be backed off to N-1.
   });
 });
+
+describe("IFC fragmentation — resume from IFCBreakToken", () => {
+  it("emits lines starting at resumeAtLine", () => {
+    // 10-line paragraph. First fragment fits 4 lines (orphans=2, widows=2 default).
+    // availableBlockSize=64 → 4×16=64 fits; 5th line would bring total to 80 > 64.
+    // widows check: 10-4=6 >= 2 ✓. orphans check: 4 >= 2 ✓. Split at 4.
+    const { paragraph, ctx } = buildParagraph(10);
+    const shaper = createMockShaper(8, 16);
+
+    // First fragment: availableBlockSize=64 (4×16). All constraints satisfied → split at 4.
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
+
+    // Second fragment: resume from line 4, fits all 6 remaining (6×16=96 needed, 200 available).
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(r2.box!.children.length).toBe(6); // 6 remaining lines
+    expect(r2.breakToken).toBeNull();
+  });
+
+  it("applies widows/orphans to the resumed suffix", () => {
+    // 10-line paragraph, default orphans/widows = 2.
+    // First fragment splits at 4. Second fragment available = 80 (5×16), so 5 of 6 fit.
+    // 5 placed; 1 remaining. widows=2 → 1 < 2 → back off to 4 placed; 2 remaining.
+    const { paragraph, ctx } = buildParagraph(10);
+    const shaper = createMockShaper(8, 16);
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
+    });
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 80, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(r2.box!.children.length).toBe(4);
+    expect(r2.breakToken).toEqual({ type: "ifc", resumeAtLine: 8 });
+  });
+
+  it("returns box: null when no suffix lines fit on the resumed fragment", () => {
+    const { paragraph, ctx } = buildParagraph(10);
+    const shaper = createMockShaper(8, 16);
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
+    });
+    // Second fragment: availableBlockSize=10 (smaller than one line=16) → first suffix line doesn't fit.
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      availableBlockSize: 10, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).toBeNull();
+    // resume from where we stopped (line 4), NOT from 0
+    expect(r2.breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
+  });
+
+  it("throws when given a non-IFC resumeFrom token", () => {
+    const { paragraph, ctx } = buildParagraph(3);
+    const shaper = createMockShaper(8, 16);
+    expect(() =>
+      layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+        availableBlockSize: 100, pageIndex: 0,
+        resumeFrom: { type: "block", resumeChildIndex: 0, resumeChildToken: null },
+      }),
+    ).toThrow(/expected.*IFCBreakToken|resume.*type/i);
+  });
+});
