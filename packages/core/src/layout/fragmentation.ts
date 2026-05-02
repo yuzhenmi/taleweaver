@@ -1,5 +1,7 @@
 // packages/core/src/layout/fragmentation.ts
 
+import type { LayoutBox } from "./layout-box-v2";
+
 /**
  * Break-token continuation model. When a fragmentation-aware layout call
  * stops early because content didn't fit on the current fragment, it
@@ -60,6 +62,6 @@ export interface FragmentationContext {
  * non-null and `breakToken` is always null.
  */
 export interface LayoutResult {
-  readonly box: import("./layout-box-v2").LayoutBox | null;
+  readonly box: LayoutBox | null;
   readonly breakToken: BreakToken | null;
 }
