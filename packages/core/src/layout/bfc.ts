@@ -118,16 +118,16 @@ export function layoutBlock(
       // inherits this block's float env (same BFC), so pass it in ctx.floatEnv.
       // We create a child context that carries the same floatEnv.
       const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
-      const lines = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper);
-
-      let lineMaxBlockEdge = childBlockOffset;
-      for (const line of lines) {
-        if (line.y + line.height > lineMaxBlockEdge) lineMaxBlockEdge = line.y + line.height;
+      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper);
+      if (ifcResult.box === null) {
+        throw new Error("layoutInlineContent returned null box; should be unreachable in B.2 (fragmentation not yet wired)");
       }
-      const anonBlockSize = lineMaxBlockEdge - childBlockOffset;
+      const ifcBox = ifcResult.box;
+
+      const anonBlockSize = ifcBox.height;
 
       // Append lines directly to layoutChildren (anonymous boxes are layout-time-only).
-      for (const line of lines) layoutChildren.push(line);
+      for (const line of ifcBox.children) layoutChildren.push(line);
 
       childBlockOffset += anonBlockSize;
       prevMarginBlockEnd = 0; // anonymous box has no margin

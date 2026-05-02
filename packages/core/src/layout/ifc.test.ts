@@ -20,7 +20,9 @@ function ifcOf(text: string, width: number) {
   );
   if (tree.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  return layoutInlineContent(tree, 0, 0, ctx, shaper);
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  if (result.box === null) throw new Error("layoutInlineContent returned null box");
+  return result.box.children;
 }
 
 describe("layoutInlineContent — single line", () => {
@@ -323,7 +325,9 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (ifcResult.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines = ifcResult.box.children;
 
     // The first line's content area should start at x=100 (after the float)
     // and have width 100 (200 - 100).
@@ -344,10 +348,12 @@ describe("IFC — text wraps around floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult2 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (ifcResult2.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines2 = ifcResult2.box.children;
 
     // Eventually some line is at y >= 16 and uses full width 200.
-    const fullWidthLine = lines.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
+    const fullWidthLine = lines2.find((l) => l.type === "line" && l.y >= 16 && l.width === 200);
     expect(fullWidthLine).toBeDefined();
   });
 
@@ -368,10 +374,12 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const lines = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult3 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (ifcResult3.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines3 = ifcResult3.box.children;
 
-    expect(lines.length).toBeGreaterThan(0);
-    const firstLine = lines[0];
+    expect(lines3.length).toBeGreaterThan(0);
+    const firstLine = lines3[0];
     expect(firstLine.y).toBe(50);
     if (firstLine.type === "line") {
       expect(firstLine.width).toBe(200);
@@ -395,15 +403,17 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(
+    const ifcResultRtl = layoutInlineContent(
       tree,
       0, 0,
       makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper,
     );
+    if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
+    const linesRtl = ifcResultRtl.box.children;
 
-    expect(lines.length).toBeGreaterThan(0);
-    const line = lines[0];
+    expect(linesRtl.length).toBeGreaterThan(0);
+    const line = linesRtl[0];
     if (line.type !== "line") throw new Error("expected line box");
     expect(line.children.length).toBeGreaterThanOrEqual(2);
 
@@ -435,10 +445,12 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const lines = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper);
+    const ifcResultLtr = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper);
+    if (ifcResultLtr.box === null) throw new Error("layoutInlineContent returned null box");
+    const linesLtr = ifcResultLtr.box.children;
 
-    expect(lines.length).toBeGreaterThan(0);
-    const line = lines[0];
+    expect(linesLtr.length).toBeGreaterThan(0);
+    const line = linesLtr[0];
     if (line.type !== "line") throw new Error("expected line box");
 
     const t1Box = line.children.find(c => c.key.startsWith("t1"));
@@ -516,17 +528,19 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
 
-    const lines = layoutInlineContent(
+    const ifcResultH1 = layoutInlineContent(
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
     );
+    if (ifcResultH1.box === null) throw new Error("layoutInlineContent returned null box");
+    const linesH1 = ifcResultH1.box.children;
 
     // Should produce at least 2 lines (the word was split).
-    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(linesH1.length).toBeGreaterThanOrEqual(2);
 
     // The first line should end with a "-" text-run box.
-    const firstLine = lines[0];
+    const firstLine = linesH1[0];
     if (firstLine.type !== "line") throw new Error("expected line box");
     expect(firstLine.children.length).toBeGreaterThan(0);
     const lastChild = firstLine.children[firstLine.children.length - 1];
@@ -543,14 +557,16 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
 
-    const lines = layoutInlineContent(
+    const ifcResultH2 = layoutInlineContent(
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(),
     );
+    if (ifcResultH2.box === null) throw new Error("layoutInlineContent returned null box");
+    const linesH2 = ifcResultH2.box.children;
 
-    expect(lines.length).toBeGreaterThanOrEqual(2);
-    const secondLine = lines[1];
+    expect(linesH2.length).toBeGreaterThanOrEqual(2);
+    const secondLine = linesH2[1];
     if (secondLine.type !== "line") throw new Error("expected line box");
     expect(secondLine.children.length).toBeGreaterThan(0);
     // The first child of line 2 should be the suffix "fgh".

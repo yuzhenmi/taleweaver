@@ -2,7 +2,8 @@ import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
-import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset } from "./layout-box-v2";
+import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, createBlockBox } from "./layout-box-v2";
+import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
@@ -281,7 +282,8 @@ export function layoutInlineContent(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-): LayoutBox[] {
+  fragmentation?: FragmentationContext,
+): LayoutResult {
   const tLayout = markStart("ifc.layout");
   try {
   if (!parent.computedStyle) throw new Error("cascade required");
@@ -322,7 +324,10 @@ export function layoutInlineContent(
     if (findChangePoint(prevState.tokens, tokens) === -1) {
       const tHit = markStart("ifc.cache.hit");
       try {
-        return Array.from(prevState.lines);
+        const cachedLines = Array.from(prevState.lines);
+        const cachedBlockSize = cachedLines.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
+        const cachedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+        return { box: createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, cachedBlockSize, writingMode, direction, parentCs, cachedUsedStyle, cachedLines, availableInlineSize), breakToken: null };
       } finally {
         markEnd("ifc.cache.hit", tHit);
       }
@@ -658,7 +663,10 @@ export function layoutInlineContent(
     availableInlineSize,
   });
 
-  return result;
+  const totalBlockSize = result.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
+  const parentUsedStyleForBox = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+  const box = createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, totalBlockSize, writingMode, direction, parentCs, parentUsedStyleForBox, result, availableInlineSize);
+  return { box, breakToken: null };
   } finally {
     markEnd("ifc.layout", tLayout);
   }
