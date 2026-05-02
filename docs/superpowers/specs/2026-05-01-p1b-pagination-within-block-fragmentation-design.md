@@ -137,13 +137,20 @@ interface FragmentationContext {
   readonly resumeFrom: BreakToken | null;
 }
 
-interface LayoutResult {
-  readonly box: LayoutBox | null;               // null only in the paginated path when no content was placed on this fragment
+interface LayoutResult<T extends LayoutBox = LayoutBox> {
+  readonly box: T | null;                       // null only in the paginated path when no content was placed on this fragment
   readonly breakToken: BreakToken | null;       // null when layout completed without breaking
 }
 ```
 
-**Entry-point signature change.** `layoutBlock` / `layoutInline` / `layoutTable` each gain an optional `fragmentation?: FragmentationContext` parameter and return `LayoutResult` instead of a bare `LayoutBox`. When `fragmentation` is `undefined` (unpaginated path), `box` is always non-null and `breakToken` is always `null`. When `fragmentation` is set, layout may return:
+**Generic on the box subtype.** Each FC's entry point advertises the specific kind of `LayoutBox` it produces:
+- `layoutBlock` returns `LayoutResult<BlockBox>`
+- `layoutInlineContent` returns `LayoutResult<BlockBox>` (a wrapping block of lines)
+- `layoutTable` returns `LayoutResult<TableBox>`
+
+Consumers get the narrow type for free — no per-call-site `.type` guards beyond the standard `if (result.box === null) throw` pattern. Mirrors LayoutNG's typed-fragment model where each layout phase produces fragments specific to its layout kind.
+
+**Entry-point signature change.** `layoutBlock` / `layoutInlineContent` / `layoutTable` each gain an optional `fragmentation?: FragmentationContext` parameter and return `LayoutResult<T>` (with `T` specific to the FC) instead of a bare concrete box type. When `fragmentation` is `undefined` (unpaginated path), `box` is always non-null and `breakToken` is always `null`. When `fragmentation` is set, layout may return:
 - `{ box: <full>, breakToken: null }` — content fit entirely.
 - `{ box: <partial>, breakToken: <resume-state> }` — content fit partially; remainder needs another fragment.
 - `{ box: null, breakToken: <resume-from-start> }` — content couldn't fit on this fragment at all (parent must push whole to next).

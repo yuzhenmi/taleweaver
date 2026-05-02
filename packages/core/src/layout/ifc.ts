@@ -1,7 +1,7 @@
 import type { RenderNode } from "../render/render-node-v2";
 import type { ElementBox } from "../render/render-node-v2";
 import type { ComputedStyle } from "../styles";
-import type { LayoutBox, LineBox, InlineBox } from "./layout-box-v2";
+import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, createBlockBox } from "./layout-box-v2";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
@@ -283,7 +283,7 @@ export function layoutInlineContent(
   ctx: LayoutContext,
   shaper: TextShaper,
   fragmentation?: FragmentationContext,
-): LayoutResult {
+): LayoutResult<BlockBox> {
   const tLayout = markStart("ifc.layout");
   try {
   if (!parent.computedStyle) throw new Error("cascade required");

@@ -60,9 +60,20 @@ export interface FragmentationContext {
  *
  * In the unpaginated path (no FragmentationContext passed), `box` is always
  * non-null and `breakToken` is always null.
+ *
+ * Generic on the box subtype so each FC's entry point can advertise the
+ * specific kind of LayoutBox it produces:
+ *   - `layoutBlock` returns `LayoutResult<BlockBox>`
+ *   - `layoutInlineContent` returns `LayoutResult<BlockBox>` (a wrapping block of lines)
+ *   - `layoutTable` returns `LayoutResult<TableBox>`
+ *
+ * Consumers get the narrow type for free — no per-call-site type guards
+ * needed beyond the standard `if (result.box === null) throw` pattern.
+ * Mirrors LayoutNG's typed-fragment model, where each layout phase produces
+ * fragments specific to its layout kind.
  */
-export interface LayoutResult {
-  readonly box: LayoutBox | null;
+export interface LayoutResult<T extends LayoutBox = LayoutBox> {
+  readonly box: T | null;
   readonly breakToken: BreakToken | null;
 }
 

@@ -1,5 +1,5 @@
 import type { ElementBox } from "../render/render-node-v2";
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
@@ -27,7 +27,7 @@ export function layoutBlock(
   ctx: LayoutContext,
   shaper: TextShaper,
   fragmentation?: FragmentationContext,
-): LayoutResult {
+): LayoutResult<BlockBox> {
   const t = markStart("bfc.layoutBlock");
   try {
   const availableInlineSize = ctx.containingInlineSize;
