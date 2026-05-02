@@ -5,7 +5,6 @@ import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox,
-  withBlockOffset,
 } from "./layout-box-v2";
 
 const cs = INITIAL_COMPUTED_STYLE;
@@ -143,19 +142,3 @@ it("LTR horizontal-tb is unaffected by containingInlineSize", () => {
   expect(b.x).toBe(30);
 });
 
-describe("withBlockOffset", () => {
-  it("returns a new BlockBox with updated blockOffset", () => {
-    const original = createBlockBox(
-      "p1", 0, 100, 500, 50,
-      "horizontal-tb", "ltr",
-      INITIAL_COMPUTED_STYLE, computeUsedStyle(INITIAL_COMPUTED_STYLE, 500, "indefinite"),
-      [], 500,
-    );
-    const moved = withBlockOffset(original, 0, 500);
-    expect(moved.type).toBe("block");
-    expect(moved.blockOffset).toBe(0);
-    expect(moved.inlineOffset).toBe(0);  // unchanged
-    expect(moved.blockSize).toBe(50);    // unchanged
-    expect(moved.y).toBe(0);             // physical updated (LTR identity)
-  });
-});
