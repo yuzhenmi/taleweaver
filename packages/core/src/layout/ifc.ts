@@ -319,7 +319,10 @@ export function layoutInlineContent(
 
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
   // changed since the last layout, reuse the cached lines (no re-wrap needed).
-  const prevState = ctx.ifcStateCache.get(parent.key);
+  // Bypass the cache when fragmentation is active: the cached box was produced
+  // without fragmentation and contains all lines. We must re-run the fit-check
+  // to produce the correct partial box and breakToken for this fragment.
+  const prevState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
   if (prevState !== undefined && prevState.availableInlineSize === availableInlineSize) {
     if (findChangePoint(prevState.tokens, tokens) === -1) {
       const tHit = markStart("ifc.cache.hit");
@@ -657,11 +660,58 @@ export function layoutInlineContent(
   }
 
   // Save wrap state to cache for subsequent incremental re-wraps.
-  ctx.ifcStateCache.set(parent.key, {
-    tokens,
-    lines: resultLines,
-    availableInlineSize,
-  });
+  // (Only when fragmentation is inactive; fragmented calls bypass the cache on
+  // read and should not poison it with partial line sets on write either.)
+  if (fragmentation === undefined) {
+    ctx.ifcStateCache.set(parent.key, {
+      tokens,
+      lines: resultLines,
+      availableInlineSize,
+    });
+  }
+
+  // D.1: Line-level fragmentation fit-check.
+  // After the full wrap pass, determine how many lines fit in the available
+  // block-axis space. Widows/orphans (D.2/D.3) and resume from IFCBreakToken
+  // (D.5) are handled in later tasks; this is the basic greedy split.
+  if (fragmentation !== undefined) {
+    let used = 0;
+    let placedLineCount = 0;
+    for (let fi = 0; fi < resultLines.length; fi++) {
+      const lineHeight = resultLines[fi].blockSize;
+      if (used + lineHeight > fragmentation.availableBlockSize) {
+        break;
+      }
+      used += lineHeight;
+      placedLineCount++;
+    }
+
+    if (placedLineCount === 0) {
+      // First line doesn't fit (overflow case). Return null + IFCBreakToken at line 0.
+      return { box: null, breakToken: { type: "ifc", resumeAtLine: 0 } };
+    }
+
+    if (placedLineCount < resultLines.length) {
+      // Partial fit: build a BlockBox with lines[0..placedLineCount-1].
+      const placedLines = resultLines.slice(0, placedLineCount);
+      const placedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+      const placedBox = createBlockBox(
+        parent.key,
+        inlineOffset,
+        blockOffset,
+        availableInlineSize,
+        used,
+        writingMode,
+        direction,
+        parentCs,
+        placedUsedStyle,
+        placedLines,
+        availableInlineSize,
+      );
+      return { box: placedBox, breakToken: { type: "ifc", resumeAtLine: placedLineCount } };
+    }
+    // All lines placed — fall through to the existing return path.
+  }
 
   const totalBlockSize = result.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
   const parentUsedStyleForBox = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
