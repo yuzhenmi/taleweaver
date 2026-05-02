@@ -124,12 +124,22 @@ describe("pagination — arrow-down across page boundary (whole-block placement)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // G.2 — line navigation across page boundary with within-block fragmentation
-// Fixture: 1 paragraph, 30 words "aaaaaaaaaa", container 160px.
-// charWidth=8, lineHeight=16 → 1 word per line (10 chars × 8 = 80px < 160px;
-// 2 words = 168px > 160px). Page content height=400px → 25 lines/page.
+// Fixture: 1 paragraph, 30 words "aaaaaaaaaa".
+// charWidth=8, lineHeight=16. The narrow page (content area = 160px) forces
+// 1 word per line: 10 chars × 8 = 80px < 160px; 2 words = 168px > 160px.
+// Page content height = 400px → 25 lines/page.
 // Page 0: lines 0-24 (words 0-24), Page 1: lines 25-29 (words 25-29).
 // Word N starts at text offset N*11 (each word = 10 chars + 1 space).
 // ─────────────────────────────────────────────────────────────────────────────
+
+const NARROW_PAGE_CONFIG: PageConfig = {
+  // pageInlineSize - margins.inlineStart - margins.inlineEnd = content area
+  // 260 - 50 - 50 = 160 (matches the 1-word-per-line expectation)
+  pageInlineSize: 260,
+  pageBlockSize: 500,
+  pageMargins: { blockStart: 50, blockEnd: 50, inlineStart: 50, inlineEnd: 50 },
+  pageGap: 20,
+};
 
 function buildFragmentedParaFixture(): { state: StateNode; layout: LayoutBox } {
   const reg = createRegistry([...defaultComponents]);
@@ -140,9 +150,9 @@ function buildFragmentedParaFixture(): { state: StateNode; layout: LayoutBox } {
   const doc = createNode("doc", "document", {}, [p]);
   const layout = layoutTree(
     cascadePass(renderTree(doc, reg)),
-    160, // narrow container: 1 word per line
+    NARROW_PAGE_CONFIG.pageInlineSize,
     shaper,
-    PAGE_CONFIG,
+    NARROW_PAGE_CONFIG,
   );
   return { state: doc, layout };
 }

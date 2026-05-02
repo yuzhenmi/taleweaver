@@ -84,7 +84,14 @@ describe("paginateRoot (P1.B coordinator)", () => {
     expect(result.children[0].type).toBe("page");
     if (result.children[0].type !== "page") throw new Error("expected page");
     expect(result.children[0].pageIndex).toBe(0);
-    expect(result.children[0].children).toHaveLength(0);
+    // Empty doc: PageBox holds a single wrapping content-area BlockBox (the
+    // BFC's output, positioned at the page's margin offset). The wrapping
+    // block has no flow children — that's what "empty page" means.
+    expect(result.children[0].children).toHaveLength(1);
+    const contentArea = result.children[0].children[0];
+    expect(contentArea.type).toBe("block");
+    if (contentArea.type !== "block") throw new Error("expected wrapping block");
+    expect(contentArea.children).toHaveLength(0);
   });
 
   it("produces no PageBoxes when pageConfig is omitted", () => {

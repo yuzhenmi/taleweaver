@@ -97,7 +97,13 @@ describe("pagination integration — within-block fragmentation", () => {
     const root = buildDocumentRoot([]);
     const result = paginatedHarness(root, PAGE);
     expect(result.pages).toHaveLength(1);
-    expect(result.pages[0].children).toHaveLength(0);
+    // PageBox holds a single wrapping content-area block (positioned at the
+    // page's margin offset); the wrapping block has no flow children.
+    expect(result.pages[0].children).toHaveLength(1);
+    const contentArea = result.pages[0].children[0];
+    expect(contentArea.type).toBe("block");
+    if (contentArea.type !== "block") throw new Error("expected wrapping content-area block");
+    expect(contentArea.children).toHaveLength(0);
   });
 
   it("honors widows constraint", () => {

@@ -31,14 +31,20 @@ export function paginateRoot(
   shaper: TextShaper,
   pageConfig: PageConfig,
 ): BlockBox {
+  const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
-    pageConfig.pageBlockSize -
-    pageConfig.pageMargins.blockStart -
-    pageConfig.pageMargins.blockEnd;
+    pageConfig.pageBlockSize - margins.blockStart - margins.blockEnd;
+  const pageContentInlineSize =
+    pageConfig.pageInlineSize - margins.inlineStart - margins.inlineEnd;
 
   if (pageContentBlockSize <= 0) {
     throw new Error(
-      `Invalid PageConfig: pageMargins.blockStart (${pageConfig.pageMargins.blockStart}) + pageMargins.blockEnd (${pageConfig.pageMargins.blockEnd}) must be less than pageBlockSize (${pageConfig.pageBlockSize}).`,
+      `Invalid PageConfig: pageMargins.blockStart (${margins.blockStart}) + pageMargins.blockEnd (${margins.blockEnd}) must be less than pageBlockSize (${pageConfig.pageBlockSize}).`,
+    );
+  }
+  if (pageContentInlineSize <= 0) {
+    throw new Error(
+      `Invalid PageConfig: pageMargins.inlineStart (${margins.inlineStart}) + pageMargins.inlineEnd (${margins.inlineEnd}) must be less than pageInlineSize (${pageConfig.pageInlineSize}).`,
     );
   }
 
@@ -51,6 +57,12 @@ export function paginateRoot(
   const rootComputed = root.computedStyle;
   const rootUsedStyle = computeUsedStyle(rootComputed, pageConfig.pageInlineSize, "indefinite");
 
+  // Per-page layout uses the content area (page minus margins) as the BFC's
+  // containing inline size, so text wraps at content-area width and the BFC's
+  // BlockBox is positioned at (margins.inlineStart, margins.blockStart) within
+  // each PageBox. Content visibly insets from the page edges.
+  const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageContentInlineSize };
+
   const pages: PageBox[] = [];
   let resumeFrom: BreakToken | null = null;
   let pageIndex = 0;
@@ -61,8 +73,20 @@ export function paginateRoot(
       pageIndex,
       resumeFrom,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
-    const placedChildren: readonly LayoutBox[] = box ? box.children : [];
+    const { box, breakToken } = layoutBlock(
+      root,
+      margins.inlineStart,
+      margins.blockStart,
+      contentCtx,
+      shaper,
+      fragmentation,
+    );
+    // Wrap the BFC's BlockBox as a single page child so its (margins.inlineStart,
+    // margins.blockStart) offset is preserved in the descendant coordinate
+    // system. PageBox.children are walked with parent (0, 0) per P1.A.14's
+    // PageBox-as-frame convention; nesting the BFC under PageBox lets the
+    // margin offset propagate naturally to paint and editor utilities.
+    const placedChildren: readonly LayoutBox[] = box ? [box] : [];
     const pageBlockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
     const page = createPageBox(
       `page-${pageIndex}`,
