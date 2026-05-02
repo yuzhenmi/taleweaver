@@ -439,6 +439,16 @@ export function createEditorController(
     const canvas = canvasPool.pop() ?? document.createElement("canvas");
     canvas.dataset.pageIndex = String(idx);
     canvas.style.display = "block";
+    // The canvas may be brand-new (zero pixels) or recycled from the pool
+    // (carrying stale pixels from a previously-rendered page). Either way the
+    // pixels don't match `idx`'s current content, so the next paint must do a
+    // full repaint. Resetting the dimensions clears stale pixels (spec
+    // behavior of setting canvas.width); deleting the per-page PaintCache
+    // makes walkAndDetectChanges treat the entire pageBox as dirty so
+    // paintPage actually draws instead of short-circuiting on "no diff".
+    canvas.width = 0;
+    canvas.height = 0;
+    pageCaches.delete(idx);
     slot.appendChild(canvas);
     activeCanvases.set(idx, canvas);
   }
