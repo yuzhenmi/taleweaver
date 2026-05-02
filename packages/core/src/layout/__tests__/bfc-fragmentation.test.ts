@@ -75,8 +75,8 @@ describe("BFC fragmentation — whole-block placement", () => {
     });
   });
 
-  it("returns box: null when even the first child doesn't fit", () => {
-    const root = buildBlockChildren(3, 1000); // child too tall
+  it("places oversize first child anyway (overflow rule, C.6): returns box with overflowing child, no break token", () => {
+    const root = buildBlockChildren(3, 1000); // child too tall (1000 > availableBlockSize 500)
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
     const fragmentation: FragmentationContext = {
@@ -87,12 +87,14 @@ describe("BFC fragmentation — whole-block placement", () => {
 
     const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
 
-    // Note: C.6 will add the alone-on-empty-page overflow exception. For C.1,
-    // bare push-to-next-page semantics: null box + breakToken at index 0.
-    expect(box).toBeNull();
+    // C.6 overflow rule: first child alone on empty fragment — place it anyway (overflow).
+    // The child is 1000 tall; subsequent children (also 1000) won't fit and push to next fragment.
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // only first child placed (rest don't fit after overflow)
+    expect(box!.children[0].height).toBe(1000);
     expect(breakToken).toEqual({
       type: "block",
-      resumeChildIndex: 0,
+      resumeChildIndex: 1,
       resumeChildToken: null,
     });
   });
@@ -182,10 +184,11 @@ function buildNestedBlockChildren(
 }
 
 describe("BFC fragmentation — break-inside: avoid", () => {
-  it("discards a partial nested-fragment result; pushes child whole when break-inside: avoid", () => {
+  it("overflow rule (C.6): places break-inside:avoid child anyway when alone on empty fragment", () => {
     // X has 4 inner children × 50 = 200 total. availableBlockSize = 150 → without
     // break-inside: avoid, X's BFC would partial (3 children fit). With avoid,
-    // outer BFC discards X's partial and pushes X whole.
+    // outer BFC discards X's partial. X is the first (only) child of root, so the
+    // overflow rule applies: re-invoke X without fragmentation and accept the overflowing result.
     const root = buildNestedBlockChildren(4, 50, { breakInside: "avoid" });
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
@@ -195,9 +198,11 @@ describe("BFC fragmentation — break-inside: avoid", () => {
       resumeFrom: null,
     };
     const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
-    // X is the first child of root; pushing X whole means root returns box: null.
-    expect(box).toBeNull();
-    expect(breakToken).toEqual({ type: "block", resumeChildIndex: 0, resumeChildToken: null });
+    // C.6: X is alone on empty fragment → place it anyway, overflowing.
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // X placed (all 4 inner children)
+    expect(box!.children[0].height).toBe(200); // X's full unfragmented size
+    expect(breakToken).toBeNull(); // no remaining children
   });
 
   it("when previous siblings exist, returns them and pushes the avoid child whole", () => {
@@ -357,5 +362,62 @@ describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)",
     // blockSize = paddingBlockStart(10) + marginBlockStart(50) + blockSize(80) = 140
     expect(box!.height).toBe(140);
     expect(breakToken).toBeNull();
+  });
+});
+
+describe("BFC fragmentation — overflow rule (alone-on-empty-fragment, C.6)", () => {
+  it("places oversize child anyway when alone on empty fragment (single child)", () => {
+    // Single child block-size 1500 in availableBlockSize 500. No siblings to push.
+    const root = buildBlockChildren(1, 1500);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 500,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1);
+    expect(box!.children[0].height).toBe(1500);
+    expect(breakToken).toBeNull();
+  });
+
+  it("places oversize break-inside:avoid child anyway when alone on empty fragment", () => {
+    // Duplicate of the updated C.4 test but standalone for C.6 clarity.
+    // X has 4 inner × 50 = 200; availableBlockSize = 150. Alone on empty page.
+    const root = buildNestedBlockChildren(4, 50, { breakInside: "avoid" });
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 150,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // X placed
+    expect(box!.children[0].height).toBe(200); // X's full unfragmented size
+    expect(breakToken).toBeNull();
+  });
+
+  it("does NOT apply overflow rule when preceding siblings are already placed", () => {
+    // Two children: small (50) + oversize (1000). Available 500.
+    // Small fits; oversize won't fit; layoutChildren.length === 1 ≠ 0 → push normally.
+    const small = createElementBox("small", { display: "block", blockSize: 50 } as Style, []);
+    const big = createElementBox("big", { display: "block", blockSize: 1000 } as Style, []);
+    const rootNode = createElementBox("root", { display: "block" } as Style, [small, big]);
+    const cascaded = cascadePass(rootNode) as ElementBox;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 500,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, fragmentation);
+    expect(box).not.toBeNull();
+    expect(box!.children).toHaveLength(1); // only `small` placed
+    expect(breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
   });
 });

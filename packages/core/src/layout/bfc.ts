@@ -317,12 +317,45 @@ export function layoutBlock(
             resumeFrom: null,
           };
 
+    /**
+     * CSS Fragmentation L4 §3.5 — overflow rule (C.6):
+     * "avoid is preferred but not mandatory; if no valid break point exists,
+     *  layout proceeds as if avoid were not set."
+     *
+     * When this fragment is empty (layoutChildren.length === 0) and child K
+     * cannot fit, there is no valid break point before K in this fragment.
+     * We re-invoke K's layout without fragmentation and accept the overflowing
+     * result. The next sibling will then be pushed to a new fragment via the
+     * standard fit-check.
+     */
+    // Capture the narrowed ElementBox reference so the closure below can use it
+    // without losing the type-narrowing established by `child.type !== "element"`.
+    const childElement: ElementBox = child;
+    function applyOverflowRule(): LayoutBox {
+      const fullResult = childCs.display === "table"
+        ? layoutTable(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined)
+        : layoutBlock(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined);
+      if (fullResult.box === null) {
+        throw new Error("layout without fragmentation returned null box; unreachable");
+      }
+      return fullResult.box;
+    }
+
     let childLayout: LayoutBox;
     let childResultBreakToken: BreakToken | null = null;
     if (childCs.display === "table") {
       const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (tableResult.box === null) {
-        // Table couldn't fit anything on this fragment. Propagate as a break.
+        // Table couldn't fit anything on this fragment.
+        // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
+        if (fragmentation !== undefined && layoutChildren.length === 0) {
+          const overflowBox = applyOverflowRule();
+          layoutChildren.push(overflowBox);
+          childBlockOffset += overflowBox.height;
+          prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+          continue;
+        }
+        // Propagate as a break.
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -334,7 +367,16 @@ export function layoutBlock(
     } else {
       const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (childResult.box === null) {
-        // Child couldn't fit anything on this fragment. Propagate as a break.
+        // Child couldn't fit anything on this fragment.
+        // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
+        if (fragmentation !== undefined && layoutChildren.length === 0) {
+          const overflowBox = applyOverflowRule();
+          layoutChildren.push(overflowBox);
+          childBlockOffset += overflowBox.height;
+          prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+          continue;
+        }
+        // Propagate as a break.
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -359,6 +401,13 @@ export function layoutBlock(
     if (fragmentation !== undefined) {
       const remaining = fragmentation.availableBlockSize - childBlockOffset;
       if (placedChild.height > remaining) {
+        // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
+        if (layoutChildren.length === 0) {
+          layoutChildren.push(placedChild);
+          childBlockOffset += placedChild.height;
+          prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+          continue;
+        }
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -374,6 +423,15 @@ export function layoutBlock(
       if (fragmentation !== undefined) {
         const breakInside = normalizeBreakValue(childCs.breakInside ?? "auto");
         if (breakInside === "avoid") {
+          // C.6 overflow rule: if fragment is empty, re-invoke without fragmentation
+          // and place the whole child, accepting the overflow.
+          if (layoutChildren.length === 0) {
+            const overflowBox = applyOverflowRule();
+            layoutChildren.push(overflowBox);
+            childBlockOffset += overflowBox.height;
+            prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+            continue;
+          }
           return buildPartialResult(layoutChildren, {
             type: "block",
             resumeChildIndex: i,
