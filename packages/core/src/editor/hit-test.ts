@@ -98,15 +98,20 @@ export function resolvePositionFromPixel(
   let charOffset = findCharOffset(text, localX, boxStyles, measurer);
 
   // 6. Map box key → node ID, find path, accumulate offset from earlier boxes
-  const { nodeId, suffix } = parseBoxKey(targetBox.box.key);
+  const { nodeId } = parseBoxKey(targetBox.box.key);
   const path = findPathById(state, nodeId);
   if (!path) return null;
 
-  // Accumulate offset from earlier boxes with same node ID (across all pages)
+  // Accumulate character offset from all same-nodeId boxes that spatially
+  // precede the target box. We use spatial ordering (pageIndex, absoluteY,
+  // absoluteX) rather than keySuffix ordering, because within-block
+  // fragmentation resets the run counter to 0 on each page — so the same
+  // keySuffix can appear on multiple pages for the same source node.
   let baseOffset = 0;
   for (const b of allBoxes) {
+    if (b === targetBox) break; // spatial walk: first occurrence of targetBox ends the prefix
     const parsed = parseBoxKey(b.box.key);
-    if (parsed.nodeId === nodeId && parsed.suffix < suffix) {
+    if (parsed.nodeId === nodeId) {
       baseOffset += b.box.text.length;
     }
   }
