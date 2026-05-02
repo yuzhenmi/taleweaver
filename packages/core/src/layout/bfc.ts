@@ -1,6 +1,7 @@
 import type { ElementBox } from "../render/render-node-v2";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
+import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
@@ -25,7 +26,8 @@ export function layoutBlock(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-): BlockBox {
+  fragmentation?: FragmentationContext,
+): LayoutResult {
   const t = markStart("bfc.layoutBlock");
   try {
   const availableInlineSize = ctx.containingInlineSize;
@@ -63,7 +65,7 @@ export function layoutBlock(
           direction,
           floatEnvDirtyBlockOffset: dirtyOffset,
         })) {
-          return entry.box;
+          return { box: entry.box, breakToken: null };
         }
       }
     }
@@ -157,7 +159,11 @@ export function layoutBlock(
       // Float establishes its own BFC (cs.float !== "none"); pass childCs so
       // makeChildContext detects this and gives the float a fresh float env.
       const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
-      const floatLayout = layoutBlock(child, 0, 0, floatCtxChild, shaper);
+      const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper);
+      if (floatResult.box === null) {
+        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+      }
+      const floatLayout = floatResult.box;
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
       const floatInlineSize = floatLayout.width;
       const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
@@ -243,7 +249,11 @@ export function layoutBlock(
     if (childCs.display === "table") {
       childLayout = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
     } else {
-      childLayout = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper);
+      if (childResult.box === null) {
+        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+      }
+      childLayout = childResult.box;
     }
     const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
@@ -297,11 +307,11 @@ export function layoutBlock(
     totalBlockSize = inFlowBlockSize;
   }
 
-  return createBlockBox(
+  return { box: createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
-  );
+  ), breakToken: null };
   } finally {
     markEnd("bfc.layoutBlock", t);
   }

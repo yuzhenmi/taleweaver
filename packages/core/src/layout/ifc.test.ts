@@ -56,7 +56,9 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper);
+    const r1 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper);
+    if (r1.box === null) throw new Error("layoutBlock returned null box");
+    const out = r1.box;
     if (out.type !== "block") throw new Error("?");
     // Should produce exactly one line
     const lineBoxes = out.children.filter(c => c.type === "line");
@@ -70,7 +72,9 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const r2 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    const out = r2.box;
     if (out.type !== "block") throw new Error("?");
     const lineBoxes = out.children.filter(c => c.type === "line");
     expect(lineBoxes).toHaveLength(2);
@@ -83,7 +87,9 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    const r3 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    const out = r3.box;
     if (out.type !== "block") throw new Error("?");
     const lineBoxes = out.children.filter(c => c.type === "line");
     // Wrap from "long text here" + a hard break + "second" should produce >= 2 lines
@@ -103,7 +109,9 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r4 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    const out = r4.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -125,7 +133,9 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out = r5.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -151,7 +161,9 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out = r6.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const ib = out.children[0].children.find(c => c.type === "inline-block");
@@ -169,7 +181,9 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    if (r7.box === null) throw new Error("layoutBlock returned null box");
+    const out = r7.box;
     if (out.type !== "block") throw new Error("?");
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -186,7 +200,9 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    const r8 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    if (r8.box === null) throw new Error("layoutBlock returned null box");
+    const out = r8.box;
     if (out.type !== "block") throw new Error("?");
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -220,7 +236,9 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r9 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r9.box === null) throw new Error("layoutBlock returned null box");
+    const out = r9.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const inlineBox = out.children[0].children.find(c => c.type === "inline");
@@ -240,7 +258,9 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r10 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r10.box === null) throw new Error("layoutBlock returned null box");
+    const out = r10.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const ib = out.children[0].children.find(c => c.type === "inline-block");
@@ -257,7 +277,9 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r11 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r11.box === null) throw new Error("layoutBlock returned null box");
+    const out = r11.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];
@@ -276,7 +298,9 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r12 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r12.box === null) throw new Error("layoutBlock returned null box");
+    const out = r12.box;
     if (out.type !== "block") throw new Error("?");
     if (out.children[0].type !== "line") throw new Error("?");
     const line = out.children[0];

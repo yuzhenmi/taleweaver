@@ -293,7 +293,14 @@ export function layoutTable(
 
       // Lay out cell interior as BFC at cellInlineSize.
       const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
-      const interior = layoutBlock(cellEl, 0, 0, cellCtx, shaper);
+      const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper);
+      if (interiorResult.box === null) {
+        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+      }
+      const interior = interiorResult.box;
+      if (interior.type !== "block") {
+        throw new Error("layoutBlock returned non-block box for table cell; unexpected");
+      }
 
       const cellBlockSize = interior.height;
       maxBlockSize = Math.max(maxBlockSize, cellBlockSize);

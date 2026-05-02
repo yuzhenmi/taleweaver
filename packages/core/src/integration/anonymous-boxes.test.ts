@@ -34,7 +34,9 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult.box;
 
     expect(out.type).toBe("block");
     if (out.type !== "block") throw new Error();

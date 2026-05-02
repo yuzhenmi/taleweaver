@@ -161,7 +161,9 @@ describe("buildLayoutBoxCacheFromTree", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const rootBox = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (rootResult.box === null) throw new Error("layoutBlock returned null box");
+    const rootBox = rootResult.box;
     const cache = buildLayoutBoxCacheFromTree(rootBox, cascaded);
     const rootEntry = cache.get("parent");
     expect(rootEntry?.box).toBe(rootBox);
@@ -195,7 +197,10 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    if (r1.box === null) throw new Error("layoutBlock returned null box");
+    if (r1.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out1 = r1.box;
 
     // Find p2's box from the first layout.
     const p2Box1 = out1.children.find((c) => c.key === "p2");
@@ -221,7 +226,10 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const out2 = layoutBlock(cascadedEdited, 0, 0, ctx2, shaper);
+    const r2 = layoutBlock(cascadedEdited, 0, 0, ctx2, shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    if (r2.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out2 = r2.box;
 
     // p2's box should be the SAME reference as before — reused.
     const p2Box2 = out2.children.find((c) => c.key === "p2");
@@ -241,7 +249,10 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    if (r3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out1 = r3.box;
     const childBox1 = out1.children.find((c) => c.key === "child");
     expect(childBox1).toBeDefined();
 
@@ -252,7 +263,10 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const out2 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    if (r4.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out2 = r4.box;
     const childBox2 = out2.children.find((c) => c.key === "child");
     expect(childBox2).not.toBe(childBox1);
   });
@@ -264,7 +278,9 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out = r5.box;
     expect(out.type).toBe("block");
     expect(out.height).toBe(40);
   });
@@ -283,7 +299,9 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascadedA.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(cascadedA, 0, 0, ctx1, shaper);
+    const r6 = layoutBlock(cascadedA, 0, 0, ctx1, shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out1 = r6.box;
     const docBox1 = out1;
 
     // Simulate "parent rebuilt, children unchanged": cascade A again with
@@ -304,7 +322,9 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const out2 = layoutBlock(cascadedB, 0, 0, ctx2, shaper);
+    const r7 = layoutBlock(cascadedB, 0, 0, ctx2, shaper);
+    if (r7.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r7.box;
 
     // The parent box itself is reused: same reference as before.
     expect(out2).toBe(docBox1);

@@ -12,7 +12,11 @@ function layoutOf(tree: ReturnType<typeof createElementBox>) {
   const cascaded = cascadePass(tree);
   if (cascaded.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-  return layoutBlock(cascaded, 0, 0, ctx, shaper);
+  const result = layoutBlock(cascaded, 0, 0, ctx, shaper);
+  const box = result.box;
+  if (box === null) throw new Error("layoutBlock returned null box");
+  if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
+  return box;
 }
 
 describe("layoutBlock — basic stacking", () => {
@@ -169,7 +173,9 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
     if (out.type !== "block") throw new Error("?");
     expect(out.children).toHaveLength(1);
     expect(out.children[0].type).toBe("line");
@@ -187,7 +193,9 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    const out = r2.box;
 
     expect(out.type).toBe("block");
     if (out.type !== "block") throw new Error();
@@ -212,7 +220,9 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    const r3 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    const out = r3.box;
     if (out.type !== "block") throw new Error("?");
     expect(out.children.length).toBeGreaterThanOrEqual(1);
     expect(out.children[0].type).toBe("line");
@@ -225,7 +235,9 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    const r4 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16));
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    const out = r4.box;
     if (out.type !== "block") throw new Error("?");
     expect(out.children).toHaveLength(2);
     expect(out.children[0].type).toBe("block");
@@ -247,7 +259,9 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out = r5.box;
     if (out.type !== "block") throw new Error("?");
 
     const markers: { text: string }[] = [];
@@ -269,7 +283,9 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out = r6.box;
     if (out.type !== "block") throw new Error("?");
     let foundMarker: { text: string } | null = null;
     function walk(b: any) {
@@ -296,7 +312,9 @@ describe("BFC — list-item markers (outside)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r7.box === null) throw new Error("layoutBlock returned null box");
+    const out = r7.box;
     if (out.type !== "block") throw new Error("?");
     const markers: { text: string }[] = [];
     function walk(b: any) {
@@ -331,7 +349,9 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r8 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r8.box === null) throw new Error("layoutBlock returned null box");
+    const out = r8.box;
     const inner = findBoxByKey(out, "b");
     expect(inner).toBeDefined();
     expect(inner?.width).toBe(30);
@@ -346,7 +366,9 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r9 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r9.box === null) throw new Error("layoutBlock returned null box");
+    const out = r9.box;
     const inner = findBoxByKey(out, "b");
     expect(inner).toBeDefined();
     // minContent = max(child.minContent) = minClusterInlineSize = 10 (per mock shaper)
@@ -361,7 +383,9 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r10 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r10.box === null) throw new Error("layoutBlock returned null box");
+    const out = r10.box;
     const inner = findBoxByKey(out, "b");
     expect(inner).toBeDefined();
     // maxContent=30 fits within available=500, so fit-content = 30
@@ -381,7 +405,9 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r11 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r11.box === null) throw new Error("layoutBlock returned null box");
+    const out = r11.box;
     const inner = findBoxByKey(out, "b");
     expect(inner).toBeDefined();
     // fit-content = min(maxContent=50, max(minContent=20, available=30)) = min(50, 30) = 30
@@ -398,7 +424,9 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r12 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r12.box === null) throw new Error("layoutBlock returned null box");
+    const out = r12.box;
     expect(out.type).toBe("block");
     if (out.type !== "block") throw new Error();
     // Find the inline-block box in the layout tree
@@ -419,7 +447,9 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r13 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r13.box === null) throw new Error("layoutBlock returned null box");
+    const out = r13.box;
     if (out.type !== "block") throw new Error("?");
     // BFC must enclose the float (height >= 50, the float's height).
     expect(out.height).toBeGreaterThanOrEqual(50);
@@ -433,7 +463,9 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r14 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r14.box === null) throw new Error("layoutBlock returned null box");
+    const out = r14.box;
     if (out.type !== "block") throw new Error("?");
     // The clear:inline-start block should start at y >= 100 (past the float).
     const afterChild = out.children.find((c) => c.type === "block" && c.key === "after");
@@ -450,7 +482,9 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r15 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r15.box === null) throw new Error("layoutBlock returned null box");
+    const out = r15.box;
     if (out.type !== "block") throw new Error("?");
     const float = out.children.find((c) => c.type === "block" && c.key === "img");
     expect(float?.type).toBe("block");
@@ -487,7 +521,9 @@ describe("BFC — clearance + margin-collapse interaction (CSS 8.3.1)", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    const r16 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r16.box === null) throw new Error("layoutBlock returned null box");
+    const out = r16.box;
 
     // Find cleared child; expect blockOffset = 50 (clearance) + 20 (margin) = 70.
     const clearedBox = findBoxByKey(out, "c");
@@ -522,7 +558,9 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const out = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r17 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r17.box === null) throw new Error("layoutBlock returned null box");
+    const out = r17.box;
     if (out.type !== "block") throw new Error("?");
 
     // The flow-root encloses its floats (the float in inner rises to flow-root BFC).
@@ -551,7 +589,9 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const out = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r18 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r18.box === null) throw new Error("layoutBlock returned null box");
+    const out = r18.box;
     if (out.type !== "block") throw new Error("?");
 
     // bfc-root has explicit blockSize:20 (truncates float visually, but encloses it for layout);
@@ -574,7 +614,9 @@ describe("BFC — float rises to nearest BFC", () => {
     const cascaded = cascadePass(container);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r19 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r19.box === null) throw new Error("layoutBlock returned null box");
+    const out = r19.box;
     // The flow-root container should be at least 50px tall (encloses the float).
     expect(out.blockSize).toBeGreaterThanOrEqual(50);
   });

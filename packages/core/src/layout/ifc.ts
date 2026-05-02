@@ -215,7 +215,11 @@ function collectInlineTokens(
 
       // Lay out at resolved inlineSize
       const ibCtx = makeRootContext(cs, inlineSizePx > 0 ? inlineSizePx : 100);
-      const bfc = layoutBlock(child, 0, 0, ibCtx, shaper);
+      const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper);
+      if (bfcResult.box === null) {
+        throw new Error("layoutBlock recursive call returned null box; should be unreachable in B.1 (fragmentation not yet wired)");
+      }
+      const bfc = bfcResult.box;
       const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;
       let finalBlockSize: number;
       if (typeof cs.blockSize === "number") {

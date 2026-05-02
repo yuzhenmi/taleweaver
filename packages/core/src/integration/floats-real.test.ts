@@ -66,7 +66,9 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult1.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult1.box;
     const f2Box = findBoxByKey(out, "f2");
     expect(f2Box?.y).toBe(50); // pushed below f1
   });
@@ -89,7 +91,9 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult2.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult2.box;
     const fsBox = findBoxByKey(out, "fs");
     const feBox = findBoxByKey(out, "fe");
     expect(fsBox?.blockOffset).toBe(0);
@@ -112,7 +116,10 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult3 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult3.box === null) throw new Error("layoutBlock returned null box");
+    if (outResult3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out = outResult3.box;
     // Line should be below the float or wrap; the container should be at least 30px tall.
     expect(out.blockSize).toBeGreaterThanOrEqual(30);
   });
@@ -135,7 +142,9 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult4 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult4.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult4.box;
     const clrBox = findBoxByKey(out, "clr");
     // Cleared box should be at y >= 40 (clearance from float), not collapsed by float.
     expect(clrBox?.blockOffset).toBeGreaterThanOrEqual(40);
@@ -154,7 +163,10 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult5.box === null) throw new Error("layoutBlock returned null box");
+    if (outResult5.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out = outResult5.box;
     // flow-root should enclose the float: blockSize >= 50
     expect(out.blockSize).toBeGreaterThanOrEqual(50);
   });
@@ -186,7 +198,9 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult6 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult6.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult6.box;
     const fRightBox = findBoxByKey(out, "ec-f-right");
     // Float boxes are placed with `y` (physical position) overridden to the
     // placed block-offset; `blockOffset` retains its internal 0 from the
@@ -222,7 +236,9 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult7 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult7.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult7.box;
     const clearedBox = findBoxByKey(out, "clr-block");
     // Cleared block must land at (or after) the float's bottom edge.
     expect(clearedBox?.blockOffset).toBeGreaterThanOrEqual(60);
@@ -254,7 +270,9 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult8 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (outResult8.box === null) throw new Error("layoutBlock returned null box");
+    const out = outResult8.box;
     const line = findFirstLine(out);
     // The line must have been pushed below the float region (both floats end at y=60).
     expect(line?.blockOffset).toBeGreaterThanOrEqual(60);

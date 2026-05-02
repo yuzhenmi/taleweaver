@@ -37,7 +37,9 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
     const doc = createElementBox("doc", { display: "block" }, [p1, p2]);
     const cascaded = cascadePass(doc);
     const ctx1 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    const r1 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    if (r1.box === null) throw new Error("layoutBlock returned null box");
+    const out1 = r1.box;
 
     // Edit p1's text. p2 stays the same render node (use cascadePassIncremental).
     const t1Edited = createTextBox("t1", { display: "inline" }, "FIRST paragraph");
@@ -51,7 +53,9 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: ctx1.floatEnv,
     };
-    const out2 = layoutBlock(asElement(cascadedEdited), 0, 0, ctx2, shaper);
+    const r2 = layoutBlock(asElement(cascadedEdited), 0, 0, ctx2, shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r2.box;
 
     if (out1.type !== "block" || out2.type !== "block") throw new Error();
     const p2_1 = findBoxByKey(out1, "p2");
@@ -67,11 +71,15 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
     const doc = createElementBox("doc", { display: "block" }, [para]);
     const cascaded = cascadePass(doc);
     const ctx1 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    const r3 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    const out1 = r3.box;
 
     const prevCache = buildLayoutBoxCacheFromTree(out1, cascaded);
     const ctx2 = { ...ctx1, prevLayoutCache: prevCache, prevFloatEnv: ctx1.floatEnv };
-    const out2 = layoutBlock(asElement(cascaded), 0, 0, ctx2, shaper);
+    const r4 = layoutBlock(asElement(cascaded), 0, 0, ctx2, shaper);
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r4.box;
 
     // Whole tree should be reference-equal.
     expect(out2).toBe(out1);
@@ -83,7 +91,9 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
     const doc = createElementBox("doc", { display: "block" }, [para]);
     const cascaded = cascadePass(doc);
     const ctx1 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out1 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    const r5 = layoutBlock(asElement(cascaded), 0, 0, ctx1, shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out1 = r5.box;
 
     // Different containerInlineSize → different ctx → no reuse expected.
     const ctx2 = {
@@ -91,7 +101,9 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
       prevLayoutCache: buildLayoutBoxCacheFromTree(out1, cascaded),
       prevFloatEnv: ctx1.floatEnv,
     };
-    const out2 = layoutBlock(asElement(cascaded), 0, 0, ctx2, shaper);
+    const r6 = layoutBlock(asElement(cascaded), 0, 0, ctx2, shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r6.box;
 
     expect(out2).not.toBe(out1);  // Different size → no reuse.
   });

@@ -58,7 +58,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r1.box === null) throw new Error("layoutBlock returned null box");
+    const out = r1.box;
     // The inline-block key is composite: "<para-key>-l<n>-ib<n>-ib"
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
@@ -79,7 +81,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    const out = r2.box;
     const flBox = findBoxByKey(out, "fl");
     expect(flBox).not.toBeNull();
     // shrink-to-fit: maxContent=120, available=200 → clamp to 120.
@@ -97,7 +101,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    const out = r3.box;
     const innerBox = findBoxByKey(out, "b");
     expect(innerBox).not.toBeNull();
     expect(innerBox?.inlineSize).toBe(50); // 5 chars × 10px
@@ -114,7 +120,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r4 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    const out = r4.box;
     const innerBox = findBoxByKey(out, "b");
     expect(innerBox).not.toBeNull();
     expect(innerBox?.inlineSize).toBe(10); // minClusterInlineSize = charWidth = 10
@@ -157,7 +165,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out = r5.box;
     const flBox = findBoxByKey(out, "fl");
     expect(flBox).not.toBeNull();
     // Float is clamped to available (200) since maxContent=400 > available=200.
@@ -181,7 +191,9 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r6 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out = r6.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
     // Must be exactly 200, NOT 30 (shrink-to-fit) and NOT 500 (fill).
@@ -201,7 +213,9 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r7 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r7.box === null) throw new Error("layoutBlock returned null box");
+    const out = r7.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
     // 800px — uses maxContent directly, no clamping to the 500px container.
@@ -225,7 +239,9 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r8 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r8.box === null) throw new Error("layoutBlock returned null box");
+    const out = r8.box;
 
     const outerBox = findBoxByKeyFragment(out, "outer");
     expect(outerBox).not.toBeNull();

@@ -38,8 +38,14 @@ describe("Incremental wrap — reference equality", () => {
     // Use the SAME ctx.ifcStateCache for two layouts so the second sees the cache.
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
 
-    const out1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
-    const out2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r1.box === null) throw new Error("layoutBlock returned null box");
+    if (r1.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out1 = r1.box;
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    if (r2.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out2 = r2.box;
 
     // Lines should be reference-equal between out1 and out2 (cache hit).
     expect(out1.children.length).toBe(out2.children.length);
@@ -59,8 +65,14 @@ describe("Incremental wrap — reference equality", () => {
     const ctx1 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
     const ctx2 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
 
-    const out1 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
-    const out2 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    if (r3.box === null) throw new Error("layoutBlock returned null box");
+    if (r3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out1 = r3.box;
+    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    if (r4.box === null) throw new Error("layoutBlock returned null box");
+    if (r4.box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    const out2 = r4.box;
 
     // Different widths → wraps differ → not reference-equal.
     if (out1.children[0].type === "line" && out2.children[0].type === "line") {
@@ -79,7 +91,9 @@ describe("Incremental wrap — reference equality", () => {
     const cascaded = cascadePass(doc) as ElementBox;
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
 
-    const out1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r5.box === null) throw new Error("layoutBlock returned null box");
+    const out1 = r5.box;
 
     // Simulate an insertion in p1: adding a word changes token count → different ids.
     // Token ids are "{sourceKey}:{charOffset}", so adding "extra " shifts offsets.
@@ -91,7 +105,9 @@ describe("Incremental wrap — reference equality", () => {
     // This is needed for the cache to work correctly with stricter token equality.
     const cascadedEdited = cascadePassIncremental(docEdited, doc, cascaded) as ElementBox;
 
-    const out2 = layoutBlock(cascadedEdited, 0, 0, ctx, shaper);
+    const r6 = layoutBlock(cascadedEdited, 0, 0, ctx, shaper);
+    if (r6.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r6.box;
 
     // p2's lines should be reference-equal (same key + tokens + width → cache hit).
     const p2Box1 = findBoxByKey(out1, "p2") as BlockBox | null;

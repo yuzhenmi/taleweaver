@@ -71,9 +71,14 @@ export function layoutTreeIncremental(
 
     let result: LayoutBox;
     switch (cs.display) {
-      case "block":
-        result = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+      case "block": {
+        const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+        if (blockResult.box === null) {
+          throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
+        }
+        result = blockResult.box;
         break;
+      }
       case "table":
         result = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
         break;

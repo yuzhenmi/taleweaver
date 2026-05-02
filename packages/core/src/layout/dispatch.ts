@@ -46,9 +46,14 @@ export function layoutTree(
 
     let result: LayoutBox;
     switch (cs.display) {
-      case "block":
-        result = layoutBlock(layoutRoot, 0, 0, ctx, shaper);
+      case "block": {
+        const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper);
+        if (blockResult.box === null) {
+          throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
+        }
+        result = blockResult.box;
         break;
+      }
       case "table":
         result = layoutTable(layoutRoot, 0, 0, ctx, shaper);
         break;
