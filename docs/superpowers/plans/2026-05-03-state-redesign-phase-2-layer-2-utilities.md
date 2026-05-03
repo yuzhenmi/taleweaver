@@ -233,6 +233,19 @@ describe("prevBlockInDocOrder", () => {
     const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
     expect(prevBlockInDocOrder(state, "missing" as BlockId)).toBeNull();
   });
+
+  it("returns the parent when this is the first child of root with siblings present", () => {
+    // Confirms parent-return path even when there are subsequent siblings.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe("doc");
+  });
 });
 ```
 
@@ -277,7 +290,7 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- block-traversal`
-Expected: PASS (9 tests in `block-traversal.test.ts`).
+Expected: PASS (10 tests in `block-traversal.test.ts`).
 
 - [ ] **Step 5: Commit**
 
@@ -352,16 +365,20 @@ Append to `block-traversal.ts`:
  * Build the ancestor chain from a block up to and including the root.
  * Returns [blockId, parentId, grandparentId, ..., rootId].
  * Returns an empty array if blockId does not exist in state.
+ * Throws if a parentId mid-walk references a missing block (malformed
+ * state) — silently truncating would mask state corruption.
  */
 export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
+  if (!state.blocks.has(blockId)) return [];
   const result: BlockId[] = [];
   let current: BlockId | null = blockId;
   while (current) {
     const block = state.blocks.get(current);
     if (!block) {
-      // If the starting id doesn't resolve, return empty.
-      // (Mid-walk this can't happen because parent ids come from existing blocks.)
-      return result.length === 0 ? [] : result;
+      throw new Error(
+        `ancestorChain: parentId "${current}" references a missing block ` +
+        `(malformed state, partial chain: [${result.join(", ")}])`,
+      );
     }
     result.push(current);
     current = block.parentId;
@@ -373,7 +390,7 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- block-traversal`
-Expected: PASS (12 tests in `block-traversal.test.ts`).
+Expected: PASS (13 tests in `block-traversal.test.ts`).
 
 - [ ] **Step 5: Commit**
 
@@ -509,7 +526,7 @@ export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- block-traversal`
-Expected: PASS (18 tests in `block-traversal.test.ts`).
+Expected: PASS (19 tests in `block-traversal.test.ts`).
 
 - [ ] **Step 5: Commit**
 
@@ -615,6 +632,24 @@ describe("compareBlocksInDocOrder", () => {
     });
     expect(() => compareBlocksInDocOrder(state, "a" as BlockId, "b" as BlockId)).toThrow();
   });
+
+  it("compares correctly when one block is much deeper than the other (asymmetric chains)", () => {
+    // doc > [shallow, outer > section > subsection > deep]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "shallow", lastChildId: "outer" }),
+        buildBlock({ id: "shallow", type: "paragraph", parentId: "doc", nextSiblingId: "outer", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "outer", type: "section", parentId: "doc", prevSiblingId: "shallow", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "outer", firstChildId: "subsection", lastChildId: "subsection" }),
+        buildBlock({ id: "subsection", type: "section", parentId: "section", firstChildId: "deep", lastChildId: "deep" }),
+        buildBlock({ id: "deep", type: "paragraph", parentId: "subsection", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    // shallow chain depth = 2 (shallow, doc); deep chain depth = 5 (deep, subsection, section, outer, doc).
+    expect(compareBlocksInDocOrder(state, "shallow" as BlockId, "deep" as BlockId)).toBeLessThan(0);
+    expect(compareBlocksInDocOrder(state, "deep" as BlockId, "shallow" as BlockId)).toBeGreaterThan(0);
+  });
 });
 ```
 
@@ -704,7 +739,7 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test --workspace=packages/core -- block-compare`
-Expected: PASS (9 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -795,7 +830,7 @@ export function comparePositions(state: State, a: Position, b: Position): number
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- block-compare`
-Expected: PASS (12 tests in `block-compare.test.ts`).
+Expected: PASS (13 tests in `block-compare.test.ts`).
 
 - [ ] **Step 5: Commit**
 
@@ -911,7 +946,7 @@ export function selectionContextOf(state: State, blockId: BlockId): BlockId | nu
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- block-compare`
-Expected: PASS (16 tests in `block-compare.test.ts`).
+Expected: PASS (17 tests in `block-compare.test.ts`).
 
 - [ ] **Step 5: Commit**
 
@@ -1022,11 +1057,15 @@ Expected: FAIL — module not found.
 import type { State } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
-import { comparePositions } from "./block-compare";
+import { comparePositions, selectionContextOf } from "./block-compare";
 
 /**
  * Normalize a span so anchor comes before focus in document order.
  * If already normalized, returns the same Span object reference.
+ *
+ * Precondition: anchor and focus must be in the same selection context.
+ * comparePositions throws via compareBlocksInDocOrder if they have no
+ * common ancestor (different roots).
  */
 export function normalizeSpan(state: State, span: Span): Span {
   if (comparePositions(state, span.anchor, span.focus) <= 0) return span;
@@ -1139,7 +1178,7 @@ describe("iterateSpan", () => {
     expect(ranges[1].block.id).toBe("p2");
   });
 
-  it("yields nothing for a collapsed span (anchor === focus)", () => {
+  it("yields a single zero-width range for a collapsed span (anchor === focus)", () => {
     const state = fixture();
     const pos = createPosition("p1" as BlockId, 3);
     const span = createSpan(pos, pos);
@@ -1147,6 +1186,35 @@ describe("iterateSpan", () => {
     expect(ranges).toHaveLength(1);
     expect(ranges[0].rangeStart).toBe(3);
     expect(ranges[0].rangeEnd).toBe(3);
+  });
+
+  it("throws when anchor or focus is on a container block (not a leaf)", () => {
+    // doc > section > p1 — section is a container with no inlineContent.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const onContainer = createSpan(createPosition("s" as BlockId, 0), createPosition("p1" as BlockId, 1));
+    expect(() => [...iterateSpan(state, onContainer)]).toThrow(/container/);
+  });
+
+  it("throws when anchor and focus are in different selection contexts", () => {
+    // Two roots — anchor in main doc, focus in a separate sub-tree.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        // Footnote-body sub-tree with its own root (parentId = null).
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    expect(() => [...iterateSpan(state, cross)]).toThrow(/different selection contexts/);
   });
 });
 ```
@@ -1187,9 +1255,38 @@ export interface BlockRange {
  *
  * The span is normalized first (anchor before focus in document order).
  *
- * Throws if anchor or focus references a block that doesn't exist.
+ * Preconditions (each throws on violation):
+ *   - Both endpoints reference existing blocks.
+ *   - Both endpoints reference leaf blocks (with inlineContent). A span
+ *     endpoint on a container is nonsensical (offsets don't apply to
+ *     containers) and would silently produce a backwards or empty range.
+ *   - Both endpoints are in the same selection context (same root via
+ *     parentId chain). Cross-context spans are not supported in the data
+ *     model; the action-handler layer is responsible for rejecting or
+ *     collapsing them, but this function defends against bad input.
  */
 export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
+  // Pre-normalize precondition checks (validate raw endpoints before
+  // normalizeSpan does cross-block compare, which itself requires same-context).
+  const anchorBlockRaw = state.blocks.get(span.anchor.blockId);
+  const focusBlockRaw = state.blocks.get(span.focus.blockId);
+  if (!anchorBlockRaw) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
+  if (!focusBlockRaw) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
+  if (!anchorBlockRaw.inlineContent) {
+    throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" is a container, not a leaf`);
+  }
+  if (!focusBlockRaw.inlineContent) {
+    throw new Error(`iterateSpan: focus block "${span.focus.blockId}" is a container, not a leaf`);
+  }
+  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
+  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  if (anchorCtx !== focusCtx) {
+    throw new Error(
+      `iterateSpan: anchor and focus are in different selection contexts ` +
+      `("${anchorCtx}" vs "${focusCtx}")`,
+    );
+  }
+
   const normalized = normalizeSpan(state, span);
 
   if (normalized.anchor.blockId === normalized.focus.blockId) {
@@ -1233,7 +1330,7 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- span-iteration`
-Expected: PASS (10 tests in `span-iteration.test.ts`).
+Expected: PASS (12 tests in `span-iteration.test.ts` — the original 5 normalizeSpan tests plus 7 iterateSpan tests including precondition errors).
 
 - [ ] **Step 5: Commit**
 
@@ -1312,6 +1409,49 @@ describe("iterateBlocksInSpan", () => {
     const blocks = [...iterateBlocksInSpan(state, span)];
     expect(blocks.map((b) => b.id)).toEqual(["p1"]);
   });
+
+  it("supports container-block endpoints (anchor on a section, focus on a leaf)", () => {
+    const state = fixture();
+    // Selecting from s1 to p3 — used by 'wrap in section' / 'set page-break' style ops.
+    const span = createSpan(createPosition("s1" as BlockId, 0), createPosition("p3" as BlockId, 0));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    // Doc-order from s1: s1, p1, p2, s2, p3.
+    expect(blocks.map((b) => b.id)).toEqual(["s1", "p1", "p2", "s2", "p3"]);
+  });
+
+  it("yields a deeply-nested cross-subtree range", () => {
+    // doc > [outer1 > [s1 > [p1, p2]], outer2 > [s2 > [p3]]]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "o1", lastChildId: "o2" }),
+        buildBlock({ id: "o1", type: "section", parentId: "doc", nextSiblingId: "o2", firstChildId: "s1", lastChildId: "s1" }),
+        buildBlock({ id: "s1", type: "section", parentId: "o1", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "o2", type: "section", parentId: "doc", prevSiblingId: "o1", firstChildId: "s2", lastChildId: "s2" }),
+        buildBlock({ id: "s2", type: "section", parentId: "o2", firstChildId: "p3", lastChildId: "p3" }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: createInlineContent([text("c")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    // p1, p2, o2, s2, p3 — note o2 (container) appears before its first child s2.
+    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "o2", "s2", "p3"]);
+  });
+
+  it("throws when anchor and focus are in different selection contexts", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    expect(() => [...iterateBlocksInSpan(state, cross)]).toThrow(/different selection contexts/);
+  });
 });
 ```
 
@@ -1331,11 +1471,33 @@ Append to `span-iteration.ts`:
  * containers (e.g., set page-break-before, wrap in section).
  *
  * Difference from iterateSpan: yields containers, no per-block range
- * (the consumer touches whole blocks).
+ * (the consumer touches whole blocks). Endpoints MAY be containers —
+ * unlike iterateSpan, container-block endpoints are valid here.
+ *
+ * Precondition: anchor and focus must be in the same selection context.
+ * Throws otherwise. (Cross-context spans would walk to end-of-document
+ * without ever reaching focus, silently producing the wrong block list.)
  *
  * The span is normalized first.
  */
 export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> {
+  // Pre-normalize precondition checks (must validate before normalizeSpan
+  // runs cross-block compare, which itself requires same-context).
+  if (!state.blocks.has(span.anchor.blockId)) {
+    throw new Error(`iterateBlocksInSpan: anchor block "${span.anchor.blockId}" not found`);
+  }
+  if (!state.blocks.has(span.focus.blockId)) {
+    throw new Error(`iterateBlocksInSpan: focus block "${span.focus.blockId}" not found`);
+  }
+  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
+  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  if (anchorCtx !== focusCtx) {
+    throw new Error(
+      `iterateBlocksInSpan: anchor and focus are in different selection contexts ` +
+      `("${anchorCtx}" vs "${focusCtx}")`,
+    );
+  }
+
   const normalized = normalizeSpan(state, span);
 
   const anchorBlock = state.blocks.get(normalized.anchor.blockId);
@@ -1357,7 +1519,7 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- span-iteration`
-Expected: PASS (14 tests in `span-iteration.test.ts`).
+Expected: PASS (19 tests in `span-iteration.test.ts` — the previous 12 plus 7 iterateBlocksInSpan tests including container endpoint, deeply-nested, and cross-context).
 
 - [ ] **Step 5: Commit**
 
@@ -1476,6 +1638,21 @@ describe("extractText", () => {
     const span = createSpan(pos, pos);
     expect(extractText(state, span)).toBe("");
   });
+
+  it("emits a trailing newline when a multi-block span ends at offset 0 of the focus block", () => {
+    // This locks in the Word/Google Docs convention for "select to start
+    // of next paragraph" — the trailing \n represents the paragraph break.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
+    expect(extractText(state, span)).toBe("hello\n");
+  });
 });
 ```
 
@@ -1549,7 +1726,7 @@ function extractTextFromBlock(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test --workspace=packages/core -- new-extract-text`
-Expected: PASS (6 tests).
+Expected: PASS (7 tests, including the trailing-newline lock-in).
 
 - [ ] **Step 5: Commit**
 
@@ -1587,7 +1764,7 @@ If it fails, fix errors before continuing. Common issues:
 - [ ] **Step 2: Run the full test suite**
 
 Run: `npm test --workspace=packages/core`
-Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Test count should be ~40-50 higher than at the end of Phase 1 (which was 902 tests, 898 passing + 4 skipped).
+Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Phase 2 adds approximately 56 new tests (19 block-traversal + 17 block-compare + 19 span-iteration + 7 new-extract-text). Total should be ~958 tests passing + 4 skipped, up from Phase 1's 902.
 
 If existing tests fail, that means we accidentally modified something. Phase 2 is purely additive; nothing existing should break.
 
