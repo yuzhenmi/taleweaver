@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { compareBlocksInDocOrder } from "./block-compare";
+import { compareBlocksInDocOrder, comparePositions } from "./block-compare";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
+import { createPosition } from "./block-position";
 import type { BlockId } from "./block-id";
 
 describe("compareBlocksInDocOrder", () => {
@@ -160,5 +161,34 @@ describe("compareBlocksInDocOrder", () => {
     // shallow chain depth = 2 (shallow, doc); deep chain depth = 5 (deep, subsection, section, outer, doc).
     expect(compareBlocksInDocOrder(state, "shallow" as BlockId, "deep" as BlockId)).toBeLessThan(0);
     expect(compareBlocksInDocOrder(state, "deep" as BlockId, "shallow" as BlockId)).toBeGreaterThan(0);
+  });
+});
+
+describe("comparePositions", () => {
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("compares offsets within the same block", () => {
+    const state = fixture();
+    const a = createPosition("p1" as BlockId, 1);
+    const b = createPosition("p1" as BlockId, 5);
+    expect(comparePositions(state, a, b)).toBeLessThan(0);
+    expect(comparePositions(state, b, a)).toBeGreaterThan(0);
+    expect(comparePositions(state, a, a)).toBe(0);
+  });
+
+  it("delegates to compareBlocksInDocOrder when blocks differ", () => {
+    const state = fixture();
+    const a = createPosition("p1" as BlockId, 5);
+    const b = createPosition("p2" as BlockId, 0);
+    expect(comparePositions(state, a, b)).toBeLessThan(0);
+    expect(comparePositions(state, b, a)).toBeGreaterThan(0);
   });
 });

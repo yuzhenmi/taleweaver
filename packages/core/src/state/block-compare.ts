@@ -1,5 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
+import type { Position } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 
 /**
@@ -69,4 +70,14 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
   throw new Error(
     `compareBlocksInDocOrder: branches "${chainA[i]}" / "${chainB[j]}" not found in LCA "${lcaId}" children`,
   );
+}
+
+/**
+ * Compare two positions in document order.
+ * Same block: compare offsets.
+ * Different blocks: delegate to compareBlocksInDocOrder.
+ */
+export function comparePositions(state: State, a: Position, b: Position): number {
+  if (a.blockId === b.blockId) return a.offset - b.offset;
+  return compareBlocksInDocOrder(state, a.blockId, b.blockId);
 }
