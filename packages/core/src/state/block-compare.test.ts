@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareBlocksInDocOrder, comparePositions } from "./block-compare";
+import { compareBlocksInDocOrder, comparePositions, selectionContextOf } from "./block-compare";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition } from "./block-position";
@@ -190,5 +190,48 @@ describe("comparePositions", () => {
     const b = createPosition("p2" as BlockId, 0);
     expect(comparePositions(state, a, b)).toBeLessThan(0);
     expect(comparePositions(state, b, a)).toBeGreaterThan(0);
+  });
+});
+
+describe("selectionContextOf", () => {
+  it("returns the root id when called on the root", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [buildBlock({ id: "doc", type: "document" })],
+    });
+    expect(selectionContextOf(state, "doc" as BlockId)).toBe("doc");
+  });
+
+  it("walks parentId to find the context root", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    expect(selectionContextOf(state, "p" as BlockId)).toBe("doc");
+    expect(selectionContextOf(state, "s" as BlockId)).toBe("doc");
+  });
+
+  it("returns null when called on a non-existent id", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(selectionContextOf(state, "missing" as BlockId)).toBeNull();
+  });
+
+  it("returns the block's own root when it is an orphan (parentId === null)", () => {
+    // For Phase 2, all blocks are reachable from state.rootId (no embed-content
+    // sub-trees yet). Future phases will add embed-content blocks with
+    // parentId === null; selectionContextOf should return them as their own
+    // context root.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document" }),
+        buildBlock({ id: "orphan", type: "footnote-body", inlineContent: createInlineContent([]) }), // parentId defaults to null
+      ],
+    });
+    expect(selectionContextOf(state, "orphan" as BlockId)).toBe("orphan");
   });
 });

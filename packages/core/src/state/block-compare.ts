@@ -81,3 +81,29 @@ export function comparePositions(state: State, a: Position, b: Position): number
   if (a.blockId === b.blockId) return a.offset - b.offset;
   return compareBlocksInDocOrder(state, a.blockId, b.blockId);
 }
+
+/**
+ * Return the id of the selection-context root for the given block.
+ *
+ * A "selection context" is the root of a sub-tree within which selections
+ * may extend (main document body, OR one specific footnote body, etc.).
+ * Cross-context spans are not supported.
+ *
+ * Implementation: walk parentId until null; return the topmost block id.
+ * For Phase 2, this is always state.rootId because embed-content sub-trees
+ * (with parentId === null) don't exist yet. Future phases will introduce
+ * such sub-trees; this function will then correctly return their own root
+ * ids as separate contexts.
+ *
+ * Returns null if blockId does not exist.
+ */
+export function selectionContextOf(state: State, blockId: BlockId): BlockId | null {
+  let cursor = state.blocks.get(blockId);
+  if (!cursor) return null;
+  while (cursor.parentId) {
+    const parent = state.blocks.get(cursor.parentId);
+    if (!parent) break;
+    cursor = parent;
+  }
+  return cursor.id;
+}
