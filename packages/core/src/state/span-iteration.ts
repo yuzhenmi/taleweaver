@@ -2,6 +2,9 @@ import type { State } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
+import type { Block } from "./block";
+import { inlineContentLength } from "./inline-content";
+import { nextBlockInDocOrder } from "./block-traversal";
 
 /**
  * Normalize a span so anchor comes before focus in document order.
@@ -14,4 +17,97 @@ import { comparePositions, selectionContextOf } from "./block-compare";
 export function normalizeSpan(state: State, span: Span): Span {
   if (comparePositions(state, span.anchor, span.focus) <= 0) return span;
   return createSpan(span.focus, span.anchor);
+}
+
+/**
+ * Per-leaf-block range yielded by iterateSpan.
+ */
+export interface BlockRange {
+  block: Block;
+  rangeStart: number;
+  rangeEnd: number;
+}
+
+/**
+ * Yield per-leaf-block ranges for a span in document order.
+ *
+ * Same-block span: yields once with the offset range.
+ * Cross-block span: yields anchor block from anchor.offset to end-of-block,
+ *   then each intervening leaf block fully (range 0..length), then focus
+ *   block from 0 to focus.offset.
+ *
+ * Container blocks (no inlineContent) encountered between anchor and focus
+ * are skipped — only leaves contribute ranges.
+ *
+ * The span is normalized first (anchor before focus in document order).
+ *
+ * Preconditions (each throws on violation):
+ *   - Both endpoints reference existing blocks.
+ *   - Both endpoints reference leaf blocks (with inlineContent). A span
+ *     endpoint on a container is nonsensical (offsets don't apply to
+ *     containers) and would silently produce a backwards or empty range.
+ *   - Both endpoints are in the same selection context (same root via
+ *     parentId chain). Cross-context spans are not supported in the data
+ *     model; the action-handler layer is responsible for rejecting or
+ *     collapsing them, but this function defends against bad input.
+ */
+export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
+  // Pre-normalize precondition checks (validate raw endpoints before
+  // normalizeSpan does cross-block compare, which itself requires same-context).
+  const anchorBlockRaw = state.blocks.get(span.anchor.blockId);
+  const focusBlockRaw = state.blocks.get(span.focus.blockId);
+  if (!anchorBlockRaw) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
+  if (!focusBlockRaw) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
+  if (!anchorBlockRaw.inlineContent) {
+    throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" is a container, not a leaf`);
+  }
+  if (!focusBlockRaw.inlineContent) {
+    throw new Error(`iterateSpan: focus block "${span.focus.blockId}" is a container, not a leaf`);
+  }
+  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
+  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  if (anchorCtx !== focusCtx) {
+    throw new Error(
+      `iterateSpan: anchor and focus are in different selection contexts ` +
+      `("${anchorCtx}" vs "${focusCtx}")`,
+    );
+  }
+
+  const normalized = normalizeSpan(state, span);
+
+  if (normalized.anchor.blockId === normalized.focus.blockId) {
+    const block = state.blocks.get(normalized.anchor.blockId);
+    if (!block) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
+    yield { block, rangeStart: normalized.anchor.offset, rangeEnd: normalized.focus.offset };
+    return;
+  }
+
+  const anchorBlock = state.blocks.get(normalized.anchor.blockId);
+  const focusBlock = state.blocks.get(normalized.focus.blockId);
+  if (!anchorBlock) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
+  if (!focusBlock) throw new Error(`iterateSpan: block "${normalized.focus.blockId}" not found`);
+
+  // Anchor block: from anchor.offset to end-of-block.
+  yield {
+    block: anchorBlock,
+    rangeStart: normalized.anchor.offset,
+    rangeEnd: anchorBlock.inlineContent ? inlineContentLength(anchorBlock.inlineContent) : 0,
+  };
+
+  // Walk intervening blocks via nextBlockInDocOrder, yielding leaves fully.
+  let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
+  while (currentId && currentId !== normalized.focus.blockId) {
+    const current = state.blocks.get(currentId);
+    if (current && current.inlineContent) {
+      yield {
+        block: current,
+        rangeStart: 0,
+        rangeEnd: inlineContentLength(current.inlineContent),
+      };
+    }
+    currentId = nextBlockInDocOrder(state, currentId);
+  }
+
+  // Focus block: from 0 to focus.offset.
+  yield { block: focusBlock, rangeStart: 0, rangeEnd: normalized.focus.offset };
 }
