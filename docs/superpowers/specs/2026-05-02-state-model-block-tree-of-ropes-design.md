@@ -155,33 +155,40 @@ This matches Google Docs' `document.footnotes` referenced from inline `FootnoteR
 
 State attributes are open-ended `Record<string, unknown>` at every level (block-level `Block.attrs`, inline-level `TextItem.attrs` / `EmbedItem.attrs`). Any key, any value. Plugins can introduce new attribute types without changing core types.
 
-The cascade pass translates state attributes into `ComputedStyle` (closed schema) via **registered interpreters**, one per attribute key:
+The cascade pass translates state attributes into the declarable `Style` (open property values that the cascade then resolves to `ComputedStyle`) via **registered interpreters**, one per attribute key:
 
 ```typescript
 interface AttrInterpreter {
   attrKey: string;
-  toComputedStyle: (value: unknown, ctx: CascadeContext) => Partial<ComputedStyle>;
+  toStyle: (value: unknown, ctx: CascadeContext) => Partial<Style>;
   equals?: (a: unknown, b: unknown) => boolean;   // optional; default: deep value equality
 }
 
 // Built-in interpreters registered by the standard text-style plugin:
 registerAttr({
   attrKey: "bold",
-  toComputedStyle: (value) => value ? { fontWeight: "bold" } : {},
+  toStyle: (value) => value ? { fontWeight: "bold" } : {},
 });
 registerAttr({
   attrKey: "fontSize",
-  toComputedStyle: (value) => ({ fontSize: typeof value === "number" ? `${value}pt` : "inherit" }),
+  toStyle: (value) =>
+    typeof value === "number"
+      ? { fontSize: value }                                 // number = px shorthand per Length
+      : (typeof value === "object" && value !== null)
+        ? { fontSize: value as Length }                     // structured Length: { unit, value }
+        : {},
 });
 
 // A "highlight" plugin can register its own:
 registerAttr({
   attrKey: "highlight",
-  toComputedStyle: (value) => ({ backgroundColor: value as string }),
+  toStyle: (value) => typeof value === "string" ? { backgroundColor: value } : {},
 });
 ```
 
-The cascade walks each item's `attrs`, looks up the interpreter for each key, calls it, and merges all contributions into the item's `ComputedStyle`. Multiple plugins can independently contribute to the same `ComputedStyle` property; contributions merge in registration order.
+Why `Partial<Style>` and not `Partial<ComputedStyle>`: the existing cascade machinery (em/rem resolution, inheritance, length flattening) operates on declarable `Style` and produces `ComputedStyle`. Interpreters can't know the resolved-px value of a `1.2em` font-size without parent context, but they CAN emit a declarable Length and let the existing cascade resolve it. This keeps the resolution pipeline in one place.
+
+The cascade walks each item's `attrs` keys in order, looks up the interpreter for each key, calls it, and merges all contributions into the item's accumulated `Partial<Style>`. **Iteration order matches the order of keys in the `attrs` object**, so later attr keys override earlier ones for the same `Style` property — this matches authorial intent ("the last value wins") and is plugin-stable (registering a new interpreter doesn't shift the cascade order of unrelated existing attrs).
 
 This model unifies block-level and inline-level attribute handling — same registry, same interpretation pass, just applied at different levels of the tree.
 
@@ -554,7 +561,7 @@ All ten open questions raised during the brainstorm have been resolved (2026-05-
 
 6. ~~**Long-paragraph guardrail.**~~ **DECIDED 2026-05-02:** No guardrail. Long blocks allowed. O(N_block) edit cost accepted; documented in the data structures section.
 
-7. ~~**Attribute schema (open vs closed).**~~ **DECIDED 2026-05-02:** **Open schema at state level + closed schema at `ComputedStyle` (post-cascade) + registered interpreters per attribute key.** Default deep-value-equality for run-merging compare; interpreters can opt in to custom `equals`. No interning. See data structures section for full definition. Matches Notion's annotation-extensibility and ProseMirror's mark-extensibility patterns.
+7. ~~**Attribute schema (open vs closed).**~~ **DECIDED 2026-05-02:** **Open schema at state level + declarable `Style` produced by interpreters + closed `ComputedStyle` produced by the cascade's existing resolution machinery.** Interpreters return `Partial<Style>` (declarable) — the existing cascade pass takes their merged contribution as one of its inputs and resolves to `ComputedStyle` via em/rem resolution + inheritance + defaults (refined 2026-05-03; original phrasing said `Partial<ComputedStyle>` which would have forced interpreters to do their own px resolution without parent context). Default deep-value-equality for run-merging compare; interpreters can opt in to custom `equals`. No interning. See data structures section for full definition. Matches Notion's annotation-extensibility and ProseMirror's mark-extensibility patterns.
 
 8. ~~**Migration strategy.**~~ **DECIDED 2026-05-02:** **Feature branch with allowed-broken-intermediates.** All work happens on `feature/dom-architecture-redesign`. Intermediate commits may not build/pass tests; each commit is logically coherent. Each old file is deleted in the same commit that introduces its replacement (no `legacy/` subdirectory, no parallel implementations). Migration ends with a single greening commit. See "Migration strategy" section above for the full work order. No external consumers of `@taleweaver/core` need to be considered (confirmed by user).
 

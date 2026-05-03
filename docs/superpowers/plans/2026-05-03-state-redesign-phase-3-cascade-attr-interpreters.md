@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the **cascade attribute-interpreter pipeline** — the architectural piece that translates open-schema state attributes (`Block.attrs`, `TextItem.attrs`, `EmbedItem.attrs`) into closed-schema `ComputedStyle` contributions via per-attribute-key registered interpreters. This is the bridge between the open extensible attribute schema (Phase 1's `attrs.ts`) and the existing closed `ComputedStyle` consumed by layout. Phase 3 is purely additive — no existing files modified, build remains green throughout. The new registry and built-in interpreters are ready to be wired by the render-module rewrite in a subsequent phase.
+**Goal:** Add the **cascade attribute-interpreter pipeline** — the architectural piece that translates open-schema state attributes (`Block.attrs`, `TextItem.attrs`, `EmbedItem.attrs`) into declarable `Partial<Style>` contributions via per-attribute-key registered interpreters. The existing cascade pass takes the merged interpreter contribution as one of its inputs and runs em/rem resolution + inheritance + defaults to produce closed `ComputedStyle` (consumed by layout). This is the bridge between the open extensible attribute schema (Phase 1's `attrs.ts`) and the existing closed `ComputedStyle` consumed by layout. Phase 3 is purely additive — no existing files modified, build remains green throughout. The new registry and built-in interpreters are ready to be wired by the render-module rewrite in a subsequent phase.
 
-**Architecture:** Per the design spec at `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`, "Cascade attribute-interpreter pipeline" section. The registry is a singleton-style `AttrRegistry` exposing `register`, `get`, `applyAll`. Built-in interpreters cover the standard text styles (bold, italic, underline, fontFamily, fontSize, color, backgroundColor, etc.). Plugins register interpreters for new attributes (highlight, comment-range, change-tracking marks) without touching core types. The cascade pass calls `applyAll(attrs, ctx)` to get a `Partial<ComputedStyle>` contribution to merge into the node's resolved style.
+**Note on the contribution type (refined 2026-05-03 after pre-execution review):** interpreters return `Partial<Style>`, NOT `Partial<ComputedStyle>`. The existing `ComputedStyle.fontSize` is `number` (post-px-resolution) and `Color` may tighten to a parsed structure later — interpreters can't know parent-context-dependent resolved values, but they CAN emit declarable Style values that the existing cascade pipeline already knows how to resolve. The earlier draft of this plan and the spec's earlier wording said `ComputedStyle`; both are corrected to `Style`.
+
+**Architecture:** Per the design spec at `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`, "Cascade attribute-interpreter pipeline" section. The registry is a singleton-style `AttrRegistry` exposing `register`, `get`, `applyAll`. Built-in interpreters cover the standard text styles (bold, italic, underline, fontFamily, fontSize, color, backgroundColor, etc.). Plugins register interpreters for new attributes (highlight, comment-range, change-tracking marks) without touching core types. The cascade pass calls `applyAll(attrs, ctx)` to get a `Partial<Style>` contribution to merge into the node's declarable style; the existing cascade machinery then resolves the merged Style to ComputedStyle.
 
 **Tech Stack:** TypeScript 5.7, vitest 3.0, npm workspaces. Test runner: `npm test --workspace=packages/core`. Type checker: `npm run build --workspace=packages/core`.
 
-**Spec reference:** `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`. This plan implements the "Cascade attribute-interpreter pipeline" section (lines describing `AttrInterpreter`, `AttrRegistry`, the `attrKey → toComputedStyle` mapping, and the built-in registrations).
+**Spec reference:** `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`. This plan implements the "Cascade attribute-interpreter pipeline" section (lines describing `AttrInterpreter`, `AttrRegistry`, the `attrKey → toStyle` mapping, and the built-in registrations).
 
 **Phase 1 + 2 status (assumed complete):**
 - Phase 1 ended at commit `4230343` — Layer 1 types in `packages/core/src/state/{persistent-map, block-id, attrs, inline-content, block-position, block, state, new-initial-state}.ts` plus `test-utils/state-builders.ts`.
@@ -24,7 +26,7 @@
 - Per memory `feedback_no_auto_commit.md`: commit on user's behalf at the end of each task.
 - Type safety: no non-null assertions (`!`); use proper narrowing.
 
-**Note on current `Style` and `ComputedStyle` types:** The existing `packages/core/src/styles/` module defines `Style` (declarable) and `ComputedStyle` (post-cascade). `Style` is closed-schema. The interpreter pipeline produces `Partial<ComputedStyle>` contributions that merge into the cascade's running result. Phase 3 imports `ComputedStyle` (to use as the contribution type) but does NOT modify the styles module.
+**Note on current `Style` and `ComputedStyle` types:** The existing `packages/core/src/styles/` module defines `Style` (declarable; e.g., `fontSize?: Length` where `Length = number | { unit, value }`) and `ComputedStyle` (post-cascade; e.g., `fontSize: number` resolved-px). The interpreter pipeline produces `Partial<Style>` contributions that the cascade pass merges into its running result, then resolves to `ComputedStyle` via the existing em/rem resolution + inheritance + defaults machinery. Phase 3 imports `Style` (to use as the contribution type) but does NOT modify the styles module.
 
 ---
 
@@ -37,7 +39,7 @@
 | `packages/core/src/cascade/attr-registry.ts` | `AttrInterpreter` interface, `AttrRegistry` class with `register` / `get` / `has` / `applyAll`, default singleton instance `attrRegistry`. |
 | `packages/core/src/cascade/attr-registry.test.ts` | Unit tests for registry CRUD, applyAll merging semantics, and equality opt-in. |
 | `packages/core/src/cascade/builtin-attrs.ts` | Built-in interpreters for the standard text styles: bold, italic, underline, fontFamily, fontSize, color, backgroundColor. Plus `registerBuiltinAttrs(registry)` convenience that registers all of them. |
-| `packages/core/src/cascade/builtin-attrs.test.ts` | Unit tests for each built-in interpreter's `toComputedStyle` output. |
+| `packages/core/src/cascade/builtin-attrs.test.ts` | Unit tests for each built-in interpreter's `toStyle` output. |
 
 **Modified:** none (Phase 3 is purely additive).
 
@@ -62,17 +64,17 @@ describe("AttrInterpreter type", () => {
   it("can be implemented with the minimal required fields", () => {
     const i: AttrInterpreter = {
       attrKey: "bold",
-      toComputedStyle: (value) => (value ? { fontWeight: "bold" } : {}),
+      toStyle: (value) => (value ? { fontWeight: "bold" } : {}),
     };
     expect(i.attrKey).toBe("bold");
-    expect(i.toComputedStyle(true)).toEqual({ fontWeight: "bold" });
-    expect(i.toComputedStyle(false)).toEqual({});
+    expect(i.toStyle(true)).toEqual({ fontWeight: "bold" });
+    expect(i.toStyle(false)).toEqual({});
   });
 
   it("can include an optional equals function", () => {
     const i: AttrInterpreter = {
       attrKey: "comment",
-      toComputedStyle: () => ({}),
+      toStyle: () => ({}),
       equals: (a, b) => (a as { id: string }).id === (b as { id: string }).id,
     };
     expect(i.equals?.({ id: "c1", timestamp: 1 }, { id: "c1", timestamp: 2 })).toBe(true);
@@ -90,11 +92,14 @@ Expected: FAIL — module not found.
 
 ```typescript
 // packages/core/src/cascade/attr-registry.ts
-import type { ComputedStyle } from "../styles";
+import type { Style } from "../styles";
+import type { ReadonlyAttrs } from "../state/attrs";
 
 /**
  * An interpreter for one attribute key. Translates the open-schema
- * attribute value into a Partial<ComputedStyle> contribution.
+ * attribute value into a Partial<Style> contribution. The cascade pass
+ * merges these contributions and runs em/rem resolution + inheritance +
+ * defaults to produce the closed ComputedStyle.
  *
  * `equals` is optional: when present, it overrides default deep value
  * equality for run-merging compares (used by the inline-content normalizer
@@ -104,18 +109,24 @@ import type { ComputedStyle } from "../styles";
  */
 export interface AttrInterpreter {
   readonly attrKey: string;
-  toComputedStyle(value: unknown, ctx?: CascadeContext): Partial<ComputedStyle>;
+  toStyle(value: unknown, ctx?: CascadeContext): Partial<Style>;
   equals?(a: unknown, b: unknown): boolean;
 }
 
 /**
  * Cascade context — passed to interpreters that need information about
- * the surrounding cascade state (parent style for inheritance, etc.).
- * Phase 3 defines the type but doesn't yet populate it; later phases
- * extend it as cascade integration progresses.
+ * the surrounding cascade state.
+ *
+ * Phase 3 ships the minimal `parentStyle` field (the resolved declarable
+ * style of the parent block, useful for explicit inheritance flags). Later
+ * phases will extend this for more sophisticated needs:
+ *   - currentColor (needs own resolved color)
+ *   - em-relative sizing (needs own parent fontSize after resolution)
+ *   - root-relative units (needs root style)
+ *   - writing-mode-relative direction
  */
 export interface CascadeContext {
-  readonly parentComputedStyle?: ComputedStyle;
+  readonly parentStyle?: Partial<Style>;
 }
 ```
 
@@ -132,15 +143,18 @@ git commit -m "$(cat <<'EOF'
 feat(cascade): add AttrInterpreter and CascadeContext interfaces
 
 Phase 3 of state-model redesign. AttrInterpreter is the per-attribute-key
-contract used to translate open-schema attribute values into closed-schema
-ComputedStyle contributions. The optional equals() field lets interpreters
-opt into custom equality (rare; for cases like comment attributes whose
-timestamp shouldn't affect compare).
+contract used to translate open-schema attribute values into declarable
+Partial<Style> contributions. The cascade pass merges contributions
+across all interpreters whose key appears in attrs, then resolves to
+ComputedStyle via the existing em/rem resolution + inheritance + defaults
+machinery. The optional equals() field lets interpreters opt into custom
+equality (rare; for cases like comment attributes whose timestamp
+shouldn't affect compare).
 
 CascadeContext is the structure passed to interpreters that need
-information about the surrounding cascade state (parent style for
-inheritance). Defined now; populated by later phases as the cascade
-integration progresses.
+information about the surrounding cascade state. Phase 3 ships just
+parentStyle; later phases will extend for inheritance edge cases
+(currentColor, em-relative sizing, root-relative units, writing-mode).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -152,7 +166,7 @@ EOF
 **Working directory:** `/Users/hansyu/code/taleweaver/`
 **Branch:** `feature/dom-architecture-redesign` (commit directly here, no branch switching).
 
-**Where this fits:** Phase 3 task 1 of 9. The state module's open-schema attributes (Phase 1's `attrs.ts`) need a translation layer to produce closed-schema `ComputedStyle` consumed by layout. This task defines the interpreter type. Tasks 2-4 add the registry. Tasks 5-8 add built-in interpreters. Task 9 is verification + retrospective.
+**Where this fits:** Phase 3 task 1 of 9. The state module's open-schema attributes (Phase 1's `attrs.ts`) need a translation layer to produce declarable `Style` (which the existing cascade resolves to closed `ComputedStyle` consumed by layout). This task defines the interpreter type. Tasks 2-4 add the registry. Tasks 5-8 add built-in interpreters. Task 9 is verification + retrospective.
 
 **Important:** Phase 3 is purely additive. Modify only the two listed files. Do NOT modify the existing `cascade/cascade-pass.ts` or any file in `styles/`.
 
@@ -184,7 +198,7 @@ describe("AttrRegistry", () => {
     const r = new AttrRegistry();
     const i: AttrInterpreter = {
       attrKey: "bold",
-      toComputedStyle: (v) => (v ? { fontWeight: "bold" } : {}),
+      toStyle: (v) => (v ? { fontWeight: "bold" } : {}),
     };
     r.register(i);
     expect(r.has("bold")).toBe(true);
@@ -193,8 +207,8 @@ describe("AttrRegistry", () => {
 
   it("re-registering the same key replaces the previous interpreter", () => {
     const r = new AttrRegistry();
-    const i1: AttrInterpreter = { attrKey: "bold", toComputedStyle: () => ({}) };
-    const i2: AttrInterpreter = { attrKey: "bold", toComputedStyle: () => ({ fontWeight: "bold" }) };
+    const i1: AttrInterpreter = { attrKey: "bold", toStyle: () => ({}) };
+    const i2: AttrInterpreter = { attrKey: "bold", toStyle: () => ({ fontWeight: "bold" }) };
     r.register(i1);
     r.register(i2);
     expect(r.get("bold")).toBe(i2);
@@ -287,35 +301,47 @@ describe("AttrRegistry.applyAll", () => {
 
   it("invokes the interpreter for each registered attr key and merges contributions", () => {
     const r = new AttrRegistry();
-    r.register({ attrKey: "bold", toComputedStyle: (v) => (v ? { fontWeight: "bold" } : {}) });
-    r.register({ attrKey: "italic", toComputedStyle: (v) => (v ? { fontStyle: "italic" } : {}) });
+    r.register({ attrKey: "bold", toStyle: (v) => (v ? { fontWeight: "bold" } : {}) });
+    r.register({ attrKey: "italic", toStyle: (v) => (v ? { fontStyle: "italic" } : {}) });
 
     const attrs: ReadonlyAttrs = { bold: true, italic: true };
     expect(r.applyAll(attrs)).toEqual({ fontWeight: "bold", fontStyle: "italic" });
   });
 
-  it("later contributions override earlier ones for the same ComputedStyle property", () => {
+  it("later attr keys override earlier attr keys for the same Style property (attrs-key order)", () => {
+    // Iteration is over the attrs object's keys, NOT the registry's
+    // registration order. This makes the override winner depend on
+    // authorial intent (the order keys appear in the attrs object),
+    // not on which plugin loaded first. Plugin-stable.
     const r = new AttrRegistry();
-    r.register({ attrKey: "link", toComputedStyle: () => ({ color: "blue" }) });
-    r.register({ attrKey: "visitedLink", toComputedStyle: () => ({ color: "purple" }) });
+    r.register({ attrKey: "link", toStyle: () => ({ color: "blue" }) });
+    r.register({ attrKey: "visitedLink", toStyle: () => ({ color: "purple" }) });
 
-    // Iteration order matches Map insertion order; visitedLink registered last,
-    // so its contribution overrides.
-    const attrs: ReadonlyAttrs = { link: true, visitedLink: true };
-    expect(r.applyAll(attrs)).toEqual({ color: "purple" });
+    // Same registry; different attrs-key orders → different results.
+    const linkFirst: ReadonlyAttrs = { link: true, visitedLink: true };
+    const visitedFirst: ReadonlyAttrs = { visitedLink: true, link: true };
+    expect(r.applyAll(linkFirst)).toEqual({ color: "purple" });    // visitedLink last → wins
+    expect(r.applyAll(visitedFirst)).toEqual({ color: "blue" });   // link last → wins
+  });
+
+  it("ignores attrs whose value is undefined (treats them as absent)", () => {
+    const r = new AttrRegistry();
+    r.register({ attrKey: "bold", toStyle: (v) => (v ? { fontWeight: "bold" } : {}) });
+    // The interpreter sees `undefined` and returns {} (its falsy branch).
+    expect(r.applyAll({ bold: undefined })).toEqual({});
   });
 
   it("passes the cascade context through to interpreters when provided", () => {
     const r = new AttrRegistry();
     r.register({
       attrKey: "inheritedColor",
-      toComputedStyle: (_value, ctx) => ({ color: ctx?.parentComputedStyle?.color ?? "black" }),
+      toStyle: (_value, ctx) => ({ color: ctx?.parentStyle?.color ?? "black" }),
     });
     expect(r.applyAll({ inheritedColor: true })).toEqual({ color: "black" });
     expect(
       r.applyAll(
         { inheritedColor: true },
-        { parentComputedStyle: { color: "red" } as never },
+        { parentStyle: { color: "red" } },
       ),
     ).toEqual({ color: "red" });
   });
@@ -333,16 +359,21 @@ Add to `AttrRegistry` class in `attr-registry.ts` (extend the class body — do 
 
 ```typescript
   /**
-   * Run all registered interpreters whose attrKey matches a key in `attrs`.
-   * Merge contributions into a single Partial<ComputedStyle>. Later
-   * contributions override earlier ones for the same ComputedStyle property
-   * (per the registry's iteration order, which is registration order).
+   * Run interpreters for each key in `attrs` (in attrs-object iteration
+   * order, which is insertion order for plain objects). Merge contributions
+   * into a single Partial<Style>. Later attrs keys override earlier ones
+   * for the same Style property — this matches authorial intent ("the last
+   * value wins") and is plugin-stable (registering a new interpreter
+   * doesn't shift the cascade order of unrelated existing attrs).
+   *
+   * Keys with no registered interpreter are skipped silently.
    */
-  applyAll(attrs: import("../state/attrs").ReadonlyAttrs, ctx?: CascadeContext): Partial<ComputedStyle> {
-    const out: Partial<ComputedStyle> = {};
-    for (const [key, interpreter] of this.interpreters) {
-      if (!(key in attrs)) continue;
-      const contribution = interpreter.toComputedStyle(attrs[key], ctx);
+  applyAll(attrs: ReadonlyAttrs, ctx?: CascadeContext): Partial<Style> {
+    const out: Partial<Style> = {};
+    for (const key of Object.keys(attrs)) {
+      const interpreter = this.interpreters.get(key);
+      if (!interpreter) continue;
+      const contribution = interpreter.toStyle(attrs[key], ctx);
       Object.assign(out, contribution);
     }
     return out;
@@ -352,7 +383,9 @@ Add to `AttrRegistry` class in `attr-registry.ts` (extend the class body — do 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- attr-registry`
-Expected: PASS (10 tests in `attr-registry.test.ts`).
+Expected: PASS (11 tests in `attr-registry.test.ts` — 5 from prior tasks + 6 new).
+
+Note: also requires the import block at the top of `attr-registry.ts` to be updated to include `ReadonlyAttrs` from `../state/attrs` if not already imported (Task 1 added it). If the existing top-of-file import doesn't include it, add `import type { ReadonlyAttrs } from "../state/attrs";` to the imports.
 
 - [ ] **Step 5: Commit**
 
@@ -361,10 +394,11 @@ git add packages/core/src/cascade/attr-registry.ts packages/core/src/cascade/att
 git commit -m "$(cat <<'EOF'
 feat(cascade): add AttrRegistry.applyAll merging
 
-Walks the registry's interpreters, runs each whose key appears in attrs,
-merges contributions into a single Partial<ComputedStyle>. Later
-contributions override earlier ones for the same property — matches
-registration order via Map iteration semantics.
+Iterates Object.keys(attrs) (NOT registry registration order — that
+would make plugin load order silently affect cascade). Runs each key's
+interpreter if registered, merges contributions into a single
+Partial<Style>. Later attrs keys override earlier ones for the same
+Style property — matches authorial intent and is plugin-stable.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -423,7 +457,7 @@ export const attrRegistry = new AttrRegistry();
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- attr-registry`
-Expected: PASS (12 tests in `attr-registry.test.ts`).
+Expected: PASS (13 tests in `attr-registry.test.ts` — 2 from Task 1 + 3 from Task 2 + 6 from Task 3 + 2 from this task).
 
 - [ ] **Step 5: Commit**
 
@@ -459,35 +493,35 @@ import { boldInterpreter, italicInterpreter, underlineInterpreter } from "./buil
 describe("boldInterpreter", () => {
   it("contributes fontWeight: bold for truthy values", () => {
     expect(boldInterpreter.attrKey).toBe("bold");
-    expect(boldInterpreter.toComputedStyle(true)).toEqual({ fontWeight: "bold" });
+    expect(boldInterpreter.toStyle(true)).toEqual({ fontWeight: "bold" });
   });
 
   it("contributes nothing for falsy values", () => {
-    expect(boldInterpreter.toComputedStyle(false)).toEqual({});
-    expect(boldInterpreter.toComputedStyle(undefined)).toEqual({});
-    expect(boldInterpreter.toComputedStyle(null)).toEqual({});
+    expect(boldInterpreter.toStyle(false)).toEqual({});
+    expect(boldInterpreter.toStyle(undefined)).toEqual({});
+    expect(boldInterpreter.toStyle(null)).toEqual({});
   });
 });
 
 describe("italicInterpreter", () => {
   it("contributes fontStyle: italic for truthy values", () => {
     expect(italicInterpreter.attrKey).toBe("italic");
-    expect(italicInterpreter.toComputedStyle(true)).toEqual({ fontStyle: "italic" });
+    expect(italicInterpreter.toStyle(true)).toEqual({ fontStyle: "italic" });
   });
 
   it("contributes nothing for falsy values", () => {
-    expect(italicInterpreter.toComputedStyle(false)).toEqual({});
+    expect(italicInterpreter.toStyle(false)).toEqual({});
   });
 });
 
 describe("underlineInterpreter", () => {
   it("contributes textDecoration: underline for truthy values", () => {
     expect(underlineInterpreter.attrKey).toBe("underline");
-    expect(underlineInterpreter.toComputedStyle(true)).toEqual({ textDecoration: "underline" });
+    expect(underlineInterpreter.toStyle(true)).toEqual({ textDecoration: "underline" });
   });
 
   it("contributes nothing for falsy values", () => {
-    expect(underlineInterpreter.toComputedStyle(false)).toEqual({});
+    expect(underlineInterpreter.toStyle(false)).toEqual({});
   });
 });
 ```
@@ -507,7 +541,7 @@ import type { AttrInterpreter } from "./attr-registry";
  * Built-in attribute interpreters for the standard text styles.
  *
  * Truthy / falsy convention: each boolean-valued style attribute
- * (bold, italic, underline) contributes the relevant ComputedStyle
+ * (bold, italic, underline) contributes the relevant Style
  * property when its value is truthy, and contributes nothing when
  * falsy. This lets attrs `{ bold: true }` toggle bold and
  * `{ bold: false }` (or removing the key) un-toggle it.
@@ -515,17 +549,17 @@ import type { AttrInterpreter } from "./attr-registry";
 
 export const boldInterpreter: AttrInterpreter = {
   attrKey: "bold",
-  toComputedStyle: (value) => (value ? { fontWeight: "bold" } : {}),
+  toStyle: (value) => (value ? { fontWeight: "bold" } : {}),
 };
 
 export const italicInterpreter: AttrInterpreter = {
   attrKey: "italic",
-  toComputedStyle: (value) => (value ? { fontStyle: "italic" } : {}),
+  toStyle: (value) => (value ? { fontStyle: "italic" } : {}),
 };
 
 export const underlineInterpreter: AttrInterpreter = {
   attrKey: "underline",
-  toComputedStyle: (value) => (value ? { textDecoration: "underline" } : {}),
+  toStyle: (value) => (value ? { textDecoration: "underline" } : {}),
 };
 ```
 
@@ -541,7 +575,7 @@ git add packages/core/src/cascade/builtin-attrs.ts packages/core/src/cascade/bui
 git commit -m "$(cat <<'EOF'
 feat(cascade): add bold/italic/underline built-in interpreters
 
-Each contributes the relevant ComputedStyle property when value is
+Each contributes the relevant Style property when value is
 truthy; nothing when falsy. Lets the open-schema attrs bag toggle
 these via { bold: true } / { bold: false }.
 
@@ -568,33 +602,38 @@ import { fontFamilyInterpreter, fontSizeInterpreter } from "./builtin-attrs";
 describe("fontFamilyInterpreter", () => {
   it("contributes fontFamily: <value> when value is a string", () => {
     expect(fontFamilyInterpreter.attrKey).toBe("fontFamily");
-    expect(fontFamilyInterpreter.toComputedStyle("Helvetica")).toEqual({ fontFamily: "Helvetica" });
-    expect(fontFamilyInterpreter.toComputedStyle("Comic Sans MS")).toEqual({ fontFamily: "Comic Sans MS" });
+    expect(fontFamilyInterpreter.toStyle("Helvetica")).toEqual({ fontFamily: "Helvetica" });
+    expect(fontFamilyInterpreter.toStyle("Comic Sans MS")).toEqual({ fontFamily: "Comic Sans MS" });
   });
 
   it("contributes nothing for non-string values", () => {
-    expect(fontFamilyInterpreter.toComputedStyle(42)).toEqual({});
-    expect(fontFamilyInterpreter.toComputedStyle(undefined)).toEqual({});
-    expect(fontFamilyInterpreter.toComputedStyle(null)).toEqual({});
+    expect(fontFamilyInterpreter.toStyle(42)).toEqual({});
+    expect(fontFamilyInterpreter.toStyle(undefined)).toEqual({});
+    expect(fontFamilyInterpreter.toStyle(null)).toEqual({});
   });
 });
 
 describe("fontSizeInterpreter", () => {
-  it("contributes fontSize: <number>pt when value is a number", () => {
+  it("contributes fontSize as number when value is a number (px shorthand per Length)", () => {
     expect(fontSizeInterpreter.attrKey).toBe("fontSize");
-    expect(fontSizeInterpreter.toComputedStyle(12)).toEqual({ fontSize: "12pt" });
-    expect(fontSizeInterpreter.toComputedStyle(14.5)).toEqual({ fontSize: "14.5pt" });
+    expect(fontSizeInterpreter.toStyle(12)).toEqual({ fontSize: 12 });
+    expect(fontSizeInterpreter.toStyle(14.5)).toEqual({ fontSize: 14.5 });
   });
 
-  it("passes through string values as-is (e.g., for em/percent units)", () => {
-    expect(fontSizeInterpreter.toComputedStyle("1.2em")).toEqual({ fontSize: "1.2em" });
-    expect(fontSizeInterpreter.toComputedStyle("inherit")).toEqual({ fontSize: "inherit" });
+  it("contributes fontSize as a structured Length when value is a {unit, value} object", () => {
+    expect(fontSizeInterpreter.toStyle({ unit: "em", value: 1.2 })).toEqual({
+      fontSize: { unit: "em", value: 1.2 },
+    });
+    expect(fontSizeInterpreter.toStyle({ unit: "percent", value: 150 })).toEqual({
+      fontSize: { unit: "percent", value: 150 },
+    });
   });
 
   it("contributes nothing for unsupported value types", () => {
-    expect(fontSizeInterpreter.toComputedStyle(undefined)).toEqual({});
-    expect(fontSizeInterpreter.toComputedStyle(null)).toEqual({});
-    expect(fontSizeInterpreter.toComputedStyle({})).toEqual({});
+    expect(fontSizeInterpreter.toStyle(undefined)).toEqual({});
+    expect(fontSizeInterpreter.toStyle(null)).toEqual({});
+    expect(fontSizeInterpreter.toStyle("12pt")).toEqual({});  // strings not supported by Length
+    expect(fontSizeInterpreter.toStyle({ value: 12 })).toEqual({});  // missing unit
   });
 });
 ```
@@ -611,14 +650,35 @@ Append to `builtin-attrs.ts`:
 ```typescript
 export const fontFamilyInterpreter: AttrInterpreter = {
   attrKey: "fontFamily",
-  toComputedStyle: (value) => (typeof value === "string" ? { fontFamily: value } : {}),
+  toStyle: (value) => (typeof value === "string" ? { fontFamily: value } : {}),
 };
 
+/**
+ * fontSize accepts:
+ *   - number → px shorthand (Length accepts bare numbers as px)
+ *   - { unit: "px" | "em" | "percent", value: number } → structured Length
+ *
+ * Strings are intentionally NOT supported. The cascade pass resolves
+ * em/rem/percent against parent context and produces the final px value
+ * in ComputedStyle; interpreters cannot do that resolution without
+ * full cascade context.
+ */
 export const fontSizeInterpreter: AttrInterpreter = {
   attrKey: "fontSize",
-  toComputedStyle: (value) => {
-    if (typeof value === "number") return { fontSize: `${value}pt` };
-    if (typeof value === "string") return { fontSize: value };
+  toStyle: (value) => {
+    if (typeof value === "number") return { fontSize: value };
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "unit" in value &&
+      "value" in value &&
+      typeof (value as { value: unknown }).value === "number"
+    ) {
+      const v = value as { unit: string; value: number };
+      if (v.unit === "px" || v.unit === "em" || v.unit === "percent") {
+        return { fontSize: { unit: v.unit, value: v.value } };
+      }
+    }
     return {};
   },
 };
@@ -637,8 +697,10 @@ git commit -m "$(cat <<'EOF'
 feat(cascade): add fontFamily and fontSize built-in interpreters
 
 fontFamily: passes through string values; ignores other types.
-fontSize: numeric values become Npt; string values pass through
-verbatim (allowing em/percent/inherit units).
+fontSize: numeric values become bare-number Length (px shorthand);
+{unit, value} structured Length passes through with unit validation
+(px/em/percent only). Strings deliberately rejected — the cascade
+pass resolves em/percent against parent context, interpreters cannot.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -663,25 +725,25 @@ import { colorInterpreter, backgroundColorInterpreter } from "./builtin-attrs";
 describe("colorInterpreter", () => {
   it("contributes color: <value> when value is a string", () => {
     expect(colorInterpreter.attrKey).toBe("color");
-    expect(colorInterpreter.toComputedStyle("red")).toEqual({ color: "red" });
-    expect(colorInterpreter.toComputedStyle("#abc")).toEqual({ color: "#abc" });
-    expect(colorInterpreter.toComputedStyle("rgb(0, 0, 0)")).toEqual({ color: "rgb(0, 0, 0)" });
+    expect(colorInterpreter.toStyle("red")).toEqual({ color: "red" });
+    expect(colorInterpreter.toStyle("#abc")).toEqual({ color: "#abc" });
+    expect(colorInterpreter.toStyle("rgb(0, 0, 0)")).toEqual({ color: "rgb(0, 0, 0)" });
   });
 
   it("contributes nothing for non-string values", () => {
-    expect(colorInterpreter.toComputedStyle(42)).toEqual({});
-    expect(colorInterpreter.toComputedStyle(undefined)).toEqual({});
+    expect(colorInterpreter.toStyle(42)).toEqual({});
+    expect(colorInterpreter.toStyle(undefined)).toEqual({});
   });
 });
 
 describe("backgroundColorInterpreter", () => {
   it("contributes backgroundColor: <value> when value is a string", () => {
     expect(backgroundColorInterpreter.attrKey).toBe("backgroundColor");
-    expect(backgroundColorInterpreter.toComputedStyle("yellow")).toEqual({ backgroundColor: "yellow" });
+    expect(backgroundColorInterpreter.toStyle("yellow")).toEqual({ backgroundColor: "yellow" });
   });
 
   it("contributes nothing for non-string values", () => {
-    expect(backgroundColorInterpreter.toComputedStyle(42)).toEqual({});
+    expect(backgroundColorInterpreter.toStyle(42)).toEqual({});
   });
 });
 ```
@@ -698,12 +760,12 @@ Append to `builtin-attrs.ts`:
 ```typescript
 export const colorInterpreter: AttrInterpreter = {
   attrKey: "color",
-  toComputedStyle: (value) => (typeof value === "string" ? { color: value } : {}),
+  toStyle: (value) => (typeof value === "string" ? { color: value } : {}),
 };
 
 export const backgroundColorInterpreter: AttrInterpreter = {
   attrKey: "backgroundColor",
-  toComputedStyle: (value) => (typeof value === "string" ? { backgroundColor: value } : {}),
+  toStyle: (value) => (typeof value === "string" ? { backgroundColor: value } : {}),
 };
 ```
 
@@ -758,7 +820,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("backgroundColor")).toBe(true);
   });
 
-  it("end-to-end: a typical inline attrs bag produces the expected ComputedStyle contribution", () => {
+  it("end-to-end: a typical inline attrs bag produces the expected Style contribution", () => {
     const r = new AttrRegistry();
     registerBuiltinAttrs(r);
     const attrs = {
@@ -772,7 +834,7 @@ describe("registerBuiltinAttrs", () => {
       fontWeight: "bold",
       fontStyle: "italic",
       fontFamily: "Helvetica",
-      fontSize: "12pt",
+      fontSize: 12,
       color: "blue",
     });
   });
@@ -846,7 +908,7 @@ Expected: PASS (no TypeScript errors).
 - [ ] **Step 2: Run the full test suite**
 
 Run: `npm test --workspace=packages/core`
-Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Phase 3 adds approximately 31 new tests (12 attr-registry + 19 builtin-attrs). Total should be ~991 tests passing + 4 skipped, up from Phase 2's 960 + 4 skipped.
+Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Phase 3 adds approximately 32 new tests (13 attr-registry + 19 builtin-attrs). Total should be ~992 tests passing + 4 skipped, up from Phase 2's 960 + 4 skipped.
 
 - [ ] **Step 3: Verify the new exports are not yet wired into the public API**
 
@@ -870,7 +932,7 @@ Phase 4 (next plan, written after this lands) will add: Layer 3 state-mutating o
 - [ ] **Step 6: Surface anything Phase 4 should account for**
 
 If anything came up during Phase 3 implementation that should inform Phase 4 design, add notes to the spec or as a Phase 3 retro commit. Examples:
-- Did the `Partial<ComputedStyle>` contribution shape work as expected?
+- Did the `Partial<Style>` contribution shape work as expected (or did any interpreter want to emit a value not expressible in the existing Style schema)?
 - Did any built-in interpreter need an `equals` opt-in?
 - Are there missing built-in interpreters that should be added before Phase 4 lands? (Heading-level, line-height, text-align, etc. — these can also wait until needed.)
 
@@ -907,7 +969,7 @@ Quick checklist run after writing this plan:
 
 **Placeholder scan:** No "TBD"/"TODO"/"add appropriate error handling" patterns. Each step has actual code or commands.
 
-**Type consistency:** `AttrInterpreter`, `AttrRegistry`, `CascadeContext`, `ReadonlyAttrs`, `ComputedStyle` are referenced consistently across tasks. Function signatures (`register(interpreter)`, `applyAll(attrs, ctx?)`, `registerBuiltinAttrs(registry)`) are stable.
+**Type consistency:** `AttrInterpreter`, `AttrRegistry`, `CascadeContext`, `ReadonlyAttrs`, `Style` are referenced consistently across tasks. Function signatures (`register(interpreter)`, `applyAll(attrs, ctx?)`, `registerBuiltinAttrs(registry)`) are stable. The interpreter method is `toStyle` (returning `Partial<Style>`), NOT `toComputedStyle` — the cascade resolves Style to ComputedStyle separately.
 
 **Out of scope for this plan (deferred):**
 - Wiring `attrRegistry` to the existing `cascade/cascade-pass.ts`. → Phase 5+ (render module rewrite, when the render tree carries `attrs` instead of `style`).
