@@ -29,4 +29,28 @@ describe("persistent-map", () => {
     const m = createPersistentMap<string, number>().set("a", 1);
     expect(m.get("missing")).toBeUndefined();
   });
+
+  it("delete returns a new map without the key, original unchanged", () => {
+    const m1 = createPersistentMap<string, number>().set("a", 1).set("b", 2);
+    const m2 = m1.delete("a");
+    expect(m1.has("a")).toBe(true);
+    expect(m1.size).toBe(2);
+    expect(m2.has("a")).toBe(false);
+    expect(m2.has("b")).toBe(true);
+    expect(m2.size).toBe(1);
+  });
+
+  it("delete on missing key returns an equivalent map (no-op semantics)", () => {
+    const m = createPersistentMap<string, number>().set("a", 1);
+    const m2 = m.delete("missing");
+    expect(m2.size).toBe(1);
+    expect(m2.get("a")).toBe(1);
+  });
+
+  it("entries / keys / values iterate the contents", () => {
+    const m = createPersistentMap<string, number>().set("a", 1).set("b", 2);
+    expect([...m.keys()].sort()).toEqual(["a", "b"]);
+    expect([...m.values()].sort()).toEqual([1, 2]);
+    expect([...m.entries()].sort()).toEqual([["a", 1], ["b", 2]]);
+  });
 });
