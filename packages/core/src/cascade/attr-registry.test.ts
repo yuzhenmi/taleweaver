@@ -51,3 +51,63 @@ describe("AttrRegistry", () => {
     expect(r.get("bold")).toBe(i2);
   });
 });
+
+describe("AttrRegistry.applyAll", () => {
+  it("returns an empty contribution when attrs is empty", () => {
+    const r = new AttrRegistry();
+    expect(r.applyAll({})).toEqual({});
+  });
+
+  it("ignores attrs that have no registered interpreter", () => {
+    const r = new AttrRegistry();
+    const attrs: ReadonlyAttrs = { unknownKey: "value" };
+    expect(r.applyAll(attrs)).toEqual({});
+  });
+
+  it("invokes the interpreter for each registered attr key and merges contributions", () => {
+    const r = new AttrRegistry();
+    r.register({ attrKey: "bold", toStyle: (v) => (v ? { fontWeight: "bold" } : {}) });
+    r.register({ attrKey: "italic", toStyle: (v) => (v ? { fontStyle: "italic" } : {}) });
+
+    const attrs: ReadonlyAttrs = { bold: true, italic: true };
+    expect(r.applyAll(attrs)).toEqual({ fontWeight: "bold", fontStyle: "italic" });
+  });
+
+  it("later attr keys override earlier attr keys for the same Style property (attrs-key order)", () => {
+    // Iteration is over the attrs object's keys, NOT the registry's
+    // registration order. This makes the override winner depend on
+    // authorial intent (the order keys appear in the attrs object),
+    // not on which plugin loaded first. Plugin-stable.
+    const r = new AttrRegistry();
+    r.register({ attrKey: "link", toStyle: () => ({ color: "blue" }) });
+    r.register({ attrKey: "visitedLink", toStyle: () => ({ color: "purple" }) });
+
+    // Same registry; different attrs-key orders → different results.
+    const linkFirst: ReadonlyAttrs = { link: true, visitedLink: true };
+    const visitedFirst: ReadonlyAttrs = { visitedLink: true, link: true };
+    expect(r.applyAll(linkFirst)).toEqual({ color: "purple" });    // visitedLink last → wins
+    expect(r.applyAll(visitedFirst)).toEqual({ color: "blue" });   // link last → wins
+  });
+
+  it("ignores attrs whose value is undefined (treats them as absent)", () => {
+    const r = new AttrRegistry();
+    r.register({ attrKey: "bold", toStyle: (v) => (v ? { fontWeight: "bold" } : {}) });
+    // The interpreter sees `undefined` and returns {} (its falsy branch).
+    expect(r.applyAll({ bold: undefined })).toEqual({});
+  });
+
+  it("passes the cascade context through to interpreters when provided", () => {
+    const r = new AttrRegistry();
+    r.register({
+      attrKey: "inheritedColor",
+      toStyle: (_value, ctx) => ({ color: ctx?.parentStyle?.color ?? "black" }),
+    });
+    expect(r.applyAll({ inheritedColor: true })).toEqual({ color: "black" });
+    expect(
+      r.applyAll(
+        { inheritedColor: true },
+        { parentStyle: { color: "red" } },
+      ),
+    ).toEqual({ color: "red" });
+  });
+});

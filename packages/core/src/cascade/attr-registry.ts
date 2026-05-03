@@ -57,4 +57,25 @@ export class AttrRegistry {
   get(attrKey: string): AttrInterpreter | undefined {
     return this.interpreters.get(attrKey);
   }
+
+  /**
+   * Run interpreters for each key in `attrs` (in attrs-object iteration
+   * order, which is insertion order for plain objects). Merge contributions
+   * into a single Partial<Style>. Later attrs keys override earlier ones
+   * for the same Style property — this matches authorial intent ("the last
+   * value wins") and is plugin-stable (registering a new interpreter
+   * doesn't shift the cascade order of unrelated existing attrs).
+   *
+   * Keys with no registered interpreter are skipped silently.
+   */
+  applyAll(attrs: ReadonlyAttrs, ctx?: CascadeContext): Partial<Style> {
+    const out: Partial<Style> = {};
+    for (const key of Object.keys(attrs)) {
+      const interpreter = this.interpreters.get(key);
+      if (!interpreter) continue;
+      const contribution = interpreter.toStyle(attrs[key], ctx);
+      Object.assign(out, contribution);
+    }
+    return out;
+  }
 }
