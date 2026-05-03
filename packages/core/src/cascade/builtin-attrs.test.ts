@@ -75,3 +75,30 @@ describe("fontSizeInterpreter", () => {
     expect(fontSizeInterpreter.toStyle({ value: 12 })).toEqual({});  // missing unit
   });
 });
+
+import { colorInterpreter, backgroundColorInterpreter } from "./builtin-attrs";
+
+describe("colorInterpreter", () => {
+  it("contributes color: <value> when value is a string", () => {
+    expect(colorInterpreter.attrKey).toBe("color");
+    expect(colorInterpreter.toStyle("red")).toEqual({ color: "red" });
+    expect(colorInterpreter.toStyle("#abc")).toEqual({ color: "#abc" });
+    expect(colorInterpreter.toStyle("rgb(0, 0, 0)")).toEqual({ color: "rgb(0, 0, 0)" });
+  });
+
+  it("contributes nothing for non-string values", () => {
+    expect(colorInterpreter.toStyle(42)).toEqual({});
+    expect(colorInterpreter.toStyle(undefined)).toEqual({});
+  });
+});
+
+describe("backgroundColorInterpreter", () => {
+  it("contributes backgroundColor: <value> when value is a string", () => {
+    expect(backgroundColorInterpreter.attrKey).toBe("backgroundColor");
+    expect(backgroundColorInterpreter.toStyle("yellow")).toEqual({ backgroundColor: "yellow" });
+  });
+
+  it("contributes nothing for non-string values", () => {
+    expect(backgroundColorInterpreter.toStyle(42)).toEqual({});
+  });
+});

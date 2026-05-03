@@ -59,3 +59,13 @@ export const fontSizeInterpreter: AttrInterpreter = {
     return {};
   },
 };
+
+export const colorInterpreter: AttrInterpreter = {
+  attrKey: "color",
+  toStyle: (value) => (typeof value === "string" ? { color: value } : {}),
+};
+
+export const backgroundColorInterpreter: AttrInterpreter = {
+  attrKey: "backgroundColor",
+  toStyle: (value) => (typeof value === "string" ? { backgroundColor: value } : {}),
+};
