@@ -71,3 +71,30 @@ export function inlineContentLength(content: InlineContent): number {
   }
   return total;
 }
+
+/**
+ * Locate the inline item containing `offset`. `withinItem` is the offset
+ * into that item (0 for embed items, char-offset for text items).
+ *
+ * Returns `{ itemIndex: items.length, withinItem: 0 }` when offset equals
+ * the total inline-content length (end-of-block).
+ *
+ * Behavior at item boundaries: when `offset` exactly equals the start of
+ * an item (i.e., the cumulative length up to but not including item N),
+ * returns `{ itemIndex: N, withinItem: 0 }`.
+ */
+export function findItemAtOffset(
+  content: InlineContent,
+  offset: number,
+): { itemIndex: number; withinItem: number } {
+  let cursor = 0;
+  for (let i = 0; i < content.items.length; i++) {
+    const item = content.items[i];
+    const itemLen = item.kind === "text" ? item.text.length : 1;
+    if (offset < cursor + itemLen) {
+      return { itemIndex: i, withinItem: offset - cursor };
+    }
+    cursor += itemLen;
+  }
+  return { itemIndex: content.items.length, withinItem: 0 };
+}

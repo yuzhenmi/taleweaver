@@ -6,6 +6,7 @@ import {
   type TextItem,
   type EmbedItem,
   inlineContentLength,
+  findItemAtOffset,
 } from "./inline-content";
 
 describe("inline content factories", () => {
@@ -64,5 +65,38 @@ describe("inlineContentLength", () => {
     // 😀 is U+1F600, which is two UTF-16 code units (surrogate pair)
     const c = createInlineContent([createTextItem("a😀b")]);
     expect(inlineContentLength(c)).toBe(4); // "a" + surrogate-high + surrogate-low + "b"
+  });
+});
+
+describe("findItemAtOffset", () => {
+  const content = createInlineContent([
+    createTextItem("hello"),       // offsets 0..5
+    createEmbedItem("image"),       // offset 5 (1 unit)
+    createTextItem("world"),        // offsets 6..11
+  ]);
+
+  it("returns the text item containing offset 0", () => {
+    expect(findItemAtOffset(content, 0)).toEqual({ itemIndex: 0, withinItem: 0 });
+  });
+
+  it("returns the text item with the offset position within it", () => {
+    expect(findItemAtOffset(content, 3)).toEqual({ itemIndex: 0, withinItem: 3 });
+  });
+
+  it("returns the embed item when offset lands on the embed", () => {
+    expect(findItemAtOffset(content, 5)).toEqual({ itemIndex: 1, withinItem: 0 });
+  });
+
+  it("returns the next text item when offset is past the embed", () => {
+    expect(findItemAtOffset(content, 6)).toEqual({ itemIndex: 2, withinItem: 0 });
+  });
+
+  it("returns end-of-block when offset equals total length", () => {
+    expect(findItemAtOffset(content, 11)).toEqual({ itemIndex: 3, withinItem: 0 });
+  });
+
+  it("returns end-of-block for empty content at offset 0", () => {
+    const empty = createInlineContent([]);
+    expect(findItemAtOffset(empty, 0)).toEqual({ itemIndex: 0, withinItem: 0 });
   });
 });
