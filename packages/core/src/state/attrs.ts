@@ -42,3 +42,20 @@ export function deepValueEqual(a: unknown, b: unknown): boolean {
   }
   return true;
 }
+
+/**
+ * Compare two attribute bags for equality. Defaults to deep value equality
+ * for each attribute. Phase 2 will extend this to consult an interpreter
+ * registry for opt-in custom equality per attribute key (rare; for cases like
+ * a `comment` attribute whose `timestamp` field shouldn't affect compare).
+ */
+export function attrsEqual(a: ReadonlyAttrs, b: ReadonlyAttrs): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!(k in b)) return false;
+    if (!deepValueEqual(a[k], b[k])) return false;
+  }
+  return true;
+}

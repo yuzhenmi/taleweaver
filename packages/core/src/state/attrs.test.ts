@@ -31,3 +31,30 @@ describe("deepValueEqual", () => {
     expect(deepValueEqual({}, [])).toBe(false);
   });
 });
+
+import { attrsEqual, type ReadonlyAttrs } from "./attrs";
+
+describe("attrsEqual", () => {
+  it("returns true for identical attribute bags", () => {
+    const a: ReadonlyAttrs = { bold: true, fontSize: 12 };
+    const b: ReadonlyAttrs = { bold: true, fontSize: 12 };
+    expect(attrsEqual(a, b)).toBe(true);
+  });
+
+  it("returns false when key sets differ", () => {
+    expect(attrsEqual({ bold: true }, { bold: true, italic: true })).toBe(false);
+  });
+
+  it("returns false when a value differs", () => {
+    expect(attrsEqual({ bold: true }, { bold: false })).toBe(false);
+  });
+
+  it("returns true for two empty attribute bags", () => {
+    expect(attrsEqual({}, {})).toBe(true);
+  });
+
+  it("compares object-valued attributes recursively", () => {
+    expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c1" } })).toBe(true);
+    expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c2" } })).toBe(false);
+  });
+});
