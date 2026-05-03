@@ -18,3 +18,12 @@ export interface IdAllocator {
 export const productionAllocator: IdAllocator = {
   allocate: () => crypto.randomUUID() as BlockId,
 };
+
+/**
+ * Creates a deterministic allocator for tests.
+ * Each call to allocate() returns `${prefix}-${n}` where n increments from 0.
+ */
+export function createTestAllocator(prefix = "blk"): IdAllocator {
+  let n = 0;
+  return { allocate: () => `${prefix}-${n++}` as BlockId };
+}
