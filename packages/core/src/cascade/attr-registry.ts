@@ -34,3 +34,27 @@ export interface AttrInterpreter {
 export interface CascadeContext {
   readonly parentStyle?: Partial<Style>;
 }
+
+/**
+ * Registry of attribute interpreters, keyed by attrKey. Production code
+ * uses the default singleton instance `attrRegistry`; tests can construct
+ * their own instances to avoid global-state bleed.
+ *
+ * Re-registering the same key replaces the previous interpreter (the
+ * built-in `bold` can be overridden by a plugin's stronger version).
+ */
+export class AttrRegistry {
+  private readonly interpreters = new Map<string, AttrInterpreter>();
+
+  register(interpreter: AttrInterpreter): void {
+    this.interpreters.set(interpreter.attrKey, interpreter);
+  }
+
+  has(attrKey: string): boolean {
+    return this.interpreters.has(attrKey);
+  }
+
+  get(attrKey: string): AttrInterpreter | undefined {
+    return this.interpreters.get(attrKey);
+  }
+}
