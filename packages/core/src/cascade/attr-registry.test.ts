@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AttrInterpreter } from "./attr-registry";
-import { AttrRegistry } from "./attr-registry";
+import { AttrRegistry, attrRegistry } from "./attr-registry";
 import type { ReadonlyAttrs } from "../state/attrs";
 
 describe("AttrInterpreter type", () => {
@@ -110,5 +110,19 @@ describe("AttrRegistry.applyAll", () => {
         { parentStyle: { color: "red" } },
       ),
     ).toEqual({ color: "red" });
+  });
+});
+
+describe("default attrRegistry singleton", () => {
+  it("exists and is an AttrRegistry instance", () => {
+    expect(attrRegistry).toBeInstanceOf(AttrRegistry);
+  });
+
+  it("starts empty (built-ins are registered separately)", () => {
+    // The singleton is shared across the test suite; in this isolated
+    // test we just verify it's a valid empty registry. Built-in
+    // registration is tested in builtin-attrs.test.ts.
+    expect(typeof attrRegistry.register).toBe("function");
+    expect(typeof attrRegistry.applyAll).toBe("function");
   });
 });

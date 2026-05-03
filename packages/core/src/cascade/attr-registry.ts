@@ -79,3 +79,11 @@ export class AttrRegistry {
     return out;
   }
 }
+
+/**
+ * Default registry instance. Production code registers built-in
+ * interpreters here on import (see `builtin-attrs.ts`); plugins can
+ * register additional interpreters at runtime. Tests that need
+ * isolation should construct their own `new AttrRegistry()`.
+ */
+export const attrRegistry = new AttrRegistry();
