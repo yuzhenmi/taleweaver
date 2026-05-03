@@ -58,3 +58,16 @@ export function createEmbedItem(
 export function createInlineContent(items: ReadonlyArray<InlineItem>): InlineContent {
   return Object.freeze({ items: Object.freeze([...items]) });
 }
+
+/**
+ * Total length of inline content, in Position.offset units.
+ * Each text item contributes text.length (UTF-16 code units).
+ * Each embed item contributes 1 (single cursor position).
+ */
+export function inlineContentLength(content: InlineContent): number {
+  let total = 0;
+  for (const item of content.items) {
+    total += item.kind === "text" ? item.text.length : 1;
+  }
+  return total;
+}
