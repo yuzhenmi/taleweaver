@@ -102,3 +102,40 @@ describe("backgroundColorInterpreter", () => {
     expect(backgroundColorInterpreter.toStyle(42)).toEqual({});
   });
 });
+
+import { registerBuiltinAttrs } from "./builtin-attrs";
+import { AttrRegistry } from "./attr-registry";
+
+describe("registerBuiltinAttrs", () => {
+  it("registers all built-in interpreters into a fresh registry", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+
+    expect(r.has("bold")).toBe(true);
+    expect(r.has("italic")).toBe(true);
+    expect(r.has("underline")).toBe(true);
+    expect(r.has("fontFamily")).toBe(true);
+    expect(r.has("fontSize")).toBe(true);
+    expect(r.has("color")).toBe(true);
+    expect(r.has("backgroundColor")).toBe(true);
+  });
+
+  it("end-to-end: a typical inline attrs bag produces the expected Style contribution", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    const attrs = {
+      bold: true,
+      italic: true,
+      fontFamily: "Helvetica",
+      fontSize: 12,
+      color: "blue",
+    };
+    expect(r.applyAll(attrs)).toEqual({
+      fontWeight: "bold",
+      fontStyle: "italic",
+      fontFamily: "Helvetica",
+      fontSize: 12,
+      color: "blue",
+    });
+  });
+});

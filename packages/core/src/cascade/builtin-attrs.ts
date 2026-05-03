@@ -69,3 +69,23 @@ export const backgroundColorInterpreter: AttrInterpreter = {
   attrKey: "backgroundColor",
   toStyle: (value) => (typeof value === "string" ? { backgroundColor: value } : {}),
 };
+
+import type { AttrRegistry } from "./attr-registry";
+
+/**
+ * Register all built-in interpreters into the given registry. Production
+ * code calls this with the singleton `attrRegistry` on bootstrap; tests
+ * call it with their own AttrRegistry instances for isolation.
+ *
+ * Idempotent in the sense that re-registering the same key replaces the
+ * previous entry — callers can safely call this multiple times.
+ */
+export function registerBuiltinAttrs(registry: AttrRegistry): void {
+  registry.register(boldInterpreter);
+  registry.register(italicInterpreter);
+  registry.register(underlineInterpreter);
+  registry.register(fontFamilyInterpreter);
+  registry.register(fontSizeInterpreter);
+  registry.register(colorInterpreter);
+  registry.register(backgroundColorInterpreter);
+}
