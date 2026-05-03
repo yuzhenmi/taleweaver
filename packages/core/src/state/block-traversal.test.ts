@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextBlockInDocOrder, prevBlockInDocOrder } from "./block-traversal";
+import { nextBlockInDocOrder, prevBlockInDocOrder, ancestorChain } from "./block-traversal";
 import { buildBlock, buildState, text } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -115,5 +115,33 @@ describe("prevBlockInDocOrder", () => {
       ],
     });
     expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe("doc");
+  });
+});
+
+describe("ancestorChain", () => {
+  it("returns [self] for the root block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [buildBlock({ id: "doc", type: "document" })],
+    });
+    expect(ancestorChain(state, "doc" as BlockId)).toEqual(["doc"]);
+  });
+
+  it("returns the chain from the block up to the root", () => {
+    // doc > section > p
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    expect(ancestorChain(state, "p" as BlockId)).toEqual(["p", "s", "doc"]);
+  });
+
+  it("returns an empty array for a non-existent id", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(ancestorChain(state, "missing" as BlockId)).toEqual([]);
   });
 });

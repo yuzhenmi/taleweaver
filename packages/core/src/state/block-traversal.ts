@@ -50,3 +50,28 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   }
   return block.parentId;
 }
+
+/**
+ * Build the ancestor chain from a block up to and including the root.
+ * Returns [blockId, parentId, grandparentId, ..., rootId].
+ * Returns an empty array if blockId does not exist in state.
+ * Throws if a parentId mid-walk references a missing block (malformed
+ * state) — silently truncating would mask state corruption.
+ */
+export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
+  if (!state.blocks.has(blockId)) return [];
+  const result: BlockId[] = [];
+  let current: BlockId | null = blockId;
+  while (current) {
+    const block = state.blocks.get(current);
+    if (!block) {
+      throw new Error(
+        `ancestorChain: parentId "${current}" references a missing block ` +
+        `(malformed state, partial chain: [${result.join(", ")}])`,
+      );
+    }
+    result.push(current);
+    current = block.parentId;
+  }
+  return result;
+}
