@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextBlockInDocOrder, prevBlockInDocOrder, ancestorChain } from "./block-traversal";
+import { nextBlockInDocOrder, prevBlockInDocOrder, ancestorChain, firstLeafBlock, lastLeafBlock } from "./block-traversal";
 import { buildBlock, buildState, text } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -143,5 +143,62 @@ describe("ancestorChain", () => {
   it("returns an empty array for a non-existent id", () => {
     const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
     expect(ancestorChain(state, "missing" as BlockId)).toEqual([]);
+  });
+});
+
+describe("firstLeafBlock", () => {
+  it("returns the block itself when it is a leaf (no children)", () => {
+    const state = buildState({
+      rootId: "p",
+      blocks: [buildBlock({ id: "p", type: "paragraph", inlineContent: createInlineContent([]) })],
+    });
+    expect(firstLeafBlock(state, "p" as BlockId)).toBe("p");
+  });
+
+  it("descends to the first leaf via firstChildId", () => {
+    // doc > section > [p1, p2]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    expect(firstLeafBlock(state, "doc" as BlockId)).toBe("p1");
+  });
+
+  it("returns null when called on a non-existent id", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(firstLeafBlock(state, "missing" as BlockId)).toBeNull();
+  });
+});
+
+describe("lastLeafBlock", () => {
+  it("returns the block itself when it is a leaf", () => {
+    const state = buildState({
+      rootId: "p",
+      blocks: [buildBlock({ id: "p", type: "paragraph", inlineContent: createInlineContent([]) })],
+    });
+    expect(lastLeafBlock(state, "p" as BlockId)).toBe("p");
+  });
+
+  it("descends to the last leaf via lastChildId", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    expect(lastLeafBlock(state, "doc" as BlockId)).toBe("p2");
+  });
+
+  it("returns null when called on a non-existent id", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(lastLeafBlock(state, "missing" as BlockId)).toBeNull();
   });
 });

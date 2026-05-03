@@ -75,3 +75,35 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   }
   return result;
 }
+
+/**
+ * Walk down via firstChildId to the leftmost leaf in the subtree rooted
+ * at blockId. Returns blockId itself if it is a leaf (no firstChildId).
+ * Returns null if blockId does not exist.
+ */
+export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
+  let cursor = state.blocks.get(blockId);
+  if (!cursor) return null;
+  while (cursor.firstChildId) {
+    const next = state.blocks.get(cursor.firstChildId);
+    if (!next) break;
+    cursor = next;
+  }
+  return cursor.id;
+}
+
+/**
+ * Walk down via lastChildId to the rightmost leaf in the subtree rooted
+ * at blockId. Returns blockId itself if it is a leaf (no lastChildId).
+ * Returns null if blockId does not exist.
+ */
+export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
+  let cursor = state.blocks.get(blockId);
+  if (!cursor) return null;
+  while (cursor.lastChildId) {
+    const next = state.blocks.get(cursor.lastChildId);
+    if (!next) break;
+    cursor = next;
+  }
+  return cursor.id;
+}
