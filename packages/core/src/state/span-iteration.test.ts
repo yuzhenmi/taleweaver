@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeSpan, iterateSpan } from "./span-iteration";
+import { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
 import { buildBlock, buildState, text } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import { createInlineContent } from "./inline-content";
@@ -171,5 +171,95 @@ describe("iterateSpan", () => {
     });
     const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
     expect(() => [...iterateSpan(state, cross)]).toThrow(/different selection contexts/);
+  });
+});
+
+describe("iterateBlocksInSpan", () => {
+  // doc > [section1 > [p1, p2], section2 > [p3]]
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
+        buildBlock({ id: "s1", type: "section", parentId: "doc", nextSiblingId: "s2", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "s2", type: "section", parentId: "doc", prevSiblingId: "s1", firstChildId: "p3", lastChildId: "p3" }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: createInlineContent([text("c")]) }),
+      ],
+    });
+
+  it("yields just the block when span is within a single block", () => {
+    const state = fixture();
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p1" as BlockId, 1));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    expect(blocks.map((b) => b.id)).toEqual(["p1"]);
+  });
+
+  it("yields all blocks (leaves AND containers) overlapped by the span", () => {
+    const state = fixture();
+    // Span from p1 into p3 — passes through p2, s2 (container), p3.
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    // Expected sequence in doc order: p1, p2, s2, p3.
+    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "s2", "p3"]);
+  });
+
+  it("normalizes the span before iterating", () => {
+    const state = fixture();
+    const span = createSpan(createPosition("p3" as BlockId, 1), createPosition("p1" as BlockId, 0));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "s2", "p3"]);
+  });
+
+  it("yields just the single block for a collapsed span", () => {
+    const state = fixture();
+    const pos = createPosition("p1" as BlockId, 0);
+    const span = createSpan(pos, pos);
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    expect(blocks.map((b) => b.id)).toEqual(["p1"]);
+  });
+
+  it("supports container-block endpoints (anchor on a section, focus on a leaf)", () => {
+    const state = fixture();
+    // Selecting from s1 to p3 — used by 'wrap in section' / 'set page-break' style ops.
+    const span = createSpan(createPosition("s1" as BlockId, 0), createPosition("p3" as BlockId, 0));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    // Doc-order from s1: s1, p1, p2, s2, p3.
+    expect(blocks.map((b) => b.id)).toEqual(["s1", "p1", "p2", "s2", "p3"]);
+  });
+
+  it("yields a deeply-nested cross-subtree range", () => {
+    // doc > [outer1 > [s1 > [p1, p2]], outer2 > [s2 > [p3]]]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "o1", lastChildId: "o2" }),
+        buildBlock({ id: "o1", type: "section", parentId: "doc", nextSiblingId: "o2", firstChildId: "s1", lastChildId: "s1" }),
+        buildBlock({ id: "s1", type: "section", parentId: "o1", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "o2", type: "section", parentId: "doc", prevSiblingId: "o1", firstChildId: "s2", lastChildId: "s2" }),
+        buildBlock({ id: "s2", type: "section", parentId: "o2", firstChildId: "p3", lastChildId: "p3" }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: createInlineContent([text("c")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    // p1, p2, o2, s2, p3 — note o2 (container) appears before its first child s2.
+    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "o2", "s2", "p3"]);
+  });
+
+  it("throws when anchor and focus are in different selection contexts", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    expect(() => [...iterateBlocksInSpan(state, cross)]).toThrow(/different selection contexts/);
   });
 });

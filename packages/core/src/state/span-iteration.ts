@@ -111,3 +111,53 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // Focus block: from 0 to focus.offset.
   yield { block: focusBlock, rangeStart: 0, rangeEnd: normalized.focus.offset };
 }
+
+/**
+ * Yield each block (leaf or container) overlapped by the span, in
+ * document order. Used by block-level operations that need to see
+ * containers (e.g., set page-break-before, wrap in section).
+ *
+ * Difference from iterateSpan: yields containers, no per-block range
+ * (the consumer touches whole blocks). Endpoints MAY be containers —
+ * unlike iterateSpan, container-block endpoints are valid here.
+ *
+ * Precondition: anchor and focus must be in the same selection context.
+ * Throws otherwise. (Cross-context spans would walk to end-of-document
+ * without ever reaching focus, silently producing the wrong block list.)
+ *
+ * The span is normalized first.
+ */
+export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> {
+  // Pre-normalize precondition checks (must validate before normalizeSpan
+  // runs cross-block compare, which itself requires same-context).
+  if (!state.blocks.has(span.anchor.blockId)) {
+    throw new Error(`iterateBlocksInSpan: anchor block "${span.anchor.blockId}" not found`);
+  }
+  if (!state.blocks.has(span.focus.blockId)) {
+    throw new Error(`iterateBlocksInSpan: focus block "${span.focus.blockId}" not found`);
+  }
+  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
+  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  if (anchorCtx !== focusCtx) {
+    throw new Error(
+      `iterateBlocksInSpan: anchor and focus are in different selection contexts ` +
+      `("${anchorCtx}" vs "${focusCtx}")`,
+    );
+  }
+
+  const normalized = normalizeSpan(state, span);
+
+  const anchorBlock = state.blocks.get(normalized.anchor.blockId);
+  if (!anchorBlock) throw new Error(`iterateBlocksInSpan: block "${normalized.anchor.blockId}" not found`);
+  yield anchorBlock;
+
+  if (normalized.anchor.blockId === normalized.focus.blockId) return;
+
+  let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
+  while (currentId) {
+    const current = state.blocks.get(currentId);
+    if (current) yield current;
+    if (currentId === normalized.focus.blockId) return;
+    currentId = nextBlockInDocOrder(state, currentId);
+  }
+}
