@@ -15,7 +15,12 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   if (!block) return null;
   if (block.firstChildId) return block.firstChildId;
   let cursor = block;
+  const maxSteps = state.blocks.size + 1;
+  let steps = 0;
   while (true) {
+    if (++steps > maxSteps) {
+      throw new Error(`nextBlockInDocOrder: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    }
     if (cursor.nextSiblingId) return cursor.nextSiblingId;
     if (!cursor.parentId) return null;
     const parent = state.blocks.get(cursor.parentId);
@@ -41,7 +46,12 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     // Descend to the deepest last child of the previous sibling.
     let cursor = state.blocks.get(block.prevSiblingId);
     if (!cursor) return null;
+    const maxSteps = state.blocks.size + 1;
+    let steps = 0;
     while (cursor.lastChildId) {
+      if (++steps > maxSteps) {
+        throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${maxSteps} blocks)`);
+      }
       const next = state.blocks.get(cursor.lastChildId);
       if (!next) break;
       cursor = next;
@@ -62,7 +72,12 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   if (!state.blocks.has(blockId)) return [];
   const result: BlockId[] = [];
   let current: BlockId | null = blockId;
+  const maxSteps = state.blocks.size + 1;
+  let steps = 0;
   while (current) {
+    if (++steps > maxSteps) {
+      throw new Error(`ancestorChain: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    }
     const block = state.blocks.get(current);
     if (!block) {
       throw new Error(
@@ -84,7 +99,12 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
 export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = state.blocks.get(blockId);
   if (!cursor) return null;
+  const maxSteps = state.blocks.size + 1;
+  let steps = 0;
   while (cursor.firstChildId) {
+    if (++steps > maxSteps) {
+      throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    }
     const next = state.blocks.get(cursor.firstChildId);
     if (!next) break;
     cursor = next;
@@ -100,7 +120,12 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
 export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = state.blocks.get(blockId);
   if (!cursor) return null;
+  const maxSteps = state.blocks.size + 1;
+  let steps = 0;
   while (cursor.lastChildId) {
+    if (++steps > maxSteps) {
+      throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    }
     const next = state.blocks.get(cursor.lastChildId);
     if (!next) break;
     cursor = next;

@@ -60,6 +60,22 @@ describe("nextBlockInDocOrder", () => {
     const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
     expect(nextBlockInDocOrder(state, "missing" as BlockId)).toBeNull();
   });
+
+  it("throws on cycle detection in parent chain", () => {
+    // Construct a cycle: A.parentId = B, B.parentId = A
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "a" }),
+        buildBlock({ id: "a", type: "section", parentId: "b", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "b", type: "section", parentId: "a", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "a", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    // nextBlockInDocOrder on "p" should ascend via parent pointers: p -> a -> b -> a (cycle).
+    // It should throw before infinite-looping.
+    expect(() => nextBlockInDocOrder(state, "p" as BlockId)).toThrow(/cycle detected/);
+  });
 });
 
 describe("prevBlockInDocOrder", () => {

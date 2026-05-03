@@ -108,6 +108,13 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
     currentId = nextBlockInDocOrder(state, currentId);
   }
 
+  if (currentId !== normalized.focus.blockId) {
+    throw new Error(
+      `iterateSpan: walked to end of context without reaching focus block "${normalized.focus.blockId}" ` +
+      `(malformed state or stale span)`,
+    );
+  }
+
   // Focus block: from 0 to focus.offset.
   yield { block: focusBlock, rangeStart: 0, rangeEnd: normalized.focus.offset };
 }
@@ -160,4 +167,9 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
     if (currentId === normalized.focus.blockId) return;
     currentId = nextBlockInDocOrder(state, currentId);
   }
+
+  throw new Error(
+    `iterateBlocksInSpan: walked to end of context without reaching focus block "${normalized.focus.blockId}" ` +
+    `(malformed state or stale span)`,
+  );
 }
