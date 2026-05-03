@@ -10,6 +10,14 @@ This doc is roadmap, not architecture — lives in
 `docs/superpowers/plans/`. The architecture docs are the spec each
 piece implements against.
 
+**Per-piece agents:** before picking up a piece below, read CLAUDE.md
+("Coordination protocol for per-piece agents"). The architecture has
+been derisked to ~95% confidence (see
+[`docs/superpowers/specs/2026-05-02-architecture-derisk-memo.md`](../specs/2026-05-02-architecture-derisk-memo.md));
+each piece below fits a known architectural slot. If implementation
+surfaces a need for cross-cutting architectural change, stop and
+surface it before unilaterally restructuring.
+
 ---
 
 ## Pieces
@@ -27,10 +35,20 @@ Closes: F3K.A (canvas overflow at ~800 paragraphs), F3K.D (1000p tab freeze, hyp
 Out of scope for P1: incremental pagination (whole-doc repagination on any change is acceptable until profiling says otherwise); generated content's `target-counter()` two-pass resolution (lands with P14).
 
 **Status:** P1.A (foundation — whole-block placement) shipped. P1.B
-(within-block fragmentation, widows/orphans, break-* properties) shipped.
+(within-block fragmentation, widows/orphans, break-* properties; plus
+page-margin offset and per-page paint-coords fixes from browser smoke
+testing) shipped. P1.C designed (spec at
+[`docs/superpowers/specs/2026-05-02-p1c-pagination-templates-design.md`](../specs/2026-05-02-p1c-pagination-templates-design.md));
+not yet implemented. P1.C decomposes into 5 sub-pieces (P1.C.1 through
+P1.C.5) per the spec's Decomposition section.
+
 Follow-ups deferred:
-- P1.C — page templates with headers, footers, footnotes; thead row
-  repetition (requires display: table-header-group schema).
+- All P1.C sub-pieces.
+- Cross-page floats (P1.D-or-P12).
+- Cross-page table header row (`<thead>`) repetition (requires
+  `Display: "table-header-group"` schema addition).
+- Bottom-side margin truncation across breaks for the parent-with-bottom-
+  padding/border edge case (top side already shipped in P1.B).
 
 ### P2 — Inline-block shrink-to-fit clamping
 

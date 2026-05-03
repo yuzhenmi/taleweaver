@@ -101,10 +101,18 @@ Known gaps:
 
 Foundation shipped (P1.A): `PageBox` LayoutBox variant; `paginateRoot` whole-block fragmenter; `EditorConfig.pageConfig` wires through layoutTree / layoutTreeIncremental; the editor controller's per-page-canvas path activates when `PageBox`es appear in the layout tree.
 
-Within-block fragmentation shipped (P1.B): `FragmentationContext` and `LayoutResult` types wired through `layoutBlock`, `layoutInlineContent`, and `layoutTable`; `paginateRoot` rewritten as a page-by-page coordinator driving `layoutBlock` with a break token per page; BFC break-aware child loop (`break-before`, `break-after`, `break-inside`, margin truncation, overflow rule, resume from `BlockBreakToken`); IFC orphans/widows/hyphen-pair constraints and resume from `IFCBreakToken`; Table FC row-boundary fragmentation and resume from `TableBreakToken`.
+Within-block fragmentation shipped (P1.B): `FragmentationContext` and `LayoutResult` types wired through `layoutBlock`, `layoutInlineContent`, and `layoutTable`; `paginateRoot` rewritten as a page-by-page coordinator driving `layoutBlock` with a break token per page; BFC break-aware child loop (`break-before`, `break-after`, `break-inside`, margin truncation top side, overflow rule, resume from `BlockBreakToken`); IFC orphans/widows/hyphen-pair constraints and resume from `IFCBreakToken`; Table FC row-boundary fragmentation and resume from `TableBreakToken`.
+
+Page margins shipped: each `PageBox` contains a single wrapping content-area `BlockBox` positioned at `(margins.inlineStart, margins.blockStart)` within the page; the BFC's containing inline size is the page content width (page minus inline margins). Content visibly insets from the page edges per CSS Paged Media semantics. The editor's `SET_CONTAINER_WIDTH` action threads `pageConfig` through to its `layoutTree` call, preserving paginated mode across container resizes.
+
+Per-page paint coordinates: `paintPage` and `walkAndDetectChanges` translate by `(-pageBox.x, -pageBox.y)` so each page paints in page-local coordinates against its own canvas. `acquireCanvas` resets canvas dimensions and the per-page `PaintCache` when a slot's canvas is freshly created or recycled from the pool, preventing blank renders from cache short-circuit.
+
+Page templates designed (P1.C; spec at `docs/superpowers/specs/2026-05-02-p1c-pagination-templates-design.md`; not yet implemented). State-tree-backed editable headers/footers scoped to `section` nodes; footnotes as inline state-tree nodes with section-level numbering policy; six margin regions; first/odd/even page variants; iterative footnote-slot convergence; two-pass page-count resolution; cursor-scope extension for editing header/footer/footnote subtrees. Decomposes into 5 sub-pieces (P1.C.1 through P1.C.5).
 
 Still missing (deferred to P1.C and later):
-- Page templates: headers, footers, footnotes, first/left/right variants.
+- All P1.C sub-pieces (headers/footers/footnotes/templates).
+- Bottom-side margin truncation across breaks for the edge case where the parent has bottom padding/border on a partial fragment (top side already shipped in P1.B).
+- Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
 - Generated content / counters consumers (target-counter resolves only after P9b).
 - Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
 
@@ -154,6 +162,11 @@ Known gaps:
   query state nodes for inline styles in a way that may produce
   incorrect "active" indicators if the state tree applies styles
   directly on text nodes rather than wrapping them in span nodes.
+- **Paste-then-select-all reverts content** (user-observed,
+  unprofiled). Rapid paste followed by an immediate select-all
+  causes some of the pasted content to disappear from the editor.
+  Likely a reducer-level race or a state-tree mutation timing
+  issue. Not investigated. No reproducer harness yet.
 
 ### `perf/` `[implemented]`
 
@@ -200,6 +213,13 @@ older `TextMeasurer` interface.
 Gaps as documented under `core`'s text section: full UAX #14, full
 grapheme-cluster boundaries, hyphenation dictionaries.
 
+Visible bug: **inter-word spacing is wrong** for plain ASCII text in
+the example app — adjacent words appear visually merged (e.g.
+"Welcometo Taleweaver—a documenteditor" instead of properly-spaced
+words). Caused by a measurement / paint mismatch between space tokens
+and word tokens, surfacing as overlapping or dropped space advances.
+Not investigated; observed during P1.B browser smoke testing.
+
 ### Other dom helpers `[implemented]`
 
 `key-handler` (DOM keyboard event → `EditorAction` mapping),
@@ -226,20 +246,23 @@ React.Profiler instrumentation works.
 
 ### `examples/react/` `[partial]`
 
-Loads, renders the default empty document, accepts input. Toolbar and
-menu bar work for basic operations.
+Loads, renders the default empty document with two seed paragraphs,
+accepts input. Toolbar and menu bar work for basic operations.
+Pagination is active (US Letter at 96 DPI, 1-inch margins). Multi-page
+documents fragment correctly across pages with content visibly inset
+from the page edges.
 
 Known issues:
-- Pagination not active. The example app does not pass `pageHeight`
-  or `pageGap` to `<EditorView>`, even though `dom`'s controller
-  supports it. Activates once the engine produces `PageBox` outputs.
 - Several editor utilities (triple-click, shift-click, toolbar
   bold/italic indicators) need verification against the current
   state-tree shape.
+- The visible word-spacing bug from `canvas-shaper` shows up most
+  obviously here (adjacent words appear merged in seeded text).
+- Paste-then-select-all reverts content (see editor `[partial]`).
 - The example's perf fixture loader (activated via `?perfFixture=N`
-  URL parameter) builds large synthetic documents; combined with the
-  lack of canvas paging, this exposes the canvas overflow at ~800
-  paragraphs as a dev-environment usability issue.
+  URL parameter) builds large synthetic documents; the per-page
+  canvas-pool virtualization handles thousand-paragraph documents
+  without the old single-canvas overflow.
 
 ### `examples/dom/` `[partial]`
 

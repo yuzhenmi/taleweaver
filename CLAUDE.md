@@ -84,12 +84,22 @@ Files cross-link rather than duplicate content. Each `overview.md` introduces th
 
 ## Workflow
 
-- **Worktree:** all current development happens in `.worktrees/dom-redesign/` on `feature/dom-architecture-redesign`. Use absolute paths for git (`git -C <worktree>`). Pre-flight check on every task.
-- **Subagent dispatch:** every implementer subagent dispatch must include explicit `cwd` guards or it drifts to main.
-- **Auto-commit:** commit on user's behalf on feature branches/worktrees per milestone. Never commit to main without explicit instruction.
-- **TypeScript checks:** use `npm run build --workspace=<pkg>`, not bare `npx tsc`.
-- **TDD:** write/update tests first, then implement. No exceptions.
+- **Branch:** all current development happens on `feature/dom-architecture-redesign` (checked out directly in `/Users/hansyu/code/taleweaver/`). Pre-flight check the branch on every task. (Earlier in the project a `.worktrees/dom-redesign/` worktree was used; it has been removed.)
+- **Subagent dispatch:** every implementer subagent dispatch must include explicit `cwd` guards (the project path) so it doesn't drift.
+- **Auto-commit:** commit on user's behalf on the feature branch per milestone. Never commit to `main` without explicit instruction.
+- **TypeScript checks:** use `npm run build --workspace=<pkg>`, not bare `npx tsc`. The IDE's TypeScript server occasionally surfaces stale "Cannot find module" diagnostics after file moves; the authoritative check is `npm run build`.
+- **Browser smoke test for UI work:** `npm test` does not catch geometry / paint / coordinate bugs. After any work that touches layout, paint, the editor controller, or the example apps, run `npm run dev --workspace=examples/react` and exercise the feature in a real browser before declaring it done. Tests assert structure (counts, types, references); only the browser exercises actual coordinates and pixels. P1.B shipped with multiple integration bugs that 840 unit tests passed but the browser exposed in seconds.
+- **TDD:** write/update tests first, then implement. No exceptions. **Test geometry, not just structure** — assertions on `box.children.length` won't catch a line at the wrong y-position.
 - **Type safety:** never write type-unsafe code. Avoid non-null assertions (`!`); use proper narrowing, defaults, or refactor to eliminate `undefined`/`null`.
+
+## Coordination protocol for per-piece agents
+
+The architecture has been derisked to ~95% confidence (see `docs/superpowers/specs/2026-05-02-architecture-derisk-memo.md`). Every piece in `docs/superpowers/plans/2026-04-30-decomposition.md` fits a known architectural slot. Per-piece agents should:
+
+1. Implement within the piece's scope. The architecture docs are the spec.
+2. **STOP and surface for coordination** if implementation reveals the need for a cross-cutting architectural change — adding a new field to `LayoutBox`, changing how the cascade pass dispatches, restructuring the editor reducer's action pipeline, etc. Don't unilaterally restructure across pieces.
+3. Read the spec for your piece (if one exists) and CLAUDE.md before starting. For pieces without a spec yet (most non-pagination pieces), brainstorm first per superpowers:brainstorming.
+4. Brand-new architectural concerns (accessibility, IME composition, multi-column) have derisking sketches in the architecture-derisk memo. Use those as a starting point; they're not full designs but they confirm the architecture supports each.
 
 ## Conventions
 
@@ -102,5 +112,10 @@ Files cross-link rather than duplicate content. Each `overview.md` introduces th
 
 - **Architecture (start here):** `docs/architecture/overview.md` and the per-package overviews it links to.
 - **Implementation status:** `docs/architecture/state-of-branch.md` (current code vs target architecture).
+- **Roadmap:** `docs/superpowers/plans/2026-04-30-decomposition.md` (the P1-P26 piece list with dependencies).
+- **Architecture-readiness derisking memo:** `docs/superpowers/specs/2026-05-02-architecture-derisk-memo.md` (confirmation that accessibility, IME, multi-column fit existing slots; sketches for each).
+- **Pagination specs:**
+  - P1.B (within-block fragmentation, shipped): `docs/superpowers/specs/2026-05-01-p1b-pagination-within-block-fragmentation-design.md`
+  - P1.C (templates, headers, footers, footnotes — designed, not implemented): `docs/superpowers/specs/2026-05-02-p1c-pagination-templates-design.md`
 - **Plan 3 work history:** `docs/superpowers/plans/2026-04-29-plan-3-summary.md` (what shipped during the architectural foundation rewrite).
 - **Per-phase plans + followups (historical):** `docs/superpowers/plans/2026-04-29-plan-3{a..k}-*.md`.
