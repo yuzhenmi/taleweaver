@@ -33,3 +33,19 @@ export function createSpan(anchor: Position, focus: Position): Span {
 export function positionsEqual(a: Position, b: Position): boolean {
   return a.blockId === b.blockId && a.offset === b.offset;
 }
+
+/**
+ * Compare two positions in the same block. Returns negative/zero/positive
+ * by offset. Throws if blockIds differ — cross-block compare requires
+ * walking the block tree and lives in `block-compare.ts` (Layer 2 utility,
+ * added in Phase 2).
+ */
+export function comparePositionsWithinBlock(a: Position, b: Position): number {
+  if (a.blockId !== b.blockId) {
+    throw new Error(
+      `comparePositionsWithinBlock called on positions in different blocks (` +
+      `${a.blockId} vs ${b.blockId}); use compareBlocksInDocOrder for cross-block compare`,
+    );
+  }
+  return a.offset - b.offset;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createPosition, type Position, createSpan, positionsEqual, type Span } from "./block-position";
+import { createPosition, type Position, createSpan, positionsEqual, type Span, comparePositionsWithinBlock } from "./block-position";
 import type { BlockId } from "./block-id";
 
 describe("createPosition", () => {
@@ -39,5 +39,31 @@ describe("positionsEqual", () => {
     const a = createPosition("blk-0" as BlockId, 5);
     const b = createPosition("blk-0" as BlockId, 6);
     expect(positionsEqual(a, b)).toBe(false);
+  });
+});
+
+describe("comparePositionsWithinBlock", () => {
+  it("returns negative when a.offset < b.offset (same block)", () => {
+    const a = createPosition("blk-0" as BlockId, 1);
+    const b = createPosition("blk-0" as BlockId, 5);
+    expect(comparePositionsWithinBlock(a, b)).toBeLessThan(0);
+  });
+
+  it("returns positive when a.offset > b.offset (same block)", () => {
+    const a = createPosition("blk-0" as BlockId, 5);
+    const b = createPosition("blk-0" as BlockId, 1);
+    expect(comparePositionsWithinBlock(a, b)).toBeGreaterThan(0);
+  });
+
+  it("returns 0 when positions are equal (same block)", () => {
+    const a = createPosition("blk-0" as BlockId, 5);
+    const b = createPosition("blk-0" as BlockId, 5);
+    expect(comparePositionsWithinBlock(a, b)).toBe(0);
+  });
+
+  it("throws when blockIds differ", () => {
+    const a = createPosition("blk-0" as BlockId, 5);
+    const b = createPosition("blk-1" as BlockId, 5);
+    expect(() => comparePositionsWithinBlock(a, b)).toThrow(/different blocks/);
   });
 });
