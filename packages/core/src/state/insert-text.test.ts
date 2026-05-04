@@ -154,3 +154,24 @@ describe("insertText — empty block", () => {
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hi", attrs: { bold: true } });
   });
 });
+
+describe("insertText — split a different-attrs text item", () => {
+  // Block: [text("helloworld") with attrs {}]
+  // Insert "BOLD" with { bold: true } at offset 5
+  // Expected: [text("hello") {}, text("BOLD") {bold:true}, text("world") {}]
+  it("splits the affected text item into prefix + new + suffix when attrs differ", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("helloworld")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 5), "BOLD", { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "BOLD", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: {} });
+  });
+});
