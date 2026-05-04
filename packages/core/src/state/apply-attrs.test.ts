@@ -329,3 +329,73 @@ describe("applyAttrsToRange — multi-block span", () => {
     expect(result.state.blocks.get("doc" as BlockId)).toBe(beforeDoc);
   });
 });
+
+describe("applyAttrsToRange — removing attrs (undefined values)", () => {
+  it("removes a key from text items in range when value is undefined", () => {
+    // Block: [text("hello world", { bold: true, italic: true })]
+    // Apply { bold: undefined } over [3, 8) — should remove `bold` from "lo wo".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello world", { bold: true, italic: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 8));
+    const result = applyAttrsToRange(state, span, { bold: undefined });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ text: "hel", attrs: { bold: true, italic: true } });
+    expect(items?.[1]).toMatchObject({ text: "lo wo", attrs: { italic: true } });
+    expect(items?.[2]).toMatchObject({ text: "rld", attrs: { bold: true, italic: true } });
+  });
+
+  it("removing a key that doesn't exist on an item is a no-op for that item", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello", { italic: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    // Attempting to remove `bold` when only `italic` exists.
+    const result = applyAttrsToRange(state, span, { bold: undefined });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    // After merge attrs: still { italic: true } (bold key never existed).
+    expect(items?.[0]).toMatchObject({ text: "hello", attrs: { italic: true } });
+  });
+
+  it("can add and remove attrs in the same call", () => {
+    // Block: [text("hello", { bold: true })]
+    // Apply { bold: undefined, italic: true }: should remove bold AND add italic.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello", { bold: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    const result = applyAttrsToRange(state, span, { bold: undefined, italic: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "hello", attrs: { italic: true } });
+  });
+});
