@@ -120,6 +120,42 @@ describe("insertText — middle of single text item", () => {
     const result = insertText(state, createPosition("p" as BlockId, 5), " beautiful", {});
     expect([...result.dirtyIds]).toEqual(["p"]);
   });
+
+  it("preserves immutability + structural sharing (does not mutate original; unmodified blocks share identity)", () => {
+    const state = fixture();
+    const beforeP = state.blocks.get("p" as BlockId);
+    const beforeDoc = state.blocks.get("doc" as BlockId);
+    const result = insertText(state, createPosition("p" as BlockId, 5), " x", {});
+    // Original state and its blocks are not mutated.
+    expect(result.state).not.toBe(state);
+    expect(result.state.blocks.get("p" as BlockId)).not.toBe(beforeP);
+    expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello world" });
+    // Unmodified blocks (doc) share identity — structural sharing.
+    expect(result.state.blocks.get("doc" as BlockId)).toBe(beforeDoc);
+  });
+
+  it("normalizes already-unnormalized inline content (merges adjacent same-attrs text items in input)", () => {
+    // Input is unnormalized: three adjacent same-attrs text items. The
+    // post-pass should merge them all (along with any new insertion).
+    // createInlineContent does NOT normalize, so this is a real input shape.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a"), text("b"), text("c")]),
+        }),
+      ],
+    });
+    // Insert at offset 1 (between "a" and "b"): all attrs equal, so the result should be one merged item.
+    const result = insertText(state, createPosition("p" as BlockId, 1), "X", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "aXbc", attrs: {} });
+  });
 });
 ```
 
@@ -245,6 +281,12 @@ function spliceTextIntoItems(
       // trailing edge for a text item (we prefer to land at the trailing
       // edge of a text item rather than the leading edge of the next item,
       // so we can merge if attrs match).
+      // Asymmetry: at an embed→text boundary, the OR clause is FALSE for
+      // the embed (because item.kind === "embed"), so the embed is pushed
+      // and the loop continues; the next iteration enters the text item
+      // at within=0 and creates [embed, new, text]. The merge pass then
+      // joins new+text if attrs match. This is the correct behavior:
+      // we cannot "merge" with a non-text item.
       if (item.kind === "text") {
         const within = offset - cursor;
         const prefix = item.text.slice(0, within);
@@ -291,6 +333,9 @@ function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] 
   for (const item of items) {
     if (item.kind === "text") {
       if (pending && attrsEqual(pending.attrs, item.attrs)) {
+        // pending.attrs and item.attrs are equal-by-value (attrsEqual
+        // returned true); using either side yields the same result.
+        // We pick pending.attrs for stability.
         pending = createTextItem(pending.text + item.text, pending.attrs);
       } else {
         if (pending) out.push(pending);
@@ -312,7 +357,7 @@ function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (2 tests).
+Expected: PASS (4 tests — basic, dirtyIds, immutability/identity, multi-item normalization).
 
 - [ ] **Step 4b: Run the full type checker (REQUIRED)**
 
@@ -462,7 +507,7 @@ describe("insertText — empty block", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (7 tests in `insert-text.test.ts` — 2 from Task 1 + 5 new).
+Expected: PASS (9 tests in `insert-text.test.ts` — 4 from Task 1 + 5 new).
 
 - [ ] **Step 3: Type check**
 
@@ -527,7 +572,7 @@ describe("insertText — split a different-attrs text item", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (8 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 3: Type check**
 
@@ -607,13 +652,40 @@ describe("insertText — at boundary between two text items", () => {
     expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
     expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: { bold: true } });
   });
+
+  it("does NOT merge two same-attrs runs across a different-attrs insert (contract pin)", () => {
+    // [text("a") {bold}, text("b") {bold}] insert "X" {italic} at offset 1
+    // Expected: [text("a") {bold}, text("X") {italic}, text("b") {bold}]
+    // — the two {bold} runs do NOT collapse across the {italic} run.
+    // This pins the contract: the merge pass walks linearly and only
+    // merges immediately adjacent same-attrs items; it never collapses
+    // across an intervening different-attrs item.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a", { bold: true }), text("b", { bold: true })]),
+        }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 1), "X", { italic: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+  });
 });
 ```
 
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (10 tests).
+Expected: PASS (13 tests — 10 from prior tasks + 3 new boundary cases including the "no merge across different-attrs insert" contract pin).
 
 - [ ] **Step 3: Type check**
 
@@ -725,7 +797,7 @@ describe("insertText — adjacent to embed items", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (13 tests).
+Expected: PASS (16 tests — 13 from prior tasks + 3 new embed-adjacency tests).
 
 - [ ] **Step 3: Type check**
 
@@ -780,7 +852,7 @@ describe("insertText — empty text", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (14 tests).
+Expected: PASS (17 tests — 16 from prior tasks + 1 new no-op test).
 
 - [ ] **Step 3: Type check**
 
@@ -858,7 +930,7 @@ describe("insertText — error cases", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- insert-text`
-Expected: PASS (18 tests).
+Expected: PASS (21 tests — 17 from prior tasks + 4 new error tests).
 
 - [ ] **Step 3: Type check**
 
@@ -925,7 +997,7 @@ Expected: PASS (2 tests in `operations.test.ts` — 1 from Phase 4a + 1 new).
 - [ ] **Step 5: Run the full test suite + type check**
 
 Run: `npm test --workspace=packages/core`
-Expected: PASS (all existing tests still green AND insertText's 18 new tests pass; total ~1037 tests + 4 skipped, up from ~1019 + 4 at end of Phase 4a).
+Expected: PASS (all existing tests still green AND insertText's 21 new tests + 1 new operations-barrel assertion pass; total ~1041 tests + 4 skipped, up from ~1019 + 4 at end of Phase 4a).
 
 Run: `npm run build --workspace=packages/core`
 Expected: clean.
