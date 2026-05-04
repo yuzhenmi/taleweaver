@@ -251,3 +251,81 @@ describe("applyAttrsToRange — embed items in range", () => {
     });
   });
 });
+
+describe("applyAttrsToRange — multi-block span", () => {
+  // doc > [p1("hello"), p2("world"), p3("!")]
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("!")]) }),
+      ],
+    });
+
+  it("applies attrs across two blocks: anchor block partial + focus block partial", () => {
+    const state = fixture();
+    // Span p1@2 → p2@3: covers p1 [2, 5) + p2 [0, 3).
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    const result = applyAttrsToRange(state, span, { bold: true });
+
+    // p1 split: [text("he") {}, text("llo") {bold}]
+    const p1Items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(p1Items).toHaveLength(2);
+    expect(p1Items?.[0]).toMatchObject({ text: "he", attrs: {} });
+    expect(p1Items?.[1]).toMatchObject({ text: "llo", attrs: { bold: true } });
+
+    // p2 split: [text("wor") {bold}, text("ld") {}]
+    const p2Items = result.state.blocks.get("p2" as BlockId)?.inlineContent?.items;
+    expect(p2Items).toHaveLength(2);
+    expect(p2Items?.[0]).toMatchObject({ text: "wor", attrs: { bold: true } });
+    expect(p2Items?.[1]).toMatchObject({ text: "ld", attrs: {} });
+
+    // p3 untouched.
+    const p3Items = result.state.blocks.get("p3" as BlockId)?.inlineContent?.items;
+    expect(p3Items).toHaveLength(1);
+    expect(p3Items?.[0]).toMatchObject({ text: "!", attrs: {} });
+
+    // dirtyIds: only p1 and p2 changed.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2"]));
+  });
+
+  it("applies attrs across three blocks: anchor partial, intervening leaf full, focus partial", () => {
+    const state = fixture();
+    // Span p1@1 → p3@1: covers p1 [1, 5) + p2 [0, 5) + p3 [0, 1).
+    const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
+    const result = applyAttrsToRange(state, span, { bold: true });
+
+    // p1: [text("h") {}, text("ello") {bold}]
+    const p1Items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(p1Items).toHaveLength(2);
+    expect(p1Items?.[0]).toMatchObject({ text: "h", attrs: {} });
+    expect(p1Items?.[1]).toMatchObject({ text: "ello", attrs: { bold: true } });
+
+    // p2 fully covered → [text("world") {bold}]
+    const p2Items = result.state.blocks.get("p2" as BlockId)?.inlineContent?.items;
+    expect(p2Items).toHaveLength(1);
+    expect(p2Items?.[0]).toMatchObject({ text: "world", attrs: { bold: true } });
+
+    // p3: [text("!") {bold}]
+    const p3Items = result.state.blocks.get("p3" as BlockId)?.inlineContent?.items;
+    expect(p3Items).toHaveLength(1);
+    expect(p3Items?.[0]).toMatchObject({ text: "!", attrs: { bold: true } });
+
+    // dirtyIds: p1, p2, p3 all changed.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3"]));
+  });
+
+  it("preserves structural sharing: untouched blocks share identity across the operation", () => {
+    const state = fixture();
+    const beforeP3 = state.blocks.get("p3" as BlockId);
+    const beforeDoc = state.blocks.get("doc" as BlockId);
+    // Span only over p1 and p2.
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    expect(result.state.blocks.get("p3" as BlockId)).toBe(beforeP3);
+    expect(result.state.blocks.get("doc" as BlockId)).toBe(beforeDoc);
+  });
+});
