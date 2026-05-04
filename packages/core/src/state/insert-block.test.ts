@@ -142,3 +142,41 @@ describe("insertBlock — first child of empty container", () => {
     expect(result.state.blocks.get("s" as BlockId)?.lastChildId).toBe(newId);
   });
 });
+
+describe("insertBlock — error cases", () => {
+  it("throws when the parent does not exist", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(state, "missing" as BlockId, null, { type: "paragraph" }, allocator),
+    ).toThrow(/parent "missing" not found/);
+  });
+
+  it("throws when beforeSiblingId is not a child of parent", () => {
+    // doc > [p1]; section > [p2]  — p2 is NOT a child of doc, but we pass it as beforeSiblingId on doc.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "section", type: "section" }), // orphan; for test purposes
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(state, "doc" as BlockId, "p2" as BlockId, { type: "paragraph" }, allocator),
+    ).toThrow(/not a child of parent/);
+  });
+
+  it("throws when beforeSiblingId references a missing block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [buildBlock({ id: "doc", type: "document" })],
+    });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(state, "doc" as BlockId, "missing-sibling" as BlockId, { type: "paragraph" }, allocator),
+    ).toThrow(/beforeSibling.*not found/);
+  });
+});
