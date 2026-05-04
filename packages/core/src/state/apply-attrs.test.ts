@@ -104,3 +104,80 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     expect(items?.[0]).toMatchObject({ text: "helloworld", attrs: { bold: true } });
   });
 });
+
+describe("applyAttrsToRange — single block, multi-item span", () => {
+  it("applies attrs across two text items, merging with each item's existing attrs", () => {
+    // Block: [text("hello") {}, text("world") { italic: true }]  (length 10)
+    // Apply { bold: true } over [3, 8) — covers "lo" (in first item) + "wor" (in second item).
+    // Expected: [text("hel") {}, text("lo") {bold:true}, text("wor") {italic:true, bold:true}, text("ld") {italic:true}]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello"), text("world", { italic: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 8));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(4);
+    expect(items?.[0]).toMatchObject({ text: "hel", attrs: {} });
+    expect(items?.[1]).toMatchObject({ text: "lo", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ text: "wor", attrs: { italic: true, bold: true } });
+    expect(items?.[3]).toMatchObject({ text: "ld", attrs: { italic: true } });
+  });
+
+  it("applies attrs to a fully-covered text item without splitting", () => {
+    // Block: [text("hello") {}, text("world") {}]
+    // Apply { bold: true } over [0, 5) — covers exactly the first item.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello"), text("world")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(2);
+    expect(items?.[0]).toMatchObject({ text: "hello", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ text: "world", attrs: {} });
+  });
+
+  it("leaves items entirely outside the range untouched (3-item block, range covers only the middle)", () => {
+    // Block: [text("aaa"), text("bbb"), text("ccc")] — lengths 3+3+3=9
+    // Apply { bold: true } over [3, 6) — covers exactly the middle item.
+    // First item ends at 3 (itemEnd <= rangeStart) → keep.
+    // Last item starts at 6 (itemStart >= rangeEnd) → keep.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("aaa"), text("bbb"), text("ccc")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 6));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ text: "aaa", attrs: {} });
+    expect(items?.[1]).toMatchObject({ text: "bbb", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ text: "ccc", attrs: {} });
+  });
+});
