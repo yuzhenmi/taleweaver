@@ -181,3 +181,73 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
     expect(items?.[2]).toMatchObject({ text: "ccc", attrs: {} });
   });
 });
+
+describe("applyAttrsToRange — embed items in range", () => {
+  it("applies attrs to an embed's wrap-attrs (NOT its properties)", () => {
+    // Block: [text("a"), embed("image", { src: "u" }), text("b")]  (length 3)
+    // Apply { link: "http://x" } over [0, 3) — covers everything.
+    // Expected:
+    //   - text("a") gets { link: "http://x" }
+    //   - embed gets attrs = { link: "http://x" }; properties unchanged
+    //   - text("b") gets { link: "http://x" }
+    // After run-merge: text items have same attrs but are separated by the embed,
+    // so they don't merge across it.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("a"),
+            embed("image", { src: "u" }),
+            text("b"),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+    const result = applyAttrsToRange(state, span, { link: "http://x" });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { link: "http://x" } });
+    expect(items?.[1]).toMatchObject({
+      kind: "embed",
+      embedType: "image",
+      properties: { src: "u" },
+      attrs: { link: "http://x" },
+    });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { link: "http://x" } });
+  });
+
+  it("preserves an embed's pre-existing wrap-attrs and merges with incoming", () => {
+    // Embed pre-attrs: { comment: "c1" }; apply { link: "http://x" }
+    // Expected merged: { comment: "c1", link: "http://x" }
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            embed("image", { src: "u" }, { comment: "c1" }),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 1));
+    const result = applyAttrsToRange(state, span, { link: "http://x" });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({
+      kind: "embed",
+      embedType: "image",
+      properties: { src: "u" },
+      attrs: { comment: "c1", link: "http://x" },
+    });
+  });
+});
