@@ -22,7 +22,8 @@
 - Per CLAUDE.md: TDD throughout. Write tests first, see them fail, implement, see them pass, commit. Verify with both `npm test` AND `npm run build` (vitest is more permissive than tsc).
 - Per memory `feedback_no_auto_commit.md`: commit on user's behalf at the end of each task.
 - Type safety: no non-null assertions (`!`); use proper narrowing.
-- Phase 4a does NOT implement embed cascade-delete in `removeBlock` (deferred to a later phase when `state.embedContents` lands). A TODO comment is added in the implementation pointing forward. Today, no code creates embed-referenced blocks, so no orphaning happens in practice.
+- `removeBlock` MUST cascade-delete the entire subtree (the block + all descendants) per the spec's "no orphaned blocks" invariant (Definition of Done > Architectural invariants). Phase 4a implements this subtree cascade.
+- Phase 4a does NOT implement embed cascade-delete in `removeBlock` (deferred to a later phase when `state.embedContents` lands). A TODO comment is added in the implementation pointing forward. Today, no code creates embed-referenced blocks, so no orphaning happens in practice for the embed pathway.
 
 **Operation signatures (all return `OperationResult`):**
 
@@ -838,6 +839,59 @@ describe("removeBlock — middle child", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "doc", "p1", "p3"]));
   });
 });
+
+describe("removeBlock — container block with children (subtree cascade)", () => {
+  // doc > [section > [p1, p2], p3]
+  // Removing `section` must also delete p1 and p2, otherwise they'd
+  // be orphaned (their parentId points to a removed block) — violates
+  // the spec's "no orphaned blocks" invariant.
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "p3" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", nextSiblingId: "p3", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "section", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("deletes the named block AND its entire subtree from state.blocks", () => {
+    const state = fixture();
+    const result = removeBlock(state, "section" as BlockId);
+    expect(result.state.blocks.has("section" as BlockId)).toBe(false);
+    expect(result.state.blocks.has("p1" as BlockId)).toBe(false);
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    // Sibling p3 is unaffected:
+    expect(result.state.blocks.has("p3" as BlockId)).toBe(true);
+    // Root unaffected:
+    expect(result.state.blocks.has("doc" as BlockId)).toBe(true);
+  });
+
+  it("includes every id in the deleted subtree in dirtyIds, plus parent + sibling rewires", () => {
+    const state = fixture();
+    const result = removeBlock(state, "section" as BlockId);
+    // dirty: section (deleted), p1 (deleted descendant), p2 (deleted descendant),
+    //        doc (parent — firstChildId rewired), p3 (next sibling — prevSiblingId rewired).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["section", "p1", "p2", "doc", "p3"]));
+  });
+
+  it("preserves the no-orphans invariant after a container removal", () => {
+    const state = fixture();
+    const result = removeBlock(state, "section" as BlockId);
+    // Every remaining block must be reachable from rootId via parent/child links.
+    // A simple check: every remaining block's parentId is either null (root) or
+    // present in the result map.
+    for (const [id, b] of result.state.blocks.entries()) {
+      if (id === result.state.rootId) continue;
+      expect(b.parentId).not.toBeNull();
+      if (b.parentId !== null) {
+        expect(result.state.blocks.has(b.parentId)).toBe(true);
+      }
+    }
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -854,25 +908,38 @@ import type { BlockId } from "./block-id";
 import { createBlock, type Block } from "./block";
 
 /**
- * Remove a block from the document tree. Updates the linked-list
- * pointers of the prev/next siblings, and the parent's firstChildId /
- * lastChildId if the removed block was at a boundary.
+ * Remove a block (and its entire subtree) from the document tree.
+ *
+ * Per the spec's "no orphaned blocks" invariant, every block in
+ * state.blocks must be reachable from state.rootId via parent/child
+ * links (or referenced by an embed's contentBlockId, once embedContents
+ * exists). When removing a container block, leaving its descendants
+ * in state.blocks would orphan them. Therefore removeBlock always
+ * deletes the named block AND its full subtree.
+ *
+ * Updates the linked-list pointers of the prev/next siblings of the
+ * named block, and the parent's firstChildId / lastChildId if the
+ * named block was at a boundary.
  *
  * Returns OperationResult with dirtyIds containing:
- *   - the removed block's id
+ *   - every id in the deleted subtree (the named block + all descendants)
  *   - the parent's id (firstChildId / lastChildId may have changed)
  *   - the previous sibling's id (its nextSiblingId is rewired) — if exists
  *   - the next sibling's id (its prevSiblingId is rewired) — if exists
  *
+ * Render consumers must drop their cached render nodes for ids in
+ * dirtyIds that are NOT in result.state.blocks (they were deleted).
+ *
  * Throws if the block does not exist OR is the document root.
  *
- * TODO (Phase 4d / future): cascade-delete embed-referenced content blocks
- * from `state.embedContents` for any embeds in the removed subtree's
- * inlineContent. The `state.embedContents` map doesn't yet exist; today
- * no code creates embed-referenced blocks so no orphaning happens. When
- * embedContents lands, this function will walk the removed subtree
- * collecting `EmbedItem.properties.contentBlockId` references and remove
- * each from embedContents.
+ * TODO (future): cascade-delete embed-referenced content blocks from
+ * `state.embedContents` for any embeds in the removed subtree's
+ * inlineContent. The `state.embedContents` map doesn't yet exist;
+ * today no code creates embed-referenced blocks so no orphaning
+ * happens for that pathway. When embedContents lands, this function
+ * will walk the removed subtree collecting
+ * `EmbedItem.properties.contentBlockId` references and remove each
+ * from embedContents.
  */
 export function removeBlock(state: State, blockId: BlockId): OperationResult {
   const block = state.blocks.get(blockId);
@@ -884,6 +951,9 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
   }
   if (!block.parentId) {
     // Defensive: a non-root block with no parent is malformed state.
+    // Note: when state.embedContents lands, footnote-body roots will
+    // have parentId === null and SHOULD be removable via this function.
+    // Revisit this guard at that time.
     throw new Error(`removeBlock: block "${blockId}" has no parentId (orphan)`);
   }
 
@@ -893,8 +963,18 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     throw new Error(`removeBlock: parent "${parentId}" of "${blockId}" not found`);
   }
 
-  let blocks = state.blocks.delete(blockId);
-  const dirtyIds = new Set<BlockId>([blockId, parentId]);
+  // Collect every id in the subtree (the block + all descendants).
+  // Cycle-defended via the visited set itself.
+  const subtreeIds = new Set<BlockId>();
+  collectSubtreeIds(state, blockId, subtreeIds);
+
+  // Delete every id in the subtree from state.blocks.
+  let blocks = state.blocks;
+  for (const id of subtreeIds) {
+    blocks = blocks.delete(id);
+  }
+  const dirtyIds = new Set<BlockId>(subtreeIds);
+  dirtyIds.add(parentId);
 
   // Relink prev sibling's nextSiblingId → block's nextSiblingId.
   if (block.prevSiblingId) {
@@ -923,6 +1003,24 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     state: { ...state, blocks },
     dirtyIds,
   };
+}
+
+/**
+ * Walk the subtree rooted at `rootId` and add every visited id to `out`.
+ * Cycle-defended: a block already in `out` is not re-visited.
+ */
+function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): void {
+  if (out.has(rootId)) return;
+  const block = state.blocks.get(rootId);
+  if (!block) return;
+  out.add(rootId);
+  let current = block.firstChildId;
+  while (current) {
+    if (out.has(current)) break; // defensive: sibling cycle
+    collectSubtreeIds(state, current, out);
+    const c = state.blocks.get(current);
+    current = c ? c.nextSiblingId : null;
+  }
 }
 
 function withNextSibling(b: Block, nextSiblingId: BlockId | null): Block {
@@ -959,7 +1057,7 @@ function withChildPointers(b: Block, firstChildId: BlockId | null, lastChildId: 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test --workspace=packages/core -- remove-block`
-Expected: PASS (4 tests).
+Expected: PASS (7 tests — 4 in the basic middle-child describe + 3 in the subtree-cascade describe).
 
 - [ ] **Step 4b: Type check**
 
@@ -971,16 +1069,22 @@ Expected: clean.
 ```bash
 git add packages/core/src/state/remove-block.ts packages/core/src/state/remove-block.test.ts
 git commit -m "$(cat <<'EOF'
-feat(state): add removeBlock Layer 3 operation — middle-child case
+feat(state): add removeBlock Layer 3 operation with subtree cascade
 
-Removes a block from the linked-list children of its parent and relinks
-adjacent siblings. Updates parent's firstChildId / lastChildId if the
-removed block was at a boundary. Returns OperationResult with dirtyIds
-covering the removed block + parent + adjacent siblings.
+Removes a block AND its entire subtree from state.blocks (per the spec's
+"no orphaned blocks" invariant — leaving descendants in state.blocks
+when their parent is removed would orphan them). Relinks adjacent
+siblings; updates parent's firstChildId / lastChildId if the named
+block was at a boundary. Returns OperationResult with dirtyIds covering
+every deleted id (subtree) + parent + adjacent siblings.
 
-Embed cascade-delete (for footnote-body blocks etc.) is documented as
-TODO; deferred to Phase 4d / future when state.embedContents lands.
-Today no code creates embed-referenced blocks.
+Render consumers must drop their cached render nodes for ids in
+dirtyIds that are NOT in result.state.blocks (deleted).
+
+Embed cascade-delete (for footnote-body blocks referenced by
+EmbedItem.properties.contentBlockId) is documented as TODO; deferred
+until state.embedContents lands. Today no code creates embed-referenced
+blocks so no orphaning happens for that pathway.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -1069,7 +1173,7 @@ describe("removeBlock — only child", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- remove-block`
-Expected: PASS (7 tests in `remove-block.test.ts` — 4 from Task 6 + 3 new).
+Expected: PASS (10 tests in `remove-block.test.ts` — 7 from Task 6 + 3 new boundary tests).
 
 - [ ] **Step 3: Type check**
 
@@ -1133,7 +1237,7 @@ describe("removeBlock — error cases", () => {
 - [ ] **Step 2: Run tests to verify they pass**
 
 Run: `npm test --workspace=packages/core -- remove-block`
-Expected: PASS (10 tests in `remove-block.test.ts`).
+Expected: PASS (13 tests in `remove-block.test.ts`).
 
 - [ ] **Step 3: Type check**
 
@@ -1256,13 +1360,13 @@ Expected: clean.
 - [ ] **Step 2: Run the full test suite**
 
 Run: `npm test --workspace=packages/core`
-Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Phase 4a adds approximately 28 new tests:
+Expected: PASS — all existing tests still green AND all new tests added by this phase pass. Phase 4a adds approximately 31 new tests:
 - setBlockAttrs: 4
 - setBlockType: 3
 - insertBlock: 8 (2 + 3 + 3)
-- removeBlock: 10 (4 + 3 + 3)
+- removeBlock: 13 (4 middle-leaf + 3 subtree-cascade + 3 boundary + 3 error)
 - operations barrel: 1
-Total ~28; total suite should be ~1018 tests passing + 4 skipped, up from Phase 3's 990 + 4 skipped.
+Total ~31; total suite should be ~1021 tests passing + 4 skipped, up from Phase 3's 990 + 4 skipped.
 
 - [ ] **Step 3: Verify the new exports are not yet wired into the public API**
 
