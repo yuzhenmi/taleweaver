@@ -63,3 +63,82 @@ describe("insertBlock — between siblings", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "doc", "p1", "p2"]));
   });
 });
+
+describe("insertBlock — prepend (no prev sibling)", () => {
+  // doc > [p1, p2]  →  doc > [NEW, p1, p2]  via beforeSiblingId = "p1"
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("inserts before the first child and updates parent's firstChildId", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const result = insertBlock(state, "doc" as BlockId, "p1" as BlockId, { type: "paragraph" }, allocator);
+    const newId = "new-0" as BlockId;
+    const newBlock = result.state.blocks.get(newId);
+    expect(newBlock?.prevSiblingId).toBeNull();
+    expect(newBlock?.nextSiblingId).toBe("p1");
+    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBe(newId);
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe(newId);
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2");
+    expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p1"]));
+  });
+});
+
+describe("insertBlock — append (beforeSiblingId === null)", () => {
+  // doc > [p1, p2]  →  doc > [p1, p2, NEW]  via beforeSiblingId = null
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("appends after the last child and updates parent's lastChildId", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const result = insertBlock(state, "doc" as BlockId, null, { type: "paragraph" }, allocator);
+    const newId = "new-0" as BlockId;
+    const newBlock = result.state.blocks.get(newId);
+    expect(newBlock?.prevSiblingId).toBe("p2");
+    expect(newBlock?.nextSiblingId).toBeNull();
+    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe(newId);
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe(newId);
+    expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p2"]));
+  });
+});
+
+describe("insertBlock — first child of empty container", () => {
+  // doc > [section] (empty)  →  doc > [section > [NEW]]
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc" }), // no children
+      ],
+    });
+
+  it("inserts as the only child of an empty container (with beforeSiblingId === null)", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const result = insertBlock(state, "s" as BlockId, null, { type: "paragraph", inlineContent: createInlineContent([]) }, allocator);
+    const newId = "new-0" as BlockId;
+    const newBlock = result.state.blocks.get(newId);
+    expect(newBlock?.parentId).toBe("s");
+    expect(newBlock?.prevSiblingId).toBeNull();
+    expect(newBlock?.nextSiblingId).toBeNull();
+    expect(result.state.blocks.get("s" as BlockId)?.firstChildId).toBe(newId);
+    expect(result.state.blocks.get("s" as BlockId)?.lastChildId).toBe(newId);
+  });
+});
