@@ -319,3 +319,18 @@ describe("insertText — adjacent to embed items", () => {
     expect(items?.[2]).toMatchObject({ kind: "text", text: "b" });
   });
 });
+
+describe("insertText — empty text", () => {
+  it("returns the original state with empty dirtyIds", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 2), "", {});
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+});
