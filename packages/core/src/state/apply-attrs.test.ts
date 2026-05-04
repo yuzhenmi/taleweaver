@@ -399,3 +399,89 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
     expect(items?.[0]).toMatchObject({ text: "hello", attrs: { italic: true } });
   });
 });
+
+describe("applyAttrsToRange — empty span no-op", () => {
+  it("returns the original state with empty dirtyIds for a collapsed span", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 2);
+    const span = createSpan(pos, pos);
+    const result = applyAttrsToRange(state, span, { bold: true });
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+
+  it("returns the original state with empty dirtyIds when incoming attrs is empty {}", () => {
+    // No-op for empty attrs — avoids re-allocating items unnecessarily.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello", { bold: true })]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    const result = applyAttrsToRange(state, span, {});
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+});
+
+describe("applyAttrsToRange — run merging post-pass", () => {
+  it("merges adjacent text items that become same-attrs after the operation", () => {
+    // Block: [text("a", { bold: true }), text("b") {}, text("c", { bold: true })]
+    // Apply { bold: true } over the whole range — every item gets bold.
+    // After merge: should collapse to one item.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("a", { bold: true }),
+            text("b"),
+            text("c", { bold: true }),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "abc", attrs: { bold: true } });
+  });
+
+  it("does NOT merge across an embed even when text neighbors share attrs", () => {
+    // Block: [text("a"), embed("image"), text("b")]
+    // Apply { bold: true } over the whole range — both text items get bold; embed gets bold wrap.
+    // Even though text("a") and text("b") have identical attrs after, they don't merge across the embed.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ kind: "embed", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+  });
+});
