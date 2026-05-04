@@ -172,6 +172,31 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     expect(items?.[1]).toMatchObject({ text: "lowo", attrs: { italic: true, bold: true } });
     expect(items?.[2]).toMatchObject({ text: "rld", attrs: { italic: true } });
   });
+
+  it("re-collapses prefix+middle+suffix when applying value-equal attrs (split-then-merge contract pin)", () => {
+    // text("helloworld", { bold: true }) and apply { bold: true } over [3,7).
+    // The algorithm splits into prefix/middle/suffix (all with value-equal attrs);
+    // the post-pass mergeAdjacentTextItems must re-collapse them into one item.
+    // Pins the contract that attrsEqual is value-based (not reference-based) so
+    // that future changes to attrsEqual cannot silently break this case.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("helloworld", { bold: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "helloworld", attrs: { bold: true } });
+  });
 });
 ```
 
@@ -232,6 +257,12 @@ export function applyAttrsToRange(
   span: Span,
   attrs: ReadonlyAttrs,
 ): OperationResult {
+  // Empty incoming attrs = no-op (mirrors insertText's empty-text guard;
+  // avoids needlessly re-allocating items + dirtying blocks).
+  if (Object.keys(attrs).length === 0) {
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
+
   // Empty span = no-op.
   const normalized = normalizeSpan(state, span);
   if (
@@ -373,7 +404,7 @@ function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test --workspace=packages/core -- apply-attrs`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests — basic split, dirtyIds, immutability/identity, attrs merge, re-collapse contract pin).
 
 - [ ] **Step 4b: Run the full type checker (REQUIRED)**
 
@@ -484,6 +515,32 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ text: "hello", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ text: "world", attrs: {} });
+  });
+
+  it("leaves items entirely outside the range untouched (3-item block, range covers only the middle)", () => {
+    // Block: [text("aaa"), text("bbb"), text("ccc")] — lengths 3+3+3=9
+    // Apply { bold: true } over [3, 6) — covers exactly the middle item.
+    // First item ends at 3 (itemEnd <= rangeStart) → keep.
+    // Last item starts at 6 (itemStart >= rangeEnd) → keep.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("aaa"), text("bbb"), text("ccc")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 6));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ text: "aaa", attrs: {} });
+    expect(items?.[1]).toMatchObject({ text: "bbb", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ text: "ccc", attrs: {} });
   });
 });
 ```
@@ -852,6 +909,21 @@ describe("applyAttrsToRange — empty span no-op", () => {
     const pos = createPosition("p" as BlockId, 2);
     const span = createSpan(pos, pos);
     const result = applyAttrsToRange(state, span, { bold: true });
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+
+  it("returns the original state with empty dirtyIds when incoming attrs is empty {}", () => {
+    // No-op for empty attrs — avoids re-allocating items unnecessarily.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello", { bold: true })]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    const result = applyAttrsToRange(state, span, {});
     expect(result.state).toBe(state);
     expect([...result.dirtyIds]).toEqual([]);
   });
