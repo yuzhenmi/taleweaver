@@ -76,3 +76,81 @@ describe("insertText — middle of single text item", () => {
     expect(items?.[0]).toMatchObject({ kind: "text", text: "aXbc", attrs: {} });
   });
 });
+
+describe("insertText — offset 0 (beginning of block)", () => {
+  it("prepends text in front of the existing first item (different attrs → new run)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(2);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello ", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "world", attrs: {} });
+  });
+
+  it("merges with the first item when attrs are equal", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello world", attrs: {} });
+  });
+});
+
+describe("insertText — end of block (offset === inlineContentLength)", () => {
+  it("appends text after the last item (different attrs → new run)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 5), "!", { italic: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(2);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "!", attrs: { italic: true } });
+  });
+
+  it("merges with the last item when attrs are equal", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello!", attrs: {} });
+  });
+});
+
+describe("insertText — empty block", () => {
+  it("creates the first text item in an empty block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 0), "hi", { bold: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hi", attrs: { bold: true } });
+  });
+});
