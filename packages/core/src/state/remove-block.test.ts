@@ -160,3 +160,26 @@ describe("removeBlock — only child", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "doc"]));
   });
 });
+
+describe("removeBlock — error cases", () => {
+  it("throws when the block does not exist", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(() => removeBlock(state, "missing" as BlockId)).toThrow(/not found/);
+  });
+
+  it("throws when attempting to remove the document root", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(() => removeBlock(state, "doc" as BlockId)).toThrow(/cannot remove the document root/);
+  });
+
+  it("throws when removing a non-root block with no parent (malformed state)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document" }),
+        buildBlock({ id: "orphan", type: "paragraph", inlineContent: createInlineContent([]) }), // no parentId
+      ],
+    });
+    expect(() => removeBlock(state, "orphan" as BlockId)).toThrow(/no parentId/);
+  });
+});
