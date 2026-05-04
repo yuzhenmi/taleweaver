@@ -96,3 +96,67 @@ describe("removeBlock — container block with children (subtree cascade)", () =
     }
   });
 });
+
+describe("removeBlock — first child", () => {
+  // doc > [p1, p2, p3]  →  doc > [p2, p3] (p1 removed)
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("updates parent.firstChildId when removing the first child", () => {
+    const state = fixture();
+    const result = removeBlock(state, "p1" as BlockId);
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p2");
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p3");
+    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBeNull();
+  });
+});
+
+describe("removeBlock — last child", () => {
+  // doc > [p1, p2, p3]  →  doc > [p1, p2] (p3 removed)
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("updates parent.lastChildId when removing the last child", () => {
+    const state = fixture();
+    const result = removeBlock(state, "p3" as BlockId);
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2");
+    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBeNull();
+  });
+});
+
+describe("removeBlock — only child", () => {
+  // doc > [p1]  →  doc > [] (p1 removed; doc becomes empty)
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+      ],
+    });
+
+  it("clears both firstChildId and lastChildId when removing the only child", () => {
+    const state = fixture();
+    const result = removeBlock(state, "p1" as BlockId);
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBeNull();
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBeNull();
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "doc"]));
+  });
+});
