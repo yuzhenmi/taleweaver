@@ -249,3 +249,73 @@ describe("insertText — at boundary between two text items", () => {
     expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
   });
 });
+
+describe("insertText — adjacent to embed items", () => {
+  // Block: [text("a") {}, embed("image"), text("b") {}]  (length 3)
+
+  it("inserts immediately before an embed when offset === embed start", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+        }),
+      ],
+    });
+    // offset 1 = end of "a" / start of embed. Algorithm prefers trailing-edge of text item, so "X" merges with "a".
+    const result = insertText(state, createPosition("p" as BlockId, 1), "X", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "aX" });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b" });
+  });
+
+  it("inserts immediately after an embed when offset === embed end", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+        }),
+      ],
+    });
+    // offset 2 = end of embed / start of "b". Algorithm puts text BEFORE the next text item; merges with "b" if attrs match.
+    const result = insertText(state, createPosition("p" as BlockId, 2), "Y", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a" });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "Yb" });
+  });
+
+  it("inserts at the start of a block whose first item is an embed", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([embed("image"), text("b")]),
+        }),
+      ],
+    });
+    // offset 0 = before embed.
+    const result = insertText(state, createPosition("p" as BlockId, 0), "X", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "X" });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b" });
+  });
+});
