@@ -334,3 +334,44 @@ describe("insertText — empty text", () => {
     expect([...result.dirtyIds]).toEqual([]);
   });
 });
+
+describe("insertText — error cases", () => {
+  it("throws when the block does not exist", () => {
+    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(() => insertText(state, createPosition("missing" as BlockId, 0), "x", {})).toThrow(/not found/);
+  });
+
+  it("throws when the block is a container (no inlineContent)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc" }), // container, no inlineContent
+      ],
+    });
+    expect(() => insertText(state, createPosition("s" as BlockId, 0), "x", {})).toThrow(/not a leaf/);
+  });
+
+  it("throws when offset is negative", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    expect(() => insertText(state, createPosition("p" as BlockId, -1), "x", {})).toThrow(/out of range/);
+  });
+
+  it("throws when offset exceeds inline-content length", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    // Inline-content length is 2; valid offsets are [0, 2]. Offset 3 is out of range.
+    expect(() => insertText(state, createPosition("p" as BlockId, 3), "x", {})).toThrow(/out of range/);
+  });
+});
