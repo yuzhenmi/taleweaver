@@ -175,3 +175,77 @@ describe("insertText — split a different-attrs text item", () => {
     expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: {} });
   });
 });
+
+describe("insertText — at boundary between two text items", () => {
+  // Block: [text("hello") {}, text("world") {bold:true}]  (length 10)
+  // Insert " " {} at offset 5 (the boundary between the two items)
+  // Expected: text(" ") merges with the prev item (same attrs), giving:
+  //   [text("hello ") {}, text("world") {bold:true}]
+  it("merges with the previous item when boundary attrs match the prev item", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+        }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 5), " ", {});
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(2);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello ", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "world", attrs: { bold: true } });
+  });
+
+  it("creates a new run when boundary attrs match neither side", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+        }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 5), "X", { italic: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: { bold: true } });
+  });
+
+  it("does NOT merge two same-attrs runs across a different-attrs insert (contract pin)", () => {
+    // [text("a") {bold}, text("b") {bold}] insert "X" {italic} at offset 1
+    // Expected: [text("a") {bold}, text("X") {italic}, text("b") {bold}]
+    // — the two {bold} runs do NOT collapse across the {italic} run.
+    // This pins the contract: the merge pass walks linearly and only
+    // merges immediately adjacent same-attrs items; it never collapses
+    // across an intervening different-attrs item.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("a", { bold: true }), text("b", { bold: true })]),
+        }),
+      ],
+    });
+    const result = insertText(state, createPosition("p" as BlockId, 1), "X", { italic: true });
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+  });
+});
