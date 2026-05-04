@@ -8,4 +8,8 @@ describe("operations barrel", () => {
     expect(typeof ops.insertBlock).toBe("function");
     expect(typeof ops.removeBlock).toBe("function");
   });
+
+  it("re-exports Phase 4b operations", () => {
+    expect(typeof ops.insertText).toBe("function");
+  });
 });
