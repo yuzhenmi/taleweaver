@@ -122,3 +122,95 @@ describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", 
     expect(items?.[2]).toMatchObject({ kind: "text", text: "d", attrs: {} });
   });
 });
+
+describe("mergeAdjacentBlocks — linked-list correctness across positional cases", () => {
+  // doc > [p1, p2, p3, p4]
+  const fourChildFixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p4" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("one")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("two")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", nextSiblingId: "p4", inlineContent: createInlineContent([text("three")]) }),
+        buildBlock({ id: "p4", type: "paragraph", parentId: "doc", prevSiblingId: "p3", inlineContent: createInlineContent([text("four")]) }),
+      ],
+    });
+
+  it("middle pair (p2 + p3): p2 keeps id; p4.prevSiblingId rewires to p2; parent unchanged", () => {
+    const state = fourChildFixture();
+    const result = mergeAdjacentBlocks(state, "p2" as BlockId, "p3" as BlockId);
+
+    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
+    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBe("p1");
+    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe("p4"); // was "p3"; now skips
+    expect(result.state.blocks.get("p4" as BlockId)?.prevSiblingId).toBe("p2"); // was "p3"; rewired
+    expect(result.state.blocks.has("p3" as BlockId)).toBe(false); // removed
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1"); // unchanged
+    expect(parent?.lastChildId).toBe("p4"); // unchanged
+
+    // dirtyIds: p2 (modified), p3 (removed), p4 (prevSiblingId rewired). Parent NOT dirty.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "p3", "p4"]));
+  });
+
+  it("first pair (p1 + p2): p1 keeps id; firstChildId stays p1; p3.prevSiblingId rewires to p1", () => {
+    const state = fourChildFixture();
+    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
+
+    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
+    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p3"); // was p2
+    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p1"); // was p2
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1"); // unchanged (left wins, kept id)
+    expect(parent?.lastChildId).toBe("p4"); // unchanged
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3"]));
+  });
+
+  it("last pair (p3 + p4): p3 keeps id; parent's lastChildId rewires from p4 to p3", () => {
+    const state = fourChildFixture();
+    const result = mergeAdjacentBlocks(state, "p3" as BlockId, "p4" as BlockId);
+
+    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p2");
+    expect(result.state.blocks.get("p3" as BlockId)?.nextSiblingId).toBeNull(); // was p4; now last child
+    expect(result.state.blocks.has("p4" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1");
+    expect(parent?.lastChildId).toBe("p3"); // rewired from p4
+
+    // dirtyIds: p3 (modified), p4 (removed), doc (lastChildId rewired).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p4", "doc"]));
+  });
+
+  it("nested-block pair: doc > section > [p1, p2] → merging uses the immediate container as parent", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world")]) }),
+      ],
+    });
+    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
+
+    // Section's lastChildId rewires; doc untouched.
+    const section = result.state.blocks.get("section" as BlockId);
+    expect(section?.firstChildId).toBe("p1");
+    expect(section?.lastChildId).toBe("p1");
+
+    const doc = result.state.blocks.get("doc" as BlockId);
+    expect(doc?.firstChildId).toBe("section");
+    expect(doc?.lastChildId).toBe("section");
+
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    // dirtyIds: p1, p2, section. doc NOT dirty.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "section"]));
+  });
+});
