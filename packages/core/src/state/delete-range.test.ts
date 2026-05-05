@@ -367,3 +367,79 @@ describe("deleteRange — block-level invariants", () => {
     expect(state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2");
   });
 });
+
+describe("deleteRange — edge offsets and special cases", () => {
+  it("collapsed span (anchor === focus) is a no-op (returns same state, empty dirtyIds)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 2);
+    const result = deleteRange(state, createSpan(pos, pos));
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+
+  it("same-block delete with anchor.offset === 0 (delete from start)", () => {
+    // [text("hello")] — delete [0, 3) — keeps "lo".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3)));
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "lo" });
+  });
+
+  it("same-block delete with focus.offset === inlineContentLength (delete to end)", () => {
+    // [text("hello")] — delete [2, 5) — keeps "he".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 5)));
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "he" });
+  });
+
+  it("same-block delete spanning [0, inlineContentLength] (delete entire block content)", () => {
+    // [text("hello")] — delete [0, 5) — keeps nothing.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5)));
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toEqual([]);
+  });
+
+  it("reverse-order span normalizes correctly (focus before anchor in doc order)", () => {
+    // Delete from p@7 to p@3 — same as [3, 7) after normalization.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 7), createPosition("p" as BlockId, 3));
+    const result = deleteRange(state, span);
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "helorld" });
+  });
+});
