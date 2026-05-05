@@ -443,3 +443,164 @@ describe("deleteRange — edge offsets and special cases", () => {
     expect(items?.[0]).toMatchObject({ text: "helorld" });
   });
 });
+
+describe("deleteRange — error cases", () => {
+  it("throws when the anchor block does not exist (cross-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("missing" as BlockId, 0), createPosition("p" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" not found/);
+  });
+
+  it("throws when the focus block does not exist (cross-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("missing" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" not found/);
+  });
+
+  it("throws when the same-block target does not exist", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("missing" as BlockId, 0), createPosition("missing" as BlockId, 1));
+    // Same blockId on both endpoints → same-block branch → throws "block not found"
+    expect(() => deleteRange(state, span)).toThrow(/block ".+" not found/);
+  });
+
+  it("throws when an endpoint references a container block (firstChildId set)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", nextSiblingId: "p", firstChildId: "inner", lastChildId: "inner" }),
+        buildBlock({ id: "inner", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("inside")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("s" as BlockId, 0), createPosition("p" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" is a container/);
+  });
+
+  it("throws when an endpoint has null inlineContent (independent of firstChildId)", () => {
+    // Pin the inlineContent === null arm of the container guard.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", nextSiblingId: "p" }), // null inlineContent AND null firstChildId
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("s" as BlockId, 0), createPosition("p" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" is a container/);
+  });
+
+  it("throws when the focus block is a container (firstChildId set)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", prevSiblingId: "p", firstChildId: "inner", lastChildId: "inner" }),
+        buildBlock({ id: "inner", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("inside")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" is a container/);
+  });
+
+  it("throws when the focus block has null inlineContent (independent of firstChildId)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", prevSiblingId: "p" }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" is a container/);
+  });
+
+  it("throws when the cross-block span has different parents (cross-parent not supported)", () => {
+    // doc > [section1[p_a], section2[p_b]] — span across sections.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section1", lastChildId: "section2" }),
+        buildBlock({ id: "section1", type: "section", parentId: "doc", nextSiblingId: "section2", firstChildId: "p_a", lastChildId: "p_a" }),
+        buildBlock({ id: "p_a", type: "paragraph", parentId: "section1", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "section2", type: "section", parentId: "doc", prevSiblingId: "section1", firstChildId: "p_b", lastChildId: "p_b" }),
+        buildBlock({ id: "p_b", type: "paragraph", parentId: "section2", inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p_a" as BlockId, 0), createPosition("p_b" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/cross-parent spans are not supported/);
+  });
+
+  it("throws when the cross-block span endpoints are in different selection contexts", () => {
+    // p in doc; fn-body has no parentId → different root → comparePositions throws via no-common-ancestor.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/no common ancestor/);
+  });
+
+  it("throws when anchor offset is negative (same-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, -1), createPosition("p" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+  });
+
+  it("throws when focus offset exceeds inlineContentLength (same-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 999));
+    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+  });
+
+  it("throws when anchor offset exceeds inlineContentLength (cross-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 999), createPosition("p2" as BlockId, 1));
+    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+  });
+});
