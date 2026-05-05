@@ -1030,6 +1030,24 @@ describe("splitBlockAtPosition — error cases", () => {
     ).toThrow(/container/);
   });
 
+  it("throws when the block has null inlineContent (independent of firstChildId)", () => {
+    // A block with inlineContent === null is container-shaped even if firstChildId
+    // is also null. The container guard rejects on EITHER condition; this test pins
+    // the inlineContent === null arm so a future regression that changes || to &&
+    // (or removes the inlineContent check) is caught.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc" }), // null inlineContent AND null firstChildId
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("s" as BlockId, 0), allocator),
+    ).toThrow(/container/);
+  });
+
   it("throws when the block is the root (parentId is null)", () => {
     // Root block, leaf-shaped (atypical but legal — a single-paragraph "document" root).
     const state = buildState({
@@ -1076,7 +1094,7 @@ describe("splitBlockAtPosition — error cases", () => {
 
 - [ ] **Step 2-4: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (22 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (23 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -1084,9 +1102,12 @@ git add packages/core/src/state/split-block.test.ts
 git commit -m "$(cat <<'EOF'
 test(state): cover splitBlockAtPosition error cases
 
-Five new tests verifying the implementation throws on:
+Six new tests verifying the implementation throws on:
 - missing block.
-- container block (firstChildId set).
+- container block via firstChildId set (the typical container shape).
+- container block via null inlineContent (independent guard arm — pins
+  the inlineContent === null branch of the OR so a future regression
+  that drops it is caught).
 - root block (parentId null — no parent linked-list to host a sibling).
 - negative offset.
 - offset exceeding inlineContentLength.
@@ -1129,7 +1150,7 @@ Inside the existing `describe("operations barrel", ...)` block, add a new `it()`
 - [ ] **Step 3: Run tests + build**
 
 Run: `npm test --workspace=packages/core -- "src/state/operations.test" --run` → PASS (4 tests in `operations.test.ts`).
-Run: `npm test --workspace=packages/core --run` → all green; total 1088 + 4 skipped (was 1065 + 4 after Phase 4c-1; this phase adds 22 new tests in `split-block.test.ts` + 1 new assertion in `operations.test.ts` = 23).
+Run: `npm test --workspace=packages/core --run` → all green; total 1089 + 4 skipped (was 1065 + 4 after Phase 4c-1; this phase adds 23 new tests in `split-block.test.ts` + 1 new assertion in `operations.test.ts` = 24).
 Run: `npm run build --workspace=packages/core` → clean.
 
 - [ ] **Step 4: Verify public API not yet wired**
@@ -1167,7 +1188,7 @@ If anything came up during Phase 4c-2 that should inform Phase 4c-3 (`mergeAdjac
 - ✅ Edge offsets (0, total, empty block) with parent-update + dirtyIds assertions — Task 3
 - ✅ Linked-list correctness (middle / first / last child + nested-block) — Task 4
 - ✅ Block-level invariants (type, attrs, parentId, allocator, structural sharing, immutability) — Task 5
-- ✅ Error cases (missing, container, root, negative offset, oversized offset) — Task 6
+- ✅ Error cases (missing, container-via-firstChildId, container-via-null-inlineContent, root, negative offset, oversized offset) — Task 6
 - ✅ Operations barrel update — Task 7
 
 **Placeholder scan:** No "TBD"/"TODO" patterns. Task 1's production code emits exactly two helpers (`withPrevSibling`, `withLastChild`); no dead helpers.
