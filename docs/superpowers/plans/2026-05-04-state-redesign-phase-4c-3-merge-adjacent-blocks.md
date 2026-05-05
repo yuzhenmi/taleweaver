@@ -28,7 +28,7 @@
 - Per CLAUDE.md: TDD throughout. Verify with both `npm test` AND `npm run build`.
 - Type safety: no non-null assertions (`!`); use proper narrowing.
 - **Test-builder dependencies (verified at plan-write time):** `text`, `embed`, `buildBlock`, `buildState` are exported from `packages/core/src/test-utils/state-builders.ts`. `createInlineContent` from `state/inline-content.ts`. No new builders required.
-- **Known DRY concern (out of scope):** `mergeAdjacentTextItems` is currently duplicated in `state/insert-text.ts` and `state/apply-attrs.ts`. This phase inlines a third copy in `merge-blocks.ts` to follow the existing pattern. Deduplication into a shared helper is a separate cleanup-pass concern (Phase 14 or a follow-up); doing it now would require touching two unrelated files outside this phase's scope.
+- **Shared helpers (use these — do NOT inline):** Phase 4c-2.5 cleanup extracted `mergeAdjacentTextItems` to `state/inline-content.ts` (commit `b61d901`) and the `updateBlock` block-mutator helper to `state/block.ts` (commit `2c2a95a`). This plan uses both as imports — no helper duplication.
 
 **Why left wins (keeps id, type, attrs):** matches Word and Google Docs paragraph-identity semantics. Pressing Backspace at start of paragraph 2 merges into paragraph 1; paragraph 1 retains its formatting, comment anchors, and tracked-change anchors. Paragraph 2 is absorbed and ceases to exist as a distinct entity. Type/attrs differences (e.g., merging a heading into a paragraph) yield the LEFT block's type/attrs — the action handler is responsible for converting types ahead of the merge if a different policy is desired.
 
@@ -83,7 +83,7 @@ The parent is **not** dirtied when right was a middle child (parent's child poin
 
 | Path | Responsibility |
 |---|---|
-| `packages/core/src/state/merge-blocks.ts` | `mergeAdjacentBlocks(state, leftId, rightId) → OperationResult` + inlined `mergeAdjacentTextItems` helper. |
+| `packages/core/src/state/merge-blocks.ts` | `mergeAdjacentBlocks(state, leftId, rightId) → OperationResult`. Imports `mergeAdjacentTextItems` from `inline-content.ts` and `updateBlock` from `block.ts`; does not inline either. |
 | `packages/core/src/state/merge-blocks.test.ts` | Unit tests covering item-shapes/run-merging, linked-list correctness, block-level invariants, empty-block cases, and error cases. |
 
 **Modified:**
@@ -164,14 +164,8 @@ Expected: FAIL with module-not-found / `mergeAdjacentBlocks is not defined`.
 ```typescript
 import type { State, OperationResult } from "./state";
 import type { BlockId } from "./block-id";
-import { attrsEqual } from "./attrs";
-import {
-  createInlineContent,
-  createTextItem,
-  type InlineItem,
-  type TextItem,
-} from "./inline-content";
-import { createBlock, type Block } from "./block";
+import { createInlineContent, mergeAdjacentTextItems } from "./inline-content";
+import { updateBlock } from "./block";
 
 /**
  * Merge two adjacent leaf siblings into one block.
@@ -255,12 +249,7 @@ export function mergeAdjacentBlocks(
     ...right.inlineContent.items,
   ]);
 
-  const updatedLeft = createBlock({
-    id: left.id,
-    type: left.type,
-    attrs: left.attrs,
-    parentId: left.parentId,
-    prevSiblingId: left.prevSiblingId,
+  const updatedLeft = updateBlock(left, {
     nextSiblingId: right.nextSiblingId,
     inlineContent: createInlineContent(mergedItems),
   });
@@ -275,7 +264,7 @@ export function mergeAdjacentBlocks(
         `mergeAdjacentBlocks: right's next sibling "${right.nextSiblingId}" not found`,
       );
     }
-    blocks = blocks.set(right.nextSiblingId, withPrevSibling(oldRightNext, leftId));
+    blocks = blocks.set(right.nextSiblingId, updateBlock(oldRightNext, { prevSiblingId: leftId }));
     dirtyIds.add(right.nextSiblingId);
   } else {
     const parent = state.blocks.get(left.parentId);
@@ -284,7 +273,7 @@ export function mergeAdjacentBlocks(
         `mergeAdjacentBlocks: parent "${left.parentId}" of merged blocks not found`,
       );
     }
-    blocks = blocks.set(left.parentId, withLastChild(parent, leftId));
+    blocks = blocks.set(left.parentId, updateBlock(parent, { lastChildId: leftId }));
     dirtyIds.add(left.parentId);
   }
 
@@ -292,68 +281,6 @@ export function mergeAdjacentBlocks(
     state: { ...state, blocks },
     dirtyIds,
   };
-}
-
-/**
- * Merge adjacent text items with equal attrs into a single item.
- * Embed items are not merged. Returns a fresh array.
- *
- * Note: this helper is duplicated in `insert-text.ts` and `apply-attrs.ts`.
- * A future cleanup pass should consolidate these into a shared utility;
- * doing it now would require touching unrelated files outside this phase's
- * scope.
- */
-function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
-  if (items.length <= 1) return [...items];
-  const out: InlineItem[] = [];
-  let pending: TextItem | null = null;
-
-  for (const item of items) {
-    if (item.kind === "text") {
-      if (pending && attrsEqual(pending.attrs, item.attrs)) {
-        pending = createTextItem(pending.text + item.text, pending.attrs);
-      } else {
-        if (pending) out.push(pending);
-        pending = item;
-      }
-    } else {
-      if (pending) {
-        out.push(pending);
-        pending = null;
-      }
-      out.push(item);
-    }
-  }
-  if (pending) out.push(pending);
-  return out;
-}
-
-function withPrevSibling(b: Block, prevSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withLastChild(b: Block, lastChildId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId,
-    inlineContent: b.inlineContent,
-  });
 }
 ```
 
@@ -1136,7 +1063,6 @@ If anything came up during Phase 4c-3 that should inform Phase 4c-4 (`deleteRang
 - `replaceRange` → Phase 4c-5
 - `clonePastedSubtree` → Phase 4d
 - "Merge across containers" semantics (e.g., merging the last paragraph of one section into the first of the next) → editor-level concern; not a state primitive
-- Deduplication of `mergeAdjacentTextItems` across `insert-text.ts`, `apply-attrs.ts`, `merge-blocks.ts` → Phase 14 cleanup
 - Public API wiring → Phase 14
 
 The Phase 4c-3 plan above produces 1 new source file + tests, ~7 commits, leaves the build green throughout. Estimated execution time: half a day.
