@@ -2,7 +2,6 @@ import type { State, OperationResult } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { attrsEqual } from "./attrs";
 import {
   createInlineContent,
   createTextItem,
