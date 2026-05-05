@@ -1054,9 +1054,9 @@ If anything came up during Phase 4c-3 that should inform Phase 4c-4 (`deleteRang
 - ✅ Error cases (10 tests pinning all guard arms including container `||` arms and adjacency `&&` arms) — Task 6
 - ✅ Operations barrel update — Task 7
 
-**Placeholder scan:** No "TBD"/"TODO" patterns. The `mergeAdjacentTextItems` helper duplicated from `insert-text.ts` and `apply-attrs.ts` is acknowledged as a known DRY concern in the per-phase scope notes, with the cleanup explicitly deferred to Phase 14.
+**Placeholder scan:** No "TBD"/"TODO" patterns. `mergeAdjacentTextItems` is already consolidated in `inline-content.ts` (Phase 4c-2.5 cleanup, commit `b61d901`); this plan imports it — no duplication.
 
-**Type consistency:** `OperationResult`, `BlockId`, `Block`, `InlineItem`, `TextItem`, `ReadonlyAttrs` referenced consistently. `attrsEqual` from `attrs.ts`. `createTextItem`/`createInlineContent` from `inline-content.ts`.
+**Type consistency:** `State`, `OperationResult`, `BlockId`, `ReadonlyAttrs` referenced consistently. `mergeAdjacentTextItems` and `createInlineContent` from `inline-content.ts`. `updateBlock` from `block.ts`. (`attrsEqual` and `createTextItem` are used internally by `mergeAdjacentTextItems` inside `inline-content.ts` — not imported by this operation.)
 
 **Out of scope (deferred):**
 - `deleteRange` → Phase 4c-4
