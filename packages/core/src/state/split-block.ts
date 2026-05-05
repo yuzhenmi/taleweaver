@@ -3,11 +3,8 @@ import type { BlockId, IdAllocator } from "./block-id";
 import type { Position } from "./block-position";
 import {
   createInlineContent,
-  createTextItem,
   inlineContentLength,
-  findItemAtOffset,
-  type InlineContent,
-  type InlineItem,
+  splitInlineContentAtOffset,
 } from "./inline-content";
 import { createBlock, updateBlock } from "./block";
 
@@ -123,41 +120,4 @@ export function splitBlockAtPosition(
     state: { ...state, blocks },
     dirtyIds,
   };
-}
-
-/**
- * Partition `content.items` at `offset` into [leftItems, rightItems].
- *
- * - Clean boundary (offset falls between items, or at start/end of content):
- *   pure array slice, no item splitting.
- * - Mid-text (offset falls inside a text item): split that item into its
- *   left and right halves; both halves preserve the original item's attrs.
- * - Mid-embed: unreachable per findItemAtOffset's contract (embeds count
- *   as one cursor position; offsets at embed boundaries return withinItem=0).
- *   Throws defensively.
- */
-function splitInlineContentAtOffset(
-  content: InlineContent,
-  offset: number,
-): [InlineItem[], InlineItem[]] {
-  const items = content.items;
-  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
-
-  if (withinItem === 0) {
-    return [items.slice(0, itemIndex), items.slice(itemIndex)];
-  }
-
-  // withinItem > 0: must be a text item per findItemAtOffset's contract.
-  const straddle = items[itemIndex];
-  if (straddle.kind !== "text") {
-    throw new Error(
-      `splitBlockAtPosition: offset falls inside non-text item at index ${itemIndex} (kind="${straddle.kind}")`,
-    );
-  }
-  const leftHead = createTextItem(straddle.text.slice(0, withinItem), straddle.attrs);
-  const rightHead = createTextItem(straddle.text.slice(withinItem), straddle.attrs);
-  return [
-    [...items.slice(0, itemIndex), leftHead],
-    [rightHead, ...items.slice(itemIndex + 1)],
-  ];
 }

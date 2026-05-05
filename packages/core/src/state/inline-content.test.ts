@@ -8,6 +8,7 @@ import {
   inlineContentLength,
   findItemAtOffset,
   mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
 } from "./inline-content";
 
 describe("inline content factories", () => {
@@ -164,5 +165,81 @@ describe("mergeAdjacentTextItems", () => {
     const result = mergeAdjacentTextItems(items);
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ kind: "text", text: "abc", attrs: { bold: true } });
+  });
+});
+
+describe("splitInlineContentAtOffset", () => {
+  it("returns [[], []] for an empty inline content at offset 0", () => {
+    const content = createInlineContent([]);
+    const [left, right] = splitInlineContentAtOffset(content, 0);
+    expect(left).toEqual([]);
+    expect(right).toEqual([]);
+  });
+
+  it("returns [[], allItems] for offset 0 of non-empty content", () => {
+    const content = createInlineContent([createTextItem("hello"), createTextItem(" world", { italic: true })]);
+    const [left, right] = splitInlineContentAtOffset(content, 0);
+    expect(left).toEqual([]);
+    expect(right).toHaveLength(2);
+    expect(right[0]).toMatchObject({ text: "hello" });
+    expect(right[1]).toMatchObject({ text: " world", attrs: { italic: true } });
+  });
+
+  it("returns [allItems, []] for offset === total length", () => {
+    const content = createInlineContent([createTextItem("hello")]);
+    const [left, right] = splitInlineContentAtOffset(content, 5);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ text: "hello" });
+    expect(right).toEqual([]);
+  });
+
+  it("clean-cuts at a text-item boundary", () => {
+    // [text("hello"), text(" world")] — offset 5 = exactly between items.
+    const content = createInlineContent([createTextItem("hello"), createTextItem(" world")]);
+    const [left, right] = splitInlineContentAtOffset(content, 5);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ text: "hello" });
+    expect(right).toHaveLength(1);
+    expect(right[0]).toMatchObject({ text: " world" });
+  });
+
+  it("splits a text item mid-text, preserving attrs on both halves", () => {
+    // [text("hello", { bold: true })] — offset 3 = mid-text.
+    const content = createInlineContent([createTextItem("hello", { bold: true })]);
+    const [left, right] = splitInlineContentAtOffset(content, 3);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ text: "hel", attrs: { bold: true } });
+    expect(right).toHaveLength(1);
+    expect(right[0]).toMatchObject({ text: "lo", attrs: { bold: true } });
+  });
+
+  it("clean-cuts at an embed leading edge", () => {
+    // [text("a"), embed("img"), text("b")] — offset 1 = leading edge of embed.
+    const content = createInlineContent([
+      createTextItem("a"),
+      createEmbedItem("img"),
+      createTextItem("b"),
+    ]);
+    const [left, right] = splitInlineContentAtOffset(content, 1);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ kind: "text", text: "a" });
+    expect(right).toHaveLength(2);
+    expect(right[0]).toMatchObject({ kind: "embed", embedType: "img" });
+    expect(right[1]).toMatchObject({ kind: "text", text: "b" });
+  });
+
+  it("clean-cuts at an embed trailing edge", () => {
+    // Same fixture; offset 2 = trailing edge of embed.
+    const content = createInlineContent([
+      createTextItem("a"),
+      createEmbedItem("img"),
+      createTextItem("b"),
+    ]);
+    const [left, right] = splitInlineContentAtOffset(content, 2);
+    expect(left).toHaveLength(2);
+    expect(left[0]).toMatchObject({ kind: "text", text: "a" });
+    expect(left[1]).toMatchObject({ kind: "embed", embedType: "img" });
+    expect(right).toHaveLength(1);
+    expect(right[0]).toMatchObject({ kind: "text", text: "b" });
   });
 });
