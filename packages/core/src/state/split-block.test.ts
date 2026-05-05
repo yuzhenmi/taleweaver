@@ -210,3 +210,77 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
     expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "a" });
   });
 });
+
+describe("splitBlockAtPosition — edge offsets", () => {
+  it("offset=0 produces an empty original block + new block holding all original content", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("p2");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
+
+    const left = result.state.blocks.get("p" as BlockId);
+    expect(left?.inlineContent?.items).toEqual([]);
+
+    const right = result.state.blocks.get("p2-0" as BlockId);
+    expect(right?.inlineContent?.items).toHaveLength(1);
+    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
+
+    // Parent's lastChildId rewired (original was the last child).
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+
+    // dirtyIds: original block, new block, parent (lastChildId changed).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
+  });
+
+  it("offset=total length produces a full original block + empty new block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("p2");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
+
+    const left = result.state.blocks.get("p" as BlockId);
+    expect(left?.inlineContent?.items).toHaveLength(1);
+    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
+
+    const right = result.state.blocks.get("p2-0" as BlockId);
+    expect(right?.inlineContent?.items).toEqual([]);
+
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
+  });
+
+  it("splits an empty leaf block at offset 0 into two empty siblings", () => {
+    // Empty paragraph — pressing Enter on an empty line should produce two empty paragraphs.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("p2");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
+
+    const left = result.state.blocks.get("p" as BlockId);
+    expect(left?.inlineContent?.items).toEqual([]);
+
+    const right = result.state.blocks.get("p2-0" as BlockId);
+    expect(right?.inlineContent?.items).toEqual([]);
+    expect(right?.type).toBe("paragraph");
+    expect(right?.parentId).toBe("doc");
+    expect(right?.prevSiblingId).toBe("p");
+
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
+  });
+});
