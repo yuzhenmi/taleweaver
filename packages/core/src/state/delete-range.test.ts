@@ -131,3 +131,149 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
   });
 });
+
+describe("deleteRange — cross-block (same-parent)", () => {
+  it("merges anchor prefix with focus suffix when blocks are adjacent siblings (no intervening)", () => {
+    // doc > [p1("hello"), p2(" world")]
+    // Delete from p1@2 to p2@3 — keep "he" of p1 + "rld" of p2.
+    // Expected: doc > [p1("herld")] — p2 deleted.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    const result = deleteRange(state, span);
+
+    const p1 = result.state.blocks.get("p1" as BlockId);
+    expect(p1?.inlineContent?.items).toHaveLength(1);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "herld" });
+    expect(p1?.nextSiblingId).toBeNull(); // p2 deleted; p2 had no nextSibling
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.lastChildId).toBe("p1"); // rewired from p2
+
+    // dirtyIds: { p1, p2, doc } — p2 was last child so doc.lastChildId changed.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
+  });
+
+  it("deletes intervening leaves between anchor and focus", () => {
+    // doc > [p1("hello"), p2("middle"), p3("world")]
+    // Delete from p1@2 to p3@2 — anchor=p1, focus=p3, intervening=[p2].
+    // Result: p1 keeps "he" + p3's "rld" = "herld"; p2 and p3 deleted.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("middle")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
+    const result = deleteRange(state, span);
+
+    const p1 = result.state.blocks.get("p1" as BlockId);
+    expect(p1?.inlineContent?.items).toHaveLength(1);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "herld" });
+    expect(p1?.nextSiblingId).toBeNull();
+
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(result.state.blocks.has("p3" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1");
+    expect(parent?.lastChildId).toBe("p1");
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
+  });
+
+  it("middle pair (anchor not first, focus not last): parent unchanged", () => {
+    // doc > [p0, p1, p2, p3] — delete from p1@2 to p2@2.
+    // Expected: p0 unchanged, p1 absorbs p2 tail, p2 deleted, p3.prevSibling rewires.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p3" }),
+        buildBlock({ id: "p0", type: "paragraph", parentId: "doc", nextSiblingId: "p1", inlineContent: createInlineContent([text("zero")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", prevSiblingId: "p0", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("end")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
+    const result = deleteRange(state, span);
+
+    expect(result.state.blocks.get("p0" as BlockId)?.nextSiblingId).toBe("p1"); // unchanged
+    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p3"); // rewired
+    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p1"); // rewired
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p0"); // unchanged
+    expect(parent?.lastChildId).toBe("p3"); // unchanged
+
+    // dirtyIds: { p1, p2, p3 } — parent NOT dirty.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3"]));
+  });
+
+  it("anchor is first child, focus is last child (full-children-coverage)", () => {
+    // doc > [p1, p2] — delete from p1@0 to p2@end (full content of both blocks deleted).
+    // Result: p1 has empty inlineContent (anchor.prefix=[] + focus.suffix=[] = []),
+    //   p2 deleted, parent.lastChildId rewires to p1.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 1));
+    const result = deleteRange(state, span);
+
+    const p1 = result.state.blocks.get("p1" as BlockId);
+    expect(p1?.inlineContent?.items).toEqual([]);
+    expect(p1?.nextSiblingId).toBeNull();
+
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1");
+    expect(parent?.lastChildId).toBe("p1");
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
+  });
+
+  it("nested: anchor and focus inside a section container; section's lastChildId rewires", () => {
+    // doc > section > [p1, p2] — delete from p1@2 to p2@2.
+    // After: section has [p1] with merged content; doc untouched.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
+    const result = deleteRange(state, span);
+
+    const section = result.state.blocks.get("section" as BlockId);
+    expect(section?.firstChildId).toBe("p1");
+    expect(section?.lastChildId).toBe("p1"); // rewired from p2
+
+    const doc = result.state.blocks.get("doc" as BlockId);
+    expect(doc?.firstChildId).toBe("section");
+    expect(doc?.lastChildId).toBe("section");
+
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "section"]));
+  });
+});
