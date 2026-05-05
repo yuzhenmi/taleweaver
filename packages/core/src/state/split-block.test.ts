@@ -284,3 +284,105 @@ describe("splitBlockAtPosition — edge offsets", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 });
+
+describe("splitBlockAtPosition — linked-list correctness", () => {
+  // doc > [p1, p2, p3] — split p2.
+  const threeChildFixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("one")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("two")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
+      ],
+    });
+
+  it("middle child split: prev sibling's nextSiblingId unchanged; next sibling's prevSiblingId rewired; parent unchanged", () => {
+    const state = threeChildFixture();
+    const allocator = createTestAllocator("p2b");
+    const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
+
+    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
+    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe("p2b-0"); // rewired
+    expect(result.state.blocks.get("p2b-0" as BlockId)?.prevSiblingId).toBe("p2");
+    expect(result.state.blocks.get("p2b-0" as BlockId)?.nextSiblingId).toBe("p3");
+    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p2b-0"); // rewired
+
+    // Parent's first/last unchanged (split was a middle child).
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1");
+    expect(parent?.lastChildId).toBe("p3");
+
+    // dirtyIds: { p2, p2b-0, p3 }. Parent NOT dirty (no first/last change).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "p2b-0", "p3"]));
+  });
+
+  it("first-child split: parent's firstChildId unchanged (still original); next sibling's prevSiblingId rewired", () => {
+    const state = threeChildFixture();
+    const allocator = createTestAllocator("p1b");
+    const result = splitBlockAtPosition(state, createPosition("p1" as BlockId, 1), allocator);
+
+    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
+    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p1b-0");
+    expect(result.state.blocks.get("p1b-0" as BlockId)?.prevSiblingId).toBe("p1");
+    expect(result.state.blocks.get("p1b-0" as BlockId)?.nextSiblingId).toBe("p2");
+    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBe("p1b-0"); // rewired
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1"); // unchanged
+    expect(parent?.lastChildId).toBe("p3"); // unchanged
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p1b-0", "p2"]));
+  });
+
+  it("last-child split: parent's lastChildId rewired to new block; no next sibling existed", () => {
+    const state = threeChildFixture();
+    const allocator = createTestAllocator("p3b");
+    const result = splitBlockAtPosition(state, createPosition("p3" as BlockId, 2), allocator);
+
+    expect(result.state.blocks.get("p3" as BlockId)?.nextSiblingId).toBe("p3b-0");
+    expect(result.state.blocks.get("p3b-0" as BlockId)?.prevSiblingId).toBe("p3");
+    expect(result.state.blocks.get("p3b-0" as BlockId)?.nextSiblingId).toBeNull();
+
+    const parent = result.state.blocks.get("doc" as BlockId);
+    expect(parent?.firstChildId).toBe("p1"); // unchanged
+    expect(parent?.lastChildId).toBe("p3b-0"); // rewired
+
+    // dirtyIds: { p3, p3b-0, doc }. Parent dirty because lastChildId changed.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p3b-0", "doc"]));
+  });
+
+  it("nested-block split: leaf nested inside a section uses the section as the parent for sibling linkage", () => {
+    // doc > section > [p_only] — split p_only.
+    // The section is the parent of p_only; the section's lastChildId should be rewired to the new block.
+    // doc's child pointers (firstChildId/lastChildId = "section") are unchanged.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p_only", lastChildId: "p_only" }),
+        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("pNew");
+    const result = splitBlockAtPosition(state, createPosition("p_only" as BlockId, 3), allocator);
+
+    // New block's parent is the section, NOT the doc.
+    const right = result.state.blocks.get("pNew-0" as BlockId);
+    expect(right?.parentId).toBe("section");
+
+    // Section's child pointers: firstChildId unchanged (still p_only), lastChildId rewired to new block.
+    const section = result.state.blocks.get("section" as BlockId);
+    expect(section?.firstChildId).toBe("p_only");
+    expect(section?.lastChildId).toBe("pNew-0");
+
+    // doc's child pointers untouched.
+    const doc = result.state.blocks.get("doc" as BlockId);
+    expect(doc?.firstChildId).toBe("section");
+    expect(doc?.lastChildId).toBe("section");
+
+    // dirtyIds: section dirtied (lastChildId changed); doc NOT dirtied.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p_only", "pNew-0", "section"]));
+  });
+});
