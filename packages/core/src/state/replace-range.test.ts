@@ -356,3 +356,85 @@ describe("replaceRange — block-level invariants", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
   });
 });
+
+describe("replaceRange — error propagation", () => {
+  it("propagates deleteRange's missing-anchor error (cross-block)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("missing" as BlockId, 0), createPosition("p" as BlockId, 1));
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/anchor block ".+" not found/);
+  });
+
+  it("propagates deleteRange's container-endpoint error", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", nextSiblingId: "p", firstChildId: "inner", lastChildId: "inner" }),
+        buildBlock({ id: "inner", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("inside")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("s" as BlockId, 0), createPosition("p" as BlockId, 1));
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/anchor block ".+" is a container/);
+  });
+
+  it("propagates deleteRange's cross-parent error", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section1", lastChildId: "section2" }),
+        buildBlock({ id: "section1", type: "section", parentId: "doc", nextSiblingId: "section2", firstChildId: "p_a", lastChildId: "p_a" }),
+        buildBlock({ id: "p_a", type: "paragraph", parentId: "section1", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "section2", type: "section", parentId: "doc", prevSiblingId: "section1", firstChildId: "p_b", lastChildId: "p_b" }),
+        buildBlock({ id: "p_b", type: "paragraph", parentId: "section2", inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p_a" as BlockId, 0), createPosition("p_b" as BlockId, 1));
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/cross-parent spans are not supported/);
+  });
+
+  it("propagates cross-context error (no common ancestor)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/no common ancestor/);
+  });
+
+  it("propagates offset-out-of-range error", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 999));
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/out of range/);
+  });
+
+  it("propagates insertText's offset-out-of-range error for collapsed-span insert-only path", () => {
+    // Collapsed span at out-of-range offset, non-empty text → bypasses deleteRange,
+    // goes straight to insertText, which throws.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 999);
+    expect(() => replaceRange(state, createSpan(pos, pos), "X", {})).toThrow(/out of range/);
+  });
+});
