@@ -113,3 +113,100 @@ describe("replaceRange — same-block coverage", () => {
     expect(items?.[0]).toMatchObject({ text: "aZf", attrs: {} });
   });
 });
+
+describe("replaceRange — cross-block coverage", () => {
+  it("replaces a cross-block (adjacent-pair) range with text", () => {
+    // doc > [p1("hello"), p2(" world")]
+    // Replace from p1@2 to p2@3 with "FOO" + {}.
+    // After delete: anchor block has "he" + "rld" = "herld" (p2 deleted).
+    // After insert at p1@2: "he" + "FOO" + "rld" = "heFOOrld".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    const result = replaceRange(state, span, "FOO", {});
+
+    const p1 = result.state.blocks.get("p1" as BlockId);
+    expect(p1?.inlineContent?.items).toHaveLength(1);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heFOOrld", attrs: {} });
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+
+    // dirtyIds: union of deleteRange's dirtyIds ({p1, p2, doc}) + insertText's ({p1}) = {p1, p2, doc}.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
+  });
+
+  it("replaces a cross-block range with intervening leaves", () => {
+    // doc > [p1("hello"), p2("middle"), p3("world")]
+    // Replace from p1@2 to p3@2 with "Z" + {}.
+    // After delete: p1 has "he" + "rld" = "herld"; p2 and p3 deleted.
+    // After insert at p1@2: "he" + "Z" + "rld" = "heZrld".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("middle")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
+    const result = replaceRange(state, span, "Z", {});
+
+    const p1 = result.state.blocks.get("p1" as BlockId);
+    expect(p1?.inlineContent?.items).toHaveLength(1);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(result.state.blocks.has("p3" as BlockId)).toBe(false);
+
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
+  });
+
+  it("inserted text uses the caller's attrs (independent of the surviving anchor block's attrs)", () => {
+    // doc > [p1("hello", {bold}), p2(" world", {italic})] — replace p1@2 → p2@3 with "FOO" + {underline: true}.
+    // After delete: p1 absorbs "he" {bold} + "rld" {italic} = [text("he", {bold}), text("rld", {italic})].
+    // After insert at p1@2: [text("he", {bold}), text("FOO", {underline: true}), text("rld", {italic})].
+    // No run-merging since all three have different attrs.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello", { bold: true })]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world", { italic: true })]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    const result = replaceRange(state, span, "FOO", { underline: true });
+
+    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ text: "he", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ text: "FOO", attrs: { underline: true } });
+    expect(items?.[2]).toMatchObject({ text: "rld", attrs: { italic: true } });
+  });
+
+  it("nested: cross-block replacement inside a section container", () => {
+    // doc > section > [p1("hello"), p2(" world")] — replace cross-block inside the section.
+    // section's lastChildId rewires; doc untouched.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    const result = replaceRange(state, span, "X", {});
+
+    expect(result.state.blocks.get("p1" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "heXrld" });
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(result.state.blocks.get("section" as BlockId)?.lastChildId).toBe("p1");
+    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("section"); // unchanged
+  });
+});
