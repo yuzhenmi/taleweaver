@@ -9,7 +9,7 @@ import {
   type InlineContent,
   type InlineItem,
 } from "./inline-content";
-import { createBlock, type Block } from "./block";
+import { createBlock, updateBlock } from "./block";
 
 /**
  * Split a leaf block at `position` into two adjacent siblings under the
@@ -105,7 +105,7 @@ export function splitBlockAtPosition(
         `splitBlockAtPosition: original block's next sibling "${block.nextSiblingId}" not found`,
       );
     }
-    blocks = blocks.set(block.nextSiblingId, withPrevSibling(oldNext, newId));
+    blocks = blocks.set(block.nextSiblingId, updateBlock(oldNext, { prevSiblingId: newId }));
     dirtyIds.add(block.nextSiblingId);
   } else {
     // Original was the last child of its parent — parent's lastChildId now points to the new block.
@@ -115,7 +115,7 @@ export function splitBlockAtPosition(
         `splitBlockAtPosition: parent "${block.parentId}" of block "${block.id}" not found`,
       );
     }
-    blocks = blocks.set(block.parentId, withLastChild(parent, newId));
+    blocks = blocks.set(block.parentId, updateBlock(parent, { lastChildId: newId }));
     dirtyIds.add(block.parentId);
   }
 
@@ -160,32 +160,4 @@ function splitInlineContentAtOffset(
     [...items.slice(0, itemIndex), leftHead],
     [rightHead, ...items.slice(itemIndex + 1)],
   ];
-}
-
-function withPrevSibling(b: Block, prevSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withLastChild(b: Block, lastChildId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId,
-    inlineContent: b.inlineContent,
-  });
 }

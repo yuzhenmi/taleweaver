@@ -1,6 +1,6 @@
 import type { State, OperationResult } from "./state";
 import type { BlockId } from "./block-id";
-import { createBlock, type Block } from "./block";
+import { updateBlock } from "./block";
 
 /**
  * Remove a block (and its entire subtree) from the document tree.
@@ -75,7 +75,10 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
   if (block.prevSiblingId) {
     const prev = state.blocks.get(block.prevSiblingId);
     if (!prev) throw new Error(`removeBlock: prev sibling "${block.prevSiblingId}" not found`);
-    blocks = blocks.set(block.prevSiblingId, withNextSibling(prev, block.nextSiblingId));
+    blocks = blocks.set(
+      block.prevSiblingId,
+      updateBlock(prev, { nextSiblingId: block.nextSiblingId }),
+    );
     dirtyIds.add(block.prevSiblingId);
   }
 
@@ -83,7 +86,10 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
   if (block.nextSiblingId) {
     const next = state.blocks.get(block.nextSiblingId);
     if (!next) throw new Error(`removeBlock: next sibling "${block.nextSiblingId}" not found`);
-    blocks = blocks.set(block.nextSiblingId, withPrevSibling(next, block.prevSiblingId));
+    blocks = blocks.set(
+      block.nextSiblingId,
+      updateBlock(next, { prevSiblingId: block.prevSiblingId }),
+    );
     dirtyIds.add(block.nextSiblingId);
   }
 
@@ -92,7 +98,10 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     parent.firstChildId === blockId ? block.nextSiblingId : parent.firstChildId;
   const newLastChildId =
     parent.lastChildId === blockId ? block.prevSiblingId : parent.lastChildId;
-  blocks = blocks.set(parentId, withChildPointers(parent, newFirstChildId, newLastChildId));
+  blocks = blocks.set(
+    parentId,
+    updateBlock(parent, { firstChildId: newFirstChildId, lastChildId: newLastChildId }),
+  );
 
   return {
     state: { ...state, blocks },
@@ -118,48 +127,3 @@ function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): vo
   }
 }
 
-function withNextSibling(b: Block, nextSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withPrevSibling(b: Block, prevSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withChildPointers(
-  b: Block,
-  firstChildId: BlockId | null,
-  lastChildId: BlockId | null,
-): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId,
-    lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}

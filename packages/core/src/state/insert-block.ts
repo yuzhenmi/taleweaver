@@ -2,7 +2,7 @@ import type { State, OperationResult } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent } from "./inline-content";
-import { createBlock, type Block } from "./block";
+import { createBlock, updateBlock } from "./block";
 
 export interface InsertBlockArgs {
   type: string;
@@ -78,7 +78,7 @@ export function insertBlock(
   if (prevSiblingId) {
     const prev = state.blocks.get(prevSiblingId);
     if (!prev) throw new Error(`insertBlock: prev sibling "${prevSiblingId}" not found`);
-    blocks = blocks.set(prevSiblingId, withNextSibling(prev, newId));
+    blocks = blocks.set(prevSiblingId, updateBlock(prev, { nextSiblingId: newId }));
     dirtyIds.add(prevSiblingId);
   }
 
@@ -86,63 +86,20 @@ export function insertBlock(
   if (nextSiblingId) {
     const next = state.blocks.get(nextSiblingId);
     if (!next) throw new Error(`insertBlock: next sibling "${nextSiblingId}" not found`);
-    blocks = blocks.set(nextSiblingId, withPrevSibling(next, newId));
+    blocks = blocks.set(nextSiblingId, updateBlock(next, { prevSiblingId: newId }));
     dirtyIds.add(nextSiblingId);
   }
 
   // Update parent's firstChildId / lastChildId if the new block sits at a boundary.
   const newFirstChildId = prevSiblingId === null ? newId : parent.firstChildId;
   const newLastChildId = nextSiblingId === null ? newId : parent.lastChildId;
-  blocks = blocks.set(parentId, withChildPointers(parent, newFirstChildId, newLastChildId));
+  blocks = blocks.set(
+    parentId,
+    updateBlock(parent, { firstChildId: newFirstChildId, lastChildId: newLastChildId }),
+  );
 
   return {
     state: { ...state, blocks },
     dirtyIds,
   };
-}
-
-function withNextSibling(b: Block, nextSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withPrevSibling(b: Block, prevSiblingId: BlockId | null): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-    inlineContent: b.inlineContent,
-  });
-}
-
-function withChildPointers(
-  b: Block,
-  firstChildId: BlockId | null,
-  lastChildId: BlockId | null,
-): Block {
-  return createBlock({
-    id: b.id,
-    type: b.type,
-    attrs: b.attrs,
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId,
-    lastChildId,
-    inlineContent: b.inlineContent,
-  });
 }

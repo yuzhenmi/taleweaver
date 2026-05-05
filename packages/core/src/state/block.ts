@@ -51,3 +51,29 @@ export function createBlock(args: CreateBlockArgs): Block {
     inlineContent: args.inlineContent ?? null,
   });
 }
+
+/**
+ * Returns a new Block with the given fields overridden. Block id is
+ * always preserved. Used by Layer 3 operations to rewire one or two
+ * fields (typically sibling pointers or child pointers) without
+ * repeating the full Block field list at every call site.
+ *
+ * Equivalent to `createBlock({ ...all-fields-from-block, ...partial })`.
+ */
+export function updateBlock(
+  block: Block,
+  partial: Omit<Partial<CreateBlockArgs>, "id">,
+): Block {
+  return createBlock({
+    id: block.id,
+    type: block.type,
+    attrs: block.attrs,
+    parentId: block.parentId,
+    prevSiblingId: block.prevSiblingId,
+    nextSiblingId: block.nextSiblingId,
+    firstChildId: block.firstChildId,
+    lastChildId: block.lastChildId,
+    inlineContent: block.inlineContent,
+    ...partial,
+  });
+}
