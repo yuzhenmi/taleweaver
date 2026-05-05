@@ -48,7 +48,44 @@ export function deleteRange(state: State, span: Span): OperationResult {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  // Normalize. Throws via comparePositions if cross-context.
+  // Pre-normalize existence + leaf guards. These run before normalizeSpan
+  // so the operation's stated error contract ("anchor/focus block ... not
+  // found", "... is a container") wins over compareBlocksInDocOrder's
+  // generic "block ... not found" message that would otherwise leak through
+  // the normalizeSpan → comparePositions path. Same architectural pattern
+  // as Phase 4c-1's applyAttrsToRange fix.
+  const sameBlock = span.anchor.blockId === span.focus.blockId;
+
+  const rawAnchor = state.blocks.get(span.anchor.blockId);
+  if (!rawAnchor) {
+    throw new Error(
+      sameBlock
+        ? `deleteRange: block "${span.anchor.blockId}" not found`
+        : `deleteRange: anchor block "${span.anchor.blockId}" not found`,
+    );
+  }
+  if (!rawAnchor.inlineContent || rawAnchor.firstChildId !== null) {
+    throw new Error(
+      sameBlock
+        ? `deleteRange: block "${span.anchor.blockId}" is a container, not a leaf`
+        : `deleteRange: anchor block "${span.anchor.blockId}" is a container, not a leaf`,
+    );
+  }
+
+  if (!sameBlock) {
+    const rawFocus = state.blocks.get(span.focus.blockId);
+    if (!rawFocus) {
+      throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
+    }
+    if (!rawFocus.inlineContent || rawFocus.firstChildId !== null) {
+      throw new Error(
+        `deleteRange: focus block "${span.focus.blockId}" is a container, not a leaf`,
+      );
+    }
+  }
+
+  // Now normalize. comparePositions can only throw on cross-context (no
+  // common ancestor) since both endpoints have been verified to exist.
   const normalized = normalizeSpan(state, span);
 
   // SAME-BLOCK case
