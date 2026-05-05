@@ -386,3 +386,78 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p_only", "pNew-0", "section"]));
   });
 });
+
+describe("splitBlockAtPosition — block-level invariants", () => {
+  it("new block inherits type, attrs, and parentId from the original", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({
+          id: "li",
+          type: "list-item",
+          attrs: { level: 2, ordered: true },
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello")]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("li2");
+    const result = splitBlockAtPosition(state, createPosition("li" as BlockId, 3), allocator);
+
+    const right = result.state.blocks.get("li2-0" as BlockId);
+    expect(right?.type).toBe("list-item");
+    expect(right?.attrs).toEqual({ level: 2, ordered: true });
+    expect(right?.parentId).toBe("doc");
+  });
+
+  it("new block id comes from allocator.allocate()", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("custom");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator);
+
+    expect(result.state.blocks.has("custom-0" as BlockId)).toBe(true);
+    expect(result.state.blocks.get("p" as BlockId)?.nextSiblingId).toBe("custom-0");
+  });
+
+  it("preserves structural sharing: untouched blocks retain object identity", () => {
+    // doc > [p1, p2, p3] — split p2; p1 should keep identity. (p3 is rewired, so its identity changes.)
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("one")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("two")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
+      ],
+    });
+    const beforeP1 = state.blocks.get("p1" as BlockId);
+    const allocator = createTestAllocator("p2b");
+    const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
+    expect(result.state.blocks.get("p1" as BlockId)).toBe(beforeP1);
+  });
+
+  it("does not mutate the original state", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("p2");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), allocator);
+
+    expect(result.state).not.toBe(state);
+    // Original state's "p" block still has its original content + nextSibling.
+    expect(state.blocks.get("p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
+    expect(state.blocks.get("p" as BlockId)?.nextSiblingId).toBeNull();
+    expect(state.blocks.has("p2-0" as BlockId)).toBe(false);
+  });
+});
