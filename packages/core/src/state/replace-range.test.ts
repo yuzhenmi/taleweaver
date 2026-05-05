@@ -280,3 +280,79 @@ describe("replaceRange — edge cases", () => {
     expect(items?.[0]).toMatchObject({ text: "helFOOorld" });
   });
 });
+
+describe("replaceRange — block-level invariants", () => {
+  it("preserves embed-referenced content blocks (no cascade-delete)", () => {
+    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + standalone fn-body.
+    // Replace p1@0 → p2@0 with "X" + {} — focus's items[0..) keeps the embed; merged into p1; then "X" inserted at p1@0.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("see")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "fn-body" })]) }),
+        buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: createInlineContent([text("footnote text")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
+    const result = replaceRange(state, span, "X", {});
+
+    expect(result.state.blocks.has("fn-body" as BlockId)).toBe(true);
+    // p1's content: prefix=[] + "X" inserted at offset 0 + focus.suffix=[embed] → [text("X"), embed].
+    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(2);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "X" });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "footnote-anchor" });
+  });
+
+  it("preserves structural sharing for blocks NOT touched", () => {
+    // doc > [p0, p1, p2, p3] — replace cross-block from p1@2 to p2@2 with "Z".
+    // p0 is untouched.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p3" }),
+        buildBlock({ id: "p0", type: "paragraph", parentId: "doc", nextSiblingId: "p1", inlineContent: createInlineContent([text("zero")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", prevSiblingId: "p0", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("end")]) }),
+      ],
+    });
+    const beforeP0 = state.blocks.get("p0" as BlockId);
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
+    const result = replaceRange(state, span, "Z", {});
+    expect(result.state.blocks.get("p0" as BlockId)).toBe(beforeP0);
+  });
+
+  it("does not mutate the original state", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
+    const result = replaceRange(state, span, "FOO", {});
+    expect(result.state).not.toBe(state);
+    // Original state still has the original block content.
+    expect(state.blocks.get("p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
+  });
+
+  it("dirtyIds is the union of underlying deleteRange + insertText dirtyIds (full replace)", () => {
+    // Cross-block replace where deleteRange dirties {p1, p2, p3, doc} and insertText dirties {p1}.
+    // Union (deduped) = {p1, p2, p3, doc}.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("middle")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
+    const result = replaceRange(state, span, "X", {});
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
+  });
+});
