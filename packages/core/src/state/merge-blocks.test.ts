@@ -301,3 +301,52 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
     expect(state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2");
   });
 });
+
+describe("mergeAdjacentBlocks — empty-block edge cases", () => {
+  it("left empty + right with content: result has right's content under left's id", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
+    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+  });
+
+  it("left with content + right empty: result has left's content unchanged", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
+    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+  });
+
+  it("both empty: result is one empty block under left's id", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
+    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    expect(items).toEqual([]);
+    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+  });
+});
