@@ -469,11 +469,17 @@ describe("splitBlockAtPosition — split at text-item boundary", () => {
   });
 });
 
-describe("splitBlockAtPosition — split inside a multi-item block", () => {
-  it("splits inside the second of three text items", () => {
-    // Block: [text("ab"), text("cd"), text("ef")] — total length 6.
-    // Split at offset 3 — falls inside "cd" at within=1.
-    // Expected: left [text("ab"), text("c")], right [text("d"), text("ef")]
+describe("splitBlockAtPosition — split inside a multi-item block (preserves attrs on both halves)", () => {
+  it("splits inside the styled middle of three text items, preserving attrs on both halves of the split item", () => {
+    // Block: [text("ab", {}), text("cd", { bold: true }), text("ef", {})] — normalized
+    // (no two adjacent items share attrs). Total length 6.
+    // Split at offset 3 — falls inside the bold "cd" at within=1.
+    // Expected:
+    //   left  = [text("ab", {}), text("c", { bold: true })]
+    //   right = [text("d", { bold: true }), text("ef", {})]
+    // Both halves of the split bold item must carry { bold: true } — this is the
+    // most likely place an attrs-preservation bug would silently strip formatting
+    // (e.g., createTextItem(slice) without the attrs arg). Pin it explicitly.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -482,7 +488,11 @@ describe("splitBlockAtPosition — split inside a multi-item block", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("ab"), text("cd"), text("ef")]),
+          inlineContent: createInlineContent([
+            text("ab"),
+            text("cd", { bold: true }),
+            text("ef"),
+          ]),
         }),
       ],
     });
@@ -491,13 +501,13 @@ describe("splitBlockAtPosition — split inside a multi-item block", () => {
 
     const left = result.state.blocks.get("p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(2);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ text: "ab" });
-    expect(left?.inlineContent?.items[1]).toMatchObject({ text: "c" });
+    expect(left?.inlineContent?.items[0]).toMatchObject({ text: "ab", attrs: {} });
+    expect(left?.inlineContent?.items[1]).toMatchObject({ text: "c", attrs: { bold: true } });
 
     const right = result.state.blocks.get("p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(2);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ text: "d" });
-    expect(right?.inlineContent?.items[1]).toMatchObject({ text: "ef" });
+    expect(right?.inlineContent?.items[0]).toMatchObject({ text: "d", attrs: { bold: true } });
+    expect(right?.inlineContent?.items[1]).toMatchObject({ text: "ef", attrs: {} });
   });
 });
 
@@ -615,7 +625,8 @@ test(state): cover splitBlockAtPosition item-shape variants
 
 Five new tests:
 - split exactly at the boundary between two text items (no item splitting).
-- split inside the second of three text items.
+- split inside the styled middle of three text items, preserving attrs
+  on both halves of the split item (pins attrs-preservation contract).
 - split at the leading edge of an embed item.
 - split at the trailing edge of an embed item.
 - split at offset 0 of a block whose first item is an embed.
