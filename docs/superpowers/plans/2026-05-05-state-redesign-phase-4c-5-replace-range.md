@@ -52,7 +52,7 @@ Notes:
 - Non-empty span + empty text: equivalent to `deleteRange(state, span)`. No insertion happens.
 - Non-empty span + non-empty text: full replacement — delete the range, then insert at the resulting cursor position.
 - Cursor position after delete is `{ blockId: normalized.anchor.blockId, offset: normalized.anchor.offset }`. Validity: same-block deletes the range [anchor.offset, focus.offset), leaving anchor.offset within the new (shorter) content. Cross-block deletes everything from anchor.offset onward in the anchor block (and replaces with focus's items[focus.offset..)), leaving anchor.offset at the seam in the new merged content.
-- Span is normalized once at the top of `replaceRange`; the normalized form is passed to `deleteRange`. (deleteRange itself runs `normalizeSpan` again, which is idempotent for an already-normalized span.) The normalized anchor's blockId+offset is the cursor position.
+- The raw span is passed directly to `deleteRange` (for the non-collapsed paths); `deleteRange` owns existence/leaf/cross-parent/cross-context validation. After `deleteRange` succeeds, `normalizeSpan(state, span)` is called on the ORIGINAL pre-delete state to determine the cursor position. This ordering ensures `deleteRange`'s prefixed error contract ("anchor block ... not found", "focus block ... not found", etc.) wins over `compareBlocksInDocOrder`'s generic "block ... not found" message that would otherwise leak through a top-level `normalizeSpan` call. Since `deleteRange` validated existence + same-context as part of its own work, the post-delete `normalizeSpan` call cannot throw.
 - All error cases delegate to `deleteRange` (existence, leaf, cross-parent, cross-context, offset bounds). Test coverage spot-checks delegation rather than re-exhausts the matrix.
 
 **dirtyIds contract:**
@@ -976,7 +976,7 @@ If anything came up during Phase 4c-5 that should inform Phase 4d (`clonePastedS
 
 **Composition disciplines (verified across the plan):**
 - replaceRange does NOT re-implement deleteRange or insertText logic — only orchestrates.
-- normalizeSpan is called once at the top; the result drives both the deletion span and the cursor position for insertion.
+- normalizeSpan is called AFTER deleteRange returns (on the original pre-delete state); the normalized anchor's position is the cursor for insertText. This ordering ensures deleteRange's prefixed error contract wins over the leaky `compareBlocksInDocOrder` message — same architectural pattern as Phase 4c-1 and Phase 4c-4 fixes.
 - dirtyIds is correctly unioned via Set semantics — no enumeration manually.
 - Error contracts are inherited; no error-message rewriting.
 
