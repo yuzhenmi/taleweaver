@@ -461,3 +461,94 @@ describe("splitBlockAtPosition — block-level invariants", () => {
     expect(state.blocks.has("p2-0" as BlockId)).toBe(false);
   });
 });
+
+describe("splitBlockAtPosition — error cases", () => {
+  it("throws when the block does not exist", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("missing" as BlockId, 0), allocator),
+    ).toThrow(/not found/);
+  });
+
+  it("throws when the block is a container (firstChildId is set)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("s" as BlockId, 0), allocator),
+    ).toThrow(/container/);
+  });
+
+  it("throws when the block has null inlineContent (independent of firstChildId)", () => {
+    // A block with inlineContent === null is container-shaped even if firstChildId
+    // is also null. The container guard rejects on EITHER condition; this test pins
+    // the inlineContent === null arm so a future regression that changes || to &&
+    // (or removes the inlineContent check) is caught.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc" }), // null inlineContent AND null firstChildId
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("s" as BlockId, 0), allocator),
+    ).toThrow(/container/);
+  });
+
+  it("throws when the block is the root (parentId is null)", () => {
+    // Root block, leaf-shaped (atypical but legal — a single-paragraph "document" root).
+    const state = buildState({
+      rootId: "p",
+      blocks: [
+        buildBlock({ id: "p", type: "paragraph", parentId: null, inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator),
+    ).toThrow(/root/);
+  });
+
+  it("throws when offset is negative", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("p" as BlockId, -1), allocator),
+    ).toThrow(/out of range/);
+  });
+
+  it("throws when offset exceeds inlineContentLength", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator();
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("p" as BlockId, 999), allocator),
+    ).toThrow(/out of range/);
+  });
+});
