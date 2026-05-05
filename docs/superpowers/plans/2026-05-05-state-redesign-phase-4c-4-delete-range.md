@@ -698,8 +698,8 @@ describe("deleteRange — same-block: item shapes and edges", () => {
   });
 
   it("preserves attrs on both halves when splitting a styled item mid-text", () => {
-    // [text("hello world", { bold: true })] — delete [3, 7) — should leave
-    // text("hel", {bold:true}) + text("rld", {bold:true}) → run-merged to text("helrld", {bold:true}).
+    // [text("hello world", { bold: true })] — delete [3, 7) drops "lo w" (4 chars)
+    // and leaves "hel" + "orld" → run-merged to text("helorld", {bold:true}).
     // Pins the attrs-preservation contract on both prefix and suffix sides.
     const state = buildState({
       rootId: "doc",
@@ -712,7 +712,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     const result = deleteRange(state, span);
     const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "helrld", attrs: { bold: true } });
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "helorld", attrs: { bold: true } });
   });
 
   it("does NOT merge text across an embed at the seam", () => {
