@@ -485,3 +485,52 @@ describe("applyAttrsToRange — run merging post-pass", () => {
     expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
   });
 });
+
+describe("applyAttrsToRange — error cases", () => {
+  it("throws when an endpoint references a missing block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("missing" as BlockId, 1),
+    );
+    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/not found/);
+  });
+
+  it("throws when an endpoint references a container block (not a leaf)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("s" as BlockId, 0),
+      createPosition("p" as BlockId, 1),
+    );
+    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/container/);
+  });
+
+  it("throws when endpoints are in different selection contexts", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("fn" as BlockId, 1),
+    );
+    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/different selection contexts/);
+  });
+});
