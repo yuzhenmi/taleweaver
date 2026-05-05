@@ -25,5 +25,8 @@ export { removeBlock } from "./remove-block";
 // Phase 4b operations (inline-content edits)
 export { insertText } from "./insert-text";
 
+// Phase 4c-1 operations (range attribute application)
+export { applyAttrsToRange } from "./apply-attrs";
+
 // Legacy tree operations (pre-Phase 4a, to be migrated)
 export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations";

@@ -12,4 +12,8 @@ describe("operations barrel", () => {
   it("re-exports Phase 4b operations", () => {
     expect(typeof ops.insertText).toBe("function");
   });
+
+  it("re-exports Phase 4c-1 operations", () => {
+    expect(typeof ops.applyAttrsToRange).toBe("function");
+  });
 });
