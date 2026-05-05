@@ -350,3 +350,148 @@ describe("mergeAdjacentBlocks — empty-block edge cases", () => {
     expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
   });
 });
+
+describe("mergeAdjacentBlocks — error cases", () => {
+  // Common fixture: two adjacent leaves under doc.
+  const adjacentFixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+
+  it("throws when leftId === rightId (cannot merge a block with itself)", () => {
+    const state = adjacentFixture();
+    expect(() =>
+      mergeAdjacentBlocks(state, "p1" as BlockId, "p1" as BlockId),
+    ).toThrow(/same block/);
+  });
+
+  it("throws when the left block does not exist", () => {
+    const state = adjacentFixture();
+    expect(() =>
+      mergeAdjacentBlocks(state, "missing" as BlockId, "p2" as BlockId),
+    ).toThrow(/left block ".+" not found/);
+  });
+
+  it("throws when the right block does not exist", () => {
+    const state = adjacentFixture();
+    expect(() =>
+      mergeAdjacentBlocks(state, "p1" as BlockId, "missing" as BlockId),
+    ).toThrow(/right block ".+" not found/);
+  });
+
+  it("throws when the left block is a container (firstChildId set)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", nextSiblingId: "p", firstChildId: "inner", lastChildId: "inner" }),
+        buildBlock({ id: "inner", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("inside")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "s" as BlockId, "p" as BlockId),
+    ).toThrow(/left block ".+" is a container/);
+  });
+
+  it("throws when the left block has null inlineContent (independent of firstChildId)", () => {
+    // Pin the inlineContent === null arm of the left container guard so a future
+    // regression that drops it (|| → &&) is caught.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", nextSiblingId: "p" }), // null inlineContent AND null firstChildId
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "s" as BlockId, "p" as BlockId),
+    ).toThrow(/left block ".+" is a container/);
+  });
+
+  it("throws when the right block is a container (firstChildId set)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", prevSiblingId: "p", firstChildId: "inner", lastChildId: "inner" }),
+        buildBlock({ id: "inner", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("inside")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "p" as BlockId, "s" as BlockId),
+    ).toThrow(/right block ".+" is a container/);
+  });
+
+  it("throws when the right block has null inlineContent (independent of firstChildId)", () => {
+    // Pin the inlineContent === null arm of the right container guard.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "s", type: "section", parentId: "doc", prevSiblingId: "p" }), // null inlineContent AND null firstChildId
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "p" as BlockId, "s" as BlockId),
+    ).toThrow(/right block ".+" is a container/);
+  });
+
+  it("throws when blocks have different parents", () => {
+    // doc > [section1[p_a], section2[p_b]] — p_a and p_b are leaves but parented under different sections.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section1", lastChildId: "section2" }),
+        buildBlock({ id: "section1", type: "section", parentId: "doc", nextSiblingId: "section2", firstChildId: "p_a", lastChildId: "p_a" }),
+        buildBlock({ id: "p_a", type: "paragraph", parentId: "section1", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "section2", type: "section", parentId: "doc", prevSiblingId: "section1", firstChildId: "p_b", lastChildId: "p_b" }),
+        buildBlock({ id: "p_b", type: "paragraph", parentId: "section2", inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "p_a" as BlockId, "p_b" as BlockId),
+    ).toThrow(/different parents/);
+  });
+
+  it("throws when left.nextSiblingId !== rightId (non-adjacent — adjacency arm A)", () => {
+    // doc > [p1, p2, p3] — try to merge p1 and p3 (skipping p2).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("c")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "p1" as BlockId, "p3" as BlockId),
+    ).toThrow(/not adjacent siblings/);
+  });
+
+  it("throws when right.prevSiblingId !== leftId (malformed adjacency — adjacency arm B)", () => {
+    // doc > [p1, p2] — left.nextSiblingId === "p2" (correct) but right.prevSiblingId is fabricated as null
+    // to simulate a malformed-state case where the bidirectional invariant is broken.
+    // The guard's second arm catches this; pinning it prevents a future regression that drops the AND.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: null, inlineContent: createInlineContent([text("b")]) }),
+      ],
+    });
+    expect(() =>
+      mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId),
+    ).toThrow(/not adjacent siblings/);
+  });
+});
