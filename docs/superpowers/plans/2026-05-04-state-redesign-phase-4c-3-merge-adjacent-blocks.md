@@ -1012,7 +1012,7 @@ Inside the existing `describe("operations barrel", ...)` block, add a new `it()`
 - [ ] **Step 3: Run tests + build**
 
 Run: `npm test --workspace=packages/core -- "src/state/operations.test" --run` → PASS (5 tests in `operations.test.ts`).
-Run: `npm test --workspace=packages/core --run` → all green; total **1117 + 4 skipped** (was 1089 + 4 after Phase 4c-2; this phase adds 27 new tests in `merge-blocks.test.ts` + 1 new assertion in `operations.test.ts` = 28).
+Run: `npm test --workspace=packages/core --run` → all green; total **1128 + 4 skipped** (was 1100 + 4 after Phase 4c-2.5 cleanup; this phase adds 27 new tests in `merge-blocks.test.ts` + 1 new assertion in `operations.test.ts` = 28).
 Run: `npm run build --workspace=packages/core` → clean.
 
 - [ ] **Step 4: Verify public API not yet wired**
