@@ -2,13 +2,12 @@ import type { State, OperationResult } from "./state";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { attrsEqual } from "./attrs";
 import {
   createInlineContent,
   createTextItem,
   inlineContentLength,
+  mergeAdjacentTextItems,
   type InlineItem,
-  type TextItem,
 } from "./inline-content";
 import { createBlock } from "./block";
 
@@ -148,39 +147,5 @@ function spliceTextIntoItems(
     out.push(createTextItem(text, attrs));
   }
 
-  return out;
-}
-
-/**
- * Merge adjacent text items with equal attrs into a single item.
- * Embed items are not merged. Returns a fresh array.
- */
-function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
-  if (items.length <= 1) return [...items];
-  const out: InlineItem[] = [];
-  let pending: TextItem | null = null;
-
-  for (const item of items) {
-    if (item.kind === "text") {
-      if (pending && attrsEqual(pending.attrs, item.attrs)) {
-        // pending.attrs and item.attrs are equal-by-value (attrsEqual
-        // returned true); using either side yields the same result.
-        // We pick pending.attrs for stability.
-        pending = createTextItem(pending.text + item.text, pending.attrs);
-      } else {
-        if (pending) {
-          out.push(pending);
-        }
-        pending = item;
-      }
-    } else {
-      if (pending) {
-        out.push(pending);
-        pending = null;
-      }
-      out.push(item);
-    }
-  }
-  if (pending) out.push(pending);
   return out;
 }

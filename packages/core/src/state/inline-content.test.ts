@@ -7,6 +7,7 @@ import {
   type EmbedItem,
   inlineContentLength,
   findItemAtOffset,
+  mergeAdjacentTextItems,
 } from "./inline-content";
 
 describe("inline content factories", () => {
@@ -98,5 +99,70 @@ describe("findItemAtOffset", () => {
   it("returns end-of-block for empty content at offset 0", () => {
     const empty = createInlineContent([]);
     expect(findItemAtOffset(empty, 0)).toEqual({ itemIndex: 0, withinItem: 0 });
+  });
+});
+
+describe("mergeAdjacentTextItems", () => {
+  it("returns the input as a fresh array when there is one item or fewer", () => {
+    expect(mergeAdjacentTextItems([])).toEqual([]);
+    const single = [createTextItem("hello", { bold: true })];
+    const result = mergeAdjacentTextItems(single);
+    expect(result).toEqual(single);
+    expect(result).not.toBe(single);
+  });
+
+  it("merges two adjacent text items with equal attrs into one", () => {
+    const items = [
+      createTextItem("hel", { bold: true }),
+      createTextItem("lo", { bold: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ kind: "text", text: "hello", attrs: { bold: true } });
+  });
+
+  it("preserves two adjacent text items with different attrs", () => {
+    const items = [
+      createTextItem("hel", { bold: true }),
+      createTextItem("lo", { italic: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ text: "hel", attrs: { bold: true } });
+    expect(result[1]).toMatchObject({ text: "lo", attrs: { italic: true } });
+  });
+
+  it("does not merge text items across an embed even when their attrs match", () => {
+    const items = [
+      createTextItem("a", { bold: true }),
+      createEmbedItem("img"),
+      createTextItem("b", { bold: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(result[1]).toMatchObject({ kind: "embed", embedType: "img" });
+    expect(result[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+  });
+
+  it("does not mutate the input array", () => {
+    const items = [
+      createTextItem("hel", { bold: true }),
+      createTextItem("lo", { bold: true }),
+    ];
+    const before = items.slice();
+    mergeAdjacentTextItems(items);
+    expect(items).toEqual(before);
+  });
+
+  it("merges runs of three or more same-attrs text items into one", () => {
+    const items = [
+      createTextItem("a", { bold: true }),
+      createTextItem("b", { bold: true }),
+      createTextItem("c", { bold: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ kind: "text", text: "abc", attrs: { bold: true } });
   });
 });

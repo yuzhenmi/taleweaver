@@ -7,8 +7,8 @@ import {
   createInlineContent,
   createTextItem,
   createEmbedItem,
+  mergeAdjacentTextItems,
   type InlineItem,
-  type TextItem,
 } from "./inline-content";
 import { createBlock } from "./block";
 import { iterateSpan } from "./span-iteration";
@@ -163,39 +163,4 @@ function mergeAttrs(existing: ReadonlyAttrs, incoming: ReadonlyAttrs): ReadonlyA
     }
   }
   return result;
-}
-
-/**
- * Merge adjacent text items with equal attrs into a single item.
- * Embed items are not merged.
- */
-function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
-  if (items.length <= 1) return [...items];
-  const out: InlineItem[] = [];
-  let pending: TextItem | null = null;
-
-  for (const item of items) {
-    if (item.kind === "text") {
-      if (pending && attrsEqual(pending.attrs, item.attrs)) {
-        // pending.attrs and item.attrs are equal-by-value (attrsEqual
-        // returned true); using either side yields the same result.
-        pending = createTextItem(pending.text + item.text, pending.attrs);
-      } else {
-        if (pending) {
-          out.push(pending);
-        }
-        pending = item;
-      }
-    } else {
-      if (pending) {
-        out.push(pending);
-        pending = null;
-      }
-      out.push(item);
-    }
-  }
-  if (pending) {
-    out.push(pending);
-  }
-  return out;
 }

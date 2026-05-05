@@ -1,4 +1,5 @@
 import type { ReadonlyAttrs } from "./attrs";
+import { attrsEqual } from "./attrs";
 
 /**
  * Inline content of a leaf block: an ordered sequence of styled text runs
@@ -97,4 +98,41 @@ export function findItemAtOffset(
     cursor += itemLen;
   }
   return { itemIndex: content.items.length, withinItem: 0 };
+}
+
+/**
+ * Merge adjacent text items with equal attrs into a single item.
+ * Embed items act as barriers and are not merged with their neighbors,
+ * even if neighboring text items have identical attrs.
+ *
+ * Used by every Layer 3 operation that produces inline content (insertText,
+ * applyAttrsToRange, splitBlockAtPosition, mergeAdjacentBlocks, etc.) to
+ * uphold the normalization invariant: a block's items[] never has two
+ * adjacent text items with equal attrs.
+ *
+ * Returns a fresh array; never mutates the input.
+ */
+export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
+  if (items.length <= 1) return [...items];
+  const out: InlineItem[] = [];
+  let pending: TextItem | null = null;
+
+  for (const item of items) {
+    if (item.kind === "text") {
+      if (pending && attrsEqual(pending.attrs, item.attrs)) {
+        pending = createTextItem(pending.text + item.text, pending.attrs);
+      } else {
+        if (pending) out.push(pending);
+        pending = item;
+      }
+    } else {
+      if (pending) {
+        out.push(pending);
+        pending = null;
+      }
+      out.push(item);
+    }
+  }
+  if (pending) out.push(pending);
+  return out;
 }
