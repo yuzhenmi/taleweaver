@@ -28,4 +28,8 @@ describe("operations barrel", () => {
   it("re-exports Phase 4c-4 operations", () => {
     expect(typeof ops.deleteRange).toBe("function");
   });
+
+  it("re-exports Phase 4c-5 operations", () => {
+    expect(typeof ops.replaceRange).toBe("function");
+  });
 });
