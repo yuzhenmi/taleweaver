@@ -20,4 +20,8 @@ describe("operations barrel", () => {
   it("re-exports Phase 4c-2 operations", () => {
     expect(typeof ops.splitBlockAtPosition).toBe("function");
   });
+
+  it("re-exports Phase 4c-3 operations", () => {
+    expect(typeof ops.mergeAdjacentBlocks).toBe("function");
+  });
 });

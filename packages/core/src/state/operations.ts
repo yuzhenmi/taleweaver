@@ -31,5 +31,8 @@ export { applyAttrsToRange } from "./apply-attrs";
 // Phase 4c-2 operations (block split)
 export { splitBlockAtPosition } from "./split-block";
 
+// Phase 4c-3 operations (block merge)
+export { mergeAdjacentBlocks } from "./merge-blocks";
+
 // Legacy tree operations (pre-Phase 4a, to be migrated)
 export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations";
