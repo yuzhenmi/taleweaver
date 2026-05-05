@@ -210,3 +210,73 @@ describe("replaceRange — cross-block coverage", () => {
     expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("section"); // unchanged
   });
 });
+
+describe("replaceRange — edge cases", () => {
+  it("collapsed span + empty text is a pure no-op (returns same state, empty dirtyIds)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 2);
+    const result = replaceRange(state, createSpan(pos, pos), "", {});
+    expect(result.state).toBe(state);
+    expect([...result.dirtyIds]).toEqual([]);
+  });
+
+  it("collapsed span + non-empty text equals insertText at that position", () => {
+    // [text("hello")] — collapsed at offset 2 + insert "XY".
+    // Expected: [text("heXYllo")] (insert in middle, run-merged).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 2);
+    const result = replaceRange(state, createSpan(pos, pos), "XY", {});
+
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "heXYllo", attrs: {} });
+    // dirtyIds: just the modified block.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p"]));
+  });
+
+  it("non-collapsed span + empty text equals deleteRange (delete only, no insert)", () => {
+    // [text("hello world")] — delete [3, 7) with empty text → "helorld".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+    const result = replaceRange(state, span, "", {});
+
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "helorld" });
+  });
+
+  it("reverse-order span normalizes correctly", () => {
+    // Replace from p@7 to p@3 with "FOO" + {} — same as [3, 7) after normalization.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 7), createPosition("p" as BlockId, 3));
+    const result = replaceRange(state, span, "FOO", {});
+
+    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "helFOOorld" });
+  });
+});
