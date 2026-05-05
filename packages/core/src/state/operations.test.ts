@@ -16,4 +16,8 @@ describe("operations barrel", () => {
   it("re-exports Phase 4c-1 operations", () => {
     expect(typeof ops.applyAttrsToRange).toBe("function");
   });
+
+  it("re-exports Phase 4c-2 operations", () => {
+    expect(typeof ops.splitBlockAtPosition).toBe("function");
+  });
 });
