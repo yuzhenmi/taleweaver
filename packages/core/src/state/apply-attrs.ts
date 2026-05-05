@@ -11,7 +11,7 @@ import {
   type TextItem,
 } from "./inline-content";
 import { createBlock } from "./block";
-import { iterateSpan, normalizeSpan } from "./span-iteration";
+import { iterateSpan } from "./span-iteration";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -52,20 +52,27 @@ export function applyAttrsToRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  // Empty span = no-op.
-  const normalized = normalizeSpan(state, span);
+  // Empty span = no-op. Collapsed-ness (same block + same offset) is
+  // normalization-invariant, so we check raw positions directly.
+  // Note: a collapsed span whose blockId references a non-existent block
+  // also no-ops here without throwing — same behavior as before this
+  // refactor (the previous normalizeSpan path also short-circuited via
+  // comparePositions when blockIds matched, never reaching block lookup).
   if (
-    normalized.anchor.blockId === normalized.focus.blockId &&
-    normalized.anchor.offset === normalized.focus.offset
+    span.anchor.blockId === span.focus.blockId &&
+    span.anchor.offset === span.focus.offset
   ) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
-  // (Same-context + leaf-block-endpoint preconditions enforced by iterateSpan.)
+  // iterateSpan owns precondition validation (existence, leaf-block,
+  // same-selection-context) AND normalization. We pass the raw span; it
+  // validates raw endpoints first (yielding semantically correct error
+  // messages) before normalizing internally.
 
   let blocks = state.blocks;
   const dirtyIds = new Set<BlockId>();
 
-  for (const { block, rangeStart, rangeEnd } of iterateSpan(state, normalized)) {
+  for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
     if (!block.inlineContent) continue; // defensive — iterateSpan only yields leaves
     if (rangeStart >= rangeEnd) continue; // zero-width range in this block (e.g., focus at offset 0 of last block)
 
