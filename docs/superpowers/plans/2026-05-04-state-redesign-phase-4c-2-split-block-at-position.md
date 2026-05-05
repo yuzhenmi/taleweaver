@@ -26,6 +26,9 @@
 - **Critical implementer guard (per memory `feedback_implementer_create_collision.md`):** if any file the plan asks to CREATE already exists, the implementer must STOP and report `BLOCKED`; never silently refactor, rename, or consolidate. Verified by the controller before dispatch.
 - Per CLAUDE.md: TDD throughout. Verify with both `npm test` AND `npm run build`.
 - Type safety: no non-null assertions (`!`); use proper narrowing.
+- **Test-builder dependencies (verified at plan-write time):** `text` and `embed` are both exported from `packages/core/src/test-utils/state-builders.ts` (around lines 8-22). `buildBlock` and `buildState` likewise. `createTestAllocator` is exported from `state/block-id.ts`. `createInlineContent` is exported from `state/inline-content.ts`. `createPosition` is exported from `state/block-position.ts`. No new builder helpers are required.
+
+**Why the original block keeps its id and the new block gets a fresh id:** this matches Word and Google Docs paragraph-identity semantics — the paragraph BEFORE the cursor retains its formatting, comment anchors, tracked-change anchors, etc.; a new paragraph is born AFTER it. Pressing Enter mid-paragraph "creates a paragraph after," not "splits both halves into siblings of a parent." The "original keeps id" discipline matches that mental model and matches what every collaborative-editing system anchors to.
 
 **Operation signature:**
 
@@ -63,7 +66,14 @@ Given `position.offset`, the original `inlineContent.items` are partitioned into
 
 **Empty halves:** are valid and intentional. `offset === 0` produces an empty-content original block (`inlineContent.items = []`) and a new block holding everything; `offset === inlineContentLength` produces a new empty-content block. This matches Word/Google Docs "Enter at start/end of paragraph" semantics.
 
-**Why no run-merging post-pass:** the input items array is already normalized (no adjacent same-attrs text items). Splitting at any point — boundary or mid-text — produces two arrays each of which is a contiguous sub-sequence of the input, optionally with one boundary item replaced by a head/tail slice. Neither sub-sequence introduces new same-attrs adjacencies that weren't already present (and already merged) in the input. So skipping the post-pass is correct, not a shortcut.
+**Why no run-merging post-pass:** the input items array is already normalized (no adjacent same-attrs text items). Splitting at any point produces two arrays, each a contiguous sub-sequence of the input — possibly with one boundary item replaced by a head/tail slice (mid-text-item case). Within each half:
+
+- The interior items are unchanged from the input, so they retain their existing non-same-attrs adjacencies.
+- The boundary item, if it was split mid-text, has the same `attrs` as the original whole item — so the slice's neighbor on each side has different attrs (otherwise normalization would have merged them with the original whole item before the split). No new same-attrs adjacency is introduced.
+
+Across the two halves there is also no merging concern: they go into different `Block` objects.
+
+So skipping the post-pass is correct, not a shortcut.
 
 **dirtyIds contract:**
 
@@ -73,7 +83,7 @@ The returned `dirtyIds` set contains:
 - The original block's previous `nextSiblingId`, IF non-null (its `prevSiblingId` was rewired to the new block's id).
 - The parent block's id, IF the original block was the last child (parent's `lastChildId` was updated).
 
-(The parent is **not** dirtied if the original block was a middle/first child whose `firstChildId`/`lastChildId` weren't touched. This matches Phase 4a `insertBlock`'s discipline: dirty only what actually changed.)
+The parent is **not** dirtied when the original block was a middle/first child — neither `firstChildId` nor `lastChildId` changes in those cases, and per the spec ("`dirtyIds` is produced at write-time," line 291) we only dirty blocks whose entry in `state.blocks` actually differs. (Note: this is stricter than Phase 4a `insertBlock`'s pattern, which always rewrites and dirties the parent because its child-pointer update logic is unconditional. `splitBlockAtPosition` only writes the parent when `lastChildId` actually changes.)
 
 ---
 
@@ -177,6 +187,7 @@ import {
   createTextItem,
   inlineContentLength,
   findItemAtOffset,
+  type InlineContent,
   type InlineItem,
 } from "./inline-content";
 import { createBlock, type Block } from "./block";
@@ -235,8 +246,8 @@ export function splitBlockAtPosition(
     );
   }
 
-  const [leftItems, rightItems] = splitInlineItemsAtOffset(
-    block.inlineContent.items,
+  const [leftItems, rightItems] = splitInlineContentAtOffset(
+    block.inlineContent,
     position.offset,
   );
 
@@ -296,7 +307,7 @@ export function splitBlockAtPosition(
 }
 
 /**
- * Partition `items` at `offset` into [leftItems, rightItems].
+ * Partition `content.items` at `offset` into [leftItems, rightItems].
  *
  * - Clean boundary (offset falls between items, or at start/end of content):
  *   pure array slice, no item splitting.
@@ -306,11 +317,12 @@ export function splitBlockAtPosition(
  *   as one cursor position; offsets at embed boundaries return withinItem=0).
  *   Throws defensively.
  */
-function splitInlineItemsAtOffset(
-  items: ReadonlyArray<InlineItem>,
+function splitInlineContentAtOffset(
+  content: InlineContent,
   offset: number,
 ): [InlineItem[], InlineItem[]] {
-  const { itemIndex, withinItem } = findItemAtOffset({ items }, offset);
+  const items = content.items;
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
 
   if (withinItem === 0) {
     return [items.slice(0, itemIndex), items.slice(itemIndex)];
@@ -546,6 +558,34 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
     expect(right?.inlineContent?.items).toHaveLength(1);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "b" });
   });
+
+  it("splits at offset 0 in a block whose first item is an embed", () => {
+    // Block: [embed("img"), text("a")] — total length 2.
+    // Split at offset 0 — leading edge of the embed.
+    // Expected: left [], right [embed("img"), text("a")]
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([embed("img"), text("a")]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("p2");
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
+
+    const left = result.state.blocks.get("p" as BlockId);
+    expect(left?.inlineContent?.items).toEqual([]);
+
+    const right = result.state.blocks.get("p2-0" as BlockId);
+    expect(right?.inlineContent?.items).toHaveLength(2);
+    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "embed", embedType: "img" });
+    expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "a" });
+  });
 });
 ```
 
@@ -565,7 +605,7 @@ import { buildBlock, buildState, text, embed } from "../test-utils/state-builder
 
 - [ ] **Step 3-5: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (5 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (6 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -573,11 +613,12 @@ git add packages/core/src/state/split-block.test.ts
 git commit -m "$(cat <<'EOF'
 test(state): cover splitBlockAtPosition item-shape variants
 
-Four new tests:
+Five new tests:
 - split exactly at the boundary between two text items (no item splitting).
 - split inside the second of three text items.
 - split at the leading edge of an embed item.
 - split at the trailing edge of an embed item.
+- split at offset 0 of a block whose first item is an embed.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -612,6 +653,12 @@ describe("splitBlockAtPosition — edge offsets", () => {
     const right = result.state.blocks.get("p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(1);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
+
+    // Parent's lastChildId rewired (original was the last child).
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+
+    // dirtyIds: original block, new block, parent (lastChildId changed).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 
   it("offset=total length produces a full original block + empty new block", () => {
@@ -631,6 +678,9 @@ describe("splitBlockAtPosition — edge offsets", () => {
 
     const right = result.state.blocks.get("p2-0" as BlockId);
     expect(right?.inlineContent?.items).toEqual([]);
+
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 
   it("splits an empty leaf block at offset 0 into two empty siblings", () => {
@@ -653,13 +703,16 @@ describe("splitBlockAtPosition — edge offsets", () => {
     expect(right?.type).toBe("paragraph");
     expect(right?.parentId).toBe("doc");
     expect(right?.prevSiblingId).toBe("p");
+
+    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 });
 ```
 
 - [ ] **Step 2-4: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (8 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (9 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -671,6 +724,9 @@ Three new tests:
 - offset=0: empty original block + new block holding all content.
 - offset=total length: full original block + empty new block.
 - splitting an empty leaf produces two empty siblings (Enter-on-empty-line).
+
+Each asserts parent's lastChildId is rewired to the new block and
+dirtyIds = { original, new, parent }.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -754,12 +810,45 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     // dirtyIds: { p3, p3b-0, doc }. Parent dirty because lastChildId changed.
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p3b-0", "doc"]));
   });
+
+  it("nested-block split: leaf nested inside a section uses the section as the parent for sibling linkage", () => {
+    // doc > section > [p_only] — split p_only.
+    // The section is the parent of p_only; the section's lastChildId should be rewired to the new block.
+    // doc's child pointers (firstChildId/lastChildId = "section") are unchanged.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p_only", lastChildId: "p_only" }),
+        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("pNew");
+    const result = splitBlockAtPosition(state, createPosition("p_only" as BlockId, 3), allocator);
+
+    // New block's parent is the section, NOT the doc.
+    const right = result.state.blocks.get("pNew-0" as BlockId);
+    expect(right?.parentId).toBe("section");
+
+    // Section's child pointers: firstChildId unchanged (still p_only), lastChildId rewired to new block.
+    const section = result.state.blocks.get("section" as BlockId);
+    expect(section?.firstChildId).toBe("p_only");
+    expect(section?.lastChildId).toBe("pNew-0");
+
+    // doc's child pointers untouched.
+    const doc = result.state.blocks.get("doc" as BlockId);
+    expect(doc?.firstChildId).toBe("section");
+    expect(doc?.lastChildId).toBe("section");
+
+    // dirtyIds: section dirtied (lastChildId changed); doc NOT dirtied.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p_only", "pNew-0", "section"]));
+  });
 });
 ```
 
 - [ ] **Step 2-4: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (11 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (13 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -767,11 +856,13 @@ git add packages/core/src/state/split-block.test.ts
 git commit -m "$(cat <<'EOF'
 test(state): cover splitBlockAtPosition linked-list variants
 
-Three new tests verifying sibling-pointer + parent-childpointer updates
-across the three structural cases:
+Four new tests verifying sibling-pointer + parent-childpointer updates
+across the structural cases:
 - middle child split (prev unchanged, next rewired, parent unchanged).
 - first child split (firstChildId unchanged — still original).
 - last child split (parent's lastChildId rewired to new block).
+- nested-block split (parent of nested leaf is its container, not the
+  document root; only the immediate parent is dirtied).
 
 dirtyIds asserted in each case: parent appears in dirtyIds only when
 its firstChildId or lastChildId actually changed.
@@ -869,7 +960,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
 
 - [ ] **Step 2-4: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (15 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (17 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -974,7 +1065,7 @@ describe("splitBlockAtPosition — error cases", () => {
 
 - [ ] **Step 2-4: Run / build / commit**
 
-Run: `npm test --workspace=packages/core -- split-block --run` → PASS (20 tests).
+Run: `npm test --workspace=packages/core -- split-block --run` → PASS (22 tests).
 Run: `npm run build --workspace=packages/core` → clean.
 
 ```bash
@@ -1027,7 +1118,7 @@ Inside the existing `describe("operations barrel", ...)` block, add a new `it()`
 - [ ] **Step 3: Run tests + build**
 
 Run: `npm test --workspace=packages/core -- "src/state/operations.test" --run` → PASS (4 tests in `operations.test.ts`).
-Run: `npm test --workspace=packages/core --run` → all green; total 1085 + 4 skipped (was 1065 + 4 after Phase 4c-1; this phase adds 20 new tests across split-block.test.ts + 1 new operations.test.ts assertion = 21).
+Run: `npm test --workspace=packages/core --run` → all green; total 1088 + 4 skipped (was 1065 + 4 after Phase 4c-1; this phase adds 22 new tests in `split-block.test.ts` + 1 new assertion in `operations.test.ts` = 23).
 Run: `npm run build --workspace=packages/core` → clean.
 
 - [ ] **Step 4: Verify public API not yet wired**
@@ -1061,9 +1152,9 @@ If anything came up during Phase 4c-2 that should inform Phase 4c-3 (`mergeAdjac
 
 **Spec coverage** (Phase 4c-2 scope: splitBlockAtPosition):
 - ✅ Core operation: split a leaf at a position into two siblings — Task 1
-- ✅ Item-shape coverage (boundary, multi-item, embed leading/trailing edge) — Task 2
-- ✅ Edge offsets (0, total, empty block) — Task 3
-- ✅ Linked-list correctness (middle / first / last child) — Task 4
+- ✅ Item-shape coverage (boundary, multi-item, embed leading/trailing edge, embed-first block) — Task 2
+- ✅ Edge offsets (0, total, empty block) with parent-update + dirtyIds assertions — Task 3
+- ✅ Linked-list correctness (middle / first / last child + nested-block) — Task 4
 - ✅ Block-level invariants (type, attrs, parentId, allocator, structural sharing, immutability) — Task 5
 - ✅ Error cases (missing, container, root, negative offset, oversized offset) — Task 6
 - ✅ Operations barrel update — Task 7
