@@ -78,7 +78,7 @@ Notes:
      - `id`: the new id from the map.
      - `type`, `attrs`: copied unchanged.
      - `parentId`: `null` if `oldId === sourceRootId`; `null` if the source `parentId` was already `null` (e.g., embed-content root); otherwise the mapped new parent id.
-     - `prevSiblingId`, `nextSiblingId`: `null` if `oldId === sourceRootId`; otherwise the mapped value (or `null` if the sibling isn't in the subtree map — defensive).
+     - `prevSiblingId`, `nextSiblingId`: `null` if `oldId === sourceRootId`; otherwise the mapped value via `mapId` (which throws if the sibling isn't in the subtree map — corrupted source state).
      - `firstChildId`, `lastChildId`: mapped values (or `null` if the source had `null`).
      - `inlineContent`: rewritten via `rewriteInlineContent` (which rewrites embed `contentBlockId`s; non-embed items pass through unchanged).
    - Add to the result `Map<BlockId, Block>`.
@@ -512,9 +512,12 @@ describe("clonePastedSubtree — tree shapes", () => {
     const newI1 = result.blocks.get(newList.firstChildId);
     expect(newI1?.type).toBe("list-item");
     expect(newI1?.inlineContent?.items[0]).toMatchObject({ text: "a" });
-    expect(newI1?.parentId).toBe(newList.firstChildId === newI1.id ? newList.id : newI1.parentId);
-    // Simpler: newI1.parentId should equal newList.id.
-    expect(newI1?.parentId).toBe(newList.firstChildId === newI1.id ? newList.id : "");
+    expect(newI1?.parentId).toBe(newSection?.firstChildId); // newList.id (same value, more semantic)
+    // Walk one more sibling: i1.nextSiblingId → i2.
+    if (!newI1?.nextSiblingId) throw new Error("missing i2 sibling");
+    const newI2 = result.blocks.get(newI1.nextSiblingId);
+    expect(newI2?.inlineContent?.items[0]).toMatchObject({ text: "b" });
+    expect(newI2?.prevSiblingId).toBe(newI1.id);
   });
 
   it("clones a single-child tree (firstChildId === lastChildId)", () => {
@@ -1092,6 +1095,7 @@ describe("clonePastedSubtree — error cases", () => {
     expect(result.blocks.size).toBe(1);
     const cloned = result.blocks.get(result.rootId);
     expect(cloned?.firstChildId).toBe(result.rootId); // self-loop preserved in cloned namespace
+    expect(cloned?.lastChildId).toBe(result.rootId); // both child pointers self-loop, both rewritten consistently
   });
 });
 ```
@@ -1128,9 +1132,36 @@ EOF
 - Modify: `packages/core/src/state/operations.ts`
 - Modify: `packages/core/src/state/operations.test.ts`
 
-- [ ] **Step 1: Append export to operations.ts**
+- [ ] **Step 1: Append export to operations.ts AND refresh the header comment**
 
-After the existing Phase 4c-5 export line, add a new "Phase 4d operations" section:
+The current header comment (lines 1-17 of `operations.ts`) lists Phase 4b/4c/4d as future work ("Subsequent phases will append..."). After Task 7, all of those have shipped. Update the header comment to reflect the now-complete Phase 4 surface. Replace lines 1-17 with:
+
+```typescript
+/**
+ * Layer 3 state-mutating operations barrel.
+ *
+ * Each operation takes a State and arguments, returns OperationResult
+ * (new state + dirtyIds of changed blocks) — except for clonePastedSubtree
+ * which returns a self-contained ClonedSubtree snapshot for paste flows.
+ * All operations are pure functions over the immutable state.
+ *
+ * Phase 4 surface (now complete):
+ *   - Phase 4a: setBlockAttrs, setBlockType, insertBlock, removeBlock
+ *   - Phase 4b: insertText
+ *   - Phase 4c-1: applyAttrsToRange
+ *   - Phase 4c-2: splitBlockAtPosition
+ *   - Phase 4c-3: mergeAdjacentBlocks
+ *   - Phase 4c-4: deleteRange
+ *   - Phase 4c-5: replaceRange
+ *   - Phase 4d: clonePastedSubtree (paste mechanics)
+ *
+ * Legacy tree operations (pre-Phase 4a, to be migrated in Phase 14
+ * cleanup): updateProperties, insertChild, removeChild, getNodeByPath,
+ * updateAtPath.
+ */
+```
+
+Then add the new Phase 4d export after the existing Phase 4c-5 export line:
 
 ```typescript
 // Phase 4c-5 operations (range replace)
