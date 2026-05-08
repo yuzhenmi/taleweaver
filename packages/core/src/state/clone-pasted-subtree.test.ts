@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
-import { buildBlock, buildState, text } from "../test-utils/state-builders";
+import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createTestAllocator, type BlockId } from "./block-id";
 
@@ -170,5 +170,144 @@ describe("clonePastedSubtree — tree shapes", () => {
     expect(newEmpty?.firstChildId).toBeNull();
     expect(newEmpty?.lastChildId).toBeNull();
     expect(newEmpty?.inlineContent).toBeNull();
+  });
+});
+
+describe("clonePastedSubtree — embed-content cloning", () => {
+  it("clones an embed's content block (footnote body) and rewrites contentBlockId", () => {
+    // Source: doc > [p1[text + embed("footnote-anchor", { contentBlockId: "fn-body" })]] + standalone fn-body.
+    // Clone p1: should also clone fn-body, and the cloned anchor's contentBlockId points to the cloned body.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("see"),
+            embed("footnote-anchor", { contentBlockId: "fn-body" }),
+          ]),
+        }),
+        buildBlock({
+          id: "fn-body",
+          type: "footnote-body",
+          inlineContent: createInlineContent([text("the footnote text")]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+
+    // 2 blocks cloned: p1 + fn-body. doc is outside.
+    expect(result.blocks.size).toBe(2);
+
+    const newP1 = result.blocks.get(result.rootId);
+    expect(newP1?.type).toBe("paragraph");
+    expect(newP1?.inlineContent?.items).toHaveLength(2);
+    expect(newP1?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "see" });
+
+    // The embed's contentBlockId is rewritten — NOT the original "fn-body".
+    const embedItem = newP1?.inlineContent?.items[1];
+    expect(embedItem?.kind).toBe("embed");
+    if (embedItem?.kind !== "embed") throw new Error("expected embed");
+    const newCbId = embedItem.properties.contentBlockId;
+    expect(typeof newCbId).toBe("string");
+    expect(newCbId).not.toBe("fn-body");
+
+    // The cloned fn-body has the rewritten id and preserved content.
+    const newFnBody = result.blocks.get(newCbId as BlockId);
+    expect(newFnBody).toBeDefined();
+    expect(newFnBody?.type).toBe("footnote-body");
+    expect(newFnBody?.inlineContent?.items[0]).toMatchObject({ text: "the footnote text" });
+    expect(newFnBody?.parentId).toBeNull(); // standalone root, preserved
+  });
+
+  it("clones multiple embed-content references", () => {
+    // Source: p1 with TWO footnote anchors → two distinct fn-body clones.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("a"),
+            embed("footnote-anchor", { contentBlockId: "fn-a" }),
+            text("b"),
+            embed("footnote-anchor", { contentBlockId: "fn-b" }),
+          ]),
+        }),
+        buildBlock({ id: "fn-a", type: "footnote-body", inlineContent: createInlineContent([text("body a")]) }),
+        buildBlock({ id: "fn-b", type: "footnote-body", inlineContent: createInlineContent([text("body b")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+
+    // 3 blocks cloned: p1 + fn-a + fn-b.
+    expect(result.blocks.size).toBe(3);
+
+    const newP1 = result.blocks.get(result.rootId);
+    const items = newP1?.inlineContent?.items;
+    expect(items).toHaveLength(4);
+    if (!items) throw new Error("missing items");
+
+    const embedA = items[1];
+    const embedB = items[3];
+    if (embedA.kind !== "embed" || embedB.kind !== "embed") throw new Error("expected embeds");
+    const newCbA = embedA.properties.contentBlockId as BlockId;
+    const newCbB = embedB.properties.contentBlockId as BlockId;
+    expect(newCbA).not.toBe(newCbB);
+    expect(newCbA).not.toBe("fn-a");
+    expect(newCbB).not.toBe("fn-b");
+
+    expect(result.blocks.get(newCbA)?.inlineContent?.items[0]).toMatchObject({ text: "body a" });
+    expect(result.blocks.get(newCbB)?.inlineContent?.items[0]).toMatchObject({ text: "body b" });
+  });
+
+  it("clones nested embed-content (footnote body containing its own footnote anchor)", () => {
+    // Source: p1 has fn-outer, fn-outer-body has fn-inner anchor, fn-inner-body has plain text.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "fn-outer" })]),
+        }),
+        buildBlock({
+          id: "fn-outer",
+          type: "footnote-body",
+          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "fn-inner" })]),
+        }),
+        buildBlock({ id: "fn-inner", type: "footnote-body", inlineContent: createInlineContent([text("deep")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+
+    // 3 blocks cloned: p1 + fn-outer + fn-inner.
+    expect(result.blocks.size).toBe(3);
+
+    const newP1 = result.blocks.get(result.rootId);
+    const outerEmbed = newP1?.inlineContent?.items[0];
+    if (outerEmbed?.kind !== "embed") throw new Error("expected embed");
+    const newOuterId = outerEmbed.properties.contentBlockId as BlockId;
+    expect(newOuterId).not.toBe("fn-outer");
+
+    const newOuter = result.blocks.get(newOuterId);
+    const innerEmbed = newOuter?.inlineContent?.items[0];
+    if (innerEmbed?.kind !== "embed") throw new Error("expected embed");
+    const newInnerId = innerEmbed.properties.contentBlockId as BlockId;
+    expect(newInnerId).not.toBe("fn-inner");
+
+    const newInner = result.blocks.get(newInnerId);
+    expect(newInner?.inlineContent?.items[0]).toMatchObject({ text: "deep" });
   });
 });
