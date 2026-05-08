@@ -2,18 +2,23 @@
  * Layer 3 state-mutating operations barrel.
  *
  * Each operation takes a State and arguments, returns OperationResult
- * (new state + dirtyIds of changed blocks). All operations are pure
- * functions over the immutable state.
+ * (new state + dirtyIds of changed blocks) — except for clonePastedSubtree
+ * which returns a self-contained ClonedSubtree snapshot for paste flows.
+ * All operations are pure functions over the immutable state.
  *
- * Phase 4a operations (this commit): block-level operations that
- * change one block's attrs/type or splice a block into/out of a
- * parent's linked-list children.
+ * Phase 4 surface (now complete):
+ *   - Phase 4a: setBlockAttrs, setBlockType, insertBlock, removeBlock
+ *   - Phase 4b: insertText
+ *   - Phase 4c-1: applyAttrsToRange
+ *   - Phase 4c-2: splitBlockAtPosition
+ *   - Phase 4c-3: mergeAdjacentBlocks
+ *   - Phase 4c-4: deleteRange
+ *   - Phase 4c-5: replaceRange
+ *   - Phase 4d: clonePastedSubtree (paste mechanics)
  *
- * Subsequent phases will append:
- *   - Phase 4b: insert-text, apply-attrs (inline-content edits)
- *   - Phase 4c: split-block, merge-blocks, delete-range, replace-range
- *               (cross-block structural surgery)
- *   - Phase 4d: clone-pasted-subtree (paste mechanics)
+ * Legacy tree operations (pre-Phase 4a, to be migrated in Phase 14
+ * cleanup): updateProperties, insertChild, removeChild, getNodeByPath,
+ * updateAtPath.
  */
 
 // Phase 4a operations
@@ -39,6 +44,9 @@ export { deleteRange } from "./delete-range";
 
 // Phase 4c-5 operations (range replace)
 export { replaceRange } from "./replace-range";
+
+// Phase 4d operations (paste mechanics)
+export { clonePastedSubtree, type ClonedSubtree } from "./clone-pasted-subtree";
 
 // Legacy tree operations (pre-Phase 4a, to be migrated)
 export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations";
