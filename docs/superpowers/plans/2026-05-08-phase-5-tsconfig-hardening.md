@@ -18,7 +18,7 @@
 - Per CLAUDE.md: TDD throughout. Verify with both `npm test` AND `npm run build`.
 - **Important — per Phase 5+ context note**: TypeScript does NOT support enabling `noUnusedLocals` for a subdirectory within a single compilation unit. The flag applies to the entire workspace at once. If too many legacy violations surface, options are:
   - (a) clean them up in the same P5 commit (default expectation),
-  - (b) suppress with `// eslint-disable-next-line @typescript-eslint/no-unused-vars` or `// @ts-expect-error` per offending location,
+  - (b) suppress at the offending location with `// @ts-expect-error: <one-line reason>` per location (NOT `// @ts-ignore`, NOT `// eslint-disable` — eslint-disable does not suppress TS6133),
   - (c) split into separate TypeScript project references — overkill, do NOT do this for P5.
   Default: option (a). The Phase 4 codebase has been well-maintained; expect a small number of violations.
 
@@ -189,7 +189,7 @@ If a violation requires a non-trivial code change to resolve (e.g., a function w
 - All targeted-tsc invocations return zero violations.
 - All tests still pass.
 - No `!` assertions introduced.
-- No `// @ts-ignore` introduced (use eslint-disable per location with reason).
+- No `// @ts-ignore` introduced. If suppression was unavoidable, only `// @ts-expect-error: <reason>` was used (per Hard rules + Item 6 cascade).
 - Commit contains ONLY violation cleanups, no other changes.
 
 ## Report Format (Task 2)

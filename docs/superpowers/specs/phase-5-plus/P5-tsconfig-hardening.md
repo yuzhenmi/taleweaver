@@ -30,7 +30,7 @@ None. P5 is the warm-up phase; can run any time.
 - `noUnusedLocals` is compilation-unit-wide. Cannot apply to a subdirectory (`src/state/`) only — the flag applies to the entire workspace at once.
 - If too many legacy violations surface, options are:
   - (a) clean them up in the same P5 commit (most likely small — these files have been well-maintained).
-  - (b) suppress with `// eslint-disable-next-line @typescript-eslint/no-unused-vars` or `// @ts-expect-error` per offending location.
+  - (b) suppress at the offending location with `// @ts-expect-error: <one-line reason>` (NOT `// @ts-ignore`, NOT `// eslint-disable` — eslint-disable does not suppress TS6133 from the TypeScript compiler).
   - (c) split `packages/core` into separate TypeScript project references — overkill, do not do this just for this purpose.
 - Default expectation: option (a). Survey the tree first; if it's a handful of files, fix them inline.
 
