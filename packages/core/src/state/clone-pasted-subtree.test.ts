@@ -311,3 +311,122 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     expect(newInner?.inlineContent?.items[0]).toMatchObject({ text: "deep" });
   });
 });
+
+describe("clonePastedSubtree — block-level invariants", () => {
+  it("does not mutate the source state", () => {
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const beforeP = sourceState.blocks.get("p" as BlockId);
+    const beforeDoc = sourceState.blocks.get("doc" as BlockId);
+    const allocator = createTestAllocator("c");
+    clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+
+    // Source state's blocks unchanged.
+    expect(sourceState.blocks.get("p" as BlockId)).toBe(beforeP);
+    expect(sourceState.blocks.get("doc" as BlockId)).toBe(beforeDoc);
+    // No new blocks added to the source.
+    expect(sourceState.blocks.has("c-0" as BlockId)).toBe(false);
+  });
+
+  it("the cloned root has parentId/sibling pointers all null, even when the source did not", () => {
+    // Source: section > [p1, p2, p3]. Clone p2 (a middle child with both prev and next siblings).
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("c")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p2" as BlockId, allocator);
+
+    expect(result.blocks.size).toBe(1);
+    const newP2 = result.blocks.get(result.rootId);
+    expect(newP2?.parentId).toBeNull();
+    expect(newP2?.prevSiblingId).toBeNull();
+    expect(newP2?.nextSiblingId).toBeNull();
+    expect(newP2?.inlineContent?.items[0]).toMatchObject({ text: "b" });
+  });
+
+  it("preserves type, attrs, text content, and embed properties exactly (excluding rewritten contentBlockId)", () => {
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({
+          id: "li",
+          type: "list-item",
+          attrs: { level: 2, ordered: true, custom: { meta: "x" } },
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("hello", { bold: true, color: "red" }),
+            embed("image", { src: "img.png", width: 200 }, { link: "https://example.com" }),
+          ]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "li" as BlockId, allocator);
+
+    const newLi = result.blocks.get(result.rootId);
+    expect(newLi?.type).toBe("list-item");
+    expect(newLi?.attrs).toEqual({ level: 2, ordered: true, custom: { meta: "x" } });
+
+    const items = newLi?.inlineContent?.items;
+    if (!items) throw new Error("missing items");
+    expect(items[0]).toMatchObject({ kind: "text", text: "hello", attrs: { bold: true, color: "red" } });
+    expect(items[1]).toMatchObject({
+      kind: "embed",
+      embedType: "image",
+      properties: { src: "img.png", width: 200 },
+      attrs: { link: "https://example.com" },
+    });
+  });
+
+  it("all internal references in the result point to ids in result.blocks (no leaked source ids)", () => {
+    // Source with multiple internal refs.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("first"), embed("footnote-anchor", { contentBlockId: "fn" })]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text("second")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote text")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+
+    // 4 blocks: section, p1, p2, fn.
+    expect(result.blocks.size).toBe(4);
+
+    // For each block in the result, every non-null reference must be a key in result.blocks (or null).
+    const allIds = new Set(result.blocks.keys());
+    for (const [, b] of result.blocks) {
+      const refs = [b.parentId, b.prevSiblingId, b.nextSiblingId, b.firstChildId, b.lastChildId];
+      for (const ref of refs) {
+        if (ref !== null) {
+          expect(allIds.has(ref)).toBe(true);
+        }
+      }
+      if (b.inlineContent) {
+        for (const item of b.inlineContent.items) {
+          if (item.kind === "embed") {
+            const cbId = item.properties.contentBlockId;
+            if (typeof cbId === "string") {
+              expect(allIds.has(cbId as BlockId)).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+});
