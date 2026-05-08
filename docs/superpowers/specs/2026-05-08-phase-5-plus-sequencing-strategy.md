@@ -58,7 +58,7 @@ Embed-content blocks (footnote bodies referenced via `EmbedItem.properties.conte
 
 - **Path B — introduce now (a "Phase 5.0" preventive cleanup).** Add `state.embedContents: PersistentMap<BlockId, Block>` as a separate map on `State`. Move existing test fixtures to use it. Update `removeBlock`, `clonePastedSubtree`, etc. to walk both maps where appropriate. Render and editor build on top of this from the start.
 
-**Recommendation:** **Path B**. Introducing the separation now is a well-defined cleanup (one new field on State + helpers + migration of test fixtures). Test-fixture migration touches all embed-path tests across ~3-4 test files (clone-pasted-subtree.test.ts has 19+ embed-related tests using `fn-body`-in-`state.blocks`; merge-blocks/delete-range/replace-range/apply-attrs each have 1-2 embed-content tests). Larger than the typical preventive cleanup, but still well within a single phase's budget. Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 and Phase 4c-3.5 preventive cleanups, just at a slightly larger scale.
+**Recommendation:** **Path B**. Introducing the separation now is a well-defined cleanup (one new field on State + helpers + migration of test fixtures). Test-fixture migration touches the embed-path tests across ~3-4 test files (clone-pasted-subtree.test.ts has ~7 tests in its embed-content cloning + cycle-defense + invariants describe blocks that use `fn-body`-in-`state.blocks`; merge-blocks / delete-range / replace-range each have 1-2 embed-content tests). Larger than the typical preventive cleanup, but still well within a single phase's budget. Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 and Phase 4c-3.5 preventive cleanups, just at a slightly larger scale.
 
 ### Decision 4: Editor module sub-phasing
 
@@ -105,7 +105,7 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 | **P8** | Components rewrite (Phase A: container components on BlockView, parallel) | P7 | step 9 partial |
 | **P9** | Cursor types + position math (parallel to old cursor — see Open Question 6) | P1 | step 10a |
 | **P10** | Cursor: hit-testing + selection-geometry on new types (parallel) | P9 | step 10c partial |
-| **P11.0** | EditorState type flip + document-construction migration | P4, P7, P8, P9 | step 10b prereq |
+| **P11.0** | EditorState type flip + document-construction migration (`State` only — keep calling old render pipeline) | P4, P9 | step 10b prereq |
 | **P11.1** | Editor: inline-text action family | P11.0 | step 10b |
 | **P11.2** | Editor: block-structure action family | P11.1 | step 10b |
 | **P11.3** | Editor: selection action family | P10, P11.2 | step 10b |
@@ -117,11 +117,13 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 | **P16** | Architecture docs update | P15 | step 15 |
 | **P17** | Final greening pass | All above | step 16 |
 
-**Estimated commits:** ~80-100 across all phases (each per-phase plan currently produces 7-10 commits; that's the size of phases that go through the established review cycle cleanly).
+**Estimated commits:** ~100-130 across the 17 phases (P5-P17 with P11 split into P11.0-P11.4). Per-phase plans typically produce 7-10 commits; smaller phases like P5 (tsconfig), P15 (legacy delete), P16 (docs), and P17 (greening) likely come in below 5.
 
 **Notes on Path B (expand-contract):**
 - P7-P10 introduce NEW modules in parallel with the old ones; old modules continue to compile and be used by editor.
 - **P11.0 — EditorState type flip prerequisite (added in round 1 review):** before any action handler can be migrated, the `EditorState.state` field type must flip from `StateNode` to `State`, and the document-construction path (`createEmptyDocument`, `initialEditorState`, `editor-state.ts` constructors) must produce the new type. This is non-trivial: the editor's history mechanism, undo/redo, and selection types may all touch the legacy `Position` type. P11.0 lands this transition in one focused phase before family-by-family handler migration begins. Action handlers in P11.1+ then mutate the already-typed-correctly `EditorState.state` via Layer 3 operations.
+  
+  **P11.0 scope clarification (added in round 2 review):** P11.0 does NOT rewire the render pipeline. The `EditorState.state` field flips to `State`, but the existing call to `renderTree(...)` continues to operate (it can be kept compatible by either a small bridge that converts the new `State` to the legacy `StateNode` shape for render input, OR by P11.0 carrying both representations during the editor's transition window — the per-phase plan picks the mechanism). Render-pipeline rewiring is the responsibility of P11.1+ (each action handler updates its render expectations as part of the family migration), or alternatively defers entirely to P12 (layout/styles consumer cleanup). Therefore P11.0 depends only on **P4 (Layer 3 ops)** and **P9 (cursor types)** — NOT on P7 or P8.
 - P11.1-P11.4 cut over editor action families one at a time. After each sub-phase, the editor uses some old + some new handlers; build stays green because the cutover is per-handler.
 - P12 cleans up layout/styles consumers (they reference state types directly; the cleanup is mechanical once render/editor are migrated).
 - P15 is the big delete: legacy state-module files (`state-node.ts`, `transformations.ts`, etc.) get removed. By then every consumer has migrated; build stays green.
