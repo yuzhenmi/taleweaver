@@ -58,7 +58,7 @@ Embed-content blocks (footnote bodies referenced via `EmbedItem.properties.conte
 
 - **Path B — introduce now (a "Phase 5.0" preventive cleanup).** Add `state.embedContents: PersistentMap<BlockId, Block>` as a separate map on `State`. Move existing test fixtures to use it. Update `removeBlock`, `clonePastedSubtree`, etc. to walk both maps where appropriate. Render and editor build on top of this from the start.
 
-**Recommendation:** **Path B**. Introducing the separation now is a small, well-defined cleanup (one new field on State + helpers + migration of test fixtures). Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 and Phase 4c-3.5 preventive cleanups, just at a slightly larger scale.
+**Recommendation:** **Path B**. Introducing the separation now is a well-defined cleanup (one new field on State + helpers + migration of test fixtures). Test-fixture migration touches all embed-path tests across ~3-4 test files (clone-pasted-subtree.test.ts has 19+ embed-related tests using `fn-body`-in-`state.blocks`; merge-blocks/delete-range/replace-range/apply-attrs each have 1-2 embed-content tests). Larger than the typical preventive cleanup, but still well within a single phase's budget. Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 and Phase 4c-3.5 preventive cleanups, just at a slightly larger scale.
 
 ### Decision 4: Editor module sub-phasing
 
@@ -103,9 +103,10 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 | **P6** | `state.embedContents` separation + `removeBlock` cascade-delete completion | P4d | (new — Decision 3) |
 | **P7** | Render module rewrite (Phase A: BlockView + plumbing, parallel to old code) | P3, P4 | step 8 partial |
 | **P8** | Components rewrite (Phase A: container components on BlockView, parallel) | P7 | step 9 partial |
-| **P9** | Cursor types + position math (parallel to old cursor) | P1 | step 10a |
+| **P9** | Cursor types + position math (parallel to old cursor — see Open Question 6) | P1 | step 10a |
 | **P10** | Cursor: hit-testing + selection-geometry on new types (parallel) | P9 | step 10c partial |
-| **P11.1** | Editor: inline-text action family | P4 + new render/components | step 10b |
+| **P11.0** | EditorState type flip + document-construction migration | P4, P7, P8, P9 | step 10b prereq |
+| **P11.1** | Editor: inline-text action family | P11.0 | step 10b |
 | **P11.2** | Editor: block-structure action family | P11.1 | step 10b |
 | **P11.3** | Editor: selection action family | P10, P11.2 | step 10b |
 | **P11.4** | Editor: layout-coupled action family | P11.3 | step 10b |
@@ -120,9 +121,18 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 
 **Notes on Path B (expand-contract):**
 - P7-P10 introduce NEW modules in parallel with the old ones; old modules continue to compile and be used by editor.
-- P11.1-P11.4 cut over editor action families one at a time. After each sub-phase, the editor uses some old + some new code; build stays green because the cutover is per-handler.
+- **P11.0 — EditorState type flip prerequisite (added in round 1 review):** before any action handler can be migrated, the `EditorState.state` field type must flip from `StateNode` to `State`, and the document-construction path (`createEmptyDocument`, `initialEditorState`, `editor-state.ts` constructors) must produce the new type. This is non-trivial: the editor's history mechanism, undo/redo, and selection types may all touch the legacy `Position` type. P11.0 lands this transition in one focused phase before family-by-family handler migration begins. Action handlers in P11.1+ then mutate the already-typed-correctly `EditorState.state` via Layer 3 operations.
+- P11.1-P11.4 cut over editor action families one at a time. After each sub-phase, the editor uses some old + some new handlers; build stays green because the cutover is per-handler.
 - P12 cleans up layout/styles consumers (they reference state types directly; the cleanup is mechanical once render/editor are migrated).
 - P15 is the big delete: legacy state-module files (`state-node.ts`, `transformations.ts`, etc.) get removed. By then every consumer has migrated; build stays green.
+
+**Cursor-ops as a P11.x dependency (added in round 1 review):**
+
+Inline-text and block-structure action handlers (P11.1, P11.2) call cursor-navigation helpers (`moveByCharacter`, `moveByWord`, etc.) that currently live in `cursor/cursor-ops.ts` and import legacy `getNodeByPath` from `state/operations`. Two ways to reconcile:
+- **Strict approach:** require P9 (cursor types + position math on new state) to land before P11.1 (so action handlers compose only new helpers). The dependency table reflects this: P11.0 builds on P9.
+- **Pragmatic approach:** allow P11.1/P11.2 action handlers to call legacy cursor-ops temporarily (with explicit per-handler comments), and migrate cursor-ops calls in P11.3 alongside selection actions.
+
+**Recommendation: strict.** Cursor ops feed every action handler and have their own correctness invariants (grapheme clusters, line breaks). Mixing legacy-cursor calls into new-state action handlers creates type-coercion fragility (action handlers receiving new `State` would need to convert to `StateNode` for cursor calls — hostile). P9 lands first; P11.0+ depend on it.
 
 ## Per-phase quality gates (apply to ALL phases)
 
@@ -145,7 +155,7 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 
 5. **`react/` package adaptation.** `useEditor`, `EditorView` etc. — what changes? The state shape changes propagate through here. Likely small surface area but should be checked as part of P12 or earlier.
 
-6. **Cursor module: full migration or stays largely as-is?** The cursor module (`cursor-position.ts`, `hit-test.ts`, `line-navigation.ts`, `selection-geometry.ts`) is heavily layout-coupled. Spec step 10a says "adopt new Position. Port grapheme-cluster logic." Step 10c says "anything in cursor that depends on editor's hit-test or selection-geometry, after editor stabilizes." The cursor work is split across two phases (P9 and P10). Each phase's plan should define exactly which files are migrated when.
+6. **Cursor module: P9/P10 file boundary.** The cursor module (`cursor-ops.ts`, `cursor-position.ts`, `hit-test.ts`, `line-navigation.ts`, `selection-geometry.ts`, `selection.ts`) is heavily layout-coupled and currently lives entirely in the legacy path-based `Position` world; there's no clean existing seam between "position math" and "hit-testing" — those are interleaved in `cursor-ops.ts`. Spec step 10a says "adopt new Position. Port grapheme-cluster logic." Step 10c says "anything in cursor that depends on editor's hit-test or selection-geometry, after editor stabilizes." Under Path B, P9 introduces NEW cursor files in parallel with the old (likely a `cursor/v2/` directory or `cursor/cursor-ops.ts` replaced incrementally — naming convention TBD in the P9 per-phase plan). Old cursor files stay until P15 cleanup. The P9 plan must explicitly enumerate which files it creates/modifies vs. defers to P10.
 
 ## Definition of done for "Phase 5+ overall"
 
