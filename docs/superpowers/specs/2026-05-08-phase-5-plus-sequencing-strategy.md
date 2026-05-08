@@ -107,8 +107,8 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 | **P8** | Components rewrite (Phase A: container components on BlockView, parallel) | P7 | step 9 partial |
 | **P9** | Cursor types + position math (parallel to old cursor — see Open Question 6) | P1 | step 10a |
 | **P10** | Cursor: hit-testing + selection-geometry on new types (parallel) | P9 | step 10c partial |
-| **P11.0** | EditorState type flip + document-construction migration (`State` only — keep calling old render pipeline) | P4, P9 | step 10b prereq |
-| **P11.1** | Editor: inline-text action family | P11.0 | step 10b |
+| **P11.0** | EditorState type flip + document-construction migration (`State` only — keep calling old render pipeline) | P4 | step 10b prereq |
+| **P11.1** | Editor: inline-text action family | P11.0, P9 | step 10b |
 | **P11.2** | Editor: block-structure action family | P11.1 | step 10b |
 | **P11.3** | Editor: selection action family | P10, P11.2 | step 10b |
 | **P11.4** | Editor: layout-coupled action family | P11.3 | step 10b |
@@ -125,7 +125,7 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 - P7-P10 introduce NEW modules in parallel with the old ones; old modules continue to compile and be used by editor.
 - **P11.0 — EditorState type flip prerequisite (added in round 1 review):** before any action handler can be migrated, the `EditorState.state` field type must flip from `StateNode` to `State`, and the document-construction path (`createEmptyDocument`, `initialEditorState`, `editor-state.ts` constructors) must produce the new type. This is non-trivial: the editor's history mechanism, undo/redo, and selection types may all touch the legacy `Position` type. P11.0 lands this transition in one focused phase before family-by-family handler migration begins. Action handlers in P11.1+ then mutate the already-typed-correctly `EditorState.state` via Layer 3 operations.
   
-  **P11.0 scope clarification (added in round 2 review):** P11.0 does NOT rewire the render pipeline. The `EditorState.state` field flips to `State`, but the existing call to `renderTree(...)` continues to operate (it can be kept compatible by either a small bridge that converts the new `State` to the legacy `StateNode` shape for render input, OR by P11.0 carrying both representations during the editor's transition window — the per-phase plan picks the mechanism). Render-pipeline rewiring is the responsibility of P11.1+ (each action handler updates its render expectations as part of the family migration), or alternatively defers entirely to P12 (layout/styles consumer cleanup). Therefore P11.0 depends only on **P4 (Layer 3 ops)** and **P9 (cursor types)** — NOT on P7 or P8.
+  **P11.0 scope clarification (added in round 2 review, refined in round 4):** P11.0 does NOT rewire the render pipeline AND does NOT touch the `EditorState.selection` field (selection still uses legacy `Position`-by-path until P11.3). The `EditorState.state` field flips to `State`, but the existing call to `renderTree(...)` continues to operate (it can be kept compatible by either a small bridge that converts the new `State` to the legacy `StateNode` shape for render input, OR by P11.0 carrying both representations during the editor's transition window — the per-phase plan picks the mechanism). Render-pipeline rewiring is the responsibility of P11.1+ (each action handler updates its render expectations as part of the family migration), or alternatively defers entirely to P12 (layout/styles consumer cleanup). Therefore P11.0 depends ONLY on **P4 (Layer 3 ops)** — NOT on P7, P8, or P9. Cursor types (P9) become a dependency at P11.1, when action handlers start calling cursor-ops helpers.
 - P11.1-P11.4 cut over editor action families one at a time. After each sub-phase, the editor uses some old + some new handlers; build stays green because the cutover is per-handler.
 - P12 cleans up layout/styles consumers (they reference state types directly; the cleanup is mechanical once render/editor are migrated).
 - P15 is the big delete: legacy state-module files (`state-node.ts`, `transformations.ts`, etc.) get removed. By then every consumer has migrated; build stays green.
@@ -136,7 +136,7 @@ Inline-text and block-structure action handlers (P11.1, P11.2) call cursor-navig
 - **Strict approach:** require P9 (cursor types + position math on new state) to land before P11.1 (so action handlers compose only new helpers). The dependency table reflects this: P11.0 builds on P9.
 - **Pragmatic approach:** allow P11.1/P11.2 action handlers to call legacy cursor-ops temporarily (with explicit per-handler comments), and migrate cursor-ops calls in P11.3 alongside selection actions.
 
-**Recommendation: strict.** Cursor ops feed every action handler and have their own correctness invariants (grapheme clusters, line breaks). Mixing legacy-cursor calls into new-state action handlers creates type-coercion fragility (action handlers receiving new `State` would need to convert to `StateNode` for cursor calls — hostile). P9 lands first; P11.0+ depend on it.
+**Recommendation: strict.** Cursor ops feed every action handler and have their own correctness invariants (grapheme clusters, line breaks). Mixing legacy-cursor calls into new-state action handlers creates type-coercion fragility (action handlers receiving new `State` would need to convert to `StateNode` for cursor calls — hostile). P9 lands before P11.1 (the first action family). P11.0 itself doesn't depend on P9 because it doesn't touch action handlers or cursor — only the EditorState type field and document-construction.
 
 ## Per-phase quality gates (apply to ALL phases)
 
