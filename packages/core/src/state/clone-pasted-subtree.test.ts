@@ -493,3 +493,77 @@ describe("clonePastedSubtree — edge cases", () => {
     expect(r1.rootId).not.toBe(r2.rootId);
   });
 });
+
+describe("clonePastedSubtree — error cases", () => {
+  it("throws when sourceRootId is not in sourceState.blocks", () => {
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    expect(() => clonePastedSubtree(sourceState, "missing" as BlockId, allocator)).toThrow(
+      /source root ".+" not found/,
+    );
+  });
+
+  it("throws when a child reference points to a missing block (corrupted source)", () => {
+    // section.firstChildId references "ghost" which doesn't exist in state.blocks.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "ghost", lastChildId: "ghost" }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    expect(() => clonePastedSubtree(sourceState, "section" as BlockId, allocator)).toThrow(
+      /block ".+" not found/,
+    );
+  });
+
+  it("throws when an embed's contentBlockId references a missing block", () => {
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "ghost" })]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    expect(() => clonePastedSubtree(sourceState, "p" as BlockId, allocator)).toThrow(
+      /block ".+" not found/,
+    );
+  });
+
+  it("handles cycles in the source state without infinite recursion (cycle defense)", () => {
+    // Pathological source state: section.firstChildId points to itself (cycle).
+    // The walker should add "section" to visited on first encounter and skip on second.
+    // This is malformed state, but the operation should not infinite-loop.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "section", lastChildId: "section" }), // self-loop
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    // Should NOT throw, and should NOT hang. The cycle defense in collectSubtreeIds
+    // skips already-visited ids. The cloned section will have firstChildId/lastChildId
+    // pointing to ITSELF in the cloned namespace (the self-loop is preserved
+    // structurally). This is documented "garbage in, garbage out" — the operation
+    // doesn't repair malformed source state.
+    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+    expect(result.blocks.size).toBe(1);
+    const cloned = result.blocks.get(result.rootId);
+    expect(cloned?.firstChildId).toBe(result.rootId); // self-loop preserved in cloned namespace
+    expect(cloned?.lastChildId).toBe(result.rootId); // both child pointers self-loop, both rewritten consistently
+  });
+});
