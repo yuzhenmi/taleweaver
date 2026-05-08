@@ -43,7 +43,7 @@ Phase 4 caught **two** unused-import bugs that `npm run build` missed because `t
 
 **Recommendation:** **Enable `noUnusedLocals` (and `noUnusedParameters` if it's clean) before Phase 5 starts.** A trivial first phase. Any pre-existing unused imports surface, get cleaned in the same commit, and the rest of Phase 5+ benefits.
 
-Risk: the legacy code (`state-node.ts`, `transformations.ts`, etc.) might have unused imports/locals that we'd need to either fix or `// @ts-expect-error`. If many turn up, we may want to enable the flag only for the new state code via path-specific tsconfig overrides.
+Risk: the legacy code (`state-node.ts`, `transformations.ts`, etc.) might have unused imports/locals that surface when the flag is enabled. TypeScript does NOT support enabling `noUnusedLocals` for a subdirectory within a single compilation unit — the flag applies to the entire `packages/core` workspace at once. If too many legacy violations surface, the realistic options are: (a) clean them up in the same P5 commit (most likely small — these files have been well-maintained), (b) suppress with `// eslint-disable-next-line @typescript-eslint/no-unused-vars` or `// @ts-expect-error` per offending location, or (c) split `packages/core` into separate TypeScript project references — a significant infra change and probably overkill. Default expectation: option (a).
 
 ### Decision 3: `state.embedContents` map — introduce now or defer?
 
@@ -58,7 +58,7 @@ Embed-content blocks (footnote bodies referenced via `EmbedItem.properties.conte
 
 - **Path B — introduce now (a "Phase 5.0" preventive cleanup).** Add `state.embedContents: PersistentMap<BlockId, Block>` as a separate map on `State`. Move existing test fixtures to use it. Update `removeBlock`, `clonePastedSubtree`, etc. to walk both maps where appropriate. Render and editor build on top of this from the start.
 
-**Recommendation:** **Path B**. Introducing the separation now is a well-defined cleanup (one new field on State + helpers + migration of test fixtures). Test-fixture migration touches the embed-path tests across ~3-4 test files (clone-pasted-subtree.test.ts has ~7 tests in its embed-content cloning + cycle-defense + invariants describe blocks that use `fn-body`-in-`state.blocks`; merge-blocks / delete-range / replace-range each have 1-2 embed-content tests). Larger than the typical preventive cleanup, but still well within a single phase's budget. Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 and Phase 4c-3.5 preventive cleanups, just at a slightly larger scale.
+**Recommendation:** **Path B**. Introducing the separation now is a well-defined cleanup (one new field on State + helpers + migration of test fixtures). Test-fixture migration touches the embed-path tests across ~3-4 test files (clone-pasted-subtree.test.ts has ~7 tests in its embed-content cloning + cycle-defense + invariants describe blocks that use `fn-body`-in-`state.blocks`; merge-blocks / delete-range / replace-range each have 1-2 embed-content tests). Larger than the typical preventive cleanup, but still well within a single phase's budget. Doing it after editor cutover means migrating editor code TWICE — once to use `state.blocks` for footnote bodies, then again to use `state.embedContents`. Same cost-benefit reasoning as Phase 4c-2.5 (`mergeAdjacentTextItems` + `updateBlock` extractions) and Phase 4c-4's Task 1 (`splitInlineContentAtOffset` extraction) preventive cleanups, just at a slightly larger scale.
 
 ### Decision 4: Editor module sub-phasing
 
@@ -77,7 +77,9 @@ Each sub-phase is independently reviewable and shippable.
 
 Phase 4's pattern of 2-4 fresh-context pre-execution review rounds caught real architectural concerns every time (3 leaky-abstraction fixes, 2 typo fixes, multiple test-coverage gaps). Phase 5+ is more complex — render, editor, cursor are inherently more interconnected than state operations.
 
-**Recommendation:** **Mandatory pre-execution AND post-execution review cycles for every phase.** Pre-execution catches plan-level issues; post-execution catches drift between plan and shipped code. The "until no more feedback" convergence rule applies to both.
+**Recommendation:** **Mandatory pre-execution AND post-execution review cycles for every phase that introduces new code or migrates consumers.** Pre-execution catches plan-level issues; post-execution catches drift between plan and shipped code. The "until no more feedback" convergence rule applies to both.
+
+Exception for pure-infra phases (P5 tsconfig hardening, P15 legacy-file deletion, P16 docs update, P17 final greening run): post-execution review is replaced with a build-green / test-green confirmation. Pre-execution plan review still applies (these phases still have plans worth reviewing for scope and ordering), but the post-execution-review-until-convergence pass adds no value when there's no meaningful code to drift from the plan.
 
 ## Risk mitigation patterns to apply going forward (lessons from Phase 4)
 
