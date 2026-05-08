@@ -55,31 +55,25 @@ npm run build --workspace=packages/core 2>&1 | tail -3       # Clean.
 
 If anything is amiss (uncommitted changes, failing tests, broken build), STOP and report `Status: BLOCKED`.
 
-- [ ] **Step 2: Survey violations across all packages**
+- [ ] **Step 2: Survey violations across all packages and examples**
 
-Run a temporary build with the flag enabled for each workspace, capturing the violations:
+Run a temporary build with the flag(s) enabled for each workspace, capturing the violations. Use `-p <path>` from the project root (no `cd` chains):
 
 ```bash
-# Core package
-cd /Users/hansyu/code/taleweaver/packages/core
-npx tsc --noEmit --noUnusedLocals --noUnusedParameters 2>&1 | tee /tmp/p5-core-violations.txt
-cd /Users/hansyu/code/taleweaver
-
-# DOM package
-cd /Users/hansyu/code/taleweaver/packages/dom
-npx tsc --noEmit --noUnusedLocals --noUnusedParameters 2>&1 | tee /tmp/p5-dom-violations.txt
-cd /Users/hansyu/code/taleweaver
-
-# React package
-cd /Users/hansyu/code/taleweaver/packages/react
-npx tsc --noEmit --noUnusedLocals --noUnusedParameters 2>&1 | tee /tmp/p5-react-violations.txt
-cd /Users/hansyu/code/taleweaver
+# All five workspaces that extend the root tsconfig:
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters -p packages/core 2>&1 | tee /tmp/p5-core-violations.txt
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters -p packages/dom 2>&1 | tee /tmp/p5-dom-violations.txt
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters -p packages/react 2>&1 | tee /tmp/p5-react-violations.txt
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters -p examples/dom 2>&1 | tee /tmp/p5-examples-dom-violations.txt
+npx tsc --noEmit --noUnusedLocals --noUnusedParameters -p examples/react 2>&1 | tee /tmp/p5-examples-react-violations.txt
 ```
 
+(If a workspace doesn't have its own `tsconfig.json` distinct from the root, the `-p` invocation will still work as long as it points at the directory containing one. If `examples/dom` or `examples/react` lack `tsconfig.json`, drop those two lines and report the absence in your task report.)
+
 Read each `/tmp/p5-*-violations.txt`. Summarize:
-- Per-package count of `noUnusedLocals` violations (TS6133).
-- Per-package count of `noUnusedParameters` violations (TS6133, but for parameters).
-- Files with violations (for each package).
+- Per-workspace count of `noUnusedLocals` violations (TS6133).
+- Per-workspace count of `noUnusedParameters` violations (TS6133, but for parameters).
+- Files with violations (for each workspace).
 
 - [ ] **Step 3: Decide whether to enable both flags or just `noUnusedLocals`**
 
@@ -139,12 +133,16 @@ For each file:
 3. If it's an import, remove it.
 4. If it's a local variable assignment that's never read, remove the assignment.
 5. If it's a parameter (only relevant if `noUnusedParameters` is being enabled), prefix with `_` (TypeScript convention) to mark intentionally unused.
-6. If a symbol is genuinely needed (e.g., re-exported, used by a side-effect), suppress with `// eslint-disable-next-line @typescript-eslint/no-unused-vars` AND a comment explaining why.
+6. If a symbol is genuinely needed but unused at the source-code level (rare cases — e.g., a side-effect-only import where the side effect can't be expressed otherwise), the cleanup priority order is:
+   - **(a)** Restructure the code so the symbol becomes properly used (preferred). Example: a "re-export-only" import can be replaced with `export { X } from "./module"` directly in the index, eliminating the unused-import situation.
+   - **(b)** If restructuring isn't tractable, suppress at the location with `// @ts-expect-error: <one-line reason>` (NOT `// @ts-ignore`). `@ts-expect-error` is stricter — TypeScript errors if the suppressed error disappears later, preventing the suppression from outliving its purpose.
+   - **(c)** Note: `// eslint-disable-next-line @typescript-eslint/no-unused-vars` does NOT suppress TS6133 (the TypeScript-compiler error from `noUnusedLocals`); it only affects ESLint. Don't use eslint-disable to silence TypeScript-compiler errors.
 
 **Hard rules:**
-- No `// @ts-expect-error` blanket suppressions. Use eslint-disable per location with explanation, OR remove cleanly.
+- No `// @ts-ignore` (use `// @ts-expect-error` with reason if needed; see Item 6 above).
+- Restructure rather than suppress where reasonable.
 - No `!` non-null assertions added during cleanup.
-- No collateral changes (refactors, renames, comment cleanups). Pure violation cleanup ONLY.
+- No collateral changes (refactors beyond what's necessary to remove the violation, renames, comment cleanups). Pure violation cleanup ONLY.
 
 - [ ] **Step 3: Per-file verification**
 
@@ -153,13 +151,15 @@ After each file:
 - Confirm the violation in that file is resolved.
 - Confirm no new violations introduced.
 
-- [ ] **Step 4: Final per-package verification**
+- [ ] **Step 4: Final per-workspace verification**
 
-After all files cleaned:
+After all files cleaned, re-run the survey across ALL surveyed workspaces. Each must produce zero violations:
 ```bash
 npx tsc --noEmit --noUnusedLocals [--noUnusedParameters] -p packages/core      # Should produce zero violations.
 npx tsc --noEmit --noUnusedLocals [--noUnusedParameters] -p packages/dom       # Same.
 npx tsc --noEmit --noUnusedLocals [--noUnusedParameters] -p packages/react     # Same.
+npx tsc --noEmit --noUnusedLocals [--noUnusedParameters] -p examples/dom       # If examples/dom has tsconfig.
+npx tsc --noEmit --noUnusedLocals [--noUnusedParameters] -p examples/react     # If examples/react has tsconfig.
 npm test --workspace=packages/core --run                                        # 1213 + 4 skipped, all pass.
 ```
 
@@ -233,10 +233,14 @@ Add the flag(s) decided in Task 1 to `compilerOptions`:
 
 - [ ] **Step 2: Verify**
 
+Build every workspace that inherits the root tsconfig (skip examples/* if they don't have their own tsconfig.json):
+
 ```bash
 npm run build --workspace=packages/core 2>&1 | tail -3      # Clean.
 npm run build --workspace=packages/dom 2>&1 | tail -3       # Clean.
 npm run build --workspace=packages/react 2>&1 | tail -3     # Clean.
+npm run build --workspace=examples/dom 2>&1 | tail -3       # Clean (if tsconfig present).
+npm run build --workspace=examples/react 2>&1 | tail -3     # Clean (if tsconfig present).
 npm test --workspace=packages/core --run 2>&1 | tail -5     # 1213 + 4 skipped, all pass.
 ```
 
