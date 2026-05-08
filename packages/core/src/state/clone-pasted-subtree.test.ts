@@ -430,3 +430,66 @@ describe("clonePastedSubtree — block-level invariants", () => {
     }
   });
 });
+
+describe("clonePastedSubtree — edge cases", () => {
+  it("clones a leaf with empty inlineContent.items", () => {
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+
+    expect(result.blocks.size).toBe(1);
+    const newP = result.blocks.get(result.rootId);
+    expect(newP?.inlineContent?.items).toEqual([]);
+  });
+
+  it("clones an embed item without a contentBlockId (no recursion needed)", () => {
+    // Image embed with primitive properties only — no contentBlockId.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([embed("image", { src: "x.png" })]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+
+    expect(result.blocks.size).toBe(1); // only p — no embed-content to follow.
+    const newP = result.blocks.get(result.rootId);
+    const item = newP?.inlineContent?.items[0];
+    if (item?.kind !== "embed") throw new Error("expected embed");
+    expect(item.embedType).toBe("image");
+    expect(item.properties).toEqual({ src: "x.png" }); // contentBlockId not present, properties pass through.
+  });
+
+  it("each clonePastedSubtree call uses fresh allocator-produced ids", () => {
+    // Same source, two clones with different allocators → all blocks have distinct ids.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+      ],
+    });
+
+    const a1 = createTestAllocator("first");
+    const a2 = createTestAllocator("second");
+    const r1 = clonePastedSubtree(sourceState, "p" as BlockId, a1);
+    const r2 = clonePastedSubtree(sourceState, "p" as BlockId, a2);
+
+    expect(r1.rootId).toBe("first-0");
+    expect(r2.rootId).toBe("second-0");
+    expect(r1.rootId).not.toBe(r2.rootId);
+  });
+});
