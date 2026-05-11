@@ -90,6 +90,7 @@ Estimated test count delta: +10-15 (cascade-delete tests, helpers).
 ## Resolved questions (see `decisions.md`)
 
 1. ✅ **A — Two separate maps.** Decided 2026-05-10. `State.blocks` for main tree; `State.embedContents` for embed-content blocks. `clonePastedSubtree` returns `{ blocks, embedContents, rootId }`. Helper `getBlockFromEither(state, id)` for rare cross-map lookups.
+2. ✅ **C — Yjs primitives for state storage.** Decided 2026-05-10. After P4e, both `state.blocks` and `state.embedContents` are `Y.Map<BlockId, Y.Map>` at the Y.Doc root. P6 introduces the `embedContents` slot on top of the Yjs-backed state (rather than the original PersistentMap-backed state).
 
 ## Open questions (phase-local; resolve in P6 per-phase plan)
 

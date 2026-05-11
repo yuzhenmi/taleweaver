@@ -101,8 +101,9 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 
 | Phase | Subject | Builds on | Spec step |
 |---|---|---|---|
-| **P5** | tsconfig hardening (`noUnusedLocals`, `noUnusedParameters`) + small infra cleanups | — | (new — Decision 2) |
-| **P6** | `state.embedContents` separation + `removeBlock` cascade-delete completion | P4d | (new — Decision 3) |
+| **P4e** | **Rebase state module on Yjs primitives.** Y.Doc replaces PersistentMap. Block / InlineContent / TextItem etc. become facades over Y.Map / Y.Array / Y.Text. Layer 3 ops become Yjs transactions. History via Yjs's UndoManager. Single-user editing runs entirely on Yjs locally; collab is genuinely additive when a sync transport is later added. See decisions.md decision C. | P4d | (new — Decision C) |
+| **P5** | tsconfig hardening (`noUnusedLocals`, `noUnusedParameters`) + small infra cleanups | P4e | (new — Decision 2) |
+| **P6** | `state.embedContents` separation + `removeBlock` cascade-delete completion (both maps now Y.Map at Y.Doc root) | P4e | (new — Decision 3) |
 | **P7** | Render module rewrite (Phase A: BlockView + plumbing, parallel to old code) | P3, P4 | step 8 partial |
 | **P8** | Components rewrite (Phase A: container components on BlockView, parallel) | P7 | step 9 partial |
 | **P9** | Cursor types + position math (parallel to old cursor — see Open Question 6) | P1 | step 10a |
@@ -119,7 +120,7 @@ Each phase below corresponds to one (or a small group) of per-phase implementati
 | **P16** | Architecture docs update | P15 | step 15 |
 | **P17** | Final greening pass | All above | step 16 |
 
-**Estimated commits:** ~100-130 across the 17 phases (P5-P17 with P11 split into P11.0-P11.4). Per-phase plans typically produce 7-10 commits; smaller phases like P5 (tsconfig), P15 (legacy delete), P16 (docs), and P17 (greening) likely come in below 5.
+**Estimated commits:** ~150-200 across the 18 phases (P4e + P5-P17 with P11 split into P11.0-P11.4). Per-phase plans typically produce 7-10 commits; smaller phases like P5 (tsconfig), P15 (legacy delete), P16 (docs), and P17 (greening) likely come in below 5. P4e is the largest single phase (~30-50 commits across the Yjs rebase) since it restructures Phase 1-4 internals.
 
 **Notes on Path B (expand-contract):**
 - P7-P10 introduce NEW modules in parallel with the old ones; old modules continue to compile and be used by editor.

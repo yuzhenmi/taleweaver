@@ -25,6 +25,7 @@ See the parent doc: `../2026-05-08-phase-5-plus-sequencing-strategy.md`. It cove
 
 | File | Phase | Subject |
 |---|---|---|
+| `P4e-yjs-rebase.md` | P4e | Rebase state module on Yjs primitives (CRDT foundation) |
 | `P5-tsconfig-hardening.md` | P5 | tsconfig `noUnusedLocals` |
 | `P6-state-embed-contents.md` | P6 | `state.embedContents` separation + cascade-delete |
 | `P7-render-rewrite.md` | P7 | Render module rewrite (parallel) |

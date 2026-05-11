@@ -12,7 +12,8 @@ The engine renders rich text documents — multi-page, multi-script, faithfully 
 
 **Scope: "uncompromising word processor."** Every feature a real document engine needs, implemented to CSS spec. NOT a general-purpose web layout engine. Skip features that exist for app-layout only:
 - OUT: flex, grid, sticky, scroll-snap, animations/transitions, filters/clip-path/mask
-- OUT: real-time collab, spell-check backend, embedded media (LaTeX/charts/video), concrete HarfBuzz-WASM in-engine — these are downstream consumers / separate plans
+- **FUTURE (designed-for-now, built-later):** real-time collaborative editing. The state model is built on Yjs primitives from the start (Phase 4e). Collab sync transport is added when collab work begins; the state module needs no rewrite at that point. See `docs/superpowers/specs/phase-5-plus/decisions.md` decision C.
+- OUT (downstream consumers / separate plans): spell-check backend, embedded media (LaTeX/charts/video), concrete HarfBuzz-WASM in-engine
 - IN: vertical writing-mode (CJK), full bidi, hyphens, multi-column, real pagination with fragmentation + headers/footers/footnotes, position relative/absolute, transforms, full tables, generated content, counters, tab stops, hyperlinks, comments, change tracking
 
 **When in doubt about scope:** would Google Docs do this? Would a typesetter need this? If yes → in scope. If it's a web/app-UI feature → out of scope.
