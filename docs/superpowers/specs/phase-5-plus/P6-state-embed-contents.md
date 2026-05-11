@@ -87,15 +87,15 @@ Per Phase 4 pattern: 5-7 task plan with TDD per task.
 
 Estimated test count delta: +10-15 (cascade-delete tests, helpers).
 
-## Open questions
+## Resolved questions (see `decisions.md`)
 
-1. **Single `blocks` field that holds both, with discriminator?** Alternative design: keep one map but tag each block with `kind: "tree" | "embed-content"`. Pro: simpler lookup. Con: less clean type signature for operations (need to filter). Probably reject in favor of two maps.
+1. ✅ **A — Two separate maps.** Decided 2026-05-10. `State.blocks` for main tree; `State.embedContents` for embed-content blocks. `clonePastedSubtree` returns `{ blocks, embedContents, rootId }`. Helper `getBlockFromEither(state, id)` for rare cross-map lookups.
 
-2. **`clonePastedSubtree` return shape:** keep one `blocks` field (caller splits) or two fields (cloner already split)? Probably split (cleaner type contract; caller doesn't need to discriminate).
+## Open questions (phase-local; resolve in P6 per-phase plan)
 
-3. **`buildState` test helper signature change:** is the migration purely mechanical (add a `embedContents: []` parameter), or do we want a more ergonomic builder pattern? Decide in plan.
+1. **`buildState` test helper signature change:** is the migration purely mechanical (add an `embedContents: []` parameter), or do we want a more ergonomic builder pattern? Decide in plan.
 
-4. **History schema:** does adding `embedContents` to `State` break the existing `Change` type that wraps state? Verify.
+2. **History schema:** does adding `embedContents` to `State` break the existing `Change` type that wraps state? Likely yes — `Change` carries `prevState`, which now has the new field. Verify and migrate.
 
 ## Success criteria
 
