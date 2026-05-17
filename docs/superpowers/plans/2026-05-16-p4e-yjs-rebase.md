@@ -2494,7 +2494,12 @@ function applyAttrsToBlockRange(
 }
 ```
 
-Verify `mergeAttrs` is exported from `state/attrs.ts`. If not, add it (copy from the legacy `apply-attrs.ts` if its helper was internal).
+**Prerequisite — promote `mergeAttrs` to `state/attrs.ts`:** the legacy `apply-attrs.ts` has `mergeAttrs` as a private function (verified at `packages/core/src/state/apply-attrs.ts` ~line 155). The new code needs to import it. Add a step before the rewrite:
+
+1. Copy the `mergeAttrs(existing: ReadonlyAttrs, incoming: ReadonlyAttrs): ReadonlyAttrs` function from `apply-attrs.ts` into `state/attrs.ts`, export it.
+2. Add a test for `mergeAttrs` in `state/attrs.test.ts` covering: (a) merge two non-overlapping bags, (b) incoming overrides existing, (c) `incoming[key] === undefined` DELETES the key from the result.
+3. Remove the private `mergeAttrs` from `apply-attrs.ts` (the rewrite imports it from `attrs.ts`).
+4. Commit `feat(p4e): promote mergeAttrs to attrs.ts (preserves undefined-deletion semantics)` before proceeding with the Layer 3 op rewrite.
 
 - [ ] **Step 4: Run tests**
 
@@ -2546,7 +2551,7 @@ import type { Position } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { getBlocksMap } from "./yjs-doc";
 import { buildYBlock, buildYInlineItem } from "./y-block";
-import { yMapAsObject } from "./y-utils"; // shared helper added in Task 12.5
+import { yMapAsObject, cloneInlineItem } from "./y-utils"; // shared helpers from Task 12.5
 
 export function splitBlockAtPosition(
   state: State,
@@ -2648,22 +2653,8 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
   return suffix;
 }
 
-function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
-  const kind = src.get("kind") as "text" | "embed";
-  if (kind === "text") {
-    return buildYInlineItem({
-      kind: "text",
-      text: (src.get("text") as Y.Text).toString(),
-      attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
-    });
-  }
-  return buildYInlineItem({
-    kind: "embed",
-    embedType: src.get("embedType") as string,
-    attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
-    properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
-  });
-}
+// cloneInlineItem and yMapAsObject are imported from "./y-utils" (Task 12.5) —
+// do not redefine them here.
 ```
 
 - [ ] **Step 4: Run tests**
@@ -3381,7 +3372,24 @@ export interface UndoRedoResult {
 export class History {
   private readonly undoManager: Y.UndoManager;
   private currentState: State;
-  /** Selection snapshots aligned with the UndoManager's undo stack. */
+  /**
+   * Selection snapshots paired with the UndoManager's undo stack.
+   *
+   * Alignment invariant: `push()` is the ONLY caller of
+   * `undoManager.stopCapturing()`. Because `captureTimeout: 0` means
+   * the UndoManager doesn't auto-close groups based on time, each
+   * call to `push()` corresponds 1:1 with one UndoManager undo-stack
+   * entry (since the prior transaction's group is closed at exactly
+   * that point). Therefore `selectionStack.length === undoManager.undoStack.length`
+   * after every `push()`. The same invariant holds for redo.
+   *
+   * CAVEAT: if a transaction runs WITHOUT a subsequent `push()`, the
+   * UndoManager still records it as a separate undo entry the next time
+   * `stopCapturing` fires (or on the next transaction with a different
+   * origin). In our model, every action handler is expected to call
+   * `push()` after producing an OperationResult — that's the action
+   * boundary. Tests verifying alignment should assert the invariant.
+   */
   private readonly selectionStack: Array<unknown | null> = [];
   /** Selection snapshots aligned with the UndoManager's redo stack. */
   private readonly redoSelectionStack: Array<unknown | null> = [];
@@ -3496,7 +3504,7 @@ git commit -m "feat(p4e): add Y.UndoManager-backed History wrapper"
 
 ## Sub-phase 4e.5 — Migrate remaining tests + delete obsolete files
 
-### Task 25: Migrate `block.test.ts` and `inline-content.test.ts`
+### Task 26: Migrate `block.test.ts` and `inline-content.test.ts`
 
 **Files:**
 - Modify: `packages/core/src/state/block.test.ts`
@@ -3572,7 +3580,7 @@ git commit -m "test(p4e): migrate block + inline-content tests to new builders"
 
 ---
 
-### Task 26: Remove deprecated helpers from `block.ts` and `inline-content.ts`
+### Task 27: Remove deprecated helpers from `block.ts` and `inline-content.ts`
 
 **Files:**
 - Modify: `packages/core/src/state/block.ts`
@@ -3747,11 +3755,11 @@ git commit -m "refactor(p4e): remove deprecated Block/InlineContent factory help
 
 ---
 
-### Task 27: Migrate remaining state tests for fixture compatibility
+### Task 28: Migrate remaining state tests for fixture compatibility
 
 **Files (catch-up pass — explicit enumeration of every state test file that may still consume legacy patterns):**
 
-By the time we reach Task 27, most state test files have been migrated within their Layer 3 op tasks (Tasks 13-23) or Layer 2 utility tasks (Tasks 9-11). This task verifies and catches up any remaining files. Process each file in this order:
+By the time we reach Task 28, most state test files have been migrated within their Layer 3 op tasks (Tasks 13-23) or Layer 2 utility tasks (Tasks 9-11). This task verifies and catches up any remaining files. Process each file in this order:
 
 | # | File | Migrated in | Catch-up scope |
 |---|------|-------------|---------------|
@@ -3813,7 +3821,7 @@ Expected: green. All 1213+ tests pass on Y.Doc-backed state. The 17 "should be c
 
 ---
 
-### Task 28: Delete `persistent-map.ts` and its test
+### Task 29: Delete `persistent-map.ts` and its test
 
 **Files:**
 - Delete: `packages/core/src/state/persistent-map.ts`
@@ -3848,7 +3856,7 @@ git commit -m "chore(p4e): delete PersistentMap (replaced by Y.Map)"
 
 ---
 
-### Task 29: Delete `change.ts` and its test
+### Task 30: Delete `change.ts` and its test
 
 **Files:**
 - Delete: `packages/core/src/state/change.ts`
@@ -3894,7 +3902,7 @@ git commit -m "chore(p4e): delete state/change.ts (replaced by Y.UndoManager)"
 
 ---
 
-### Task 30: Update `state/operations.ts` barrel
+### Task 31: Update `state/operations.ts` barrel
 
 **Files:**
 - Modify: `packages/core/src/state/operations.ts`
@@ -3957,7 +3965,7 @@ git commit -m "docs(p4e): update operations barrel comment for Y.Doc-backed ops"
 
 ## Sub-phase 4e.6 — Integration tests and verification
 
-### Task 31: Add Yjs encoding round-trip test
+### Task 32: Add Yjs encoding round-trip test
 
 **Files:**
 - Create: `packages/core/src/state/yjs-encoding.test.ts`
@@ -4021,7 +4029,7 @@ git commit -m "test(p4e): Y.Doc encoding round-trip"
 
 ---
 
-### Task 32: Add snapshot-cache stress test
+### Task 33: Add snapshot-cache stress test
 
 **Files:**
 - Create: `packages/core/src/state/snapshot-cache-stress.test.ts`
@@ -4120,7 +4128,7 @@ git commit -m "test(p4e): snapshot cache stress test (100-block document)"
 
 ---
 
-### Task 33: Full build + test verification + browser smoke
+### Task 34: Full build + test verification + browser smoke
 
 - [ ] **Step 1: Full TypeScript build**
 
@@ -4167,7 +4175,7 @@ If smoke surfaced regressions, fix and commit per the affected op's pattern. If 
 
 ---
 
-### Task 34: Update P4e success-criteria documentation
+### Task 35: Update P4e success-criteria documentation
 
 **Files:**
 - Modify: `docs/superpowers/specs/phase-5-plus/P4e-yjs-rebase.md`
@@ -4201,7 +4209,7 @@ git commit -m "docs(p4e): mark spec resolved questions; record plan execution"
 
 ## Sub-phase 4e.7 — Perf benchmarks (optional polish)
 
-### Task 35: Add basic perf benchmark
+### Task 36: Add basic perf benchmark
 
 **Files:**
 - Create: `packages/core/src/state/perf-benchmark.test.ts`
@@ -4311,6 +4319,6 @@ git commit -m "test(p4e): basic perf benchmark for Y.Doc-backed state"
 
 ## End of P4e
 
-After all 35 tasks, the state module is Y.Doc-backed. Public API (Block, State, Position, OperationResult, Layer 3 op signatures, History) is preserved. The collab story is now genuinely additive — `y-websocket` (or another sync transport) can be added in a future phase without rewriting the state module.
+After all 36 tasks, the state module is Y.Doc-backed. Public API (Block, State, Position, OperationResult, Layer 3 op signatures, History) is preserved. The collab story is now genuinely additive — `y-websocket` (or another sync transport) can be added in a future phase without rewriting the state module.
 
 Downstream phases (P5, P6, P7+) can begin in parallel after P4e ships, with the foundations they assume in place.
