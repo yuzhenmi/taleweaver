@@ -1,4 +1,5 @@
 import type { State } from "./state";
+import { getBlock } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
@@ -54,10 +55,10 @@ export interface BlockRange {
 export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // Pre-normalize precondition checks (validate raw endpoints before
   // normalizeSpan does cross-block compare, which itself requires same-context).
-  const anchorBlockRaw = state.blocks.get(span.anchor.blockId);
-  const focusBlockRaw = state.blocks.get(span.focus.blockId);
-  if (!anchorBlockRaw) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
-  if (!focusBlockRaw) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
+  const anchorBlockRaw = getBlock(state, span.anchor.blockId);
+  const focusBlockRaw = getBlock(state, span.focus.blockId);
+  if (anchorBlockRaw === null) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
+  if (focusBlockRaw === null) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
   if (!anchorBlockRaw.inlineContent) {
     throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" is a container, not a leaf`);
   }
@@ -76,16 +77,16 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   const normalized = normalizeSpan(state, span);
 
   if (normalized.anchor.blockId === normalized.focus.blockId) {
-    const block = state.blocks.get(normalized.anchor.blockId);
-    if (!block) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
+    const block = getBlock(state, normalized.anchor.blockId);
+    if (block === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
     yield { block, rangeStart: normalized.anchor.offset, rangeEnd: normalized.focus.offset };
     return;
   }
 
-  const anchorBlock = state.blocks.get(normalized.anchor.blockId);
-  const focusBlock = state.blocks.get(normalized.focus.blockId);
-  if (!anchorBlock) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
-  if (!focusBlock) throw new Error(`iterateSpan: block "${normalized.focus.blockId}" not found`);
+  const anchorBlock = getBlock(state, normalized.anchor.blockId);
+  const focusBlock = getBlock(state, normalized.focus.blockId);
+  if (anchorBlock === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
+  if (focusBlock === null) throw new Error(`iterateSpan: block "${normalized.focus.blockId}" not found`);
 
   // Anchor block: from anchor.offset to end-of-block.
   yield {
@@ -97,8 +98,8 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // Walk intervening blocks via nextBlockInDocOrder, yielding leaves fully.
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
-    const current = state.blocks.get(currentId);
-    if (current && current.inlineContent) {
+    const current = getBlock(state, currentId);
+    if (current !== null && current.inlineContent) {
       yield {
         block: current,
         rangeStart: 0,
@@ -137,10 +138,10 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
 export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> {
   // Pre-normalize precondition checks (must validate before normalizeSpan
   // runs cross-block compare, which itself requires same-context).
-  if (!state.blocks.has(span.anchor.blockId)) {
+  if (getBlock(state, span.anchor.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: anchor block "${span.anchor.blockId}" not found`);
   }
-  if (!state.blocks.has(span.focus.blockId)) {
+  if (getBlock(state, span.focus.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: focus block "${span.focus.blockId}" not found`);
   }
   const anchorCtx = selectionContextOf(state, span.anchor.blockId);
@@ -154,16 +155,16 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
 
   const normalized = normalizeSpan(state, span);
 
-  const anchorBlock = state.blocks.get(normalized.anchor.blockId);
-  if (!anchorBlock) throw new Error(`iterateBlocksInSpan: block "${normalized.anchor.blockId}" not found`);
+  const anchorBlock = getBlock(state, normalized.anchor.blockId);
+  if (anchorBlock === null) throw new Error(`iterateBlocksInSpan: block "${normalized.anchor.blockId}" not found`);
   yield anchorBlock;
 
   if (normalized.anchor.blockId === normalized.focus.blockId) return;
 
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId) {
-    const current = state.blocks.get(currentId);
-    if (current) yield current;
+    const current = getBlock(state, currentId);
+    if (current !== null) yield current;
     if (currentId === normalized.focus.blockId) return;
     currentId = nextBlockInDocOrder(state, currentId);
   }
