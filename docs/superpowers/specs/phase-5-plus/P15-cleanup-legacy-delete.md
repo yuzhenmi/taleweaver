@@ -16,24 +16,16 @@ P11.4 + P12 + P13 + P14 complete. No legacy refs anywhere.
 
 ## Current state
 
-Legacy files in `packages/core/src/state/` (per directory survey 2026-05-08, those that exist alongside new files):
-- `state-node.ts` — legacy state tree type. To delete.
-- `create-node.ts` — legacy node factory. To delete.
-- `new-node.ts` — partial migration state file. Delete.
-- `formatting.ts` — legacy formatting ops. Delete.
-- `transformations.ts` — legacy state transformations. Delete.
-- `text-utils.ts` — `getTextContent`, etc. on `StateNode`. May have new-state-relevant utilities; review.
-- `find-path.ts` — path-based utility. Delete.
-- `normalize.ts` — structural-paragraph maintenance. Delete (or absorb into a new file if logic is still needed).
-- `node-operations.ts` — `getNodeByPath`, etc. Delete.
-- `position.ts` — legacy path-based position. Delete.
-- `extract-text.ts` — legacy text extraction. Delete (replaced by `new-extract-text.ts` in Phase 2; rename `new-extract-text.ts` to `extract-text.ts`).
-- `dirty.ts` — legacy post-hoc dirty comparison. Delete (per master spec line 481).
-- `change.ts` — wraps legacy state. Migrate to wrap new state (likely happened in P11.0); if so, keep. Otherwise delete.
-- `history.ts` — verify it's the new-state-aware version after P11.0.
-- `initial-state.ts` (legacy) — delete (replaced by `new-initial-state.ts`; rename).
+By P15, cutover has happened at the end of P11.4 (per Decision D Affected phases). The cutover commit ALREADY deleted: `EditorState.stateLegacy`, `EditorState.historyLegacy`, `rebuildStateFromLegacy`, `downgradeToStateNode`, `newPositionToLegacy`, `legacyPositionToNew`, all paired equivalence tests, the `History` wrapper's `historyLegacy` branch, and the legacy renderer import in the editor. P15 is what remains: the legacy file family that the cutover commit left in place.
 
-Public exports in `packages/core/src/index.ts` — currently a mix of legacy + new. Per spec line 489+, finalize to only new exports.
+**Legacy files to delete (per Decision E `*-legacy.ts` and the earlier `state/` migration):**
+- All `*-legacy.ts` files (introduced by P7, P8, P9, P11.0, others). Each one has been unreferenced since cutover. Examples: `render/render-legacy.ts`, `components/component-registry-legacy.ts`, `components/<name>-legacy.ts` for each migrated component family, `cursor/cursor-ops-legacy.ts`, `state/initial-state-legacy.ts`.
+- Legacy state-module files in `packages/core/src/state/`:
+  - `state-node.ts`, `create-node.ts`, `new-node.ts`, `formatting.ts`, `transformations.ts`, `find-path.ts`, `normalize.ts`, `node-operations.ts`, `position.ts`, `extract-text.ts`, `dirty.ts`, `change.ts`, legacy `history.ts` (the `EditorHistory` implementation — Decision D point 9 confirms it's deleted at cutover; if any remnants survive, delete here).
+  - `text-utils.ts` — may have new-state-relevant utilities; review and keep what's still used.
+- `EditorConfig.registry` field (the legacy `ComponentRegistry` field per Decision F point 4): deleted at P15; `componentRegistry` becomes required.
+
+Public exports in `packages/core/src/index.ts` — currently a mix of legacy + new. Per master spec § "Public API surface", finalize to only new exports.
 
 ## Files involved
 
@@ -80,7 +72,7 @@ No new tests. Existing tests run; all should pass.
 ## Open questions
 
 1. **Renames.** Does git track moves cleanly? Verify by doing a small dry-run.
-2. **`change.ts` and `history.ts` final shapes.** These should have stabilized in P11.0 per the strategy doc, but verify they're new-state-aware here.
+2. ✅ **`change.ts` and `history.ts` final shapes — resolved by Decisions C + D.** Both deleted at cutover (end of P11.4). If any remnants survive into P15, delete here.
 
 ## Success criteria
 
@@ -98,4 +90,4 @@ Pre-execution: yes (verify scope and pre-flight greps). Post-execution: replaced
 
 ## Estimated commits
 
-~3 (could be one big commit; could split per-file family).
+**One commit.** P15 is a single atomic deletion + index.ts rewrite that goes green-to-green. The pre-flight grep work happens out of band; the commit itself is one atomic change. No intermediate split (splitting would leave red intermediate states because the deletes interlock).

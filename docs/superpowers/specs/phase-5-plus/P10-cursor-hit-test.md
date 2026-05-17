@@ -2,7 +2,9 @@
 
 **Subject:** Migrate hit-testing and selection-geometry to consume new `Position` and `State`. These are layout-coupled (require a stable RenderNode tree) so they migrate after P7-P9 land.
 
-**Reference:** Master spec migration step 10c partial.
+**Reference:** Master spec migration step 10c partial; `decisions.md` decision B (render interface).
+
+Note on Decision B: hit-test consumes the RenderNode tree produced by the new renderer per Decision B. RenderNodes carry their owning `BlockId` so hit-test can produce `Position { blockId, offset }` directly without going through `RenderContext`. `RenderContext` is for render-time cross-block lookups within components; hit-test (a post-render consumer) doesn't need it.
 
 ## Goal
 

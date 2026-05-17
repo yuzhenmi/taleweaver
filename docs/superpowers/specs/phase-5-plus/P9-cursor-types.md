@@ -89,7 +89,7 @@ Estimated test count: 25-35.
 
 2. ✅ **Naming convention — resolved in `decisions.md` decision E (2026-05-16).** `-legacy` suffix on old; new code takes the canonical name. P9 renames `cursor/cursor-ops.ts` → `cursor/cursor-ops-legacy.ts` and introduces new canonical `cursor/cursor-ops.ts` in the same commit.
 
-3. **Where do shared grapheme-cluster utilities live?** If both legacy and new cursor need them during the parallel window, extract to a shared file (e.g., `cursor/grapheme-utils.ts`) or `state/text-utils.ts`. Decide in plan.
+3. **Where do shared grapheme-cluster utilities live?** Decision E addresses file naming but not shared internals between `*-legacy.ts` and canonical. P9 plan picks: extract to a non-suffixed shared util (e.g., `cursor/grapheme-utils.ts`) that both `cursor-ops.ts` and `cursor-ops-legacy.ts` import. The shared util survives cutover.
 
 ## Success criteria
 
