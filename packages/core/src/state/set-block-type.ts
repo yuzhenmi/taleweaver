@@ -1,7 +1,7 @@
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { getBlocksMap } from "./yjs-doc";
+import { getYBlock } from "./yjs-doc";
 
 /**
  * Change a block's type. Returns the new state and a dirtyIds set
@@ -24,10 +24,7 @@ export function setBlockType(
     throw new Error(`setBlockType: block "${blockId}" not found`);
   }
   return applyOperation(state, () => {
-    const yBlock = getBlocksMap(state.doc).get(blockId);
-    if (yBlock === undefined) {
-      throw new Error(`setBlockType: block "${blockId}" not found`);
-    }
+    const yBlock = getYBlock(state.doc, blockId, "setBlockType");
     yBlock.set("type", type);
   });
 }

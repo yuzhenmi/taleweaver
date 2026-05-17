@@ -5,6 +5,7 @@ import {
   getBlocksMap,
   getEmbedContentsMap,
   getMetaMap,
+  getYBlock,
   runTransaction,
 } from "./yjs-doc";
 import type { BlockId } from "./block-id";
@@ -110,6 +111,33 @@ describe("yjs-doc", () => {
         blocks.delete("blk-1");
       });
       expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    });
+  });
+
+  describe("getYBlock", () => {
+    it("returns the per-block Y.Map for a known id", () => {
+      const doc = createYDoc();
+      const yBlock = new Y.Map<unknown>();
+      runTransaction(doc, () => {
+        getBlocksMap(doc).set("p1", yBlock);
+      });
+      expect(getYBlock(doc, "p1" as BlockId, "test")).toBe(yBlock);
+    });
+
+    it("throws with op name when the id is missing", () => {
+      const doc = createYDoc();
+      expect(() => getYBlock(doc, "missing" as BlockId, "myOp")).toThrow(
+        /myOp: block "missing" disappeared mid-transaction/,
+      );
+    });
+
+    it("kind='embedContent' reads from the embedContents map", () => {
+      const doc = createYDoc();
+      const yBody = new Y.Map<unknown>();
+      runTransaction(doc, () => {
+        getEmbedContentsMap(doc).set("body-1", yBody);
+      });
+      expect(getYBlock(doc, "body-1" as BlockId, "test", "embedContent")).toBe(yBody);
     });
   });
 });

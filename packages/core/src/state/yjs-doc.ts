@@ -28,6 +28,31 @@ export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
   return doc.getMap(META_KEY);
 }
 
+/**
+ * Fetch a block's Y.Map by id with a throw-on-miss contract. Layer 3 ops
+ * call this inside `applyOperation` *after* having verified existence via
+ * `getBlock(state, id) !== null`; the throw branch is a defensive guard
+ * against future invariant breakage (it should never fire in correct code)
+ * but is preferable to a non-null assertion because (a) it satisfies
+ * CLAUDE.md's no-`!` rule via narrowing, (b) it surfaces the op name in
+ * the error if it ever does fire.
+ *
+ * `kind` selects between the main blocks map and the embedContents map.
+ */
+export function getYBlock(
+  doc: Y.Doc,
+  id: BlockId,
+  opName: string,
+  kind: "block" | "embedContent" = "block",
+): Y.Map<unknown> {
+  const map = kind === "block" ? getBlocksMap(doc) : getEmbedContentsMap(doc);
+  const yBlock = map.get(id);
+  if (yBlock === undefined) {
+    throw new Error(`${opName}: ${kind} "${id}" disappeared mid-transaction`);
+  }
+  return yBlock;
+}
+
 export interface TransactionResult {
   readonly dirtyIds: ReadonlySet<BlockId>;
 }

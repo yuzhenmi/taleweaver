@@ -2,7 +2,7 @@ import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
-import { getBlocksMap } from "./yjs-doc";
+import { getYBlock } from "./yjs-doc";
 import { buildYAttrs } from "./y-block";
 
 /**
@@ -21,7 +21,7 @@ export function setBlockAttrs(
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
   return applyOperation(state, () => {
-    const yBlock = getBlocksMap(state.doc).get(blockId)!;
+    const yBlock = getYBlock(state.doc, blockId, "setBlockAttrs");
     yBlock.set("attrs", buildYAttrs(attrs));
   });
 }
