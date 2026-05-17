@@ -88,10 +88,11 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
       );
     }
 
-    // Update parent's firstChildId / lastChildId. We always write both keys
-    // (even when neither boundary changes) so the parent is registered as
-    // dirty by the transaction-change tracker — preserving the legacy
-    // contract that parentId is always in dirtyIds.
+    // Always write both keys on the parent — preserves the explicit
+    // contract that parentId is always in dirtyIds (asserted by the
+    // middle-child removal test). Yjs's same-value `.set` happens to
+    // fire change events too, but we don't want the contract coupled
+    // to that internal Yjs detail.
     const yParent = getYBlock(state.doc, parentId, "removeBlock");
     const newFirstChildId =
       yParent.get("firstChildId") === blockId ? block.nextSiblingId : yParent.get("firstChildId");
