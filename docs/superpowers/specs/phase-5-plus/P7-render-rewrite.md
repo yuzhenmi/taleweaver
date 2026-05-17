@@ -37,12 +37,12 @@ Under Path B, the new renderer is added in PARALLEL with the existing one. Edito
 
 ## Key technical considerations
 
-1. **BlockView interface.** Per master spec lines 385-410, components consume a `BlockView` instance (NOT a raw `Block` and NOT a `StateNode`). `BlockView` provides:
-   - `block.id`, `block.type`, `block.attrs`, `block.computedStyle` (after cascade)
-   - `block.children: BlockView[]` (lazy descent)
-   - `block.inlineContent: InlineContent | null`
-   - Possibly: `block.parent`, `block.rootContext`, etc.
-   The BlockView is constructed by the renderer's own walker — components just consume it.
+1. **BlockView interface — see `decisions.md` decision B (2026-05-15).** Push-model rendering: renderer drives traversal; components receive pre-rendered children. BlockView surface:
+   - `block.id`, `block.type`, `block.attrs`, `block.computedStyle` (cascade output)
+   - `block.inlineContent: InlineContent | null` (null for containers)
+   - No `childIds`, no `parent` — traversal is the renderer's job; cross-block lookups go through `RenderContext`.
+
+   Component invocation: `render(view: BlockView, context: RenderContext, childRenderNodes: ReadonlyArray<RenderNode>): RenderNode`. The renderer walks the underlying State (using `firstChildId` / `nextSiblingId` on Block) and hands each component its already-rendered children. BlockView itself is a frozen snapshot facade over the underlying Y.Map (post-Phase 4e); the renderer caches and invalidates them via dirtyIds.
 
 2. **Cascade integration.** The renderer's first responsibility is to apply the cascade interpreter pipeline (Phase 3) to each block's `attrs` to produce `Style → ComputedStyle`. This is per-block and produces the `computedStyle` field on BlockView.
 
@@ -78,7 +78,7 @@ Estimated test count: 15-25 tests across the new render module's test files.
 
 1. **File naming convention** for parallel implementations under Path B. `render-block-state.ts` vs `render-v3.ts` vs subdirectory `render/v3/render.ts`? The strategy doc punts to per-phase plan.
 
-2. **BlockView shape — exhaustive interface specification.** Master spec at lines 385-410 sketches the interface; per-phase plan formalizes it (decide field-by-field).
+2. ✅ **BlockView shape — resolved in `decisions.md` decision B (2026-05-15).** Push model, minimal surface, RenderContext escape hatch. Per-phase plan still defines internal walker structure and snapshot facade implementation, but the public interface is locked.
 
 3. **Component registry split.** Do the old and new components both register under the same registry instance? Or two registries? Likely same registry with type discrimination (since `block.type === "paragraph"` should resolve to whichever paragraph component is current).
 

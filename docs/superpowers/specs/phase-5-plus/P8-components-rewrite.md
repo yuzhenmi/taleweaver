@@ -41,15 +41,19 @@ P7 (new renderer with BlockView interface). The BlockView shape must be defined 
 
 ## Key technical considerations
 
-1. **Component definition interface.** The master spec at lines 385-410 sketches:
+1. **Component definition interface — see `decisions.md` decision B (2026-05-15).** Push model:
    ```typescript
    interface ComponentDefinition {
-     type: string;
-     render(view: BlockView, children: RenderNode[]): RenderNode;
-     // possibly: defaultStyle, layout-hints, etc.
+     readonly type: string;
+     render(
+       view: BlockView,
+       context: RenderContext,
+       childRenderNodes: ReadonlyArray<RenderNode>,
+     ): RenderNode;
+     // plus: defaultStyle (baseline styles consumed by cascade pipeline)
    }
    ```
-   Per-phase plan formalizes the exact signature.
+   Components NEVER traverse children — they're handed `childRenderNodes` already rendered by the renderer. Cross-block lookups (e.g., footnote-anchor body) go through `RenderContext.getEmbedContent(id)`. Per-phase plan still defines `defaultStyle` integration and any per-component lifecycle hooks.
 
 2. **`text` and `span` deletion.** These two components are unique: in the legacy world, text was a leaf "component" that produced TextBoxes from `node.properties.content`. In the new world, text rendering happens inside the renderer's inline-content walker (per `block.inlineContent.items` of the leaf block). There is no text component anymore. Same for `span` (which was a wrapping inline component). These two are deleted, not migrated.
 
