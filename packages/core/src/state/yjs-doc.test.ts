@@ -78,5 +78,38 @@ describe("yjs-doc", () => {
       });
       expect(result.dirtyIds.has("body-1" as BlockId)).toBe(true);
     });
+
+    it("captures Y.Text mutation deep inside Y.Array inside block as the block's dirtyId", () => {
+      const doc = createYDoc();
+      const blocks = getBlocksMap(doc);
+      const yBlock = new Y.Map<unknown>();
+      const yArray = new Y.Array<Y.Map<unknown>>();
+      const yItem = new Y.Map<unknown>();
+      const yText = new Y.Text();
+      yText.insert(0, "hello");
+      yItem.set("text", yText);
+      yArray.push([yItem]);
+      yBlock.set("inlineContent", yArray);
+      runTransaction(doc, () => {
+        blocks.set("blk-1", yBlock);
+      });
+
+      const result = runTransaction(doc, () => {
+        yText.insert(0, "X");
+      });
+      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    });
+
+    it("captures block deletion as a dirtyId", () => {
+      const doc = createYDoc();
+      const blocks = getBlocksMap(doc);
+      runTransaction(doc, () => {
+        blocks.set("blk-1", new Y.Map());
+      });
+      const result = runTransaction(doc, () => {
+        blocks.delete("blk-1");
+      });
+      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    });
   });
 });

@@ -47,9 +47,16 @@ type AnyYType = Y.AbstractType<Y.YEvent<any>>;
  *   - any Y type nested under one of those entries is mutated.
  *
  * Implementation: attach an `afterTransaction` listener for the duration
- * of this call. Reentrant `runTransaction` calls are merged by Yjs into a
- * single outer transaction; the listener fires once with the union of all
- * changes.
+ * of this call.
+ *
+ * **Not reentrant.** A nested call inside another `runTransaction`'s `fn`
+ * returns an empty `dirtyIds` set: Yjs merges the inner `doc.transact` into
+ * the outer transaction, so `afterTransaction` only fires once at the
+ * outer commit — after the inner call's listener has already been detached.
+ * Internal helpers must therefore NOT call `runTransaction` themselves;
+ * instead, mutate raw Y types directly and let the outer caller's
+ * `runTransaction` capture dirty ids. Layer 3 ops are the only intended
+ * call site.
  */
 export function runTransaction(
   doc: Y.Doc,
