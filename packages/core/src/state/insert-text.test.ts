@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { insertText } from "./insert-text";
+import { getBlock } from "./state";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition } from "./block-position";
@@ -24,7 +25,7 @@ describe("insertText — middle of single text item", () => {
   it("inserts the text into the middle of the existing item, preserving attrs", () => {
     const state = fixture();
     const result = insertText(state, createPosition("p" as BlockId, 5), " beautiful", {});
-    const updated = result.state.blocks.get("p" as BlockId);
+    const updated = getBlock(result.state, "p" as BlockId);
     expect(updated?.inlineContent?.items).toHaveLength(1);
     const item = updated?.inlineContent?.items[0];
     expect(item?.kind).toBe("text");
@@ -40,17 +41,21 @@ describe("insertText — middle of single text item", () => {
     expect([...result.dirtyIds]).toEqual(["p"]);
   });
 
-  it("preserves immutability + structural sharing (does not mutate original; unmodified blocks share identity)", () => {
+  it("preserves immutability (original snapshots and state not mutated; modified block produces a fresh snapshot)", () => {
     const state = fixture();
-    const beforeP = state.blocks.get("p" as BlockId);
-    const beforeDoc = state.blocks.get("doc" as BlockId);
+    const beforeP = getBlock(state, "p" as BlockId);
+    const beforeDoc = getBlock(state, "doc" as BlockId);
     const result = insertText(state, createPosition("p" as BlockId, 5), " x", {});
-    // Original state and its blocks are not mutated.
+    // Original state instance is replaced by a fresh one (fresh snapshot cache).
     expect(result.state).not.toBe(state);
-    expect(result.state.blocks.get("p" as BlockId)).not.toBe(beforeP);
+    // The modified block produces a new snapshot.
+    expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
+    // Original block snapshot is frozen and unchanged.
     expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello world" });
-    // Unmodified blocks (doc) share identity — structural sharing.
-    expect(result.state.blocks.get("doc" as BlockId)).toBe(beforeDoc);
+    // Unmodified blocks (doc) yield equivalent snapshots (the fresh state has
+    // a fresh snapshot cache, so reference equality across mutations is not
+    // guaranteed under the Y.Doc-backed State, but content equivalence is).
+    expect(getBlock(result.state, "doc" as BlockId)).toEqual(beforeDoc);
   });
 
   it("normalizes already-unnormalized inline content (merges adjacent same-attrs text items in input)", () => {
@@ -71,7 +76,7 @@ describe("insertText — middle of single text item", () => {
     });
     // Insert at offset 1 (between "a" and "b"): all attrs equal, so the result should be one merged item.
     const result = insertText(state, createPosition("p" as BlockId, 1), "X", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "aXbc", attrs: {} });
   });
@@ -87,7 +92,7 @@ describe("insertText — offset 0 (beginning of block)", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", { bold: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello ", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "world", attrs: {} });
@@ -102,7 +107,7 @@ describe("insertText — offset 0 (beginning of block)", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello world", attrs: {} });
   });
@@ -118,7 +123,7 @@ describe("insertText — end of block (offset === inlineContentLength)", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "!", { italic: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "!", attrs: { italic: true } });
@@ -133,7 +138,7 @@ describe("insertText — end of block (offset === inlineContentLength)", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello!", attrs: {} });
   });
@@ -149,7 +154,7 @@ describe("insertText — empty block", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hi", { bold: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hi", attrs: { bold: true } });
   });
@@ -168,7 +173,7 @@ describe("insertText — split a different-attrs text item", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "BOLD", { bold: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "BOLD", attrs: { bold: true } });
@@ -195,7 +200,7 @@ describe("insertText — at boundary between two text items", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), " ", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello ", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "world", attrs: { bold: true } });
@@ -215,7 +220,7 @@ describe("insertText — at boundary between two text items", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "X", { italic: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
@@ -242,7 +247,7 @@ describe("insertText — at boundary between two text items", () => {
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 1), "X", { italic: true });
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "X", attrs: { italic: true } });
@@ -268,7 +273,7 @@ describe("insertText — adjacent to embed items", () => {
     });
     // offset 1 = end of "a" / start of embed. Algorithm prefers trailing-edge of text item, so "X" merges with "a".
     const result = insertText(state, createPosition("p" as BlockId, 1), "X", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "aX" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
@@ -290,7 +295,7 @@ describe("insertText — adjacent to embed items", () => {
     });
     // offset 2 = end of embed / start of "b". Algorithm puts text BEFORE the next text item; merges with "b" if attrs match.
     const result = insertText(state, createPosition("p" as BlockId, 2), "Y", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
@@ -312,7 +317,7 @@ describe("insertText — adjacent to embed items", () => {
     });
     // offset 0 = before embed.
     const result = insertText(state, createPosition("p" as BlockId, 0), "X", {});
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "X" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });

@@ -1,15 +1,16 @@
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
 import {
-  createInlineContent,
-  createTextItem,
   inlineContentLength,
+  splitInlineContentAtOffset,
   mergeAdjacentTextItems,
   type InlineItem,
 } from "./inline-content";
-import { createBlock } from "./block";
+import { getYBlock } from "./yjs-doc";
+import { buildYInlineContent } from "./y-block";
 
 /**
  * Insert text into a leaf block's inlineContent at `position`.
@@ -32,6 +33,13 @@ import { createBlock } from "./block";
  *   - The block does not exist.
  *   - The block is not a leaf (has no inlineContent).
  *   - `position.offset` is outside `[0, inlineContentLength(content)]`.
+ *
+ * Strategy A: compute the new inline-content shape using existing pure
+ * helpers (operating on plain `InlineItem[]` arrays), then replace the
+ * block's entire Y.Array<inlineContent>. This recreates the Y.Array and
+ * ALL Y.Text identities — it loses Y.Text per-character CRDT identity on
+ * every keystroke. Strategy B (Y.Text-preserving in-place mutation) is
+ * deferred; see plan doc P4e Task 17.
  */
 export function insertText(
   state: State,
@@ -43,11 +51,11 @@ export function insertText(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  const block = state.blocks.get(position.blockId);
-  if (!block) {
+  const block = getBlock(state, position.blockId);
+  if (block === null) {
     throw new Error(`insertText: block "${position.blockId}" not found`);
   }
-  if (!block.inlineContent) {
+  if (block.inlineContent === null) {
     throw new Error(`insertText: block "${position.blockId}" is not a leaf (no inlineContent)`);
   }
 
@@ -58,94 +66,13 @@ export function insertText(
     );
   }
 
-  const items = block.inlineContent.items;
-  const newItems = spliceTextIntoItems(items, position.offset, text, attrs);
-  const merged = mergeAdjacentTextItems(newItems);
+  // Compute new items via the existing pure helpers (mirrors legacy logic).
+  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
+  const newRun: InlineItem = { kind: "text", text, attrs };
+  const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
 
-  const updated = createBlock({
-    id: block.id,
-    type: block.type,
-    attrs: block.attrs,
-    parentId: block.parentId,
-    prevSiblingId: block.prevSiblingId,
-    nextSiblingId: block.nextSiblingId,
-    firstChildId: block.firstChildId,
-    lastChildId: block.lastChildId,
-    inlineContent: createInlineContent(merged),
+  return applyOperation(state, () => {
+    const yBlock = getYBlock(state.doc, position.blockId, "insertText");
+    yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
   });
-
-  return {
-    state: { ...state, blocks: state.blocks.set(position.blockId, updated) },
-    dirtyIds: new Set([position.blockId]),
-  };
-}
-
-/**
- * Walk items, find the position, and splice in a new TextItem with
- * the given attrs. Splits the affected item if needed; preserves all
- * other items. Run-merging is done in a separate normalize pass.
- */
-function spliceTextIntoItems(
-  items: ReadonlyArray<InlineItem>,
-  offset: number,
-  text: string,
-  attrs: ReadonlyAttrs,
-): InlineItem[] {
-  const out: InlineItem[] = [];
-  let cursor = 0;
-  let inserted = false;
-
-  for (const item of items) {
-    const itemLen = item.kind === "text" ? item.text.length : 1;
-    const itemEnd = cursor + itemLen;
-
-    if (inserted) {
-      out.push(item);
-      cursor = itemEnd;
-      continue;
-    }
-
-    if (offset < cursor + itemLen || (offset === cursor + itemLen && item.kind === "text")) {
-      // The insertion point falls inside this item, OR exactly at its
-      // trailing edge for a text item (we prefer to land at the trailing
-      // edge of a text item rather than the leading edge of the next item,
-      // so we can merge if attrs match).
-      // Asymmetry: at an embed→text boundary, the OR clause is FALSE for
-      // the embed (because item.kind === "embed"), so the embed is pushed
-      // and the loop continues; the next iteration enters the text item
-      // at within=0 and creates [embed, new, text]. The merge pass then
-      // joins new+text if attrs match. This is the correct behavior:
-      // we cannot "merge" with a non-text item.
-      if (item.kind === "text") {
-        const within = offset - cursor;
-        const prefix = item.text.slice(0, within);
-        const suffix = item.text.slice(within);
-        if (prefix.length > 0) out.push(createTextItem(prefix, item.attrs));
-        out.push(createTextItem(text, attrs));
-        if (suffix.length > 0) out.push(createTextItem(suffix, item.attrs));
-      } else {
-        // Embed item with offset inside it: offset===cursor means before, offset===cursor+1 means after.
-        if (offset === cursor) {
-          out.push(createTextItem(text, attrs));
-          out.push(item);
-        } else {
-          out.push(item);
-          out.push(createTextItem(text, attrs));
-        }
-      }
-      inserted = true;
-      cursor = itemEnd;
-      continue;
-    }
-
-    out.push(item);
-    cursor = itemEnd;
-  }
-
-  if (!inserted) {
-    // Offset was at end-of-content (or content was empty).
-    out.push(createTextItem(text, attrs));
-  }
-
-  return out;
 }
