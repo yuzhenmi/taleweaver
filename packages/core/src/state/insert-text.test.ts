@@ -54,10 +54,10 @@ describe("insertText — middle of single text item", () => {
     expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
     // Original block snapshot is frozen and unchanged.
     expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello world" });
-    // Unmodified blocks (doc) yield equivalent snapshots (the fresh state has
-    // a fresh snapshot cache, so reference equality across mutations is not
-    // guaranteed under the Y.Doc-backed State, but content equivalence is).
-    expect(getBlock(result.state, "doc" as BlockId)).toEqual(beforeDoc);
+    // Unmodified blocks (doc) preserve snapshot reference identity across
+    // operations via the carry-forward cache in applyOperation — memoized
+    // renderers can `prev === next` to skip unchanged subtrees.
+    expect(getBlock(result.state, "doc" as BlockId)).toBe(beforeDoc);
   });
 
   it("normalizes already-unnormalized inline content (merges adjacent same-attrs text items in input)", () => {
@@ -430,6 +430,49 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "BOLD", attrs: { bold: true } });
     expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: {} });
+  });
+
+  it("falls back to full-replace when the block has a pre-existing unnormalized pair elsewhere", () => {
+    // [text("a"){}, text("b"){}, embed, text("hello"){italic}]
+    // Insert "X" {italic} at offset 4 (inside the last item).
+    // Without the full-items normalization scan, Strategy B would in-place
+    // mutate the last item's Y.Text and leave the [text("a"), text("b")]
+    // adjacency intact. The fix: detect the pre-existing adjacent same-attrs
+    // pair, bail to Strategy A so mergeAdjacentTextItems normalizes the whole
+    // block.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([
+            text("a"),
+            text("b"),
+            { kind: "embed", embedType: "image", attrs: {}, properties: {} },
+            text("hello", { italic: true }),
+          ]),
+        }),
+      ],
+    });
+    const beforeYText = getYTextAt(state, "p" as BlockId, 3);
+    const result = insertText(
+      state,
+      createPosition("p" as BlockId, 4),
+      "X",
+      { italic: true },
+    );
+    // Full-replace fallback: original Y.Text identity is lost (rebuilt array).
+    const afterItalicYText = getYTextAt(result.state, "p" as BlockId, 2);
+    expect(afterItalicYText).not.toBe(beforeYText);
+    // Whole-block normalization ran: [text("ab"), embed, text("hXello"){italic}].
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "ab", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "hXello", attrs: { italic: true } });
   });
 });
 

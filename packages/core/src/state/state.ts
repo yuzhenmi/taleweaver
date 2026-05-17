@@ -79,10 +79,33 @@ export function freshState(state: State): State {
 
 /**
  * Run a mutating `fn` inside a Y.Doc transaction and produce an
- * OperationResult. The returned State wraps the same Y.Doc as the input
- * but has a fresh SnapshotCache so subsequent reads see the mutated state.
+ * OperationResult. The returned State has a fresh SnapshotCache that
+ * carries forward all non-dirty entries from the input state's cache,
+ * giving two properties at once:
+ *   - structural sharing: snapshots of unchanged blocks remain
+ *     reference-equal across `applyOperation` calls (memoized renderers
+ *     can `prev === next` to skip unchanged subtrees).
+ *   - per-State view stability: the input state's cache is untouched,
+ *     so reads via the pre-op State handle continue to see the
+ *     pre-mutation snapshot. (Y.Doc is mutable in place, so this is
+ *     a cached-view property, not true immutability — it lasts until
+ *     the pre-op cache is invalidated or replaced.)
  */
 export function applyOperation(state: State, fn: () => void): OperationResult {
   const { dirtyIds } = runTransaction(state.doc, fn);
-  return { state: freshState(state), dirtyIds };
+  const newCache = createSnapshotCache();
+  for (const [id, snap] of state.snapshotCache.blocks) {
+    if (!dirtyIds.has(id)) newCache.blocks.set(id, snap);
+  }
+  for (const [id, snap] of state.snapshotCache.embedContents) {
+    if (!dirtyIds.has(id)) newCache.embedContents.set(id, snap);
+  }
+  return {
+    state: Object.freeze({
+      rootId: state.rootId,
+      doc: state.doc,
+      snapshotCache: newCache,
+    }),
+    dirtyIds,
+  };
 }

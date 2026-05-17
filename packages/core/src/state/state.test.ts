@@ -92,4 +92,44 @@ describe("applyOperation", () => {
     expect(next.rootId).toBe(state.rootId);
     expect(next.snapshotCache).not.toBe(state.snapshotCache);
   });
+
+  it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    applyOperation(state, () => {
+      const blocks = getBlocksMap(state.doc);
+      blocks.set("root", buildYBlock({
+        type: "document",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: "p1" as BlockId,
+        lastChildId: "p1" as BlockId,
+        inlineContent: null,
+      }));
+      blocks.set("p1", buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: "root" as BlockId,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }));
+    });
+    // Materialize snapshots into the cache.
+    const rootBefore = getBlock(state, "root" as BlockId);
+    const p1Before = getBlock(state, "p1" as BlockId);
+    // Run an op that only touches p1.
+    const result = applyOperation(state, () => {
+      const yP1 = getBlocksMap(state.doc).get("p1")!;
+      yP1.set("type", "heading");
+    });
+    // root is unchanged → identity preserved.
+    expect(getBlock(result.state, "root" as BlockId)).toBe(rootBefore);
+    // p1 was dirtied → fresh snapshot.
+    expect(getBlock(result.state, "p1" as BlockId)).not.toBe(p1Before);
+    expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
+  });
 });

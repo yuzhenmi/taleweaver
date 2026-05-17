@@ -114,34 +114,31 @@ export function insertText(
  * Returns `null` when no in-place mutation is possible (caller falls back
  * to the full-replace path).
  *
- * Bails to `null` whenever the target item has a neighboring text item
- * with matching attrs: that signals unnormalized input (an invariant
- * violation that the full-replace path's merge pass fixes). Strategy B
- * would otherwise leave the unnormalized state in place, since it only
- * mutates a single Y.Text in isolation. Legacy semantics expect
- * insertText to also normalize unnormalized input it touches.
+ * Bails to `null` if the items array contains ANY adjacent same-attrs
+ * text pair (i.e., the block is already unnormalized). Strategy B only
+ * mutates a single Y.Text in isolation, so it would leave such pre-existing
+ * unnormalized adjacencies untouched. The legacy `insertText` always ran
+ * `mergeAdjacentTextItems` over the whole items array; the full-replace
+ * fallback (Strategy A) preserves that contract.
  */
 function findInPlaceTarget(
   items: ReadonlyArray<InlineItem>,
   offset: number,
   attrs: ReadonlyAttrs,
 ): { itemIndex: number; within: number } | null {
-  const candidate = pickCandidate(items, offset, attrs);
-  if (candidate === null) return null;
+  if (hasAdjacentSameAttrsTextPair(items)) return null;
+  return pickCandidate(items, offset, attrs);
+}
 
-  const { itemIndex } = candidate;
-  // If a neighbor of the target item is a text item with matching attrs,
-  // the input violates the merge-adjacent-text-items invariant at the
-  // boundary we are touching. Fall back so the merge pass runs.
-  const prev = itemIndex > 0 ? items[itemIndex - 1] : null;
-  const next = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
-  if (prev !== null && prev.kind === "text" && attrsEqual(prev.attrs, attrs)) {
-    return null;
+function hasAdjacentSameAttrsTextPair(items: ReadonlyArray<InlineItem>): boolean {
+  for (let i = 1; i < items.length; i++) {
+    const prev = items[i - 1];
+    const curr = items[i];
+    if (prev.kind === "text" && curr.kind === "text" && attrsEqual(prev.attrs, curr.attrs)) {
+      return true;
+    }
   }
-  if (next !== null && next.kind === "text" && attrsEqual(next.attrs, attrs)) {
-    return null;
-  }
-  return candidate;
+  return false;
 }
 
 function pickCandidate(
