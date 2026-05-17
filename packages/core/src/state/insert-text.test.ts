@@ -1,6 +1,8 @@
+import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
 import { insertText } from "./insert-text";
 import { getBlock } from "./state";
+import { getYBlock } from "./yjs-doc";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition } from "./block-position";
@@ -337,6 +339,97 @@ describe("insertText — empty text", () => {
     const result = insertText(state, createPosition("p" as BlockId, 2), "", {});
     expect(result.state).toBe(state);
     expect([...result.dirtyIds]).toEqual([]);
+  });
+});
+
+describe("insertText — Y.Text identity preservation (Strategy B)", () => {
+  // When the insertion lands inside (or adjacent to) a text run whose attrs
+  // match the incoming attrs, we mutate that run's existing Y.Text in place
+  // via yText.insert(...). This preserves per-character CRDT identity across
+  // edits — what Yjs is for.
+  const getYTextAt = (state: ReturnType<typeof buildState>, blockId: BlockId, itemIndex: number): Y.Text => {
+    const yBlock = getYBlock(state.doc, blockId, "test");
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yItem = yItems.get(itemIndex);
+    return yItem.get("text") as Y.Text;
+  };
+
+  it("preserves Y.Text identity when typing into a same-attrs run", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
+    const result = insertText(state, createPosition("p" as BlockId, 3), "X", {});
+    const afterYText = getYTextAt(result.state, "p" as BlockId, 0);
+    expect(afterYText).toBe(beforeYText);
+    expect(afterYText.toString()).toBe("helXlo");
+  });
+
+  it("preserves Y.Text identity when typing at end of a same-attrs run (end of content)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+      ],
+    });
+    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
+    const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
+    const afterYText = getYTextAt(result.state, "p" as BlockId, 0);
+    expect(afterYText).toBe(beforeYText);
+    expect(afterYText.toString()).toBe("hello!");
+  });
+
+  it("preserves prev-run Y.Text identity at a text→text boundary when attrs match prev", () => {
+    // [text("hello") {}, text("world") {bold:true}]; insert " " {} at offset 5.
+    // Legacy prefers trailing-edge of the prev text item → mutate the first run.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+        }),
+      ],
+    });
+    const beforeYText0 = getYTextAt(state, "p" as BlockId, 0);
+    const beforeYText1 = getYTextAt(state, "p" as BlockId, 1);
+    const result = insertText(state, createPosition("p" as BlockId, 5), " ", {});
+    const afterYText0 = getYTextAt(result.state, "p" as BlockId, 0);
+    const afterYText1 = getYTextAt(result.state, "p" as BlockId, 1);
+    expect(afterYText0).toBe(beforeYText0);
+    expect(afterYText1).toBe(beforeYText1);
+    expect(afterYText0.toString()).toBe("hello ");
+    expect(afterYText1.toString()).toBe("world");
+  });
+
+  it("falls back to full-replace when attrs differ (Y.Text identity not preserved)", () => {
+    // Different attrs forces a split: in-place is not possible.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("helloworld")]) }),
+      ],
+    });
+    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
+    const result = insertText(state, createPosition("p" as BlockId, 5), "BOLD", { bold: true });
+    // After fallback the Y.Array is rebuilt; the original Y.Text instance is no longer attached.
+    const afterYText0 = getYTextAt(result.state, "p" as BlockId, 0);
+    expect(afterYText0).not.toBe(beforeYText);
+    // Structural result still correct (legacy semantics).
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "BOLD", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: {} });
   });
 });
 

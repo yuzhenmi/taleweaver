@@ -1,12 +1,15 @@
+import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
+import { attrsEqual } from "./attrs";
 import {
   inlineContentLength,
   splitInlineContentAtOffset,
   mergeAdjacentTextItems,
+  findItemAtOffset,
   type InlineItem,
 } from "./inline-content";
 import { getYBlock } from "./yjs-doc";
@@ -34,12 +37,13 @@ import { buildYInlineContent } from "./y-block";
  *   - The block is not a leaf (has no inlineContent).
  *   - `position.offset` is outside `[0, inlineContentLength(content)]`.
  *
- * Strategy A: compute the new inline-content shape using existing pure
- * helpers (operating on plain `InlineItem[]` arrays), then replace the
- * block's entire Y.Array<inlineContent>. This recreates the Y.Array and
- * ALL Y.Text identities — it loses Y.Text per-character CRDT identity on
- * every keystroke. Strategy B (Y.Text-preserving in-place mutation) is
- * deferred; see plan doc P4e Task 17.
+ * Implementation: prefer a Y.Text-preserving in-place mutation when the
+ * insertion point lands inside (or adjacent to) a text run whose attrs
+ * match the incoming attrs — this preserves per-character CRDT identity
+ * across edits, which is what Yjs is for. Falls back to a full-replace
+ * (compute new items via pure helpers, then rebuild the Y.Array) for
+ * cases where in-place mutation cannot reproduce the legacy result shape
+ * (e.g., different-attrs split, insertion adjacent to embed, empty block).
  */
 export function insertText(
   state: State,
@@ -66,7 +70,34 @@ export function insertText(
     );
   }
 
-  // Compute new items via the existing pure helpers (mirrors legacy logic).
+  const items = block.inlineContent.items;
+
+  // Identify the in-place target text item (if any). Two cases:
+  //   (a) offset lies strictly inside a text item (withinItem > 0) with matching attrs.
+  //   (b) offset is at the leading edge of a text item (withinItem === 0) AND
+  //       the previous item is a text item with matching attrs — prefer the
+  //       trailing edge of the prev item (mirrors legacy "trailing-edge of
+  //       text" preference, so we can keep the prev run's CRDT identity).
+  //   (c) offset is at the leading edge of a text item with matching attrs
+  //       and no eligible prev (e.g., at offset 0 or after an embed).
+  //   (d) offset is at end of content AND the last item is text with
+  //       matching attrs — mutate the last item.
+  const inPlace = findInPlaceTarget(items, position.offset, attrs);
+
+  if (inPlace !== null) {
+    return applyOperation(state, () => {
+      const yBlock = getYBlock(state.doc, position.blockId, "insertText");
+      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+      const yItem = yItems.get(inPlace.itemIndex);
+      const yText = yItem.get("text") as Y.Text;
+      yText.insert(inPlace.within, text);
+    });
+  }
+
+  // Fallback (Strategy A full-replace): compute new items via the existing
+  // pure helpers, then rebuild the Y.Array. Used when no eligible
+  // matching-attrs text run exists at/adjacent to the insertion point
+  // (different attrs split, embed-adjacent, empty block, etc.).
   const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
   const newRun: InlineItem = { kind: "text", text, attrs };
   const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
@@ -75,4 +106,88 @@ export function insertText(
     const yBlock = getYBlock(state.doc, position.blockId, "insertText");
     yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
   });
+}
+
+/**
+ * Pick the target text item for an in-place Y.Text insertion, mirroring
+ * the legacy algorithm's "prefer trailing edge of text item" preference.
+ * Returns `null` when no in-place mutation is possible (caller falls back
+ * to the full-replace path).
+ *
+ * Bails to `null` whenever the target item has a neighboring text item
+ * with matching attrs: that signals unnormalized input (an invariant
+ * violation that the full-replace path's merge pass fixes). Strategy B
+ * would otherwise leave the unnormalized state in place, since it only
+ * mutates a single Y.Text in isolation. Legacy semantics expect
+ * insertText to also normalize unnormalized input it touches.
+ */
+function findInPlaceTarget(
+  items: ReadonlyArray<InlineItem>,
+  offset: number,
+  attrs: ReadonlyAttrs,
+): { itemIndex: number; within: number } | null {
+  const candidate = pickCandidate(items, offset, attrs);
+  if (candidate === null) return null;
+
+  const { itemIndex } = candidate;
+  // If a neighbor of the target item is a text item with matching attrs,
+  // the input violates the merge-adjacent-text-items invariant at the
+  // boundary we are touching. Fall back so the merge pass runs.
+  const prev = itemIndex > 0 ? items[itemIndex - 1] : null;
+  const next = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
+  if (prev !== null && prev.kind === "text" && attrsEqual(prev.attrs, attrs)) {
+    return null;
+  }
+  if (next !== null && next.kind === "text" && attrsEqual(next.attrs, attrs)) {
+    return null;
+  }
+  return candidate;
+}
+
+function pickCandidate(
+  items: ReadonlyArray<InlineItem>,
+  offset: number,
+  attrs: ReadonlyAttrs,
+): { itemIndex: number; within: number } | null {
+  const { itemIndex, withinItem } = findItemAtOffset({ items }, offset);
+
+  // Case: offset at end of content. itemIndex === items.length.
+  // If the last item is text with matching attrs, append to it.
+  if (itemIndex === items.length) {
+    const last = items.length - 1;
+    if (last >= 0) {
+      const lastItem = items[last];
+      if (lastItem.kind === "text" && attrsEqual(lastItem.attrs, attrs)) {
+        return { itemIndex: last, within: lastItem.text.length };
+      }
+    }
+    return null;
+  }
+
+  const here = items[itemIndex];
+
+  // Case: offset strictly inside a text item.
+  if (withinItem > 0) {
+    if (here.kind === "text" && attrsEqual(here.attrs, attrs)) {
+      return { itemIndex, within: withinItem };
+    }
+    return null;
+  }
+
+  // withinItem === 0: leading edge of items[itemIndex].
+  // Prefer the trailing edge of the previous item if it's a matching-attrs
+  // text item (legacy preference).
+  if (itemIndex > 0) {
+    const prev = items[itemIndex - 1];
+    if (prev.kind === "text" && attrsEqual(prev.attrs, attrs)) {
+      return { itemIndex: itemIndex - 1, within: prev.text.length };
+    }
+  }
+
+  // No matching prev — try the leading edge of items[itemIndex].
+  if (here.kind === "text" && attrsEqual(here.attrs, attrs)) {
+    return { itemIndex, within: 0 };
+  }
+
+  return null;
 }
