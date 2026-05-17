@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import { createYDoc, getMetaMap } from "./yjs-doc";
+import { createYDoc, getMetaMap, runTransaction } from "./yjs-doc";
 import {
   createSnapshotCache,
   getBlockSnapshot,
@@ -62,4 +62,27 @@ export function getEmbedContent(state: State, id: BlockId): Block | null {
 export interface OperationResult {
   readonly state: State;
   readonly dirtyIds: ReadonlySet<BlockId>;
+}
+
+/**
+ * Mint a fresh State referencing the same Y.Doc but with an empty
+ * SnapshotCache. Used after operations that mutated the Y.Doc outside
+ * of `applyOperation` (e.g., Y.UndoManager.undo / .redo).
+ */
+export function freshState(state: State): State {
+  return Object.freeze({
+    rootId: state.rootId,
+    doc: state.doc,
+    snapshotCache: createSnapshotCache(),
+  });
+}
+
+/**
+ * Run a mutating `fn` inside a Y.Doc transaction and produce an
+ * OperationResult. The returned State wraps the same Y.Doc as the input
+ * but has a fresh SnapshotCache so subsequent reads see the mutated state.
+ */
+export function applyOperation(state: State, fn: () => void): OperationResult {
+  const { dirtyIds } = runTransaction(state.doc, fn);
+  return { state: freshState(state), dirtyIds };
 }
