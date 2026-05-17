@@ -261,7 +261,7 @@ function downgradeToStateNode(state: State): StateNode;      // fires after migr
 
 4. **`downgradeToStateNode` is a forward walk of the Y.Doc** producing a frozen StateNode tree. Cheap; cacheable by Y.Doc version if needed.
 
-5. **BlockId derivation: deterministic from path during the parallel window.** `rebuildStateFromLegacy` assigns each block's `BlockId = pathToBlockId(pathFromRoot)`, where `pathToBlockId` is a deterministic 1:1 string encoding of the path components (e.g., `path.join("/")` → `"0/1/2"` for the block reached by `root → child 0 → child 1 → child 2`). Not a hash — there are no collisions; it's a reversible encoding. This guarantees:
+5. **BlockId derivation: deterministic from path during the parallel window.** `rebuildStateFromLegacy` assigns each block's `BlockId = pathToBlockId(pathFromRoot)`, where `pathToBlockId` is a deterministic 1:1 string encoding of the path components. Format: `"R"` for the root (empty path); `"R/0/1/2"` for `root → child 0 → child 1 → child 2`. The `"R"` prefix ensures root's BlockId is non-empty (avoids collision with empty-string sentinels common in truthy-check code paths). Not a hash — there are no collisions; it's a reversible encoding. This guarantees:
    - Same legacy structure → same BlockIds (stable across rebuilds for unchanged blocks).
    - Legacy `Position` (path) → `BlockId` conversion is trivial: `pathToBlockId(pos.path)`.
    - Selection survives rebuilds automatically: the path didn't change, so the BlockId it derives is unchanged.

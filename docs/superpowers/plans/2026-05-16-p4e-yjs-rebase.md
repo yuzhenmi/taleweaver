@@ -156,14 +156,17 @@ describe("yjs-doc", () => {
   });
 
   describe("runTransaction", () => {
-    it("executes the callback inside a Y.Doc transaction", () => {
+    it("executes the callback inside a Y.Doc transaction (mutations visible afterward)", () => {
       const doc = createYDoc();
-      let observedInTx = false;
+      let called = false;
       runTransaction(doc, () => {
-        observedInTx = doc.transactionCleanups.length > 0
-          || (doc as unknown as { _transaction: unknown })._transaction !== null;
+        called = true;
+        getBlocksMap(doc).set("test", new Y.Map());
       });
-      expect(observedInTx).toBe(true);
+      expect(called).toBe(true);
+      // The mutation is visible after runTransaction returns — confirms
+      // the transaction committed (vs. throwing or being held open).
+      expect(getBlocksMap(doc).has("test")).toBe(true);
     });
 
     it("returns the set of changed BlockIds (blocks map)", () => {
@@ -216,6 +219,11 @@ npm test --workspace=packages/core -- yjs-doc.test
 Expected: fails with module-not-found.
 
 - [ ] **Step 3: Implement `state/yjs-doc.ts`**
+
+**Implementation notes for the dirty-id capture algorithm:**
+- The afterTransaction listener is attached for the duration of ONE `runTransaction` call. Reentrant `runTransaction` calls (e.g., one Layer 3 op calling another) are merged by Yjs into one outer transaction; the listener fires once for the outer transaction with the union of all changes. That's the correct behavior — `replaceRange` calls `deleteRange` + `insertText` and gets one merged dirtyIds set.
+- For perf on large documents: walking parent chains per `changedParentTypes` entry is O(depth). Acceptable for P4e; revisit in P14 if benchmarks justify a `Y.Map → BlockId` reverse map cached per Y.Doc.
+- `Y.AbstractType.parent` is exposed as a public accessor in Yjs ^13.6 (verify against `node_modules/yjs/dist/src/types/AbstractType.js` after install — the field is on the prototype as `parent`).
 
 ```typescript
 import * as Y from "yjs";
@@ -324,11 +332,13 @@ function findOwningBlockId(
   blocksMap: Y.Map<Y.Map<unknown>>,
   embedContentsMap: Y.Map<Y.Map<unknown>>,
 ): BlockId | null {
+  // Y.AbstractType.parent is the containing Y type (Y.Map / Y.Array) or
+  // null for root types. We walk up until the parent is one of the two
+  // root maps; cursor at that point is the per-block Y.Map.
   let cursor: Y.AbstractType<unknown> | null = type;
   while (cursor !== null) {
-    const parent: Y.AbstractType<unknown> | null = cursor.parent;
+    const parent = cursor.parent as Y.AbstractType<unknown> | null;
     if (parent === blocksMap || parent === embedContentsMap) {
-      // cursor is a direct entry of the blocks/embedContents map.
       const owningMap = parent as Y.Map<Y.Map<unknown>>;
       for (const [key, value] of owningMap.entries()) {
         if (value === cursor) return key as BlockId;
@@ -838,16 +848,16 @@ import { describe, it, expect } from "vitest";
 import { pathToBlockId } from "./path-to-block-id";
 
 describe("pathToBlockId", () => {
-  it("encodes an empty path (root) as the empty-path token", () => {
-    expect(pathToBlockId([])).toBe("");
+  it("encodes an empty path (root) as the 'R' token (non-empty, distinct from any non-root path)", () => {
+    expect(pathToBlockId([])).toBe("R");
   });
 
-  it("encodes a single-step path", () => {
-    expect(pathToBlockId([3])).toBe("3");
+  it("encodes a single-step path with the R/ prefix", () => {
+    expect(pathToBlockId([3])).toBe("R/3");
   });
 
-  it("encodes a multi-step path with the / separator", () => {
-    expect(pathToBlockId([0, 1, 2])).toBe("0/1/2");
+  it("encodes a multi-step path", () => {
+    expect(pathToBlockId([0, 1, 2])).toBe("R/0/1/2");
   });
 
   it("produces the same id for the same path", () => {
@@ -857,6 +867,10 @@ describe("pathToBlockId", () => {
   it("produces different ids for different paths", () => {
     expect(pathToBlockId([1, 2])).not.toBe(pathToBlockId([1, 3]));
     expect(pathToBlockId([1, 2])).not.toBe(pathToBlockId([2, 1]));
+  });
+
+  it("root id is never empty string (which is reserved by various sentinel checks)", () => {
+    expect(pathToBlockId([])).not.toBe("");
   });
 });
 ```
@@ -881,11 +895,18 @@ import type { BlockId } from "./block-id";
  * `stateLegacy`, BlockIds are derived from paths so selection survives
  * rebuilds (the path didn't change → the BlockId is the same).
  *
+ * Format: `"R"` for the empty path (root); `"R/0/1/2"` for descendant
+ * paths. The `"R"` prefix ensures the root id is non-empty (avoiding
+ * collision with empty-string sentinels) and makes path-derived ids
+ * visually distinguishable from allocator-generated ids (which are
+ * UUIDs).
+ *
  * At cutover (end of P11.4), a one-time id-translation pass replaces
  * path-derived ids with fresh allocator-generated ids.
  */
 export function pathToBlockId(path: ReadonlyArray<number>): BlockId {
-  return path.join("/") as BlockId;
+  if (path.length === 0) return "R" as BlockId;
+  return ("R/" + path.join("/")) as BlockId;
 }
 ```
 
@@ -909,6 +930,10 @@ git commit -m "feat(p4e): add pathToBlockId helper for P11.0 parallel window"
 ## Sub-phase 4e.2 — Replace State internals with Y.Doc
 
 This sub-phase flips `State` from a `PersistentMap`-backed type to a Y.Doc-backed opaque type. After this sub-phase, `state.blocks.get(id)` is replaced by `getBlock(state, id)`. The existing per-block `Block` interface stays — only how it's read changes.
+
+**Build expectation: red across Tasks 6–22.** Task 6 rewrites `state.ts` to remove `state.blocks`; the 11 Layer 3 ops and 3 Layer 2 utilities still reference `state.blocks` until each is migrated (Tasks 9–23). During this window, `npm run build --workspace=packages/core` will fail with many errors about `state.blocks` not existing. Verify per-task progress via vitest on a single file: `npm test --workspace=packages/core -- <file>.test`. After Task 23 (the last Layer 3 op migration), `npm run build` should pass again.
+
+Outside `packages/core/src/state/`, **no other source code consumes `state.blocks`** (verified via `grep -rn "state\.blocks" packages/core/src --include="*.ts"`). The legacy pre-Phase-4a path-based state files (`state/transformations.ts`, `state/find-path.ts`, `state/formatting.ts`, `state/extract-text.ts`, `state/dirty.ts`, `state/initial-state.ts`, `state/node-operations.ts`, `state/text-utils.ts`) operate on `StateNode` (a different legacy type in `state-node.ts`), NOT on `State` — they are unaffected by P4e.
 
 ### Task 6: Rewrite `state/state.ts` as a Y.Doc wrapper
 
@@ -1536,19 +1561,38 @@ git commit -m "refactor(p4e): span-iteration uses getBlock"
 
 ## Sub-phase 4e.3 — Migrate Layer 3 operations to Y.Doc transactions
 
-Each Layer 3 op is migrated individually. The pattern for each:
+### Canonical migration pattern (READ FIRST)
 
-1. The op's signature stays the same: `(state: State, ...args) => OperationResult`.
-2. Internally, the op:
-   - Reads block(s) it needs via `getBlock(state, id)`.
-   - Validates inputs (throw early if block missing / wrong shape).
-   - Opens a Y.Doc transaction via `runTransaction(state.doc, () => { ... })` and mutates the Y types inside.
-   - **Mutations** go through Y.Map / Y.Array / Y.Text APIs (e.g., `yBlock.set("attrs", buildYAttrs(...))`, `yItems.delete(index, count)`, `yText.insert(offset, text)`).
-3. After the transaction commits, the op returns `OperationResult { state, dirtyIds }`:
-   - `state`: a new `State` instance wrapping the *same* `Y.Doc` but with a fresh `SnapshotCache` (so snapshot reads after the op see the mutated state).
-   - `dirtyIds`: the set captured by `runTransaction`'s afterTransaction listener.
+Every Layer 3 op migration in this sub-phase follows the same pattern. Don't deviate.
 
-The helper `applyOperation(state, fn)` encapsulates this pattern.
+**1. PRESERVE the legacy signature byte-for-byte.** Don't rename parameters, don't reorder, don't change the return type. The migration is "swap internals; keep contract." Run `cat packages/core/src/state/<op>.ts` to verify the current signature; copy it into the new file unchanged.
+
+**2. STRUCTURALLY PORT the legacy algorithm.** Don't rewrite from scratch. The legacy file's logic — error messages, edge cases, sibling-pointer wiring, normalizeSpan calls, cascade-delete recursion, mergeAttrs semantics, contentBlockId rewriting — has been validated by the existing test suite. The migration replaces:
+
+   | Legacy pattern | Y.Doc replacement |
+   |---|---|
+   | `state.blocks.get(id)` | `getBlock(state, id)` (returns `Block \| null`) |
+   | `if (!block)` | `if (block === null)` |
+   | `state.blocks.set(id, block)` | inside a transaction: `getBlocksMap(state.doc).set(id, buildYBlock({...}))` to replace OR mutate the existing Y.Map's fields in place |
+   | `state.blocks.delete(id)` | `getBlocksMap(state.doc).delete(id)` |
+   | `updateBlock(block, partial)` | inside a transaction: mutate the block's Y.Map fields directly (`yBlock.set("nextSiblingId", newVal)`, etc.); avoid full-Y.Map replacement unless absolutely necessary |
+   | `{ ...state, blocks: ... }` | `applyOperation(state, () => { ... })` returning `OperationResult` |
+   | `createInlineContent([...])` | manipulate the existing `Y.Array<Y.Map>` in place via `yItems.insert(idx, [yItem])`, `yItems.delete(idx, count)` — OR replace wholesale: `yBlock.set("inlineContent", buildYInlineContent({items: [...]}))` |
+   | `createTextItem(text, attrs)` | `buildYInlineItem({ kind: "text", text, attrs })` |
+   | `createEmbedItem(type, props, attrs)` | `buildYInlineItem({ kind: "embed", embedType: type, properties: props, attrs })` |
+   | `mergeAttrs(existing, incoming)` | Keep the same function (import from a shared helper — see Task 12.5 below) |
+
+**3. ERROR MESSAGES preserved verbatim.** Tests assert specific error strings (e.g., `"deleteRange: anchor block \"...\" is a container, not a leaf"`). Don't rephrase. Copy from the legacy file.
+
+**4. RETURN VALUE preserved.** `OperationResult { state, dirtyIds }` only — no extension fields. If the legacy returns extra info via `dirtyIds` membership (e.g., "the new block's id is in dirtyIds"), keep that contract.
+
+**5. PREFER IN-PLACE Y.Map FIELD MUTATIONS over full-Y.Map replacement.** For example, to update a block's `nextSiblingId`: do `yBlock.set("nextSiblingId", newVal)`, not `getBlocksMap(state.doc).set(id, buildYBlock({...allFields, nextSiblingId: newVal}))`. Full-replacement loses Y.Text identity for any text items in the block.
+
+**6. Y.Text identity preservation for inline-content edits.** When inserting/deleting text within an existing run, mutate that run's `Y.Text` directly (`yText.insert(offset, str)`, `yText.delete(offset, count)`). When the operation requires creating new inline runs (different attrs, splits, etc.), build fresh items via `buildYInlineItem`. Avoid rebuilding entire `inlineContent` Y.Array unless the structural change demands it.
+
+**7. dirtyIds is captured automatically** by `applyOperation`'s `runTransaction` wrapper — DON'T construct dirtyIds manually. Every Y type mutation inside the transaction is observed; the owning BlockId is added to the result.
+
+The helper `applyOperation(state, fn)` (introduced in Task 12) encapsulates this pattern.
 
 ### Task 12: Add `applyOperation` helper to `state.ts`
 
@@ -1619,12 +1663,74 @@ npm test --workspace=packages/core -- state.test
 
 Expected: fails — `applyOperation` not exported.
 
-- [ ] **Step 3: Add `applyOperation` to `state/state.ts`**
+- [ ] **Step 3: Update `state/state.ts` (consolidated form)**
 
-Append to `packages/core/src/state/state.ts`:
+Replace the entire contents of `packages/core/src/state/state.ts` with the consolidated form below. This combines Task 6's content with the new `applyOperation` and `freshState` helpers, and is the final shape `state.ts` will have until Sub-phase 4e.4.
 
 ```typescript
-import { runTransaction } from "./yjs-doc";
+import * as Y from "yjs";
+import type { Block } from "./block";
+import type { BlockId } from "./block-id";
+import { createYDoc, getMetaMap, runTransaction } from "./yjs-doc";
+import {
+  createSnapshotCache,
+  getBlockSnapshot,
+  getEmbedContentSnapshot,
+  type SnapshotCache,
+} from "./snapshot";
+
+/**
+ * Opaque document-state container. Internally a Y.Doc; consumers read
+ * via the snapshot accessors `getBlock`, `getEmbedContent`. `rootId` is
+ * a stable BlockId — the entry point to the main document tree.
+ *
+ * Snapshots are cached per State instance; ops that produce a new State
+ * inherit the underlying Y.Doc but get a fresh snapshot cache.
+ */
+export interface State {
+  readonly rootId: BlockId;
+  readonly doc: Y.Doc;
+  readonly snapshotCache: SnapshotCache;
+}
+
+export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
+  const doc = args.doc ?? createYDoc({ rootId: args.rootId });
+  const meta = getMetaMap(doc);
+  if (meta.get("rootId") === undefined) {
+    doc.transact(() => meta.set("rootId", args.rootId));
+  }
+  return Object.freeze({
+    rootId: args.rootId,
+    doc,
+    snapshotCache: createSnapshotCache(),
+  });
+}
+
+export function getBlock(state: State, id: BlockId): Block | null {
+  return getBlockSnapshot(state.doc, id, state.snapshotCache);
+}
+
+export function getEmbedContent(state: State, id: BlockId): Block | null {
+  return getEmbedContentSnapshot(state.doc, id, state.snapshotCache);
+}
+
+export interface OperationResult {
+  readonly state: State;
+  readonly dirtyIds: ReadonlySet<BlockId>;
+}
+
+/**
+ * Mint a fresh State referencing the same Y.Doc but with an empty
+ * SnapshotCache. Used after operations that mutated the Y.Doc outside
+ * of `applyOperation` (e.g., Y.UndoManager.undo / .redo).
+ */
+export function freshState(state: State): State {
+  return Object.freeze({
+    rootId: state.rootId,
+    doc: state.doc,
+    snapshotCache: createSnapshotCache(),
+  });
+}
 
 /**
  * Run a mutating `fn` inside a Y.Doc transaction and produce an
@@ -1633,27 +1739,9 @@ import { runTransaction } from "./yjs-doc";
  */
 export function applyOperation(state: State, fn: () => void): OperationResult {
   const { dirtyIds } = runTransaction(state.doc, fn);
-  const newState: State = Object.freeze({
-    rootId: state.rootId,
-    doc: state.doc,
-    snapshotCache: createSnapshotCache(),
-  });
-  return { state: newState, dirtyIds };
+  return { state: freshState(state), dirtyIds };
 }
 ```
-
-Add `createSnapshotCache` to the imports at the top of the file:
-
-```typescript
-import {
-  createSnapshotCache,
-  getBlockSnapshot,
-  getEmbedContentSnapshot,
-  type SnapshotCache,
-} from "./snapshot";
-```
-
-(If already imported, ensure `createSnapshotCache` is in the named imports list.)
 
 - [ ] **Step 4: Run tests**
 
@@ -1668,6 +1756,134 @@ Expected: all pass.
 ```bash
 git add packages/core/src/state/state.ts packages/core/src/state/state.test.ts
 git commit -m "feat(p4e): add applyOperation helper for Layer 3 ops"
+```
+
+---
+
+### Task 12.5: Add shared `state/y-utils.ts` helpers
+
+**Files:**
+- Create: `packages/core/src/state/y-utils.ts`
+- Create: `packages/core/src/state/y-utils.test.ts`
+
+The Layer 3 op migrations need a shared `yMapAsObject` helper (converts a `Y.Map<unknown>` to a plain object snapshot) plus possibly a `cloneInlineItem` helper. Extracting them now avoids the per-op duplication the from-scratch versions would otherwise have.
+
+- [ ] **Step 1: Write the failing test**
+
+```typescript
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import { yMapAsObject, cloneInlineItem } from "./y-utils";
+
+describe("y-utils", () => {
+  describe("yMapAsObject", () => {
+    it("returns a plain object snapshot of a Y.Map", () => {
+      const yMap = new Y.Map<unknown>();
+      yMap.set("a", 1);
+      yMap.set("b", "two");
+      expect(yMapAsObject(yMap)).toEqual({ a: 1, b: "two" });
+    });
+
+    it("returns {} for an empty Y.Map", () => {
+      expect(yMapAsObject(new Y.Map<unknown>())).toEqual({});
+    });
+  });
+
+  describe("cloneInlineItem", () => {
+    it("clones a text item with a fresh Y.Text", () => {
+      const src = new Y.Map<unknown>();
+      src.set("kind", "text");
+      const srcText = new Y.Text();
+      srcText.insert(0, "hello");
+      src.set("text", srcText);
+      src.set("attrs", new Y.Map<unknown>());
+      const clone = cloneInlineItem(src);
+      expect(clone.get("kind")).toBe("text");
+      expect((clone.get("text") as Y.Text).toString()).toBe("hello");
+      expect(clone.get("text")).not.toBe(srcText); // fresh Y.Text
+    });
+
+    it("clones an embed item with fresh attrs and properties Y.Maps", () => {
+      const src = new Y.Map<unknown>();
+      src.set("kind", "embed");
+      src.set("embedType", "image");
+      const srcAttrs = new Y.Map<unknown>();
+      src.set("attrs", srcAttrs);
+      const srcProps = new Y.Map<unknown>();
+      srcProps.set("src", "/x");
+      src.set("properties", srcProps);
+      const clone = cloneInlineItem(src);
+      expect(clone.get("kind")).toBe("embed");
+      expect(clone.get("embedType")).toBe("image");
+      expect((clone.get("properties") as Y.Map<unknown>).get("src")).toBe("/x");
+      expect(clone.get("attrs")).not.toBe(srcAttrs);
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+```bash
+npm test --workspace=packages/core -- y-utils.test
+```
+
+Expected: module not found.
+
+- [ ] **Step 3: Implement `state/y-utils.ts`**
+
+```typescript
+import * as Y from "yjs";
+import { buildYInlineItem } from "./y-block";
+
+/**
+ * Snapshot a Y.Map's current entries as a plain object. Used by Layer 3
+ * ops to read attrs/properties Y.Maps into the value-shape that builder
+ * helpers expect.
+ */
+export function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) obj[key] = value;
+  return obj;
+}
+
+/**
+ * Deep-clone a Y.Map representing an inline item (TextItem or EmbedItem).
+ * The clone has fresh Y.Text / Y.Map identity — does NOT share state with
+ * the source. Used by ops like splitBlockAtPosition and mergeAdjacentBlocks
+ * that move items between blocks.
+ */
+export function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
+  const kind = src.get("kind") as "text" | "embed";
+  if (kind === "text") {
+    return buildYInlineItem({
+      kind: "text",
+      text: (src.get("text") as Y.Text).toString(),
+      attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    });
+  }
+  return buildYInlineItem({
+    kind: "embed",
+    embedType: src.get("embedType") as string,
+    attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
+  });
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- y-utils.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/y-utils.ts packages/core/src/state/y-utils.test.ts
+git commit -m "feat(p4e): add shared y-utils helpers for Layer 3 op migrations"
 ```
 
 ---
@@ -1810,127 +2026,81 @@ git commit -m "refactor(p4e): migrate setBlockType to Y.Doc transaction"
 
 ---
 
-### Task 15: Migrate `insertBlock`
+### Task 15: Migrate `insertBlock` (preserve legacy signature)
 
 **Files:**
 - Modify: `packages/core/src/state/insert-block.ts`
 - Modify: `packages/core/src/state/insert-block.test.ts`
 
-- [ ] **Step 1: Read current implementation**
+**Legacy signature (DO NOT CHANGE):** `insertBlock(state, parentId, beforeSiblingId, args, allocator)` where `args` is `{ type, attrs?, inlineContent? }` and the new id is produced internally by the allocator. The `InsertBlockArgs` type from the legacy export is preserved.
+
+- [ ] **Step 1: Read the legacy implementation**
 
 ```bash
 cat packages/core/src/state/insert-block.ts
 ```
 
-Note the existing `InsertBlockArgs` interface and sibling-link manipulation logic. The Y.Doc migration preserves this logic structurally.
+Note: the signature is `insertBlock(state, parentId, beforeSiblingId, args, allocator)`, NOT the args-bag form. Preserve this exactly. The `InsertBlockArgs` interface (exported from this file) contains the per-block content payload only (`type`, `attrs?`, `inlineContent?`).
 
-- [ ] **Step 2: Update test accessor pattern**
+- [ ] **Step 2: Update test accessors**
 
-Replace `result.state.blocks.get(id)` with `getBlock(result.state, id as BlockId)` throughout `insert-block.test.ts`. Add `import { getBlock } from "./state";`.
+Replace `result.state.blocks.get(id)` with `getBlock(result.state, id as BlockId)` throughout `insert-block.test.ts`. Add `import { getBlock } from "./state";`. Test invocations of `insertBlock(...)` keep the same argument order.
 
-- [ ] **Step 3: Rewrite `insert-block.ts`**
+- [ ] **Step 3: Structurally port `insert-block.ts`**
 
-Replace contents with:
+Replicate the legacy algorithm under the canonical migration pattern (Sub-phase 4e.3 header). Skeleton:
 
 ```typescript
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
-import type { BlockId } from "./block-id";
+import type { BlockId, IdAllocator } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent } from "./inline-content";
 import { getBlocksMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 
 export interface InsertBlockArgs {
-  id: BlockId;
   type: string;
   attrs?: ReadonlyAttrs;
   inlineContent?: InlineContent | null;
-  /** Parent under which to insert. */
-  parentId: BlockId;
-  /**
-   * Sibling reference for placement. If null, insert at end of parent's
-   * child list. If a BlockId, insert immediately before that sibling.
-   */
-  beforeSiblingId: BlockId | null;
 }
 
 /**
- * Insert a new block under `parentId`. Sibling-pointer wiring is
- * recomputed for the affected blocks (new block, prev sibling if any,
- * next sibling if any, and the parent's firstChildId/lastChildId).
+ * Insert a new block under `parentId`. The new block's id is produced
+ * by `allocator`. Sibling pointers and parent's firstChild/lastChild
+ * are re-wired. Throws on any of: parentId unknown, beforeSiblingId
+ * unknown, beforeSiblingId not a child of parentId.
  *
- * Throws if parentId is unknown, beforeSiblingId is unknown, or
- * the new block id already exists.
+ * Returns OperationResult with dirtyIds containing the new block id
+ * and any block whose pointers were re-wired.
  */
-export function insertBlock(state: State, args: InsertBlockArgs): OperationResult {
-  if (getBlock(state, args.id) !== null) {
-    throw new Error(`insertBlock: block id "${args.id}" already exists`);
-  }
-  const parent = getBlock(state, args.parentId);
-  if (parent === null) {
-    throw new Error(`insertBlock: parent "${args.parentId}" not found`);
-  }
-  if (args.beforeSiblingId !== null) {
-    const beforeSib = getBlock(state, args.beforeSiblingId);
-    if (beforeSib === null) {
-      throw new Error(`insertBlock: beforeSibling "${args.beforeSiblingId}" not found`);
-    }
-    if (beforeSib.parentId !== args.parentId) {
-      throw new Error(
-        `insertBlock: beforeSibling "${args.beforeSiblingId}" is not a child of "${args.parentId}"`,
-      );
-    }
-  }
+export function insertBlock(
+  state: State,
+  parentId: BlockId,
+  beforeSiblingId: BlockId | null,
+  args: InsertBlockArgs,
+  allocator: IdAllocator,
+): OperationResult {
+  // Validate (preserve legacy error messages from packages/core/src/state/insert-block.ts):
+  //   "insertBlock: parent \"...\" not found"
+  //   "insertBlock: beforeSibling \"...\" not found"
+  //   "insertBlock: beforeSibling \"...\" is not a child of parent \"...\""
+  // Read parent + beforeSibling via getBlock; throw if missing or wrong parent.
 
-  // Determine new block's prev/next pointers.
-  let prevSiblingId: BlockId | null;
-  let nextSiblingId: BlockId | null;
-  if (args.beforeSiblingId === null) {
-    // Append at end.
-    prevSiblingId = parent.lastChildId;
-    nextSiblingId = null;
-  } else {
-    nextSiblingId = args.beforeSiblingId;
-    const sib = getBlock(state, args.beforeSiblingId)!;
-    prevSiblingId = sib.prevSiblingId;
-  }
+  // Determine new block's prev/next pointers per the legacy logic:
+  //   - beforeSiblingId === null → append at end: prevSiblingId = parent.lastChildId, nextSiblingId = null
+  //   - beforeSiblingId !== null → insert before sib: prevSiblingId = sib.prevSiblingId, nextSiblingId = beforeSiblingId
 
-  return applyOperation(state, () => {
-    const yBlocks = getBlocksMap(state.doc);
-
-    // Create new block's Y.Map and insert.
-    yBlocks.set(
-      args.id,
-      buildYBlock({
-        type: args.type,
-        attrs: args.attrs ?? {},
-        parentId: args.parentId,
-        prevSiblingId,
-        nextSiblingId,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: args.inlineContent ?? null,
-      }),
-    );
-
-    // Re-wire prev sibling's nextSiblingId.
-    if (prevSiblingId !== null) {
-      const yPrev = yBlocks.get(prevSiblingId)!;
-      yPrev.set("nextSiblingId", args.id);
-    }
-    // Re-wire next sibling's prevSiblingId.
-    if (nextSiblingId !== null) {
-      const yNext = yBlocks.get(nextSiblingId)!;
-      yNext.set("prevSiblingId", args.id);
-    }
-    // Re-wire parent's firstChildId/lastChildId.
-    const yParent = yBlocks.get(args.parentId)!;
-    if (prevSiblingId === null) yParent.set("firstChildId", args.id);
-    if (nextSiblingId === null) yParent.set("lastChildId", args.id);
-  });
+  // Allocate the new id, then apply mutations inside applyOperation:
+  //   1. yBlocks.set(newId, buildYBlock({ type, attrs, parentId, prev, next, firstChildId: null, lastChildId: null, inlineContent }))
+  //   2. If prevSiblingId !== null: yBlocks.get(prev).set("nextSiblingId", newId)
+  //   3. If nextSiblingId !== null: yBlocks.get(next).set("prevSiblingId", newId)
+  //   4. If prevSiblingId === null: yParent.set("firstChildId", newId)
+  //   5. If nextSiblingId === null: yParent.set("lastChildId", newId)
 }
 ```
+
+Fill in the body following the legacy file's structure exactly. Use `applyOperation(state, () => { ... })` to capture dirtyIds automatically — don't construct the dirtyIds set manually.
 
 - [ ] **Step 4: Run tests**
 
@@ -1938,7 +2108,7 @@ export function insertBlock(state: State, args: InsertBlockArgs): OperationResul
 npm test --workspace=packages/core -- insert-block.test
 ```
 
-Expected: all pass.
+Expected: all pass. If a test still fails with a "block ... already exists" assertion that the legacy threw but the new doesn't, add that check too (the legacy guards against id collision via the allocator).
 
 - [ ] **Step 5: Commit**
 
@@ -1965,7 +2135,22 @@ Note the cascade-delete TODO for embed contents — keep that TODO untouched in 
 
 - [ ] **Step 2: Update test accessors** (replace `state.blocks.get` → `getBlock(state, ...)`).
 
-- [ ] **Step 3: Rewrite `remove-block.ts`**
+- [ ] **Step 3: Structurally port `remove-block.ts`**
+
+Replicate the legacy algorithm from `packages/core/src/state/remove-block.ts` exactly (read it first). Critical details to preserve:
+
+- **Error messages verbatim:**
+  - `"removeBlock: block \"...\" not found"`
+  - `"removeBlock: cannot remove the document root \"...\""` (NOT "cannot remove root")
+  - `"removeBlock: block \"...\" has no parentId (orphan)"` (the defensive non-root, no-parent guard)
+  - `"removeBlock: parent \"...\" of \"...\" not found"`
+  - `"removeBlock: prev sibling \"...\" not found"`
+  - `"removeBlock: next sibling \"...\" not found"`
+- **Root check uses `blockId === state.rootId`**, NOT `block.parentId === null` (which is also asserted separately as a corruption guard).
+- **`collectSubtreeIds` is cycle-defended** via a `Set<BlockId>` accumulator. Use a Set, not an Array. Skip already-visited ids.
+- **Preserve TODO comment** for P6 cascade-delete (don't remove it).
+
+Skeleton:
 
 ```typescript
 import type { State, OperationResult } from "./state";
@@ -1973,37 +2158,36 @@ import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getBlocksMap } from "./yjs-doc";
 
-/**
- * Remove a block (and its entire subtree) from the document. Re-wires
- * sibling and parent pointers around the removed block.
- *
- * TODO (P6): cascade-delete embed-referenced content blocks from
- * `state.embedContents` for any embeds in the removed subtree's
- * inlineContent. The `state.embedContents` map doesn't yet exist; today
- * no code creates embed-referenced blocks so no orphaning happens.
- *
- * Throws if the block does not exist or is the root.
- */
 export function removeBlock(state: State, blockId: BlockId): OperationResult {
   const block = getBlock(state, blockId);
-  if (block === null) {
-    throw new Error(`removeBlock: block "${blockId}" not found`);
+  if (block === null) throw new Error(`removeBlock: block "${blockId}" not found`);
+  if (blockId === state.rootId) {
+    throw new Error(`removeBlock: cannot remove the document root "${blockId}"`);
   }
   if (block.parentId === null) {
-    throw new Error(`removeBlock: cannot remove root "${blockId}"`);
+    throw new Error(`removeBlock: block "${blockId}" has no parentId (orphan)`);
+  }
+  const parent = getBlock(state, block.parentId);
+  if (parent === null) {
+    throw new Error(`removeBlock: parent "${block.parentId}" of "${blockId}" not found`);
   }
 
   return applyOperation(state, () => {
     const yBlocks = getBlocksMap(state.doc);
 
-    // Re-wire sibling pointers.
+    // Collect subtree ids (cycle-defended via Set).
+    const subtreeIds = new Set<BlockId>();
+    collectSubtreeIds(state, blockId, subtreeIds);
+
+    // Re-wire prev sibling.
     if (block.prevSiblingId !== null) {
       yBlocks.get(block.prevSiblingId)!.set("nextSiblingId", block.nextSiblingId);
     }
+    // Re-wire next sibling.
     if (block.nextSiblingId !== null) {
       yBlocks.get(block.nextSiblingId)!.set("prevSiblingId", block.prevSiblingId);
     }
-    // Re-wire parent's firstChild/lastChild if affected.
+    // Re-wire parent's first/last child if affected.
     const yParent = yBlocks.get(block.parentId!)!;
     if (yParent.get("firstChildId") === blockId) {
       yParent.set("firstChildId", block.nextSiblingId);
@@ -2012,24 +2196,28 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
       yParent.set("lastChildId", block.prevSiblingId);
     }
 
-    // Collect subtree ids to delete (children-only walk).
-    const toDelete: BlockId[] = [];
-    collectSubtreeIds(state, blockId, toDelete);
-    for (const id of toDelete) {
+    // Delete the subtree.
+    for (const id of subtreeIds) {
       yBlocks.delete(id);
     }
   });
+
+  // TODO (P6): cascade-delete embed-referenced content blocks from
+  // state.embedContents for any embeds in the removed subtree's
+  // inlineContent. See legacy file for the full TODO comment.
 }
 
-function collectSubtreeIds(state: State, rootId: BlockId, out: BlockId[]): void {
-  out.push(rootId);
+function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): void {
+  if (out.has(rootId)) return;
   const block = getBlock(state, rootId);
   if (block === null) return;
-  let childId = block.firstChildId;
-  while (childId !== null) {
-    collectSubtreeIds(state, childId, out);
-    const child = getBlock(state, childId);
-    childId = child?.nextSiblingId ?? null;
+  out.add(rootId);
+  let current = block.firstChildId;
+  while (current) {
+    if (out.has(current)) break; // defensive: sibling cycle
+    collectSubtreeIds(state, current, out);
+    const c = getBlock(state, current);
+    current = c?.nextSiblingId ?? null;
   }
 }
 ```
@@ -2057,58 +2245,48 @@ git commit -m "refactor(p4e): migrate removeBlock to Y.Doc transaction"
 - Modify: `packages/core/src/state/insert-text.ts`
 - Modify: `packages/core/src/state/insert-text.test.ts`
 
-This op is more involved because it mutates the Y.Text contents of an inline item. Three cases:
+**Critical:** the legacy `insertText` uses helper functions (`splitInlineContentAtOffset`, `mergeAdjacentTextItems`, `findItemAtOffset`) to compute the new inline-content shape, then replaces the block's entire inlineContent with the result. The Y.Doc version has two valid strategies:
 
-1. **Insertion at a text-item boundary with matching attrs:** mutate the neighboring text item's Y.Text via `insert(offset, text)`.
-2. **Insertion inside a text item with matching attrs:** mutate that item's Y.Text via `insert(within, text)`.
-3. **Insertion at a boundary or inside an item with DIFFERENT attrs:** split the existing text item (if mid-item), insert a new Y.Map item for the new text, re-wire the inlineContent Y.Array.
+**Strategy A (simpler, structural-port):** compute the new inline-content shape using the existing helpers (which operate on plain `InlineItem[]` arrays), then `yBlock.set("inlineContent", buildYInlineContent({items: newItems}))`. This recreates the Y.Array and ALL Y.Text identities. Simpler but loses Y.Text per-character CRDT identity on every keystroke.
 
-The legacy implementation uses `mergeAdjacentTextItems` to coalesce after insertion. The Y.Doc version achieves the same by appending a new Y.Map item at the splice point unless attrs match — in which case it inserts into the neighboring Y.Text directly (which preserves per-character CRDT identity, the whole point of Y.Text).
+**Strategy B (Y.Text-preserving):** when the insertion lands inside (or adjacent to) a text run with matching attrs, mutate that run's existing Y.Text via `yText.insert(offset, text)`. Only fall back to structural replacement when the insertion requires a new run (different attrs, between embeds, etc.). This is what Yjs is FOR — per-character CRDT identity across edits.
+
+**Per Decision C ("per-character granularity required for Google Docs-grade collab"), use Strategy B.** But the implementer should START with Strategy A (simpler, correct via the existing test suite), get it green, then refactor to Strategy B in a follow-up commit within this task.
 
 - [ ] **Step 1: Update tests** (accessor migration as in prior tasks).
 
-- [ ] **Step 2: Rewrite `insert-text.ts`**
+- [ ] **Step 2: Implement Strategy A first** (`insert-text.ts`)
+
+Replicate the legacy algorithm's structure exactly. The legacy uses `splitInlineContentAtOffset` + insertion + `mergeAdjacentTextItems` on plain JS arrays. Convert the block's snapshot inlineContent, run these helpers, then write back via `buildYInlineContent`.
 
 ```typescript
-import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { attrsEqual } from "./attrs";
-import { inlineContentLength } from "./inline-content";
+import {
+  inlineContentLength,
+  splitInlineContentAtOffset,
+  mergeAdjacentTextItems,
+  type InlineItem,
+} from "./inline-content";
 import { getBlocksMap } from "./yjs-doc";
-import { buildYInlineItem } from "./y-block";
+import { buildYInlineContent } from "./y-block";
 
-/**
- * Insert text into a leaf block's inlineContent at `position`. Preserves
- * Y.Text per-character CRDT identity for unmodified runs: if the
- * insertion lands inside (or adjacent to) a text item whose attrs
- * match the incoming `attrs`, the mutation is a Y.Text.insert call on
- * that existing run rather than a new item.
- *
- * Throws if the block is missing, not a leaf, or the offset is out of
- * range.
- */
 export function insertText(
   state: State,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  if (text === "") {
-    return { state, dirtyIds: new Set<BlockId>() };
-  }
+  if (text === "") return { state, dirtyIds: new Set<BlockId>() };
 
   const block = getBlock(state, position.blockId);
-  if (block === null) {
-    throw new Error(`insertText: block "${position.blockId}" not found`);
-  }
+  // Legacy error messages verbatim:
+  if (block === null) throw new Error(`insertText: block "${position.blockId}" not found`);
   if (block.inlineContent === null) {
-    throw new Error(
-      `insertText: block "${position.blockId}" is not a leaf (no inlineContent)`,
-    );
+    throw new Error(`insertText: block "${position.blockId}" is not a leaf (no inlineContent)`);
   }
   const totalLen = inlineContentLength(block.inlineContent);
   if (position.offset < 0 || position.offset > totalLen) {
@@ -2117,173 +2295,86 @@ export function insertText(
     );
   }
 
+  // Compute new items via the existing pure helpers (mirror legacy logic).
+  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
+  const newRun: InlineItem = { kind: "text", text, attrs };
+  const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
+
   return applyOperation(state, () => {
     const yBlock = getBlocksMap(state.doc).get(position.blockId)!;
-    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    insertTextIntoYItems(yItems, position.offset, text, attrs);
+    yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
   });
-}
-
-/**
- * Walk yItems to find the insertion point, then either splice into an
- * existing Y.Text (if attrs match) or insert a fresh text item Y.Map.
- */
-function insertTextIntoYItems(
-  yItems: Y.Array<Y.Map<unknown>>,
-  offset: number,
-  text: string,
-  attrs: ReadonlyAttrs,
-): void {
-  let cursor = 0;
-  for (let i = 0; i < yItems.length; i++) {
-    const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text"
-      ? (yItem.get("text") as Y.Text).length
-      : 1;
-    const itemEnd = cursor + itemLen;
-
-    // Insertion lands strictly before this item: insert before yItem.
-    if (offset < cursor) break; // unreachable due to monotone walk; defensive
-
-    if (offset >= cursor && offset < itemEnd && kind === "text") {
-      // Inside a text item. Match attrs?
-      const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-      if (attrsEqual(itemAttrs, attrs)) {
-        // Splice into the existing Y.Text — preserves CRDT identity.
-        const yText = yItem.get("text") as Y.Text;
-        yText.insert(offset - cursor, text);
-        return;
-      }
-      // Different attrs: split the item into [prefix, NEW, suffix].
-      splitTextItemAndInsert(yItems, i, yItem, offset - cursor, text, attrs);
-      return;
-    }
-
-    if (offset === itemEnd && kind === "text") {
-      // Right at a text item's trailing edge. Match attrs?
-      const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-      if (attrsEqual(itemAttrs, attrs)) {
-        const yText = yItem.get("text") as Y.Text;
-        yText.insert(itemLen, text);
-        return;
-      }
-      // Different attrs from this trailing edge: check the next item.
-      if (i + 1 < yItems.length) {
-        const next = yItems.get(i + 1);
-        if (next.get("kind") === "text") {
-          const nextAttrs = yMapAsObject(next.get("attrs") as Y.Map<unknown>);
-          if (attrsEqual(nextAttrs, attrs)) {
-            (next.get("text") as Y.Text).insert(0, text);
-            return;
-          }
-        }
-      }
-      // No neighbor match: insert a new text item after this one.
-      yItems.insert(i + 1, [buildYInlineItem({ kind: "text", text, attrs })]);
-      return;
-    }
-
-    if (offset === cursor) {
-      // Inserting at the leading edge of yItem.
-      // If yItem is text and attrs match, splice into its Y.Text at 0.
-      if (kind === "text") {
-        const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-        if (attrsEqual(itemAttrs, attrs)) {
-          (yItem.get("text") as Y.Text).insert(0, text);
-          return;
-        }
-      }
-      // Embed boundary or different-attrs leading edge: insert a new item before yItem.
-      yItems.insert(i, [buildYInlineItem({ kind: "text", text, attrs })]);
-      return;
-    }
-
-    cursor = itemEnd;
-  }
-
-  // Falls through: offset is at end-of-content. If the last item is a
-  // text item with matching attrs, splice into its Y.Text; otherwise
-  // append a new text item.
-  if (yItems.length > 0) {
-    const last = yItems.get(yItems.length - 1);
-    if (last.get("kind") === "text") {
-      const lastAttrs = yMapAsObject(last.get("attrs") as Y.Map<unknown>);
-      if (attrsEqual(lastAttrs, attrs)) {
-        const yText = last.get("text") as Y.Text;
-        yText.insert(yText.length, text);
-        return;
-      }
-    }
-  }
-  yItems.push([buildYInlineItem({ kind: "text", text, attrs })]);
-}
-
-function splitTextItemAndInsert(
-  yItems: Y.Array<Y.Map<unknown>>,
-  index: number,
-  yItem: Y.Map<unknown>,
-  within: number,
-  newText: string,
-  newAttrs: ReadonlyAttrs,
-): void {
-  const yText = yItem.get("text") as Y.Text;
-  const fullText = yText.toString();
-  const originalAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-  const prefix = fullText.slice(0, within);
-  const suffix = fullText.slice(within);
-
-  // Truncate the existing item to prefix only. (Use Y.Text delete to keep its identity.)
-  if (suffix.length > 0) {
-    yText.delete(within, suffix.length);
-  }
-
-  // Build replacements after the existing (now-prefix) item.
-  const replacements: Y.Map<unknown>[] = [];
-  if (prefix.length === 0) {
-    // Existing item is now empty; remove it.
-    yItems.delete(index, 1);
-    replacements.push(buildYInlineItem({ kind: "text", text: newText, attrs: newAttrs }));
-    if (suffix.length > 0) {
-      replacements.push(
-        buildYInlineItem({ kind: "text", text: suffix, attrs: originalAttrs }),
-      );
-    }
-    yItems.insert(index, replacements);
-    return;
-  }
-
-  // Existing item kept as prefix; insert NEW + suffix after it.
-  replacements.push(buildYInlineItem({ kind: "text", text: newText, attrs: newAttrs }));
-  if (suffix.length > 0) {
-    replacements.push(
-      buildYInlineItem({ kind: "text", text: suffix, attrs: originalAttrs }),
-    );
-  }
-  yItems.insert(index + 1, replacements);
-}
-
-function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of yMap.entries()) obj[key] = value;
-  return obj;
 }
 ```
 
-- [ ] **Step 3: Run tests**
+Commit Strategy A first; then proceed to Strategy B as a follow-up commit within this task.
+
+- [ ] **Step 2b: Run tests, commit Strategy A**
 
 ```bash
 npm test --workspace=packages/core -- insert-text.test
+git add packages/core/src/state/insert-text.ts packages/core/src/state/insert-text.test.ts
+git commit -m "refactor(p4e): migrate insertText (strategy A: full-replace)"
 ```
 
-Expected: all pass. If any fail because the legacy implementation merged adjacent same-attrs items differently than the Y.Text-preserving version, the assertions need an audit — `insertText` is allowed to coalesce by inserting into an existing Y.Text (which structurally yields one item, same as before).
+- [ ] **Step 2c: Refactor to Strategy B** (Y.Text-preserving)
 
-- [ ] **Step 4: Commit**
+Only enter this step if Strategy A is green. Goal: when the insertion lands inside or adjacent to a text run with matching attrs, mutate that run's existing `Y.Text` directly via `yText.insert(within, text)` — preserves per-character CRDT identity. For all other cases, fall back to the Strategy A path (full-replace).
+
+The decision tree:
+
+```typescript
+// Find which item contains (or is adjacent to) the insertion point.
+const { itemIndex, withinItem } = findItemAtOffset(block.inlineContent, position.offset);
+
+// Case 1: insertion lands inside a text item with matching attrs → in-place Y.Text mutation.
+// Case 2: insertion at a text item's trailing edge AND next item is text-with-matching-attrs → mutate next item's Y.Text at offset 0.
+// Case 3: insertion at a text item's trailing edge AND no matching neighbor → fall back to full-replace.
+// Case 4: insertion at a non-text item boundary (embed) → fall back to full-replace.
+
+import * as Y from "yjs";
+import { attrsEqual } from "./attrs";
+import { findItemAtOffset } from "./inline-content";
+
+// Inside the existing applyOperation block, prefer the in-place mutation:
+const yBlock = getBlocksMap(state.doc).get(position.blockId)!;
+const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+const { itemIndex, withinItem } = findItemAtOffset(block.inlineContent, position.offset);
+if (itemIndex < yItems.length) {
+  const yItem = yItems.get(itemIndex);
+  if (yItem.get("kind") === "text") {
+    const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    if (attrsEqual(itemAttrs, attrs)) {
+      (yItem.get("text") as Y.Text).insert(withinItem, text);
+      return; // done; CRDT identity preserved
+    }
+  }
+}
+// Otherwise: fall back to Strategy A's full-replace path above.
+```
+
+Test that Y.Text identity is preserved across in-place insertions:
+
+```typescript
+// Append to insert-text.test.ts:
+it("preserves Y.Text identity when typing into a same-attrs run", () => {
+  // Build state with a single text item "hello" in a paragraph.
+  // Get the underlying Y.Text reference before insertText.
+  // Run insertText at offset 3 with the same attrs, inserting "X".
+  // Get the underlying Y.Text reference after. Should be the SAME Y.Text instance.
+  // (Strategy B preserves; Strategy A does not.)
+});
+```
+
+- [ ] **Step 2d: Run tests, commit Strategy B**
 
 ```bash
+npm test --workspace=packages/core -- insert-text.test
 git add packages/core/src/state/insert-text.ts packages/core/src/state/insert-text.test.ts
-git commit -m "refactor(p4e): migrate insertText to Y.Text-preserving mutations"
+git commit -m "refactor(p4e): insertText strategy B (Y.Text identity preservation)"
 ```
+
+If Strategy B test fails or feels too tricky, leave Strategy A in place and document Strategy B as a follow-up task (P14 perf work).
 
 ---
 
@@ -2305,37 +2396,32 @@ cat packages/core/src/state/apply-attrs.ts
 
 Replace `result.state.blocks.get(id)` → `getBlock(result.state, id as BlockId)` throughout the test file.
 
-- [ ] **Step 3: Rewrite `apply-attrs.ts`**
+- [ ] **Step 3: Structurally port `apply-attrs.ts`**
 
-The high-level approach: for each block in the Span, walk its Y.Array of items. For each affected text item, split at the boundary positions, then either update its `attrs` Y.Map in place (if the item is entirely within the range) or replace it with a new fresh item carrying merged attrs.
+**Critical:** the legacy uses a `mergeAttrs(existing, incoming)` helper that **DELETES keys whose incoming value is `undefined`** (documented behavior: pass `{bold: undefined}` to remove the bold attr). Don't replace with naive `{...existing, ...incoming}` spread — that keeps the `undefined` key.
 
-The minimal mutation pattern preserves Y.Text identity where possible: when an entire text item falls inside the range, mutate its `attrs` Y.Map in place rather than recreating the item. When the boundary cuts through a text item, split it (as in `splitTextItemAndInsert` from Task 17 but without inserting new text).
+**Embed items ARE affected** by the legacy `applyAttrsToRange` (their attrs get merged too). Don't skip them.
+
+Skeleton approach: walk the span via `iterateSpan`. For each block segment, walk inline items, apply attrs to those overlapping `[start, end)`. For partial-overlap text items, split (legacy logic).
 
 ```typescript
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
-import type { BlockId } from "./block-id";
+import { applyOperation } from "./state";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { inlineContentLength } from "./inline-content";
+import { mergeAttrs } from "./attrs"; // existing helper that handles undefined-deletion
 import { iterateSpan } from "./span-iteration";
 import { getBlocksMap } from "./yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "./y-block";
+import { yMapAsObject } from "./y-utils";
 
-/**
- * Apply (merge) `attrs` onto every text item within `span`. Existing
- * item attrs are kept; the new attrs overlay them via spread. Embed
- * items are unaffected (their attrs are NOT touched by this op).
- *
- * Splits text items at the span boundaries if needed.
- */
 export function applyAttrsToRange(
   state: State,
   span: Span,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  // Walk the span first to validate; iterateSpan throws on invalid spans.
+  // iterateSpan validates the span and yields per-block segments.
   const segments = Array.from(iterateSpan(state, span));
 
   return applyOperation(state, () => {
@@ -2349,10 +2435,6 @@ export function applyAttrsToRange(
   });
 }
 
-/**
- * Apply attrs to text items whose offset range overlaps [start, end).
- * Splits text items at the boundary if necessary.
- */
 function applyAttrsToBlockRange(
   yItems: Y.Array<Y.Map<unknown>>,
   start: number,
@@ -2369,74 +2451,50 @@ function applyAttrsToBlockRange(
     const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
     const itemEnd = cursor + itemLen;
 
-    if (itemEnd <= start) {
-      // Entirely before range.
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    if (cursor >= end) {
-      // Entirely after range; done.
-      break;
-    }
+    if (itemEnd <= start) { cursor = itemEnd; i++; continue; }
+    if (cursor >= end) break;
+
+    const existingAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    const merged = mergeAttrs(existingAttrs, newAttrs); // DELETES undefined keys per legacy contract
 
     if (kind === "embed") {
-      // Embeds are not affected by applyAttrsToRange (they have their own attrs API).
-      cursor = itemEnd;
-      i++;
-      continue;
+      // Embed is a single position; in-range → update attrs in place.
+      yItem.set("attrs", buildYAttrs(merged));
+      cursor = itemEnd; i++; continue;
     }
 
-    // Text item overlaps the range.
     const localStart = Math.max(0, start - cursor);
     const localEnd = Math.min(itemLen, end - cursor);
 
     if (localStart === 0 && localEnd === itemLen) {
-      // Entire item in range. Update its attrs in place (preserves Y.Text identity).
-      const existing = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-      const merged = Object.freeze({ ...existing, ...newAttrs });
+      // Entire text item in range — update attrs in place (preserves Y.Text identity).
       yItem.set("attrs", buildYAttrs(merged));
-      cursor = itemEnd;
-      i++;
-      continue;
+      cursor = itemEnd; i++; continue;
     }
 
-    // Partial overlap: split the item.
-    const yText = yItem.get("text") as Y.Text;
-    const fullText = yText.toString();
-    const existingAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-    const mergedAttrs = Object.freeze({ ...existingAttrs, ...newAttrs });
-
+    // Partial overlap: split into [before?, middle*, after?].
+    const fullText = (yItem.get("text") as Y.Text).toString();
     const before = fullText.slice(0, localStart);
     const middle = fullText.slice(localStart, localEnd);
     const after = fullText.slice(localEnd);
 
-    // Strategy: replace the item with [before?, middle*, after?] where
-    // middle carries the merged attrs. We delete and re-insert because
-    // partial Y.Text rebuilds would require new Y.Text identity anyway.
     const replacements: Y.Map<unknown>[] = [];
     if (before.length > 0) {
       replacements.push(buildYInlineItem({ kind: "text", text: before, attrs: existingAttrs }));
     }
-    replacements.push(buildYInlineItem({ kind: "text", text: middle, attrs: mergedAttrs }));
+    replacements.push(buildYInlineItem({ kind: "text", text: middle, attrs: merged }));
     if (after.length > 0) {
       replacements.push(buildYInlineItem({ kind: "text", text: after, attrs: existingAttrs }));
     }
     yItems.delete(i, 1);
     yItems.insert(i, replacements);
-    // Advance past the inserted slice.
-    const advanced = replacements.length;
-    i += advanced;
+    i += replacements.length;
     cursor = itemEnd;
   }
 }
-
-function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of yMap.entries()) obj[key] = value;
-  return obj;
-}
 ```
+
+Verify `mergeAttrs` is exported from `state/attrs.ts`. If not, add it (copy from the legacy `apply-attrs.ts` if its helper was internal).
 
 - [ ] **Step 4: Run tests**
 
@@ -2471,7 +2529,13 @@ cat packages/core/src/state/split-block.ts
 
 - [ ] **Step 2: Update test accessors** (same pattern).
 
-- [ ] **Step 3: Rewrite `split-block.ts`**
+- [ ] **Step 3: Structurally port `split-block.ts`**
+
+**Preserve signature:** `splitBlockAtPosition(state, position, allocator): OperationResult` (NO `newBlockId` extension on the return type). Callers extract the new id from `dirtyIds` (it's the only id present that wasn't in the input state).
+
+**Preserve guards:** include the legacy's `parentId === null` rejection ("block is the root and has no parent to host a sibling") AND the leaf/offset-range guards. Verbatim from `packages/core/src/state/split-block.ts`.
+
+Skeleton:
 
 ```typescript
 import * as Y from "yjs";
@@ -2479,54 +2543,36 @@ import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { Position } from "./block-position";
-import { inlineContentLength, findItemAtOffset } from "./inline-content";
+import { inlineContentLength } from "./inline-content";
 import { getBlocksMap } from "./yjs-doc";
 import { buildYBlock, buildYInlineItem } from "./y-block";
+import { yMapAsObject } from "./y-utils"; // shared helper added in Task 12.5
 
-/**
- * Split a leaf block at the given position into two adjacent blocks.
- * The original block retains content [0, offset); a new block (id from
- * allocator) takes [offset, end). The new block inherits the original's
- * type and attrs.
- *
- * Returns the new block's id via `newBlockId` on the OperationResult
- * (extended via TypeScript's spread; consumers cast).
- *
- * Throws if the block is missing, not a leaf, or offset is out of range.
- */
 export function splitBlockAtPosition(
   state: State,
   position: Position,
   allocator: IdAllocator,
-): OperationResult & { newBlockId: BlockId } {
-  const block = getBlock(state, position.blockId);
-  if (block === null) {
-    throw new Error(`splitBlockAtPosition: block "${position.blockId}" not found`);
-  }
-  if (block.inlineContent === null) {
-    throw new Error(`splitBlockAtPosition: block "${position.blockId}" is not a leaf`);
-  }
-  const totalLen = inlineContentLength(block.inlineContent);
-  if (position.offset < 0 || position.offset > totalLen) {
-    throw new Error(
-      `splitBlockAtPosition: offset ${position.offset} out of range [0, ${totalLen}]`,
-    );
-  }
+): OperationResult {
+  // Guards (legacy error messages):
+  //   - block missing: "splitBlockAtPosition: block \"...\" not found"
+  //   - block.inlineContent === null: "splitBlockAtPosition: block \"...\" is not a leaf"
+  //   - block.parentId === null: "splitBlockAtPosition: block \"...\" is the root and has no parent to host a sibling"
+  //   - offset out of [0, inlineContentLength]: "splitBlockAtPosition: offset N out of range [0, M] for block \"...\""
 
+  // Allocate new id.
   const newBlockId = allocator.allocate();
 
-  const result = applyOperation(state, () => {
+  return applyOperation(state, () => {
     const yBlocks = getBlocksMap(state.doc);
     const yOriginal = yBlocks.get(position.blockId)!;
-    const yItems = yOriginal.get("inlineContent") as Y.Array<Y.Map<unknown>>;
 
-    // Compute split: build suffix items (a fresh Y.Array) and trim originals to prefix.
-    const suffixItems: Y.Map<unknown>[] = collectSuffixItems(yItems, position.offset);
+    // Split yOriginal's inlineContent: items in [0, offset) stay on original,
+    // items in [offset, end) move to new block. Straddling text items split
+    // by truncating original's Y.Text and creating a fresh Y.Text for the
+    // suffix portion. See `splitInlineContent` helper sketch below.
+    const suffixItems = splitInlineContent(yOriginal, position.offset);
 
-    // Build new block with suffix items.
-    const newYInlineContent = new Y.Array<Y.Map<unknown>>();
-    if (suffixItems.length > 0) newYInlineContent.push(suffixItems);
-
+    // Build new block — inherits type, attrs, parent; prev = original, next = original.next.
     const newYBlock = buildYBlock({
       type: yOriginal.get("type") as string,
       attrs: yMapAsObject(yOriginal.get("attrs") as Y.Map<unknown>),
@@ -2535,40 +2581,41 @@ export function splitBlockAtPosition(
       nextSiblingId: yOriginal.get("nextSiblingId") as BlockId | null,
       firstChildId: null,
       lastChildId: null,
-      inlineContent: null, // override below
+      inlineContent: null,
     });
-    newYBlock.set("inlineContent", newYInlineContent);
+    // Override inlineContent with the suffix items array.
+    const newInlineContent = new Y.Array<Y.Map<unknown>>();
+    if (suffixItems.length > 0) newInlineContent.push(suffixItems);
+    newYBlock.set("inlineContent", newInlineContent);
     yBlocks.set(newBlockId, newYBlock);
 
-    // Re-wire the next sibling's prev pointer to the new block.
+    // Re-wire sibling pointers around the insertion.
     const oldNextId = yOriginal.get("nextSiblingId") as BlockId | null;
     if (oldNextId !== null) {
       yBlocks.get(oldNextId)!.set("prevSiblingId", newBlockId);
     }
     yOriginal.set("nextSiblingId", newBlockId);
 
-    // Re-wire parent's lastChildId if original was the last.
-    const parentId = yOriginal.get("parentId") as BlockId | null;
-    if (parentId !== null) {
-      const yParent = yBlocks.get(parentId)!;
-      if (yParent.get("lastChildId") === position.blockId) {
-        yParent.set("lastChildId", newBlockId);
-      }
+    // Re-wire parent's lastChildId if original was the last child.
+    const parentId = yOriginal.get("parentId") as BlockId;
+    const yParent = yBlocks.get(parentId)!;
+    if (yParent.get("lastChildId") === position.blockId) {
+      yParent.set("lastChildId", newBlockId);
     }
   });
-
-  return { ...result, newBlockId };
 }
 
 /**
- * Mutate `yItems` to retain items in [0, offset) and return fresh
- * Y.Map clones of items in [offset, end). Splits the straddling
- * item if needed.
+ * Mutate yOriginal's inlineContent: retain items in [0, offset) in place;
+ * return cloned Y.Map items for [offset, end) for placement in the new block.
+ * Straddling text item: truncate original's Y.Text to the prefix; produce
+ * a fresh Y.Map (with new Y.Text) for the suffix.
+ *
+ * Walk yItems, find items by cumulative offset (see legacy split-block.ts
+ * for the canonical walk). Return value is the suffix item array.
  */
-function collectSuffixItems(
-  yItems: Y.Array<Y.Map<unknown>>,
-  offset: number,
-): Y.Map<unknown>[] {
+function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<unknown>[] {
+  const yItems = yOriginal.get("inlineContent") as Y.Array<Y.Map<unknown>>;
   const suffix: Y.Map<unknown>[] = [];
   let cursor = 0;
   let i = 0;
@@ -2579,31 +2626,24 @@ function collectSuffixItems(
     const itemEnd = cursor + itemLen;
 
     if (itemEnd <= offset) {
-      // Entirely in prefix.
-      cursor = itemEnd;
-      i++;
-      continue;
+      cursor = itemEnd; i++; continue;
     }
     if (cursor >= offset) {
-      // Entirely in suffix: move via clone.
+      // Entirely in suffix: clone and remove from original.
       suffix.push(cloneInlineItem(yItem));
       yItems.delete(i, 1);
-      continue; // don't advance i; the next item slid into position i
+      continue; // index stays the same; next item shifted in
     }
-    // Straddles boundary; must be text (embeds have len=1 and would fall above).
+    // Straddles boundary; must be text (embed lengths are 1 → would not straddle).
     const yText = yItem.get("text") as Y.Text;
     const within = offset - cursor;
-    const before = yText.toString().slice(0, within);
     const after = yText.toString().slice(within);
     const attrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-
-    // Truncate original to before.
-    yText.delete(within, after.length);
-    // (yItem now has text=before; remains in prefix.)
-    // Push a new text item for the after portion into suffix.
-    suffix.push(buildYInlineItem({ kind: "text", text: after, attrs }));
-    cursor = itemEnd;
-    i++;
+    if (after.length > 0) yText.delete(within, after.length);
+    if (after.length > 0) {
+      suffix.push(buildYInlineItem({ kind: "text", text: after, attrs }));
+    }
+    cursor = itemEnd; i++;
   }
   return suffix;
 }
@@ -2623,12 +2663,6 @@ function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
     attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
     properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
   });
-}
-
-function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of yMap.entries()) obj[key] = value;
-  return obj;
 }
 ```
 
@@ -2663,9 +2697,13 @@ Merge two adjacent siblings into one. The second block's inline content is appen
 cat packages/core/src/state/merge-blocks.ts
 ```
 
+Preserve all legacy error messages verbatim. Note: the legacy function name is `mergeAdjacentBlocks(state, leftId, rightId)` — preserve the parameter names "left"/"right".
+
 - [ ] **Step 2: Update test accessors**.
 
-- [ ] **Step 3: Rewrite `merge-blocks.ts`**
+- [ ] **Step 3: Structurally port `merge-blocks.ts`**
+
+Use `cloneInlineItem` from `y-utils.ts` (Task 12.5) instead of re-defining locally. Preserve the legacy signature and all error messages exactly.
 
 ```typescript
 import * as Y from "yjs";
@@ -2792,7 +2830,41 @@ cat packages/core/src/state/delete-range.ts
 
 - [ ] **Step 2: Update test accessors**.
 
-- [ ] **Step 3: Rewrite `delete-range.ts`** (relying on the existing op composition where helpful: deleteRange may internally use removeBlock and mergeAdjacentBlocks for the cross-block case)
+- [ ] **Step 3: Structurally port `delete-range.ts`**
+
+**Critical:** the legacy `deleteRange` has TWO code paths — single-block and cross-block — and the cross-block path is NOT a per-segment delete. Read `packages/core/src/state/delete-range.ts` end-to-end before porting.
+
+**Single-block case:**
+- Slice the block's inline content via `splitInlineContentAtOffset`: prefix = `[0, anchor.offset)`, suffix = `[focus.offset, end)`.
+- Merge prefix + suffix via `mergeAdjacentTextItems`.
+- Replace the block's inlineContent with the merged result.
+
+**Cross-block case** (same parent only — legacy throws on cross-parent):
+- Read anchor + focus block snapshots.
+- Compute merged content: `anchor.items[0..anchor.offset) ⊕ focus.items[focus.offset..)`, then `mergeAdjacentTextItems`.
+- Update anchor's inlineContent to the merged result.
+- Update anchor's `nextSiblingId` to focus's old `nextSiblingId`.
+- If focus had a `nextSiblingId`, update that block's `prevSiblingId` to anchor.id.
+- If focus had no `nextSiblingId`, update the parent's `lastChildId` to anchor.id.
+- Walk the sibling chain from anchor.nextSiblingId to focus.id, collecting intervening block ids.
+- Delete focus AND all intervening blocks from `state.blocks`.
+
+**Preserve all legacy error messages verbatim** (read the legacy file for the exact strings — there are many):
+- `"deleteRange: block \"...\" not found"` (same-block case)
+- `"deleteRange: anchor block \"...\" not found"` (cross-block case)
+- `"deleteRange: focus block \"...\" not found"`
+- `"deleteRange: block/anchor/focus block \"...\" is a container, not a leaf"`
+- `"deleteRange: cross-parent spans are not supported in this phase ..."`
+- `"deleteRange: blocks ... have null parent (state corruption)"`
+- `"deleteRange: anchor/focus offset N out of range [0, M] for block \"...\""`
+- `"deleteRange: intervening sibling \"...\" not found"`
+- `"deleteRange: focus block \"...\" is not reachable from anchor \"...\" in the parent's sibling chain"`
+- `"deleteRange: focus block's next sibling \"...\" not found"`
+- `"deleteRange: parent \"...\" of anchor block not found"`
+
+**Pre-normalize existence + leaf guards BEFORE calling `normalizeSpan`** (so the operation's specific error contract wins over the generic comparePositions errors — see legacy comment at lines 51-56).
+
+Skeleton (fill in from legacy):
 
 ```typescript
 import * as Y from "yjs";
@@ -2800,133 +2872,56 @@ import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
-import { inlineContentLength } from "./inline-content";
-import { iterateSpan } from "./span-iteration";
+import {
+  inlineContentLength,
+  mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
+} from "./inline-content";
+import { normalizeSpan } from "./span-iteration";
 import { getBlocksMap } from "./yjs-doc";
+import { buildYInlineContent } from "./y-block";
 
-/**
- * Delete the content within `span`. Behavior:
- *   - Single-block span: removes inline range [start, end).
- *   - Multi-block span: clears suffix of first block, prefix of last
- *     block, removes any blocks fully inside the range, and merges
- *     first and last blocks if both leaf blocks of the same type.
- *
- * Throws if the span is invalid (blocks missing, offsets out of range,
- * blocks not in document order).
- */
 export function deleteRange(state: State, span: Span): OperationResult {
-  if (
-    span.anchor.blockId === span.focus.blockId &&
-    span.anchor.offset === span.focus.offset
-  ) {
+  // Empty-span no-op.
+  if (span.anchor.blockId === span.focus.blockId && span.anchor.offset === span.focus.offset) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
-  const segments = Array.from(iterateSpan(state, span));
 
+  // Pre-normalize guards: existence + leaf for anchor (and focus if cross-block).
+  // Use legacy error messages exactly. See legacy file lines 57-85.
+
+  // Normalize: comparePositions throws on cross-context.
+  const normalized = normalizeSpan(state, span);
+
+  if (normalized.anchor.blockId === normalized.focus.blockId) {
+    // SAME-BLOCK: legacy file lines 92-135.
+    // Re-read block, validate offsets, compute prefix ⊕ suffix, merge,
+    // replace inlineContent inside applyOperation.
+    return applyOperation(state, () => {
+      const yBlocks = getBlocksMap(state.doc);
+      const block = getBlock(state, normalized.anchor.blockId)!;
+      const [prefix] = splitInlineContentAtOffset(block.inlineContent!, normalized.anchor.offset);
+      const [, suffix] = splitInlineContentAtOffset(block.inlineContent!, normalized.focus.offset);
+      const merged = mergeAdjacentTextItems([...prefix, ...suffix]);
+      const yBlock = yBlocks.get(normalized.anchor.blockId)!;
+      yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
+    });
+  }
+
+  // CROSS-BLOCK: legacy file lines 137-253.
+  // Read anchor + focus blocks (re-validate).
+  // Reject cross-parent (legacy line 158).
+  // Validate offsets.
+  // Walk sibling chain from anchor.next to focus, collecting intervening ids.
+  // Compute merged content: anchorPrefix ⊕ focusSuffix → mergeAdjacentTextItems.
+  // Inside applyOperation:
+  //   - Update anchor: inlineContent = merged, nextSiblingId = focus.nextSiblingId.
+  //   - Delete focus + all intervening ids.
+  //   - If focus had a next sibling: update that block's prevSiblingId = anchor.id.
+  //   - Else: update parent's lastChildId = anchor.id.
   return applyOperation(state, () => {
-    const yBlocks = getBlocksMap(state.doc);
-
-    // Apply per-block deletions in reverse order (so earlier-block id deletions
-    // don't shift indices in the segments list — segments are pre-collected).
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const seg = segments[i];
-      const yBlock = yBlocks.get(seg.blockId);
-      if (yBlock === undefined) continue; // already removed via cascade
-      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-      if (yItems === null) continue;
-
-      if (seg.start === 0 && seg.end === segmentLen(yItems)) {
-        // Whole-block range. If this is the first or last segment, just clear inline; otherwise delete the block.
-        if (i !== 0 && i !== segments.length - 1) {
-          // Middle block — remove the entire Y.Map.
-          unlinkBlock(yBlocks, seg.blockId);
-          yBlocks.delete(seg.blockId);
-          continue;
-        }
-        // Edge segment: clear inline content but keep the block.
-        if (yItems.length > 0) yItems.delete(0, yItems.length);
-        continue;
-      }
-      deleteInlineRange(yItems, seg.start, seg.end);
-    }
+    /* ... follow legacy lines 207-248 ... */
   });
-
-  // Note: cross-block merge (first + last) is handled by the caller (editor) or by a separate normalize pass; per the Phase 4c-4 spec, deleteRange does NOT auto-merge.
-}
-
-function segmentLen(yItems: Y.Array<Y.Map<unknown>>): number {
-  let total = 0;
-  for (let i = 0; i < yItems.length; i++) {
-    const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    total += kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
-  }
-  return total;
-}
-
-function unlinkBlock(yBlocks: Y.Map<Y.Map<unknown>>, blockId: BlockId): void {
-  const yBlock = yBlocks.get(blockId);
-  if (yBlock === undefined) return;
-  const prevId = yBlock.get("prevSiblingId") as BlockId | null;
-  const nextId = yBlock.get("nextSiblingId") as BlockId | null;
-  const parentId = yBlock.get("parentId") as BlockId | null;
-  if (prevId !== null) yBlocks.get(prevId)?.set("nextSiblingId", nextId);
-  if (nextId !== null) yBlocks.get(nextId)?.set("prevSiblingId", prevId);
-  if (parentId !== null) {
-    const yParent = yBlocks.get(parentId);
-    if (yParent !== undefined) {
-      if (yParent.get("firstChildId") === blockId) yParent.set("firstChildId", nextId);
-      if (yParent.get("lastChildId") === blockId) yParent.set("lastChildId", prevId);
-    }
-  }
-}
-
-/**
- * Delete characters [start, end) from yItems.
- */
-function deleteInlineRange(
-  yItems: Y.Array<Y.Map<unknown>>,
-  start: number,
-  end: number,
-): void {
-  let cursor = 0;
-  let i = 0;
-  while (i < yItems.length && cursor < end) {
-    const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
-    const itemEnd = cursor + itemLen;
-
-    if (itemEnd <= start) {
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    if (cursor >= end) break;
-
-    if (kind === "embed") {
-      // Embed entirely in range — remove it.
-      yItems.delete(i, 1);
-      // Don't advance i; the next item slid into position i. Don't advance cursor (the removed item is gone).
-      continue;
-    }
-
-    // Text item overlaps range.
-    const yText = yItem.get("text") as Y.Text;
-    const localStart = Math.max(0, start - cursor);
-    const localEnd = Math.min(itemLen, end - cursor);
-    const deleteCount = localEnd - localStart;
-
-    if (deleteCount === itemLen) {
-      // Whole text item gone.
-      yItems.delete(i, 1);
-      continue;
-    }
-
-    yText.delete(localStart, deleteCount);
-    cursor = itemEnd - deleteCount;
-    i++;
-  }
 }
 ```
 
@@ -3036,9 +3031,15 @@ The current return shape is `ClonedSubtree { blocks: ReadonlyMap<BlockId, Block>
 
 - [ ] **Step 2: Update test accessors**.
 
-- [ ] **Step 3: Rewrite `clone-pasted-subtree.ts`**
+- [ ] **Step 3: Structurally port `clone-pasted-subtree.ts`**
 
-The output remains a plain JS ReadonlyMap of immutable Block snapshots (no Y.Doc involvement). The clone walks the source via `getBlock`, allocates fresh BlockIds, and re-points parent/sibling/child links. Inline content is deep-cloned via the existing pattern (legacy Block interface).
+**Critical:** the legacy implementation walks **both** child references AND `EmbedItem.properties.contentBlockId` references when collecting subtree ids, then **rewrites** those contentBlockId references in the cloned blocks to point at the cloned content. Don't drop this — paste with footnote-anchor embeds breaks if you do.
+
+Read `packages/core/src/state/clone-pasted-subtree.ts` end-to-end first. Port the `collectSubtreeIds` walker (which follows child links AND `EmbedItem.properties.contentBlockId`) and the `rewriteInlineContent` helper (which rewrites the contentBlockId via the idMap).
+
+The output remains a plain JS `ReadonlyMap<BlockId, Block>` of immutable Block snapshots (no Y.Doc involvement on the OUTPUT side — the caller decides where to insert). Use `getBlock(state, id)` to read source blocks. The internal helpers operate on plain JS InlineContent (frozen objects) — they don't need Y.Doc.
+
+Skeleton (preserves the legacy interface AND contentBlockId rewriting):
 
 ```typescript
 import type { State } from "./state";
@@ -3056,29 +3057,24 @@ export interface ClonedSubtree {
   readonly rootId: BlockId;
 }
 
-/**
- * Produce a self-contained clone of the subtree rooted at sourceRootId.
- * Every block gets a fresh BlockId via the allocator. Embed-content
- * references (EmbedItem.properties.contentBlockId) are NOT followed in
- * this version (P6 widens the result to include embedContents).
- *
- * The returned subtree's blocks have correctly-mapped sibling/child links
- * pointing to the new ids; parentId for the root is null.
- */
 export function clonePastedSubtree(
   state: State,
   sourceRootId: BlockId,
   allocator: IdAllocator,
 ): ClonedSubtree {
-  const sourceRoot = getBlock(state, sourceRootId);
-  if (sourceRoot === null) {
+  if (getBlock(state, sourceRootId) === null) {
     throw new Error(`clonePastedSubtree: source root "${sourceRootId}" not found`);
   }
 
+  // Walk the subtree collecting source ids → fresh ids. Walker follows
+  // BOTH (a) child links AND (b) EmbedItem.properties.contentBlockId
+  // references in inline content. Cycle-defended via the idMap itself.
   const idMap = new Map<BlockId, BlockId>();
-  const visited = new Set<BlockId>();
-  collectSubtree(state, sourceRootId, idMap, allocator, visited);
+  collectSubtreeIds(state, sourceRootId, idMap, allocator);
 
+  // Build the output blocks map. Re-point parentId/sibling/child to the
+  // cloned ids. Rewrite EmbedItem.properties.contentBlockId references
+  // in inline content. ParentId of the root is null per the legacy contract.
   const out = new Map<BlockId, Block>();
   for (const [sourceId, newId] of idMap.entries()) {
     const source = getBlock(state, sourceId)!;
@@ -3088,12 +3084,14 @@ export function clonePastedSubtree(
       attrs: Object.freeze({ ...source.attrs }),
       parentId: sourceId === sourceRootId
         ? null
-        : (idMap.get(source.parentId!) ?? null),
+        : (source.parentId === null ? null : (idMap.get(source.parentId) ?? null)),
       prevSiblingId: source.prevSiblingId === null ? null : (idMap.get(source.prevSiblingId) ?? null),
       nextSiblingId: source.nextSiblingId === null ? null : (idMap.get(source.nextSiblingId) ?? null),
       firstChildId: source.firstChildId === null ? null : (idMap.get(source.firstChildId) ?? null),
       lastChildId: source.lastChildId === null ? null : (idMap.get(source.lastChildId) ?? null),
-      inlineContent: source.inlineContent === null ? null : cloneInlineContent(source.inlineContent),
+      inlineContent: source.inlineContent === null
+        ? null
+        : rewriteInlineContent(source.inlineContent, idMap),
     });
     out.set(newId, cloned);
   }
@@ -3101,27 +3099,53 @@ export function clonePastedSubtree(
   return Object.freeze({ blocks: out, rootId: idMap.get(sourceRootId)! });
 }
 
-function collectSubtree(
+/**
+ * Walk the source subtree. Follow child links AND
+ * EmbedItem.properties.contentBlockId references. Allocate a fresh BlockId
+ * for each visited source id.
+ *
+ * Mirror the legacy `collectSubtreeIds` in packages/core/src/state/clone-pasted-subtree.ts.
+ */
+function collectSubtreeIds(
   state: State,
   rootId: BlockId,
   idMap: Map<BlockId, BlockId>,
   allocator: IdAllocator,
-  visited: Set<BlockId>,
 ): void {
-  if (visited.has(rootId)) return;
-  visited.add(rootId);
-  idMap.set(rootId, allocator.allocate());
+  if (idMap.has(rootId)) return;
   const block = getBlock(state, rootId);
   if (block === null) return;
+  idMap.set(rootId, allocator.allocate());
+
+  // Walk children.
   let childId = block.firstChildId;
   while (childId !== null) {
-    collectSubtree(state, childId, idMap, allocator, visited);
+    if (idMap.has(childId)) break; // cycle defense
+    collectSubtreeIds(state, childId, idMap, allocator);
     const child = getBlock(state, childId);
     childId = child?.nextSiblingId ?? null;
   }
+
+  // Walk embed-content references in inline content.
+  if (block.inlineContent !== null) {
+    for (const item of block.inlineContent.items) {
+      if (item.kind !== "embed") continue;
+      const contentBlockId = item.properties.contentBlockId;
+      if (typeof contentBlockId === "string") {
+        collectSubtreeIds(state, contentBlockId as BlockId, idMap, allocator);
+      }
+    }
+  }
 }
 
-function cloneInlineContent(src: InlineContent): InlineContent {
+/**
+ * Deep-clone inline content. Rewrite EmbedItem.properties.contentBlockId
+ * to the cloned id (via idMap). Mirror the legacy `rewriteInlineContent`.
+ */
+function rewriteInlineContent(
+  src: InlineContent,
+  idMap: ReadonlyMap<BlockId, BlockId>,
+): InlineContent {
   const items: InlineItem[] = src.items.map((item) => {
     if (item.kind === "text") {
       return Object.freeze({
@@ -3130,11 +3154,17 @@ function cloneInlineContent(src: InlineContent): InlineContent {
         attrs: Object.freeze({ ...item.attrs }),
       });
     }
+    const newProps: Record<string, unknown> = { ...item.properties };
+    const cb = item.properties.contentBlockId;
+    if (typeof cb === "string") {
+      const remapped = idMap.get(cb as BlockId);
+      if (remapped !== undefined) newProps.contentBlockId = remapped;
+    }
     const e: EmbedItem = Object.freeze({
       kind: "embed",
       embedType: item.embedType,
       attrs: Object.freeze({ ...item.attrs }),
-      properties: Object.freeze({ ...item.properties }),
+      properties: Object.freeze(newProps),
     });
     return e;
   });
@@ -3161,149 +3191,173 @@ git commit -m "refactor(p4e): migrate clonePastedSubtree to Y.Doc accessors"
 
 ## Sub-phase 4e.4 — Replace history with Y.UndoManager wrapper
 
-### Task 24: Rewrite `state/history.ts` as a Y.UndoManager wrapper
+### Task 24: Rename legacy `state/history.ts` to `state/history-legacy.ts`; update `index.ts` re-exports
 
 **Files:**
-- Modify: `packages/core/src/state/history.ts`
-- Modify: `packages/core/src/state/history.test.ts`
+- Rename: `packages/core/src/state/history.ts` → `packages/core/src/state/history-legacy.ts`
+- Rename: `packages/core/src/state/history.test.ts` → `packages/core/src/state/history-legacy.test.ts`
+- Modify: `packages/core/src/index.ts`
+
+Per Decision E (`-legacy` suffix on old files), preserve the legacy history implementation under the `-legacy` name so its current external consumers (just `index.ts`) keep compiling. The new Y.Doc-backed `History` class will take the canonical `state/history.ts` name in Task 25.
+
+- [ ] **Step 1: Rename via git mv**
+
+```bash
+git mv packages/core/src/state/history.ts packages/core/src/state/history-legacy.ts
+git mv packages/core/src/state/history.test.ts packages/core/src/state/history-legacy.test.ts
+```
+
+- [ ] **Step 2: Update import path in `state/history-legacy.ts`**
+
+Self-imports stay; only consumer-side imports change. Edit `packages/core/src/index.ts`:
+
+Find the lines:
+```typescript
+export type { History } from "./state/history";
+export { createHistory, pushChange, undo, redo } from "./state/history";
+```
+
+Replace with:
+```typescript
+// Legacy history (pre-P4e snapshot-based). Will be removed at P11.4 cutover.
+// New Y.UndoManager-backed History is exported below from "./state/history".
+export type { History as HistoryLegacy } from "./state/history-legacy";
+export {
+  createHistory as createHistoryLegacy,
+  pushChange,
+  undo as undoLegacy,
+  redo as redoLegacy,
+} from "./state/history-legacy";
+```
+
+(The `pushChange` name has no collision with the new wrapper's API; keep it un-renamed. The `createHistory`/`undo`/`redo` names ARE reused by the new API, so the legacy ones get `Legacy` suffix.)
+
+- [ ] **Step 3: Run tests to verify legacy file still works**
+
+```bash
+npm test --workspace=packages/core -- history-legacy.test
+```
+
+Expected: all pass (file contents unchanged; only filename changed).
+
+- [ ] **Step 4: Run the full build to verify index.ts compiles**
+
+```bash
+npm run build --workspace=packages/core
+```
+
+Expected: clean (assuming the rest of 4e.2/4e.3 completed before Task 24; otherwise expect the still-unmigrated Layer 3 ops to fail — which is fine per the Sub-phase 4e.2 build-red note).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/history-legacy.ts packages/core/src/state/history-legacy.test.ts packages/core/src/index.ts
+git commit -m "refactor(p4e): rename history.ts → history-legacy.ts (decision E)"
+```
+
+---
+
+### Task 25: Add new `state/history.ts` — Y.UndoManager wrapper
+
+**Files:**
+- Create: `packages/core/src/state/history.ts`
+- Create: `packages/core/src/state/history.test.ts`
+- Modify: `packages/core/src/index.ts`
 
 The history wrapper tracks Y.Doc transactions through `Y.UndoManager`. Selection isn't part of Y.Doc (it's per-client local state), so we track it separately and restore on undo.
 
 Per Decision D point 9, during the parallel window (P11.0+) the History wrapper has TWO backends (legacy + Yjs) and switches between them. P4e introduces the **Yjs backend only**; the legacy backend integration happens in P11.0. The public API the wrapper exposes is the same in both phases.
 
-- [ ] **Step 1: Update tests**
+- [ ] **Step 1: Write tests for the new history**
 
-Replace `packages/core/src/state/history.test.ts` with:
+Create `packages/core/src/state/history.test.ts`:
 
 ```typescript
 import { describe, it, expect } from "vitest";
-import {
-  createHistory,
-  pushHistoryEntry,
-  undo,
-  redo,
-  canUndo,
-  canRedo,
-} from "./history";
+import { createHistory } from "./history";
 import { createEmptyDocument } from "./new-initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { getBlock } from "./state";
-import type { BlockId } from "./block-id";
 
 describe("history (Y.UndoManager wrapper)", () => {
-  it("creates an empty history with no undo/redo available", () => {
+  it("starts with no undo/redo available", () => {
     const state = createEmptyDocument();
     const history = createHistory(state);
-    expect(canUndo(history)).toBe(false);
-    expect(canRedo(history)).toBe(false);
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(false);
   });
 
   it("undo after a single op restores the prior state", () => {
-    let state = createEmptyDocument();
-    const history = createHistory(state);
-    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
-    const result = setBlockAttrs(state, child.id, { bold: true });
-    state = result.state;
-    pushHistoryEntry(history, { selection: null });
-    expect(canUndo(history)).toBe(true);
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = getBlock(state0, getBlock(state0, state0.rootId)!.firstChildId!)!;
+    const state1 = setBlockAttrs(state0, child.id, { bold: true }).state;
+    history.push({ selection: null });
+    expect(history.canUndo()).toBe(true);
 
-    const undone = undo(history);
+    const undone = history.undo();
     expect(undone).not.toBeNull();
-    // After undo, the snapshot should show no bold attr on the paragraph.
-    const p = getBlock(undone!.state, child.id);
-    expect(p?.attrs.bold).toBeUndefined();
+    expect(getBlock(undone!.state, child.id)?.attrs.bold).toBeUndefined();
   });
 
   it("redo after undo restores the post-op state", () => {
-    let state = createEmptyDocument();
-    const history = createHistory(state);
-    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
-    state = setBlockAttrs(state, child.id, { bold: true }).state;
-    pushHistoryEntry(history, { selection: null });
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = getBlock(state0, getBlock(state0, state0.rootId)!.firstChildId!)!;
+    setBlockAttrs(state0, child.id, { bold: true });
+    history.push({ selection: null });
 
-    const undone = undo(history);
+    const undone = history.undo();
     expect(undone).not.toBeNull();
-    expect(canRedo(history)).toBe(true);
-    const redone = redo(history);
+    expect(history.canRedo()).toBe(true);
+    const redone = history.redo();
     expect(redone).not.toBeNull();
     expect(getBlock(redone!.state, child.id)?.attrs.bold).toBe(true);
   });
 
+  it("multiple undos and redos in sequence", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = getBlock(state0, getBlock(state0, state0.rootId)!.firstChildId!)!;
+    setBlockAttrs(state0, child.id, { bold: true });
+    history.push({ selection: null });
+    setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    history.push({ selection: null });
+
+    expect(history.undo()).not.toBeNull();
+    expect(history.undo()).not.toBeNull();
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(true);
+    expect(history.redo()).not.toBeNull();
+    expect(history.redo()).not.toBeNull();
+    expect(history.canRedo()).toBe(false);
+  });
+
   it("a new op after undo clears the redo stack", () => {
-    let state = createEmptyDocument();
-    const history = createHistory(state);
-    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
-    state = setBlockAttrs(state, child.id, { bold: true }).state;
-    pushHistoryEntry(history, { selection: null });
-    undo(history);
-    expect(canRedo(history)).toBe(true);
-    state = setBlockAttrs(state, child.id, { italic: true }).state;
-    pushHistoryEntry(history, { selection: null });
-    expect(canRedo(history)).toBe(false);
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = getBlock(state0, getBlock(state0, state0.rootId)!.firstChildId!)!;
+    setBlockAttrs(state0, child.id, { bold: true });
+    history.push({ selection: null });
+    history.undo();
+    expect(history.canRedo()).toBe(true);
+    setBlockAttrs(state0, child.id, { italic: true });
+    history.push({ selection: null });
+    expect(history.canRedo()).toBe(false);
   });
 });
 ```
 
-- [ ] **Step 2: Rewrite `state/history.ts`**
+- [ ] **Step 2: Write `state/history.ts`**
 
 ```typescript
 import * as Y from "yjs";
 import type { State } from "./state";
-import { applyOperation } from "./state";
+import { freshState } from "./state";
 import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
-
-/**
- * Yjs-backed history wrapper. Each `pushHistoryEntry` call stops the
- * current undo group; the next op opens a fresh group. `undo` pops the
- * latest group and applies its inverse via Y.UndoManager.
- *
- * Selection is per-client local state (not in Y.Doc); we carry it
- * alongside undo entries via a parallel array indexed by entry order.
- */
-export interface History {
-  readonly state: State;
-  readonly undoManager: Y.UndoManager;
-  /** Selection snapshots per undo entry. Index 0 = oldest entry. */
-  readonly selectionStack: Array<unknown | null>;
-  /** Selection snapshots per redo entry. Index 0 = most recent redo. */
-  readonly redoSelectionStack: Array<unknown | null>;
-}
-
-const DEFAULT_CAPTURE_TIMEOUT_MS = 500;
-
-export function createHistory(state: State): History {
-  const undoManager = new Y.UndoManager(
-    [getBlocksMap(state.doc), getEmbedContentsMap(state.doc)],
-    { captureTimeout: DEFAULT_CAPTURE_TIMEOUT_MS },
-  );
-  return {
-    state,
-    undoManager,
-    selectionStack: [],
-    redoSelectionStack: [],
-  };
-}
 
 export interface PushHistoryArgs {
   selection: unknown | null;
-}
-
-/**
- * Stop the current undo group and record an entry boundary. The provided
- * selection (opaque) is stored alongside this entry for restoration on undo.
- */
-export function pushHistoryEntry(history: History, args: PushHistoryArgs): void {
-  history.undoManager.stopCapturing();
-  history.selectionStack.push(args.selection);
-  history.redoSelectionStack.length = 0;
-}
-
-export function canUndo(history: History): boolean {
-  return history.undoManager.canUndo();
-}
-
-export function canRedo(history: History): boolean {
-  return history.undoManager.canRedo();
 }
 
 export interface UndoRedoResult {
@@ -3311,23 +3365,97 @@ export interface UndoRedoResult {
   readonly selection: unknown | null;
 }
 
-export function undo(history: History): UndoRedoResult | null {
-  if (!canUndo(history)) return null;
-  history.undoManager.undo();
-  const selection = history.selectionStack.pop() ?? null;
-  history.redoSelectionStack.push(selection);
-  // Produce a fresh State (new SnapshotCache) reflecting the undone Y.Doc.
-  const result = applyOperation(history.state, () => { /* no-op transaction to mint a new State */ });
-  return { state: result.state, selection };
+/**
+ * Yjs-backed history wrapper. Mutable internal state — instances live
+ * alongside an `EditorState`-like container and produce fresh State
+ * references on undo/redo (so consumers can use `oldState !== newState`
+ * to detect changes).
+ *
+ * Selection is per-client local state (not in Y.Doc); tracked separately
+ * in parallel stacks and returned on undo/redo for the caller to apply.
+ *
+ * Per Decision D point 9: during P11.0+ parallel window the editor
+ * wraps this in a backend-selector that also delegates to a legacy
+ * EditorHistory. Within P4e, this is the only backend.
+ */
+export class History {
+  private readonly undoManager: Y.UndoManager;
+  private currentState: State;
+  /** Selection snapshots aligned with the UndoManager's undo stack. */
+  private readonly selectionStack: Array<unknown | null> = [];
+  /** Selection snapshots aligned with the UndoManager's redo stack. */
+  private readonly redoSelectionStack: Array<unknown | null> = [];
+
+  constructor(state: State) {
+    this.currentState = state;
+    this.undoManager = new Y.UndoManager(
+      [getBlocksMap(state.doc), getEmbedContentsMap(state.doc)],
+      {
+        // captureTimeout: 0 — we control grouping via explicit `push` calls;
+        // no time-based auto-merging. Each transaction is its own undo group
+        // until `push` is called.
+        captureTimeout: 0,
+        // Only track transactions with our default origin (null). Rebuilds
+        // (post-P11.0) will use a tagged origin to opt OUT of undo tracking.
+        trackedOrigins: new Set([null]),
+      },
+    );
+  }
+
+  /** Replace the wrapper's notion of "current state" (after an external op). */
+  setState(state: State): void {
+    this.currentState = state;
+  }
+
+  /**
+   * Close the current undo group and record an entry boundary. The
+   * provided selection (opaque) is stored alongside this entry for
+   * restoration on undo. Clears the redo stack.
+   */
+  push(args: PushHistoryArgs): void {
+    this.undoManager.stopCapturing();
+    this.selectionStack.push(args.selection);
+    this.redoSelectionStack.length = 0;
+  }
+
+  canUndo(): boolean {
+    return this.undoManager.canUndo();
+  }
+
+  canRedo(): boolean {
+    return this.undoManager.canRedo();
+  }
+
+  /**
+   * Pop the latest undo entry: mutate Y.Doc back, restore selection,
+   * mint a fresh State (new snapshot cache). Returns null if nothing
+   * to undo.
+   */
+  undo(): UndoRedoResult | null {
+    if (!this.canUndo()) return null;
+    this.undoManager.undo(); // mutates Y.Doc directly
+    const selection = this.selectionStack.pop() ?? null;
+    this.redoSelectionStack.push(selection);
+    this.currentState = freshState(this.currentState);
+    return { state: this.currentState, selection };
+  }
+
+  /**
+   * Re-apply the most recently undone entry.
+   */
+  redo(): UndoRedoResult | null {
+    if (!this.canRedo()) return null;
+    this.undoManager.redo();
+    const selection = this.redoSelectionStack.pop() ?? null;
+    this.selectionStack.push(selection);
+    this.currentState = freshState(this.currentState);
+    return { state: this.currentState, selection };
+  }
 }
 
-export function redo(history: History): UndoRedoResult | null {
-  if (!canRedo(history)) return null;
-  history.undoManager.redo();
-  const selection = history.redoSelectionStack.pop() ?? null;
-  history.selectionStack.push(selection);
-  const result = applyOperation(history.state, () => { /* no-op transaction */ });
-  return { state: result.state, selection };
+/** Convenience factory matching the legacy API shape. */
+export function createHistory(state: State): History {
+  return new History(state);
 }
 ```
 
@@ -3339,11 +3467,29 @@ npm test --workspace=packages/core -- history.test
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Re-export from index.ts**
+
+Edit `packages/core/src/index.ts`. Below the legacy history re-exports (added in Task 24), add:
+
+```typescript
+// New Y.UndoManager-backed history (per decision C). Replaces the legacy
+// snapshot-based history at the P11.4 cutover.
+export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
+```
+
+- [ ] **Step 5: Verify build**
 
 ```bash
-git add packages/core/src/state/history.ts packages/core/src/state/history.test.ts
-git commit -m "refactor(p4e): rewrite history.ts as Y.UndoManager wrapper"
+npm run build --workspace=packages/core
+```
+
+Expected: clean. (At this point all 11 Layer 3 ops have migrated, so build should pass.)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/core/src/state/history.ts packages/core/src/state/history.test.ts packages/core/src/index.ts
+git commit -m "feat(p4e): add Y.UndoManager-backed History wrapper"
 ```
 
 ---
@@ -3603,12 +3749,36 @@ git commit -m "refactor(p4e): remove deprecated Block/InlineContent factory help
 
 ### Task 27: Migrate remaining state tests for fixture compatibility
 
-**Files:**
-- Modify: every remaining `packages/core/src/state/*.test.ts` file that still uses `createPersistentMap`, `state.blocks.get`, `state.blocks.set`, or `createBlock`/`updateBlock`/`createTextItem`/etc.
+**Files (catch-up pass — explicit enumeration of every state test file that may still consume legacy patterns):**
 
-Per the earlier grep, the affected files are: `apply-attrs.test.ts`, `block-compare.test.ts`, `block-traversal.test.ts`, `clone-pasted-subtree.test.ts`, `delete-range.test.ts`, `insert-block.test.ts`, `insert-text.test.ts`, `merge-blocks.test.ts`, `new-extract-text.test.ts`, `new-initial-state.test.ts`, `remove-block.test.ts`, `replace-range.test.ts`, `set-block-attrs.test.ts`, `set-block-type.test.ts`, `span-iteration.test.ts`, `split-block.test.ts`, `state.test.ts`.
+By the time we reach Task 27, most state test files have been migrated within their Layer 3 op tasks (Tasks 13-23) or Layer 2 utility tasks (Tasks 9-11). This task verifies and catches up any remaining files. Process each file in this order:
 
-Most have already been migrated in their corresponding Layer 3 op tasks (Tasks 13-23). This task is the catch-up pass for any that haven't.
+| # | File | Migrated in | Catch-up scope |
+|---|------|-------------|---------------|
+| 1 | `state.test.ts` | Task 6 | should be clean |
+| 2 | `new-initial-state.test.ts` | Task 8 | should be clean |
+| 3 | `block-traversal.test.ts` | Task 9 | should be clean |
+| 4 | `block-compare.test.ts` | Task 10 | should be clean |
+| 5 | `span-iteration.test.ts` | Task 11 | should be clean |
+| 6 | `set-block-attrs.test.ts` | Task 13 | should be clean |
+| 7 | `set-block-type.test.ts` | Task 14 | should be clean |
+| 8 | `insert-block.test.ts` | Task 15 | should be clean |
+| 9 | `remove-block.test.ts` | Task 16 | should be clean |
+| 10 | `insert-text.test.ts` | Task 17 | should be clean |
+| 11 | `apply-attrs.test.ts` | Task 18 | should be clean |
+| 12 | `split-block.test.ts` | Task 19 | should be clean |
+| 13 | `merge-blocks.test.ts` | Task 20 | should be clean |
+| 14 | `delete-range.test.ts` | Task 21 | should be clean |
+| 15 | `replace-range.test.ts` | Task 22 | should be clean |
+| 16 | `clone-pasted-subtree.test.ts` | Task 23 | should be clean |
+| 17 | `block.test.ts` | Task 25 | should be clean |
+| 18 | `inline-content.test.ts` | Task 25 | should be clean |
+| 19 | `attrs.test.ts` | — | should be clean (attrs.ts unchanged) |
+| 20 | `block-id.test.ts` | — | should be clean (block-id.ts unchanged) |
+| 21 | `block-position.test.ts` | — | should be clean (block-position.ts unchanged) |
+
+NOT migrated (legacy state-node code path, untouched by P4e):
+- `state-node.test.ts`, `create-node.test.ts`, `new-node.test.ts`, `node-operations.test.ts`, `find-path.test.ts`, `position.test.ts`, `text-utils.test.ts`, `initial-state.test.ts`, `transformations.test.ts`, `formatting.test.ts`, `extract-text.test.ts`, `new-extract-text.test.ts`, `dirty.test.ts`, `normalize.test.ts`, `operations.test.ts`, `change.test.ts`, `history-legacy.test.ts` (renamed in Task 24).
 
 - [ ] **Step 1: Run the full suite and identify failures**
 
@@ -3619,11 +3789,12 @@ grep -E "FAIL |TypeError" /tmp/p4e-test-failures.log
 
 - [ ] **Step 2: Per failing file, migrate fixtures**
 
-For each failing test file:
+For each failing test file in the "should be clean" list above (1-21):
 - Replace `import { createPersistentMap } from "./persistent-map";` with builders from `../test-utils/state-builders`.
-- Replace `state.blocks.get(id)` with `getBlock(state, id as BlockId)`.
-- Replace `state.blocks.set(id, ...)` patterns with rebuilding via `buildState({ rootId, blocks: [...] })` — or invoke a Layer 3 op if the test is intentionally constructing a modified state.
-- Replace `createBlock(...)` / `updateBlock(...)` / `createTextItem(...)` calls with `buildBlock(...)` / `text(...)` / `embed(...)` from `test-utils/state-builders`.
+- Replace `state.blocks.get(id)` with `getBlock(state, id as BlockId)`. Add `import { getBlock } from "./state";`.
+- Replace `state.blocks.set(id, ...)` patterns with rebuilding via `buildState({ rootId, blocks: [...] })` — OR invoke a Layer 3 op if the test is intentionally constructing a modified state.
+- Replace `createBlock(...)` / `updateBlock(...)` / `createTextItem(...)` / `createEmbedItem(...)` / `createInlineContent(...)` calls with `buildBlock(...)` / `text(...)` / `embed(...)` / `{items: [...]}` from `test-utils/state-builders`.
+- Replace `state.blocks.has(id)` with `getBlock(state, id) !== null`.
 
 Commit one file at a time:
 
@@ -3638,7 +3809,7 @@ git commit -m "test(p4e): migrate <file>.test.ts fixtures to Y.Doc builders"
 npm test --workspace=packages/core
 ```
 
-Expected: green. All 1213+ tests pass on Y.Doc-backed state.
+Expected: green. All 1213+ tests pass on Y.Doc-backed state. The 17 "should be clean" test files all green; the 17 legacy-state-node-path test files unchanged.
 
 ---
 
@@ -3967,9 +4138,11 @@ npm test --workspace=packages/core
 
 Expected: all tests pass (1213 + new P4e tests). No skipped tests beyond the pre-existing 4.
 
-- [ ] **Step 3: Browser smoke**
+- [ ] **Step 3: Browser smoke** (expectations note)
 
-Per CLAUDE.md's browser-smoke gate for UI-touching work:
+P4e is a state-module internals rewrite. The editor (`packages/core/src/editor/editor-state.ts`) consumes `StateNode` (legacy pre-Phase-4a type), NOT the new `State` we just rebuilt. The example apps drive the editor through `StateNode` — so the browser smoke at the end of P4e exercises code paths that DON'T touch the new Y.Doc-backed state at all.
+
+This means the browser smoke at the end of P4e is a **regression check** (did we accidentally break the legacy path?), not a feature verification. If the example app still renders + responds to typing identically to pre-P4e, P4e shipped successfully.
 
 ```bash
 npm run dev --workspace=examples/react
@@ -3984,7 +4157,9 @@ In a real browser:
 - Trigger undo (Cmd+Z) → action reverts.
 - Trigger redo (Cmd+Shift+Z) → action re-applies.
 
-Document any regressions; fix before declaring P4e complete.
+If any of these fail: P4e accidentally broke a legacy import path (legacy code calling into a P4e-renamed symbol). Find the regression via `git diff` and fix.
+
+The new Y.Doc-backed state's user-visible behavior is exercised at the **P11.4 cutover** browser smoke, not here.
 
 - [ ] **Step 4: Commit (no code changes — verification only)**
 
