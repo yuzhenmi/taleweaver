@@ -1,6 +1,7 @@
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { updateBlock } from "./block";
+import { getBlocksMap, getYBlock } from "./yjs-doc";
 
 /**
  * Remove a block (and its entire subtree) from the document tree.
@@ -37,76 +38,73 @@ import { updateBlock } from "./block";
  * from embedContents.
  */
 export function removeBlock(state: State, blockId: BlockId): OperationResult {
-  const block = state.blocks.get(blockId);
-  if (!block) {
+  const block = getBlock(state, blockId);
+  if (block === null) {
     throw new Error(`removeBlock: block "${blockId}" not found`);
   }
   if (blockId === state.rootId) {
     throw new Error(`removeBlock: cannot remove the document root "${blockId}"`);
   }
-  if (!block.parentId) {
+  const parentId = block.parentId;
+  if (parentId === null) {
     // Defensive: a non-root block with no parent is malformed state.
     // Note: when state.embedContents lands, footnote-body roots will
     // have parentId === null and SHOULD be removable via this function.
     // Revisit this guard at that time.
     throw new Error(`removeBlock: block "${blockId}" has no parentId (orphan)`);
   }
-
-  const parentId = block.parentId;
-  const parent = state.blocks.get(parentId);
-  if (!parent) {
+  const parent = getBlock(state, parentId);
+  if (parent === null) {
     throw new Error(`removeBlock: parent "${parentId}" of "${blockId}" not found`);
   }
-
-  // Collect every id in the subtree (the block + all descendants).
-  // Cycle-defended via the visited set itself.
-  const subtreeIds = new Set<BlockId>();
-  collectSubtreeIds(state, blockId, subtreeIds);
-
-  // Delete every id in the subtree from state.blocks.
-  let blocks = state.blocks;
-  for (const id of subtreeIds) {
-    blocks = blocks.delete(id);
+  if (block.prevSiblingId !== null && getBlock(state, block.prevSiblingId) === null) {
+    throw new Error(`removeBlock: prev sibling "${block.prevSiblingId}" not found`);
   }
-  const dirtyIds = new Set<BlockId>(subtreeIds);
-  dirtyIds.add(parentId);
-
-  // Relink prev sibling's nextSiblingId → block's nextSiblingId.
-  if (block.prevSiblingId) {
-    const prev = state.blocks.get(block.prevSiblingId);
-    if (!prev) throw new Error(`removeBlock: prev sibling "${block.prevSiblingId}" not found`);
-    blocks = blocks.set(
-      block.prevSiblingId,
-      updateBlock(prev, { nextSiblingId: block.nextSiblingId }),
-    );
-    dirtyIds.add(block.prevSiblingId);
+  if (block.nextSiblingId !== null && getBlock(state, block.nextSiblingId) === null) {
+    throw new Error(`removeBlock: next sibling "${block.nextSiblingId}" not found`);
   }
 
-  // Relink next sibling's prevSiblingId → block's prevSiblingId.
-  if (block.nextSiblingId) {
-    const next = state.blocks.get(block.nextSiblingId);
-    if (!next) throw new Error(`removeBlock: next sibling "${block.nextSiblingId}" not found`);
-    blocks = blocks.set(
-      block.nextSiblingId,
-      updateBlock(next, { prevSiblingId: block.prevSiblingId }),
-    );
-    dirtyIds.add(block.nextSiblingId);
-  }
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
 
-  // Update parent's firstChildId / lastChildId if the removed block was at a boundary.
-  const newFirstChildId =
-    parent.firstChildId === blockId ? block.nextSiblingId : parent.firstChildId;
-  const newLastChildId =
-    parent.lastChildId === blockId ? block.prevSiblingId : parent.lastChildId;
-  blocks = blocks.set(
-    parentId,
-    updateBlock(parent, { firstChildId: newFirstChildId, lastChildId: newLastChildId }),
-  );
+    // Collect every id in the subtree (the block + all descendants).
+    // Cycle-defended via the visited set itself.
+    const subtreeIds = new Set<BlockId>();
+    collectSubtreeIds(state, blockId, subtreeIds);
 
-  return {
-    state: { ...state, blocks },
-    dirtyIds,
-  };
+    // Relink prev sibling's nextSiblingId → block's nextSiblingId.
+    if (block.prevSiblingId !== null) {
+      getYBlock(state.doc, block.prevSiblingId, "removeBlock").set(
+        "nextSiblingId",
+        block.nextSiblingId,
+      );
+    }
+
+    // Relink next sibling's prevSiblingId → block's prevSiblingId.
+    if (block.nextSiblingId !== null) {
+      getYBlock(state.doc, block.nextSiblingId, "removeBlock").set(
+        "prevSiblingId",
+        block.prevSiblingId,
+      );
+    }
+
+    // Update parent's firstChildId / lastChildId. We always write both keys
+    // (even when neither boundary changes) so the parent is registered as
+    // dirty by the transaction-change tracker — preserving the legacy
+    // contract that parentId is always in dirtyIds.
+    const yParent = getYBlock(state.doc, parentId, "removeBlock");
+    const newFirstChildId =
+      yParent.get("firstChildId") === blockId ? block.nextSiblingId : yParent.get("firstChildId");
+    const newLastChildId =
+      yParent.get("lastChildId") === blockId ? block.prevSiblingId : yParent.get("lastChildId");
+    yParent.set("firstChildId", newFirstChildId);
+    yParent.set("lastChildId", newLastChildId);
+
+    // Delete every id in the subtree from the blocks map.
+    for (const id of subtreeIds) {
+      yBlocks.delete(id);
+    }
+  });
 }
 
 /**
@@ -115,15 +113,14 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
  */
 function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): void {
   if (out.has(rootId)) return;
-  const block = state.blocks.get(rootId);
-  if (!block) return;
+  const block = getBlock(state, rootId);
+  if (block === null) return;
   out.add(rootId);
   let current = block.firstChildId;
-  while (current) {
+  while (current !== null) {
     if (out.has(current)) break; // defensive: sibling cycle
     collectSubtreeIds(state, current, out);
-    const c = state.blocks.get(current);
-    current = c ? c.nextSiblingId : null;
+    const c = getBlock(state, current);
+    current = c !== null ? c.nextSiblingId : null;
   }
 }
-

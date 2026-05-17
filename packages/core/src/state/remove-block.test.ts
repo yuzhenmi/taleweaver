@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { removeBlock } from "./remove-block";
+import { getBlock } from "./state";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -20,21 +21,21 @@ describe("removeBlock — middle child", () => {
   it("removes the block from state.blocks", () => {
     const state = fixture();
     const result = removeBlock(state, "p2" as BlockId);
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
   });
 
   it("relinks adjacent siblings (p1.nextSiblingId, p3.prevSiblingId)", () => {
     const state = fixture();
     const result = removeBlock(state, "p2" as BlockId);
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p3");
-    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p1");
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p3");
+    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p1");
   });
 
   it("does not change parent's firstChildId / lastChildId for a middle removal", () => {
     const state = fixture();
     const result = removeBlock(state, "p2" as BlockId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p3");
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p3");
   });
 
   it("returns dirtyIds for removed block + parent + adjacent siblings", () => {
@@ -64,13 +65,13 @@ describe("removeBlock — container block with children (subtree cascade)", () =
   it("deletes the named block AND its entire subtree from state.blocks", () => {
     const state = fixture();
     const result = removeBlock(state, "section" as BlockId);
-    expect(result.state.blocks.has("section" as BlockId)).toBe(false);
-    expect(result.state.blocks.has("p1" as BlockId)).toBe(false);
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "section" as BlockId)).toBeNull();
+    expect(getBlock(result.state, "p1" as BlockId)).toBeNull();
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
     // Sibling p3 is unaffected:
-    expect(result.state.blocks.has("p3" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "p3" as BlockId)).not.toBeNull();
     // Root unaffected:
-    expect(result.state.blocks.has("doc" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "doc" as BlockId)).not.toBeNull();
   });
 
   it("includes every id in the deleted subtree in dirtyIds, plus parent + sibling rewires", () => {
@@ -87,11 +88,14 @@ describe("removeBlock — container block with children (subtree cascade)", () =
     // Every remaining block must be reachable from rootId via parent/child links.
     // A simple check: every remaining block's parentId is either null (root) or
     // present in the result map.
-    for (const [id, b] of result.state.blocks.entries()) {
+    for (const id of ["doc", "p3"] as const) {
+      const b = getBlock(result.state, id as BlockId);
+      expect(b).not.toBeNull();
+      if (b === null) continue;
       if (id === result.state.rootId) continue;
       expect(b.parentId).not.toBeNull();
       if (b.parentId !== null) {
-        expect(result.state.blocks.has(b.parentId)).toBe(true);
+        expect(getBlock(result.state, b.parentId)).not.toBeNull();
       }
     }
   });
@@ -113,9 +117,9 @@ describe("removeBlock — first child", () => {
   it("updates parent.firstChildId when removing the first child", () => {
     const state = fixture();
     const result = removeBlock(state, "p1" as BlockId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p2");
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p3");
-    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBeNull();
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p2");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p3");
+    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBeNull();
   });
 });
 
@@ -135,9 +139,9 @@ describe("removeBlock — last child", () => {
   it("updates parent.lastChildId when removing the last child", () => {
     const state = fixture();
     const result = removeBlock(state, "p3" as BlockId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2");
-    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBeNull();
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
+    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBeNull();
   });
 });
 
@@ -155,8 +159,8 @@ describe("removeBlock — only child", () => {
   it("clears both firstChildId and lastChildId when removing the only child", () => {
     const state = fixture();
     const result = removeBlock(state, "p1" as BlockId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBeNull();
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBeNull();
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBeNull();
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBeNull();
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "doc"]));
   });
 });
