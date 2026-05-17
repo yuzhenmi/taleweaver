@@ -2702,7 +2702,7 @@ import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getBlocksMap } from "./yjs-doc";
-import { buildYInlineItem } from "./y-block";
+import { cloneInlineItem } from "./y-utils"; // shared helper from Task 12.5 — do NOT redefine
 
 /**
  * Merge `bId` into `aId`. Both must be siblings with `b` directly after
@@ -2764,28 +2764,7 @@ export function mergeAdjacentBlocks(
   });
 }
 
-function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
-  const kind = src.get("kind") as "text" | "embed";
-  if (kind === "text") {
-    return buildYInlineItem({
-      kind: "text",
-      text: (src.get("text") as Y.Text).toString(),
-      attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
-    });
-  }
-  return buildYInlineItem({
-    kind: "embed",
-    embedType: src.get("embedType") as string,
-    attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
-    properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
-  });
-}
-
-function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of yMap.entries()) obj[key] = value;
-  return obj;
-}
+// cloneInlineItem is imported from "./y-utils" (Task 12.5) — do not redefine.
 ```
 
 - [ ] **Step 4: Run tests**
