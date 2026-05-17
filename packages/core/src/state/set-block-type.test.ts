@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { setBlockType } from "./set-block-type";
+import { getBlock } from "./state";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -17,7 +18,7 @@ describe("setBlockType", () => {
   it("replaces the block's type and preserves all other fields", () => {
     const state = fixture();
     const result = setBlockType(state, "p" as BlockId, "heading");
-    const updated = result.state.blocks.get("p" as BlockId);
+    const updated = getBlock(result.state, "p" as BlockId);
     expect(updated?.type).toBe("heading");
     expect(updated?.id).toBe("p");
     expect(updated?.parentId).toBe("doc");
