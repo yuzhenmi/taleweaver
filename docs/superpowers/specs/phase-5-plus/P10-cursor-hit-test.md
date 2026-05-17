@@ -4,7 +4,7 @@
 
 **Reference:** Master spec migration step 10c partial; `decisions.md` decision B (render interface).
 
-Note on Decision B: hit-test consumes the RenderNode tree produced by the new renderer per Decision B. RenderNodes carry their owning `BlockId` so hit-test can produce `Position { blockId, offset }` directly without going through `RenderContext`. `RenderContext` is for render-time cross-block lookups within components; hit-test (a post-render consumer) doesn't need it.
+Note on Decision B: hit-test consumes the RenderNode tree produced by the new renderer per Decision B. RenderNodes carry their owning `BlockId` so hit-test produces `Position { blockId, offset }` directly. See Decision B for why hit-test doesn't need `RenderContext`.
 
 ## Goal
 
@@ -28,18 +28,25 @@ P10 builds parallel new versions of these. Old versions stay until P11.3 (select
 
 These four files form the layout-coupled subset of the cursor module. They depend on RenderNode tree for spatial information.
 
-## Files involved
+## Files involved (naming per `decisions.md` decision E: `-legacy` suffix on old)
 
-**Created (parallel new versions):**
-- `cursor/hit-test-v2.ts` (or `cursor/v2/hit-test.ts`)
-- `cursor/selection-geometry-v2.ts`
-- `cursor/cursor-position-v2.ts`
-- `cursor/line-navigation-v2.ts`
-- (or directory-organized, per per-phase plan decision)
+**Renamed in P10 (each in the same commit that introduces its new parallel version):**
+- `editor/hit-test.ts` → `editor/hit-test-legacy.ts`
+- `editor/selection-geometry.ts` → `editor/selection-geometry-legacy.ts`
+- `editor/cursor-position.ts` → `editor/cursor-position-legacy.ts`
+- `editor/line-navigation.ts` → `editor/line-navigation-legacy.ts`
+
+**Created (new canonical files):**
+- `cursor/hit-test.ts` — `(x, y) → NewSelection`. Consumes RenderNodes + new `Position`.
+- `cursor/selection-geometry.ts` — rects for a `Span<NewPosition>`.
+- `cursor/cursor-position.ts` — `NewPosition` → caret screen coords.
+- `cursor/line-navigation.ts` — `moveByLine`, `moveByLineBoundary` on `NewPosition`.
 - Test files alongside.
 
+**Open question for P10 plan:** the new canonical files live in `cursor/` (consistent with the logical-cursor-module placement), while the legacy `-legacy.ts` versions stay in `editor/` (their current home, unchanged). Confirm cross-directory placement is acceptable in the per-phase plan. Alternatively, rename in place (`editor/hit-test-legacy.ts` + new `editor/hit-test.ts`). Either is consistent with decision E; the cross-directory pattern is cleaner architecturally.
+
 **Untouched:**
-- Legacy versions stay. P15 deletes.
+- Legacy versions (now `*-legacy.ts`) stay callable until cutover. P15 deletes.
 
 ## Key technical considerations
 

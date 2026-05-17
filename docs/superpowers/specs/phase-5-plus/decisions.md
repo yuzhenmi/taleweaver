@@ -71,7 +71,7 @@ Note: after decision C below, both maps become `Y.Map` instances at the Y.Doc ro
 
 6. **History uses Yjs's UndoManager AFTER cutover** (a battle-tested undo implementation that handles per-user undo correctly for collab). A thin wrapper exposes our API: `History`, `pushHistoryEntry`, `undo`, `redo`. Selection is tracked separately (per master spec § "Public API surface" → `history.ts` bullet — HistoryEntry carries state + selection + dirtyIds + timestamp + mergeTag). **Timing:** during the parallel window (P11.0 through cutover), the `History` wrapper delegates to the legacy `EditorHistory` so undo remains functional. At cutover, the wrapper switches to delegating to Y.UndoManager. See decision D point 9 for details.
 
-7. **Causal id generation:** Yjs handles this internally (lamport timestamp + client id). Our `BlockId`, `ItemId`, `CharId` use Yjs's id-generation pattern. `IdAllocator` becomes a wrapper over Yjs's id generator.
+7. **Id namespaces.** Our `BlockId` is an opaque branded string produced by `IdAllocator`; it is NOT a Yjs internal struct id. Yjs's own struct ids (`{clientID, clock}`) operate one level below, on Y.Map / Y.Array / Y.Text entries — they're internal to Yjs and we don't expose them. Our `IdAllocator` continues to produce BlockIds independently. (Per Decision D, during the parallel window BlockIds come from `pathToBlockId(path)` instead of the allocator; a cutover-time translation pass swaps them out for fresh allocator-generated ids.)
 
 8. **Collab is genuinely additive.** When collab work begins:
    - Add a sync transport package (`y-websocket`, `y-webrtc`, etc.) — separate npm dep.
@@ -237,7 +237,7 @@ Surveyed ProseMirror (`NodeView` / `NodeViewDesc`), Lexical (`LexicalNode` + `Le
 interface EditorState {
   state: State;                    // type-flip target; becomes canonical at cutover
   stateLegacy: StateNode;          // canonical record during parallel window; deleted at cutover
-  selection: Position;             // legacy path-based; P11.3 migrates
+  selection: LegacySelection;      // Span<LegacyPosition>; P11.3 migrates to Selection (Span<NewPosition>)
   history: History;                // wrapper; backed by legacy EditorHistory during parallel,
                                    // by Y.UndoManager after cutover (per decision C)
   historyLegacy: EditorHistory;    // active during parallel window; deleted at cutover
@@ -266,30 +266,47 @@ function downgradeToStateNode(state: State): StateNode;      // fires after migr
    - Legacy `Position` (path) → `BlockId` conversion is trivial: `pathToBlockId(pos.path)`.
    - Selection survives rebuilds automatically: the path didn't change, so the BlockId it derives is unchanged.
    - Sibling insertions DO renumber downstream paths, so downstream BlockIds change after such operations. This is an acceptable consequence — any consumer holding a stale BlockId across actions must look it up fresh (the renderer cache discards entries automatically per the version-bumped state).
-   - At cutover (parallel window ends), `pathToBlockId`-derived BlockIds are replaced with Yjs-generated stable ids; one-time id-translation pass.
+   - At cutover (parallel window ends), a **one-time id-translation pass** walks the post-rebuild State, allocates a fresh `BlockId` from `IdAllocator` per block, and replaces each `pathToBlockId`-derived id throughout (in Y.Map entries, in parent child-id lists, in `EmbedItem.properties.contentBlockId` references). After translation, BlockIds are stable across sibling insertions (no more path-renumbering hazard). The selection is converted from legacy path form to new form using the post-translation BlockIds in the same cutover commit, so no external consumer ends up with stale references.
 
-6. **Selection conversion is built on the same path-derivation:** `legacyPositionToNew(state, pos: LegacyPosition): NewPosition` uses `pathToBlockId(pos.path)` to find the BlockId; offsets within the block are mapped trivially. The reverse `newPositionToLegacy(state, pos: NewPosition): LegacyPosition` walks `stateLegacy` to find the path for a given BlockId (helper available in `state/path.ts`).
+6. **Selection conversion is built on the same path-derivation.** Selection is a `Span` (anchor + focus `Position`s), not a single `Position`. Helpers convert each endpoint:
+   - `legacyPositionToNew(state, pos: LegacyPosition): NewPosition` uses `pathToBlockId(pos.path)` to find the BlockId; offsets within the block map trivially.
+   - `newPositionToLegacy(stateLegacy, pos: NewPosition): LegacyPosition` walks `stateLegacy` to find the path for a given BlockId.
+   - `legacySelectionToNew(state, sel): NewSelection` and `newSelectionToLegacy(stateLegacy, sel): LegacySelection` apply the position helpers to anchor and focus.
+
+   Both helpers live in `editor/legacy-position-bridge.ts` (transitional; deleted at cutover).
 
    **Round-trip on migrated-handler boundary:** after every migrated P11.x handler:
-   1. Handler reads `selection: LegacyPosition`; converts to `NewPosition` via `legacyPositionToNew(stateLegacy, selection)`.
-   2. Handler runs its Layer 3 op on `state`, producing a new `state'` and a new `NewPosition'`.
+   1. Handler reads `selection: LegacySelection` from `EditorState`; converts to `NewSelection` via `legacySelectionToNew(state, selection)`.
+   2. Handler runs its Layer 3 op on `state`, producing new `state'` and **new `NewSelection'`**. For handlers that don't move the cursor (e.g., `set-block-attrs`, toggle-bold over an existing range), the handler still produces a fresh `NewSelection'` by re-running `legacySelectionToNew` on `stateLegacy'` — it does NOT echo the pre-action `NewSelection` unchanged, because BlockIds may have shifted under sibling renumbering.
    3. The wrapper computes `stateLegacy' = downgradeToStateNode(state')`.
-   4. The wrapper re-projects selection via `newPositionToLegacy(stateLegacy', NewPosition')` — using the NEW `stateLegacy`, because the path may have shifted (e.g., the handler inserted a block).
-   5. `EditorState.selection` is assigned the re-projected `LegacyPosition`.
+   4. The wrapper re-projects via `newSelectionToLegacy(stateLegacy', NewSelection')` — using the NEW `stateLegacy`, because the path may have shifted.
+   5. `EditorState.selection` is assigned the re-projected `LegacySelection`.
 
-   Handler responsibility: produce `NewPosition'`. Wrapper responsibility: the two conversions and the assignment. The pre-action selection is discarded — it may not be valid against the new `stateLegacy`.
+   Handler responsibility: produce `state'` and `NewSelection'` valid against `state'`. Wrapper responsibility: the two conversions, the downgrade, and the assignment. The pre-action `LegacySelection` is discarded — it may not be valid against the new `stateLegacy`.
 
 7. **`stateLegacy` is deleted in two cleanups:** the renderer's consumption of `stateLegacy` ends at the render cutover (after P7 ships AND the editor cuts over). The `stateLegacy` field itself, plus the bridge functions, is deleted in P15 once nothing reads it.
 
 8. **No upgrade-replay machinery.** We considered diff-replay (incremental Y.Doc mutations from a StateNode diff). Rejected — identity preservation across BlockIds, character-level text reconciliation, and Y.Text format-mark consistency all become subtle bugs. Rebuild trades performance for correctness.
 
-9. **Undo/redo backed by legacy `EditorHistory` during the parallel window.** Y.UndoManager (per Decision C) exists, gets recreated on every legacy-action rebuild, and is NOT user-facing during the parallel window — it serves as a placeholder so the migrated history wrapper has a real thing to point at. The user-facing `History` wrapper delegates to `historyLegacy: EditorHistory` (carried alongside `state`/`stateLegacy`) until cutover. At cutover, `historyLegacy` is deleted; `History` delegates to Y.UndoManager. **This means undo/redo IS FUNCTIONAL throughout the parallel window** — granularity matches the legacy implementation, not per-character Y.Text granularity. Per-character undo lights up at cutover.
+9. **Undo/redo backed by legacy `EditorHistory` during the parallel window.** The `History` wrapper's internal shape:
 
-   **History-push routing for migrated handlers:** during the parallel window, migrated handlers also push to `historyLegacy` (not Y.UndoManager, which would miss the legacy-handler edits). After a migrated handler runs and the wrapper has computed `stateLegacy'` per point 6, the wrapper constructs a `Change { oldState: prevStateLegacy, newState: stateLegacy' }` and pushes it via `historyLegacy.push(change, selection)`. Handlers call `pushHistoryEntry(state, selection)` on the wrapper; the wrapper hides the legacy-or-new backend routing. Y.UndoManager isn't touched during parallel — its accumulated state is discarded each rebuild anyway.
+   ```typescript
+   class History {
+     private legacy: EditorHistory | null;   // set during parallel; null after cutover
+     private yjs: YUndoManager | null;       // null during parallel; set at cutover
+     undo() / redo() / push(...) — dispatches on whichever backend is set
+   }
+   ```
+
+   During the parallel window, only `legacy` is set. Y.UndoManager doesn't exist yet — there's nothing to recreate on rebuild, nothing to discard. At cutover, the wrapper clears `legacy`, constructs a fresh Y.UndoManager bound to the live Y.Doc, and sets `yjs`. From that point on undo/redo goes through Y.UndoManager.
+
+   **This means undo/redo IS FUNCTIONAL throughout the parallel window** — granularity matches the legacy implementation, not per-character Y.Text granularity. Per-character undo lights up at cutover.
+
+   **History-push routing for migrated handlers:** during the parallel window, migrated handlers push to `historyLegacy` (the only backend set). After a migrated handler runs and the wrapper has computed `stateLegacy'` per point 6, the wrapper constructs a `Change { oldState: prevStateLegacy, newState: stateLegacy' }` and pushes it via `historyLegacy.push(change, selection)`. Handlers call `pushHistoryEntry(state, selection)` on the wrapper; the wrapper hides the legacy-or-new backend routing.
 
    **Cutover undo-stack behavior (accepted tradeoff):** at cutover, the active Y.UndoManager is the one attached to the current Y.Doc — which has no accumulated history (everything before cutover was rebuilt). User undo stack vanishes across the cutover deploy. Acceptable: cutover is a one-time engineering event (single deploy boundary, not a per-session boundary), and users typically don't expect undo to survive engine upgrades.
 
-10. **Test discipline — handler equivalence tests.** For each migrated handler in P11.x, ship a paired test that applies the same logical action via the legacy handler and the migrated handler against an equivalent starting state, then asserts the resulting `stateLegacy` trees are structurally equal (and selections agree). This catches `downgradeToStateNode` drift. Paired tests are deleted after cutover (when legacy handlers are gone).
+10. **Test discipline — handler equivalence tests.** For each migrated handler in P11.x, ship a paired test that applies the same logical action via the legacy handler and the migrated handler against an equivalent starting state, then asserts the resulting `stateLegacy` trees are structurally equal (and selections agree). This catches `downgradeToStateNode` drift. Paired tests are deleted in the cutover commit at the end of P11.4.
 
     Separately, for `rebuildStateFromLegacy`: for a representative set of starting `stateLegacy` shapes, assert the rebuilt `State` matches a direct `State` construction of the equivalent scenario. This catches `pathToBlockId` derivation bugs.
 
@@ -314,7 +331,9 @@ function downgradeToStateNode(state: State): StateNode;      // fires after migr
 - **Per-character CRDT identity (Y.Text char ids) unstable across legacy-action boundaries.** Rebuild regenerates char ids. Fine for single-user; no impact on parallel-window behavior because collab isn't enabled. Tests asserting per-character CRDT identity must run in pure-new-state contexts, not via the dual-rep path.
 - **Per-character CRDT identity also unstable for blocks created via migrated handlers.** Migrated handler's Y.Text char ids are lost when a subsequent legacy action triggers `rebuildStateFromLegacy` (the rebuild walks `stateLegacy`, which is the downgraded form). Same reasoning as above; bounded by parallel window.
 - **Undo granularity during parallel window matches legacy, not Y.UndoManager.** Per-character undo (the Y.UndoManager benefit) lights up only at cutover. Acceptable: existing users get same-as-before undo throughout migration; only the post-cutover improvement is delayed.
-- **Renderer cache effectively cold during parallel window.** Each `rebuildStateFromLegacy` produces a fresh Y.Doc with a fresh stateVersion. The renderer's `(BlockId, stateVersion)` cache key invalidates on every rebuild, so BlockViews are reconstructed from scratch for every block on every legacy action. Combined with the O(N) rebuild itself, this means O(N) rebuild + O(N) re-render per legacy action. For a 1k-block document this is sub-millisecond; for a 10k-block document it's user-noticeable but acceptable because the parallel window is bounded to the P11.0–cutover timeline. After cutover, BlockIds are Yjs-generated and stable; the cache becomes useful permanently.
+- **Renderer cache effectively cold during parallel window.** Each `rebuildStateFromLegacy` produces a fresh Y.Doc with a fresh stateVersion. The renderer's `(BlockId, stateVersion)` cache key invalidates on every rebuild, so BlockViews are reconstructed from scratch for every block on every legacy action. Combined with the O(N) rebuild itself, this means O(N) rebuild + O(N) re-render per legacy action. For a 1k-block document this is sub-millisecond; for a 10k-block document it's user-noticeable but acceptable because the parallel window is bounded to the P11.0–cutover timeline. After cutover, BlockIds are allocator-generated and stable (per Decision C point 7); the cache becomes useful permanently.
+
+- **Selection conversion per render call in the post-P11.3-pre-cutover sub-window.** Once `EditorState.selection` is `NewSelection` (after P11.3) but the renderer still consumes `stateLegacy` (before cutover), each render call invokes `newSelectionToLegacy(stateLegacy, selection)` — `O(treeDepth)` per Span endpoint, sub-millisecond for typical documents. Bounded by the P11.3 → cutover sub-window.
 
 **Affected phases:**
 

@@ -1,6 +1,8 @@
 # P6 — `state.embedContents` separation + cascade-delete completion
 
-**Subject:** Add `state.embedContents: PersistentMap<BlockId, Block>` as a second map on `State`. Move embed-referenced content blocks (footnote bodies, etc.) from `state.blocks` (where they currently live with `parentId: null`, violating the "only root has null parent" invariant) into `state.embedContents`. Complete `removeBlock`'s cascade-delete logic that's currently TODO.
+**Subject:** Add `state.embedContents: Y.Map<BlockId, Y.Map>` as a second map on `State` (Y.Map shape per decisions A + C — post-P4e). Move embed-referenced content blocks (footnote bodies, etc.) from `state.blocks` (where they currently live with `parentId: null`, violating the "only root has null parent" invariant) into `state.embedContents`. Complete `removeBlock`'s cascade-delete logic that's currently TODO.
+
+**Note:** P6 depends on P4e shipping first (per Resolved Questions below). Both maps are `Y.Map`, not the original `PersistentMap`.
 
 **Reference:** Strategy doc Decision 3.
 
@@ -28,7 +30,7 @@ P4d (clonePastedSubtree). The phase needs all of Phase 4 done so that we can upd
 ## Files involved
 
 **Modified (state.ts and family):**
-- `state.ts` — add `embedContents: PersistentMap<BlockId, Block>` field. Update `createState` to take both maps.
+- `state.ts` — add `embedContents: Y.Map<BlockId, Y.Map>` field (Y.Map shape per Decision C). Update `createState` to take both maps.
 - `initial-state.ts` and `new-initial-state.ts` — initialize `embedContents` as empty.
 - `clone-pasted-subtree.ts` — walker looks up blocks in either map; cloned embed-content blocks go to result's `embedContents`, not `blocks`.
 - `remove-block.ts` — implement the TODO'd cascade-delete: walk removed subtree's inlineContent for `contentBlockId` references; remove each from `state.embedContents` recursively (footnote bodies can themselves contain footnote anchors).

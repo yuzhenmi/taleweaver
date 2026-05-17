@@ -74,7 +74,7 @@ P7 (new renderer with BlockView interface). The BlockView shape must be defined 
 
 2. **`text` and `span` deletion.** These two components are unique: in the legacy world, text was a leaf "component" that produced TextBoxes from `node.properties.content`. In the new world, text rendering happens inside the renderer's inline-content walker (per `block.inlineContent.items` of the leaf block). There is no text component anymore. Same for `span` (which was a wrapping inline component). These two are deleted, not migrated.
 
-3. **Each component's `render` method.** In legacy, the method received a StateNode and child RenderNodes. In new, it receives a BlockView and children. The structural shape of the render output (RenderNode tree) is unchanged from `render-node-v2.ts`.
+3. **Each component's `render` method.** In legacy, the method received a StateNode and child RenderNodes. In new, it receives a BlockView and children. The structural shape of the render output (RenderNode tree = `ElementBox | TextBox`) is unchanged from the legacy renderer.
 
 4. **Default styles via cascade.** Components may declare default styles (e.g., paragraph has default font-size). These should integrate with the cascade interpreter pipeline (Phase 3) — the component's defaults register as base styles that the cascade resolves with `attrs`-derived overrides.
 

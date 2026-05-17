@@ -16,13 +16,14 @@ P11.4 + P12 + P13 + P14 complete. No legacy refs anywhere.
 
 ## Current state
 
-By P15, cutover has happened at the end of P11.4 (per Decision D Affected phases). The cutover commit ALREADY deleted: `EditorState.stateLegacy`, `EditorState.historyLegacy`, `rebuildStateFromLegacy`, `downgradeToStateNode`, `newPositionToLegacy`, `legacyPositionToNew`, all paired equivalence tests, the `History` wrapper's `historyLegacy` branch, and the legacy renderer import in the editor. P15 is what remains: the legacy file family that the cutover commit left in place.
+By P15, cutover has happened at the end of P11.4 (per Decision D Affected phases). The cutover commit ALREADY deleted: `EditorState.stateLegacy`, `EditorState.historyLegacy`, bridge functions (`rebuildStateFromLegacy`, `downgradeToStateNode`, `newPositionToLegacy`, `newSelectionToLegacy`; the legacy → new directions were deleted in P11.3), the empty `editor/legacy-position-bridge.ts` file, all paired equivalence tests, the `History` wrapper's `legacy` field, and the legacy renderer import in the editor. The id-translation pass at cutover replaced all `pathToBlockId`-derived BlockIds with allocator-generated stable ids. P15 is what remains: the legacy file family that the cutover commit left in place.
 
 **Legacy files to delete (per Decision E `*-legacy.ts` and the earlier `state/` migration):**
 - All `*-legacy.ts` files (introduced by P7, P8, P9, P11.0, others). Each one has been unreferenced since cutover. Examples: `render/render-legacy.ts`, `components/component-registry-legacy.ts`, `components/<name>-legacy.ts` for each migrated component family, `cursor/cursor-ops-legacy.ts`, `state/initial-state-legacy.ts`.
 - Legacy state-module files in `packages/core/src/state/`:
-  - `state-node.ts`, `create-node.ts`, `new-node.ts`, `formatting.ts`, `transformations.ts`, `find-path.ts`, `normalize.ts`, `node-operations.ts`, `position.ts`, `extract-text.ts`, `dirty.ts`, `change.ts`, legacy `history.ts` (the `EditorHistory` implementation — Decision D point 9 confirms it's deleted at cutover; if any remnants survive, delete here).
+  - `state-node.ts`, `create-node.ts`, `formatting.ts`, `transformations.ts`, `find-path.ts`, `normalize.ts`, `node-operations.ts`, `position.ts`, `extract-text.ts`, `dirty.ts`, `change.ts`, legacy `history.ts` (the `EditorHistory` implementation — Decision D point 9 confirms it's deleted at cutover; if any remnants survive, delete here).
   - `text-utils.ts` — may have new-state-relevant utilities; review and keep what's still used.
+  - `new-node.ts` — NOTE: this is a misnamed NEW file (an artifact of the Phase 1 `new-` prefix pattern that Decision E retires). Per Decision E it should be renamed `node.ts` when its consumers cut over (likely P4e, which rewrites state internals). It is NOT a legacy-deletion target. If it's still named `new-node.ts` by P15, rename it here.
 - `EditorConfig.registry` field (the legacy `ComponentRegistry` field per Decision F point 4): deleted at P15; `componentRegistry` becomes required.
 
 Public exports in `packages/core/src/index.ts` — currently a mix of legacy + new. Per master spec § "Public API surface", finalize to only new exports.
@@ -33,9 +34,11 @@ Public exports in `packages/core/src/index.ts` — currently a mix of legacy + n
 Files listed above that are unreferenced. Run `grep` per file before deletion to confirm zero refs. (Pre-flight check critical.)
 
 **Renamed:**
-- `new-extract-text.ts` → `extract-text.ts` (and corresponding test file).
-- `new-initial-state.ts` → `initial-state.ts` (and test).
-- `block-position.ts` → maybe `position.ts` (after legacy `position.ts` is deleted). The master spec's file inventory at line 470 calls the file `position.ts`.
+- `new-initial-state.ts` → `initial-state.ts` is handled in P11.0 Task 1 per Decision E (not here).
+- `new-extract-text.ts` → `extract-text.ts` is handled when its consumers cut over (likely P4e — same phase that rewrites state internals). NOT here.
+- `block-position.ts` → `position.ts` (after legacy `position.ts` is deleted) — this is a P15 rename because there's no parallel-implementations relationship (legacy `position.ts` is just being deleted; the new file's canonical name was just blocked by the old one). The master spec's file inventory in § "State module" calls the file `position.ts`.
+
+(Per Decision E, parallel-implementation renames happen in the phase that introduces the parallel implementation. P15 only handles renames that are blocked by P15's own deletions — i.e., where the new canonical name was occupied by a legacy file that's being deleted this very phase.)
 
 **Modified:**
 - `packages/core/src/index.ts` — finalize public surface. Per master spec lines 487-498.
