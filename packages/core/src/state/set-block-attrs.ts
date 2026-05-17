@@ -1,14 +1,13 @@
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
-import { createBlock } from "./block";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYAttrs } from "./y-block";
 
 /**
  * Replace a block's attrs with the given bag. Returns the new state and
  * a dirtyIds set containing the modified block id.
- *
- * `attrs` replaces wholesale — to merge with existing attrs, compose
- * `{ ...block.attrs, ...newPartial }` at the call site.
  *
  * Throws if the block does not exist.
  */
@@ -17,23 +16,12 @@ export function setBlockAttrs(
   blockId: BlockId,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  const block = state.blocks.get(blockId);
-  if (!block) {
+  const block = getBlock(state, blockId);
+  if (block === null) {
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
-  const updated = createBlock({
-    id: block.id,
-    type: block.type,
-    attrs,
-    parentId: block.parentId,
-    prevSiblingId: block.prevSiblingId,
-    nextSiblingId: block.nextSiblingId,
-    firstChildId: block.firstChildId,
-    lastChildId: block.lastChildId,
-    inlineContent: block.inlineContent,
+  return applyOperation(state, () => {
+    const yBlock = getBlocksMap(state.doc).get(blockId)!;
+    yBlock.set("attrs", buildYAttrs(attrs));
   });
-  return {
-    state: { ...state, blocks: state.blocks.set(blockId, updated) },
-    dirtyIds: new Set([blockId]),
-  };
 }

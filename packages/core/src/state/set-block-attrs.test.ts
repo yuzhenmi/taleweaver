@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { setBlockAttrs } from "./set-block-attrs";
+import { getBlock } from "./state";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -17,7 +18,7 @@ describe("setBlockAttrs", () => {
   it("replaces the block's attrs and returns the updated block", () => {
     const state = fixture();
     const result = setBlockAttrs(state, "p" as BlockId, { textAlign: "right", marginTop: "1em" });
-    const updated = result.state.blocks.get("p" as BlockId);
+    const updated = getBlock(result.state, "p" as BlockId);
     expect(updated?.attrs).toEqual({ textAlign: "right", marginTop: "1em" });
     // Block-shape invariants preserved:
     expect(updated?.id).toBe("p");
@@ -34,7 +35,7 @@ describe("setBlockAttrs", () => {
   it("does not modify the original state (immutability)", () => {
     const state = fixture();
     setBlockAttrs(state, "p" as BlockId, { textAlign: "right" });
-    expect(state.blocks.get("p" as BlockId)?.attrs).toEqual({ textAlign: "left" });
+    expect(getBlock(state, "p" as BlockId)?.attrs).toEqual({ textAlign: "left" });
   });
 
   it("throws when the block does not exist", () => {
