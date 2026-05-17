@@ -19,6 +19,12 @@ export function createSnapshotCache(): SnapshotCache {
   return { blocks: new Map(), embedContents: new Map() };
 }
 
+/**
+ * Evict the snapshot for `id` from both the blocks and embedContents
+ * sub-caches. BlockIds are globally unique across the two trees, so the
+ * id can live in at most one map; deleting from both is cheap (O(1)
+ * miss) and avoids requiring callers to know which tree owns the id.
+ */
 export function invalidateSnapshot(cache: SnapshotCache, id: BlockId): void {
   cache.blocks.delete(id);
   cache.embedContents.delete(id);
