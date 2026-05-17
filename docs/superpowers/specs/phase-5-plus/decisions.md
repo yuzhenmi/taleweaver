@@ -221,3 +221,70 @@ Surveyed ProseMirror (`NodeView` / `NodeViewDesc`), Lexical (`LexicalNode` + `Le
 
 ---
 
+## D — P11.0 bridge mechanism (decided 2026-05-16)
+
+**Question:** during the parallel window (P11.0 through P11.4) where `EditorState.state` is the new Yjs-backed `State` but action handlers haven't all migrated, how do legacy `StateNode`-consuming handlers and the still-legacy renderer keep working without losing changes the user makes via the other path?
+
+**Decision:** **Dual representation with rebuild-based sync.** `EditorState` carries both `state: State` (Yjs, declared from P11.0) and `legacyState: StateNode` (throwaway). After each action, the rep NOT mutated by the handler is rebuilt from the rep that was. Legacy renderer continues to consume `legacyState` until the renderer cutover is complete.
+
+```typescript
+interface EditorState {
+  state: State;                    // Yjs-backed; canonical post-cutover
+  legacyState: StateNode;          // throwaway; deleted after P11.4 + render cutover
+  selection: Position;             // unchanged in P11.0 (P11.3 migrates)
+  history: History;                // Y.UndoManager wrapper per decision C
+}
+
+function rebuildStateFromLegacy(legacy: StateNode): State;   // used after legacy actions
+function downgradeToStateNode(state: State): StateNode;      // used after migrated actions
+```
+
+**Concrete consequences:**
+
+1. **Two sync directions, one per action source:**
+   | Handler kind | Mutates | Refresh rule |
+   |---|---|---|
+   | Legacy (not yet migrated) | `legacyState` | `state` rebuilt from `legacyState` via `rebuildStateFromLegacy` |
+   | Migrated (P11.x family) | `state` (Y.Doc transaction) | `legacyState` derived via `downgradeToStateNode` |
+
+2. **Renderer continues to consume `legacyState`** until the renderer is cut over to consume `state` (after P7 ships AND all handler families migrate; likely P11.4 or P12). P11.0 itself does not touch the renderer's input.
+
+3. **`rebuildStateFromLegacy` is structural rebuild, not diff-replay.** A fresh `Y.Doc` is populated from the `StateNode` tree on each legacy action. Simpler than reconciling diffs against existing Y.Doc state. Pays a per-action cost; bounded because the parallel window is intentionally short.
+
+4. **`downgradeToStateNode` is a forward walk of the Y.Doc** producing a frozen StateNode tree. Cheap; cacheable by Y.Doc version if needed.
+
+5. **`legacyState` field is deleted in two cleanups:** the field itself comes out after all handler families migrate (post-P11.4); the renderer's consumption of `legacyState` ends at the render cutover (P7 done + handlers done). Both go away in P11.4 / P12 / P15 depending on sequencing.
+
+6. **No upgrade-replay machinery.** We considered diff-replay (incremental Y.Doc mutations from a StateNode diff). Rejected — identity preservation across BlockIds, character-level text reconciliation, and Y.Text format-mark consistency all become subtle bugs. Rebuild trades performance for correctness.
+
+7. **History sync.** Y.UndoManager is bound to the Y.Doc; when `state` is rebuilt from legacy, the prior Y.UndoManager is discarded and a fresh one wraps the new Y.Doc. This means undo across a legacy-action boundary may lose the per-character undo granularity of the Y.UndoManager — acceptable because (a) parallel window is short, (b) collab isn't enabled during the window, (c) the editor's `History` wrapper presents a consistent surface to consumers.
+
+**Rationale:**
+
+1. **Avoids upgrade-replay complexity.** Diff-replaying StateNode → Y.Doc is the highest-risk code path in any A/B option. Rebuild-from-scratch eliminates it entirely.
+2. **Symmetric model.** Both directions are "build target rep from source rep." Easy to test, easy to reason about, easy to spot drift bugs.
+3. **Throwaway field is honest.** `legacyState: StateNode` on `EditorState` is visibly transitional. When it's deleted, the cleanup is mechanical.
+4. **Decision C-compatible.** Yjs-backed State can be rebuilt fresh from a StateNode tree without breaking any Yjs-specific contracts (the new Y.Doc has its own client id; no conflicting external state during the parallel window because collab isn't running).
+5. **Renderer untouched at P11.0.** P11.0 stays a focused type flip; renderer migration happens via its own phase (P7) on its own schedule.
+
+**Rejected alternatives:**
+
+- **Option A from spec (one-way bridge with diff-replay upgrade).** The upgrade direction is the hardest engineering: identity preservation, text-mark reconciliation, Y.Text character-level diff. Subtle bugs hide there. Rebuild avoids the entire risk surface.
+- **Option C from spec (defer render call).** UI pipeline breaks during the parallel window. Not acceptable.
+- **Single-rep with on-the-fly bridging at every consumer.** Would require every legacy consumer site (handlers, renderer, tests) to call the bridge. Worse ergonomics than carrying both reps on `EditorState`.
+
+**Accepted tradeoffs:**
+
+- **Legacy actions slower during parallel window.** Each legacy action triggers a full Y.Doc rebuild. Bounded by the parallel window length (P11.0 → P11.4 in the migration timeline; not a permanent cost).
+- **Y.Doc client metadata reset per legacy action.** No semantic loss in single-user mode; no impact on collab (which doesn't run during parallel window).
+- **Y.UndoManager scope loss across legacy-action boundaries.** Undo may behave per-action rather than per-character across boundaries. Acceptable for the bounded window.
+
+**Affected phases:**
+
+- **P11.0:** introduces `legacyState` field; wires `rebuildStateFromLegacy` to fire after each existing legacy action; initial render consumes `legacyState`.
+- **P11.1–P11.4:** each migrated handler wires `downgradeToStateNode` to fire after its action; legacy handlers continue using `rebuildStateFromLegacy`.
+- **P12 (or whenever renderer cuts over):** renderer switches to consuming `state` directly; `legacyState` consumption ends.
+- **P15:** `legacyState` field removed; bridge functions deleted; cleanup completes.
+
+---
+
