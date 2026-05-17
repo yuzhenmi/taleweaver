@@ -32,7 +32,7 @@ describe("deepValueEqual", () => {
   });
 });
 
-import { attrsEqual, type ReadonlyAttrs } from "./attrs";
+import { attrsEqual, mergeAttrs, type ReadonlyAttrs } from "./attrs";
 
 describe("attrsEqual", () => {
   it("returns true for identical attribute bags", () => {
@@ -56,5 +56,49 @@ describe("attrsEqual", () => {
   it("compares object-valued attributes recursively", () => {
     expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c1" } })).toBe(true);
     expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c2" } })).toBe(false);
+  });
+});
+
+describe("mergeAttrs", () => {
+  it("merges two non-overlapping bags into their union", () => {
+    const existing: ReadonlyAttrs = { bold: true };
+    const incoming: ReadonlyAttrs = { italic: true };
+    expect(mergeAttrs(existing, incoming)).toEqual({ bold: true, italic: true });
+  });
+
+  it("incoming values override existing values for the same key", () => {
+    const existing: ReadonlyAttrs = { bold: true, fontSize: 12 };
+    const incoming: ReadonlyAttrs = { fontSize: 14 };
+    expect(mergeAttrs(existing, incoming)).toEqual({ bold: true, fontSize: 14 });
+  });
+
+  it("incoming key with value === undefined DELETES the key from the result", () => {
+    const existing: ReadonlyAttrs = { bold: true, italic: true };
+    const incoming: ReadonlyAttrs = { bold: undefined };
+    const result = mergeAttrs(existing, incoming);
+    expect(result).toEqual({ italic: true });
+    // The deleted key must not appear at all (not even as `undefined`).
+    expect("bold" in result).toBe(false);
+  });
+
+  it("deleting a non-existent key is a no-op", () => {
+    const existing: ReadonlyAttrs = { italic: true };
+    const incoming: ReadonlyAttrs = { bold: undefined };
+    const result = mergeAttrs(existing, incoming);
+    expect(result).toEqual({ italic: true });
+    expect("bold" in result).toBe(false);
+  });
+
+  it("can simultaneously add a key and remove another", () => {
+    const existing: ReadonlyAttrs = { bold: true };
+    const incoming: ReadonlyAttrs = { bold: undefined, italic: true };
+    const result = mergeAttrs(existing, incoming);
+    expect(result).toEqual({ italic: true });
+    expect("bold" in result).toBe(false);
+  });
+
+  it("merging an empty incoming bag returns the existing keys unchanged", () => {
+    const existing: ReadonlyAttrs = { bold: true, fontSize: 12 };
+    expect(mergeAttrs(existing, {})).toEqual({ bold: true, fontSize: 12 });
   });
 });

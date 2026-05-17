@@ -59,3 +59,25 @@ export function attrsEqual(a: ReadonlyAttrs, b: ReadonlyAttrs): boolean {
   }
   return true;
 }
+
+/**
+ * Merge incoming attrs into existing attrs.
+ * - Keys with value `undefined` in `incoming` are REMOVED from the result.
+ * - Other keys in `incoming` overwrite or add to `existing`.
+ * - Keys only in `existing` are preserved.
+ *
+ * Used by `applyAttrsToRange` to support the documented contract that
+ * passing `{ bold: undefined }` deletes the `bold` attr from items in
+ * range (rather than storing a literal `undefined` value).
+ */
+export function mergeAttrs(existing: ReadonlyAttrs, incoming: ReadonlyAttrs): ReadonlyAttrs {
+  const result: Record<string, unknown> = { ...existing };
+  for (const key of Object.keys(incoming)) {
+    if (incoming[key] === undefined) {
+      delete result[key];
+    } else {
+      result[key] = incoming[key];
+    }
+  }
+  return result;
+}
