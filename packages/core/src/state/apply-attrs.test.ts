@@ -83,14 +83,14 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     expect(items?.[2]).toMatchObject({ text: "rld", attrs: { italic: true } });
   });
 
-  it("partial overlap with value-equal attrs still splits into prefix+middle+suffix (no post-pass collapse)", () => {
+  it("partial overlap with value-equal attrs collapses back to a single item via post-pass merge", () => {
     // text("helloworld", { bold: true }) and apply { bold: true } over [3,7).
-    // The Y.Doc implementation has no run-merging post-pass: partial overlap
-    // always splits the text item via delete+insert because Yjs has no
-    // in-place Y.Text split primitive. Same-attrs neighbors are not merged
-    // back together — preserves the contract that unaffected items keep
-    // their Y.Text identity (the legacy mergeAdjacentTextItems would have
-    // collapsed them, defeating that invariant).
+    // The op splits the text item via delete+insert (Yjs has no in-place
+    // Y.Text split primitive), then the post-pass merges the three same-attrs
+    // neighbors back into one — upholding mergeAdjacentTextItems's invariant
+    // (no two adjacent text items with equal attrs). The Y.Text identity of
+    // the original "helloworld" is lost (rebuilt during the split), but the
+    // structural invariant holds.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -106,10 +106,8 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = applyAttrsToRange(state, span, { bold: true });
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ text: "hel", attrs: { bold: true } });
-    expect(items?.[1]).toMatchObject({ text: "lowo", attrs: { bold: true } });
-    expect(items?.[2]).toMatchObject({ text: "rld", attrs: { bold: true } });
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "helloworld", attrs: { bold: true } });
   });
 });
 
@@ -441,15 +439,13 @@ describe("applyAttrsToRange — empty span no-op", () => {
   });
 });
 
-describe("applyAttrsToRange — in-place mutation does not collapse adjacent same-attrs items", () => {
-  it("fully-covered items get attrs set in place; same-attrs neighbors are not merged", () => {
+describe("applyAttrsToRange — same-attrs merge post-pass", () => {
+  it("collapses three adjacent text items when attrs converge to value-equal", () => {
     // Block: [text("a", { bold: true }), text("b") {}, text("c", { bold: true })]
-    // Apply { bold: true } over the whole range — every item gets bold.
-    // The Y.Doc impl mutates attrs in place for fully-covered items;
-    // there is no post-pass that would collapse the now-same-attrs runs.
-    // This preserves Y.Text identity on the original three Y.Texts (which
-    // a normalize pass would have to destroy by delete+rebuild). Higher
-    // layers that care about run-merge invariants run their own pass.
+    // Apply { bold: true } over the whole range — every item gets bold,
+    // then the post-pass collapses the three same-attrs neighbors into one,
+    // upholding mergeAdjacentTextItems's "no adjacent same-attrs text items"
+    // invariant.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -469,10 +465,8 @@ describe("applyAttrsToRange — in-place mutation does not collapse adjacent sam
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
     const result = applyAttrsToRange(state, span, { bold: true });
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
-    expect(items?.[1]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
-    expect(items?.[2]).toMatchObject({ kind: "text", text: "c", attrs: { bold: true } });
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "abc", attrs: { bold: true } });
   });
 
   it("does NOT merge across an embed even when text neighbors share attrs", () => {

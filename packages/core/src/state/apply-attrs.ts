@@ -4,7 +4,7 @@ import { applyOperation } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { mergeAttrs } from "./attrs";
+import { attrsEqual, mergeAttrs } from "./attrs";
 import { iterateSpan } from "./span-iteration";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "./y-block";
@@ -40,10 +40,13 @@ import { yMapAsObject } from "./y-utils";
  * (preserves the item's Y.Text identity, and therefore its per-character
  * CRDT identity). A partially-covered text item is split via
  * delete+insert because Yjs has no in-place split primitive on a single
- * Y.Text; the prefix and suffix are reissued as fresh items. Unlike the
- * legacy implementation, this op does NOT run a same-attrs merging
- * post-pass — that would defeat the in-place mutation invariant by
- * deleting and recreating items that didn't need to change.
+ * Y.Text; the prefix and suffix are reissued as fresh items.
+ *
+ * After the per-item updates a same-attrs merge pass runs over the
+ * touched block to uphold the "no adjacent same-attrs text items"
+ * invariant (per `inline-content.ts` mergeAdjacentTextItems contract).
+ * The merge only deletes items when neighbors converge to value-equal
+ * attrs — items that stay distinct keep their Y.Text identity intact.
  */
 export function applyAttrsToRange(
   state: State,
@@ -80,6 +83,7 @@ export function applyAttrsToRange(
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves
       applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);
+      mergeAdjacentSameAttrsTextItems(yItems);
     }
   });
 }
@@ -161,5 +165,35 @@ function applyAttrsToBlockRange(
     yItems.insert(i, replacements);
     i += replacements.length;
     cursor = itemEnd;
+  }
+}
+
+/**
+ * Walk yItems and merge any adjacent same-attrs text-item pairs. Items
+ * whose neighbors don't converge keep their Y.Text identity intact —
+ * only the converging pairs lose identity (the merged result is a fresh
+ * Y.Text holding the concatenated content). Upholds the
+ * mergeAdjacentTextItems invariant for `applyAttrsToRange`.
+ */
+function mergeAdjacentSameAttrsTextItems(yItems: Y.Array<Y.Map<unknown>>): void {
+  let i = 0;
+  while (i + 1 < yItems.length) {
+    const a = yItems.get(i);
+    const b = yItems.get(i + 1);
+    if (a.get("kind") !== "text" || b.get("kind") !== "text") {
+      i++;
+      continue;
+    }
+    const aAttrs = yMapAsObject(a.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    const bAttrs = yMapAsObject(b.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    if (!attrsEqual(aAttrs, bAttrs)) {
+      i++;
+      continue;
+    }
+    const aText = (a.get("text") as Y.Text).toString();
+    const bText = (b.get("text") as Y.Text).toString();
+    yItems.delete(i, 2);
+    yItems.insert(i, [buildYInlineItem({ kind: "text", text: aText + bText, attrs: aAttrs })]);
+    // Don't advance i — the merged item may now be mergeable with the next.
   }
 }
