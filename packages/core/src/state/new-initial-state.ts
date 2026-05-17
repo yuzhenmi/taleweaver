@@ -1,35 +1,52 @@
 import type { IdAllocator } from "./block-id";
-import { createBlock } from "./block";
-import { createInlineContent } from "./inline-content";
-import { createPersistentMap } from "./persistent-map";
+import { productionAllocator } from "./block-id";
 import { createState, type State } from "./state";
+import { runTransaction, getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+
+export interface CreateEmptyDocumentArgs {
+  allocator?: IdAllocator;
+}
 
 /**
- * Build the minimum valid document: a document root with a single empty
- * paragraph child. Both blocks have fresh ids from the allocator.
+ * Build an empty document State: a root "document" block containing one
+ * empty "paragraph" child. The document is the canonical starting point
+ * for a new editor session.
  */
-export function createEmptyDocument(allocator: IdAllocator): State {
-  const docId = allocator.allocate();
-  const paraId = allocator.allocate();
+export function createEmptyDocument(args: CreateEmptyDocumentArgs = {}): State {
+  const allocator = args.allocator ?? productionAllocator;
+  const rootId = allocator.allocate();
+  const paragraphId = allocator.allocate();
 
-  const para = createBlock({
-    id: paraId,
-    type: "paragraph",
-    parentId: docId,
-    inlineContent: createInlineContent([]),
+  const state = createState({ rootId });
+  runTransaction(state.doc, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    yBlocks.set(
+      rootId,
+      buildYBlock({
+        type: "document",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: paragraphId,
+        lastChildId: paragraphId,
+        inlineContent: null,
+      }),
+    );
+    yBlocks.set(
+      paragraphId,
+      buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: rootId,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }),
+    );
   });
-
-  const doc = createBlock({
-    id: docId,
-    type: "document",
-    firstChildId: paraId,
-    lastChildId: paraId,
-  });
-
-  const blocks = createPersistentMap([
-    [docId, doc] as const,
-    [paraId, para] as const,
-  ]);
-
-  return createState({ rootId: docId, blocks });
+  return state;
 }
