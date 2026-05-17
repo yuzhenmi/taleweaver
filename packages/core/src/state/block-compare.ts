@@ -1,7 +1,8 @@
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import { getBlock, type State } from "./state";
 import type { Position } from "./block-position";
 import { ancestorChain } from "./block-traversal";
+import { getBlocksMap } from "./yjs-doc";
 
 /**
  * Compare two blocks in document order.
@@ -56,15 +57,15 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
   // chainA[i] and chainB[j] are different children of the LCA (which is chainA[i+1] === chainB[j+1]).
   // Walk the LCA's child linked list to see which child comes first.
   const lcaId = chainA[i + 1];
-  const lca = state.blocks.get(lcaId);
-  if (!lca) throw new Error(`compareBlocksInDocOrder: LCA "${lcaId}" not found`);
+  const lca = getBlock(state, lcaId);
+  if (lca === null) throw new Error(`compareBlocksInDocOrder: LCA "${lcaId}" not found`);
 
   let cursor: BlockId | null = lca.firstChildId;
   while (cursor) {
     if (cursor === chainA[i]) return -1;
     if (cursor === chainB[j]) return 1;
-    const block = state.blocks.get(cursor);
-    cursor = block ? block.nextSiblingId : null;
+    const block = getBlock(state, cursor);
+    cursor = block !== null ? block.nextSiblingId : null;
   }
 
   throw new Error(
@@ -98,16 +99,16 @@ export function comparePositions(state: State, a: Position, b: Position): number
  * Returns null if blockId does not exist.
  */
 export function selectionContextOf(state: State, blockId: BlockId): BlockId | null {
-  let cursor = state.blocks.get(blockId);
-  if (!cursor) return null;
-  const maxSteps = state.blocks.size + 1;
+  let cursor = getBlock(state, blockId);
+  if (cursor === null) return null;
+  const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.parentId) {
     if (++steps > maxSteps) {
       throw new Error(`selectionContextOf: cycle detected in block tree (visited >${maxSteps} blocks)`);
     }
-    const parent = state.blocks.get(cursor.parentId);
-    if (!parent) break;
+    const parent = getBlock(state, cursor.parentId);
+    if (parent === null) break;
     cursor = parent;
   }
   return cursor.id;
