@@ -341,3 +341,73 @@ Before parallel implementation lands:    After parallel implementation lands:
 
 ---
 
+## F — Component registration strategy during cutover (decided 2026-05-16)
+
+**Question:** during the parallel window where old and new components coexist, do they share one registry or live in two? Should the new registry be singleton-based (matching current code) or constructor-injected?
+
+**Decision:** **Two registries (legacy stays untouched; new is canonical) + new registry is constructor-injectable.**
+
+```typescript
+// components/component-registry.ts (NEW canonical, in canonical name per decision E)
+export interface ComponentRegistry {
+  register(def: ComponentDefinition): void;
+  get(type: string): ComponentDefinition | undefined;
+  has(type: string): boolean;
+}
+
+export function createComponentRegistry(): ComponentRegistry;        // empty
+export function createDefaultComponentRegistry(): ComponentRegistry; // pre-populated with built-ins
+
+// editor's createInitialEditorState signature:
+function createInitialEditorState(
+  opts?: { componentRegistry?: ComponentRegistry },
+): EditorState;
+// defaults to createDefaultComponentRegistry() if not provided.
+
+// components/component-registry-legacy.ts (OLD, renamed per decision E)
+// Stays as the existing singleton with module-load side-effect registration.
+// Untouched — going away in P15.
+```
+
+**Concrete consequences:**
+
+1. **Two registries during parallel window:**
+   - `componentRegistryLegacy` (singleton, in `components/component-registry-legacy.ts`) — consumed by `render-legacy.ts`.
+   - `componentRegistry` (constructor-injected, in `components/component-registry.ts`) — consumed by new `render.ts`.
+
+2. **New registry shape matches Decision B's split.** `ComponentDefinition` = `ContainerComponentDefinition | LeafComponentDefinition`. The registry's `register` method type-checks against this union; the legacy registry doesn't know about kind discrimination.
+
+3. **`createDefaultComponentRegistry()` explicitly lists built-ins.** No side-effect imports. The factory imports each new component definition and calls `register()` in order. A new built-in component requires editing this factory (explicit registration).
+
+4. **Editor accepts optional registry override.** `createInitialEditorState({ componentRegistry: ... })` accepts a custom registry for testing or future multi-document setups. Defaults to `createDefaultComponentRegistry()` when not provided.
+
+5. **Tests can use isolated registries.** A test exercising only `paragraph` can build a registry with just paragraph registered, eliminating coupling to unrelated components.
+
+6. **No registry sharing across old and new.** Type incompatibility (old shape vs new container/leaf split) makes sharing infeasible without ugly type discriminators. Two clean registries beat one polluted one.
+
+7. **Legacy registry retired in P15.** Same time the legacy renderer (`render-legacy.ts`) and legacy component files (`*-legacy.ts`) are deleted. `componentRegistry` (new) becomes the only registry.
+
+**Rationale:**
+
+1. **Type contracts are mutually incompatible.** New `ComponentDefinition` requires `kind`; legacy doesn't have it. Sharing forces ugly discrimination at every dispatch site.
+2. **Testability earns its keep.** "Uncompromising word processor" implies a serious test suite. Injectable registries enable proper isolation. Cost (one extra constructor parameter) is trivial.
+3. **No side-effect imports** improve clarity. Reading `createDefaultComponentRegistry()` tells you exactly which built-ins exist. Module-load magic is replaced by explicit registration.
+4. **Don't refactor what's being deleted.** Converting legacy registry to injectable is wasted work — it's gone in P15. Leave it singleton.
+5. **Aligned with Decision E.** Canonical names (`componentRegistry`, `render.ts`) belong to the new code from day one; legacy carries the `-legacy` suffix.
+
+**Rejected alternatives:**
+
+- **Shared registry with type discriminator:** `ComponentDefinition.shape: "legacy" | "container" | "leaf"`. Pollutes the type system; every consumer dispatches on shape. Saves nothing — old and new renderers still need to filter to their own shape.
+- **Singleton new registry:** matches current pattern but forgoes test isolation. Not worth the symmetry; "uncompromising word processor" justifies the better pattern.
+- **Inject legacy registry too:** wasted refactor on code that gets deleted in P15.
+- **Side-effect imports for new components:** would silently extend the registry based on import graph; debugging "where did this component get registered?" becomes painful. Explicit `createDefaultComponentRegistry()` is worth the explicit-registration line per component.
+
+**Affected phases:**
+
+- **P7 (render rewrite):** new `render.ts` accepts a `ComponentRegistry` parameter (or pulls it from editor context). Uses the new registry's `get(type)` to dispatch.
+- **P8 (components rewrite):** introduces `components/component-registry.ts` with the new `ComponentRegistry` interface, `createComponentRegistry()`, and `createDefaultComponentRegistry()`. Each migrated component file exports its definition; `createDefaultComponentRegistry()` imports and registers all of them explicitly. Legacy `components/component-registry.ts` renamed to `components/component-registry-legacy.ts` per decision E.
+- **P11.0:** `createInitialEditorState` signature widens to accept optional `componentRegistry`. Defaults preserve existing behavior.
+- **P15:** delete `components/component-registry-legacy.ts` and any remaining `*-legacy.ts` component files; `componentRegistry` becomes the only registry.
+
+---
+

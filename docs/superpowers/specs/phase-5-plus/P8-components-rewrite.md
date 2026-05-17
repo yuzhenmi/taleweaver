@@ -105,7 +105,7 @@ Estimated test count delta: small (existing tests update; few net new tests).
 
 ## Open questions
 
-1. **Component registration mechanism.** Is the registry singleton-based (`registerComponent(def)` mutates a global) or constructor-injected? Today it's likely singleton; verify and decide whether to keep.
+1. ✅ **Component registration mechanism — resolved in `decisions.md` decision F (2026-05-16).** New `componentRegistry` is constructor-injectable, built via `createDefaultComponentRegistry()` factory with explicit registration (no side-effect imports). Legacy registry stays singleton (untouched, going away in P15).
 
 2. **`defaultStyle` vs cascade interpreters.** Phase 3 added an attribute-interpreter pipeline. Does the component's `defaultStyle` go through interpreters too, or is it bypassed? Likely the latter — component defaults are baseline; interpreters add per-attr deltas. Per-phase plan clarifies.
 

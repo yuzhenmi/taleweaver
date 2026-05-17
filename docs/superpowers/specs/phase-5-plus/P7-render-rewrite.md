@@ -82,7 +82,7 @@ Estimated test count: 15-25 tests across the new render module's test files.
 
 2. ✅ **BlockView shape — resolved in `decisions.md` decision B (2026-05-15).** Push model, minimal surface, RenderContext escape hatch. Per-phase plan still defines internal walker structure and snapshot facade implementation, but the public interface is locked.
 
-3. **Component registry split.** Do the old and new components both register under the same registry instance? Or two registries? Likely same registry with type discrimination (since `block.type === "paragraph"` should resolve to whichever paragraph component is current).
+3. ✅ **Component registry split — resolved in `decisions.md` decision F (2026-05-16).** Two registries: `componentRegistryLegacy` (singleton, untouched) for `render-legacy.ts`; new `componentRegistry` (constructor-injectable) for the new `render.ts`. New renderer accepts a `ComponentRegistry` parameter.
 
 4. **Footnote rendering destination.** Per pagination spec P1.C, footnote bodies render into per-page footnote zones. The new renderer probably emits them as a separate RenderNode array alongside the main RenderNode tree. Pagination then composes them. P7 plan needs to define the data shape.
 
