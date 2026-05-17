@@ -32,15 +32,21 @@ NOTE per round-4 strategy review: P9 does NOT depend on the editor work. It's a 
 
 ## Files involved
 
-**Created (parallel new cursor):**
-- `cursor/cursor-ops-v2.ts` (or `cursor/v2/cursor-ops.ts` — naming per per-phase plan) — adopts new `Position`. Contains:
+**Naming per `decisions.md` decision E (`-legacy` suffix on old):**
+
+In the same commit that introduces the new parallel cursor implementation, rename `cursor/cursor-ops.ts` → `cursor/cursor-ops-legacy.ts` and update all imports. The new canonical `cursor/cursor-ops.ts` adopts new `Position`. After cutover, `cursor-ops-legacy.ts` is deleted in P15.
+
+**Created (parallel new cursor — canonical name per decision E):**
+- `cursor/cursor-ops.ts` (canonical) — adopts new `Position`. Contains:
   - `moveByCharacter(state, position, direction): Position` — grapheme-cluster aware.
   - `moveByWord(state, position, direction): Position` — UAX #29 word boundaries.
   - Maybe `moveByLine`, `moveByDocumentBoundary` — but these are layout-coupled (need RenderNode); could defer to P10.
 - Test file alongside.
 
+**Renamed in this phase (per decision E):**
+- `cursor/cursor-ops.ts` → `cursor/cursor-ops-legacy.ts` (the old version). Imports throughout the codebase update to `cursor-ops-legacy`. P15 deletes.
+
 **Untouched (in this phase):**
-- `cursor/cursor-ops.ts` (legacy) — stays. P15 deletes.
 - `cursor/selection.ts` — stays on legacy `Position`-by-path until P11.3 selection migration.
 
 **Open question on P9 scope (Open Question 6 in strategy):**
@@ -79,9 +85,9 @@ Estimated test count: 25-35.
 
 ## Open questions
 
-1. **File boundary between P9 and P10** (Open Question 6 of strategy doc): which files are P9 vs P10? P9 plan must enumerate. Recommendation: P9 owns `cursor-ops-v2.ts` (text-only navigation). P10 owns hit-test, selection-geometry, line-navigation (layout-coupled).
+1. **File boundary between P9 and P10** (Open Question 6 of strategy doc): which files are P9 vs P10? P9 plan must enumerate. Recommendation: P9 owns `cursor-ops.ts` (text-only navigation). P10 owns hit-test, selection-geometry, line-navigation (layout-coupled).
 
-2. **Naming convention for parallel implementations.** `cursor-ops-v2.ts` vs `cursor/v2/cursor-ops.ts` vs other? P9 plan picks.
+2. ✅ **Naming convention — resolved in `decisions.md` decision E (2026-05-16).** `-legacy` suffix on old; new code takes the canonical name. P9 renames `cursor/cursor-ops.ts` → `cursor/cursor-ops-legacy.ts` and introduces new canonical `cursor/cursor-ops.ts` in the same commit.
 
 3. **Where do shared grapheme-cluster utilities live?** If both legacy and new cursor need them during the parallel window, extract to a shared file (e.g., `cursor/grapheme-utils.ts`) or `state/text-utils.ts`. Decide in plan.
 

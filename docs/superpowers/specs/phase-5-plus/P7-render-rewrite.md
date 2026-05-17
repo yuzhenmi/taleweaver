@@ -33,8 +33,10 @@ Under Path B, the new renderer is added in PARALLEL with the existing one. Edito
 **Renamed in P7 (per decision E):**
 - `render.ts` (the old version) → `render-legacy.ts`. Stays callable; consumers' imports rewritten to `render-legacy`.
 
+**Consolidated in P7 (per decision E):**
+- `render-node-v2.ts` content moved into `render-node.ts` (the barrel). `render-node-v2.ts` deleted. Consumers' imports updated to the canonical path. Done in P7 because P7 is already touching `render/`; aligns with "new code claims the canonical name from day one."
+
 **Untouched (in this phase):**
-- `render-node.ts`, `render-node-v2.ts` — the RenderNode type itself doesn't change. Stays. (Type-barrel consolidation folded into P15.)
 - All component files (`components/*.ts`) — stay on legacy interface. P8 migrates them.
 
 ## Key technical considerations

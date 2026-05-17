@@ -24,7 +24,7 @@ interface State {
 - New helper `state/get-block.ts: getBlockFromEither(state, id): Block | undefined` for the rare cross-map lookup.
 - `removeBlock` cascade-delete walks the removed subtree's inline content; for each `EmbedItem.properties.contentBlockId` reference, recursively removes from `embedContents` (cycle-defended).
 - Test builders gain an optional `embedContents: [...]` parameter on `buildState`.
-- Future side documents (comment threads, change-tracking suggestions, revision history) follow the same pattern: add a new map field; existing operations that don't care don't see them.
+- Future *embed-content-shaped* side documents (e.g., revision-history snapshots if implemented as inline embeds; sidebar contents) follow the same pattern: add a new map field; existing operations that don't care don't see them. Comments and change-tracking are NOT in this category — per `decomposition.md` P23/P24 they are out-of-tree decoration sets carried alongside `EditorState`, not on `State`.
 
 **Rationale:**
 
@@ -36,10 +36,10 @@ interface State {
 
 **Rejected alternatives:**
 
-- **Option 2 (kind discriminator on Block):** discriminators widen over time (comment threads, change tracking, sidebars). Each widening forces consumers that switch on `kind` to update. Tree-walking operations need disciplined filtering. Easy to forget at fixture-write time.
+- **Option 2 (kind discriminator on Block):** discriminators widen over time (sidebars, revision-history embeds, etc.). Each widening forces consumers that switch on `kind` to update. Tree-walking operations need disciplined filtering. Easy to forget at fixture-write time.
 - **Option 3 (hybrid: one map in State, split at clone output):** inconsistency between `State` shape and `ClonedSubtree` shape. `removeBlock` cascade-delete becomes O(depth) per check instead of O(1).
 
-**Affected phases:** P6 (introduces the shape), P7 (renderer enumerates both), P8 (components consume from both via the renderer), P11.x (editor handles embed lifecycle), P15 (legacy invariant violation gone).
+**Affected phases:** P6 (introduces the shape), P7 (renderer enumerates both), P8 (components consume from both via the renderer), P11.x (editor handles embed lifecycle), P15 (legacy invariant violation gone). Master spec sections referenced: § "State module" → embedContents bullet; § "Operations" → cascade-delete.
 
 Note: after decision C below, both maps become `Y.Map` instances at the Y.Doc root. The two-map architecture survives; only the storage primitive changes.
 
@@ -69,7 +69,7 @@ Note: after decision C below, both maps become `Y.Map` instances at the Y.Doc ro
 
 5. **Snapshot views.** Consumers read state via immutable snapshot facades: `getBlock(state, id): Block | undefined` returns a frozen JS view of the Y.Map at that id. Snapshots are lazy and cacheable; they share underlying Yjs storage. No `state.blocks.get(id).mutate(...)` — Y types are accessed only through transactions in Layer 3 ops.
 
-6. **History uses Yjs's UndoManager** (a battle-tested undo implementation that handles per-user undo correctly for collab). A thin wrapper exposes our API: `History`, `pushHistoryEntry`, `undo`, `redo`. Selection is tracked separately (per master spec line 480 — HistoryEntry carries state + selection + dirtyIds + timestamp + mergeTag).
+6. **History uses Yjs's UndoManager AFTER cutover** (a battle-tested undo implementation that handles per-user undo correctly for collab). A thin wrapper exposes our API: `History`, `pushHistoryEntry`, `undo`, `redo`. Selection is tracked separately (per master spec § "Public API surface" → `history.ts` bullet — HistoryEntry carries state + selection + dirtyIds + timestamp + mergeTag). **Timing:** during the parallel window (P11.0 through cutover), the `History` wrapper delegates to the legacy `EditorHistory` so undo remains functional. At cutover, the wrapper switches to delegating to Y.UndoManager. See decision D point 9 for details.
 
 7. **Causal id generation:** Yjs handles this internally (lamport timestamp + client id). Our `BlockId`, `ItemId`, `CharId` use Yjs's id-generation pattern. `IdAllocator` becomes a wrapper over Yjs's id generator.
 
@@ -102,7 +102,7 @@ Note: after decision C below, both maps become `Y.Map` instances at the Y.Doc ro
 
 - **Phase 4e (new):** rebase state module on Yjs primitives. Restructures Phase 1-4 type definitions and Layer 3 op implementations. Significant work but well-bounded once the design is specified.
 - **P6 (state.embedContents separation):** now expressed as a second `Y.Map` at the Y.Doc root rather than a `PersistentMap`. Architecturally unchanged.
-- **P11.0 (EditorState type flip):** uses Yjs UndoManager for history.
+- **P11.0 (EditorState type flip):** introduces both the new `History` wrapper AND retains the legacy `EditorHistory` (renamed to `historyLegacy`) for the parallel window per decision D. Wrapper delegates to legacy during parallel; flips to Y.UndoManager at cutover.
 - **All P11.x action handlers:** Layer 3 ops on the Yjs-backed state; APIs unchanged from consumer perspective.
 - **P15 cleanup:** `state/persistent-map.ts` is deleted in Phase 4e, not P15. Other legacy deletions still happen in P15.
 
@@ -172,8 +172,8 @@ type ComponentDefinition = ContainerComponentDefinition | LeafComponentDefinitio
 2. **BlockView has no `childIds` field.** Component code is simpler; cache invalidation is the renderer's exclusive concern.
 3. **BlockView has no `parent` field.** Container-level coordination (table cell ↔ row ↔ table; list-item levels) happens at layout time or via attrs; components render self-contained from their own data.
 4. **`computedStyle` is attached** to BlockView as a field. Cascade runs before the renderer dispatches; components don't walk ancestors for inherited values.
-5. **Two interfaces for containers vs leaves.** `ContainerBlockView` / `LeafBlockView` discriminated union — paired with `ContainerComponentDefinition` / `LeafComponentDefinition`. Image, horizontal-line, and other "atomic" blocks are leaves with an empty `inlineContent.items` array. The registry's `kind` field lets the renderer hand the right shape to each component (and the type system enforces it).
-6. **RenderContext is the escape hatch** for cross-block lookups (footnote-anchor → footnote body via `getEmbedContent`, future cross-references via `getView`). Keeps BlockView focused on "this block's data." A curated context object instead of handing components the full editor matches the surveyed editors' intent (controlled access to global state) while being narrower than their editor-singleton pattern.
+5. **Two interfaces for containers vs leaves.** `ContainerBlockView` / `LeafBlockView` discriminated union — paired with `ContainerComponentDefinition` / `LeafComponentDefinition`. Image, horizontal-line, and other "atomic" blocks are leaves with an empty `inlineContent.items` array. The registry's `kind` field lets the renderer hand the right shape to each component (and the type system enforces it). **For atomic blocks (image, horizontal-line), all rendering-relevant data — src URL, intrinsic dimensions, etc. — lives in `BlockViewBase.attrs` (mapped from the underlying `Block.attrs`).** `LeafBlockView.inlineContent.items` is empty by convention; component reads `view.attrs` for its rendering inputs.
+6. **RenderContext is the escape hatch** for cross-block lookups (footnote-anchor → footnote body via `getEmbedContent`, future cross-references via `getView`). Keeps BlockView focused on "this block's data." A curated context object instead of handing components the full editor matches the surveyed editors' intent (controlled access to global state) while being narrower than their editor-singleton pattern. **`RenderContext.getView(id)` semantics:** returns a BlockView for any id present in `state.blocks`; returns `undefined` for unknown ids. Construction is lazy — if not already in the renderer's BlockView cache, the renderer materializes the snapshot facade on the spot (runs the cascade for that block, dispatches container/leaf based on the registry's `kind` field for the block's `type`). Cache key: `(BlockId, stateVersion)`. If the block's `type` is not registered, the renderer logs a warning and returns `undefined` (treated as a structural error; callers don't have to handle a "wrong kind" return).
 7. **Lifecycle and caching are implementation details** of the renderer. BlockViews can be lazy snapshot facades over the underlying Y.Map (post-Phase 4e), cached and invalidated via dirtyIds. Interface doesn't dictate.
 8. **`text` and `span` components stay deleted** per master spec line 509. The renderer expands a leaf block's `inlineContent.items` directly into `inlineRenderNodes` (TextBoxes for TextItems, EmbedBoxes for EmbedItems) before invoking the leaf component. No "text component" exists.
 
@@ -225,18 +225,20 @@ Surveyed ProseMirror (`NodeView` / `NodeViewDesc`), Lexical (`LexicalNode` + `Le
 
 **Question:** during the parallel window (P11.0 through P11.4) where `EditorState.state` is the new Yjs-backed `State` but action handlers haven't all migrated, how do legacy `StateNode`-consuming handlers and the still-legacy renderer keep working without losing changes the user makes via the other path?
 
-**Decision:** **Dual representation with rebuild-based sync.** `EditorState` carries both `state: State` (Yjs, declared from P11.0) and `legacyState: StateNode` (throwaway). After each action, the rep NOT mutated by the handler is rebuilt from the rep that was. Legacy renderer continues to consume `legacyState` until the renderer cutover is complete.
+**Decision:** **Dual representation with rebuild-based sync; `legacyState` is the canonical record during the parallel window.** `EditorState` carries both `state: State` (Yjs, declared from P11.0 — the type-flip target) and `legacyState: StateNode` (canonical during parallel; deleted at cutover). After each action, the rep NOT mutated by the handler is rebuilt from the rep that was. Legacy renderer continues consuming `legacyState` AND the legacy `EditorHistory` continues backing undo, until the renderer + history cutover at the end of the parallel window.
 
 ```typescript
 interface EditorState {
-  state: State;                    // Yjs-backed; canonical post-cutover
-  legacyState: StateNode;          // throwaway; deleted after P11.4 + render cutover
-  selection: Position;             // unchanged in P11.0 (P11.3 migrates)
-  history: History;                // Y.UndoManager wrapper per decision C
+  state: State;                    // type-flip target; becomes canonical at cutover
+  legacyState: StateNode;          // canonical record during parallel window; deleted at cutover
+  selection: Position;             // legacy path-based; P11.3 migrates
+  history: History;                // wrapper; backed by legacy EditorHistory during parallel,
+                                   // by Y.UndoManager after cutover (per decision C)
+  historyLegacy: EditorHistory;    // active during parallel window; deleted at cutover
 }
 
-function rebuildStateFromLegacy(legacy: StateNode): State;   // used after legacy actions
-function downgradeToStateNode(state: State): StateNode;      // used after migrated actions
+function rebuildStateFromLegacy(legacy: StateNode): State;   // fires after legacy actions
+function downgradeToStateNode(state: State): StateNode;      // fires after migrated actions
 ```
 
 **Concrete consequences:**
@@ -247,17 +249,27 @@ function downgradeToStateNode(state: State): StateNode;      // used after migra
    | Legacy (not yet migrated) | `legacyState` | `state` rebuilt from `legacyState` via `rebuildStateFromLegacy` |
    | Migrated (P11.x family) | `state` (Y.Doc transaction) | `legacyState` derived via `downgradeToStateNode` |
 
-2. **Renderer continues to consume `legacyState`** until the renderer is cut over to consume `state` (after P7 ships AND all handler families migrate; likely P11.4 or P12). P11.0 itself does not touch the renderer's input.
+2. **`legacyState` is canonical during the parallel window.** Render, undo, and selection all source from `legacyState`. `state` exists primarily as the type-flip target so migrated handlers have something new-shape to read from. After every action, `legacyState` reflects truth; `state` is a derived view.
 
 3. **`rebuildStateFromLegacy` is structural rebuild, not diff-replay.** A fresh `Y.Doc` is populated from the `StateNode` tree on each legacy action. Simpler than reconciling diffs against existing Y.Doc state. Pays a per-action cost; bounded because the parallel window is intentionally short.
 
 4. **`downgradeToStateNode` is a forward walk of the Y.Doc** producing a frozen StateNode tree. Cheap; cacheable by Y.Doc version if needed.
 
-5. **`legacyState` field is deleted in two cleanups:** the field itself comes out after all handler families migrate (post-P11.4); the renderer's consumption of `legacyState` ends at the render cutover (P7 done + handlers done). Both go away in P11.4 / P12 / P15 depending on sequencing.
+5. **BlockId derivation: deterministic from path during the parallel window.** `rebuildStateFromLegacy` assigns each block's `BlockId = hashPath(pathFromRoot)` (a stable string derived from the path components — e.g., `"0.1.2"` for the third grandchild of the second child of root). This guarantees:
+   - Same legacy structure → same BlockIds (stable across rebuilds for unchanged blocks).
+   - Legacy `Position` (path) → `BlockId` conversion is trivial: `pathToBlockId(path) = hashPath(path)`.
+   - Selection survives rebuilds automatically: the path didn't change, so the BlockId it derives is unchanged.
+   - At cutover (parallel window ends), `hashPath`-derived BlockIds are replaced with Yjs-generated stable ids; one-time id-translation pass.
 
-6. **No upgrade-replay machinery.** We considered diff-replay (incremental Y.Doc mutations from a StateNode diff). Rejected — identity preservation across BlockIds, character-level text reconciliation, and Y.Text format-mark consistency all become subtle bugs. Rebuild trades performance for correctness.
+6. **Selection conversion is built on the same path-derivation:** `legacyPositionToNew(state, pos: LegacyPosition): NewPosition` uses `hashPath(pos.path)` to find the BlockId; offsets within the block are mapped trivially. The reverse `newPositionToLegacy(state, pos: NewPosition): LegacyPosition` walks `legacyState` to find the path for a given BlockId (helper available in `state/path.ts`).
 
-7. **History sync.** Y.UndoManager is bound to the Y.Doc; when `state` is rebuilt from legacy, the prior Y.UndoManager is discarded and a fresh one wraps the new Y.Doc. This means undo across a legacy-action boundary may lose the per-character undo granularity of the Y.UndoManager — acceptable because (a) parallel window is short, (b) collab isn't enabled during the window, (c) the editor's `History` wrapper presents a consistent surface to consumers.
+7. **`legacyState` is deleted in two cleanups:** the renderer's consumption of `legacyState` ends at the render cutover (after P7 ships AND the editor cuts over). The `legacyState` field itself, plus the bridge functions, is deleted in P15 once nothing reads it.
+
+8. **No upgrade-replay machinery.** We considered diff-replay (incremental Y.Doc mutations from a StateNode diff). Rejected — identity preservation across BlockIds, character-level text reconciliation, and Y.Text format-mark consistency all become subtle bugs. Rebuild trades performance for correctness.
+
+9. **Undo/redo backed by legacy `EditorHistory` during the parallel window.** Y.UndoManager (per Decision C) exists, gets recreated on every legacy-action rebuild, and is NOT user-facing during the parallel window — it serves as a placeholder so the migrated history wrapper has a real thing to point at. The user-facing `History` wrapper delegates to `historyLegacy: EditorHistory` (carried alongside `state`/`legacyState`) until cutover. At cutover, `historyLegacy` is deleted; `History` delegates to Y.UndoManager. **This means undo/redo IS FUNCTIONAL throughout the parallel window** — granularity matches the legacy implementation, not per-character Y.Text granularity. Per-character undo lights up at cutover.
+
+10. **Test discipline — round-trip equivalence tests.** Every Layer 3 op invoked during the parallel window has a round-trip equivalence test: apply legacy op → `rebuildStateFromLegacy` → state shape matches the equivalent direct-state construction; apply migrated op → `downgradeToStateNode` → legacyState shape matches the equivalent direct-legacy construction. Drift in either direction is caught immediately.
 
 **Rationale:**
 
@@ -277,7 +289,10 @@ function downgradeToStateNode(state: State): StateNode;      // used after migra
 
 - **Legacy actions slower during parallel window.** Each legacy action triggers a full Y.Doc rebuild. Bounded by the parallel window length (P11.0 → P11.4 in the migration timeline; not a permanent cost).
 - **Y.Doc client metadata reset per legacy action.** No semantic loss in single-user mode; no impact on collab (which doesn't run during parallel window).
-- **Y.UndoManager scope loss across legacy-action boundaries.** Undo may behave per-action rather than per-character across boundaries. Acceptable for the bounded window.
+- **Per-character CRDT identity (Y.Text char ids) unstable across legacy-action boundaries.** Rebuild regenerates char ids. Fine for single-user; no impact on parallel-window behavior because collab isn't enabled. Tests asserting per-character CRDT identity must run in pure-new-state contexts, not via the dual-rep path.
+- **Per-character CRDT identity also unstable for blocks created via migrated handlers.** Migrated handler's Y.Text char ids are lost when a subsequent legacy action triggers `rebuildStateFromLegacy` (the rebuild walks `legacyState`, which is the downgraded form). Same reasoning as above; bounded by parallel window.
+- **Undo granularity during parallel window matches legacy, not Y.UndoManager.** Per-character undo (the Y.UndoManager benefit) lights up only at cutover. Acceptable: existing users get same-as-before undo throughout migration; only the post-cutover improvement is delayed.
+- **Renderer cache invalidation on rebuild.** Because BlockIds are path-derived, structural changes invalidate many BlockIds at once (e.g., inserting a sibling renumbers downstream paths). The renderer's BlockView cache may discard more entries than strictly necessary during the parallel window. Acceptable for bounded window; permanent post-cutover when BlockIds become Yjs-generated and stable.
 
 **Affected phases:**
 
@@ -313,10 +328,12 @@ Before parallel implementation lands:    After parallel implementation lands:
 3. **P15 cleanup is pure deletion.** When the last consumer cuts over, the `<name>-legacy.ts` file is deleted. No renames needed; new code's canonical name was always canonical.
 
 4. **Existing inconsistencies fixed during their owning phase:**
-   - `state/new-initial-state.ts` → at P11.0, rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts`.
-   - `render/render-node-v2.ts` is a type-definition barrel split, not a parallel-implementations case. Folded into P15 cleanup.
+   - `state/new-initial-state.ts` → at P11.0, rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts`. **Task ordering inside P11.0's per-phase plan:** rename + import updates as Task 1 (build stays green; only paths changed), THEN introduce dual-rep fields as Task 2. Skipping this ordering creates a build-red window.
+   - `render/render-node-v2.ts` is a type-definition barrel split (not a parallel-implementations case). Folded into P7 — since P7 is already touching `render/` for the parallel renderer, the consolidation (`render-node-v2.ts` content moved into `render-node.ts`; barrel removed) lands in the same phase per the spirit of "new code claims the canonical name from day one."
 
 5. **Applies to file naming AND directory naming.** If a whole subdirectory has a parallel implementation (e.g., a future `components/` rewrite), the legacy version becomes `components-legacy/`; new code lives in `components/`. (Decomposition.md's piece-level plans should rarely need whole-directory rename — most parallel implementations are file-level.)
+
+6. **Applies to field/symbol naming on otherwise-canonical files.** Some transitional state lives as fields or symbols on files that are NOT themselves being rewritten (e.g., `EditorState.legacyState`, `EditorState.historyLegacy` per decision D; `legacyPositionToNew()` helper). The `-legacy`/`Legacy` suffix tags these as transitional too. They are deleted in P15 alongside the `*-legacy.ts` files. Convention: `camelCase` field suffix `Legacy` (e.g., `legacyState`, `historyLegacy`); helper functions use `legacy` prefix when the legacy nature is the dominant trait, or `Legacy` suffix when it's a variant of a canonical operation.
 
 **Rationale:**
 
@@ -334,10 +351,10 @@ Before parallel implementation lands:    After parallel implementation lands:
 
 **Affected phases:**
 
-- **P7:** rename `render/render.ts` → `render/render-legacy.ts`; add new canonical `render/render.ts`.
-- **P8:** rename each `components/<name>.ts` → `components/<name>-legacy.ts` as parallel implementations land; add new canonical files. `text.ts` and `span.ts` are deleted outright (not renamed) per master spec line 509 — they have no parallel implementation.
-- **P11.0:** rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts` (catching up the existing inconsistency).
-- **P15:** delete every `*-legacy.ts` file whose consumers have all migrated. Fold `render-node-v2.ts` → `render-node.ts` consolidation as part of the same naming cleanup pass.
+- **P7:** rename `render/render.ts` → `render/render-legacy.ts`; add new canonical `render/render.ts`. ALSO: consolidate `render/render-node-v2.ts` into `render/render-node.ts` (delete the `-v2` suffix) — same phase, same `render/` directory.
+- **P8:** rename each `components/<name>.ts` → `components/<name>-legacy.ts` as parallel implementations land; add new canonical files. `text.ts` and `span.ts` are deleted outright (not renamed) per master spec § "Components" → text/span absence — they have no parallel implementation.
+- **P11.0:** rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts` (catching up the existing inconsistency). Done as Task 1 of P11.0's per-phase plan, before any dual-rep field is introduced.
+- **P15:** delete every `*-legacy.ts` file whose consumers have all migrated.
 
 ---
 
@@ -379,7 +396,17 @@ function createInitialEditorState(
 
 3. **`createDefaultComponentRegistry()` explicitly lists built-ins.** No side-effect imports. The factory imports each new component definition and calls `register()` in order. A new built-in component requires editing this factory (explicit registration).
 
-4. **Editor accepts optional registry override.** `createInitialEditorState({ componentRegistry: ... })` accepts a custom registry for testing or future multi-document setups. Defaults to `createDefaultComponentRegistry()` when not provided.
+4. **Editor's existing `EditorConfig` shape is preserved; a new optional field is added.** The current `createInitialEditorState(config: EditorConfig)` signature continues to accept `EditorConfig.registry` (legacy `ComponentRegistry`, required throughout the parallel window). After P8 ships, the same `EditorConfig` gains an optional `componentRegistry: ComponentRegistry` (new shape) field. When both are present, the new renderer (post-cutover) uses `componentRegistry`; the legacy renderer uses `registry`. After cutover, the legacy `registry` field is deleted and `componentRegistry` becomes required. Sketch:
+
+   ```typescript
+   interface EditorConfig {
+     // existing fields (measurer, containerWidth, pageConfig, ...)
+     registry: ComponentRegistryLegacy;           // existing; required during parallel window
+     componentRegistry?: ComponentRegistry;       // added by P8; defaults to createDefaultComponentRegistry()
+   }
+   ```
+
+   Tests pass their own `componentRegistry` to isolate behavior. Existing examples (examples/react, examples/dom) need no immediate change — they continue passing `registry`; the new field defaults if omitted.
 
 5. **Tests can use isolated registries.** A test exercising only `paragraph` can build a registry with just paragraph registered, eliminating coupling to unrelated components.
 
@@ -404,10 +431,10 @@ function createInitialEditorState(
 
 **Affected phases:**
 
-- **P7 (render rewrite):** new `render.ts` accepts a `ComponentRegistry` parameter (or pulls it from editor context). Uses the new registry's `get(type)` to dispatch.
-- **P8 (components rewrite):** introduces `components/component-registry.ts` with the new `ComponentRegistry` interface, `createComponentRegistry()`, and `createDefaultComponentRegistry()`. Each migrated component file exports its definition; `createDefaultComponentRegistry()` imports and registers all of them explicitly. Legacy `components/component-registry.ts` renamed to `components/component-registry-legacy.ts` per decision E.
-- **P11.0:** `createInitialEditorState` signature widens to accept optional `componentRegistry`. Defaults preserve existing behavior.
-- **P15:** delete `components/component-registry-legacy.ts` and any remaining `*-legacy.ts` component files; `componentRegistry` becomes the only registry.
+- **P7 (render rewrite):** new `render.ts` accepts a `ComponentRegistry` parameter (the new shape). For its tests, P7 constructs a fresh registry via `createComponentRegistry()` (empty) or builds a test-specific subset. The actual editor still calls the legacy renderer at this point — P7 doesn't change `createInitialEditorState`.
+- **P8 (components rewrite):** introduces `components/component-registry.ts` with the new `ComponentRegistry` interface, `createComponentRegistry()`, and `createDefaultComponentRegistry()`. Each migrated component file exports its definition; `createDefaultComponentRegistry()` imports and registers all of them explicitly. Legacy `components/component-registry.ts` renamed to `components/component-registry-legacy.ts` per decision E. After P8 ships, `EditorConfig` gains the optional `componentRegistry` field (still unused by the editor since cutover hasn't happened).
+- **Cutover (after P11.4 + P7):** new renderer wired into the editor; renderer reads `config.componentRegistry` (with default fallback). Legacy renderer becomes dead code.
+- **P15:** delete `components/component-registry-legacy.ts`, `EditorConfig.registry` field, and any remaining `*-legacy.ts` component files; `componentRegistry` becomes the only registry and required.
 
 ---
 
