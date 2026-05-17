@@ -37,12 +37,12 @@ Under Path B, the new renderer is added in PARALLEL with the existing one. Edito
 
 ## Key technical considerations
 
-1. **BlockView interface — see `decisions.md` decision B (2026-05-15).** Push-model rendering: renderer drives traversal; components receive pre-rendered children. BlockView surface:
-   - `block.id`, `block.type`, `block.attrs`, `block.computedStyle` (cascade output)
-   - `block.inlineContent: InlineContent | null` (null for containers)
-   - No `childIds`, no `parent` — traversal is the renderer's job; cross-block lookups go through `RenderContext`.
+1. **BlockView interface — see `decisions.md` decision B (2026-05-15, survey-confirmed).** Push-model rendering with split container/leaf interfaces:
+   - `ContainerBlockView` — id, type, attrs, computedStyle, `kind: "container"`. Has child blocks; children rendered first and handed in.
+   - `LeafBlockView` — id, type, attrs, computedStyle, `kind: "leaf"`, `inlineContent: InlineContent` (possibly empty for image/horizontal-line). Inline items expanded by the renderer into `inlineRenderNodes` and handed in.
+   - No `childIds`, no `parent` on either — traversal is the renderer's job; cross-block lookups go through `RenderContext`.
 
-   Component invocation: `render(view: BlockView, context: RenderContext, childRenderNodes: ReadonlyArray<RenderNode>): RenderNode`. The renderer walks the underlying State (using `firstChildId` / `nextSiblingId` on Block) and hands each component its already-rendered children. BlockView itself is a frozen snapshot facade over the underlying Y.Map (post-Phase 4e); the renderer caches and invalidates them via dirtyIds.
+   The renderer walks the underlying State (using `firstChildId` / `nextSiblingId` on Block), dispatches to the right component kind based on the registry, and hands each component its pre-rendered children or inline items. BlockView is a frozen snapshot facade over the underlying Y.Map (post-Phase 4e); the renderer caches and invalidates them via dirtyIds.
 
 2. **Cascade integration.** The renderer's first responsibility is to apply the cascade interpreter pipeline (Phase 3) to each block's `attrs` to produce `Style → ComputedStyle`. This is per-block and produces the `computedStyle` field on BlockView.
 

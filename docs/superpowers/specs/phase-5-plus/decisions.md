@@ -114,16 +114,27 @@ Note: after decision C below, both maps become `Y.Map` instances at the Y.Doc ro
 
 **Question:** what does the render-time `BlockView` interface — the data handed to a component for rendering — actually look like? Specifically: children traversal pattern (pull vs push), parent reference, computed style attachment, state-wide access, container-vs-leaf shape.
 
-**Decision:** **Push-model rendering with a minimal-surface BlockView and a separate RenderContext escape hatch.** Renderer owns traversal; components receive their children as already-rendered RenderNodes; BlockView exposes only the current block's own data (no childIds, no parent).
+**Decision:** **Push-model rendering with split container/leaf BlockView interfaces and a separate RenderContext escape hatch.** Renderer owns traversal; components receive their children (containers) or inline items (leaves) as already-rendered RenderNodes; the BlockView surface for each kind exposes only what that kind needs.
 
 ```typescript
-interface BlockView {
+interface BlockViewBase {
   readonly id: BlockId;
   readonly type: string;
   readonly attrs: ReadonlyAttrs;
   readonly computedStyle: ComputedStyle;
-  readonly inlineContent: InlineContent | null;  // null for container blocks
 }
+
+interface ContainerBlockView extends BlockViewBase {
+  readonly kind: "container";
+  // children are handed in pre-rendered via render(); not exposed here
+}
+
+interface LeafBlockView extends BlockViewBase {
+  readonly kind: "leaf";
+  readonly inlineContent: InlineContent;  // empty items array for blocks like image / horizontal-line
+}
+
+type BlockView = ContainerBlockView | LeafBlockView;
 
 interface RenderContext {
   readonly state: State;
@@ -132,26 +143,39 @@ interface RenderContext {
   // additional accessors added as needed (cross-references, etc.)
 }
 
-interface ComponentDefinition {
+interface ContainerComponentDefinition {
   readonly type: string;
+  readonly kind: "container";
   render(
-    view: BlockView,
+    view: ContainerBlockView,
     context: RenderContext,
     childRenderNodes: ReadonlyArray<RenderNode>,
   ): RenderNode;
 }
+
+interface LeafComponentDefinition {
+  readonly type: string;
+  readonly kind: "leaf";
+  render(
+    view: LeafBlockView,
+    context: RenderContext,
+    inlineRenderNodes: ReadonlyArray<RenderNode>,
+  ): RenderNode;
+}
+
+type ComponentDefinition = ContainerComponentDefinition | LeafComponentDefinition;
 ```
 
 **Concrete consequences:**
 
-1. **Renderer drives traversal.** The renderer walks `State` top-down using the underlying Block fields (`firstChildId`/`nextSiblingId` chain). Components never traverse; they receive `childRenderNodes` pre-built and compose their own RenderNode.
+1. **Renderer drives traversal.** The renderer walks `State` top-down using the underlying Block fields (`firstChildId`/`nextSiblingId` chain). Components never traverse; they receive `childRenderNodes` (containers) or `inlineRenderNodes` (leaves) pre-built and compose their own RenderNode.
 2. **BlockView has no `childIds` field.** Component code is simpler; cache invalidation is the renderer's exclusive concern.
 3. **BlockView has no `parent` field.** Container-level coordination (table cell ↔ row ↔ table; list-item levels) happens at layout time or via attrs; components render self-contained from their own data.
 4. **`computedStyle` is attached** to BlockView as a field. Cascade runs before the renderer dispatches; components don't walk ancestors for inherited values.
-5. **One interface for containers and leaves.** Discriminated by `inlineContent === null` (container) or `inlineContent !== null` (leaf). No `ContainerBlockView` / `LeafBlockView` split.
-6. **RenderContext is the escape hatch** for cross-block lookups (footnote-anchor → footnote body via `getEmbedContent`, future cross-references via `getView`). Keeps BlockView focused on "this block's data."
+5. **Two interfaces for containers vs leaves.** `ContainerBlockView` / `LeafBlockView` discriminated union — paired with `ContainerComponentDefinition` / `LeafComponentDefinition`. Image, horizontal-line, and other "atomic" blocks are leaves with an empty `inlineContent.items` array. The registry's `kind` field lets the renderer hand the right shape to each component (and the type system enforces it).
+6. **RenderContext is the escape hatch** for cross-block lookups (footnote-anchor → footnote body via `getEmbedContent`, future cross-references via `getView`). Keeps BlockView focused on "this block's data." A curated context object instead of handing components the full editor matches the surveyed editors' intent (controlled access to global state) while being narrower than their editor-singleton pattern.
 7. **Lifecycle and caching are implementation details** of the renderer. BlockViews can be lazy snapshot facades over the underlying Y.Map (post-Phase 4e), cached and invalidated via dirtyIds. Interface doesn't dictate.
-8. **`text` and `span` components stay deleted** per master spec line 509. Inline content is rendered by the renderer directly from `view.inlineContent.items` when dispatching a leaf component.
+8. **`text` and `span` components stay deleted** per master spec line 509. The renderer expands a leaf block's `inlineContent.items` directly into `inlineRenderNodes` (TextBoxes for TextItems, EmbedBoxes for EmbedItems) before invoking the leaf component. No "text component" exists.
 
 **Rationale:**
 
@@ -166,9 +190,10 @@ interface ComponentDefinition {
 - **Pull-eager (full BlockView children tree pre-built per render):** builds the entire BlockView tree per render pass even for unchanged subtrees. Wasteful at scale.
 - **Pull-lazy methods (`children()`, `inlineContent()`):** method-vs-field inconsistency; components must remember to call().
 - **Pull-hybrid (eager `childIds`, lazy `getView` resolution):** components driving traversal — gives them work and responsibilities that belong with the renderer. Larger BlockView surface for no real win.
-- **Parent reference on BlockView:** Lexical includes `getParent()`, but their motivation is selection navigation and mutation tracking (editing concerns). For pure rendering, parent isn't needed; layout owns container coordination.
-- **Two interfaces (`ContainerBlockView` + `LeafBlockView`):** marginal type-safety gain doesn't justify the dispatch complexity at the renderer level.
+- **Parent reference on BlockView:** Lexical exposes `getParent()` on its node class, but the reconciler doesn't use it for rendering — it's a general graph utility for editing commands. ProseMirror and Slate omit parent entirely from the render-time view. For pure rendering, parent isn't needed; layout owns container coordination.
+- **Single unified BlockView interface (container + leaf collapsed):** considered for simplicity, rejected after survey. All three reference editors (ProseMirror, Lexical, Slate) split container/leaf at the render interface — partly for type safety, partly because the renderer needs to know what to hand in (child render nodes vs inline render nodes). Single-interface saves nothing once the renderer's dispatch logic has to branch anyway.
 - **State-wide access on BlockView directly:** muddles "this block's data" with "engine-wide queries." RenderContext keeps them separate.
+- **Editor-singleton context (ProseMirror/Lexical/Slate pattern):** rejected as too wide. Components would gain access to mutation APIs they should never call during render. Curated RenderContext exposes only read-shaped accessors.
 
 **Affected phases:**
 
@@ -176,16 +201,23 @@ interface ComponentDefinition {
 - **P8 (components rewrite):** each component's `render` signature is `(view, context, childRenderNodes) => RenderNode`. No component code traverses children. `text` and `span` stay deleted.
 - **P11.x (editor actions):** unaffected — editor doesn't touch BlockView directly.
 
-**Survey follow-up (open):**
+**Survey results (completed 2026-05-15):**
 
-This decision was made from first principles, not grounded in a survey of how mature editors structure their render interface. Before locking down P7 implementation, survey:
+Surveyed ProseMirror (`NodeView` / `NodeViewDesc`), Lexical (`LexicalNode` + `LexicalReconciler`), Slate (`ElementComponent` + `useChildren`), and Google Docs canvas renderer (public sources).
 
-- ProseMirror's `NodeViewSpec` / `NodeView` lifecycle (push vs pull, parent access, mutation hooks).
-- Lexical's `LexicalNode` family + render lifecycle (`getChildren()`, `getParent()` motivation).
-- Slate's `Element` rendering and `useSlateStatic` context.
-- Anything publicly written about Google Docs' canvas renderer architecture (Engineering@Google blog posts, conference talks).
+**Validated by survey** (every surveyed open-source editor matches):
+- Push model: framework owns traversal; components receive pre-rendered children.
+- No parent on the render-time view (PM, Slate omit entirely; Lexical exposes on node but reconciler doesn't use it).
+- Read-only render-time view; mutation through a separate edit channel.
+- RenderContext-style cross-node access through an editor/state handle (PM's `EditorView`, Lexical's `LexicalEditor`, Slate's `useSlateStatic`).
 
-If the survey reveals a load-bearing pattern this decision missed, update the decision in place before P7 begins. Push model is the prior going into the survey, not the locked outcome.
+**Revised after survey:** single BlockView → split `ContainerBlockView` / `LeafBlockView` interfaces. All three editors split container vs leaf at the render interface; collapsing them saved nothing once dispatch had to branch anyway. Decision text above reflects the split.
+
+**Justified divergences** (we differ from the surveyed editors, intentionally):
+- `computedStyle` field on BlockView. None of the surveyed editors do this because none is a CSS layout engine. We are — pre-computed style on the view is the right place for cascade output.
+- Curated `RenderContext` instead of an editor singleton. None of the surveyed editors has a dedicated render-time context distinct from the editor handle. Our narrower context (read accessors only) is a sharper version of their pattern, not a contradiction.
+
+**No evidence either way** for Google Docs / Kix canvas renderer — no public architecture detail on the model/view boundary. Cannot be cited as support or counter-example.
 
 ---
 
