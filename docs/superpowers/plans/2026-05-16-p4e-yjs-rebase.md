@@ -1,0 +1,4141 @@
+# P4e — Yjs Rebase Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Rebase the state module from `PersistentMap`-backed storage to Yjs CRDT primitives (`Y.Doc`, `Y.Map`, `Y.Array`, `Y.Text`). Internals change; the consumer-facing API (`Block`, `State`, `Position`, `OperationResult`, Layer 3 op signatures) stays compatible. Per Decision C, this makes future collaborative editing genuinely additive — collab sync transport plugs in without rewriting the state module.
+
+**Architecture:** `State` becomes an opaque wrapper around a `Y.Doc`. The Y.Doc contains: `Y.Map` of blocks (key=BlockId, value=Y.Map per block), `Y.Map` of embedContents (slot reserved for P6), `Y.Map` of meta (rootId). Each block-Y.Map carries `type`, `attrs` (Y.Map), parent/sibling/child id pointers (strings), and `inlineContent` (Y.Array<Y.Map> | null) where each inline-item Y.Map holds either a `Y.Text` (for text runs, with format marks for attrs) or embed fields. Consumers read state via frozen snapshot facades (`getBlock(state, id)`) that look like the existing `Block` interface — implementations cache snapshots keyed by `(BlockId, yMapVersion)`. Layer 3 ops open a single `Y.Doc` transaction, capture changed BlockIds via the transaction's change set, and return `OperationResult { state, dirtyIds }`. History is a thin wrapper over `Y.UndoManager`.
+
+**Tech Stack:** TypeScript, Vitest, Yjs (`yjs@^13.6` — the current major).
+
+---
+
+## File Structure
+
+**New files (created in P4e):**
+- `packages/core/src/state/yjs-doc.ts` — Y.Doc initialization, transaction helpers, root-level Y.Map accessors (`getBlocksMap`, `getEmbedContentsMap`, `getMetaMap`).
+- `packages/core/src/state/snapshot.ts` — frozen-view facade infrastructure: `BlockSnapshot`, `getBlockSnapshot(state, id)`, version-tracked cache.
+- `packages/core/src/state/y-block.ts` — helpers for constructing a Y.Map representing a Block (used by initial-state and by Layer 3 ops).
+- `packages/core/src/state/y-inline-content.ts` — helpers for constructing the Y.Array<Y.Map> + Y.Text per inline item.
+- `packages/core/src/state/path-to-block-id.ts` — `pathToBlockId(path: number[]): BlockId` helper (deterministic encoding; used by P11.0 per decision D; lives in P4e because it's a state-module utility).
+- `packages/core/src/state/yjs-doc.test.ts`, `snapshot.test.ts`, `y-block.test.ts`, `y-inline-content.test.ts`, `path-to-block-id.test.ts`.
+
+**Modified files (internals rewritten; public API preserved):**
+- `packages/core/src/state/state.ts` — `State` becomes an opaque wrapper over `Y.Doc`.
+- `packages/core/src/state/block.ts` — `Block` interface unchanged; `createBlock`/`updateBlock` removed (Layer 3 ops construct via `y-block.ts` helpers + Y.Map operations instead).
+- `packages/core/src/state/inline-content.ts` — `InlineContent`/`TextItem`/`EmbedItem` interfaces unchanged; `createTextItem`/`createEmbedItem`/`createInlineContent` removed (Layer 3 ops use `y-inline-content.ts` helpers).
+- `packages/core/src/state/attrs.ts` — unchanged.
+- `packages/core/src/state/block-id.ts` — unchanged (allocator stays).
+- `packages/core/src/state/block-position.ts` — unchanged.
+- `packages/core/src/state/block-traversal.ts`, `block-compare.ts`, `span-iteration.ts` — rewritten to use snapshot accessors.
+- All 11 Layer 3 op files (`set-block-attrs.ts`, `set-block-type.ts`, `insert-block.ts`, `remove-block.ts`, `insert-text.ts`, `apply-attrs.ts`, `split-block.ts`, `merge-blocks.ts`, `delete-range.ts`, `replace-range.ts`, `clone-pasted-subtree.ts`) — internals rewritten to use Y.Doc transactions; signatures preserved.
+- `packages/core/src/state/history.ts` — rewritten as Y.UndoManager wrapper.
+- `packages/core/src/state/operations.ts` — barrel exports updated.
+- `packages/core/src/state/new-initial-state.ts` — produces a Y.Doc-backed State.
+- `packages/core/src/test-utils/state-builders.ts` — `buildState`/`buildBlock` construct Y.Doc internally.
+- `packages/core/package.json` — add `yjs` dependency.
+- All ~39 state test files — fixture migration (use new builders; replace `state.blocks.get/set` with `getBlock` accessor / op-based mutations).
+
+**Deleted files:**
+- `packages/core/src/state/persistent-map.ts`, `persistent-map.test.ts`.
+- `packages/core/src/state/change.ts`, `change.test.ts` (replaced by Y.UndoManager).
+
+---
+
+## Sub-phase 4e.1 — Yjs infrastructure foundation
+
+This sub-phase introduces the Yjs dependency, the Y.Doc-backed State container, transaction helpers, and the snapshot-view facade infrastructure. No Layer 3 ops are migrated yet; all existing tests continue to use the legacy `PersistentMap`-backed path until 4e.2.
+
+### Task 1: Add Yjs as a runtime dependency
+
+**Files:**
+- Modify: `packages/core/package.json`
+- Modify: root `package-lock.json` (regenerated by `npm install`)
+
+- [ ] **Step 1: Add the dependency**
+
+Edit `packages/core/package.json`. Add a `dependencies` section if absent:
+
+```json
+{
+  "name": "@taleweaver/core",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "yjs": "^13.6.18"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
+```
+
+- [ ] **Step 2: Install**
+
+```bash
+npm install
+```
+
+Expected: `package-lock.json` updates; `node_modules/yjs/` exists.
+
+- [ ] **Step 3: Smoke test the import**
+
+```bash
+node -e "const Y = require('yjs'); console.log(typeof Y.Doc);"
+```
+
+Expected output: `function`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/package.json package-lock.json
+git commit -m "feat(p4e): add yjs runtime dependency"
+```
+
+---
+
+### Task 2: `state/yjs-doc.ts` — Y.Doc structure, transaction helper, root-map accessors
+
+**Files:**
+- Create: `packages/core/src/state/yjs-doc.ts`
+- Test: `packages/core/src/state/yjs-doc.test.ts`
+
+The Y.Doc layout:
+- Root `"blocks"`: `Y.Map<BlockId, Y.Map>` — main document tree.
+- Root `"embedContents"`: `Y.Map<BlockId, Y.Map>` — embed-content tree (slot reserved; populated in P6).
+- Root `"meta"`: `Y.Map<string, unknown>` — at minimum `{ rootId: BlockId }`.
+
+Transactions are opened via `runTransaction(doc, fn)` which wraps `doc.transact` and captures changed BlockIds. The implementation uses Y.Doc's `afterTransaction` event to read the transaction's `changed` set — Yjs exposes per-Y.Map deltas there.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/core/src/state/yjs-doc.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import {
+  createYDoc,
+  getBlocksMap,
+  getEmbedContentsMap,
+  getMetaMap,
+  runTransaction,
+} from "./yjs-doc";
+import type { BlockId } from "./block-id";
+
+describe("yjs-doc", () => {
+  describe("createYDoc", () => {
+    it("creates a Y.Doc with the three top-level maps", () => {
+      const doc = createYDoc();
+      expect(getBlocksMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getEmbedContentsMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getMetaMap(doc)).toBeInstanceOf(Y.Map);
+    });
+
+    it("seeds meta.rootId when provided", () => {
+      const doc = createYDoc({ rootId: "root-1" as BlockId });
+      expect(getMetaMap(doc).get("rootId")).toBe("root-1");
+    });
+
+    it("leaves meta.rootId unset when not provided", () => {
+      const doc = createYDoc();
+      expect(getMetaMap(doc).get("rootId")).toBeUndefined();
+    });
+  });
+
+  describe("runTransaction", () => {
+    it("executes the callback inside a Y.Doc transaction", () => {
+      const doc = createYDoc();
+      let observedInTx = false;
+      runTransaction(doc, () => {
+        observedInTx = doc.transactionCleanups.length > 0
+          || (doc as unknown as { _transaction: unknown })._transaction !== null;
+      });
+      expect(observedInTx).toBe(true);
+    });
+
+    it("returns the set of changed BlockIds (blocks map)", () => {
+      const doc = createYDoc();
+      const result = runTransaction(doc, () => {
+        const blocks = getBlocksMap(doc);
+        const yBlock = new Y.Map();
+        yBlock.set("type", "paragraph");
+        blocks.set("blk-1", yBlock);
+      });
+      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    });
+
+    it("captures BlockId mutations inside a block's Y.Map as that block's dirtyId", () => {
+      const doc = createYDoc();
+      const blocks = getBlocksMap(doc);
+      const yBlock = new Y.Map<unknown>();
+      yBlock.set("type", "paragraph");
+      yBlock.set("attrs", new Y.Map());
+      runTransaction(doc, () => {
+        blocks.set("blk-1", yBlock);
+      });
+
+      const result = runTransaction(doc, () => {
+        (yBlock.get("attrs") as Y.Map<unknown>).set("bold", true);
+      });
+      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    });
+
+    it("captures embed-content map mutations as dirty BlockIds", () => {
+      const doc = createYDoc();
+      const result = runTransaction(doc, () => {
+        const embeds = getEmbedContentsMap(doc);
+        const yBody = new Y.Map();
+        yBody.set("type", "fn-body");
+        embeds.set("body-1", yBody);
+      });
+      expect(result.dirtyIds.has("body-1" as BlockId)).toBe(true);
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+npm test --workspace=packages/core -- yjs-doc.test
+```
+
+Expected: fails with module-not-found.
+
+- [ ] **Step 3: Implement `state/yjs-doc.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { BlockId } from "./block-id";
+
+/**
+ * The internal Y.Doc layout for a Taleweaver State.
+ *
+ * Root keys:
+ *   "blocks":        Y.Map<BlockId, Y.Map>  — main document tree
+ *   "embedContents": Y.Map<BlockId, Y.Map>  — embed-referenced sub-trees (P6 populates)
+ *   "meta":          Y.Map<string, unknown> — at minimum { rootId: BlockId }
+ *
+ * Each per-block Y.Map carries the per-block fields documented in
+ * `packages/core/src/state/block.ts`.
+ */
+const BLOCKS_KEY = "blocks";
+const EMBED_CONTENTS_KEY = "embedContents";
+const META_KEY = "meta";
+
+export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
+  const doc = new Y.Doc();
+  // Lazily initialize the three root maps so they exist before any read.
+  doc.getMap(BLOCKS_KEY);
+  doc.getMap(EMBED_CONTENTS_KEY);
+  const meta = doc.getMap(META_KEY);
+  if (args?.rootId !== undefined) {
+    meta.set("rootId", args.rootId);
+  }
+  return doc;
+}
+
+export function getBlocksMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(BLOCKS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(EMBED_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
+  return doc.getMap(META_KEY);
+}
+
+export interface TransactionResult {
+  readonly dirtyIds: ReadonlySet<BlockId>;
+}
+
+/**
+ * Run `fn` inside a Y.Doc transaction. After the transaction commits,
+ * collect the set of BlockIds whose Y.Map (or nested Y types) changed.
+ *
+ * A BlockId is considered dirty if either:
+ *   (a) the blocks/embedContents map gained, lost, or replaced an entry
+ *       with that id, OR
+ *   (b) any Y type nested under a block's Y.Map changed in this transaction.
+ */
+export function runTransaction(
+  doc: Y.Doc,
+  fn: () => void,
+): TransactionResult {
+  const dirtyIds = new Set<BlockId>();
+  const blocksMap = getBlocksMap(doc);
+  const embedContentsMap = getEmbedContentsMap(doc);
+
+  const captureDirty = (tx: Y.Transaction) => {
+    // Direct mutations to blocks/embedContents map (set/delete entries).
+    const blocksEvent = tx.changed.get(blocksMap);
+    if (blocksEvent) {
+      for (const key of blocksEvent) {
+        dirtyIds.add(key as BlockId);
+      }
+    }
+    const embedsEvent = tx.changed.get(embedContentsMap);
+    if (embedsEvent) {
+      for (const key of embedsEvent) {
+        dirtyIds.add(key as BlockId);
+      }
+    }
+    // Nested mutations: walk tx.changedParentTypes to find any Y type whose
+    // root ancestor is an entry in blocks/embedContents.
+    for (const [type] of tx.changedParentTypes) {
+      const owningBlockId = findOwningBlockId(type, blocksMap, embedContentsMap);
+      if (owningBlockId !== null) {
+        dirtyIds.add(owningBlockId);
+      }
+    }
+  };
+
+  doc.on("afterTransaction", captureDirty);
+  try {
+    doc.transact(fn);
+  } finally {
+    doc.off("afterTransaction", captureDirty);
+  }
+  return { dirtyIds };
+}
+
+/**
+ * Walk up `type`'s parent chain until we hit a Y.Map that is a direct
+ * entry of the blocks or embedContents map. Return its key (the BlockId).
+ * Returns null if not under a block.
+ */
+function findOwningBlockId(
+  type: Y.AbstractType<unknown>,
+  blocksMap: Y.Map<Y.Map<unknown>>,
+  embedContentsMap: Y.Map<Y.Map<unknown>>,
+): BlockId | null {
+  let cursor: Y.AbstractType<unknown> | null = type;
+  while (cursor !== null) {
+    const parent: Y.AbstractType<unknown> | null = cursor.parent;
+    if (parent === blocksMap || parent === embedContentsMap) {
+      // cursor is a direct entry of the blocks/embedContents map.
+      const owningMap = parent as Y.Map<Y.Map<unknown>>;
+      for (const [key, value] of owningMap.entries()) {
+        if (value === cursor) return key as BlockId;
+      }
+      return null;
+    }
+    cursor = parent;
+  }
+  return null;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- yjs-doc.test
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/yjs-doc.ts packages/core/src/state/yjs-doc.test.ts
+git commit -m "feat(p4e): introduce Y.Doc infrastructure with transaction helper"
+```
+
+---
+
+### Task 3: `state/snapshot.ts` — frozen-view facade for Block
+
+The snapshot facade lets consumers read a `Block`-shaped object from a Y.Map without exposing the Y type. Snapshots are version-tracked: when the underlying Y.Map mutates, the next read produces a fresh snapshot; when it hasn't, the cached snapshot is returned (so `===` identity holds for unchanged blocks).
+
+Version tracking uses Yjs's `_item.lastId.clock` as a per-Y.Map version proxy — when any direct entry changes, the parent Y.Map's last update clock advances. For nested mutations (e.g., a TextItem's Y.Text), we observe via the snapshot's own dirty marking on `runTransaction`'s dirtyIds.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/core/src/state/snapshot.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import { createYDoc, getBlocksMap, runTransaction } from "./yjs-doc";
+import {
+  getBlockSnapshot,
+  invalidateSnapshot,
+  type SnapshotCache,
+  createSnapshotCache,
+} from "./snapshot";
+import type { BlockId } from "./block-id";
+
+function seedParagraphBlock(doc: Y.Doc, id: string, text: string): void {
+  runTransaction(doc, () => {
+    const blocks = getBlocksMap(doc);
+    const yBlock = new Y.Map<unknown>();
+    yBlock.set("type", "paragraph");
+    const attrs = new Y.Map();
+    yBlock.set("attrs", attrs);
+    yBlock.set("parentId", null);
+    yBlock.set("prevSiblingId", null);
+    yBlock.set("nextSiblingId", null);
+    yBlock.set("firstChildId", null);
+    yBlock.set("lastChildId", null);
+    const items = new Y.Array<Y.Map<unknown>>();
+    const textItem = new Y.Map<unknown>();
+    textItem.set("kind", "text");
+    const yText = new Y.Text();
+    yText.insert(0, text);
+    textItem.set("text", yText);
+    textItem.set("attrs", new Y.Map());
+    items.push([textItem]);
+    yBlock.set("inlineContent", items);
+    blocks.set(id, yBlock);
+  });
+}
+
+describe("snapshot", () => {
+  describe("getBlockSnapshot", () => {
+    it("returns a frozen Block-shaped view of a Y.Map", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createSnapshotCache();
+
+      const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      expect(snap).not.toBeNull();
+      expect(snap!.id).toBe("p1");
+      expect(snap!.type).toBe("paragraph");
+      expect(snap!.parentId).toBeNull();
+      expect(Object.isFrozen(snap)).toBe(true);
+    });
+
+    it("returns null for an unknown id", () => {
+      const doc = createYDoc();
+      const cache = createSnapshotCache();
+      expect(getBlockSnapshot(doc, "missing" as BlockId, cache)).toBeNull();
+    });
+
+    it("reuses the same snapshot reference when the underlying Y.Map is unchanged", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createSnapshotCache();
+      const a = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      const b = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      expect(a).toBe(b);
+    });
+
+    it("produces a fresh snapshot after invalidation", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createSnapshotCache();
+      const a = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      invalidateSnapshot(cache, "p1" as BlockId);
+      const b = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      expect(a).not.toBe(b);
+      expect(b!.id).toBe("p1"); // structurally equal
+    });
+
+    it("snapshot inlineContent reflects underlying Y.Text content", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createSnapshotCache();
+      const snap = getBlockSnapshot(doc, "p1" as BlockId, cache)!;
+      expect(snap.inlineContent).not.toBeNull();
+      expect(snap.inlineContent!.items.length).toBe(1);
+      const item = snap.inlineContent!.items[0];
+      expect(item.kind).toBe("text");
+      if (item.kind === "text") {
+        expect(item.text).toBe("hello");
+      }
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+npm test --workspace=packages/core -- snapshot.test
+```
+
+Expected: fails with module-not-found.
+
+- [ ] **Step 3: Implement `state/snapshot.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { Block } from "./block";
+import type { BlockId } from "./block-id";
+import type { ReadonlyAttrs } from "./attrs";
+import type {
+  InlineContent,
+  InlineItem,
+  TextItem,
+  EmbedItem,
+} from "./inline-content";
+import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+
+export interface SnapshotCache {
+  readonly blocks: Map<BlockId, Block>;
+  readonly embedContents: Map<BlockId, Block>;
+}
+
+export function createSnapshotCache(): SnapshotCache {
+  return { blocks: new Map(), embedContents: new Map() };
+}
+
+export function invalidateSnapshot(cache: SnapshotCache, id: BlockId): void {
+  cache.blocks.delete(id);
+  cache.embedContents.delete(id);
+}
+
+export function invalidateAll(cache: SnapshotCache): void {
+  cache.blocks.clear();
+  cache.embedContents.clear();
+}
+
+export function getBlockSnapshot(
+  doc: Y.Doc,
+  id: BlockId,
+  cache: SnapshotCache,
+): Block | null {
+  const cached = cache.blocks.get(id);
+  if (cached !== undefined) return cached;
+
+  const yBlock = getBlocksMap(doc).get(id);
+  if (yBlock === undefined) return null;
+
+  const snap = buildBlockSnapshot(id, yBlock);
+  cache.blocks.set(id, snap);
+  return snap;
+}
+
+export function getEmbedContentSnapshot(
+  doc: Y.Doc,
+  id: BlockId,
+  cache: SnapshotCache,
+): Block | null {
+  const cached = cache.embedContents.get(id);
+  if (cached !== undefined) return cached;
+
+  const yBlock = getEmbedContentsMap(doc).get(id);
+  if (yBlock === undefined) return null;
+
+  const snap = buildBlockSnapshot(id, yBlock);
+  cache.embedContents.set(id, snap);
+  return snap;
+}
+
+function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
+  const type = yBlock.get("type") as string;
+  const yAttrs = yBlock.get("attrs") as Y.Map<unknown>;
+  const attrs = freezeAttrs(yMapToObject(yAttrs));
+  const parentId = (yBlock.get("parentId") as BlockId | null) ?? null;
+  const prevSiblingId = (yBlock.get("prevSiblingId") as BlockId | null) ?? null;
+  const nextSiblingId = (yBlock.get("nextSiblingId") as BlockId | null) ?? null;
+  const firstChildId = (yBlock.get("firstChildId") as BlockId | null) ?? null;
+  const lastChildId = (yBlock.get("lastChildId") as BlockId | null) ?? null;
+
+  const yInline = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+  const inlineContent = yInline === null ? null : buildInlineContentSnapshot(yInline);
+
+  return Object.freeze({
+    id,
+    type,
+    attrs,
+    parentId,
+    prevSiblingId,
+    nextSiblingId,
+    firstChildId,
+    lastChildId,
+    inlineContent,
+  });
+}
+
+function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineContent {
+  const items: InlineItem[] = [];
+  for (let i = 0; i < yItems.length; i++) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    if (kind === "text") {
+      const yText = yItem.get("text") as Y.Text;
+      const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
+      const item: TextItem = Object.freeze({
+        kind: "text",
+        text: yText.toString(),
+        attrs: freezeAttrs(yMapToObject(yAttrs)),
+      });
+      items.push(item);
+    } else {
+      const embedType = yItem.get("embedType") as string;
+      const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
+      const yProps = yItem.get("properties") as Y.Map<unknown>;
+      const item: EmbedItem = Object.freeze({
+        kind: "embed",
+        embedType,
+        attrs: freezeAttrs(yMapToObject(yAttrs)),
+        properties: Object.freeze(yMapToObject(yProps)),
+      });
+      items.push(item);
+    }
+  }
+  return Object.freeze({ items: Object.freeze(items) });
+}
+
+function yMapToObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) {
+    obj[key] = value;
+  }
+  return obj;
+}
+
+function freezeAttrs(obj: Record<string, unknown>): ReadonlyAttrs {
+  return Object.freeze(obj) as ReadonlyAttrs;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- snapshot.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/snapshot.ts packages/core/src/state/snapshot.test.ts
+git commit -m "feat(p4e): add Block snapshot facade with version-tracked cache"
+```
+
+---
+
+### Task 4: `state/y-block.ts` — construct a Y.Map representing a Block
+
+This helper builds a Y.Map from the existing `Block` interface shape. Used by `new-initial-state.ts` and Layer 3 ops to materialize blocks into a Y.Doc.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/core/src/state/y-block.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import { buildYBlock, type YBlockInit } from "./y-block";
+import type { BlockId } from "./block-id";
+
+describe("y-block", () => {
+  it("constructs a Y.Map with all block fields populated", () => {
+    const init: YBlockInit = {
+      type: "paragraph",
+      attrs: { bold: true },
+      parentId: "root" as BlockId,
+      prevSiblingId: null,
+      nextSiblingId: null,
+      firstChildId: null,
+      lastChildId: null,
+      inlineContent: { items: [] },
+    };
+    const yBlock = buildYBlock(init);
+    expect(yBlock.get("type")).toBe("paragraph");
+    expect((yBlock.get("attrs") as Y.Map<unknown>).get("bold")).toBe(true);
+    expect(yBlock.get("parentId")).toBe("root");
+    expect(yBlock.get("prevSiblingId")).toBeNull();
+    expect(yBlock.get("inlineContent")).toBeInstanceOf(Y.Array);
+  });
+
+  it("sets inlineContent to null for container blocks", () => {
+    const init: YBlockInit = {
+      type: "section",
+      attrs: {},
+      parentId: null,
+      prevSiblingId: null,
+      nextSiblingId: null,
+      firstChildId: "p1" as BlockId,
+      lastChildId: "p1" as BlockId,
+      inlineContent: null,
+    };
+    const yBlock = buildYBlock(init);
+    expect(yBlock.get("inlineContent")).toBeNull();
+    expect(yBlock.get("firstChildId")).toBe("p1");
+  });
+
+  it("populates Y.Text correctly for text items", () => {
+    const init: YBlockInit = {
+      type: "paragraph",
+      attrs: {},
+      parentId: null,
+      prevSiblingId: null,
+      nextSiblingId: null,
+      firstChildId: null,
+      lastChildId: null,
+      inlineContent: {
+        items: [{ kind: "text", text: "hello", attrs: { bold: true } }],
+      },
+    };
+    const yBlock = buildYBlock(init);
+    const items = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    expect(items.length).toBe(1);
+    const yItem = items.get(0);
+    expect(yItem.get("kind")).toBe("text");
+    const yText = yItem.get("text") as Y.Text;
+    expect(yText.toString()).toBe("hello");
+    const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
+    expect(yAttrs.get("bold")).toBe(true);
+  });
+
+  it("populates embed item fields", () => {
+    const init: YBlockInit = {
+      type: "paragraph",
+      attrs: {},
+      parentId: null,
+      prevSiblingId: null,
+      nextSiblingId: null,
+      firstChildId: null,
+      lastChildId: null,
+      inlineContent: {
+        items: [
+          {
+            kind: "embed",
+            embedType: "image",
+            attrs: {},
+            properties: { src: "url" },
+          },
+        ],
+      },
+    };
+    const yBlock = buildYBlock(init);
+    const items = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yItem = items.get(0);
+    expect(yItem.get("kind")).toBe("embed");
+    expect(yItem.get("embedType")).toBe("image");
+    expect((yItem.get("properties") as Y.Map<unknown>).get("src")).toBe("url");
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+npm test --workspace=packages/core -- y-block.test
+```
+
+Expected: fails with module-not-found.
+
+- [ ] **Step 3: Implement `state/y-block.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { BlockId } from "./block-id";
+import type { ReadonlyAttrs } from "./attrs";
+import type { InlineContent, InlineItem } from "./inline-content";
+
+export interface YBlockInit {
+  type: string;
+  attrs: ReadonlyAttrs;
+  parentId: BlockId | null;
+  prevSiblingId: BlockId | null;
+  nextSiblingId: BlockId | null;
+  firstChildId: BlockId | null;
+  lastChildId: BlockId | null;
+  inlineContent: InlineContent | null;
+}
+
+export function buildYBlock(init: YBlockInit): Y.Map<unknown> {
+  const yBlock = new Y.Map<unknown>();
+  yBlock.set("type", init.type);
+  yBlock.set("attrs", buildYAttrs(init.attrs));
+  yBlock.set("parentId", init.parentId);
+  yBlock.set("prevSiblingId", init.prevSiblingId);
+  yBlock.set("nextSiblingId", init.nextSiblingId);
+  yBlock.set("firstChildId", init.firstChildId);
+  yBlock.set("lastChildId", init.lastChildId);
+  yBlock.set(
+    "inlineContent",
+    init.inlineContent === null ? null : buildYInlineContent(init.inlineContent),
+  );
+  return yBlock;
+}
+
+export function buildYAttrs(attrs: ReadonlyAttrs): Y.Map<unknown> {
+  const yAttrs = new Y.Map<unknown>();
+  for (const [key, value] of Object.entries(attrs)) {
+    yAttrs.set(key, value);
+  }
+  return yAttrs;
+}
+
+export function buildYInlineContent(content: InlineContent): Y.Array<Y.Map<unknown>> {
+  const yItems = new Y.Array<Y.Map<unknown>>();
+  for (const item of content.items) {
+    yItems.push([buildYInlineItem(item)]);
+  }
+  return yItems;
+}
+
+export function buildYInlineItem(item: InlineItem): Y.Map<unknown> {
+  const yItem = new Y.Map<unknown>();
+  if (item.kind === "text") {
+    yItem.set("kind", "text");
+    const yText = new Y.Text();
+    if (item.text.length > 0) yText.insert(0, item.text);
+    yItem.set("text", yText);
+    yItem.set("attrs", buildYAttrs(item.attrs));
+  } else {
+    yItem.set("kind", "embed");
+    yItem.set("embedType", item.embedType);
+    yItem.set("attrs", buildYAttrs(item.attrs));
+    const yProps = new Y.Map<unknown>();
+    for (const [key, value] of Object.entries(item.properties)) {
+      yProps.set(key, value);
+    }
+    yItem.set("properties", yProps);
+  }
+  return yItem;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- y-block.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/y-block.ts packages/core/src/state/y-block.test.ts
+git commit -m "feat(p4e): add buildYBlock helper for Y.Doc construction"
+```
+
+---
+
+### Task 5: `state/path-to-block-id.ts` — path-derived BlockId helper
+
+Per Decision D, P11.0 needs `pathToBlockId(path): BlockId` for stable BlockId derivation during the parallel window. The helper lands in P4e because it's a state-module utility used at the bridge boundary.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/core/src/state/path-to-block-id.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { pathToBlockId } from "./path-to-block-id";
+
+describe("pathToBlockId", () => {
+  it("encodes an empty path (root) as the empty-path token", () => {
+    expect(pathToBlockId([])).toBe("");
+  });
+
+  it("encodes a single-step path", () => {
+    expect(pathToBlockId([3])).toBe("3");
+  });
+
+  it("encodes a multi-step path with the / separator", () => {
+    expect(pathToBlockId([0, 1, 2])).toBe("0/1/2");
+  });
+
+  it("produces the same id for the same path", () => {
+    expect(pathToBlockId([5, 7, 9])).toBe(pathToBlockId([5, 7, 9]));
+  });
+
+  it("produces different ids for different paths", () => {
+    expect(pathToBlockId([1, 2])).not.toBe(pathToBlockId([1, 3]));
+    expect(pathToBlockId([1, 2])).not.toBe(pathToBlockId([2, 1]));
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+npm test --workspace=packages/core -- path-to-block-id.test
+```
+
+Expected: fails with module-not-found.
+
+- [ ] **Step 3: Implement `state/path-to-block-id.ts`**
+
+```typescript
+import type { BlockId } from "./block-id";
+
+/**
+ * Deterministic 1:1 encoding from a path (root-to-block index sequence)
+ * to a BlockId string. Used during the P11.0 parallel window per
+ * decision D: when `rebuildStateFromLegacy` reconstructs `State` from
+ * `stateLegacy`, BlockIds are derived from paths so selection survives
+ * rebuilds (the path didn't change → the BlockId is the same).
+ *
+ * At cutover (end of P11.4), a one-time id-translation pass replaces
+ * path-derived ids with fresh allocator-generated ids.
+ */
+export function pathToBlockId(path: ReadonlyArray<number>): BlockId {
+  return path.join("/") as BlockId;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- path-to-block-id.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/path-to-block-id.ts packages/core/src/state/path-to-block-id.test.ts
+git commit -m "feat(p4e): add pathToBlockId helper for P11.0 parallel window"
+```
+
+---
+
+## Sub-phase 4e.2 — Replace State internals with Y.Doc
+
+This sub-phase flips `State` from a `PersistentMap`-backed type to a Y.Doc-backed opaque type. After this sub-phase, `state.blocks.get(id)` is replaced by `getBlock(state, id)`. The existing per-block `Block` interface stays — only how it's read changes.
+
+### Task 6: Rewrite `state/state.ts` as a Y.Doc wrapper
+
+**Files:**
+- Modify: `packages/core/src/state/state.ts`
+- Modify: `packages/core/src/state/state.test.ts`
+
+- [ ] **Step 1: Update test fixtures**
+
+Replace `packages/core/src/state/state.test.ts` with:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { createState, getBlock, OperationResult } from "./state";
+import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+import type { BlockId } from "./block-id";
+
+describe("state", () => {
+  it("createState produces a State with a Y.Doc-backed root", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    expect(state.rootId).toBe("root");
+  });
+
+  it("getBlock returns null for unknown ids", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    expect(getBlock(state, "missing" as BlockId)).toBeNull();
+  });
+
+  it("getBlock returns a frozen Block snapshot for known ids", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    runTransaction(state.doc, () => {
+      const blocks = getBlocksMap(state.doc);
+      blocks.set("root", buildYBlock({
+        type: "document",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: null,
+      }));
+    });
+    const snap = getBlock(state, "root" as BlockId);
+    expect(snap).not.toBeNull();
+    expect(snap!.type).toBe("document");
+    expect(Object.isFrozen(snap)).toBe(true);
+  });
+
+  it("rootId is read from meta map", () => {
+    const state = createState({ rootId: "root-99" as BlockId });
+    expect(getMetaMap(state.doc).get("rootId")).toBe("root-99");
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+npm test --workspace=packages/core -- state.test
+```
+
+Expected: fails because `state.ts` still has the old interface.
+
+- [ ] **Step 3: Rewrite `state/state.ts`**
+
+Replace contents of `packages/core/src/state/state.ts`:
+
+```typescript
+import * as Y from "yjs";
+import type { Block } from "./block";
+import type { BlockId } from "./block-id";
+import { createYDoc, getMetaMap } from "./yjs-doc";
+import {
+  createSnapshotCache,
+  getBlockSnapshot,
+  getEmbedContentSnapshot,
+  type SnapshotCache,
+} from "./snapshot";
+
+/**
+ * Opaque document-state container. Internally a Y.Doc; consumers read
+ * via the snapshot accessors `getBlock`, `getEmbedContent`. `rootId` is
+ * a stable BlockId — the entry point to the main document tree.
+ *
+ * Snapshots are cached per State instance; ops that produce a new State
+ * inherit the underlying Y.Doc but get a fresh snapshot cache.
+ */
+export interface State {
+  readonly rootId: BlockId;
+  readonly doc: Y.Doc;
+  readonly snapshotCache: SnapshotCache;
+}
+
+export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
+  const doc = args.doc ?? createYDoc({ rootId: args.rootId });
+  // Ensure meta.rootId is set (in case caller passed an externally-built doc).
+  const meta = getMetaMap(doc);
+  if (meta.get("rootId") === undefined) {
+    doc.transact(() => meta.set("rootId", args.rootId));
+  }
+  return Object.freeze({
+    rootId: args.rootId,
+    doc,
+    snapshotCache: createSnapshotCache(),
+  });
+}
+
+/**
+ * Read a frozen Block snapshot from the main tree by id. Returns null
+ * for unknown ids. Subsequent reads with no intervening mutation return
+ * the same reference (cache hit).
+ */
+export function getBlock(state: State, id: BlockId): Block | null {
+  return getBlockSnapshot(state.doc, id, state.snapshotCache);
+}
+
+/**
+ * Read a frozen Block snapshot from the embed-contents tree by id.
+ * P6 populates this map; for P4e it's empty.
+ */
+export function getEmbedContent(state: State, id: BlockId): Block | null {
+  return getEmbedContentSnapshot(state.doc, id, state.snapshotCache);
+}
+
+/**
+ * Result of every Layer 3 state-mutating operation. The dirtyIds set is
+ * produced at write-time by the operation itself, captured from the
+ * Y.Doc transaction's change set.
+ */
+export interface OperationResult {
+  readonly state: State;
+  readonly dirtyIds: ReadonlySet<BlockId>;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- state.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Verify the rest of the workspace doesn't compile yet** (expected — Layer 3 ops still reference the old API)
+
+```bash
+npm run build --workspace=packages/core
+```
+
+Expected: many errors about `state.blocks` not existing. This is fine — subsequent tasks migrate each consumer.
+
+- [ ] **Step 6: Commit the state.ts change in isolation**
+
+```bash
+git add packages/core/src/state/state.ts packages/core/src/state/state.test.ts
+git commit -m "feat(p4e): flip State internals from PersistentMap to Y.Doc
+
+Build is intentionally red on Layer 3 ops + test fixtures after this
+commit; subsequent tasks migrate each consumer."
+```
+
+---
+
+### Task 7: Rewrite `test-utils/state-builders.ts` to construct Y.Doc-backed state
+
+**Files:**
+- Modify: `packages/core/src/test-utils/state-builders.ts`
+- Modify: `packages/core/src/test-utils/state-builders.test.ts`
+
+Builders are the foundation for fixture migration. Once builders speak Y.Doc, individual test files can migrate their fixtures.
+
+- [ ] **Step 1: Update the test**
+
+Replace `packages/core/src/test-utils/state-builders.test.ts` with:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { buildBlock, buildState, text, embed } from "./state-builders";
+import { getBlock } from "../state/state";
+import type { BlockId } from "../state/block-id";
+
+describe("state-builders (Y.Doc-backed)", () => {
+  it("text() builds a TextItem with attrs", () => {
+    const t = text("hi", { bold: true });
+    expect(t.kind).toBe("text");
+    expect(t.text).toBe("hi");
+    expect(t.attrs).toEqual({ bold: true });
+  });
+
+  it("embed() builds an EmbedItem with embedType, props, attrs", () => {
+    const e = embed("image", { src: "url" }, { link: "/x" });
+    expect(e.kind).toBe("embed");
+    expect(e.embedType).toBe("image");
+    expect(e.properties).toEqual({ src: "url" });
+    expect(e.attrs).toEqual({ link: "/x" });
+  });
+
+  it("buildBlock returns a Block-shape object", () => {
+    const b = buildBlock({ id: "p1", type: "paragraph", inlineContent: { items: [text("hi")] } });
+    expect(b.id).toBe("p1");
+    expect(b.type).toBe("paragraph");
+    expect(b.inlineContent?.items.length).toBe(1);
+  });
+
+  it("buildState creates a State queryable via getBlock", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "root", inlineContent: { items: [text("hello")] } }),
+      ],
+    });
+    expect(state.rootId).toBe("root");
+    const root = getBlock(state, "root" as BlockId);
+    expect(root?.firstChildId).toBe("p1");
+    const p1 = getBlock(state, "p1" as BlockId);
+    expect(p1?.inlineContent?.items[0]).toEqual({ kind: "text", text: "hello", attrs: {} });
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+```bash
+npm test --workspace=packages/core -- state-builders.test
+```
+
+Expected: fails — `state-builders.ts` still produces a PersistentMap.
+
+- [ ] **Step 3: Rewrite `state-builders.ts`**
+
+Replace contents of `packages/core/src/test-utils/state-builders.ts`:
+
+```typescript
+import type { TextItem, EmbedItem, InlineContent } from "../state/inline-content";
+import type { ReadonlyAttrs } from "../state/attrs";
+import type { BlockId } from "../state/block-id";
+import type { Block } from "../state/block";
+import { createState, type State } from "../state/state";
+import { runTransaction, getBlocksMap } from "../state/yjs-doc";
+import { buildYBlock } from "../state/y-block";
+
+const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
+
+export function text(content: string, attrs?: ReadonlyAttrs): TextItem {
+  return Object.freeze({
+    kind: "text",
+    text: content,
+    attrs: attrs ? Object.freeze({ ...attrs }) : EMPTY_ATTRS,
+  });
+}
+
+export function embed(
+  embedType: string,
+  properties?: Readonly<Record<string, unknown>>,
+  attrs?: ReadonlyAttrs,
+): EmbedItem {
+  return Object.freeze({
+    kind: "embed",
+    embedType,
+    attrs: attrs ? Object.freeze({ ...attrs }) : EMPTY_ATTRS,
+    properties: Object.freeze({ ...(properties ?? {}) }),
+  });
+}
+
+export function buildBlock(args: {
+  id: string;
+  type: string;
+  attrs?: Record<string, unknown>;
+  parentId?: string | null;
+  prevSiblingId?: string | null;
+  nextSiblingId?: string | null;
+  firstChildId?: string | null;
+  lastChildId?: string | null;
+  inlineContent?: InlineContent | null;
+}): Block {
+  return Object.freeze({
+    id: args.id as BlockId,
+    type: args.type,
+    attrs: args.attrs ? Object.freeze({ ...args.attrs }) : EMPTY_ATTRS,
+    parentId: (args.parentId ?? null) as BlockId | null,
+    prevSiblingId: (args.prevSiblingId ?? null) as BlockId | null,
+    nextSiblingId: (args.nextSiblingId ?? null) as BlockId | null,
+    firstChildId: (args.firstChildId ?? null) as BlockId | null,
+    lastChildId: (args.lastChildId ?? null) as BlockId | null,
+    inlineContent: args.inlineContent ?? null,
+  });
+}
+
+/**
+ * Build a Y.Doc-backed State from a list of Block-shape fixtures.
+ * Each block is materialized into the Y.Doc's blocks map.
+ */
+export function buildState(args: { rootId: string; blocks: ReadonlyArray<Block> }): State {
+  const state = createState({ rootId: args.rootId as BlockId });
+  runTransaction(state.doc, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    for (const block of args.blocks) {
+      yBlocks.set(
+        block.id,
+        buildYBlock({
+          type: block.type,
+          attrs: block.attrs,
+          parentId: block.parentId,
+          prevSiblingId: block.prevSiblingId,
+          nextSiblingId: block.nextSiblingId,
+          firstChildId: block.firstChildId,
+          lastChildId: block.lastChildId,
+          inlineContent: block.inlineContent,
+        }),
+      );
+    }
+  });
+  return state;
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- state-builders.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/test-utils/state-builders.ts packages/core/src/test-utils/state-builders.test.ts
+git commit -m "feat(p4e): rewrite state-builders to construct Y.Doc-backed State"
+```
+
+---
+
+### Task 8: Rewrite `state/new-initial-state.ts` for Y.Doc
+
+**Files:**
+- Modify: `packages/core/src/state/new-initial-state.ts`
+- Modify: `packages/core/src/state/new-initial-state.test.ts`
+
+- [ ] **Step 1: Read the current implementation to preserve initial-document shape**
+
+```bash
+cat packages/core/src/state/new-initial-state.ts
+```
+
+- [ ] **Step 2: Update the test**
+
+Replace `packages/core/src/state/new-initial-state.test.ts` with:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { createEmptyDocument } from "./new-initial-state";
+import { getBlock } from "./state";
+import type { BlockId } from "./block-id";
+
+describe("createEmptyDocument", () => {
+  it("returns a State with a non-empty rootId", () => {
+    const state = createEmptyDocument();
+    expect(state.rootId).toBeTruthy();
+  });
+
+  it("populates the root block as a document with one paragraph child", () => {
+    const state = createEmptyDocument();
+    const root = getBlock(state, state.rootId);
+    expect(root).not.toBeNull();
+    expect(root!.type).toBe("document");
+    expect(root!.firstChildId).toBeTruthy();
+    const childId = root!.firstChildId!;
+    const child = getBlock(state, childId);
+    expect(child).not.toBeNull();
+    expect(child!.type).toBe("paragraph");
+    expect(child!.parentId).toBe(state.rootId);
+    expect(child!.inlineContent?.items).toEqual([]);
+  });
+
+  it("uses the provided allocator for new ids when supplied", () => {
+    const ids: string[] = [];
+    const state = createEmptyDocument({
+      allocator: {
+        allocate: () => {
+          const id = `test-${ids.length}` as BlockId;
+          ids.push(id);
+          return id;
+        },
+      },
+    });
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(state.rootId).toBe(ids[0]);
+  });
+});
+```
+
+- [ ] **Step 3: Run test to verify failure**
+
+```bash
+npm test --workspace=packages/core -- new-initial-state.test
+```
+
+Expected: fails (current impl uses PersistentMap).
+
+- [ ] **Step 4: Rewrite `new-initial-state.ts`**
+
+Replace contents of `packages/core/src/state/new-initial-state.ts`:
+
+```typescript
+import type { BlockId, IdAllocator } from "./block-id";
+import { productionAllocator } from "./block-id";
+import { createState, type State } from "./state";
+import { runTransaction, getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+
+export interface CreateEmptyDocumentArgs {
+  allocator?: IdAllocator;
+}
+
+/**
+ * Build an empty document State: a root "document" block containing one
+ * empty "paragraph" child. The document is the canonical starting point
+ * for a new editor session.
+ */
+export function createEmptyDocument(args: CreateEmptyDocumentArgs = {}): State {
+  const allocator = args.allocator ?? productionAllocator;
+  const rootId = allocator.allocate();
+  const paragraphId = allocator.allocate();
+
+  const state = createState({ rootId });
+  runTransaction(state.doc, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    yBlocks.set(
+      rootId,
+      buildYBlock({
+        type: "document",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: paragraphId,
+        lastChildId: paragraphId,
+        inlineContent: null,
+      }),
+    );
+    yBlocks.set(
+      paragraphId,
+      buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: rootId,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }),
+    );
+  });
+  return state;
+}
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+```bash
+npm test --workspace=packages/core -- new-initial-state.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/core/src/state/new-initial-state.ts packages/core/src/state/new-initial-state.test.ts
+git commit -m "feat(p4e): rewrite new-initial-state for Y.Doc-backed State"
+```
+
+---
+
+### Task 9: Update Layer 2 utility `block-traversal.ts` to use `getBlock`
+
+**Files:**
+- Modify: `packages/core/src/state/block-traversal.ts`
+- Modify: `packages/core/src/state/block-traversal.test.ts`
+
+- [ ] **Step 1: Read the current implementation**
+
+```bash
+cat packages/core/src/state/block-traversal.ts
+```
+
+Note: this file currently calls `state.blocks.get(id)` throughout. The migration replaces each with `getBlock(state, id)`. Function signatures and behavior stay identical.
+
+- [ ] **Step 2: Update the test file's fixture-building calls** (the existing assertions stay; only fixture construction migrates per Task 7's new builders)
+
+```bash
+grep -n "state.blocks" packages/core/src/state/block-traversal.test.ts
+```
+
+If any `state.blocks.get(id)` or `state.blocks.set(id, ...)` appears in the test, replace with `getBlock(state, id)` or rebuild the state via `buildState(...)` with an updated block. (The new `buildState` from Task 7 already produces Y.Doc-backed State, so existing `buildState({...})` calls keep working.)
+
+- [ ] **Step 3: Migrate `block-traversal.ts`**
+
+Edit `packages/core/src/state/block-traversal.ts`:
+- Add `import { getBlock } from "./state";` at the top.
+- Replace every `state.blocks.get(id)` with `getBlock(state, id)`.
+- The function `getBlock` from `state.ts` returns `Block | null` (not `Block | undefined` like the old PersistentMap). Update any `=== undefined` checks to `=== null` or use the truthy-check pattern.
+
+Concretely, an example edit — if the current code has:
+
+```typescript
+const block = state.blocks.get(id);
+if (!block) return null;
+return block.firstChildId;
+```
+
+Change to:
+
+```typescript
+const block = getBlock(state, id);
+if (block === null) return null;
+return block.firstChildId;
+```
+
+Apply this transformation across all `state.blocks.get(...)` call sites in the file.
+
+- [ ] **Step 4: Run the test**
+
+```bash
+npm test --workspace=packages/core -- block-traversal.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/block-traversal.ts packages/core/src/state/block-traversal.test.ts
+git commit -m "refactor(p4e): block-traversal uses getBlock instead of state.blocks.get"
+```
+
+---
+
+### Task 10: Migrate Layer 2 utility `block-compare.ts`
+
+**Files:**
+- Modify: `packages/core/src/state/block-compare.ts`
+- Modify: `packages/core/src/state/block-compare.test.ts`
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/block-compare.ts
+```
+
+- [ ] **Step 2: Update the test file's fixture construction** (assertions unchanged; replace `state.blocks.get` with `getBlock`)
+
+```bash
+grep -n "state.blocks" packages/core/src/state/block-compare.test.ts
+```
+
+Replace each occurrence as in Task 9.
+
+- [ ] **Step 3: Migrate `block-compare.ts`**
+
+Edit the file:
+- Add `import { getBlock } from "./state";`.
+- Replace `state.blocks.get(id)` → `getBlock(state, id)`.
+- Update `undefined` checks to `null` checks.
+
+- [ ] **Step 4: Run the test**
+
+```bash
+npm test --workspace=packages/core -- block-compare.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/block-compare.ts packages/core/src/state/block-compare.test.ts
+git commit -m "refactor(p4e): block-compare uses getBlock"
+```
+
+---
+
+### Task 11: Migrate Layer 2 utility `span-iteration.ts`
+
+**Files:**
+- Modify: `packages/core/src/state/span-iteration.ts`
+- Modify: `packages/core/src/state/span-iteration.test.ts`
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/span-iteration.ts
+```
+
+- [ ] **Step 2: Update test fixture-construction calls** as in Tasks 9-10.
+
+- [ ] **Step 3: Migrate `span-iteration.ts`**
+
+Edit the file:
+- Add `import { getBlock } from "./state";`.
+- Replace `state.blocks.get(id)` → `getBlock(state, id)`.
+- Update `undefined` checks to `null` checks.
+
+- [ ] **Step 4: Run the test**
+
+```bash
+npm test --workspace=packages/core -- span-iteration.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/span-iteration.ts packages/core/src/state/span-iteration.test.ts
+git commit -m "refactor(p4e): span-iteration uses getBlock"
+```
+
+---
+
+## Sub-phase 4e.3 — Migrate Layer 3 operations to Y.Doc transactions
+
+Each Layer 3 op is migrated individually. The pattern for each:
+
+1. The op's signature stays the same: `(state: State, ...args) => OperationResult`.
+2. Internally, the op:
+   - Reads block(s) it needs via `getBlock(state, id)`.
+   - Validates inputs (throw early if block missing / wrong shape).
+   - Opens a Y.Doc transaction via `runTransaction(state.doc, () => { ... })` and mutates the Y types inside.
+   - **Mutations** go through Y.Map / Y.Array / Y.Text APIs (e.g., `yBlock.set("attrs", buildYAttrs(...))`, `yItems.delete(index, count)`, `yText.insert(offset, text)`).
+3. After the transaction commits, the op returns `OperationResult { state, dirtyIds }`:
+   - `state`: a new `State` instance wrapping the *same* `Y.Doc` but with a fresh `SnapshotCache` (so snapshot reads after the op see the mutated state).
+   - `dirtyIds`: the set captured by `runTransaction`'s afterTransaction listener.
+
+The helper `applyOperation(state, fn)` encapsulates this pattern.
+
+### Task 12: Add `applyOperation` helper to `state.ts`
+
+**Files:**
+- Modify: `packages/core/src/state/state.ts`
+- Modify: `packages/core/src/state/state.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `packages/core/src/state/state.test.ts`:
+
+```typescript
+import { applyOperation } from "./state";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+
+describe("applyOperation", () => {
+  it("runs fn in a transaction and returns OperationResult with dirtyIds", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    const result = applyOperation(state, () => {
+      const blocks = getBlocksMap(state.doc);
+      blocks.set("p1", buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: "root" as BlockId,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }));
+    });
+    expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "p1" as BlockId)).not.toBeNull();
+  });
+
+  it("produces a State with a fresh SnapshotCache (snapshots reflect post-mutation state)", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    applyOperation(state, () => {
+      const blocks = getBlocksMap(state.doc);
+      blocks.set("p1", buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }));
+    });
+    // The pre-op state's snapshot cache is empty for "p1"; we read after op via applyOperation's returned state.
+    const result = applyOperation(state, () => {
+      const blocks = getBlocksMap(state.doc);
+      const yBlock = blocks.get("p1")!;
+      yBlock.set("type", "heading");
+    });
+    expect(getBlock(result.state, "p1" as BlockId)?.type).toBe("heading");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+```bash
+npm test --workspace=packages/core -- state.test
+```
+
+Expected: fails — `applyOperation` not exported.
+
+- [ ] **Step 3: Add `applyOperation` to `state/state.ts`**
+
+Append to `packages/core/src/state/state.ts`:
+
+```typescript
+import { runTransaction } from "./yjs-doc";
+
+/**
+ * Run a mutating `fn` inside a Y.Doc transaction and produce an
+ * OperationResult. The returned State wraps the same Y.Doc as the input
+ * but has a fresh SnapshotCache so subsequent reads see the mutated state.
+ */
+export function applyOperation(state: State, fn: () => void): OperationResult {
+  const { dirtyIds } = runTransaction(state.doc, fn);
+  const newState: State = Object.freeze({
+    rootId: state.rootId,
+    doc: state.doc,
+    snapshotCache: createSnapshotCache(),
+  });
+  return { state: newState, dirtyIds };
+}
+```
+
+Add `createSnapshotCache` to the imports at the top of the file:
+
+```typescript
+import {
+  createSnapshotCache,
+  getBlockSnapshot,
+  getEmbedContentSnapshot,
+  type SnapshotCache,
+} from "./snapshot";
+```
+
+(If already imported, ensure `createSnapshotCache` is in the named imports list.)
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- state.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/state.ts packages/core/src/state/state.test.ts
+git commit -m "feat(p4e): add applyOperation helper for Layer 3 ops"
+```
+
+---
+
+### Task 13: Migrate `setBlockAttrs`
+
+**Files:**
+- Modify: `packages/core/src/state/set-block-attrs.ts`
+- Modify: `packages/core/src/state/set-block-attrs.test.ts`
+
+- [ ] **Step 1: Update tests to use new builders (already Y.Doc-backed) + new accessor pattern**
+
+Inspect existing test file:
+
+```bash
+cat packages/core/src/state/set-block-attrs.test.ts
+```
+
+Replace every assertion of the shape `result.state.blocks.get(id)!.attrs` with `getBlock(result.state, id as BlockId)!.attrs`. Add the import `import { getBlock } from "./state";` at the top.
+
+The test logic and assertions stay identical; only the accessor changes.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+npm test --workspace=packages/core -- set-block-attrs.test
+```
+
+Expected: fails (the source still uses `state.blocks`).
+
+- [ ] **Step 3: Rewrite `set-block-attrs.ts`**
+
+Replace contents of `packages/core/src/state/set-block-attrs.ts`:
+
+```typescript
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import type { ReadonlyAttrs } from "./attrs";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYAttrs } from "./y-block";
+
+/**
+ * Replace a block's attrs with the given bag. Returns the new state and
+ * a dirtyIds set containing the modified block id.
+ *
+ * Throws if the block does not exist.
+ */
+export function setBlockAttrs(
+  state: State,
+  blockId: BlockId,
+  attrs: ReadonlyAttrs,
+): OperationResult {
+  const block = getBlock(state, blockId);
+  if (block === null) {
+    throw new Error(`setBlockAttrs: block "${blockId}" not found`);
+  }
+  return applyOperation(state, () => {
+    const yBlock = getBlocksMap(state.doc).get(blockId)!;
+    yBlock.set("attrs", buildYAttrs(attrs));
+  });
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- set-block-attrs.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/set-block-attrs.ts packages/core/src/state/set-block-attrs.test.ts
+git commit -m "refactor(p4e): migrate setBlockAttrs to Y.Doc transaction"
+```
+
+---
+
+### Task 14: Migrate `setBlockType`
+
+**Files:**
+- Modify: `packages/core/src/state/set-block-type.ts`
+- Modify: `packages/core/src/state/set-block-type.test.ts`
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/set-block-type.ts
+```
+
+- [ ] **Step 2: Update test accessor pattern** (replace `result.state.blocks.get` → `getBlock(result.state, ...)` throughout).
+
+- [ ] **Step 3: Rewrite `set-block-type.ts`**
+
+The op mutates only the `type` field of a block's Y.Map. New implementation:
+
+```typescript
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import { getBlocksMap } from "./yjs-doc";
+
+/**
+ * Change a block's type. Other fields (attrs, children, inlineContent)
+ * are preserved unchanged. Throws if the block does not exist.
+ */
+export function setBlockType(
+  state: State,
+  blockId: BlockId,
+  newType: string,
+): OperationResult {
+  const block = getBlock(state, blockId);
+  if (block === null) {
+    throw new Error(`setBlockType: block "${blockId}" not found`);
+  }
+  return applyOperation(state, () => {
+    const yBlock = getBlocksMap(state.doc).get(blockId)!;
+    yBlock.set("type", newType);
+  });
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- set-block-type.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/set-block-type.ts packages/core/src/state/set-block-type.test.ts
+git commit -m "refactor(p4e): migrate setBlockType to Y.Doc transaction"
+```
+
+---
+
+### Task 15: Migrate `insertBlock`
+
+**Files:**
+- Modify: `packages/core/src/state/insert-block.ts`
+- Modify: `packages/core/src/state/insert-block.test.ts`
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/insert-block.ts
+```
+
+Note the existing `InsertBlockArgs` interface and sibling-link manipulation logic. The Y.Doc migration preserves this logic structurally.
+
+- [ ] **Step 2: Update test accessor pattern**
+
+Replace `result.state.blocks.get(id)` with `getBlock(result.state, id as BlockId)` throughout `insert-block.test.ts`. Add `import { getBlock } from "./state";`.
+
+- [ ] **Step 3: Rewrite `insert-block.ts`**
+
+Replace contents with:
+
+```typescript
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import type { ReadonlyAttrs } from "./attrs";
+import type { InlineContent } from "./inline-content";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+
+export interface InsertBlockArgs {
+  id: BlockId;
+  type: string;
+  attrs?: ReadonlyAttrs;
+  inlineContent?: InlineContent | null;
+  /** Parent under which to insert. */
+  parentId: BlockId;
+  /**
+   * Sibling reference for placement. If null, insert at end of parent's
+   * child list. If a BlockId, insert immediately before that sibling.
+   */
+  beforeSiblingId: BlockId | null;
+}
+
+/**
+ * Insert a new block under `parentId`. Sibling-pointer wiring is
+ * recomputed for the affected blocks (new block, prev sibling if any,
+ * next sibling if any, and the parent's firstChildId/lastChildId).
+ *
+ * Throws if parentId is unknown, beforeSiblingId is unknown, or
+ * the new block id already exists.
+ */
+export function insertBlock(state: State, args: InsertBlockArgs): OperationResult {
+  if (getBlock(state, args.id) !== null) {
+    throw new Error(`insertBlock: block id "${args.id}" already exists`);
+  }
+  const parent = getBlock(state, args.parentId);
+  if (parent === null) {
+    throw new Error(`insertBlock: parent "${args.parentId}" not found`);
+  }
+  if (args.beforeSiblingId !== null) {
+    const beforeSib = getBlock(state, args.beforeSiblingId);
+    if (beforeSib === null) {
+      throw new Error(`insertBlock: beforeSibling "${args.beforeSiblingId}" not found`);
+    }
+    if (beforeSib.parentId !== args.parentId) {
+      throw new Error(
+        `insertBlock: beforeSibling "${args.beforeSiblingId}" is not a child of "${args.parentId}"`,
+      );
+    }
+  }
+
+  // Determine new block's prev/next pointers.
+  let prevSiblingId: BlockId | null;
+  let nextSiblingId: BlockId | null;
+  if (args.beforeSiblingId === null) {
+    // Append at end.
+    prevSiblingId = parent.lastChildId;
+    nextSiblingId = null;
+  } else {
+    nextSiblingId = args.beforeSiblingId;
+    const sib = getBlock(state, args.beforeSiblingId)!;
+    prevSiblingId = sib.prevSiblingId;
+  }
+
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+
+    // Create new block's Y.Map and insert.
+    yBlocks.set(
+      args.id,
+      buildYBlock({
+        type: args.type,
+        attrs: args.attrs ?? {},
+        parentId: args.parentId,
+        prevSiblingId,
+        nextSiblingId,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: args.inlineContent ?? null,
+      }),
+    );
+
+    // Re-wire prev sibling's nextSiblingId.
+    if (prevSiblingId !== null) {
+      const yPrev = yBlocks.get(prevSiblingId)!;
+      yPrev.set("nextSiblingId", args.id);
+    }
+    // Re-wire next sibling's prevSiblingId.
+    if (nextSiblingId !== null) {
+      const yNext = yBlocks.get(nextSiblingId)!;
+      yNext.set("prevSiblingId", args.id);
+    }
+    // Re-wire parent's firstChildId/lastChildId.
+    const yParent = yBlocks.get(args.parentId)!;
+    if (prevSiblingId === null) yParent.set("firstChildId", args.id);
+    if (nextSiblingId === null) yParent.set("lastChildId", args.id);
+  });
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- insert-block.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/insert-block.ts packages/core/src/state/insert-block.test.ts
+git commit -m "refactor(p4e): migrate insertBlock to Y.Doc transaction"
+```
+
+---
+
+### Task 16: Migrate `removeBlock`
+
+**Files:**
+- Modify: `packages/core/src/state/remove-block.ts`
+- Modify: `packages/core/src/state/remove-block.test.ts`
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/remove-block.ts
+```
+
+Note the cascade-delete TODO for embed contents — keep that TODO untouched in this task (P6 implements it).
+
+- [ ] **Step 2: Update test accessors** (replace `state.blocks.get` → `getBlock(state, ...)`).
+
+- [ ] **Step 3: Rewrite `remove-block.ts`**
+
+```typescript
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import { getBlocksMap } from "./yjs-doc";
+
+/**
+ * Remove a block (and its entire subtree) from the document. Re-wires
+ * sibling and parent pointers around the removed block.
+ *
+ * TODO (P6): cascade-delete embed-referenced content blocks from
+ * `state.embedContents` for any embeds in the removed subtree's
+ * inlineContent. The `state.embedContents` map doesn't yet exist; today
+ * no code creates embed-referenced blocks so no orphaning happens.
+ *
+ * Throws if the block does not exist or is the root.
+ */
+export function removeBlock(state: State, blockId: BlockId): OperationResult {
+  const block = getBlock(state, blockId);
+  if (block === null) {
+    throw new Error(`removeBlock: block "${blockId}" not found`);
+  }
+  if (block.parentId === null) {
+    throw new Error(`removeBlock: cannot remove root "${blockId}"`);
+  }
+
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+
+    // Re-wire sibling pointers.
+    if (block.prevSiblingId !== null) {
+      yBlocks.get(block.prevSiblingId)!.set("nextSiblingId", block.nextSiblingId);
+    }
+    if (block.nextSiblingId !== null) {
+      yBlocks.get(block.nextSiblingId)!.set("prevSiblingId", block.prevSiblingId);
+    }
+    // Re-wire parent's firstChild/lastChild if affected.
+    const yParent = yBlocks.get(block.parentId!)!;
+    if (yParent.get("firstChildId") === blockId) {
+      yParent.set("firstChildId", block.nextSiblingId);
+    }
+    if (yParent.get("lastChildId") === blockId) {
+      yParent.set("lastChildId", block.prevSiblingId);
+    }
+
+    // Collect subtree ids to delete (children-only walk).
+    const toDelete: BlockId[] = [];
+    collectSubtreeIds(state, blockId, toDelete);
+    for (const id of toDelete) {
+      yBlocks.delete(id);
+    }
+  });
+}
+
+function collectSubtreeIds(state: State, rootId: BlockId, out: BlockId[]): void {
+  out.push(rootId);
+  const block = getBlock(state, rootId);
+  if (block === null) return;
+  let childId = block.firstChildId;
+  while (childId !== null) {
+    collectSubtreeIds(state, childId, out);
+    const child = getBlock(state, childId);
+    childId = child?.nextSiblingId ?? null;
+  }
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- remove-block.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/remove-block.ts packages/core/src/state/remove-block.test.ts
+git commit -m "refactor(p4e): migrate removeBlock to Y.Doc transaction"
+```
+
+---
+
+### Task 17: Migrate `insertText` (uses Y.Text mutations)
+
+**Files:**
+- Modify: `packages/core/src/state/insert-text.ts`
+- Modify: `packages/core/src/state/insert-text.test.ts`
+
+This op is more involved because it mutates the Y.Text contents of an inline item. Three cases:
+
+1. **Insertion at a text-item boundary with matching attrs:** mutate the neighboring text item's Y.Text via `insert(offset, text)`.
+2. **Insertion inside a text item with matching attrs:** mutate that item's Y.Text via `insert(within, text)`.
+3. **Insertion at a boundary or inside an item with DIFFERENT attrs:** split the existing text item (if mid-item), insert a new Y.Map item for the new text, re-wire the inlineContent Y.Array.
+
+The legacy implementation uses `mergeAdjacentTextItems` to coalesce after insertion. The Y.Doc version achieves the same by appending a new Y.Map item at the splice point unless attrs match — in which case it inserts into the neighboring Y.Text directly (which preserves per-character CRDT identity, the whole point of Y.Text).
+
+- [ ] **Step 1: Update tests** (accessor migration as in prior tasks).
+
+- [ ] **Step 2: Rewrite `insert-text.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import type { Position } from "./block-position";
+import type { ReadonlyAttrs } from "./attrs";
+import { attrsEqual } from "./attrs";
+import { inlineContentLength } from "./inline-content";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYInlineItem } from "./y-block";
+
+/**
+ * Insert text into a leaf block's inlineContent at `position`. Preserves
+ * Y.Text per-character CRDT identity for unmodified runs: if the
+ * insertion lands inside (or adjacent to) a text item whose attrs
+ * match the incoming `attrs`, the mutation is a Y.Text.insert call on
+ * that existing run rather than a new item.
+ *
+ * Throws if the block is missing, not a leaf, or the offset is out of
+ * range.
+ */
+export function insertText(
+  state: State,
+  position: Position,
+  text: string,
+  attrs: ReadonlyAttrs,
+): OperationResult {
+  if (text === "") {
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
+
+  const block = getBlock(state, position.blockId);
+  if (block === null) {
+    throw new Error(`insertText: block "${position.blockId}" not found`);
+  }
+  if (block.inlineContent === null) {
+    throw new Error(
+      `insertText: block "${position.blockId}" is not a leaf (no inlineContent)`,
+    );
+  }
+  const totalLen = inlineContentLength(block.inlineContent);
+  if (position.offset < 0 || position.offset > totalLen) {
+    throw new Error(
+      `insertText: offset ${position.offset} out of range [0, ${totalLen}] for block "${position.blockId}"`,
+    );
+  }
+
+  return applyOperation(state, () => {
+    const yBlock = getBlocksMap(state.doc).get(position.blockId)!;
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    insertTextIntoYItems(yItems, position.offset, text, attrs);
+  });
+}
+
+/**
+ * Walk yItems to find the insertion point, then either splice into an
+ * existing Y.Text (if attrs match) or insert a fresh text item Y.Map.
+ */
+function insertTextIntoYItems(
+  yItems: Y.Array<Y.Map<unknown>>,
+  offset: number,
+  text: string,
+  attrs: ReadonlyAttrs,
+): void {
+  let cursor = 0;
+  for (let i = 0; i < yItems.length; i++) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    const itemLen = kind === "text"
+      ? (yItem.get("text") as Y.Text).length
+      : 1;
+    const itemEnd = cursor + itemLen;
+
+    // Insertion lands strictly before this item: insert before yItem.
+    if (offset < cursor) break; // unreachable due to monotone walk; defensive
+
+    if (offset >= cursor && offset < itemEnd && kind === "text") {
+      // Inside a text item. Match attrs?
+      const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+      if (attrsEqual(itemAttrs, attrs)) {
+        // Splice into the existing Y.Text — preserves CRDT identity.
+        const yText = yItem.get("text") as Y.Text;
+        yText.insert(offset - cursor, text);
+        return;
+      }
+      // Different attrs: split the item into [prefix, NEW, suffix].
+      splitTextItemAndInsert(yItems, i, yItem, offset - cursor, text, attrs);
+      return;
+    }
+
+    if (offset === itemEnd && kind === "text") {
+      // Right at a text item's trailing edge. Match attrs?
+      const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+      if (attrsEqual(itemAttrs, attrs)) {
+        const yText = yItem.get("text") as Y.Text;
+        yText.insert(itemLen, text);
+        return;
+      }
+      // Different attrs from this trailing edge: check the next item.
+      if (i + 1 < yItems.length) {
+        const next = yItems.get(i + 1);
+        if (next.get("kind") === "text") {
+          const nextAttrs = yMapAsObject(next.get("attrs") as Y.Map<unknown>);
+          if (attrsEqual(nextAttrs, attrs)) {
+            (next.get("text") as Y.Text).insert(0, text);
+            return;
+          }
+        }
+      }
+      // No neighbor match: insert a new text item after this one.
+      yItems.insert(i + 1, [buildYInlineItem({ kind: "text", text, attrs })]);
+      return;
+    }
+
+    if (offset === cursor) {
+      // Inserting at the leading edge of yItem.
+      // If yItem is text and attrs match, splice into its Y.Text at 0.
+      if (kind === "text") {
+        const itemAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+        if (attrsEqual(itemAttrs, attrs)) {
+          (yItem.get("text") as Y.Text).insert(0, text);
+          return;
+        }
+      }
+      // Embed boundary or different-attrs leading edge: insert a new item before yItem.
+      yItems.insert(i, [buildYInlineItem({ kind: "text", text, attrs })]);
+      return;
+    }
+
+    cursor = itemEnd;
+  }
+
+  // Falls through: offset is at end-of-content. If the last item is a
+  // text item with matching attrs, splice into its Y.Text; otherwise
+  // append a new text item.
+  if (yItems.length > 0) {
+    const last = yItems.get(yItems.length - 1);
+    if (last.get("kind") === "text") {
+      const lastAttrs = yMapAsObject(last.get("attrs") as Y.Map<unknown>);
+      if (attrsEqual(lastAttrs, attrs)) {
+        const yText = last.get("text") as Y.Text;
+        yText.insert(yText.length, text);
+        return;
+      }
+    }
+  }
+  yItems.push([buildYInlineItem({ kind: "text", text, attrs })]);
+}
+
+function splitTextItemAndInsert(
+  yItems: Y.Array<Y.Map<unknown>>,
+  index: number,
+  yItem: Y.Map<unknown>,
+  within: number,
+  newText: string,
+  newAttrs: ReadonlyAttrs,
+): void {
+  const yText = yItem.get("text") as Y.Text;
+  const fullText = yText.toString();
+  const originalAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+  const prefix = fullText.slice(0, within);
+  const suffix = fullText.slice(within);
+
+  // Truncate the existing item to prefix only. (Use Y.Text delete to keep its identity.)
+  if (suffix.length > 0) {
+    yText.delete(within, suffix.length);
+  }
+
+  // Build replacements after the existing (now-prefix) item.
+  const replacements: Y.Map<unknown>[] = [];
+  if (prefix.length === 0) {
+    // Existing item is now empty; remove it.
+    yItems.delete(index, 1);
+    replacements.push(buildYInlineItem({ kind: "text", text: newText, attrs: newAttrs }));
+    if (suffix.length > 0) {
+      replacements.push(
+        buildYInlineItem({ kind: "text", text: suffix, attrs: originalAttrs }),
+      );
+    }
+    yItems.insert(index, replacements);
+    return;
+  }
+
+  // Existing item kept as prefix; insert NEW + suffix after it.
+  replacements.push(buildYInlineItem({ kind: "text", text: newText, attrs: newAttrs }));
+  if (suffix.length > 0) {
+    replacements.push(
+      buildYInlineItem({ kind: "text", text: suffix, attrs: originalAttrs }),
+    );
+  }
+  yItems.insert(index + 1, replacements);
+}
+
+function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) obj[key] = value;
+  return obj;
+}
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npm test --workspace=packages/core -- insert-text.test
+```
+
+Expected: all pass. If any fail because the legacy implementation merged adjacent same-attrs items differently than the Y.Text-preserving version, the assertions need an audit — `insertText` is allowed to coalesce by inserting into an existing Y.Text (which structurally yields one item, same as before).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/src/state/insert-text.ts packages/core/src/state/insert-text.test.ts
+git commit -m "refactor(p4e): migrate insertText to Y.Text-preserving mutations"
+```
+
+---
+
+### Task 18: Migrate `applyAttrsToRange`
+
+**Files:**
+- Modify: `packages/core/src/state/apply-attrs.ts`
+- Modify: `packages/core/src/state/apply-attrs.test.ts`
+
+The legacy implementation walks the inline content within a Span, splits text items at the range boundaries, and applies attrs to the affected portions. The Y.Doc version mirrors this structurally.
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/apply-attrs.ts
+```
+
+- [ ] **Step 2: Update test accessors**
+
+Replace `result.state.blocks.get(id)` → `getBlock(result.state, id as BlockId)` throughout the test file.
+
+- [ ] **Step 3: Rewrite `apply-attrs.ts`**
+
+The high-level approach: for each block in the Span, walk its Y.Array of items. For each affected text item, split at the boundary positions, then either update its `attrs` Y.Map in place (if the item is entirely within the range) or replace it with a new fresh item carrying merged attrs.
+
+The minimal mutation pattern preserves Y.Text identity where possible: when an entire text item falls inside the range, mutate its `attrs` Y.Map in place rather than recreating the item. When the boundary cuts through a text item, split it (as in `splitTextItemAndInsert` from Task 17 but without inserting new text).
+
+```typescript
+import * as Y from "yjs";
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import type { Span } from "./block-position";
+import type { ReadonlyAttrs } from "./attrs";
+import { inlineContentLength } from "./inline-content";
+import { iterateSpan } from "./span-iteration";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYAttrs, buildYInlineItem } from "./y-block";
+
+/**
+ * Apply (merge) `attrs` onto every text item within `span`. Existing
+ * item attrs are kept; the new attrs overlay them via spread. Embed
+ * items are unaffected (their attrs are NOT touched by this op).
+ *
+ * Splits text items at the span boundaries if needed.
+ */
+export function applyAttrsToRange(
+  state: State,
+  span: Span,
+  attrs: ReadonlyAttrs,
+): OperationResult {
+  // Walk the span first to validate; iterateSpan throws on invalid spans.
+  const segments = Array.from(iterateSpan(state, span));
+
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    for (const seg of segments) {
+      const yBlock = yBlocks.get(seg.blockId)!;
+      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+      if (yItems === null) continue;
+      applyAttrsToBlockRange(yItems, seg.start, seg.end, attrs);
+    }
+  });
+}
+
+/**
+ * Apply attrs to text items whose offset range overlaps [start, end).
+ * Splits text items at the boundary if necessary.
+ */
+function applyAttrsToBlockRange(
+  yItems: Y.Array<Y.Map<unknown>>,
+  start: number,
+  end: number,
+  newAttrs: ReadonlyAttrs,
+): void {
+  if (start === end) return;
+
+  let cursor = 0;
+  let i = 0;
+  while (i < yItems.length) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemEnd = cursor + itemLen;
+
+    if (itemEnd <= start) {
+      // Entirely before range.
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    if (cursor >= end) {
+      // Entirely after range; done.
+      break;
+    }
+
+    if (kind === "embed") {
+      // Embeds are not affected by applyAttrsToRange (they have their own attrs API).
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+
+    // Text item overlaps the range.
+    const localStart = Math.max(0, start - cursor);
+    const localEnd = Math.min(itemLen, end - cursor);
+
+    if (localStart === 0 && localEnd === itemLen) {
+      // Entire item in range. Update its attrs in place (preserves Y.Text identity).
+      const existing = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+      const merged = Object.freeze({ ...existing, ...newAttrs });
+      yItem.set("attrs", buildYAttrs(merged));
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+
+    // Partial overlap: split the item.
+    const yText = yItem.get("text") as Y.Text;
+    const fullText = yText.toString();
+    const existingAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+    const mergedAttrs = Object.freeze({ ...existingAttrs, ...newAttrs });
+
+    const before = fullText.slice(0, localStart);
+    const middle = fullText.slice(localStart, localEnd);
+    const after = fullText.slice(localEnd);
+
+    // Strategy: replace the item with [before?, middle*, after?] where
+    // middle carries the merged attrs. We delete and re-insert because
+    // partial Y.Text rebuilds would require new Y.Text identity anyway.
+    const replacements: Y.Map<unknown>[] = [];
+    if (before.length > 0) {
+      replacements.push(buildYInlineItem({ kind: "text", text: before, attrs: existingAttrs }));
+    }
+    replacements.push(buildYInlineItem({ kind: "text", text: middle, attrs: mergedAttrs }));
+    if (after.length > 0) {
+      replacements.push(buildYInlineItem({ kind: "text", text: after, attrs: existingAttrs }));
+    }
+    yItems.delete(i, 1);
+    yItems.insert(i, replacements);
+    // Advance past the inserted slice.
+    const advanced = replacements.length;
+    i += advanced;
+    cursor = itemEnd;
+  }
+}
+
+function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) obj[key] = value;
+  return obj;
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- apply-attrs.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/apply-attrs.ts packages/core/src/state/apply-attrs.test.ts
+git commit -m "refactor(p4e): migrate applyAttrsToRange to Y.Doc transaction"
+```
+
+---
+
+### Task 19: Migrate `splitBlockAtPosition`
+
+**Files:**
+- Modify: `packages/core/src/state/split-block.ts`
+- Modify: `packages/core/src/state/split-block.test.ts`
+
+The op splits one block at a given position into two adjacent blocks. The new block gets the suffix inline content; the original retains the prefix.
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/split-block.ts
+```
+
+- [ ] **Step 2: Update test accessors** (same pattern).
+
+- [ ] **Step 3: Rewrite `split-block.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId, IdAllocator } from "./block-id";
+import type { Position } from "./block-position";
+import { inlineContentLength, findItemAtOffset } from "./inline-content";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYBlock, buildYInlineItem } from "./y-block";
+
+/**
+ * Split a leaf block at the given position into two adjacent blocks.
+ * The original block retains content [0, offset); a new block (id from
+ * allocator) takes [offset, end). The new block inherits the original's
+ * type and attrs.
+ *
+ * Returns the new block's id via `newBlockId` on the OperationResult
+ * (extended via TypeScript's spread; consumers cast).
+ *
+ * Throws if the block is missing, not a leaf, or offset is out of range.
+ */
+export function splitBlockAtPosition(
+  state: State,
+  position: Position,
+  allocator: IdAllocator,
+): OperationResult & { newBlockId: BlockId } {
+  const block = getBlock(state, position.blockId);
+  if (block === null) {
+    throw new Error(`splitBlockAtPosition: block "${position.blockId}" not found`);
+  }
+  if (block.inlineContent === null) {
+    throw new Error(`splitBlockAtPosition: block "${position.blockId}" is not a leaf`);
+  }
+  const totalLen = inlineContentLength(block.inlineContent);
+  if (position.offset < 0 || position.offset > totalLen) {
+    throw new Error(
+      `splitBlockAtPosition: offset ${position.offset} out of range [0, ${totalLen}]`,
+    );
+  }
+
+  const newBlockId = allocator.allocate();
+
+  const result = applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    const yOriginal = yBlocks.get(position.blockId)!;
+    const yItems = yOriginal.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+
+    // Compute split: build suffix items (a fresh Y.Array) and trim originals to prefix.
+    const suffixItems: Y.Map<unknown>[] = collectSuffixItems(yItems, position.offset);
+
+    // Build new block with suffix items.
+    const newYInlineContent = new Y.Array<Y.Map<unknown>>();
+    if (suffixItems.length > 0) newYInlineContent.push(suffixItems);
+
+    const newYBlock = buildYBlock({
+      type: yOriginal.get("type") as string,
+      attrs: yMapAsObject(yOriginal.get("attrs") as Y.Map<unknown>),
+      parentId: yOriginal.get("parentId") as BlockId | null,
+      prevSiblingId: position.blockId,
+      nextSiblingId: yOriginal.get("nextSiblingId") as BlockId | null,
+      firstChildId: null,
+      lastChildId: null,
+      inlineContent: null, // override below
+    });
+    newYBlock.set("inlineContent", newYInlineContent);
+    yBlocks.set(newBlockId, newYBlock);
+
+    // Re-wire the next sibling's prev pointer to the new block.
+    const oldNextId = yOriginal.get("nextSiblingId") as BlockId | null;
+    if (oldNextId !== null) {
+      yBlocks.get(oldNextId)!.set("prevSiblingId", newBlockId);
+    }
+    yOriginal.set("nextSiblingId", newBlockId);
+
+    // Re-wire parent's lastChildId if original was the last.
+    const parentId = yOriginal.get("parentId") as BlockId | null;
+    if (parentId !== null) {
+      const yParent = yBlocks.get(parentId)!;
+      if (yParent.get("lastChildId") === position.blockId) {
+        yParent.set("lastChildId", newBlockId);
+      }
+    }
+  });
+
+  return { ...result, newBlockId };
+}
+
+/**
+ * Mutate `yItems` to retain items in [0, offset) and return fresh
+ * Y.Map clones of items in [offset, end). Splits the straddling
+ * item if needed.
+ */
+function collectSuffixItems(
+  yItems: Y.Array<Y.Map<unknown>>,
+  offset: number,
+): Y.Map<unknown>[] {
+  const suffix: Y.Map<unknown>[] = [];
+  let cursor = 0;
+  let i = 0;
+  while (i < yItems.length) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemEnd = cursor + itemLen;
+
+    if (itemEnd <= offset) {
+      // Entirely in prefix.
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    if (cursor >= offset) {
+      // Entirely in suffix: move via clone.
+      suffix.push(cloneInlineItem(yItem));
+      yItems.delete(i, 1);
+      continue; // don't advance i; the next item slid into position i
+    }
+    // Straddles boundary; must be text (embeds have len=1 and would fall above).
+    const yText = yItem.get("text") as Y.Text;
+    const within = offset - cursor;
+    const before = yText.toString().slice(0, within);
+    const after = yText.toString().slice(within);
+    const attrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
+
+    // Truncate original to before.
+    yText.delete(within, after.length);
+    // (yItem now has text=before; remains in prefix.)
+    // Push a new text item for the after portion into suffix.
+    suffix.push(buildYInlineItem({ kind: "text", text: after, attrs }));
+    cursor = itemEnd;
+    i++;
+  }
+  return suffix;
+}
+
+function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
+  const kind = src.get("kind") as "text" | "embed";
+  if (kind === "text") {
+    return buildYInlineItem({
+      kind: "text",
+      text: (src.get("text") as Y.Text).toString(),
+      attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    });
+  }
+  return buildYInlineItem({
+    kind: "embed",
+    embedType: src.get("embedType") as string,
+    attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
+  });
+}
+
+function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) obj[key] = value;
+  return obj;
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- split-block.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/split-block.ts packages/core/src/state/split-block.test.ts
+git commit -m "refactor(p4e): migrate splitBlockAtPosition to Y.Doc transaction"
+```
+
+---
+
+### Task 20: Migrate `mergeAdjacentBlocks`
+
+**Files:**
+- Modify: `packages/core/src/state/merge-blocks.ts`
+- Modify: `packages/core/src/state/merge-blocks.test.ts`
+
+Merge two adjacent siblings into one. The second block's inline content is appended to the first; the second is removed.
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/merge-blocks.ts
+```
+
+- [ ] **Step 2: Update test accessors**.
+
+- [ ] **Step 3: Rewrite `merge-blocks.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYInlineItem } from "./y-block";
+
+/**
+ * Merge `bId` into `aId`. Both must be siblings with `b` directly after
+ * `a` under the same parent. After the merge: a's inlineContent has b's
+ * appended; b is removed; sibling pointers are re-wired.
+ *
+ * Throws if the blocks aren't adjacent siblings, either is missing, or
+ * they have different types (callers normalize first).
+ */
+export function mergeAdjacentBlocks(
+  state: State,
+  aId: BlockId,
+  bId: BlockId,
+): OperationResult {
+  const a = getBlock(state, aId);
+  const b = getBlock(state, bId);
+  if (a === null) throw new Error(`mergeAdjacentBlocks: block "${aId}" not found`);
+  if (b === null) throw new Error(`mergeAdjacentBlocks: block "${bId}" not found`);
+  if (a.nextSiblingId !== bId) {
+    throw new Error(`mergeAdjacentBlocks: "${aId}" and "${bId}" are not adjacent siblings`);
+  }
+  if (a.type !== b.type) {
+    throw new Error(
+      `mergeAdjacentBlocks: cannot merge blocks of different types ("${a.type}" vs "${b.type}")`,
+    );
+  }
+  if (a.inlineContent === null || b.inlineContent === null) {
+    throw new Error(`mergeAdjacentBlocks: only leaf blocks can be merged`);
+  }
+
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    const yA = yBlocks.get(aId)!;
+    const yB = yBlocks.get(bId)!;
+    const yAItems = yA.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yBItems = yB.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+
+    // Append clones of b's items to a's array.
+    const appended: Y.Map<unknown>[] = [];
+    for (let i = 0; i < yBItems.length; i++) {
+      appended.push(cloneInlineItem(yBItems.get(i)));
+    }
+    if (appended.length > 0) yAItems.push(appended);
+
+    // Re-wire sibling pointers around b.
+    yA.set("nextSiblingId", b.nextSiblingId);
+    if (b.nextSiblingId !== null) {
+      yBlocks.get(b.nextSiblingId)!.set("prevSiblingId", aId);
+    }
+    // Re-wire parent's lastChildId if b was the last.
+    if (a.parentId !== null) {
+      const yParent = yBlocks.get(a.parentId)!;
+      if (yParent.get("lastChildId") === bId) {
+        yParent.set("lastChildId", aId);
+      }
+    }
+    // Delete b.
+    yBlocks.delete(bId);
+  });
+}
+
+function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
+  const kind = src.get("kind") as "text" | "embed";
+  if (kind === "text") {
+    return buildYInlineItem({
+      kind: "text",
+      text: (src.get("text") as Y.Text).toString(),
+      attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    });
+  }
+  return buildYInlineItem({
+    kind: "embed",
+    embedType: src.get("embedType") as string,
+    attrs: yMapAsObject(src.get("attrs") as Y.Map<unknown>),
+    properties: yMapAsObject(src.get("properties") as Y.Map<unknown>),
+  });
+}
+
+function yMapAsObject(yMap: Y.Map<unknown>): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  for (const [key, value] of yMap.entries()) obj[key] = value;
+  return obj;
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- merge-blocks.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/merge-blocks.ts packages/core/src/state/merge-blocks.test.ts
+git commit -m "refactor(p4e): migrate mergeAdjacentBlocks to Y.Doc transaction"
+```
+
+---
+
+### Task 21: Migrate `deleteRange`
+
+**Files:**
+- Modify: `packages/core/src/state/delete-range.ts`
+- Modify: `packages/core/src/state/delete-range.test.ts`
+
+Delete content over a Span. Within a single block, delete inline-content range. Across blocks, delete suffix of first block, prefix of last block, and any middle blocks entirely, then merge first and last.
+
+- [ ] **Step 1: Read current implementation to understand the cross-block behavior**
+
+```bash
+cat packages/core/src/state/delete-range.ts
+```
+
+- [ ] **Step 2: Update test accessors**.
+
+- [ ] **Step 3: Rewrite `delete-range.ts`** (relying on the existing op composition where helpful: deleteRange may internally use removeBlock and mergeAdjacentBlocks for the cross-block case)
+
+```typescript
+import * as Y from "yjs";
+import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+import type { Span } from "./block-position";
+import { inlineContentLength } from "./inline-content";
+import { iterateSpan } from "./span-iteration";
+import { getBlocksMap } from "./yjs-doc";
+
+/**
+ * Delete the content within `span`. Behavior:
+ *   - Single-block span: removes inline range [start, end).
+ *   - Multi-block span: clears suffix of first block, prefix of last
+ *     block, removes any blocks fully inside the range, and merges
+ *     first and last blocks if both leaf blocks of the same type.
+ *
+ * Throws if the span is invalid (blocks missing, offsets out of range,
+ * blocks not in document order).
+ */
+export function deleteRange(state: State, span: Span): OperationResult {
+  if (
+    span.anchor.blockId === span.focus.blockId &&
+    span.anchor.offset === span.focus.offset
+  ) {
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
+  const segments = Array.from(iterateSpan(state, span));
+
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+
+    // Apply per-block deletions in reverse order (so earlier-block id deletions
+    // don't shift indices in the segments list — segments are pre-collected).
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const seg = segments[i];
+      const yBlock = yBlocks.get(seg.blockId);
+      if (yBlock === undefined) continue; // already removed via cascade
+      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+      if (yItems === null) continue;
+
+      if (seg.start === 0 && seg.end === segmentLen(yItems)) {
+        // Whole-block range. If this is the first or last segment, just clear inline; otherwise delete the block.
+        if (i !== 0 && i !== segments.length - 1) {
+          // Middle block — remove the entire Y.Map.
+          unlinkBlock(yBlocks, seg.blockId);
+          yBlocks.delete(seg.blockId);
+          continue;
+        }
+        // Edge segment: clear inline content but keep the block.
+        if (yItems.length > 0) yItems.delete(0, yItems.length);
+        continue;
+      }
+      deleteInlineRange(yItems, seg.start, seg.end);
+    }
+  });
+
+  // Note: cross-block merge (first + last) is handled by the caller (editor) or by a separate normalize pass; per the Phase 4c-4 spec, deleteRange does NOT auto-merge.
+}
+
+function segmentLen(yItems: Y.Array<Y.Map<unknown>>): number {
+  let total = 0;
+  for (let i = 0; i < yItems.length; i++) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    total += kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+  }
+  return total;
+}
+
+function unlinkBlock(yBlocks: Y.Map<Y.Map<unknown>>, blockId: BlockId): void {
+  const yBlock = yBlocks.get(blockId);
+  if (yBlock === undefined) return;
+  const prevId = yBlock.get("prevSiblingId") as BlockId | null;
+  const nextId = yBlock.get("nextSiblingId") as BlockId | null;
+  const parentId = yBlock.get("parentId") as BlockId | null;
+  if (prevId !== null) yBlocks.get(prevId)?.set("nextSiblingId", nextId);
+  if (nextId !== null) yBlocks.get(nextId)?.set("prevSiblingId", prevId);
+  if (parentId !== null) {
+    const yParent = yBlocks.get(parentId);
+    if (yParent !== undefined) {
+      if (yParent.get("firstChildId") === blockId) yParent.set("firstChildId", nextId);
+      if (yParent.get("lastChildId") === blockId) yParent.set("lastChildId", prevId);
+    }
+  }
+}
+
+/**
+ * Delete characters [start, end) from yItems.
+ */
+function deleteInlineRange(
+  yItems: Y.Array<Y.Map<unknown>>,
+  start: number,
+  end: number,
+): void {
+  let cursor = 0;
+  let i = 0;
+  while (i < yItems.length && cursor < end) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemEnd = cursor + itemLen;
+
+    if (itemEnd <= start) {
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    if (cursor >= end) break;
+
+    if (kind === "embed") {
+      // Embed entirely in range — remove it.
+      yItems.delete(i, 1);
+      // Don't advance i; the next item slid into position i. Don't advance cursor (the removed item is gone).
+      continue;
+    }
+
+    // Text item overlaps range.
+    const yText = yItem.get("text") as Y.Text;
+    const localStart = Math.max(0, start - cursor);
+    const localEnd = Math.min(itemLen, end - cursor);
+    const deleteCount = localEnd - localStart;
+
+    if (deleteCount === itemLen) {
+      // Whole text item gone.
+      yItems.delete(i, 1);
+      continue;
+    }
+
+    yText.delete(localStart, deleteCount);
+    cursor = itemEnd - deleteCount;
+    i++;
+  }
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- delete-range.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/delete-range.ts packages/core/src/state/delete-range.test.ts
+git commit -m "refactor(p4e): migrate deleteRange to Y.Doc transaction"
+```
+
+---
+
+### Task 22: Migrate `replaceRange`
+
+**Files:**
+- Modify: `packages/core/src/state/replace-range.ts`
+- Modify: `packages/core/src/state/replace-range.test.ts`
+
+`replaceRange` composes `deleteRange` + `insertText`. The migrated version delegates to the migrated component ops.
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/replace-range.ts
+```
+
+- [ ] **Step 2: Update test accessors**.
+
+- [ ] **Step 3: Rewrite `replace-range.ts`**
+
+If the current op composes from the others, the new version does the same. Concrete:
+
+```typescript
+import type { State, OperationResult } from "./state";
+import type { Span } from "./block-position";
+import type { ReadonlyAttrs } from "./attrs";
+import { deleteRange } from "./delete-range";
+import { insertText } from "./insert-text";
+
+/**
+ * Replace the content within `span` with `text` (carrying `attrs`).
+ * Composes deleteRange + insertText. Returns the combined dirtyIds.
+ */
+export function replaceRange(
+  state: State,
+  span: Span,
+  text: string,
+  attrs: ReadonlyAttrs,
+): OperationResult {
+  const deleteResult = deleteRange(state, span);
+  if (text === "") {
+    return deleteResult;
+  }
+  const insertResult = insertText(
+    deleteResult.state,
+    span.anchor,
+    text,
+    attrs,
+  );
+  const combinedDirty = new Set([...deleteResult.dirtyIds, ...insertResult.dirtyIds]);
+  return { state: insertResult.state, dirtyIds: combinedDirty };
+}
+```
+
+(If the legacy op had different semantics — e.g., applied to the focus side or did cross-block normalization — preserve those exactly. The implementer should diff the legacy behavior against this skeleton.)
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- replace-range.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/replace-range.ts packages/core/src/state/replace-range.test.ts
+git commit -m "refactor(p4e): migrate replaceRange to Y.Doc transaction"
+```
+
+---
+
+### Task 23: Migrate `clonePastedSubtree`
+
+**Files:**
+- Modify: `packages/core/src/state/clone-pasted-subtree.ts`
+- Modify: `packages/core/src/state/clone-pasted-subtree.test.ts`
+
+This op returns a `ClonedSubtree` snapshot (not an OperationResult). The clone walks a source subtree (rooted at sourceRootId) and produces a fresh subtree with new BlockIds.
+
+- [ ] **Step 1: Read current implementation**
+
+```bash
+cat packages/core/src/state/clone-pasted-subtree.ts
+```
+
+The current return shape is `ClonedSubtree { blocks: ReadonlyMap<BlockId, Block>; rootId: BlockId }`. Decision A revises it (post-P6) to `{ blocks, embedContents, rootId }`, but P4e preserves the current single-map shape (P6 will widen).
+
+- [ ] **Step 2: Update test accessors**.
+
+- [ ] **Step 3: Rewrite `clone-pasted-subtree.ts`**
+
+The output remains a plain JS ReadonlyMap of immutable Block snapshots (no Y.Doc involvement). The clone walks the source via `getBlock`, allocates fresh BlockIds, and re-points parent/sibling/child links. Inline content is deep-cloned via the existing pattern (legacy Block interface).
+
+```typescript
+import type { State } from "./state";
+import { getBlock } from "./state";
+import type { Block } from "./block";
+import type { BlockId, IdAllocator } from "./block-id";
+import type {
+  InlineContent,
+  InlineItem,
+  EmbedItem,
+} from "./inline-content";
+
+export interface ClonedSubtree {
+  readonly blocks: ReadonlyMap<BlockId, Block>;
+  readonly rootId: BlockId;
+}
+
+/**
+ * Produce a self-contained clone of the subtree rooted at sourceRootId.
+ * Every block gets a fresh BlockId via the allocator. Embed-content
+ * references (EmbedItem.properties.contentBlockId) are NOT followed in
+ * this version (P6 widens the result to include embedContents).
+ *
+ * The returned subtree's blocks have correctly-mapped sibling/child links
+ * pointing to the new ids; parentId for the root is null.
+ */
+export function clonePastedSubtree(
+  state: State,
+  sourceRootId: BlockId,
+  allocator: IdAllocator,
+): ClonedSubtree {
+  const sourceRoot = getBlock(state, sourceRootId);
+  if (sourceRoot === null) {
+    throw new Error(`clonePastedSubtree: source root "${sourceRootId}" not found`);
+  }
+
+  const idMap = new Map<BlockId, BlockId>();
+  const visited = new Set<BlockId>();
+  collectSubtree(state, sourceRootId, idMap, allocator, visited);
+
+  const out = new Map<BlockId, Block>();
+  for (const [sourceId, newId] of idMap.entries()) {
+    const source = getBlock(state, sourceId)!;
+    const cloned: Block = Object.freeze({
+      id: newId,
+      type: source.type,
+      attrs: Object.freeze({ ...source.attrs }),
+      parentId: sourceId === sourceRootId
+        ? null
+        : (idMap.get(source.parentId!) ?? null),
+      prevSiblingId: source.prevSiblingId === null ? null : (idMap.get(source.prevSiblingId) ?? null),
+      nextSiblingId: source.nextSiblingId === null ? null : (idMap.get(source.nextSiblingId) ?? null),
+      firstChildId: source.firstChildId === null ? null : (idMap.get(source.firstChildId) ?? null),
+      lastChildId: source.lastChildId === null ? null : (idMap.get(source.lastChildId) ?? null),
+      inlineContent: source.inlineContent === null ? null : cloneInlineContent(source.inlineContent),
+    });
+    out.set(newId, cloned);
+  }
+
+  return Object.freeze({ blocks: out, rootId: idMap.get(sourceRootId)! });
+}
+
+function collectSubtree(
+  state: State,
+  rootId: BlockId,
+  idMap: Map<BlockId, BlockId>,
+  allocator: IdAllocator,
+  visited: Set<BlockId>,
+): void {
+  if (visited.has(rootId)) return;
+  visited.add(rootId);
+  idMap.set(rootId, allocator.allocate());
+  const block = getBlock(state, rootId);
+  if (block === null) return;
+  let childId = block.firstChildId;
+  while (childId !== null) {
+    collectSubtree(state, childId, idMap, allocator, visited);
+    const child = getBlock(state, childId);
+    childId = child?.nextSiblingId ?? null;
+  }
+}
+
+function cloneInlineContent(src: InlineContent): InlineContent {
+  const items: InlineItem[] = src.items.map((item) => {
+    if (item.kind === "text") {
+      return Object.freeze({
+        kind: "text" as const,
+        text: item.text,
+        attrs: Object.freeze({ ...item.attrs }),
+      });
+    }
+    const e: EmbedItem = Object.freeze({
+      kind: "embed",
+      embedType: item.embedType,
+      attrs: Object.freeze({ ...item.attrs }),
+      properties: Object.freeze({ ...item.properties }),
+    });
+    return e;
+  });
+  return Object.freeze({ items: Object.freeze(items) });
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- clone-pasted-subtree.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/clone-pasted-subtree.ts packages/core/src/state/clone-pasted-subtree.test.ts
+git commit -m "refactor(p4e): migrate clonePastedSubtree to Y.Doc accessors"
+```
+
+---
+
+## Sub-phase 4e.4 — Replace history with Y.UndoManager wrapper
+
+### Task 24: Rewrite `state/history.ts` as a Y.UndoManager wrapper
+
+**Files:**
+- Modify: `packages/core/src/state/history.ts`
+- Modify: `packages/core/src/state/history.test.ts`
+
+The history wrapper tracks Y.Doc transactions through `Y.UndoManager`. Selection isn't part of Y.Doc (it's per-client local state), so we track it separately and restore on undo.
+
+Per Decision D point 9, during the parallel window (P11.0+) the History wrapper has TWO backends (legacy + Yjs) and switches between them. P4e introduces the **Yjs backend only**; the legacy backend integration happens in P11.0. The public API the wrapper exposes is the same in both phases.
+
+- [ ] **Step 1: Update tests**
+
+Replace `packages/core/src/state/history.test.ts` with:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import {
+  createHistory,
+  pushHistoryEntry,
+  undo,
+  redo,
+  canUndo,
+  canRedo,
+} from "./history";
+import { createEmptyDocument } from "./new-initial-state";
+import { setBlockAttrs } from "./set-block-attrs";
+import { getBlock } from "./state";
+import type { BlockId } from "./block-id";
+
+describe("history (Y.UndoManager wrapper)", () => {
+  it("creates an empty history with no undo/redo available", () => {
+    const state = createEmptyDocument();
+    const history = createHistory(state);
+    expect(canUndo(history)).toBe(false);
+    expect(canRedo(history)).toBe(false);
+  });
+
+  it("undo after a single op restores the prior state", () => {
+    let state = createEmptyDocument();
+    const history = createHistory(state);
+    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
+    const result = setBlockAttrs(state, child.id, { bold: true });
+    state = result.state;
+    pushHistoryEntry(history, { selection: null });
+    expect(canUndo(history)).toBe(true);
+
+    const undone = undo(history);
+    expect(undone).not.toBeNull();
+    // After undo, the snapshot should show no bold attr on the paragraph.
+    const p = getBlock(undone!.state, child.id);
+    expect(p?.attrs.bold).toBeUndefined();
+  });
+
+  it("redo after undo restores the post-op state", () => {
+    let state = createEmptyDocument();
+    const history = createHistory(state);
+    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
+    state = setBlockAttrs(state, child.id, { bold: true }).state;
+    pushHistoryEntry(history, { selection: null });
+
+    const undone = undo(history);
+    expect(undone).not.toBeNull();
+    expect(canRedo(history)).toBe(true);
+    const redone = redo(history);
+    expect(redone).not.toBeNull();
+    expect(getBlock(redone!.state, child.id)?.attrs.bold).toBe(true);
+  });
+
+  it("a new op after undo clears the redo stack", () => {
+    let state = createEmptyDocument();
+    const history = createHistory(state);
+    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
+    state = setBlockAttrs(state, child.id, { bold: true }).state;
+    pushHistoryEntry(history, { selection: null });
+    undo(history);
+    expect(canRedo(history)).toBe(true);
+    state = setBlockAttrs(state, child.id, { italic: true }).state;
+    pushHistoryEntry(history, { selection: null });
+    expect(canRedo(history)).toBe(false);
+  });
+});
+```
+
+- [ ] **Step 2: Rewrite `state/history.ts`**
+
+```typescript
+import * as Y from "yjs";
+import type { State } from "./state";
+import { applyOperation } from "./state";
+import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+
+/**
+ * Yjs-backed history wrapper. Each `pushHistoryEntry` call stops the
+ * current undo group; the next op opens a fresh group. `undo` pops the
+ * latest group and applies its inverse via Y.UndoManager.
+ *
+ * Selection is per-client local state (not in Y.Doc); we carry it
+ * alongside undo entries via a parallel array indexed by entry order.
+ */
+export interface History {
+  readonly state: State;
+  readonly undoManager: Y.UndoManager;
+  /** Selection snapshots per undo entry. Index 0 = oldest entry. */
+  readonly selectionStack: Array<unknown | null>;
+  /** Selection snapshots per redo entry. Index 0 = most recent redo. */
+  readonly redoSelectionStack: Array<unknown | null>;
+}
+
+const DEFAULT_CAPTURE_TIMEOUT_MS = 500;
+
+export function createHistory(state: State): History {
+  const undoManager = new Y.UndoManager(
+    [getBlocksMap(state.doc), getEmbedContentsMap(state.doc)],
+    { captureTimeout: DEFAULT_CAPTURE_TIMEOUT_MS },
+  );
+  return {
+    state,
+    undoManager,
+    selectionStack: [],
+    redoSelectionStack: [],
+  };
+}
+
+export interface PushHistoryArgs {
+  selection: unknown | null;
+}
+
+/**
+ * Stop the current undo group and record an entry boundary. The provided
+ * selection (opaque) is stored alongside this entry for restoration on undo.
+ */
+export function pushHistoryEntry(history: History, args: PushHistoryArgs): void {
+  history.undoManager.stopCapturing();
+  history.selectionStack.push(args.selection);
+  history.redoSelectionStack.length = 0;
+}
+
+export function canUndo(history: History): boolean {
+  return history.undoManager.canUndo();
+}
+
+export function canRedo(history: History): boolean {
+  return history.undoManager.canRedo();
+}
+
+export interface UndoRedoResult {
+  readonly state: State;
+  readonly selection: unknown | null;
+}
+
+export function undo(history: History): UndoRedoResult | null {
+  if (!canUndo(history)) return null;
+  history.undoManager.undo();
+  const selection = history.selectionStack.pop() ?? null;
+  history.redoSelectionStack.push(selection);
+  // Produce a fresh State (new SnapshotCache) reflecting the undone Y.Doc.
+  const result = applyOperation(history.state, () => { /* no-op transaction to mint a new State */ });
+  return { state: result.state, selection };
+}
+
+export function redo(history: History): UndoRedoResult | null {
+  if (!canRedo(history)) return null;
+  history.undoManager.redo();
+  const selection = history.redoSelectionStack.pop() ?? null;
+  history.selectionStack.push(selection);
+  const result = applyOperation(history.state, () => { /* no-op transaction */ });
+  return { state: result.state, selection };
+}
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npm test --workspace=packages/core -- history.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/src/state/history.ts packages/core/src/state/history.test.ts
+git commit -m "refactor(p4e): rewrite history.ts as Y.UndoManager wrapper"
+```
+
+---
+
+## Sub-phase 4e.5 — Migrate remaining tests + delete obsolete files
+
+### Task 25: Migrate `block.test.ts` and `inline-content.test.ts`
+
+**Files:**
+- Modify: `packages/core/src/state/block.test.ts`
+- Modify: `packages/core/src/state/inline-content.test.ts`
+
+These tests cover the pure data interfaces — `Block`, `InlineContent`, `TextItem`, `EmbedItem`. Their assertions stay; some tests check `createBlock`/`updateBlock`/`createTextItem` etc. which are removed in P4e (consumers use `buildBlock` from test-utils, or construct via the Y.Doc helpers directly).
+
+- [ ] **Step 1: Read both test files**
+
+```bash
+cat packages/core/src/state/block.test.ts
+cat packages/core/src/state/inline-content.test.ts
+```
+
+- [ ] **Step 2: Migrate `block.test.ts`**
+
+Delete tests that exercise `createBlock`/`updateBlock` directly (those helpers are removed). Keep tests that exercise the `Block` interface shape via fixtures (using `buildBlock` from test-utils). Run after each chunk of edits and commit.
+
+For an example test that checks "createBlock with all defaults" — replace with a test that builds via `buildBlock` from test-utils:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { buildBlock } from "../test-utils/state-builders";
+
+describe("Block (interface)", () => {
+  it("has nullable parent/sibling/child links by default", () => {
+    const b = buildBlock({ id: "p1", type: "paragraph" });
+    expect(b.parentId).toBeNull();
+    expect(b.firstChildId).toBeNull();
+    expect(b.lastChildId).toBeNull();
+  });
+
+  it("preserves all fields when constructed", () => {
+    const b = buildBlock({
+      id: "p1",
+      type: "paragraph",
+      attrs: { bold: true },
+      parentId: "root",
+      inlineContent: { items: [] },
+    });
+    expect(b.id).toBe("p1");
+    expect(b.attrs.bold).toBe(true);
+    expect(b.parentId).toBe("root");
+  });
+
+  it("is frozen", () => {
+    const b = buildBlock({ id: "p1", type: "paragraph" });
+    expect(Object.isFrozen(b)).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 3: Migrate `inline-content.test.ts`**
+
+Tests for `inlineContentLength`, `findItemAtOffset`, `mergeAdjacentTextItems`, `splitInlineContentAtOffset` continue to apply — these are pure functions on the `InlineContent` interface and don't need Y.Doc. Replace fixture construction via `createTextItem`/`createEmbedItem`/`createInlineContent` with `text(...)` / `embed(...)` from test-utils.
+
+Tests for the now-removed factories `createTextItem`/`createEmbedItem`/`createInlineContent` should be deleted.
+
+- [ ] **Step 4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- block.test inline-content.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/block.test.ts packages/core/src/state/inline-content.test.ts
+git commit -m "test(p4e): migrate block + inline-content tests to new builders"
+```
+
+---
+
+### Task 26: Remove deprecated helpers from `block.ts` and `inline-content.ts`
+
+**Files:**
+- Modify: `packages/core/src/state/block.ts`
+- Modify: `packages/core/src/state/inline-content.ts`
+
+The helpers `createBlock`, `updateBlock`, `createTextItem`, `createEmbedItem`, `createInlineContent` are no longer used (test-utils + Y.Doc helpers cover all construction needs). Remove them; keep only the interfaces and the pure helpers (`inlineContentLength`, `findItemAtOffset`, `mergeAdjacentTextItems`, `splitInlineContentAtOffset`).
+
+- [ ] **Step 1: Find external consumers of the removed helpers**
+
+```bash
+grep -rn "createBlock\|updateBlock\|createTextItem\|createEmbedItem\|createInlineContent" packages/core/src/ packages/dom/src/ packages/react/src/
+```
+
+Each occurrence outside `block.ts` / `inline-content.ts` themselves needs a migration. (Most should already be migrated by prior tasks in this plan; this is a verification pass.)
+
+- [ ] **Step 2: Trim `block.ts` to just the interface + types**
+
+Replace contents of `packages/core/src/state/block.ts` with:
+
+```typescript
+import type { ReadonlyAttrs } from "./attrs";
+import type { BlockId } from "./block-id";
+import type { InlineContent } from "./inline-content";
+
+/**
+ * A single block in the document tree.
+ *
+ * Container blocks (section, list, table, etc.) hold child blocks via
+ * the firstChildId/lastChildId linked list and have no inlineContent.
+ * Leaf blocks (paragraph, list-item, heading, table-cell) carry
+ * inlineContent and have no children.
+ *
+ * `Block` is a frozen snapshot view produced by `getBlock(state, id)`;
+ * mutations go through Layer 3 ops, not by editing this interface.
+ */
+export interface Block {
+  readonly id: BlockId;
+  readonly type: string;
+  readonly attrs: ReadonlyAttrs;
+  readonly parentId: BlockId | null;
+  readonly prevSiblingId: BlockId | null;
+  readonly nextSiblingId: BlockId | null;
+  readonly firstChildId: BlockId | null;
+  readonly lastChildId: BlockId | null;
+  readonly inlineContent: InlineContent | null;
+}
+```
+
+- [ ] **Step 3: Trim `inline-content.ts`** — remove the factory functions but keep the pure helpers:
+
+```typescript
+import type { ReadonlyAttrs } from "./attrs";
+import { attrsEqual } from "./attrs";
+
+export interface InlineContent {
+  readonly items: ReadonlyArray<InlineItem>;
+}
+
+export type InlineItem = TextItem | EmbedItem;
+
+export interface TextItem {
+  readonly kind: "text";
+  readonly text: string;
+  readonly attrs: ReadonlyAttrs;
+}
+
+export interface EmbedItem {
+  readonly kind: "embed";
+  readonly embedType: string;
+  readonly attrs: ReadonlyAttrs;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+export function inlineContentLength(content: InlineContent): number {
+  let total = 0;
+  for (const item of content.items) {
+    total += item.kind === "text" ? item.text.length : 1;
+  }
+  return total;
+}
+
+export function findItemAtOffset(
+  content: InlineContent,
+  offset: number,
+): { itemIndex: number; withinItem: number } {
+  let cursor = 0;
+  for (let i = 0; i < content.items.length; i++) {
+    const item = content.items[i];
+    const itemLen = item.kind === "text" ? item.text.length : 1;
+    if (offset < cursor + itemLen) {
+      return { itemIndex: i, withinItem: offset - cursor };
+    }
+    cursor += itemLen;
+  }
+  return { itemIndex: content.items.length, withinItem: 0 };
+}
+
+export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
+  if (items.length <= 1) return [...items];
+  const out: InlineItem[] = [];
+  let pending: TextItem | null = null;
+  for (const item of items) {
+    if (item.kind === "text") {
+      if (pending && attrsEqual(pending.attrs, item.attrs)) {
+        pending = Object.freeze({
+          kind: "text" as const,
+          text: pending.text + item.text,
+          attrs: pending.attrs,
+        });
+      } else {
+        if (pending) out.push(pending);
+        pending = item;
+      }
+    } else {
+      if (pending) {
+        out.push(pending);
+        pending = null;
+      }
+      out.push(item);
+    }
+  }
+  if (pending) out.push(pending);
+  return out;
+}
+
+export function splitInlineContentAtOffset(
+  content: InlineContent,
+  offset: number,
+): [InlineItem[], InlineItem[]] {
+  const items = content.items;
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  if (withinItem === 0) {
+    return [items.slice(0, itemIndex), items.slice(itemIndex)];
+  }
+  const straddle = items[itemIndex];
+  if (straddle.kind !== "text") {
+    throw new Error(
+      `splitInlineContentAtOffset: offset falls inside non-text item at index ${itemIndex} (kind="${straddle.kind}")`,
+    );
+  }
+  const leftHead: TextItem = Object.freeze({
+    kind: "text",
+    text: straddle.text.slice(0, withinItem),
+    attrs: straddle.attrs,
+  });
+  const rightHead: TextItem = Object.freeze({
+    kind: "text",
+    text: straddle.text.slice(withinItem),
+    attrs: straddle.attrs,
+  });
+  return [
+    [...items.slice(0, itemIndex), leftHead],
+    [rightHead, ...items.slice(itemIndex + 1)],
+  ];
+}
+```
+
+- [ ] **Step 4: Run the full test suite**
+
+```bash
+npm test --workspace=packages/core
+```
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/state/block.ts packages/core/src/state/inline-content.ts
+git commit -m "refactor(p4e): remove deprecated Block/InlineContent factory helpers"
+```
+
+---
+
+### Task 27: Migrate remaining state tests for fixture compatibility
+
+**Files:**
+- Modify: every remaining `packages/core/src/state/*.test.ts` file that still uses `createPersistentMap`, `state.blocks.get`, `state.blocks.set`, or `createBlock`/`updateBlock`/`createTextItem`/etc.
+
+Per the earlier grep, the affected files are: `apply-attrs.test.ts`, `block-compare.test.ts`, `block-traversal.test.ts`, `clone-pasted-subtree.test.ts`, `delete-range.test.ts`, `insert-block.test.ts`, `insert-text.test.ts`, `merge-blocks.test.ts`, `new-extract-text.test.ts`, `new-initial-state.test.ts`, `remove-block.test.ts`, `replace-range.test.ts`, `set-block-attrs.test.ts`, `set-block-type.test.ts`, `span-iteration.test.ts`, `split-block.test.ts`, `state.test.ts`.
+
+Most have already been migrated in their corresponding Layer 3 op tasks (Tasks 13-23). This task is the catch-up pass for any that haven't.
+
+- [ ] **Step 1: Run the full suite and identify failures**
+
+```bash
+npm test --workspace=packages/core 2>&1 | tee /tmp/p4e-test-failures.log
+grep -E "FAIL |TypeError" /tmp/p4e-test-failures.log
+```
+
+- [ ] **Step 2: Per failing file, migrate fixtures**
+
+For each failing test file:
+- Replace `import { createPersistentMap } from "./persistent-map";` with builders from `../test-utils/state-builders`.
+- Replace `state.blocks.get(id)` with `getBlock(state, id as BlockId)`.
+- Replace `state.blocks.set(id, ...)` patterns with rebuilding via `buildState({ rootId, blocks: [...] })` — or invoke a Layer 3 op if the test is intentionally constructing a modified state.
+- Replace `createBlock(...)` / `updateBlock(...)` / `createTextItem(...)` calls with `buildBlock(...)` / `text(...)` / `embed(...)` from `test-utils/state-builders`.
+
+Commit one file at a time:
+
+```bash
+git add packages/core/src/state/<file>.test.ts
+git commit -m "test(p4e): migrate <file>.test.ts fixtures to Y.Doc builders"
+```
+
+- [ ] **Step 3: Final test run**
+
+```bash
+npm test --workspace=packages/core
+```
+
+Expected: green. All 1213+ tests pass on Y.Doc-backed state.
+
+---
+
+### Task 28: Delete `persistent-map.ts` and its test
+
+**Files:**
+- Delete: `packages/core/src/state/persistent-map.ts`
+- Delete: `packages/core/src/state/persistent-map.test.ts`
+
+- [ ] **Step 1: Pre-flight grep**
+
+```bash
+grep -rn "persistent-map\|PersistentMap\|createPersistentMap" packages/core/src/ packages/dom/src/ packages/react/src/
+```
+
+Expected: only matches in `persistent-map.ts` itself + its test. If matches appear elsewhere, those consumers haven't migrated — STOP and migrate them first.
+
+- [ ] **Step 2: Delete the files**
+
+```bash
+git rm packages/core/src/state/persistent-map.ts packages/core/src/state/persistent-map.test.ts
+```
+
+- [ ] **Step 3: Verify build + tests still green**
+
+```bash
+npm run build --workspace=packages/core
+npm test --workspace=packages/core
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git commit -m "chore(p4e): delete PersistentMap (replaced by Y.Map)"
+```
+
+---
+
+### Task 29: Delete `change.ts` and its test
+
+**Files:**
+- Delete: `packages/core/src/state/change.ts`
+- Delete: `packages/core/src/state/change.test.ts`
+
+Per Decision C + D, `change.ts` is the implementation detail of the legacy `EditorHistory`. P11.0 keeps the legacy `EditorHistory` alive during the parallel window, so `change.ts` cannot be deleted in P4e — but `state/change.ts` and its test are NOT consumed by the new `History` wrapper (Task 24). The legacy `EditorHistory` lives in `editor/`, not `state/`.
+
+Verify before deleting:
+
+- [ ] **Step 1: Pre-flight grep**
+
+```bash
+grep -rn "from.*state/change\|from \"./change\"" packages/core/src/
+```
+
+Expected: matches only in `change.ts`/`change.test.ts` (self-references) AND possibly in the editor's legacy history. If the editor's legacy history imports from `state/change`, DO NOT delete in P4e — defer to P11.0 (which renames the legacy `EditorHistory` to `historyLegacy`).
+
+- [ ] **Step 2: If safe, delete; otherwise document and skip**
+
+If the editor's legacy `EditorHistory` references `state/change.ts`:
+- Add a comment to `state/change.ts`: `// DEPRECATED — consumed only by editor/history-legacy.ts (during parallel window). Delete at cutover.`
+- Skip this task; come back at the end of P11.4 cutover.
+
+If nothing external references it:
+```bash
+git rm packages/core/src/state/change.ts packages/core/src/state/change.test.ts
+```
+
+- [ ] **Step 3: Verify build + tests**
+
+```bash
+npm run build --workspace=packages/core
+npm test --workspace=packages/core
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git commit -m "chore(p4e): delete state/change.ts (replaced by Y.UndoManager)"
+```
+
+(If skipped per Step 2, commit instead: `docs(p4e): mark state/change.ts as deprecated; cutover deletes`.)
+
+---
+
+### Task 30: Update `state/operations.ts` barrel
+
+**Files:**
+- Modify: `packages/core/src/state/operations.ts`
+
+- [ ] **Step 1: Read current barrel**
+
+```bash
+cat packages/core/src/state/operations.ts
+```
+
+- [ ] **Step 2: Update the comment block to reflect the post-P4e state**
+
+Edit the file's comment block to remove the "Phase 4 surface" provenance (which is now history) and document the Y.Doc-backed nature. The exports themselves stay the same — Layer 3 op signatures preserved per the public API stability requirement.
+
+```typescript
+/**
+ * Layer 3 state-mutating operations barrel.
+ *
+ * Each operation takes a State (Y.Doc-backed per Decision C / Phase 4e)
+ * and arguments, returns OperationResult (new state + dirtyIds of
+ * changed blocks). Internally each op opens a Y.Doc transaction; the
+ * dirtyIds set is captured from the transaction's change records.
+ *
+ * Exception: clonePastedSubtree returns a ClonedSubtree snapshot for
+ * paste flows (no State mutation).
+ */
+
+export { setBlockAttrs } from "./set-block-attrs";
+export { setBlockType } from "./set-block-type";
+export { insertBlock, type InsertBlockArgs } from "./insert-block";
+export { removeBlock } from "./remove-block";
+export { insertText } from "./insert-text";
+export { applyAttrsToRange } from "./apply-attrs";
+export { splitBlockAtPosition } from "./split-block";
+export { mergeAdjacentBlocks } from "./merge-blocks";
+export { deleteRange } from "./delete-range";
+export { replaceRange } from "./replace-range";
+export { clonePastedSubtree, type ClonedSubtree } from "./clone-pasted-subtree";
+
+// Legacy tree operations (pre-Phase 4a, to be migrated in P11.x or P15).
+export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations";
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npm test --workspace=packages/core -- operations.test
+```
+
+Expected: passes (tests assert the barrel exports).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/src/state/operations.ts
+git commit -m "docs(p4e): update operations barrel comment for Y.Doc-backed ops"
+```
+
+---
+
+## Sub-phase 4e.6 — Integration tests and verification
+
+### Task 31: Add Yjs encoding round-trip test
+
+**Files:**
+- Create: `packages/core/src/state/yjs-encoding.test.ts`
+
+Verify that a Y.Doc-backed State can be serialized via `Y.encodeStateAsUpdate(doc)` and reconstructed via `Y.applyUpdate(newDoc, update)`. This is the foundation for future persistence/sync.
+
+- [ ] **Step 1: Write the test**
+
+```typescript
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import { createEmptyDocument } from "./new-initial-state";
+import { setBlockAttrs } from "./set-block-attrs";
+import { createState, getBlock } from "./state";
+import type { BlockId } from "./block-id";
+
+describe("yjs-encoding", () => {
+  it("round-trips a single-paragraph document via update bytes", () => {
+    const original = createEmptyDocument();
+    const update = Y.encodeStateAsUpdate(original.doc);
+
+    const restoredDoc = new Y.Doc();
+    Y.applyUpdate(restoredDoc, update);
+    const restored = createState({ rootId: original.rootId, doc: restoredDoc });
+
+    const a = getBlock(original, original.rootId);
+    const b = getBlock(restored, original.rootId);
+    expect(b?.type).toBe(a?.type);
+    expect(b?.firstChildId).toBe(a?.firstChildId);
+  });
+
+  it("round-trips a mutated document", () => {
+    let state = createEmptyDocument();
+    const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
+    state = setBlockAttrs(state, child.id, { bold: true }).state;
+
+    const update = Y.encodeStateAsUpdate(state.doc);
+    const restoredDoc = new Y.Doc();
+    Y.applyUpdate(restoredDoc, update);
+    const restored = createState({ rootId: state.rootId, doc: restoredDoc });
+
+    expect(getBlock(restored, child.id)?.attrs.bold).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run the test**
+
+```bash
+npm test --workspace=packages/core -- yjs-encoding.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/state/yjs-encoding.test.ts
+git commit -m "test(p4e): Y.Doc encoding round-trip"
+```
+
+---
+
+### Task 32: Add snapshot-cache stress test
+
+**Files:**
+- Create: `packages/core/src/state/snapshot-cache-stress.test.ts`
+
+Verify that for a 1000-block document, snapshot reads after a one-block mutation reuse cached snapshots for the other 999.
+
+- [ ] **Step 1: Write the test**
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { createState, getBlock, applyOperation } from "./state";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+import type { BlockId } from "./block-id";
+import { setBlockAttrs } from "./set-block-attrs";
+
+describe("snapshot cache (stress)", () => {
+  it("reuses cached snapshots for unchanged blocks after a single-block mutation", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    // Seed 100 sibling blocks under root.
+    let prevId: BlockId | null = null;
+    applyOperation(state, () => {
+      const yBlocks = getBlocksMap(state.doc);
+      yBlocks.set(
+        "root",
+        buildYBlock({
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: "p-0" as BlockId,
+          lastChildId: "p-99" as BlockId,
+          inlineContent: null,
+        }),
+      );
+      for (let i = 0; i < 100; i++) {
+        const id = `p-${i}` as BlockId;
+        yBlocks.set(
+          id,
+          buildYBlock({
+            type: "paragraph",
+            attrs: {},
+            parentId: "root" as BlockId,
+            prevSiblingId: prevId,
+            nextSiblingId: i < 99 ? (`p-${i + 1}` as BlockId) : null,
+            firstChildId: null,
+            lastChildId: null,
+            inlineContent: { items: [] },
+          }),
+        );
+        prevId = id;
+      }
+    });
+
+    // Materialize all 100 snapshots into the cache.
+    const before: Array<ReturnType<typeof getBlock>> = [];
+    for (let i = 0; i < 100; i++) {
+      before.push(getBlock(state, `p-${i}` as BlockId));
+    }
+
+    // Mutate just one block.
+    const result = setBlockAttrs(state, "p-42" as BlockId, { bold: true });
+
+    // For the new state, "p-42" should be a fresh snapshot.
+    expect(getBlock(result.state, "p-42" as BlockId)?.attrs.bold).toBe(true);
+
+    // For unchanged blocks, the new state's snapshots should compare structurally
+    // equal to the old. (Identity reuse depends on cache; structural equality is the contract.)
+    for (let i = 0; i < 100; i++) {
+      if (i === 42) continue;
+      const a = before[i];
+      const b = getBlock(result.state, `p-${i}` as BlockId);
+      expect(b?.type).toBe(a?.type);
+      expect(b?.firstChildId).toBe(a?.firstChildId);
+      expect(b?.nextSiblingId).toBe(a?.nextSiblingId);
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Run the test**
+
+```bash
+npm test --workspace=packages/core -- snapshot-cache-stress.test
+```
+
+Expected: all pass.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/state/snapshot-cache-stress.test.ts
+git commit -m "test(p4e): snapshot cache stress test (100-block document)"
+```
+
+---
+
+### Task 33: Full build + test verification + browser smoke
+
+- [ ] **Step 1: Full TypeScript build**
+
+```bash
+npm run build --workspace=packages/core
+```
+
+Expected: clean. No errors.
+
+- [ ] **Step 2: Full test run**
+
+```bash
+npm test --workspace=packages/core
+```
+
+Expected: all tests pass (1213 + new P4e tests). No skipped tests beyond the pre-existing 4.
+
+- [ ] **Step 3: Browser smoke**
+
+Per CLAUDE.md's browser-smoke gate for UI-touching work:
+
+```bash
+npm run dev --workspace=examples/react
+```
+
+In a real browser:
+- Open the example app.
+- Verify the empty document renders.
+- Type characters → text appears.
+- Press Enter → block splits.
+- Press Backspace → text deletes.
+- Trigger undo (Cmd+Z) → action reverts.
+- Trigger redo (Cmd+Shift+Z) → action re-applies.
+
+Document any regressions; fix before declaring P4e complete.
+
+- [ ] **Step 4: Commit (no code changes — verification only)**
+
+If smoke surfaced regressions, fix and commit per the affected op's pattern. If smoke is clean, no commit needed.
+
+---
+
+### Task 34: Update P4e success-criteria documentation
+
+**Files:**
+- Modify: `docs/superpowers/specs/phase-5-plus/P4e-yjs-rebase.md`
+
+- [ ] **Step 1: Mark resolved questions**
+
+Update the spec doc's "Open questions" section to reflect plan-time resolutions:
+- Q1 (snapshot caching): resolved — per-id Map keyed by BlockId, invalidated by Y.Doc transactions producing a fresh SnapshotCache via `applyOperation`.
+- Q2 (Y.Text vs Y.Array): resolved — Y.Text per Decision C.
+- Q3 (format marks for inline attrs): resolved — attrs live on the TextItem's Y.Map (run-level), NOT as Y.Text format marks. Format marks deferred to a future phase if per-character attr changes become a hot use case.
+- Q4 (history entry shape): resolved — `selectionStack` and `redoSelectionStack` arrays parallel the Y.UndoManager's undo/redo stacks; entries are pushed by `pushHistoryEntry`.
+
+- [ ] **Step 2: Add a "Plan executed" subsection at the bottom of the spec file** noting the date and the commit range of the P4e implementation:
+
+```markdown
+## Plan executed
+
+P4e shipped 2026-05-XX. Plan: `docs/superpowers/plans/2026-05-16-p4e-yjs-rebase.md`. Approximately 30 commits from <first-commit-sha> through <last-commit-sha>. All 1213 prior tests pass on Y.Doc-backed state; new P4e tests cover Y.Doc encoding round-trip, snapshot-cache stress, and Y.UndoManager wrapper semantics.
+```
+
+(Implementer fills in dates and commit SHAs.)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/superpowers/specs/phase-5-plus/P4e-yjs-rebase.md
+git commit -m "docs(p4e): mark spec resolved questions; record plan execution"
+```
+
+---
+
+## Sub-phase 4e.7 — Perf benchmarks (optional polish)
+
+### Task 35: Add basic perf benchmark
+
+**Files:**
+- Create: `packages/core/src/state/perf-benchmark.test.ts`
+
+P14 in the broader roadmap covers perf benchmarks comprehensively. This task adds a minimal in-band check to verify the Y.Doc-backed implementation isn't catastrophically slower than the legacy `PersistentMap` baseline for representative ops.
+
+- [ ] **Step 1: Write the benchmark**
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { createState, getBlock } from "./state";
+import { getBlocksMap } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
+import { runTransaction } from "./yjs-doc";
+import { setBlockAttrs } from "./set-block-attrs";
+import type { BlockId } from "./block-id";
+
+describe("perf benchmark (smoke)", () => {
+  it("setBlockAttrs on a 10k-block document completes under 50ms", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    runTransaction(state.doc, () => {
+      const yBlocks = getBlocksMap(state.doc);
+      yBlocks.set(
+        "root",
+        buildYBlock({
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: "p-0" as BlockId,
+          lastChildId: `p-${9999}` as BlockId,
+          inlineContent: null,
+        }),
+      );
+      for (let i = 0; i < 10000; i++) {
+        const id = `p-${i}` as BlockId;
+        yBlocks.set(
+          id,
+          buildYBlock({
+            type: "paragraph",
+            attrs: {},
+            parentId: "root" as BlockId,
+            prevSiblingId: i > 0 ? (`p-${i - 1}` as BlockId) : null,
+            nextSiblingId: i < 9999 ? (`p-${i + 1}` as BlockId) : null,
+            firstChildId: null,
+            lastChildId: null,
+            inlineContent: { items: [] },
+          }),
+        );
+      }
+    });
+
+    const t0 = performance.now();
+    const result = setBlockAttrs(state, "p-5000" as BlockId, { bold: true });
+    const elapsed = performance.now() - t0;
+    expect(result.dirtyIds.has("p-5000" as BlockId)).toBe(true);
+    expect(elapsed).toBeLessThan(50); // 50ms — generous; tighter in P14.
+  });
+
+  it("getBlock on cached snapshot is sub-millisecond", () => {
+    const state = createState({ rootId: "root" as BlockId });
+    runTransaction(state.doc, () => {
+      getBlocksMap(state.doc).set(
+        "root",
+        buildYBlock({
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: null,
+        }),
+      );
+    });
+    // Prime the cache.
+    getBlock(state, "root" as BlockId);
+    // Time 10k cache-hits.
+    const t0 = performance.now();
+    for (let i = 0; i < 10000; i++) {
+      getBlock(state, "root" as BlockId);
+    }
+    const elapsed = performance.now() - t0;
+    expect(elapsed / 10000).toBeLessThan(0.01); // <10us per cache hit.
+  });
+});
+```
+
+- [ ] **Step 2: Run the benchmark**
+
+```bash
+npm test --workspace=packages/core -- perf-benchmark.test
+```
+
+Expected: passes. If the 50ms gate is tight on the implementer's machine, raise to 100ms — the goal is "not catastrophically slow," not "perf-optimized."
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/state/perf-benchmark.test.ts
+git commit -m "test(p4e): basic perf benchmark for Y.Doc-backed state"
+```
+
+---
+
+## End of P4e
+
+After all 35 tasks, the state module is Y.Doc-backed. Public API (Block, State, Position, OperationResult, Layer 3 op signatures, History) is preserved. The collab story is now genuinely additive — `y-websocket` (or another sync transport) can be added in a future phase without rewriting the state module.
+
+Downstream phases (P5, P6, P7+) can begin in parallel after P4e ships, with the foundations they assume in place.
