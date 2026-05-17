@@ -1,16 +1,14 @@
+import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
+import { applyOperation } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import {
-  createInlineContent,
-  createTextItem,
-  createEmbedItem,
-  mergeAdjacentTextItems,
-  type InlineItem,
-} from "./inline-content";
-import { createBlock } from "./block";
+import { mergeAttrs } from "./attrs";
 import { iterateSpan } from "./span-iteration";
+import { getYBlock } from "./yjs-doc";
+import { buildYAttrs, buildYInlineItem } from "./y-block";
+import { yMapAsObject } from "./y-utils";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -21,9 +19,6 @@ import { iterateSpan } from "./span-iteration";
  * For embed items intersecting the range, the merge applies to the embed's
  * `attrs` field (wrap attrs like link/comment-range — NOT `properties`,
  * which holds intrinsic embed data).
- *
- * After applying, each touched block's items go through a run-merging
- * post-pass so adjacent same-attrs text items collapse.
  *
  * Returns OperationResult with dirtyIds = every block id whose items
  * changed.
@@ -39,127 +34,132 @@ import { iterateSpan } from "./span-iteration";
  *
  * Throws via `iterateSpan`'s preconditions if endpoints are non-leaf
  * containers or different selection contexts.
+ *
+ * Y.Doc note: this op mutates Y types in place where possible. A text
+ * item fully covered by the range has its attrs Y.Map replaced in place
+ * (preserves the item's Y.Text identity, and therefore its per-character
+ * CRDT identity). A partially-covered text item is split via
+ * delete+insert because Yjs has no in-place split primitive on a single
+ * Y.Text; the prefix and suffix are reissued as fresh items. Unlike the
+ * legacy implementation, this op does NOT run a same-attrs merging
+ * post-pass — that would defeat the in-place mutation invariant by
+ * deleting and recreating items that didn't need to change.
  */
 export function applyAttrsToRange(
   state: State,
   span: Span,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  // Empty incoming attrs = no-op (mirrors insertText's empty-text guard;
-  // avoids needlessly re-allocating items + dirtying blocks).
+  // Empty incoming attrs = no-op. Mirrors insertText's empty-text guard
+  // and avoids re-allocating items / dirtying blocks unnecessarily.
   if (Object.keys(attrs).length === 0) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
   // Empty span = no-op. Collapsed-ness (same block + same offset) is
-  // normalization-invariant, so we check raw positions directly.
-  // Note: a collapsed span whose blockId references a non-existent block
-  // also no-ops here without throwing — same behavior as before this
-  // refactor (the previous normalizeSpan path also short-circuited via
-  // comparePositions when blockIds matched, never reaching block lookup).
+  // normalization-invariant, so we check raw positions directly. Skips
+  // iterateSpan entirely — must return the original State reference to
+  // satisfy the "no-op preserves identity" contract.
   if (
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
+
   // iterateSpan owns precondition validation (existence, leaf-block,
-  // same-selection-context) AND normalization. We pass the raw span; it
-  // validates raw endpoints first (yielding semantically correct error
-  // messages) before normalizing internally.
+  // same-selection-context) AND normalization. We resolve the segments
+  // up-front (outside the transaction) so its precondition errors throw
+  // with their original messages, before any Y.Doc mutation happens.
+  const segments = Array.from(iterateSpan(state, span));
 
-  let blocks = state.blocks;
-  const dirtyIds = new Set<BlockId>();
-
-  for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
-    if (!block.inlineContent) continue; // defensive — iterateSpan only yields leaves
-    if (rangeStart >= rangeEnd) continue; // zero-width range in this block (e.g., focus at offset 0 of last block)
-
-    const newItems = applyAttrsToBlockRange(
-      block.inlineContent.items,
-      rangeStart,
-      rangeEnd,
-      attrs,
-    );
-    const merged = mergeAdjacentTextItems(newItems);
-
-    const updated = createBlock({
-      id: block.id,
-      type: block.type,
-      attrs: block.attrs,
-      parentId: block.parentId,
-      prevSiblingId: block.prevSiblingId,
-      nextSiblingId: block.nextSiblingId,
-      firstChildId: block.firstChildId,
-      lastChildId: block.lastChildId,
-      inlineContent: createInlineContent(merged),
-    });
-    blocks = blocks.set(block.id, updated);
-    dirtyIds.add(block.id);
-  }
-
-  return { state: { ...state, blocks }, dirtyIds };
+  return applyOperation(state, () => {
+    for (const seg of segments) {
+      if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
+      const yBlock = getYBlock(state.doc, seg.block.id, "applyAttrsToRange");
+      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+      if (yItems === null) continue; // defensive — iterateSpan only yields leaves
+      applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);
+    }
+  });
 }
 
 /**
- * Walk one block's items and apply attrs to the portion overlapping
- * [rangeStart, rangeEnd). Splits items at boundaries; merges incoming
- * attrs into each affected item's existing attrs.
+ * Walk one block's Y items and apply attrs to the portion overlapping
+ * [start, end). Mutates `yItems` in place:
+ *   - Items entirely outside the range are skipped.
+ *   - Embed items in range have their attrs Y.Map replaced.
+ *   - Text items fully covered have their attrs Y.Map replaced (preserves
+ *     Y.Text identity).
+ *   - Text items partially covered are split into up to three replacement
+ *     items via `yItems.delete + insert`. Yjs has no in-place Y.Text
+ *     split, so the prefix and suffix portions are reissued as fresh
+ *     items with the item's pre-existing attrs.
  */
 function applyAttrsToBlockRange(
-  items: ReadonlyArray<InlineItem>,
-  rangeStart: number,
-  rangeEnd: number,
-  attrs: ReadonlyAttrs,
-): InlineItem[] {
-  const out: InlineItem[] = [];
+  yItems: Y.Array<Y.Map<unknown>>,
+  start: number,
+  end: number,
+  newAttrs: ReadonlyAttrs,
+): void {
+  if (start === end) return;
+
   let cursor = 0;
-
-  for (const item of items) {
-    const itemLen = item.kind === "text" ? item.text.length : 1;
-    const itemStart = cursor;
+  let i = 0;
+  while (i < yItems.length) {
+    const yItem = yItems.get(i);
+    const kind = yItem.get("kind") as "text" | "embed";
+    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
     const itemEnd = cursor + itemLen;
-    cursor = itemEnd;
 
-    // Item entirely outside the range: keep as-is.
-    if (itemEnd <= rangeStart || itemStart >= rangeEnd) {
-      out.push(item);
+    // Item entirely before the range — advance.
+    if (itemEnd <= start) {
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    // Item entirely after the range — done.
+    if (cursor >= end) break;
+
+    const existingAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    const merged = mergeAttrs(existingAttrs, newAttrs);
+
+    if (kind === "embed") {
+      // Embed is one cursor position; in-range → update attrs in place.
+      yItem.set("attrs", buildYAttrs(merged));
+      cursor = itemEnd;
+      i++;
       continue;
     }
 
-    if (item.kind === "text") {
-      // Compute the overlap [overlapStart, overlapEnd) within this item's coordinate frame.
-      const overlapStart = Math.max(0, rangeStart - itemStart);
-      const overlapEnd = Math.min(itemLen, rangeEnd - itemStart);
-      const prefix = item.text.slice(0, overlapStart);
-      const middle = item.text.slice(overlapStart, overlapEnd);
-      const suffix = item.text.slice(overlapEnd);
-      if (prefix.length > 0) out.push(createTextItem(prefix, item.attrs));
-      if (middle.length > 0) out.push(createTextItem(middle, mergeAttrs(item.attrs, attrs)));
-      if (suffix.length > 0) out.push(createTextItem(suffix, item.attrs));
-    } else {
-      // Embed: 1 unit; apply merge to its wrap-attrs.
-      out.push(createEmbedItem(item.embedType, item.properties, mergeAttrs(item.attrs, attrs)));
-    }
-  }
+    const localStart = Math.max(0, start - cursor);
+    const localEnd = Math.min(itemLen, end - cursor);
 
-  return out;
-}
-
-/**
- * Merge incoming attrs into existing attrs.
- * - Keys with value `undefined` in `incoming` are REMOVED from the result.
- * - Other keys in `incoming` overwrite or add to `existing`.
- * - Keys only in `existing` are preserved.
- */
-function mergeAttrs(existing: ReadonlyAttrs, incoming: ReadonlyAttrs): ReadonlyAttrs {
-  const result: Record<string, unknown> = { ...existing };
-  for (const key of Object.keys(incoming)) {
-    if (incoming[key] === undefined) {
-      delete result[key];
-    } else {
-      result[key] = incoming[key];
+    if (localStart === 0 && localEnd === itemLen) {
+      // Entire text item in range — update attrs in place (preserves Y.Text identity).
+      yItem.set("attrs", buildYAttrs(merged));
+      cursor = itemEnd;
+      i++;
+      continue;
     }
+
+    // Partial overlap: split into [before?, middle, after?].
+    const fullText = (yItem.get("text") as Y.Text).toString();
+    const before = fullText.slice(0, localStart);
+    const middle = fullText.slice(localStart, localEnd);
+    const after = fullText.slice(localEnd);
+
+    const replacements: Y.Map<unknown>[] = [];
+    if (before.length > 0) {
+      replacements.push(buildYInlineItem({ kind: "text", text: before, attrs: existingAttrs }));
+    }
+    replacements.push(buildYInlineItem({ kind: "text", text: middle, attrs: merged }));
+    if (after.length > 0) {
+      replacements.push(buildYInlineItem({ kind: "text", text: after, attrs: existingAttrs }));
+    }
+    yItems.delete(i, 1);
+    yItems.insert(i, replacements);
+    i += replacements.length;
+    cursor = itemEnd;
   }
-  return result;
 }
