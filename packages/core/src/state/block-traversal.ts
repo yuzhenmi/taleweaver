@@ -1,5 +1,6 @@
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import { getBlock, type State } from "./state";
+import { getBlocksMap } from "./yjs-doc";
 
 /**
  * Walk to the next block in document order:
@@ -11,11 +12,11 @@ import type { State } from "./state";
  * Each step is O(1) (HAMT lookup + pointer follow).
  */
 export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | null {
-  const block = state.blocks.get(blockId);
-  if (!block) return null;
+  const block = getBlock(state, blockId);
+  if (block === null) return null;
   if (block.firstChildId) return block.firstChildId;
   let cursor = block;
-  const maxSteps = state.blocks.size + 1;
+  const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (true) {
     if (++steps > maxSteps) {
@@ -23,8 +24,8 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     }
     if (cursor.nextSiblingId) return cursor.nextSiblingId;
     if (!cursor.parentId) return null;
-    const parent = state.blocks.get(cursor.parentId);
-    if (!parent) return null;
+    const parent = getBlock(state, cursor.parentId);
+    if (parent === null) return null;
     cursor = parent;
   }
 }
@@ -40,20 +41,20 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
  * the deepest-last-child descent is O(depth) for blocks with deep subtrees.
  */
 export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | null {
-  const block = state.blocks.get(blockId);
-  if (!block) return null;
+  const block = getBlock(state, blockId);
+  if (block === null) return null;
   if (block.prevSiblingId) {
     // Descend to the deepest last child of the previous sibling.
-    let cursor = state.blocks.get(block.prevSiblingId);
-    if (!cursor) return null;
-    const maxSteps = state.blocks.size + 1;
+    let cursor = getBlock(state, block.prevSiblingId);
+    if (cursor === null) return null;
+    const maxSteps = getBlocksMap(state.doc).size + 1;
     let steps = 0;
     while (cursor.lastChildId) {
       if (++steps > maxSteps) {
         throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${maxSteps} blocks)`);
       }
-      const next = state.blocks.get(cursor.lastChildId);
-      if (!next) break;
+      const next = getBlock(state, cursor.lastChildId);
+      if (next === null) break;
       cursor = next;
     }
     return cursor.id;
@@ -69,17 +70,17 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
  * state) — silently truncating would mask state corruption.
  */
 export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
-  if (!state.blocks.has(blockId)) return [];
+  if (getBlock(state, blockId) === null) return [];
   const result: BlockId[] = [];
   let current: BlockId | null = blockId;
-  const maxSteps = state.blocks.size + 1;
+  const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (current) {
     if (++steps > maxSteps) {
       throw new Error(`ancestorChain: cycle detected in block tree (visited >${maxSteps} blocks)`);
     }
-    const block = state.blocks.get(current);
-    if (!block) {
+    const block = getBlock(state, current);
+    if (block === null) {
       throw new Error(
         `ancestorChain: parentId "${current}" references a missing block ` +
         `(malformed state, partial chain: [${result.join(", ")}])`,
@@ -97,16 +98,16 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
  * Returns null if blockId does not exist.
  */
 export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
-  let cursor = state.blocks.get(blockId);
-  if (!cursor) return null;
-  const maxSteps = state.blocks.size + 1;
+  let cursor = getBlock(state, blockId);
+  if (cursor === null) return null;
+  const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.firstChildId) {
     if (++steps > maxSteps) {
       throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
     }
-    const next = state.blocks.get(cursor.firstChildId);
-    if (!next) break;
+    const next = getBlock(state, cursor.firstChildId);
+    if (next === null) break;
     cursor = next;
   }
   return cursor.id;
@@ -118,16 +119,16 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
  * Returns null if blockId does not exist.
  */
 export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
-  let cursor = state.blocks.get(blockId);
-  if (!cursor) return null;
-  const maxSteps = state.blocks.size + 1;
+  let cursor = getBlock(state, blockId);
+  if (cursor === null) return null;
+  const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.lastChildId) {
     if (++steps > maxSteps) {
       throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
     }
-    const next = state.blocks.get(cursor.lastChildId);
-    if (!next) break;
+    const next = getBlock(state, cursor.lastChildId);
+    if (next === null) break;
     cursor = next;
   }
   return cursor.id;
