@@ -1,3 +1,16 @@
+/**
+ * Builders that materialize Block / InlineContent / InlineItem JS shapes
+ * into detached Y.Map / Y.Array / Y.Text trees.
+ *
+ * The returned Y types are NOT attached to a Y.Doc — the caller must
+ * integrate the result (e.g. `getBlocksMap(doc).set(id, yBlock)` inside
+ * `runTransaction`) before any read. Yjs ^13.6 rejects reads from
+ * detached shared types: `Y.Map.get` returns `undefined`, `Y.Text.toString`
+ * returns `""`, and a warning is logged. Tests that read the builder
+ * output before attaching must wrap via a throwaway Y.Doc.
+ *
+ * Intended callers: `new-initial-state.ts` and Layer 3 ops.
+ */
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
@@ -51,6 +64,8 @@ export function buildYInlineItem(item: InlineItem): Y.Map<unknown> {
   if (item.kind === "text") {
     yItem.set("kind", "text");
     const yText = new Y.Text();
+    // Skip the no-op insert for empty text: equivalent result, avoids
+    // emitting a zero-length CRDT op that would sync to peers as noise.
     if (item.text.length > 0) yText.insert(0, item.text);
     yItem.set("text", yText);
     yItem.set("attrs", buildYAttrs(item.attrs));
