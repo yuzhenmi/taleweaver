@@ -1,8 +1,10 @@
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent } from "./inline-content";
-import { createBlock, updateBlock } from "./block";
+import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { buildYBlock } from "./y-block";
 
 export interface InsertBlockArgs {
   type: string;
@@ -31,7 +33,7 @@ export function insertBlock(
   args: InsertBlockArgs,
   allocator: IdAllocator,
 ): OperationResult {
-  const parent = state.blocks.get(parentId);
+  const parent = getBlock(state, parentId);
   if (!parent) {
     throw new Error(`insertBlock: parent "${parentId}" not found`);
   }
@@ -45,7 +47,7 @@ export function insertBlock(
     prevSiblingId = parent.lastChildId;
     nextSiblingId = null;
   } else {
-    const beforeSibling = state.blocks.get(beforeSiblingId);
+    const beforeSibling = getBlock(state, beforeSiblingId);
     if (!beforeSibling) {
       throw new Error(`insertBlock: beforeSibling "${beforeSiblingId}" not found`);
     }
@@ -58,48 +60,43 @@ export function insertBlock(
     prevSiblingId = beforeSibling.prevSiblingId;
   }
 
-  // Create the new block with proper linkage.
+  // Allocate the new block's id outside the transaction so the allocator
+  // is bumped exactly once even if the transaction body re-runs.
   const newId = allocator.allocate();
-  const newBlock = createBlock({
-    id: newId,
-    type: args.type,
-    attrs: args.attrs,
-    parentId,
-    prevSiblingId,
-    nextSiblingId,
-    inlineContent: args.inlineContent,
-  });
-
-  // Build the updated blocks map.
-  let blocks = state.blocks.set(newId, newBlock);
-  const dirtyIds = new Set<BlockId>([newId, parentId]);
-
-  // Update prev sibling's nextSiblingId, OR parent's firstChildId if there's no prev sibling.
-  if (prevSiblingId) {
-    const prev = state.blocks.get(prevSiblingId);
-    if (!prev) throw new Error(`insertBlock: prev sibling "${prevSiblingId}" not found`);
-    blocks = blocks.set(prevSiblingId, updateBlock(prev, { nextSiblingId: newId }));
-    dirtyIds.add(prevSiblingId);
-  }
-
-  // Update next sibling's prevSiblingId, OR parent's lastChildId if there's no next sibling.
-  if (nextSiblingId) {
-    const next = state.blocks.get(nextSiblingId);
-    if (!next) throw new Error(`insertBlock: next sibling "${nextSiblingId}" not found`);
-    blocks = blocks.set(nextSiblingId, updateBlock(next, { prevSiblingId: newId }));
-    dirtyIds.add(nextSiblingId);
-  }
-
-  // Update parent's firstChildId / lastChildId if the new block sits at a boundary.
   const newFirstChildId = prevSiblingId === null ? newId : parent.firstChildId;
   const newLastChildId = nextSiblingId === null ? newId : parent.lastChildId;
-  blocks = blocks.set(
-    parentId,
-    updateBlock(parent, { firstChildId: newFirstChildId, lastChildId: newLastChildId }),
-  );
 
-  return {
-    state: { ...state, blocks },
-    dirtyIds,
-  };
+  return applyOperation(state, () => {
+    // Add the new block to the blocks map with full linkage.
+    getBlocksMap(state.doc).set(
+      newId,
+      buildYBlock({
+        type: args.type,
+        attrs: args.attrs ?? {},
+        parentId,
+        prevSiblingId,
+        nextSiblingId,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: args.inlineContent ?? null,
+      }),
+    );
+
+    // Update prev sibling's nextSiblingId (if any) to point at the new block.
+    if (prevSiblingId !== null) {
+      const yPrev = getYBlock(state.doc, prevSiblingId, "insertBlock");
+      yPrev.set("nextSiblingId", newId);
+    }
+
+    // Update next sibling's prevSiblingId (if any) to point at the new block.
+    if (nextSiblingId !== null) {
+      const yNext = getYBlock(state.doc, nextSiblingId, "insertBlock");
+      yNext.set("prevSiblingId", newId);
+    }
+
+    // Update parent's firstChildId / lastChildId if the new block sits at a boundary.
+    const yParent = getYBlock(state.doc, parentId, "insertBlock");
+    yParent.set("firstChildId", newFirstChildId);
+    yParent.set("lastChildId", newLastChildId);
+  });
 }

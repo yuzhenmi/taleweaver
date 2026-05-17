@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { insertBlock } from "./insert-block";
+import { getBlock } from "./state";
 import { buildBlock, buildState } from "../test-utils/state-builders";
 import { createTestAllocator } from "./block-id";
 import { createInlineContent } from "./inline-content";
@@ -30,7 +31,7 @@ describe("insertBlock — between siblings", () => {
     const newId = "new-0" as BlockId;
 
     // New block exists with correct linkage:
-    const newBlock = result.state.blocks.get(newId);
+    const newBlock = getBlock(result.state, newId);
     expect(newBlock).toBeDefined();
     expect(newBlock?.type).toBe("paragraph");
     expect(newBlock?.parentId).toBe("doc");
@@ -38,14 +39,14 @@ describe("insertBlock — between siblings", () => {
     expect(newBlock?.nextSiblingId).toBe("p2");
 
     // p1's nextSiblingId now points to the new block:
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe(newId);
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe(newId);
 
     // p2's prevSiblingId now points to the new block:
-    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBe(newId);
+    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe(newId);
 
     // doc's firstChildId / lastChildId unchanged (still p1 / p2):
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2");
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
   });
 
   it("returns dirtyIds for new block + parent + both adjacent siblings", () => {
@@ -81,12 +82,12 @@ describe("insertBlock — prepend (no prev sibling)", () => {
     const allocator = createTestAllocator("new");
     const result = insertBlock(state, "doc" as BlockId, "p1" as BlockId, { type: "paragraph" }, allocator);
     const newId = "new-0" as BlockId;
-    const newBlock = result.state.blocks.get(newId);
+    const newBlock = getBlock(result.state, newId);
     expect(newBlock?.prevSiblingId).toBeNull();
     expect(newBlock?.nextSiblingId).toBe("p1");
-    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBe(newId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe(newId);
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2");
+    expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBe(newId);
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe(newId);
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
     expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p1"]));
   });
 });
@@ -108,12 +109,12 @@ describe("insertBlock — append (beforeSiblingId === null)", () => {
     const allocator = createTestAllocator("new");
     const result = insertBlock(state, "doc" as BlockId, null, { type: "paragraph" }, allocator);
     const newId = "new-0" as BlockId;
-    const newBlock = result.state.blocks.get(newId);
+    const newBlock = getBlock(result.state, newId);
     expect(newBlock?.prevSiblingId).toBe("p2");
     expect(newBlock?.nextSiblingId).toBeNull();
-    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe(newId);
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe(newId);
+    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe(newId);
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe(newId);
     expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p2"]));
   });
 });
@@ -134,12 +135,12 @@ describe("insertBlock — first child of empty container", () => {
     const allocator = createTestAllocator("new");
     const result = insertBlock(state, "s" as BlockId, null, { type: "paragraph", inlineContent: createInlineContent([]) }, allocator);
     const newId = "new-0" as BlockId;
-    const newBlock = result.state.blocks.get(newId);
+    const newBlock = getBlock(result.state, newId);
     expect(newBlock?.parentId).toBe("s");
     expect(newBlock?.prevSiblingId).toBeNull();
     expect(newBlock?.nextSiblingId).toBeNull();
-    expect(result.state.blocks.get("s" as BlockId)?.firstChildId).toBe(newId);
-    expect(result.state.blocks.get("s" as BlockId)?.lastChildId).toBe(newId);
+    expect(getBlock(result.state, "s" as BlockId)?.firstChildId).toBe(newId);
+    expect(getBlock(result.state, "s" as BlockId)?.lastChildId).toBe(newId);
   });
 });
 
