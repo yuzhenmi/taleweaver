@@ -12,6 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "yjs": "^13.6.18"
+  },
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
