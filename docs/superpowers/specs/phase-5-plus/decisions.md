@@ -288,3 +288,56 @@ function downgradeToStateNode(state: State): StateNode;      // used after migra
 
 ---
 
+## E — File naming convention for parallel implementations (decided 2026-05-16)
+
+**Question:** under Path B, new implementations coexist with the legacy ones they replace. What's the file naming convention that keeps the parallel pair clearly distinguished without polluting the canonical name?
+
+**Decision:** **`-legacy` suffix on the OLD file; new code takes the canonical name.**
+
+```
+Before parallel implementation lands:    After parallel implementation lands:
+  render/                                  render/
+    render.ts        ← old code              render-legacy.ts  ← old code (renamed)
+                                             render.ts         ← new code (canonical)
+```
+
+**Concrete consequences:**
+
+1. **Same commit, two operations.** When a parallel implementation lands (P7 introduces new renderer, P8 introduces new components, etc.), the same commit:
+   - Renames existing `<name>.ts` → `<name>-legacy.ts`
+   - Adds new `<name>.ts` with the parallel implementation
+   - Updates every import of the old code from `<name>` to `<name>-legacy`
+
+2. **Consumer cutover changes imports back to canonical.** As each consumer migrates from legacy to new (P11.x for action handlers, eventually all renderer/component consumers), its import changes from `<name>-legacy` back to `<name>`.
+
+3. **P15 cleanup is pure deletion.** When the last consumer cuts over, the `<name>-legacy.ts` file is deleted. No renames needed; new code's canonical name was always canonical.
+
+4. **Existing inconsistencies fixed during their owning phase:**
+   - `state/new-initial-state.ts` → at P11.0, rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts`.
+   - `render/render-node-v2.ts` is a type-definition barrel split, not a parallel-implementations case. Folded into P15 cleanup.
+
+5. **Applies to file naming AND directory naming.** If a whole subdirectory has a parallel implementation (e.g., a future `components/` rewrite), the legacy version becomes `components-legacy/`; new code lives in `components/`. (Decomposition.md's piece-level plans should rarely need whole-directory rename — most parallel implementations are file-level.)
+
+**Rationale:**
+
+1. **New code claims the canonical name from day one.** The codebase's future lives at the un-suffixed path. Reading `render.ts` always means "the current best implementation," not "one of several versions."
+2. **Cleanup cost asymmetry favors `-legacy`-on-old.** Suffix-on-new requires a rename at the end of the parallel window (`render-v3.ts` → `render.ts`). Suffix-on-old requires a deletion only.
+3. **Semantic clarity.** `-legacy` says "this is going away." `-v3` / `-new` / `-block-state` all suggest "pick the right version for your case" — misleading when only one is the future.
+4. **Mechanical migration.** A single grep across the codebase finds all consumers of the legacy file; updating their imports is rote.
+
+**Rejected alternatives:**
+
+- **`new-` prefix on new** (current `new-initial-state.ts` pattern): forces a rename at cleanup. `new` ages poorly — by the time the parallel window closes, "new" doesn't describe anything.
+- **`-vN` suffix on new** (current `render-node-v2.ts` pattern): generic versioning suggests multiple stable versions; doesn't communicate which is canonical.
+- **Descriptive suffix on new** (e.g., `render-block-state.ts`): conveys intent but still requires a cleanup-time rename. New code shouldn't have to wait for cleanup to claim its canonical name.
+- **Subdirectory split** (e.g., `render/v3/render.ts`): deeper paths, more import noise, and file moves at cleanup. No benefit over a same-directory suffix.
+
+**Affected phases:**
+
+- **P7:** rename `render/render.ts` → `render/render-legacy.ts`; add new canonical `render/render.ts`.
+- **P8:** rename each `components/<name>.ts` → `components/<name>-legacy.ts` as parallel implementations land; add new canonical files. `text.ts` and `span.ts` are deleted outright (not renamed) per master spec line 509 — they have no parallel implementation.
+- **P11.0:** rename `state/initial-state.ts` → `state/initial-state-legacy.ts` and `state/new-initial-state.ts` → `state/initial-state.ts` (catching up the existing inconsistency).
+- **P15:** delete every `*-legacy.ts` file whose consumers have all migrated. Fold `render-node-v2.ts` → `render-node.ts` consolidation as part of the same naming cleanup pass.
+
+---
+

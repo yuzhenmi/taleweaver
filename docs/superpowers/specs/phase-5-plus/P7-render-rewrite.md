@@ -25,14 +25,16 @@ Under Path B, the new renderer is added in PARALLEL with the existing one. Edito
 
 ## Files involved
 
-**Created (parallel new render module):**
-- `packages/core/src/render/render-block-state.ts` (or `render-v2-state.ts` — naming TBD) — entry point taking `State`.
+**Created (parallel new render module — naming per `decisions.md` decision E):**
+- `packages/core/src/render/render.ts` — new canonical entry point taking `State`. (The existing legacy `render.ts` is renamed to `render-legacy.ts` in the same commit; all current consumers' imports update to `render-legacy`.)
 - Possibly internal helpers for: walking from rootId, looking up registered components, assembling RenderNode tree.
 - Likely also a helper for rendering embed-content zones (footnote bodies as separate RenderNode trees alongside the main document).
 
+**Renamed in P7 (per decision E):**
+- `render.ts` (the old version) → `render-legacy.ts`. Stays callable; consumers' imports rewritten to `render-legacy`.
+
 **Untouched (in this phase):**
-- `render.ts` (the old version) — stays callable.
-- `render-node.ts`, `render-node-v2.ts` — the RenderNode type itself doesn't change. Stays.
+- `render-node.ts`, `render-node-v2.ts` — the RenderNode type itself doesn't change. Stays. (Type-barrel consolidation folded into P15.)
 - All component files (`components/*.ts`) — stay on legacy interface. P8 migrates them.
 
 ## Key technical considerations
@@ -76,7 +78,7 @@ Estimated test count: 15-25 tests across the new render module's test files.
 
 ## Open questions
 
-1. **File naming convention** for parallel implementations under Path B. `render-block-state.ts` vs `render-v3.ts` vs subdirectory `render/v3/render.ts`? The strategy doc punts to per-phase plan.
+1. ✅ **File naming convention — resolved in `decisions.md` decision E (2026-05-16).** `-legacy` suffix on the old file; new code takes the canonical name.
 
 2. ✅ **BlockView shape — resolved in `decisions.md` decision B (2026-05-15).** Push model, minimal surface, RenderContext escape hatch. Per-phase plan still defines internal walker structure and snapshot facade implementation, but the public interface is locked.
 
