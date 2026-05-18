@@ -1,8 +1,8 @@
 import type { State } from "../state/state";
 import { getBlock } from "../state/state";
 import type { BlockId } from "../state/block-id";
-import type { Position } from "../state/block-position";
-import { createPosition } from "../state/block-position";
+import type { Position, Span } from "../state/block-position";
+import { createPosition, createSpan } from "../state/block-position";
 import type { InlineContent } from "../state/inline-content";
 import { inlineContentLength, findItemAtOffset } from "../state/inline-content";
 import { nextBlockInDocOrder, prevBlockInDocOrder } from "../state/block-traversal";
@@ -11,6 +11,7 @@ import {
   prevGraphemeBoundary,
   nextWordBoundary,
   prevWordBoundary,
+  iterateWordSegments,
 } from "./grapheme-utils";
 
 /**
@@ -225,4 +226,54 @@ function advanceWordBackward(content: InlineContent, offset: number): number {
   if (prev.kind !== "text") return offset - 1;
   const prevBoundary = prevWordBoundary(prev.text, prev.text.length);
   return offset - (prev.text.length - prevBoundary);
+}
+
+/**
+ * Return a Span covering the word that contains `position`. If `position`
+ * lies on whitespace/punctuation, returns the preceding word's span. On
+ * an empty block or with no preceding word in the block, returns a
+ * collapsed span at `position`. Position on an embed also collapses.
+ *
+ * Operates within a single block — does not cross block boundaries. (A
+ * P11.x action that wants triple-click or similar may compose this with
+ * cross-block logic.)
+ */
+export function selectWord(state: State, position: Position): Span {
+  const block = getBlock(state, position.blockId);
+  if (block === null) return createSpan(position, position);
+  const content = block.inlineContent ?? { items: [] };
+  const { itemIndex, withinItem } = findItemAtOffset(content, position.offset);
+  const item = content.items[itemIndex];
+  if (item === undefined || item.kind !== "text") {
+    return createSpan(position, position);
+  }
+  // Compute item's start offset in the block.
+  let itemStart = 0;
+  for (let i = 0; i < itemIndex; i++) {
+    const it = content.items[i];
+    if (it === undefined) continue;
+    itemStart += it.kind === "text" ? it.text.length : 1;
+  }
+
+  // Find a word segment containing `withinItem`.
+  let containing: { start: number; end: number } | null = null;
+  let lastWord: { start: number; end: number } | null = null;
+  let nextWord: { start: number; end: number } | null = null;
+  for (const seg of iterateWordSegments(item.text)) {
+    if (!seg.isWordLike) continue;
+    if (seg.start <= withinItem && seg.end >= withinItem) {
+      containing = seg;
+      break;
+    }
+    if (seg.end <= withinItem) {
+      lastWord = seg;
+    } else if (nextWord === null) {
+      nextWord = seg;
+    }
+  }
+  const word = containing ?? lastWord ?? nextWord;
+  if (word === null) return createSpan(position, position);
+  const anchor = createPosition(position.blockId, itemStart + word.start);
+  const focus = createPosition(position.blockId, itemStart + word.end);
+  return createSpan(anchor, focus);
 }

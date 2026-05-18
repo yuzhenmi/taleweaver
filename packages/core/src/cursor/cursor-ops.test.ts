@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moveByCharacter, moveByWord } from "./cursor-ops";
+import { moveByCharacter, moveByWord, selectWord } from "./cursor-ops";
 import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
@@ -235,5 +235,81 @@ describe("moveByWord (new)", () => {
     });
     expect(moveByWord(state, createPosition("p" as BlockId, 0), "backward")).toEqual(createPosition("p" as BlockId, 0));
     expect(moveByWord(state, createPosition("p" as BlockId, 2), "forward")).toEqual(createPosition("p" as BlockId, 2));
+  });
+});
+
+describe("selectWord (new)", () => {
+  it("returns the span of the word at the position", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
+      ],
+    });
+    const span = selectWord(state, createPosition("p" as BlockId, 3));
+    expect(span.anchor).toEqual({ blockId: "p", offset: 0 });
+    expect(span.focus).toEqual({ blockId: "p", offset: 5 });
+  });
+
+  it("falls back to preceding word when position is on whitespace", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
+      ],
+    });
+    const span = selectWord(state, createPosition("p" as BlockId, 5)); // on the space
+    expect(span.anchor).toEqual({ blockId: "p", offset: 0 });
+    expect(span.focus).toEqual({ blockId: "p", offset: 5 });
+  });
+
+  it("returns a collapsed span on an empty block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 0);
+    const span = selectWord(state, pos);
+    expect(span.anchor).toEqual(pos);
+    expect(span.focus).toEqual(pos);
+  });
+
+  it("returns a collapsed span when position falls on an embed", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "x" })]),
+        }),
+      ],
+    });
+    const pos = createPosition("p" as BlockId, 0);
+    const span = selectWord(state, pos);
+    expect(span.anchor).toEqual(pos);
+    expect(span.focus).toEqual(pos);
+  });
+
+  it("uses the lastWord fallback when position is squarely inside whitespace", () => {
+    // Double-space between words: "hello  world" (offset 6 is interior of
+    // whitespace, not at the edge of either word).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello  world")]) }),
+      ],
+    });
+    const span = selectWord(state, createPosition("p" as BlockId, 6));
+    expect(span.anchor).toEqual({ blockId: "p", offset: 0 });
+    expect(span.focus).toEqual({ blockId: "p", offset: 5 });
   });
 });

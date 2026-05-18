@@ -4,6 +4,7 @@ import {
   prevGraphemeBoundary,
   nextWordBoundary,
   prevWordBoundary,
+  iterateWordSegments,
 } from "./grapheme-utils";
 
 describe("nextGraphemeBoundary", () => {
@@ -82,5 +83,27 @@ describe("prevWordBoundary", () => {
 
   it("returns 0 at start", () => {
     expect(prevWordBoundary("hello", 0)).toBe(0);
+  });
+});
+
+describe("iterateWordSegments", () => {
+  it("yields contiguous { start, end, isWordLike } triples covering the input", () => {
+    const segs = [...iterateWordSegments("hello world")];
+    // Reconstruct the text from the segments to confirm boundary accounting.
+    const reconstructed = segs.map((s) => "hello world".slice(s.start, s.end)).join("");
+    expect(reconstructed).toBe("hello world");
+    // At least one segment is wordLike, at least one is not (the space).
+    expect(segs.some((s) => s.isWordLike)).toBe(true);
+    expect(segs.some((s) => !s.isWordLike)).toBe(true);
+  });
+
+  it("flags both word and non-word segments correctly", () => {
+    const segs = [...iterateWordSegments("a b")];
+    // "a" wordLike, " " not, "b" wordLike — order checked.
+    expect(segs.filter((s) => s.isWordLike).map((s) => s.start)).toEqual([0, 2]);
+  });
+
+  it("returns an empty iterator on empty input", () => {
+    expect([...iterateWordSegments("")]).toEqual([]);
   });
 });

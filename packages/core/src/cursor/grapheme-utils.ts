@@ -51,6 +51,24 @@ export function nextWordBoundary(text: string, offset: number): number {
   return text.length;
 }
 
+/**
+ * Iterate UAX #29 word segments of `text`, exposing each segment's
+ * boundaries and whether it's a word-like token (vs whitespace/punct).
+ * Wraps `Intl.Segmenter` so cursor-ops doesn't reach for the segmenter
+ * directly. Used by `selectWord`.
+ */
+export function* iterateWordSegments(
+  text: string,
+): Iterable<{ start: number; end: number; isWordLike: boolean }> {
+  for (const seg of wordSegmenter.segment(text)) {
+    yield {
+      start: seg.index,
+      end: seg.index + seg.segment.length,
+      isWordLike: seg.isWordLike ?? false,
+    };
+  }
+}
+
 /** Find the previous word boundary before `offset` in `text`. */
 export function prevWordBoundary(text: string, offset: number): number {
   if (offset <= 0) return 0;
