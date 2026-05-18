@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moveByCharacter, moveByWord, selectWord } from "./cursor-ops";
+import { moveByCharacter, moveByWord, selectWord, expandSelection } from "./cursor-ops";
 import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
@@ -311,5 +311,53 @@ describe("selectWord (new)", () => {
     const span = selectWord(state, createPosition("p" as BlockId, 6));
     expect(span.anchor).toEqual({ blockId: "p", offset: 0 });
     expect(span.focus).toEqual({ blockId: "p", offset: 5 });
+  });
+});
+
+describe("expandSelection (new)", () => {
+  it("moves focus forward by one grapheme, anchor unchanged", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
+      ],
+    });
+    const anchor = createPosition("p" as BlockId, 2);
+    const focus = createPosition("p" as BlockId, 2);
+    const out = expandSelection(state, { anchor, focus }, "forward");
+    expect(out.anchor).toEqual(anchor);
+    expect(out.focus).toEqual({ blockId: "p", offset: 3 });
+  });
+
+  it("moves focus backward by one grapheme, anchor unchanged", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
+      ],
+    });
+    const anchor = createPosition("p" as BlockId, 0);
+    const focus = createPosition("p" as BlockId, 3);
+    const out = expandSelection(state, { anchor, focus }, "backward");
+    expect(out.anchor).toEqual(anchor);
+    expect(out.focus).toEqual({ blockId: "p", offset: 2 });
+  });
+
+  it("crosses block boundary when focus is at block end", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hi")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("yo")]) }),
+      ],
+    });
+    const anchor = createPosition("p1" as BlockId, 0);
+    const focus = createPosition("p1" as BlockId, 2);
+    const out = expandSelection(state, { anchor, focus }, "forward");
+    expect(out.anchor).toEqual(anchor);
+    expect(out.focus).toEqual({ blockId: "p2", offset: 0 });
   });
 });

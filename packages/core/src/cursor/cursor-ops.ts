@@ -277,3 +277,17 @@ export function selectWord(state: State, position: Position): Span {
   const focus = createPosition(position.blockId, itemStart + word.end);
   return createSpan(anchor, focus);
 }
+
+/**
+ * Move the selection's focus by one grapheme cluster in the given
+ * direction; anchor unchanged. Cross-block movement follows the same
+ * rules as `moveByCharacter`.
+ */
+export function expandSelection(
+  state: State,
+  span: Span,
+  direction: "forward" | "backward",
+): Span {
+  const newFocus = moveByCharacter(state, span.focus, direction);
+  return createSpan(span.anchor, newFocus);
+}
