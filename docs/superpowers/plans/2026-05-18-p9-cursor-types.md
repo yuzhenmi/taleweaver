@@ -76,7 +76,7 @@ Total commits: 7. Estimated new tests: ~35-40 (covering legacy parity + the new 
 grep -rln -E 'from "(\.{1,2}/)+cursor/cursor-ops"' /Users/hansyu/code/taleweaver/packages/core/src/ /Users/hansyu/code/taleweaver/packages/dom/src/ /Users/hansyu/code/taleweaver/packages/react/src/ 2>/dev/null | sort -u
 ```
 
-Expected 13 hits in `packages/core/src/`. If fewer, refine the pattern.
+Expected 14 hits in `packages/core/src/`: 13 consumers (`index.ts`, 5 integration tests, 7 editor/actions files) plus the legacy file's own test sibling (`cursor.test.ts`) whose self-import gets updated in S3. If fewer, refine the pattern.
 
 - [ ] **S2: Rename via git mv**
 
@@ -207,6 +207,14 @@ describe("prevWordBoundary", () => {
   it("retreats to the previous word's start when at a word boundary", () => {
     // From offset 11 (end of "world"), prev = 6.
     expect(prevWordBoundary("hello world", 11)).toBe(6);
+  });
+
+  it("returns 0 when inside a word starting at index 0", () => {
+    // "hello", from offset 3 (inside "hello"), prev = 0 (word start).
+    // Exercises the path where the word starts at index 0 — the
+    // `seg.index > 0` guard inside prevWordBoundary skips the "inside this word"
+    // return, and the function falls through to return lastWordStart = 0.
+    expect(prevWordBoundary("hello", 3)).toBe(0);
   });
 
   it("returns 0 at start", () => {
@@ -668,6 +676,7 @@ git commit -m "feat(p9): new moveByCharacter (grapheme + embed + cross-block)"
 - Cross-block via `nextBlockInDocOrder` / `prevBlockInDocOrder` only — no manual tree walk.
 - Embed = 1 offset unit per master spec.
 - Defensive on unknown blockIds: returns input unchanged (caller is expected to validate).
+- **Public API surface is unchanged.** The new `moveByCharacter` / `moveByWord` / `selectWord` / `expandSelection` are NOT re-exported from `cursor/index.ts` or `packages/core/src/index.ts` during P9. The legacy names there continue to point at `cursor-ops-legacy.ts`. P11.4 cutover swaps the barrel; P15 deletes the legacy entries. Adding the new exports to the barrel in P9 would shadow the legacy ones under the same names and break the editor.
 - No `as any`, no `!`, no `as unknown as`.
 
 ---
@@ -1046,7 +1055,54 @@ export function* iterateWordSegments(
 }
 ```
 
+Add tests for `iterateWordSegments` to `grapheme-utils.test.ts` (append to the existing T2 file). These exercise the boundary accounting (`end = start + length`) and the `isWordLike` flag plumbing that `selectWord` depends on:
+
+```typescript
+import { iterateWordSegments } from "./grapheme-utils";
+
+describe("iterateWordSegments", () => {
+  it("yields contiguous { start, end, isWordLike } triples covering the input", () => {
+    const segs = [...iterateWordSegments("hello world")];
+    // Reconstruct the text from the segments to confirm boundary accounting.
+    const reconstructed = segs.map((s) => "hello world".slice(s.start, s.end)).join("");
+    expect(reconstructed).toBe("hello world");
+    // At least one segment is wordLike, at least one is not (the space).
+    expect(segs.some((s) => s.isWordLike)).toBe(true);
+    expect(segs.some((s) => !s.isWordLike)).toBe(true);
+  });
+
+  it("flags both word and non-word segments correctly", () => {
+    const segs = [...iterateWordSegments("a b")];
+    // "a" wordLike, " " not, "b" wordLike — order checked.
+    expect(segs.filter((s) => s.isWordLike).map((s) => s.start)).toEqual([0, 2]);
+  });
+
+  it("returns an empty iterator on empty input", () => {
+    expect([...iterateWordSegments("")]).toEqual([]);
+  });
+});
+```
+
 - [ ] **S4-S6:** tests pass, build, commit `feat(p9): new selectWord (returns Span)`.
+
+Add an additional selectWord test that exercises the `lastWord` whitespace-fallback branch directly. The plan's existing "falls back to preceding word when position is on whitespace" test at offset 5 of "hello world" lands at the END of "hello" (so `containing` fires for "hello"); to actually exercise the `lastWord` fallback, the cursor must be inside whitespace (not at a word's edge). Append to the selectWord describe block:
+
+```typescript
+it("uses the lastWord fallback when position is squarely inside whitespace", () => {
+  // Double-space between words: "hello  world" (offset 6 is interior of
+  // whitespace, not at the edge of either word).
+  const state = buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+      buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello  world")]) }),
+    ],
+  });
+  const span = selectWord(state, createPosition("p" as BlockId, 6));
+  expect(span.anchor).toEqual({ blockId: "p", offset: 0 });
+  expect(span.focus).toEqual({ blockId: "p", offset: 5 });
+});
+```
 
 ## Constraints
 
@@ -1158,7 +1214,10 @@ export function expandSelection(
 npm test --workspace=packages/core -- "src/cursor/cursor-ops.test" "src/cursor/grapheme-utils.test" 2>&1 | tail -5
 ```
 
-Expected: ≥ 35 tests across the new module (T2: 14, T3: 11, T4: 6, T5: 4, T6: 3 = 38).
+Expected: ≥ 35 tests across the new module. Actual counts:
+- `grapheme-utils.test.ts`: 14 from T2 (4 nextGrapheme + 3 prevGrapheme + 3 nextWord + 4 prevWord) + 3 from T5 (iterateWordSegments) = **17 grapheme-utils tests**.
+- `cursor-ops.test.ts`: 11 from T3 (moveByCharacter) + 6 from T4 (moveByWord) + 5 from T5 (selectWord, includes lastWord fallback) + 3 from T6 (expandSelection) = **25 cursor-ops tests**.
+- **Grand total: 42 tests** across the new module.
 
 - [ ] **S2: Confirm spec success criteria**
 
@@ -1167,7 +1226,7 @@ Expected: ≥ 35 tests across the new module (T2: 14, T3: 11, T4: 6, T5: 4, T6: 
 - ✅ Word boundaries (UAX #29) preserved (shared `grapheme-utils.ts`).
 - ✅ Cross-block movement via `nextBlockInDocOrder` / `prevBlockInDocOrder`.
 - ✅ Embed handling per master spec (1 cursor position per embed; word-barrier behavior for `moveByWord`).
-- ✅ Test parity with legacy: legacy `cursor.test.ts` has 44 tests; new module has 38 (close — covers all the new code paths but legacy's tests include `expandSelectionByCharacter` which is layout-coupled and deferred to P10). Combined with the 14 grapheme-utils tests (which also indirectly exercise legacy via shared imports), coverage is at parity for the in-scope surface.
+- ✅ Test parity with legacy: legacy `cursor.test.ts` has 44 tests; the new module has 42 (close — covers all the new code paths). Legacy's tests include `expandSelectionByCharacter` (8 tests) which is layout-coupled and deferred to P10; subtracting those, in-scope legacy coverage is ~36 tests, and the new module's 42 exceeds it.
 - ✅ Legacy `cursor-ops-legacy.ts` still compiles and works (1330 baseline tests pass).
 - ✅ Build green; no other module breaks.
 
@@ -1178,7 +1237,7 @@ npm run build --workspace=packages/core 2>&1 | tail -3
 npm test --workspace=packages/core 2>&1 | tail -5
 ```
 
-Expected: ~1330 + 38 = ~1368 passing, 4 skipped.
+Expected: ~1330 + 42 = ~1372 passing, 4 skipped.
 
 ## End of P9
 
