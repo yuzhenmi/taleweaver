@@ -175,8 +175,9 @@ describe("clonePastedSubtree — tree shapes", () => {
 
 describe("clonePastedSubtree — embed-content cloning", () => {
   it("clones an embed's content block (footnote body) and rewrites contentBlockId", () => {
-    // Source: doc > [p1[text + embed("footnote-anchor", { contentBlockId: "fn-body" })]] + standalone fn-body.
-    // Clone p1: should also clone fn-body, and the cloned anchor's contentBlockId points to the cloned body.
+    // Source: doc > [p1[text + embed("footnote-anchor", { contentBlockId: "fn-body" })]] + fn-body in embedContents.
+    // Clone p1: should also clone fn-body (into result.embedContents), and the
+    // cloned anchor's contentBlockId points to the cloned body.
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
@@ -190,6 +191,8 @@ describe("clonePastedSubtree — embed-content cloning", () => {
             embed("footnote-anchor", { contentBlockId: "fn-body" }),
           ]),
         }),
+      ],
+      embedContents: [
         buildBlock({
           id: "fn-body",
           type: "footnote-body",
@@ -200,8 +203,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 2 blocks cloned: p1 + fn-body. doc is outside.
-    expect(result.blocks.size).toBe(2);
+    // 1 block in main tree (p1) and 1 in embedContents (fn-body). doc is outside.
+    expect(result.blocks.size).toBe(1);
+    expect(result.embedContents.size).toBe(1);
 
     const newP1 = result.blocks.get(result.rootId);
     expect(newP1?.type).toBe("paragraph");
@@ -216,8 +220,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     expect(typeof newCbId).toBe("string");
     expect(newCbId).not.toBe("fn-body");
 
-    // The cloned fn-body has the rewritten id and preserved content.
-    const newFnBody = result.blocks.get(newCbId as BlockId);
+    // The cloned fn-body lands in embedContents (NOT blocks).
+    expect(result.blocks.has(newCbId as BlockId)).toBe(false);
+    const newFnBody = result.embedContents.get(newCbId as BlockId);
     expect(newFnBody).toBeDefined();
     expect(newFnBody?.type).toBe("footnote-body");
     expect(newFnBody?.inlineContent?.items[0]).toMatchObject({ text: "the footnote text" });
@@ -225,7 +230,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
   });
 
   it("clones multiple embed-content references", () => {
-    // Source: p1 with TWO footnote anchors → two distinct fn-body clones.
+    // Source: p1 with TWO footnote anchors → two distinct fn-body clones in embedContents.
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
@@ -241,6 +246,8 @@ describe("clonePastedSubtree — embed-content cloning", () => {
             embed("footnote-anchor", { contentBlockId: "fn-b" }),
           ]),
         }),
+      ],
+      embedContents: [
         buildBlock({ id: "fn-a", type: "footnote-body", inlineContent: inlineContent([text("body a")]) }),
         buildBlock({ id: "fn-b", type: "footnote-body", inlineContent: inlineContent([text("body b")]) }),
       ],
@@ -248,8 +255,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 3 blocks cloned: p1 + fn-a + fn-b.
-    expect(result.blocks.size).toBe(3);
+    // 1 in main tree (p1), 2 in embedContents (fn-a, fn-b).
+    expect(result.blocks.size).toBe(1);
+    expect(result.embedContents.size).toBe(2);
 
     const newP1 = result.blocks.get(result.rootId);
     const items = newP1?.inlineContent?.items;
@@ -265,12 +273,14 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     expect(newCbA).not.toBe("fn-a");
     expect(newCbB).not.toBe("fn-b");
 
-    expect(result.blocks.get(newCbA)?.inlineContent?.items[0]).toMatchObject({ text: "body a" });
-    expect(result.blocks.get(newCbB)?.inlineContent?.items[0]).toMatchObject({ text: "body b" });
+    // Both cloned bodies land in embedContents.
+    expect(result.embedContents.get(newCbA)?.inlineContent?.items[0]).toMatchObject({ text: "body a" });
+    expect(result.embedContents.get(newCbB)?.inlineContent?.items[0]).toMatchObject({ text: "body b" });
   });
 
   it("clones nested embed-content (footnote body containing its own footnote anchor)", () => {
     // Source: p1 has fn-outer, fn-outer-body has fn-inner anchor, fn-inner-body has plain text.
+    // Both fn-outer and fn-inner live in embedContents.
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
@@ -281,6 +291,8 @@ describe("clonePastedSubtree — embed-content cloning", () => {
           parentId: "doc",
           inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-outer" })]),
         }),
+      ],
+      embedContents: [
         buildBlock({
           id: "fn-outer",
           type: "footnote-body",
@@ -292,8 +304,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 3 blocks cloned: p1 + fn-outer + fn-inner.
-    expect(result.blocks.size).toBe(3);
+    // 1 in main tree (p1), 2 in embedContents (fn-outer + fn-inner).
+    expect(result.blocks.size).toBe(1);
+    expect(result.embedContents.size).toBe(2);
 
     const newP1 = result.blocks.get(result.rootId);
     const outerEmbed = newP1?.inlineContent?.items[0];
@@ -301,14 +314,86 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const newOuterId = outerEmbed.properties.contentBlockId as BlockId;
     expect(newOuterId).not.toBe("fn-outer");
 
-    const newOuter = result.blocks.get(newOuterId);
+    const newOuter = result.embedContents.get(newOuterId);
+    expect(newOuter).toBeDefined();
     const innerEmbed = newOuter?.inlineContent?.items[0];
     if (innerEmbed?.kind !== "embed") throw new Error("expected embed");
     const newInnerId = innerEmbed.properties.contentBlockId as BlockId;
     expect(newInnerId).not.toBe("fn-inner");
 
-    const newInner = result.blocks.get(newInnerId);
+    const newInner = result.embedContents.get(newInnerId);
     expect(newInner?.inlineContent?.items[0]).toMatchObject({ text: "deep" });
+    // The cloned bodies are NOT in result.blocks.
+    expect(result.blocks.has(newOuterId)).toBe(false);
+    expect(result.blocks.has(newInnerId)).toBe(false);
+  });
+
+  it("cloned tree block lands in result.blocks, not result.embedContents (segregation)", () => {
+    // A plain paragraph with no embeds: lives only in result.blocks.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+
+    expect(result.blocks.size).toBe(1);
+    expect(result.embedContents.size).toBe(0);
+    expect(result.blocks.has(result.rootId)).toBe(true);
+    expect(result.embedContents.has(result.rootId)).toBe(false);
+  });
+
+  it("an embed-content block's children are also cloned into result.embedContents", () => {
+    // Source: p1 references fn-body; fn-body contains a child (e.g. a paragraph inside the footnote body).
+    // Both fn-body AND fn-body's child should land in result.embedContents.
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-body" })]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "fn-body",
+          type: "footnote-body",
+          firstChildId: "fn-child",
+          lastChildId: "fn-child",
+        }),
+        buildBlock({
+          id: "fn-child",
+          type: "paragraph",
+          parentId: "fn-body",
+          inlineContent: inlineContent([text("inside the body")]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+
+    expect(result.blocks.size).toBe(1);
+    expect(result.embedContents.size).toBe(2);
+
+    const newP1 = result.blocks.get(result.rootId);
+    const embedItem = newP1?.inlineContent?.items[0];
+    if (embedItem?.kind !== "embed") throw new Error("expected embed");
+    const newFnBodyId = embedItem.properties.contentBlockId as BlockId;
+    const newFnBody = result.embedContents.get(newFnBodyId);
+    expect(newFnBody).toBeDefined();
+    expect(newFnBody?.firstChildId).not.toBeNull();
+    const newChildId = newFnBody?.firstChildId;
+    if (newChildId === null || newChildId === undefined) throw new Error("missing child");
+    const newChild = result.embedContents.get(newChildId);
+    expect(newChild?.type).toBe("paragraph");
+    expect(newChild?.parentId).toBe(newFnBodyId);
+    expect(newChild?.inlineContent?.items[0]).toMatchObject({ text: "inside the body" });
   });
 });
 
@@ -390,8 +475,9 @@ describe("clonePastedSubtree — block-level invariants", () => {
     });
   });
 
-  it("all internal references in the result point to ids in result.blocks (no leaked source ids)", () => {
-    // Source with multiple internal refs.
+  it("all internal references in the result point to ids in result.blocks or result.embedContents (no leaked source ids)", () => {
+    // Source with multiple internal refs. fn is an embed-content body
+    // referenced by p1's footnote anchor.
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
@@ -399,18 +485,23 @@ describe("clonePastedSubtree — block-level invariants", () => {
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: inlineContent([text("first"), embed("footnote-anchor", { contentBlockId: "fn" })]) }),
         buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: inlineContent([text("second")]) }),
+      ],
+      embedContents: [
         buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
 
-    // 4 blocks: section, p1, p2, fn.
-    expect(result.blocks.size).toBe(4);
+    // 3 in main tree (section, p1, p2); 1 in embedContents (fn).
+    expect(result.blocks.size).toBe(3);
+    expect(result.embedContents.size).toBe(1);
 
-    // For each block in the result, every non-null reference must be a key in result.blocks (or null).
-    const allIds = new Set(result.blocks.keys());
-    for (const [, b] of result.blocks) {
+    // For each block in EITHER result map, every non-null reference must
+    // resolve to a key in result.blocks OR result.embedContents.
+    const allIds = new Set<BlockId>([...result.blocks.keys(), ...result.embedContents.keys()]);
+    const allClonedBlocks = [...result.blocks.values(), ...result.embedContents.values()];
+    for (const b of allClonedBlocks) {
       const refs = [b.parentId, b.prevSiblingId, b.nextSiblingId, b.firstChildId, b.lastChildId];
       for (const ref of refs) {
         if (ref !== null) {

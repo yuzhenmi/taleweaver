@@ -1,23 +1,32 @@
 import type { State } from "./state";
-import { getBlock } from "./state";
+import { getBlock, getEmbedContent } from "./state";
 import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
 
 /**
- * The product of cloning a subtree from a source state. Self-contained:
- * `blocks` holds every cloned block (the root + all descendants + every
- * embed-referenced content block recursively), keyed by the NEW BlockId.
- * `rootId` is the new BlockId of the cloned root.
+ * The product of cloning a subtree from a source state. Self-contained
+ * across two maps:
  *
- * The caller composes this with insertBlock (or similar) to merge the
- * cloned subtree into a destination state.
+ *   - `blocks`: cloned main-tree blocks (the root + descendants reachable
+ *     via firstChildId/nextSiblingId), keyed by the NEW BlockId.
+ *   - `embedContents`: cloned embed-content blocks (footnote bodies and
+ *     similar) reached via `EmbedItem.properties.contentBlockId`. Keyed
+ *     by the NEW BlockId. Recursive: an embed-content block's own children
+ *     and any further contentBlockId references it contains all land here
+ *     as well.
  *
- * `blocks` is a plain JS Map of immutable Block snapshots. This op does
+ * The split mirrors P6's State.blocks vs State.embedContents segregation:
+ * the caller inserts each map into the destination's matching tree.
+ *
+ * `rootId` is the new BlockId of the cloned root (always in `blocks`).
+ *
+ * Both maps are plain JS Maps of immutable Block snapshots. This op does
  * NOT mutate the source State (the underlying Y.Doc is never touched).
  */
 export interface ClonedSubtree {
   readonly blocks: ReadonlyMap<BlockId, Block>;
+  readonly embedContents: ReadonlyMap<BlockId, Block>;
   readonly rootId: BlockId;
 }
 
@@ -26,17 +35,23 @@ export interface ClonedSubtree {
  * fresh BlockIds for every cloned block and rewrites all internal id
  * references (parent/sibling/child pointers + embed contentBlockId).
  *
- * Walks: the root, all descendants (via firstChildId/nextSiblingId chains),
- * and every embed-referenced content block recursively. Cycle-defended.
+ * Walks: the root and all descendants via `getBlock` (main tree), and
+ * every embed-referenced content block recursively via `getEmbedContent`
+ * (embed-content tree). Cycle-defended.
+ *
+ * Cloned main-tree blocks land in `result.blocks`; cloned embed-content
+ * blocks (the contentBlockId targets and their own descendants / nested
+ * embed-content refs) land in `result.embedContents`.
  *
  * The cloned root has parentId / prevSiblingId / nextSiblingId all null —
  * it's a free-standing subtree-root, ready to be re-parented by the caller
  * during insertion. Non-root parent/sibling/child references are mapped
- * via the oldId → newId map.
+ * via the oldId → newId map. Cloned embed-content blocks have
+ * parentId === null by invariant (they live in a separate tree).
  *
  * Throws if sourceRootId is not in sourceState, or if any reachable id
  * (child, sibling, contentBlockId) points to a block missing from
- * sourceState (corrupted source state).
+ * the appropriate source map (corrupted source state).
  */
 export function clonePastedSubtree(
   sourceState: State,
@@ -49,31 +64,43 @@ export function clonePastedSubtree(
     );
   }
 
-  // Phase 1: collect all reachable block ids in the subtree.
-  const visited = new Set<BlockId>();
-  collectSubtreeIds(sourceState, sourceRootId, visited);
+  // Phase 1: collect all reachable block ids, partitioned by tree.
+  //   treeIds: ids reachable via main-tree walk (children).
+  //   embedContentIds: ids reachable via EmbedItem.contentBlockId references
+  //     (recursive: includes the embed-content's own children + nested refs).
+  // The two sets are disjoint by construction — once an id is classified
+  // as embed-content (because it was reached via a contentBlockId edge), the
+  // walker uses `getEmbedContent` exclusively for further traversal from it.
+  const treeIds = new Set<BlockId>();
+  const embedContentIds = new Set<BlockId>();
+  collectTreeSubtreeIds(sourceState, sourceRootId, treeIds, embedContentIds);
 
-  // Phase 2: allocate a new id for each visited id.
+  // Phase 2: allocate a new id for each visited id. Allocation order:
+  // tree ids first (in walk order), then embed-content ids. Either order
+  // is valid — internal references are remapped by id, not by allocation
+  // position.
   const idMap = new Map<BlockId, BlockId>();
-  for (const oldId of visited) {
+  for (const oldId of treeIds) {
+    idMap.set(oldId, allocator.allocate());
+  }
+  for (const oldId of embedContentIds) {
     idMap.set(oldId, allocator.allocate());
   }
 
-  // Phase 3: construct cloned blocks with rewritten references.
+  // Phase 3: construct cloned blocks with rewritten references, routed to
+  // the correct output map by their classification.
   const clonedBlocks = new Map<BlockId, Block>();
-  for (const oldId of visited) {
+  const clonedEmbedContents = new Map<BlockId, Block>();
+
+  for (const oldId of treeIds) {
     const oldBlock = getBlock(sourceState, oldId);
     if (oldBlock === null) {
-      // Defensive — visited only contains ids that resolved during phase 1.
+      // Defensive — treeIds only contains ids that resolved during phase 1.
       throw new Error(
         `clonePastedSubtree: block "${oldId}" disappeared between phase 1 and phase 3`,
       );
     }
-    const newId = idMap.get(oldId);
-    if (newId === undefined) {
-      throw new Error(`clonePastedSubtree: missing newId for "${oldId}"`);
-    }
-
+    const newId = requireMapped(idMap, oldId);
     const isRoot = oldId === sourceRootId;
 
     const cloned: Block = Object.freeze({
@@ -92,53 +119,140 @@ export function clonePastedSubtree(
     clonedBlocks.set(newId, cloned);
   }
 
+  for (const oldId of embedContentIds) {
+    const oldBlock = getEmbedContent(sourceState, oldId);
+    if (oldBlock === null) {
+      // Defensive — embedContentIds only contains ids that resolved during phase 1.
+      throw new Error(
+        `clonePastedSubtree: embed-content block "${oldId}" disappeared between phase 1 and phase 3`,
+      );
+    }
+    const newId = requireMapped(idMap, oldId);
+
+    // Embed-content blocks live in a separate tree; parent/sibling pointers
+    // outside the cloned set are dropped (mapped to null). The source's
+    // own parentId/prev/next may already be null (the typical case) — this
+    // just preserves that. Children pointers within the embed-content
+    // subtree DO get remapped via mapId.
+    const cloned: Block = Object.freeze({
+      id: newId,
+      type: oldBlock.type,
+      attrs: oldBlock.attrs,
+      parentId: mapId(oldBlock.parentId, idMap),
+      prevSiblingId: mapId(oldBlock.prevSiblingId, idMap),
+      nextSiblingId: mapId(oldBlock.nextSiblingId, idMap),
+      firstChildId: mapId(oldBlock.firstChildId, idMap),
+      lastChildId: mapId(oldBlock.lastChildId, idMap),
+      inlineContent: oldBlock.inlineContent
+        ? rewriteInlineContent(oldBlock.inlineContent, idMap)
+        : null,
+    });
+    clonedEmbedContents.set(newId, cloned);
+  }
+
   const clonedRootId = idMap.get(sourceRootId);
   if (clonedRootId === undefined) {
     throw new Error(`clonePastedSubtree: root "${sourceRootId}" missing from idMap`);
   }
-  return { blocks: clonedBlocks, rootId: clonedRootId };
+  return {
+    blocks: clonedBlocks,
+    embedContents: clonedEmbedContents,
+    rootId: clonedRootId,
+  };
 }
 
 /**
- * Walk the subtree from `id` collecting every reachable BlockId into
- * `visited`. Includes:
+ * Walk the main-tree subtree from `id` collecting every reachable BlockId
+ * into `treeIds`. Includes:
  *   - the block itself
  *   - all descendants (firstChildId, then sibling chain via nextSiblingId
  *     within the subtree)
  *   - every embed-referenced content block (via item.properties.contentBlockId)
- *     and its subtree (recursively)
+ *     — those are resolved via `getEmbedContent` and recursed via
+ *     collectEmbedContentSubtreeIds; their ids land in `embedContentIds`.
  *
- * Cycle defense: skip ids already in `visited`.
+ * Cycle defense: skip ids already classified into either set.
  *
  * Does NOT follow the input id's own nextSiblingId/prevSiblingId — those
  * are outside the subtree.
  */
-function collectSubtreeIds(state: State, id: BlockId, visited: Set<BlockId>): void {
-  if (visited.has(id)) return;
+function collectTreeSubtreeIds(
+  state: State,
+  id: BlockId,
+  treeIds: Set<BlockId>,
+  embedContentIds: Set<BlockId>,
+): void {
+  if (treeIds.has(id) || embedContentIds.has(id)) return;
   const block = getBlock(state, id);
   if (block === null) {
     throw new Error(`clonePastedSubtree: referenced block "${id}" not found in sourceState`);
   }
-  visited.add(id);
+  treeIds.add(id);
 
   // Walk children: from firstChildId, follow each child's nextSiblingId.
-  // Cycle defense: collectSubtreeIds is a no-op for ids already in `visited`.
+  // Cycle defense: collectTreeSubtreeIds is a no-op for ids already classified.
   let cur: BlockId | null = block.firstChildId;
   while (cur !== null) {
-    collectSubtreeIds(state, cur, visited);
+    if (treeIds.has(cur) || embedContentIds.has(cur)) break;
+    collectTreeSubtreeIds(state, cur, treeIds, embedContentIds);
     const child = getBlock(state, cur);
     cur = child ? child.nextSiblingId : null;
   }
 
-  // Walk embed-content references in this block's inline content.
+  // Walk embed-content references — resolve via getEmbedContent (P6 split).
   if (block.inlineContent) {
     for (const item of block.inlineContent.items) {
-      if (item.kind === "embed") {
-        const cbId = item.properties.contentBlockId;
-        if (typeof cbId === "string") {
-          collectSubtreeIds(state, cbId as BlockId, visited);
-        }
-      }
+      if (item.kind !== "embed") continue;
+      const cbId = item.properties.contentBlockId;
+      if (typeof cbId !== "string") continue;
+      collectEmbedContentSubtreeIds(state, cbId as BlockId, treeIds, embedContentIds);
+    }
+  }
+}
+
+/**
+ * Walk an embed-content subtree from `id` (looking up via `getEmbedContent`).
+ * Includes the block itself, its descendants (children + sibling chain),
+ * and any further embed-content references it contains. All visited ids
+ * land in `embedContentIds`.
+ *
+ * Cycle defense: skip ids already classified into either set. If an id is
+ * already in `treeIds` (id collision between the two trees — pathological
+ * but defensively handled), we skip; the main-tree classification wins,
+ * matching `getBlockFromEither` precedence.
+ */
+function collectEmbedContentSubtreeIds(
+  state: State,
+  id: BlockId,
+  treeIds: Set<BlockId>,
+  embedContentIds: Set<BlockId>,
+): void {
+  if (treeIds.has(id) || embedContentIds.has(id)) return;
+  const block = getEmbedContent(state, id);
+  if (block === null) {
+    throw new Error(
+      `clonePastedSubtree: referenced embed-content block "${id}" not found in sourceState`,
+    );
+  }
+  embedContentIds.add(id);
+
+  // Walk children of the embed-content block (if any). Children of an
+  // embed-content block are themselves embed-content.
+  let cur: BlockId | null = block.firstChildId;
+  while (cur !== null) {
+    if (treeIds.has(cur) || embedContentIds.has(cur)) break;
+    collectEmbedContentSubtreeIds(state, cur, treeIds, embedContentIds);
+    const child = getEmbedContent(state, cur);
+    cur = child ? child.nextSiblingId : null;
+  }
+
+  // Walk nested embed-content references.
+  if (block.inlineContent) {
+    for (const item of block.inlineContent.items) {
+      if (item.kind !== "embed") continue;
+      const cbId = item.properties.contentBlockId;
+      if (typeof cbId !== "string") continue;
+      collectEmbedContentSubtreeIds(state, cbId as BlockId, treeIds, embedContentIds);
     }
   }
 }
@@ -149,6 +263,15 @@ function mapId(oldId: BlockId | null, idMap: Map<BlockId, BlockId>): BlockId | n
   const newId = idMap.get(oldId);
   if (newId === undefined) {
     throw new Error(`clonePastedSubtree: id "${oldId}" was not visited (subtree-walk inconsistency)`);
+  }
+  return newId;
+}
+
+/** Like `mapId` but for a non-null input — returns the mapped id, throwing if absent. */
+function requireMapped(idMap: Map<BlockId, BlockId>, oldId: BlockId): BlockId {
+  const newId = idMap.get(oldId);
+  if (newId === undefined) {
+    throw new Error(`clonePastedSubtree: id "${oldId}" missing from idMap (allocator inconsistency)`);
   }
   return newId;
 }
