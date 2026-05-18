@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
+import { getBlock } from "./state";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
@@ -22,7 +23,7 @@ describe("mergeAdjacentBlocks — basic merge of two adjacent leaf siblings", ()
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
 
     // Left (p1) keeps its id; inlineContent is the concatenation, run-merged into one item.
-    const left = result.state.blocks.get("p1" as BlockId);
+    const left = getBlock(result.state, "p1" as BlockId);
     expect(left).toBeDefined();
     expect(left?.id).toBe("p1");
     expect(left?.type).toBe("paragraph");
@@ -33,10 +34,10 @@ describe("mergeAdjacentBlocks — basic merge of two adjacent leaf siblings", ()
     expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello world", attrs: {} });
 
     // Right (p2) is removed from state.blocks.
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
 
     // Parent's lastChildId is rewired to p1 (was p2). firstChildId still p1.
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1");
     expect(parent?.lastChildId).toBe("p1");
 
@@ -58,7 +59,7 @@ describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", 
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: { bold: true } });
   });
@@ -75,7 +76,7 @@ describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", 
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hel", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "lo", attrs: { italic: true } });
@@ -94,7 +95,7 @@ describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", 
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "img" });
@@ -115,7 +116,7 @@ describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", 
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "bc", attrs: { bold: true } });
@@ -141,13 +142,13 @@ describe("mergeAdjacentBlocks — linked-list correctness across positional case
     const state = fourChildFixture();
     const result = mergeAdjacentBlocks(state, "p2" as BlockId, "p3" as BlockId);
 
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
-    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBe("p1");
-    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe("p4"); // was "p3"; now skips
-    expect(result.state.blocks.get("p4" as BlockId)?.prevSiblingId).toBe("p2"); // was "p3"; rewired
-    expect(result.state.blocks.has("p3" as BlockId)).toBe(false); // removed
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
+    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe("p1");
+    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe("p4"); // was "p3"; now skips
+    expect(getBlock(result.state, "p4" as BlockId)?.prevSiblingId).toBe("p2"); // was "p3"; rewired
+    expect(getBlock(result.state, "p3" as BlockId)).toBeNull(); // removed
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1"); // unchanged
     expect(parent?.lastChildId).toBe("p4"); // unchanged
 
@@ -159,12 +160,12 @@ describe("mergeAdjacentBlocks — linked-list correctness across positional case
     const state = fourChildFixture();
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
 
-    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p3"); // was p2
-    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p1"); // was p2
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p3"); // was p2
+    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p1"); // was p2
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1"); // unchanged (left wins, kept id)
     expect(parent?.lastChildId).toBe("p4"); // unchanged
 
@@ -175,11 +176,11 @@ describe("mergeAdjacentBlocks — linked-list correctness across positional case
     const state = fourChildFixture();
     const result = mergeAdjacentBlocks(state, "p3" as BlockId, "p4" as BlockId);
 
-    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p2");
-    expect(result.state.blocks.get("p3" as BlockId)?.nextSiblingId).toBeNull(); // was p4; now last child
-    expect(result.state.blocks.has("p4" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p2");
+    expect(getBlock(result.state, "p3" as BlockId)?.nextSiblingId).toBeNull(); // was p4; now last child
+    expect(getBlock(result.state, "p4" as BlockId)).toBeNull();
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1");
     expect(parent?.lastChildId).toBe("p3"); // rewired from p4
 
@@ -200,15 +201,15 @@ describe("mergeAdjacentBlocks — linked-list correctness across positional case
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
 
     // Section's lastChildId rewires; doc untouched.
-    const section = result.state.blocks.get("section" as BlockId);
+    const section = getBlock(result.state, "section" as BlockId);
     expect(section?.firstChildId).toBe("p1");
     expect(section?.lastChildId).toBe("p1");
 
-    const doc = result.state.blocks.get("doc" as BlockId);
+    const doc = getBlock(result.state, "doc" as BlockId);
     expect(doc?.firstChildId).toBe("section");
     expect(doc?.lastChildId).toBe("section");
 
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
 
     // dirtyIds: p1, p2, section. doc NOT dirty.
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "section"]));
@@ -227,7 +228,7 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
       ],
     });
     const result = mergeAdjacentBlocks(state, "p" as BlockId, "h" as BlockId);
-    expect(result.state.blocks.get("p" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("paragraph");
   });
 
   it("left wins attrs when blocks have different attrs", () => {
@@ -241,7 +242,7 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
       ],
     });
     const result = mergeAdjacentBlocks(state, "li1" as BlockId, "li2" as BlockId);
-    expect(result.state.blocks.get("li1" as BlockId)?.attrs).toEqual({ level: 2 });
+    expect(getBlock(result.state, "li1" as BlockId)?.attrs).toEqual({ level: 2 });
   });
 
   it("preserves embed-referenced contents in right's inline content (no cascade-delete)", () => {
@@ -258,9 +259,9 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
     // fn-body must still exist.
-    expect(result.state.blocks.has("fn-body" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "fn-body" as BlockId)).not.toBeNull();
     // The merged inline content carries the embed reference.
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "see" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } });
@@ -279,9 +280,9 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
         buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
       ],
     });
-    const beforeP0 = state.blocks.get("p0" as BlockId);
+    const beforeP0 = getBlock(state, "p0" as BlockId);
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    expect(result.state.blocks.get("p0" as BlockId)).toBe(beforeP0);
+    expect(getBlock(result.state, "p0" as BlockId)).toBe(beforeP0);
   });
 
   it("does not mutate the original state", () => {
@@ -293,12 +294,18 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text(" world")]) }),
       ],
     });
+    // Cache pre-op snapshots BEFORE the op so the pre-op State.snapshotCache
+    // holds them. (Y.Doc itself is mutated in place; per-State view stability
+    // comes from each State's cache, not from Y.Doc immutability.)
+    const beforeP1 = getBlock(state, "p1" as BlockId);
+    const beforeP2 = getBlock(state, "p2" as BlockId);
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
 
     expect(result.state).not.toBe(state);
     // Original state still has p2 and p1's nextSibling pointing to p2.
-    expect(state.blocks.has("p2" as BlockId)).toBe(true);
-    expect(state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2");
+    expect(getBlock(state, "p2" as BlockId)).toBe(beforeP2);
+    expect(getBlock(state, "p1" as BlockId)).toBe(beforeP1);
+    expect(getBlock(state, "p1" as BlockId)?.nextSiblingId).toBe("p2");
   });
 });
 
@@ -313,10 +320,10 @@ describe("mergeAdjacentBlocks — empty-block edge cases", () => {
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
   });
 
   it("left with content + right empty: result has left's content unchanged", () => {
@@ -329,10 +336,10 @@ describe("mergeAdjacentBlocks — empty-block edge cases", () => {
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
   });
 
   it("both empty: result is one empty block under left's id", () => {
@@ -345,9 +352,9 @@ describe("mergeAdjacentBlocks — empty-block edge cases", () => {
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toEqual([]);
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
   });
 });
 

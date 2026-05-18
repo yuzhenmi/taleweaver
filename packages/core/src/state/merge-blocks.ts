@@ -1,7 +1,9 @@
+import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { createInlineContent, mergeAdjacentTextItems } from "./inline-content";
-import { updateBlock } from "./block";
+import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
 
 /**
  * Merge two adjacent leaf siblings into one block.
@@ -28,6 +30,12 @@ import { updateBlock } from "./block";
  *   - blocks have different parents,
  *   - blocks are not adjacent siblings (left.nextSiblingId !== rightId
  *     OR right.prevSiblingId !== leftId).
+ *
+ * Y.Doc identity: left's existing inline Y.Map items are NOT touched
+ * (their Y.Text identity is preserved); right's items are deep-cloned
+ * onto left's inlineContent Y.Array (Yjs forbids re-parenting a Y type)
+ * and then a same-attrs merge pass runs over left to uphold the
+ * normalized inline-content invariant.
  */
 export function mergeAdjacentBlocks(
   state: State,
@@ -38,12 +46,12 @@ export function mergeAdjacentBlocks(
     throw new Error(`mergeAdjacentBlocks: left and right are the same block "${leftId}"`);
   }
 
-  const left = state.blocks.get(leftId);
-  if (!left) {
+  const left = getBlock(state, leftId);
+  if (left === null) {
     throw new Error(`mergeAdjacentBlocks: left block "${leftId}" not found`);
   }
-  const right = state.blocks.get(rightId);
-  if (!right) {
+  const right = getBlock(state, rightId);
+  if (right === null) {
     throw new Error(`mergeAdjacentBlocks: right block "${rightId}" not found`);
   }
 
@@ -80,41 +88,47 @@ export function mergeAdjacentBlocks(
     );
   }
 
-  const mergedItems = mergeAdjacentTextItems([
-    ...left.inlineContent.items,
-    ...right.inlineContent.items,
-  ]);
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    const yLeft = getYBlock(state.doc, leftId, "mergeAdjacentBlocks");
+    const yRight = getYBlock(state.doc, rightId, "mergeAdjacentBlocks");
+    const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
 
-  const updatedLeft = updateBlock(left, {
-    nextSiblingId: right.nextSiblingId,
-    inlineContent: createInlineContent(mergedItems),
+    // Append clones of right's items to left. Yjs forbids re-parenting a Y
+    // type, so we clone — left keeps its existing items' Y.Text identity;
+    // only right's items get freshly materialized on the left side.
+    const cloned: Y.Map<unknown>[] = [];
+    for (let i = 0; i < yRightItems.length; i++) {
+      cloned.push(cloneInlineItem(yRightItems.get(i)));
+    }
+    if (cloned.length > 0) {
+      yLeftItems.push(cloned);
+      // Same-attrs merge pass to uphold the normalized inline-content invariant.
+      // Only needed when we actually appended items.
+      mergeAdjacentSameAttrsTextItems(yLeftItems);
+    }
+
+    // Rewire siblings around right (right.next becomes left.next).
+    const rightNextId = (yRight.get("nextSiblingId") as BlockId | null) ?? null;
+    yLeft.set("nextSiblingId", rightNextId);
+    if (rightNextId !== null) {
+      getYBlock(state.doc, rightNextId, "mergeAdjacentBlocks").set(
+        "prevSiblingId",
+        leftId,
+      );
+    } else {
+      // Right was the last child — rewire parent.lastChildId to left.
+      const parentId = left.parentId;
+      if (parentId !== null) {
+        const yParent = getYBlock(state.doc, parentId, "mergeAdjacentBlocks");
+        if (yParent.get("lastChildId") === rightId) {
+          yParent.set("lastChildId", leftId);
+        }
+      }
+    }
+
+    // Delete right last (after reads of yRight are done).
+    yBlocks.delete(rightId);
   });
-
-  let blocks = state.blocks.set(leftId, updatedLeft).delete(rightId);
-  const dirtyIds = new Set<BlockId>([leftId, rightId]);
-
-  if (right.nextSiblingId) {
-    const oldRightNext = state.blocks.get(right.nextSiblingId);
-    if (!oldRightNext) {
-      throw new Error(
-        `mergeAdjacentBlocks: right's next sibling "${right.nextSiblingId}" not found`,
-      );
-    }
-    blocks = blocks.set(right.nextSiblingId, updateBlock(oldRightNext, { prevSiblingId: leftId }));
-    dirtyIds.add(right.nextSiblingId);
-  } else {
-    const parent = state.blocks.get(left.parentId);
-    if (!parent) {
-      throw new Error(
-        `mergeAdjacentBlocks: parent "${left.parentId}" of merged blocks not found`,
-      );
-    }
-    blocks = blocks.set(left.parentId, updateBlock(parent, { lastChildId: leftId }));
-    dirtyIds.add(left.parentId);
-  }
-
-  return {
-    state: { ...state, blocks },
-    dirtyIds,
-  };
 }
