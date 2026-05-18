@@ -72,6 +72,12 @@ export function getBlockFromEither(state: State, id: BlockId): Block | null {
  * Result of every Layer 3 state-mutating operation. The dirtyIds set is
  * produced at write-time by the operation itself, captured from the
  * Y.Doc transaction's change set.
+ *
+ * Renderer contract for dirtyIds: the set contains both updated and
+ * deleted ids. Consumers should check `getBlock(state, id) === null`
+ * to distinguish "updated, re-render" from "deleted, drop cached render
+ * node". Deletions in embedContents follow the same contract via
+ * getEmbedContent.
  */
 export interface OperationResult {
   readonly state: State;
