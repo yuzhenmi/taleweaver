@@ -3,7 +3,7 @@ import type { ReadonlyAttrs } from "../state/attrs";
 import type { BlockId } from "../state/block-id";
 import type { Block } from "../state/block";
 import { createState, type State } from "../state/state";
-import { runTransaction, getBlocksMap } from "../state/yjs-doc";
+import { runTransaction, getBlocksMap, getEmbedContentsMap } from "../state/yjs-doc";
 import { buildYBlock } from "../state/y-block";
 
 const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
@@ -65,8 +65,19 @@ export function buildBlock(args: {
 /**
  * Build a Y.Doc-backed State from a list of Block-shape fixtures.
  * Each block is materialized into the Y.Doc's blocks map.
+ *
+ * Optional `embedContents` parameter materializes embed-content blocks
+ * (footnote bodies, etc.) into the Y.Doc's embedContents map instead.
+ * Per Decision A, embed-content blocks live in a separate map from
+ * main-tree blocks so the "only root has null parentId" invariant
+ * holds for state.blocks. Embed-content blocks typically have parentId
+ * === null (no parent — they're referenced via EmbedItem.properties.contentBlockId).
  */
-export function buildState(args: { rootId: string; blocks: ReadonlyArray<Block> }): State {
+export function buildState(args: {
+  rootId: string;
+  blocks: ReadonlyArray<Block>;
+  embedContents?: ReadonlyArray<Block>;
+}): State {
   const state = createState({ rootId: args.rootId as BlockId });
   runTransaction(state.doc, () => {
     const yBlocks = getBlocksMap(state.doc);
@@ -84,6 +95,24 @@ export function buildState(args: { rootId: string; blocks: ReadonlyArray<Block> 
           inlineContent: block.inlineContent,
         }),
       );
+    }
+    if (args.embedContents !== undefined) {
+      const yEmbeds = getEmbedContentsMap(state.doc);
+      for (const block of args.embedContents) {
+        yEmbeds.set(
+          block.id,
+          buildYBlock({
+            type: block.type,
+            attrs: block.attrs,
+            parentId: block.parentId,
+            prevSiblingId: block.prevSiblingId,
+            nextSiblingId: block.nextSiblingId,
+            firstChildId: block.firstChildId,
+            lastChildId: block.lastChildId,
+            inlineContent: block.inlineContent,
+          }),
+        );
+      }
     }
   });
   return state;

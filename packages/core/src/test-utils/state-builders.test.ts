@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildBlock, buildState, text, embed } from "./state-builders";
-import { getBlock } from "../state/state";
+import { buildBlock, buildState, text, embed, inlineContent } from "./state-builders";
+import { getBlock, getEmbedContent } from "../state/state";
 import type { BlockId } from "../state/block-id";
 
 describe("state-builders (Y.Doc-backed)", () => {
@@ -39,5 +39,45 @@ describe("state-builders (Y.Doc-backed)", () => {
     expect(root?.firstChildId).toBe("p1");
     const p1 = getBlock(state, "p1" as BlockId);
     expect(p1?.inlineContent?.items[0]).toEqual({ kind: "text", text: "hello", attrs: {} });
+  });
+});
+
+describe("buildState — embedContents", () => {
+  it("creates an empty embedContents map when not provided", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+    });
+    expect(getEmbedContent(state, "missing" as BlockId)).toBeNull();
+  });
+
+  it("populates embedContents from the optional parameter", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "root",
+          inlineContent: inlineContent([
+            embed("fn-anchor", { contentBlockId: "fn-body-1" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "fn-body-1",
+          type: "fn-body",
+          inlineContent: inlineContent([text("footnote text")]),
+        }),
+      ],
+    });
+    const body = getEmbedContent(state, "fn-body-1" as BlockId);
+    expect(body).not.toBeNull();
+    expect(body?.type).toBe("fn-body");
+    expect(body?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "footnote text" });
+    // Embed-content blocks should NOT appear in the main blocks map.
+    expect(getBlock(state, "fn-body-1" as BlockId)).toBeNull();
   });
 });
