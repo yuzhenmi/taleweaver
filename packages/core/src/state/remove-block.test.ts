@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { removeBlock } from "./remove-block";
-import { getBlock } from "./state";
-import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { getBlock, getEmbedContent } from "./state";
+import { buildBlock, buildState, embed, inlineContent, text } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
 describe("removeBlock — middle child", () => {
@@ -184,5 +184,108 @@ describe("removeBlock — error cases", () => {
       ],
     });
     expect(() => removeBlock(state, "orphan" as BlockId)).toThrow(/no parentId/);
+  });
+});
+
+describe("removeBlock — cascade-delete embed-content references", () => {
+  it("removes a referenced fn-body when its anchor block is removed", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("hello"),
+            embed("fn-anchor", { contentBlockId: "fn-body-1" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "fn-body-1",
+          type: "fn-body",
+          inlineContent: inlineContent([text("note")]),
+        }),
+      ],
+    });
+    expect(getEmbedContent(state, "fn-body-1" as BlockId)).not.toBeNull();
+
+    const result = removeBlock(state, "p1" as BlockId);
+    expect(getEmbedContent(result.state, "fn-body-1" as BlockId)).toBeNull();
+    expect(result.dirtyIds.has("fn-body-1" as BlockId)).toBe(true);
+  });
+
+  it("recursively removes nested embed-content references (footnote in footnote)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "outer" })]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "outer",
+          type: "fn-body",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "inner" })]),
+        }),
+        buildBlock({
+          id: "inner",
+          type: "fn-body",
+          inlineContent: inlineContent([text("deep")]),
+        }),
+      ],
+    });
+
+    const result = removeBlock(state, "p1" as BlockId);
+    expect(getEmbedContent(result.state, "outer" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "inner" as BlockId)).toBeNull();
+    expect(result.dirtyIds.has("outer" as BlockId)).toBe(true);
+    expect(result.dirtyIds.has("inner" as BlockId)).toBe(true);
+  });
+
+  it("does not double-delete when multiple anchors reference the same body (cycle defense)", () => {
+    // Two paragraphs both reference the same fn-body. Removing one paragraph
+    // should remove the fn-body. Removing the OTHER paragraph would normally
+    // also try — but since the body is already gone, the walker must handle
+    // the absence gracefully.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "shared" })]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "shared" })]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "shared",
+          type: "fn-body",
+          inlineContent: inlineContent([text("body")]),
+        }),
+      ],
+    });
+    const r1 = removeBlock(state, "p1" as BlockId);
+    expect(getEmbedContent(r1.state, "shared" as BlockId)).toBeNull();
+    // Now remove p2 — its anchor's contentBlockId still points at "shared" but the body is gone.
+    expect(() => removeBlock(r1.state, "p2" as BlockId)).not.toThrow();
   });
 });
