@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AttrInterpreter } from "./attr-registry";
-import { AttrRegistry, attrRegistry } from "./attr-registry";
+import { AttrRegistry, attrRegistry, createDefaultAttrRegistry } from "./attr-registry";
 import type { ReadonlyAttrs } from "../state/attrs";
 
 describe("AttrInterpreter type", () => {
@@ -124,5 +124,30 @@ describe("default attrRegistry singleton", () => {
     // registration is tested in builtin-attrs.test.ts.
     expect(typeof attrRegistry.register).toBe("function");
     expect(typeof attrRegistry.applyAll).toBe("function");
+  });
+});
+
+describe("createDefaultAttrRegistry", () => {
+  it("returns a registry pre-populated with all built-in interpreters", () => {
+    const reg = createDefaultAttrRegistry();
+    expect(reg.has("bold")).toBe(true);
+    expect(reg.has("italic")).toBe(true);
+    expect(reg.has("fontFamily")).toBe(true);
+    expect(reg.has("fontSize")).toBe(true);
+    expect(reg.has("color")).toBe(true);
+    expect(reg.has("backgroundColor")).toBe(true);
+    expect(reg.has("underline")).toBe(true);
+  });
+
+  it("applyAll produces fontWeight=bold for { bold: true } attrs", () => {
+    const reg = createDefaultAttrRegistry();
+    const style = reg.applyAll({ bold: true });
+    expect(style.fontWeight).toBe("bold");
+  });
+
+  it("returns a fresh instance each call (no shared mutable state)", () => {
+    const a = createDefaultAttrRegistry();
+    const b = createDefaultAttrRegistry();
+    expect(a).not.toBe(b);
   });
 });

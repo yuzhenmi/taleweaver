@@ -1,5 +1,6 @@
 import type { Style } from "../styles";
 import type { ReadonlyAttrs } from "../state/attrs";
+import { registerBuiltinAttrs } from "./builtin-attrs";
 
 /**
  * An interpreter for one attribute key. Translates the open-schema
@@ -87,3 +88,21 @@ export class AttrRegistry {
  * isolation should construct their own `new AttrRegistry()`.
  */
 export const attrRegistry = new AttrRegistry();
+
+/**
+ * Construct a fresh `AttrRegistry` pre-populated with every built-in
+ * attribute interpreter. Canonical production wiring (P7+): callers
+ * inject the returned registry into `render(state, componentRegistry,
+ * attrRegistry)` so cascade interpreters actually contribute to
+ * `ComputedStyle`.
+ *
+ * Tests that want isolation can instantiate `new AttrRegistry()` and
+ * register only the interpreters under test.
+ *
+ * See Decision G in docs/superpowers/specs/phase-5-plus/decisions.md.
+ */
+export function createDefaultAttrRegistry(): AttrRegistry {
+  const reg = new AttrRegistry();
+  registerBuiltinAttrs(reg);
+  return reg;
+}
