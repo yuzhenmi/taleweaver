@@ -47,6 +47,9 @@ export {
   undo as undoLegacy,
   redo as redoLegacy,
 } from "./state/history-legacy";
+// New Y.UndoManager-backed history (per decision C). Replaces the legacy
+// snapshot-based history at the P11.4 cutover.
+export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
 export { createEmptyDocument } from "./state/initial-state";
 export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils";
 export { findPathById } from "./state/find-path";
