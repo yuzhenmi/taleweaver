@@ -1,7 +1,8 @@
 import type { Block } from "../state/block";
 import type { BlockId } from "../state/block-id";
 import type { State } from "../state/state";
-import { getBlock } from "../state/state";
+import { getBlock, getEmbedContent } from "../state/state";
+import { getEmbedContentsMap } from "../state/yjs-doc";
 import type { ReadonlyAttrs } from "../state/attrs";
 import type { InlineContent } from "../state/inline-content";
 import type { Style, ComputedStyle } from "../styles";
@@ -67,7 +68,26 @@ export function render(
     throw new Error(`render: root block "${state.rootId}" not found`);
   }
   const root = renderBlock(rootBlock, null, state, componentRegistry, attrRegistry, context, visited);
-  return Object.freeze({ root, embedContents: new Map() });
+  const embedContents = new Map<BlockId, RenderNode>();
+  const yEmbeds = getEmbedContentsMap(state.doc);
+  for (const id of yEmbeds.keys()) {
+    const block = getEmbedContent(state, id as BlockId);
+    if (block === null) continue; // shouldn't happen since we just enumerated the map
+    // Each embed-content block renders as a fresh subtree with no parent
+    // computed style (uses initial). Independent cascade context.
+    //
+    // The `visited` set is RESET per embed-content subtree: each is a
+    // self-contained walk over its own descendants; sharing `visited`
+    // across the main-tree walk and embed-content walks would prevent
+    // legitimate re-entry into a body (e.g., the same id-namespace doesn't
+    // imply cycles when the two trees are independent).
+    const visitedEmbed = new Set<BlockId>();
+    embedContents.set(
+      id as BlockId,
+      renderBlock(block, null, state, componentRegistry, attrRegistry, context, visitedEmbed),
+    );
+  }
+  return Object.freeze({ root, embedContents });
 }
 
 function renderBlock(

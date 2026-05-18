@@ -142,3 +142,102 @@ describe("render (new)", () => {
     expect(observedFontWeight).toBe("bold");
   });
 });
+
+import type { BlockId } from "../state/block-id";
+
+describe("render — embed-content zones", () => {
+  const fnBodyComponent: LeafComponentDefinition = {
+    type: "fn-body",
+    kind: "leaf",
+    render: (view, _ctx, inlineChildren) =>
+      ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
+  };
+
+  it("renders each embed-content block into its own RenderNode keyed by id", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            { kind: "embed", embedType: "fn-anchor", attrs: {}, properties: { contentBlockId: "fn-body-1" } },
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "fn-body-1",
+          type: "fn-body",
+          inlineContent: inlineContent([text("footnote text")]),
+        }),
+      ],
+    });
+    const reg = basicRegistry();
+    reg.register(fnBodyComponent);
+    const out = render(state, reg, createDefaultAttrRegistry());
+    expect(out.embedContents.size).toBe(1);
+    const body = out.embedContents.get("fn-body-1" as BlockId);
+    expect(body).toBeDefined();
+    expect(body?.type).toBe("element");
+  });
+
+  it("main-tree walker does NOT recurse into embedContents", () => {
+    // The fn-anchor embed in the main doc emits an inline ElementBox, NOT
+    // a recursive walk into fn-body. Pagination merges them later.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            { kind: "embed", embedType: "fn-anchor", attrs: {}, properties: { contentBlockId: "fn-body-1" } },
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn-body-1", type: "fn-body", inlineContent: inlineContent([text("body")]) }),
+      ],
+    });
+    const reg = basicRegistry();
+    reg.register(fnBodyComponent);
+    const out = render(state, reg, createDefaultAttrRegistry());
+    const p = ((out.root as { children: ReadonlyArray<RenderNode> }).children[0]) as { children: ReadonlyArray<RenderNode> };
+    // Single inline child: the fn-anchor ElementBox. NOT the fn-body content.
+    expect(p.children).toHaveLength(1);
+    expect((p.children[0] as { children: ReadonlyArray<RenderNode> }).children).toHaveLength(0);
+  });
+
+  it("renders multiple embed-content blocks in parallel", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            { kind: "embed", embedType: "fn-anchor", attrs: {}, properties: { contentBlockId: "fn-1" } },
+            { kind: "embed", embedType: "fn-anchor", attrs: {}, properties: { contentBlockId: "fn-2" } },
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn-1", type: "fn-body", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "fn-2", type: "fn-body", inlineContent: inlineContent([text("b")]) }),
+      ],
+    });
+    const reg = basicRegistry();
+    reg.register(fnBodyComponent);
+    const out = render(state, reg, createDefaultAttrRegistry());
+    expect(out.embedContents.size).toBe(2);
+    expect(out.embedContents.has("fn-1" as BlockId)).toBe(true);
+    expect(out.embedContents.has("fn-2" as BlockId)).toBe(true);
+  });
+});
