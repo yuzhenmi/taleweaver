@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
-import { moveByCharacter } from "../cursor/cursor-ops";
+import { moveByCharacter } from "../cursor/cursor-ops-legacy";
 
 describe("Integration: inline formatting with span", () => {
   it("cursor moves through span boundary", () => {

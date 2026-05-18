@@ -5,7 +5,7 @@ import {
   selectionStart,
   selectionEnd,
 } from "../../cursor/selection";
-import { moveByCharacter } from "../../cursor/cursor-ops";
+import { moveByCharacter } from "../../cursor/cursor-ops-legacy";
 import { getNodeByPath } from "../../state/operations-legacy";
 import { getTextContentLength } from "../../state/text-utils-legacy";
 

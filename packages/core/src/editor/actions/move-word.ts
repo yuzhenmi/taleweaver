@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import { moveByWord } from "../../cursor/cursor-ops";
+import { moveByWord } from "../../cursor/cursor-ops-legacy";
 
 export function handleMoveWord(
   editor: EditorState,

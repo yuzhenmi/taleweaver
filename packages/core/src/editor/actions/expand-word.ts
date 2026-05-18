@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import { createSelection } from "../../cursor/selection";
-import { moveByWord } from "../../cursor/cursor-ops";
+import { moveByWord } from "../../cursor/cursor-ops-legacy";
 
 export function handleExpandWord(
   editor: EditorState,

@@ -7,7 +7,7 @@ import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
 import { insertText } from "../state/transformations-legacy";
 import { renderTree } from "../render/render-legacy";
-import { moveByWord } from "../cursor/cursor-ops";
+import { moveByWord } from "../cursor/cursor-ops-legacy";
 import { registry } from "./setup";
 
 describe("Integration: multiple edits with pipeline", () => {

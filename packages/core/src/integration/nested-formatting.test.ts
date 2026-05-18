@@ -10,7 +10,7 @@ import { createPosition, createSpan } from "../state/position";
 import { deleteRange } from "../state/transformations-legacy";
 import { renderTree } from "../render/render-legacy";
 import { layoutTree } from "../layout/layout-engine";
-import { moveByCharacter } from "../cursor/cursor-ops";
+import { moveByCharacter } from "../cursor/cursor-ops-legacy";
 import { registry, measurer, lineText } from "./setup";
 
 const containerWidth = 200;

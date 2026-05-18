@@ -3,7 +3,7 @@ import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createSpan, positionsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations-legacy";
-import { moveByCharacter } from "../../cursor/cursor-ops";
+import { moveByCharacter } from "../../cursor/cursor-ops-legacy";
 import { getTextContentLength } from "../../state/text-utils-legacy";
 import { createNode } from "../../state/create-node-legacy";
 import { isStructuralParagraph } from "../../state/normalize-legacy";

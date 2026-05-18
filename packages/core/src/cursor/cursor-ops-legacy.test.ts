@@ -8,7 +8,7 @@ import {
   selectionStart,
   selectionEnd,
 } from "./selection";
-import { moveByCharacter, moveByWord, expandSelection, expandSelectionByCharacter, selectWord } from "./cursor-ops";
+import { moveByCharacter, moveByWord, expandSelection, expandSelectionByCharacter, selectWord } from "./cursor-ops-legacy";
 
 function makeDoc() {
   const t1 = createTextNode("t1", "Hello ");

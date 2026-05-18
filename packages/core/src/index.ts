@@ -132,7 +132,7 @@ export {
   moveByWord,
   expandSelection,
   selectWord,
-} from "./cursor/cursor-ops";
+} from "./cursor/cursor-ops-legacy";
 
 // Editor (platform-agnostic editor modules)
 export type { EditorAction } from "./editor/editor-action";

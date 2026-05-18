@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import { expandSelectionByCharacter } from "../../cursor/cursor-ops";
+import { expandSelectionByCharacter } from "../../cursor/cursor-ops-legacy";
 
 export function handleExpandSelection(
   editor: EditorState,

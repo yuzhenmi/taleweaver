@@ -8,7 +8,7 @@ import { createPosition } from "../state/position";
 import { insertText } from "../state/transformations-legacy";
 import { renderTree } from "../render/render-legacy";
 import { layoutTree } from "../layout/layout-engine";
-import { moveByCharacter } from "../cursor/cursor-ops";
+import { moveByCharacter } from "../cursor/cursor-ops-legacy";
 import { createCursor, isCollapsed } from "../cursor/selection";
 import { registry, measurer, expectTextBox } from "./setup";
 
