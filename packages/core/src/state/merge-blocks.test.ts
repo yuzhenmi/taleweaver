@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
-import { getBlock } from "./state";
+import { getBlock, getEmbedContent } from "./state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
@@ -245,20 +245,24 @@ describe("mergeAdjacentBlocks — block-level invariants", () => {
   });
 
   it("preserves embed-referenced contents in right's inline content (no cascade-delete)", () => {
-    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + standalone fn-body block.
+    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + fn-body in embedContents.
     // Merging p1 + p2 must NOT delete fn-body — the embed reference is still alive in the merged content.
+    // mergeAdjacentBlocks calls yBlocks.delete(right) directly (not removeBlock), so Task 5's
+    // cascade-delete does not fire; fn-body in embedContents survives.
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("see")]) }),
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-body" })]) }),
+      ],
+      embedContents: [
         buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) }),
       ],
     });
     const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    // fn-body must still exist.
-    expect(getBlock(result.state, "fn-body" as BlockId)).not.toBeNull();
+    // fn-body must still exist in embedContents.
+    expect(getEmbedContent(result.state, "fn-body" as BlockId)).not.toBeNull();
     // The merged inline content carries the embed reference.
     const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
