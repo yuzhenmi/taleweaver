@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { replaceRange } from "./replace-range";
+import { getBlock } from "./state";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition, createSpan } from "./block-position";
@@ -23,7 +24,7 @@ describe("replaceRange — basic single-block replacement", () => {
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = replaceRange(state, span, "FOO", {});
 
-    const block = result.state.blocks.get("p" as BlockId);
+    const block = getBlock(result.state, "p" as BlockId);
     expect(block?.inlineContent?.items).toHaveLength(1);
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "helFOOorld", attrs: {} });
 
@@ -49,7 +50,7 @@ describe("replaceRange — same-block coverage", () => {
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = replaceRange(state, span, "FOO", { italic: true });
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "hel", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ text: "FOO", attrs: { italic: true } });
@@ -70,7 +71,7 @@ describe("replaceRange — same-block coverage", () => {
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = replaceRange(state, span, "FOO", { bold: true });
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helFOOorld", attrs: { bold: true } });
   });
@@ -89,7 +90,7 @@ describe("replaceRange — same-block coverage", () => {
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 2));
     const result = replaceRange(state, span, "X", {});
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "aXb", attrs: {} });
   });
@@ -108,7 +109,7 @@ describe("replaceRange — same-block coverage", () => {
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 5));
     const result = replaceRange(state, span, "Z", {});
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "aZf", attrs: {} });
   });
@@ -131,10 +132,10 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "FOO", {});
 
-    const p1 = result.state.blocks.get("p1" as BlockId);
+    const p1 = getBlock(result.state, "p1" as BlockId);
     expect(p1?.inlineContent?.items).toHaveLength(1);
     expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heFOOrld", attrs: {} });
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
 
     // dirtyIds: union of deleteRange's dirtyIds ({p1, p2, doc}) + insertText's ({p1}) = {p1, p2, doc}.
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
@@ -157,11 +158,11 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
     const result = replaceRange(state, span, "Z", {});
 
-    const p1 = result.state.blocks.get("p1" as BlockId);
+    const p1 = getBlock(result.state, "p1" as BlockId);
     expect(p1?.inlineContent?.items).toHaveLength(1);
     expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
-    expect(result.state.blocks.has("p3" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
+    expect(getBlock(result.state, "p3" as BlockId)).toBe(null);
 
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
   });
@@ -182,7 +183,7 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "FOO", { underline: true });
 
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "he", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ text: "FOO", attrs: { underline: true } });
@@ -204,10 +205,10 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "X", {});
 
-    expect(result.state.blocks.get("p1" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "heXrld" });
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
-    expect(result.state.blocks.get("section" as BlockId)?.lastChildId).toBe("p1");
-    expect(result.state.blocks.get("doc" as BlockId)?.firstChildId).toBe("section"); // unchanged
+    expect(getBlock(result.state, "p1" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "heXrld" });
+    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
+    expect(getBlock(result.state, "section" as BlockId)?.lastChildId).toBe("p1");
+    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("section"); // unchanged
   });
 });
 
@@ -239,7 +240,7 @@ describe("replaceRange — edge cases", () => {
     const pos = createPosition("p" as BlockId, 2);
     const result = replaceRange(state, createSpan(pos, pos), "XY", {});
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "heXYllo", attrs: {} });
     // dirtyIds: just the modified block.
@@ -258,7 +259,7 @@ describe("replaceRange — edge cases", () => {
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = replaceRange(state, span, "", {});
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helorld" });
   });
@@ -275,7 +276,7 @@ describe("replaceRange — edge cases", () => {
     const span = createSpan(createPosition("p" as BlockId, 7), createPosition("p" as BlockId, 3));
     const result = replaceRange(state, span, "FOO", {});
 
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helFOOorld" });
   });
@@ -297,9 +298,9 @@ describe("replaceRange — block-level invariants", () => {
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
     const result = replaceRange(state, span, "X", {});
 
-    expect(result.state.blocks.has("fn-body" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "fn-body" as BlockId)).not.toBe(null);
     // p1's content: prefix=[] + "X" inserted at offset 0 + focus.suffix=[embed] → [text("X"), embed].
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "X" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "footnote-anchor" });
@@ -318,10 +319,10 @@ describe("replaceRange — block-level invariants", () => {
         buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("end")]) }),
       ],
     });
-    const beforeP0 = state.blocks.get("p0" as BlockId);
+    const beforeP0 = getBlock(state, "p0" as BlockId);
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
     const result = replaceRange(state, span, "Z", {});
-    expect(result.state.blocks.get("p0" as BlockId)).toBe(beforeP0);
+    expect(getBlock(result.state, "p0" as BlockId)).toBe(beforeP0);
   });
 
   it("does not mutate the original state", () => {
@@ -336,7 +337,7 @@ describe("replaceRange — block-level invariants", () => {
     const result = replaceRange(state, span, "FOO", {});
     expect(result.state).not.toBe(state);
     // Original state still has the original block content.
-    expect(state.blocks.get("p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
+    expect(getBlock(state, "p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
   });
 
   it("dirtyIds is the union of underlying deleteRange + insertText dirtyIds (full replace)", () => {
