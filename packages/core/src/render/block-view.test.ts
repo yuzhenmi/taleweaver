@@ -7,6 +7,7 @@ import type {
 } from "./block-view";
 import type { BlockId } from "../state/block-id";
 import type { InlineContent } from "../state/inline-content";
+import type { State } from "../state/state";
 import type { ComputedStyle } from "../styles";
 
 describe("block-view (types)", () => {
@@ -54,13 +55,16 @@ describe("block-view (types)", () => {
   });
 
   it("RenderContext provides state + view accessors", () => {
-    // Compile-time shape check only.
-    const ctx = null as unknown as RenderContext;
-    if (ctx !== null) {
-      void ctx.getView("x" as BlockId);
-      void ctx.getEmbedContent("x" as BlockId);
-      void ctx.state;
-    }
-    expect(true).toBe(true);
+    // Declare a stub matching the contract — proves the interface shape
+    // is implementable. If RenderContext loses any of these members, this
+    // assignment stops compiling and the test breaks loudly.
+    const stub: RenderContext = {
+      state: {} as State,
+      getView: () => { throw new Error("stub"); },
+      getEmbedContent: () => { throw new Error("stub"); },
+    };
+    expect(typeof stub.getView).toBe("function");
+    expect(typeof stub.getEmbedContent).toBe("function");
+    expect(stub.state).toBeDefined();
   });
 });
