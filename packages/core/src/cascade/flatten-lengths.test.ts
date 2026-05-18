@@ -3,11 +3,24 @@ import { flattenLengths } from "./flatten-lengths";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import type { ComputedStyle } from "../styles";
 
+/**
+ * Construct a ComputedStyle with a single field overridden. The override
+ * value is intentionally typed loosely because two tests below exercise
+ * defensive em-handling paths in `flattenLengths` — these paths handle
+ * inputs that the strict `ComputedStyle` type forbids but the cascade
+ * pipeline produces transiently before flatten. Narrowly scoped so the
+ * type-relax is localized to the tests that need it.
+ */
+function csWith<K extends keyof ComputedStyle>(
+  key: K,
+  value: ComputedStyle[K] | { unit: string; value: number },
+): ComputedStyle {
+  return { ...INITIAL_COMPUTED_STYLE, [key]: value } as ComputedStyle;
+}
+
 describe("flattenLengths", () => {
   it("resolves em fontSize against initial fontSize at root", () => {
-    // Defensive path: fontSize is `number` in ComputedStyle, but the cascade may
-    // pass a pre-flatten value through, so flattenLengths handles em objects.
-    const cs = { ...INITIAL_COMPUTED_STYLE, fontSize: { unit: "em", value: 2 } } as unknown as ComputedStyle;
+    const cs = csWith("fontSize", { unit: "em", value: 2 });
     const out = flattenLengths(cs);
     expect(out.fontSize).toBe(INITIAL_COMPUTED_STYLE.fontSize * 2);
   });
@@ -19,14 +32,8 @@ describe("flattenLengths", () => {
   });
 
   it("flattens em padding against own fontSize", () => {
-    // Defensive path: paddingBlockStart is ComputedLength (no em), but
-    // flattenLength handles em defensively for inputs that haven't been flattened.
-    const cs = {
-      ...INITIAL_COMPUTED_STYLE,
-      fontSize: 16,
-      paddingBlockStart: { unit: "em", value: 1.5 },
-    } as unknown as ComputedStyle;
-    const out = flattenLengths(cs);
+    const cs = csWith("paddingBlockStart", { unit: "em", value: 1.5 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
     expect(out.paddingBlockStart).toBe(24);
   });
 
