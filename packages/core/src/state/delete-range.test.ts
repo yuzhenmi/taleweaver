@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deleteRange } from "./delete-range";
-import { getBlock } from "./state";
+import { getBlock, getEmbedContent } from "./state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
@@ -311,21 +311,23 @@ describe("deleteRange — block-level invariants", () => {
   });
 
   it("preserves embed-referenced content blocks (no cascade-delete on focus's content)", () => {
-    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + standalone fn-body.
+    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + fn-body in embedContents.
     // Delete from p1@0 to p2@0 — focus's items[0..) keeps the embed; merged into p1.
-    // Result: fn-body must still exist.
+    // Result: fn-body must still exist in embedContents.
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("see")]) }),
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-body" })]) }),
+      ],
+      embedContents: [
         buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
     const result = deleteRange(state, span);
-    expect((getBlock(result.state, "fn-body" as BlockId) !== null)).toBe(true);
+    expect(getEmbedContent(result.state, "fn-body" as BlockId)).not.toBeNull();
     // p1 absorbed p2's content (embed) since focus.offset=0 → focus.suffix is full focus content.
     const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
@@ -554,17 +556,23 @@ describe("deleteRange — error cases", () => {
   });
 
   it("throws when the cross-block span endpoints are in different selection contexts", () => {
-    // p in doc; fn-body has no parentId → different root → comparePositions throws via no-common-ancestor.
+    // p in doc; fn lives in embedContents (separate tree). deleteRange's pre-normalize
+    // existence guard rejects the focus block because it isn't in state.blocks —
+    // the main-tree span cannot cross into embed-content territory. (Earlier the same
+    // intent was caught later by comparePositions' "no common ancestor" — both errors
+    // express the same invariant; only the guard site differs.)
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+      ],
+      embedContents: [
         buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/no common ancestor/);
+    expect(() => deleteRange(state, span)).toThrow(/focus block "fn" not found/);
   });
 
   it("throws when anchor offset is negative (same-block)", () => {
