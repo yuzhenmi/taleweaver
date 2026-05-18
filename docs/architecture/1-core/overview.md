@@ -21,10 +21,18 @@ directory is one module.
 - **`components/`** — the plugin registry. Each component registers a
   render function for a node type. Lets downstream consumers add new
   document primitives (charts, equations, embeds) without forking core.
+  *(During the P7–P11.4 parallel window, the canonical
+  `component-registry.ts` is the new constructor-injectable shape per
+  Decision F; `component-registry-legacy.ts` remains in service until
+  cutover.)*
 
 - **`render/`** — the render tree. Walks a state tree bottom-up and
   dispatches each node through the component registry to produce a
   `RenderNode` tree of layout-relevant elements with declared styles.
+  *(During the P7–P11.4 parallel window, `render.ts` is the new
+  Y.Doc-backed `render(state, componentRegistry, attrRegistry)` walker
+  per Decisions B / F / G; `render-legacy.ts` keeps the legacy
+  `renderTree` / `renderTreeIncremental` API live until cutover.)*
 
 - **`cascade/`** — the value-resolution pass. Walks the render tree
   top-down applying inheritance, initial values, and length flattening
