@@ -4,76 +4,22 @@ import { createPosition } from "../state/position";
 import { getNodeByPath } from "../state/operations-legacy";
 import { getTextContent, getTextContentLength } from "../state/text-utils-legacy";
 import { createSelection, type Selection } from "./selection";
+import {
+  nextGraphemeBoundary,
+  prevGraphemeBoundary,
+  nextWordBoundary,
+  prevWordBoundary,
+} from "./grapheme-utils";
 
-// --- Grapheme cluster segmentation ---
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "grapheme",
-});
+// Local word segmenter for `selectWord`, which iterates segments directly
+// rather than calling a boundary helper. The boundary helpers above (used by
+// move-by-word) come from `./grapheme-utils`; this Intl.Segmenter is kept
+// local so `grapheme-utils.ts`'s public surface stays limited to the four
+// boundary helpers per the P9 plan. T5 will replace this with the shared
+// `iterateWordSegments` utility.
 const wordSegmenter = new Intl.Segmenter(undefined, {
   granularity: "word",
 });
-
-/** Find the next grapheme cluster boundary after `offset` in `text`. */
-function nextGraphemeBoundary(text: string, offset: number): number {
-  if (offset >= text.length) return text.length;
-  for (const seg of graphemeSegmenter.segment(text)) {
-    const end = seg.index + seg.segment.length;
-    if (end > offset) return end;
-  }
-  return text.length;
-}
-
-/** Find the previous grapheme cluster boundary before `offset` in `text`. */
-function prevGraphemeBoundary(text: string, offset: number): number {
-  if (offset <= 0) return 0;
-  let lastStart = 0;
-  for (const seg of graphemeSegmenter.segment(text)) {
-    if (seg.index >= offset) return lastStart;
-    lastStart = seg.index;
-  }
-  return lastStart;
-}
-
-/** Find the next word boundary after `offset` in `text`.
- *  Always lands at the END of a word, skipping any whitespace/punctuation. */
-function nextWordBoundary(text: string, offset: number): number {
-  if (offset >= text.length) return text.length;
-  for (const seg of wordSegmenter.segment(text)) {
-    const end = seg.index + seg.segment.length;
-    if (seg.isWordLike && end > offset) {
-      return end;
-    }
-  }
-  return text.length;
-}
-
-/** Find the previous word boundary before `offset` in `text`. */
-function prevWordBoundary(text: string, offset: number): number {
-  if (offset <= 0) return 0;
-  // Collect word segments, find the start of the word at or before offset
-  let lastWordStart = 0;
-  let foundWord = false;
-  for (const seg of wordSegmenter.segment(text)) {
-    const end = seg.index + seg.segment.length;
-    if (seg.isWordLike) {
-      if (end >= offset) {
-        // We're at or past this word
-        if (seg.index < offset && seg.index > 0) {
-          // We're inside this word — go to its start
-          return seg.index;
-        }
-        if (seg.index >= offset) {
-          // We're at or past the start of this word — go to previous word
-          return foundWord ? lastWordStart : 0;
-        }
-      }
-      lastWordStart = seg.index;
-      foundWord = true;
-    }
-  }
-  return foundWord ? lastWordStart : 0;
-}
 
 // --- Cursor movement ---
 
