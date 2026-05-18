@@ -1,3 +1,9 @@
+// DEPRECATED — consumed only by legacy paths during the parallel window
+// (editor-state.ts, history-legacy.ts, transformations.ts, formatting.ts,
+// typing-session.test.ts, the legacy `Change`/`createChange` re-exports
+// in index.ts). The new Y.UndoManager-backed history (state/history.ts)
+// does NOT use this. Delete at the P11.4 cutover when the legacy editor
+// path is removed.
 import type { StateNode } from "./state-node";
 
 /** A reversible change record produced by a transformation. */
