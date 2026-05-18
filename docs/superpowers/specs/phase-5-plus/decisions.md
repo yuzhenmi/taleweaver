@@ -485,3 +485,66 @@ function createInitialEditorState(
 
 ---
 
+## G — AttrRegistry injection strategy (decided 2026-05-18)
+
+**Question:** the cascade pipeline's `attrRegistry` is exported as a module-level singleton (`packages/core/src/cascade/attr-registry.ts:89`). `registerBuiltinAttrs(registry)` exists but is only invoked by tests against fresh `AttrRegistry` instances — never against the singleton. Production code reading the singleton finds it empty: `bold`, `italic`, `fontFamily`, `fontSize`, `color`, etc. are silent no-ops in any `attrRegistry.applyAll(attrs)` call. The new renderer (P7) needs working cascade integration to produce a real `ComputedStyle`. How do we wire it?
+
+**Decision:** **`AttrRegistry` is constructor-injectable, paralleling Decision F for `ComponentRegistry`.** Add a `createDefaultAttrRegistry()` factory that returns a new `AttrRegistry` pre-registered with all built-ins. The new renderer accepts an `attrRegistry: AttrRegistry` parameter alongside the `componentRegistry`. The existing module-level singleton stays in place during the parallel window (it has no production callers that register against it; deletion can wait for P15).
+
+```typescript
+// cascade/attr-registry.ts (existing)
+export class AttrRegistry { ... }
+export const attrRegistry = new AttrRegistry(); // empty; kept for backwards
+                                                 // compatibility during parallel window
+
+// cascade/builtin-attrs.ts (existing helper, repurposed)
+export function registerBuiltinAttrs(registry: AttrRegistry): void { ... }
+
+// cascade/attr-registry.ts (new factory, added in P7's prep task)
+export function createDefaultAttrRegistry(): AttrRegistry {
+  const reg = new AttrRegistry();
+  registerBuiltinAttrs(reg);
+  return reg;
+}
+
+// new renderer's signature:
+render(
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+): RenderOutput;
+```
+
+**Concrete consequences:**
+
+1. **`createDefaultAttrRegistry()` is the canonical factory for production wiring.** Tests use it (or `new AttrRegistry()` + selective registration for isolation). At cutover the editor calls it to populate the renderer's third argument.
+
+2. **The empty `attrRegistry` singleton becomes vestigial.** It is no longer the production source of interpreters. P15 removes the export. During the parallel window we don't delete it because legacy code may still import the symbol (even if unused) and the cleanup is mechanical for P15 to bundle.
+
+3. **`render(state, componentRegistry, attrRegistry)` — three required arguments.** P7's tests construct the attrRegistry explicitly (via `createDefaultAttrRegistry()` for built-in-coverage tests, or a fresh `new AttrRegistry()` + targeted registrations for isolation).
+
+4. **Parallels Decision F exactly.** Same factory pattern, same testability story, same P15 deletion fate. The two registries (component + attr) are co-equal renderer dependencies.
+
+5. **No side-effect imports.** `registerBuiltinAttrs` is the explicit registration list; readers can see exactly which attrs are built in.
+
+**Rationale:**
+
+1. **Cascade must work in production.** A renderer that silently produces `INITIAL_COMPUTED_STYLE` for every block (because `bold`/`italic`/`fontFamily` are no-ops) is broken. The bug exists today but is masked because no production code path invokes `attrRegistry.applyAll` (the legacy renderer doesn't go through it). P7's new renderer would land the bug — the test for "cascade integration produces fontWeight=bold" would fail.
+2. **Singleton + module-load side-effect would mask the bug differently.** We could add `registerBuiltinAttrs(attrRegistry)` to `cascade/index.ts`, but that re-introduces the import-graph magic Decision F explicitly rejects ("`createDefaultComponentRegistry()` tells you exactly which built-ins exist"). Symmetry with the component registry argues for the injection pattern.
+3. **Testability earns its keep.** Tests for plugin-extended cascades (e.g., a `comment` attribute or `link` attribute that contributes Style) want isolated registries. The injection pattern enables this for free.
+4. **One-line factory; minimal disruption.** The class itself is already injectable in shape (`new AttrRegistry()` works today). Only the factory + the renderer's third parameter are new.
+
+**Rejected alternatives:**
+
+- **Side-effect registration on the singleton.** `cascade/index.ts` calls `registerBuiltinAttrs(attrRegistry)` on import. Rejected for the same reason Decision F rejects side-effect component imports: import-graph magic obscures what's registered.
+- **Build-time codegen.** Generate the populated singleton at build time. Over-engineering for seven interpreters.
+- **Leave the singleton + add tests-only injection.** Production code keeps the broken empty singleton; only tests get a working registry. Rejected — the production renderer would silently fail at cascade for any styled attribute.
+
+**Affected phases:**
+
+- **P7 (render rewrite):** new `render.ts` accepts `attrRegistry: AttrRegistry` as its third parameter. `createDefaultAttrRegistry()` is added to `cascade/attr-registry.ts` (or a sibling file). Tests use it. No editor wiring yet (legacy renderer is unaffected; it doesn't go through `attrRegistry`).
+- **P11.4 (editor layout-coupled actions cutover):** the editor constructs `attrRegistry` once at `createInitialEditorState` and passes it through to the renderer. `EditorConfig` gains an optional `attrRegistry?: AttrRegistry` field (mirrors the `componentRegistry?` field added by P8).
+- **P15:** delete the empty module-level `attrRegistry` singleton export. All consumers now use injected instances.
+
+---
+

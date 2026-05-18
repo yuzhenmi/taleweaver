@@ -4,14 +4,14 @@
 
 **Goal:** Build a new render module that consumes Y.Doc-backed `State` and produces `RenderNode` trees, dispatching through a new component registry. Runs in parallel with the legacy renderer (per Path B) — legacy stays callable for the existing editor path through the P11.4 cutover.
 
-**Architecture:** New `render(state, registry): { root: RenderNode, embedContents: ReadonlyMap<BlockId, RenderNode> }`. Walker reads `State` top-down via `getBlock` / `getEmbedContent`; for each block, runs cascade interpreters on `attrs` to compose `computedStyle`, constructs `ContainerBlockView` or `LeafBlockView` per Decision B (split discriminated union), dispatches to the new typed `ComponentDefinition` via the new `ComponentRegistry` (Decision F). For leaf blocks, expands `inlineContent.items` directly into TextBox/ElementBox RenderNodes (no `text`/`span` component dispatch per master spec line 509). Embed-content blocks (footnote bodies) render as a parallel `embedContents` map keyed by id — pagination consumes them later.
+**Architecture:** New `render(state, componentRegistry, attrRegistry): RenderOutput`. Walker reads `State` top-down via `getBlock` / `getEmbedContent`; for each block, runs cascade interpreters on `attrs` via the injected `AttrRegistry`, composes parent + interpreters + initial into `ComputedStyle` and flattens `em` lengths against own `fontSize`, constructs `ContainerBlockView` or `LeafBlockView` per Decision B (split discriminated union), dispatches to the new typed `ComponentDefinition` via the new `ComponentRegistry` (Decision F). For leaf blocks, expands `inlineContent.items` directly into TextBox/ElementBox RenderNodes (no `text`/`span` component dispatch per master spec). Embed-content blocks (footnote bodies) render as a parallel `embedContents` map keyed by id — pagination consumes them later.
 
-**Tech Stack:** TypeScript, Vitest, existing cascade pipeline (`attrRegistry`, `composeComputed`, `resolveLength`).
+**Tech Stack:** TypeScript, Vitest, existing cascade pipeline (`AttrRegistry`, `composeComputed`, `resolveLength`, the newly-extracted `flattenLengths`).
 
 ## Resolved spec questions
 
 - **Open Q 4 (footnote rendering destination):** new renderer returns `{ root: RenderNode; embedContents: ReadonlyMap<BlockId, RenderNode> }`. Pagination (P1.C, later phase) consumes the map.
-- All other open questions resolved by Decisions B / E / F.
+- All other open questions resolved by Decisions B / E / F / G.
 
 ---
 
@@ -23,15 +23,19 @@
 - `packages/core/src/render/render.ts` → `render-legacy.ts`
 - `packages/core/src/render/render.test.ts` → `render-legacy.test.ts`
 
-**Consolidated in P7 (Decision E):**
+**Consolidated in P7:**
 - `packages/core/src/render/render-node-v2.ts` content moved into `render-node.ts`. `render-node-v2.ts` and `render-node-v2.test.ts` deleted; `render-node.test.ts` takes the tests.
 
 **Created (new canonical names):**
+- `packages/core/src/cascade/flatten-lengths.ts` — extracted from `cascade-pass.ts`; exportable helper for em→px resolution against own fontSize. Used by both `cascadePass` (legacy renderer path) and the new renderer.
 - `packages/core/src/components/component-definition.ts` — new `ContainerComponentDefinition | LeafComponentDefinition` union per Decision B.
 - `packages/core/src/components/component-registry.ts` — new constructor-injectable `ComponentRegistry` per Decision F. Includes `createComponentRegistry()` (empty) and `createDefaultComponentRegistry()` (currently empty — P8 populates with migrated components).
 - `packages/core/src/render/block-view.ts` — `BlockView` types (`ContainerBlockView`, `LeafBlockView`, discriminated union) + `RenderContext` interface.
 - `packages/core/src/render/render.ts` — new renderer. Returns `{ root: RenderNode, embedContents: ReadonlyMap<BlockId, RenderNode> }`.
 - Test files alongside each new module.
+
+**Extended in P7:**
+- `packages/core/src/cascade/attr-registry.ts` — add `createDefaultAttrRegistry()` factory per Decision G. Existing class + empty singleton unchanged.
 
 **Modified (legacy consumer import path updates):**
 - Every `components/*.ts` (legacy components — switch imports to `component-definition-legacy` + `component-registry-legacy`).
@@ -41,17 +45,257 @@
 
 ## Sub-phase ordering
 
-Every commit goes green. Mechanical renames first; new types + new renderer second.
+Every commit goes green. Cascade prep first (so T7 has the pieces it needs), then mechanical renames, then new types + new renderer.
 
-1. T1: Rename legacy component types (`component-definition.ts`, `component-registry.ts`) to `-legacy` suffix; update all consumers (components + render + index.ts). Single atomic commit.
-2. T2: Consolidate `render-node-v2.ts` into `render-node.ts`; delete `-v2`; update consumers. Single atomic commit.
-3. T3: Rename `render.ts` → `render-legacy.ts`; update all consumers. Single atomic commit.
-4. T4: Add new `component-definition.ts` (Decision B types).
-5. T5: Add new `component-registry.ts` (Decision F shape; empty defaults factory).
-6. T6: Add `render/block-view.ts` (BlockView + RenderContext types).
-7. T7: Add new `render.ts` — minimal walker + dispatch (no embed-content rendering yet).
-8. T8: Extend new `render.ts` for embed-content (footnote zones).
-9. T9: Final verification (build + test sweep; ≥15 tests on the new renderer).
+1. **T0a:** Extract `flattenLengths` from `cascade-pass.ts` to new `cascade/flatten-lengths.ts`; update `cascade-pass.ts` to import the helper. No behavior change.
+2. **T0b:** Add `createDefaultAttrRegistry()` to `cascade/attr-registry.ts` per Decision G.
+3. **T1:** Rename legacy component types (`component-definition.ts`, `component-registry.ts`) to `-legacy` suffix; update all consumers (components + render + index.ts). Single atomic commit.
+4. **T2:** Consolidate `render-node-v2.ts` into `render-node.ts`; delete `-v2`; update consumers. Single atomic commit.
+5. **T3:** Rename `render.ts` → `render-legacy.ts`; update all consumers. Single atomic commit.
+6. **T4:** Add `render/block-view.ts` (BlockView + RenderContext types).
+7. **T5:** Add new `component-definition.ts` (Decision B types).
+8. **T6:** Add new `component-registry.ts` (Decision F shape; empty defaults factory).
+9. **T7:** Add new `render.ts` — minimal walker + dispatch (no embed-content rendering yet).
+10. **T8:** Extend new `render.ts` for embed-content (footnote zones).
+11. **T9:** Final verification (build + test sweep; ≥15 tests on the new renderer).
+
+---
+
+## T0a: Extract `flattenLengths` to an exportable helper
+
+**Files:**
+- Create: `packages/core/src/cascade/flatten-lengths.ts`
+- Create: `packages/core/src/cascade/flatten-lengths.test.ts`
+- Modify: `packages/core/src/cascade/cascade-pass.ts` — import the helper instead of defining it inline.
+
+### Steps
+
+- [ ] **S1: Write the failing test**
+
+Create `packages/core/src/cascade/flatten-lengths.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { flattenLengths } from "./flatten-lengths";
+import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
+import type { ComputedStyle } from "../styles";
+
+describe("flattenLengths", () => {
+  it("resolves em fontSize against initial fontSize at root", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, fontSize: { unit: "em", value: 2 } };
+    const out = flattenLengths(cs);
+    expect(out.fontSize).toBe(INITIAL_COMPUTED_STYLE.fontSize * 2);
+  });
+
+  it("passes through px fontSize unchanged", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, fontSize: 20 };
+    const out = flattenLengths(cs);
+    expect(out.fontSize).toBe(20);
+  });
+
+  it("flattens em padding against own fontSize", () => {
+    const cs: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      fontSize: 16,
+      paddingBlockStart: { unit: "em", value: 1.5 },
+    };
+    const out = flattenLengths(cs);
+    expect(out.paddingBlockStart).toBe(24);
+  });
+
+  it("preserves percent margins unresolved (cascade can't resolve %)", () => {
+    const cs: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      marginBlockStart: { unit: "percent", value: 50 },
+    };
+    const out = flattenLengths(cs);
+    expect(out.marginBlockStart).toEqual({ unit: "percent", value: 50 });
+  });
+
+  it("preserves intrinsic sizing keywords", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, inlineSize: "max-content" };
+    const out = flattenLengths(cs);
+    expect(out.inlineSize).toBe("max-content");
+  });
+});
+```
+
+- [ ] **S2: Run the test (expected failure: module not found)**
+
+```bash
+npm test --workspace=packages/core -- "src/cascade/flatten-lengths.test" 2>&1 | tail -10
+```
+
+- [ ] **S3: Move the implementation**
+
+Copy lines 49–146 of `packages/core/src/cascade/cascade-pass.ts` (`flattenLengths`, `isIntrinsicKeyword`, `flattenLength`, `flattenLengthOrAuto`, `flattenSizingValue`, `flattenSizingOrIntrinsic`, `flattenSizingOrNone`, `flattenLineHeight`, `resolveFontSize`) into the new `packages/core/src/cascade/flatten-lengths.ts`. Export `flattenLengths` as the public API:
+
+```typescript
+import type { ComputedStyle } from "../styles";
+import type { Length, ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "../styles/length";
+import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
+import { resolveLength } from "./resolve-length";
+
+/**
+ * Resolve em-relative lengths to px using the style's own fontSize, then
+ * propagate the resolved fontSize back into the returned ComputedStyle.
+ * Percent values pass through (cascade has no container width here);
+ * intrinsic sizing keywords (`min-content`, etc.) pass through.
+ *
+ * Used by both the legacy renderer (via `cascadePass`) and the new
+ * renderer (per Decision B / G).
+ */
+export function flattenLengths(cs: ComputedStyle): ComputedStyle {
+  // ...exact contents from cascade-pass.ts lines 50–77...
+}
+
+// (private helpers, unchanged from cascade-pass.ts)
+function isIntrinsicKeyword(v: unknown): v is IntrinsicSizingKeyword { ... }
+function flattenLength(...) { ... }
+// ... and the rest
+```
+
+Then in `cascade-pass.ts`, delete the helper definitions and import `flattenLengths` from `./flatten-lengths`. The legacy `cascadeNode` continues to call `flattenLengths` exactly as before.
+
+- [ ] **S4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- "src/cascade/" 2>&1 | tail -10
+```
+
+Expected: the 5 new flatten-lengths tests pass; all existing cascade-pass tests still pass.
+
+- [ ] **S5: Build verification**
+
+```bash
+npm run build --workspace=packages/core 2>&1 | tail -3
+```
+
+- [ ] **S6: Full test sweep**
+
+```bash
+npm test --workspace=packages/core 2>&1 | tail -5
+```
+
+Expected: 1267 + 5 = 1272 passing, 4 skipped.
+
+- [ ] **S7: Commit**
+
+```bash
+git add packages/core/src/cascade/flatten-lengths.ts packages/core/src/cascade/flatten-lengths.test.ts packages/core/src/cascade/cascade-pass.ts
+git commit -m "refactor(cascade): extract flattenLengths to exportable helper (P7 prep)"
+```
+
+## Constraints
+
+- `flattenLengths` is a pure relocation — no behavior change. The 5 new tests document the contract.
+- `cascade-pass.ts` continues to produce byte-equivalent output.
+
+---
+
+## T0b: Add `createDefaultAttrRegistry()` factory (Decision G)
+
+**Files:**
+- Modify: `packages/core/src/cascade/attr-registry.ts` — append the factory.
+- Modify: `packages/core/src/cascade/attr-registry.test.ts` — add tests for the factory.
+
+### Steps
+
+- [ ] **S1: Write the failing tests**
+
+Append to `packages/core/src/cascade/attr-registry.test.ts`:
+
+```typescript
+import { createDefaultAttrRegistry } from "./attr-registry";
+
+describe("createDefaultAttrRegistry", () => {
+  it("returns a registry pre-populated with all built-in interpreters", () => {
+    const reg = createDefaultAttrRegistry();
+    expect(reg.has("bold")).toBe(true);
+    expect(reg.has("italic")).toBe(true);
+    expect(reg.has("fontFamily")).toBe(true);
+    expect(reg.has("fontSize")).toBe(true);
+    expect(reg.has("color")).toBe(true);
+    expect(reg.has("backgroundColor")).toBe(true);
+    expect(reg.has("underline")).toBe(true);
+  });
+
+  it("applyAll produces fontWeight=bold for { bold: true } attrs", () => {
+    const reg = createDefaultAttrRegistry();
+    const style = reg.applyAll({ bold: true });
+    expect(style.fontWeight).toBe("bold");
+  });
+
+  it("returns a fresh instance each call (no shared mutable state)", () => {
+    const a = createDefaultAttrRegistry();
+    const b = createDefaultAttrRegistry();
+    expect(a).not.toBe(b);
+  });
+});
+```
+
+- [ ] **S2: Run tests (expected failure)**
+
+```bash
+npm test --workspace=packages/core -- "src/cascade/attr-registry.test" 2>&1 | tail -10
+```
+
+- [ ] **S3: Add the factory to `attr-registry.ts`**
+
+Append to `packages/core/src/cascade/attr-registry.ts`:
+
+```typescript
+import { registerBuiltinAttrs } from "./builtin-attrs";
+
+/**
+ * Construct a fresh `AttrRegistry` pre-populated with every built-in
+ * attribute interpreter. Canonical production wiring (P7+): callers
+ * inject the returned registry into `render(state, componentRegistry,
+ * attrRegistry)` so cascade interpreters actually contribute to
+ * `ComputedStyle`.
+ *
+ * Tests that want isolation can instantiate `new AttrRegistry()` and
+ * register only the interpreters under test.
+ *
+ * See Decision G in docs/superpowers/specs/phase-5-plus/decisions.md.
+ */
+export function createDefaultAttrRegistry(): AttrRegistry {
+  const reg = new AttrRegistry();
+  registerBuiltinAttrs(reg);
+  return reg;
+}
+```
+
+(Watch out for circular-import ordering: `builtin-attrs.ts` imports `AttrRegistry` from `attr-registry.ts`. Placing the `import { registerBuiltinAttrs }` AT THE BOTTOM of `attr-registry.ts` keeps the order safe; the `class AttrRegistry` declaration is hoisted before the import-evaluation point inside `builtin-attrs`.)
+
+- [ ] **S4: Run tests**
+
+```bash
+npm test --workspace=packages/core -- "src/cascade/attr-registry.test" 2>&1 | tail -10
+```
+
+Expected: 3/3 new pass.
+
+- [ ] **S5: Full build + test**
+
+```bash
+npm run build --workspace=packages/core 2>&1 | tail -3
+npm test --workspace=packages/core 2>&1 | tail -5
+```
+
+Expected: 1272 + 3 = 1275 passing.
+
+- [ ] **S6: Commit**
+
+```bash
+git add packages/core/src/cascade/attr-registry.ts packages/core/src/cascade/attr-registry.test.ts
+git commit -m "feat(cascade): add createDefaultAttrRegistry factory (Decision G)"
+```
+
+## Constraints
+
+- Existing `attrRegistry` singleton untouched (left empty; P15 will delete).
+- Factory is the canonical entry point for production wiring of cascade interpreters.
 
 ---
 
@@ -109,20 +353,22 @@ npm run build --workspace=packages/core 2>&1 | tail -5
 npm test --workspace=packages/core 2>&1 | tail -5
 ```
 
-Expected: clean. All 1267 tests pass.
+Expected: clean. All 1275 tests pass.
 
 - [ ] **S6: Commit**
 
 ```bash
-git add -A packages/core/src/components/ packages/core/src/render/ packages/core/src/index.ts
+git add -A packages/core/src/
 git commit -m "refactor(p7): rename component-definition/registry → -legacy (decision E)"
 ```
+
+(All changes live under `packages/core/src/`; `-A` on that path is safe and avoids missing any consumer location.)
 
 ## Constraints
 
 - File contents are byte-equivalent to before the rename; only the FILENAMES and import paths change.
 - All tests still pass.
-- NO new types defined here (T4 does that).
+- NO new types defined here (T5 does that).
 
 ---
 
@@ -181,11 +427,11 @@ Expected: clean.
 - [ ] **S6: Commit**
 
 ```bash
-git add -A packages/core/src/render/ packages/core/src/components/ packages/core/src/cascade/ packages/core/src/layout/
+git add -A packages/core/src/
 git commit -m "refactor(p7): consolidate render-node-v2 into render-node (delete v2 suffix)"
 ```
 
-(Stage whatever files actually changed — the commit should touch ONLY consumer-import updates and the render-node files. Don't include unrelated changes.)
+(All affected files live under `packages/core/src/`. `-A` on that path captures every consumer-import update without missing any directory.)
 
 ## Constraints
 
@@ -203,7 +449,7 @@ git commit -m "refactor(p7): consolidate render-node-v2 into render-node (delete
 
 ### Steps
 
-- [ ] **S1: Audit consumers (already done — list the 14 files)**
+- [ ] **S1: Audit consumers**
 
 ```bash
 grep -rln "from.*render/render\"\|from \"./render\"" /Users/hansyu/code/taleweaver/packages/core/src/ /Users/hansyu/code/taleweaver/packages/dom/src/ /Users/hansyu/code/taleweaver/packages/react/src/ 2>/dev/null | grep -v "render-node\|render-legacy"
@@ -244,7 +490,7 @@ Expected: clean.
 - [ ] **S6: Commit**
 
 ```bash
-git add -A packages/core/src/render/ packages/core/src/integration/ packages/core/src/layout/ packages/core/src/editor/ packages/core/src/index.ts
+git add -A packages/core/src/
 git commit -m "refactor(p7): rename render.ts → render-legacy.ts (decision E)"
 ```
 
@@ -356,15 +602,11 @@ import type { ComputedStyle } from "../styles";
  * Render-time view of a single block. Components receive this; the
  * renderer constructs it from the underlying State during traversal.
  *
- * Decision B (2026-05-15): push-model rendering. The renderer owns
- * traversal; components receive `childRenderNodes` (containers) or
- * `inlineRenderNodes` (leaves) pre-built. BlockView exposes only the
- * current block's own data — no `childIds`, no `parent` (cross-block
- * lookups go through `RenderContext`).
- *
- * `computedStyle` is pre-resolved by the renderer (cascade interpreters
- * + parent style + initial style). Components don't walk ancestors for
- * inherited values.
+ * Decision B: push-model rendering. The renderer owns traversal;
+ * components receive `childRenderNodes` (containers) or `inlineRenderNodes`
+ * (leaves) pre-built. BlockView exposes only the current block's own data
+ * — no `childIds`, no `parent` (cross-block lookups go through
+ * `RenderContext`). `computedStyle` is pre-resolved by the renderer.
  */
 export interface BlockViewBase {
   readonly id: BlockId;
@@ -402,15 +644,15 @@ export type BlockView = ContainerBlockView | LeafBlockView;
  * footnote body via getEmbedContent; future cross-references via
  * getView). Keeps BlockView focused on "this block's data."
  *
- * `getView` returns a frozen BlockView for any id present in the main
- * tree. `getEmbedContent` does the same for embed-content blocks.
- * Both return `undefined` for unknown ids or if the block's `type`
- * isn't registered in the component registry.
+ * In P7 these accessors throw — no consumer needs them yet. P10+ phases
+ * (cursor positioning, cross-references) wire them up via a per-block
+ * view cache. The signature is shipped now so component implementations
+ * landing in P8 can be written against the final RenderContext shape.
  */
 export interface RenderContext {
   readonly state: State;
-  getView(id: BlockId): BlockView | undefined;
-  getEmbedContent(id: BlockId): BlockView | undefined;
+  getView(id: BlockId): BlockView;
+  getEmbedContent(id: BlockId): BlockView;
 }
 ```
 
@@ -748,15 +990,16 @@ git commit -m "feat(p7): add new ComponentRegistry with injectable factory (deci
 - Create: `packages/core/src/render/render.test.ts`
 
 The new renderer:
-- Takes `(state: State, registry: ComponentRegistry): RenderOutput`.
+- Takes `(state: State, componentRegistry: ComponentRegistry, attrRegistry: AttrRegistry): RenderOutput`. Three required args; injected per Decisions F + G.
 - Walks main tree from `state.rootId`. For each block:
   - Builds `BlockView` (Container or Leaf based on the registry's component kind for that type).
-  - Composes `computedStyle` via cascade interpreters (using parent's computedStyle as base).
+  - Composes `computedStyle` via `attrRegistry.applyAll(attrs)` → `composeComputed(specified, parent)` → `flattenLengths(composed)` (the full cascade pipeline so `em` lengths resolve to px against the block's own fontSize).
   - For containers, recurses into children, then calls the component's render with childRenderNodes.
-  - For leaves, expands inline items into TextBox/ElementBox RenderNodes (no `text`/`span` dispatch), then calls render with inlineRenderNodes.
-- Returns `{ root: RenderNode }` for now; embed-content handling lands in T8.
-- Throws if a block type isn't registered (with the component-name context error pattern from prior phases).
+  - For leaves, expands inline items into TextBox/ElementBox RenderNodes via the discriminated union (no `text`/`span` dispatch), then calls render with inlineRenderNodes.
+- Returns `{ root: RenderNode, embedContents: ReadonlyMap<BlockId, RenderNode> }` (the `embedContents` map is empty here; T8 fills it).
+- Throws if a block type isn't registered.
 - Cycle defense via a visited set during traversal.
+- `RenderContext.getView` / `getEmbedContent` throw `Error("RenderContext.getView not yet wired — populated in P10")` (signal that the surface exists but no consumer in P7 needs it).
 
 ### Steps
 
@@ -768,12 +1011,13 @@ Create `packages/core/src/render/render.test.ts`:
 import { describe, it, expect } from "vitest";
 import { render, type RenderOutput } from "./render";
 import { createComponentRegistry } from "../components/component-registry";
+import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import type {
   ContainerComponentDefinition,
   LeafComponentDefinition,
 } from "../components/component-definition";
 import type { RenderNode } from "./render-node";
-import { createEmptyDocument } from "../state/new-initial-state";
+import { createEmptyDocument } from "../state/initial-state";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 const documentComponent: ContainerComponentDefinition = {
@@ -800,7 +1044,7 @@ function basicRegistry() {
 describe("render (new)", () => {
   it("renders an empty document", () => {
     const state = createEmptyDocument();
-    const out: RenderOutput = render(state, basicRegistry());
+    const out: RenderOutput = render(state, basicRegistry(), createDefaultAttrRegistry());
     expect(out.root.type).toBe("element");
     expect((out.root as { children: ReadonlyArray<RenderNode> }).children).toHaveLength(1);
   });
@@ -813,7 +1057,7 @@ describe("render (new)", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const out = render(state, basicRegistry());
+    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     expect(out.root.type).toBe("element");
     const docChildren = (out.root as { children: ReadonlyArray<RenderNode> }).children;
     expect(docChildren).toHaveLength(1);
@@ -838,7 +1082,7 @@ describe("render (new)", () => {
         }),
       ],
     });
-    const out = render(state, basicRegistry());
+    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const p = ((out.root as { children: ReadonlyArray<RenderNode> }).children[0]) as { children: ReadonlyArray<RenderNode> };
     expect(p.children).toHaveLength(2);
     expect((p.children[0] as { text: string }).text).toBe("hello");
@@ -855,8 +1099,7 @@ describe("render (new)", () => {
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
-    // unknown-block-type is NOT registered.
-    expect(() => render(state, reg)).toThrow(/unknown-block-type/);
+    expect(() => render(state, reg, createDefaultAttrRegistry())).toThrow(/unknown-block-type/);
   });
 
   it("renders multi-paragraph document", () => {
@@ -868,7 +1111,7 @@ describe("render (new)", () => {
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("two")]) }),
       ],
     });
-    const out = render(state, basicRegistry());
+    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const docChildren = (out.root as { children: ReadonlyArray<RenderNode> }).children;
     expect(docChildren).toHaveLength(2);
   });
@@ -899,7 +1142,7 @@ describe("render (new)", () => {
     const reg = createComponentRegistry();
     reg.register(documentComponent);
     reg.register(paragraphCapture);
-    render(state, reg);
+    render(state, reg, createDefaultAttrRegistry());
     expect(observedStyle).not.toBeNull();
     expect(observedStyle?.fontWeight).toBe("bold");
   });
@@ -920,10 +1163,12 @@ import type { BlockId } from "../state/block-id";
 import type { State } from "../state/state";
 import { getBlock } from "../state/state";
 import type { ReadonlyAttrs } from "../state/attrs";
+import type { InlineContent, InlineItem } from "../state/inline-content";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";
-import { attrRegistry } from "../cascade/attr-registry";
+import { flattenLengths } from "../cascade/flatten-lengths";
+import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
 import type {
   BlockView,
@@ -936,8 +1181,8 @@ import { createTextBox, createElementBox } from "./render-node";
 
 /**
  * Output of the new renderer. `root` is the main document's RenderNode tree;
- * `embedContents` (added in T8) carries footnote bodies etc. as a parallel
- * map keyed by BlockId, consumed by pagination.
+ * `embedContents` (populated by T8) carries footnote bodies etc. as a
+ * parallel map keyed by BlockId, consumed by pagination.
  */
 export interface RenderOutput {
   readonly root: RenderNode;
@@ -948,25 +1193,40 @@ export interface RenderOutput {
  * Render a Y.Doc-backed State to a RenderNode tree.
  *
  * Decision B: push-model walker. For each block:
- *   1. Compose its computedStyle from parent + interpreters + initial.
+ *   1. Compose its computedStyle: attrRegistry.applyAll(attrs) → compose
+ *      with parent + initial → flattenLengths against own fontSize.
  *   2. Build a BlockView (container or leaf) with computedStyle attached.
  *   3. Dispatch to the registered component for that type.
  *   4. Recurse into children (containers) or expand inline items (leaves)
  *      BEFORE invoking the component — components receive pre-rendered
  *      children / inline RenderNodes.
+ *
+ * Decisions F + G: both registries are constructor-injected (no module-
+ * level singletons consulted here).
  */
-export function render(state: State, registry: ComponentRegistry): RenderOutput {
+export function render(
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+): RenderOutput {
+  // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
+  // through a per-block view cache. Throwing rather than returning
+  // undefined surfaces accidental P7 callers immediately.
   const context: RenderContext = {
     state,
-    getView: (_id: BlockId) => undefined, // T8 may populate; basic walker uses internal helpers
-    getEmbedContent: (_id: BlockId) => undefined,
+    getView: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getView not yet wired — populated in P10");
+    },
+    getEmbedContent: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
+    },
   };
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
     throw new Error(`render: root block "${state.rootId}" not found`);
   }
-  const root = renderBlock(rootBlock, null, state, registry, context, visited);
+  const root = renderBlock(rootBlock, null, state, componentRegistry, attrRegistry, context, visited);
   return Object.freeze({ root, embedContents: new Map() });
 }
 
@@ -974,7 +1234,8 @@ function renderBlock(
   block: Block,
   parentComputed: ComputedStyle | null,
   state: State,
-  registry: ComponentRegistry,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
   context: RenderContext,
   visited: Set<BlockId>,
 ): RenderNode {
@@ -983,9 +1244,9 @@ function renderBlock(
   }
   visited.add(block.id);
 
-  const computed = composeBlockStyle(block.attrs, parentComputed);
+  const computed = composeBlockStyle(block.attrs, parentComputed, attrRegistry);
 
-  const def = registry.get(block.type);
+  const def = componentRegistry.get(block.type);
   if (def === undefined) {
     throw new Error(`render: no component registered for block type "${block.type}"`);
   }
@@ -1006,7 +1267,7 @@ function renderBlock(
         throw new Error(`render: child "${childId}" of "${block.id}" not found`);
       }
       childRenderNodes.push(
-        renderBlock(child, computed, state, registry, context, visited),
+        renderBlock(child, computed, state, componentRegistry, attrRegistry, context, visited),
       );
       childId = child.nextSiblingId;
     }
@@ -1023,70 +1284,64 @@ function renderBlock(
     kind: "leaf" as const,
     inlineContent: inline,
   });
-  const inlineRenderNodes = expandInlineItems(block.id, inline, computed);
+  const inlineRenderNodes = expandInlineItems(block.id, inline, computed, attrRegistry);
   return def.render(view, context, inlineRenderNodes);
 }
 
 /**
- * Compose computedStyle for a block: start from parent's computed style
- * (or initial), apply cascade interpreters against the block's attrs,
- * then resolve.
+ * Compose computedStyle for a block: run the injected interpreters over
+ * the block's attrs, compose against parent + initial, then flatten ems
+ * against own fontSize. The full canonical cascade pipeline — matches
+ * what cascadePass does for the legacy renderer's tree.
  */
 function composeBlockStyle(
   attrs: ReadonlyAttrs,
   parentComputed: ComputedStyle | null,
+  attrRegistry: AttrRegistry,
 ): ComputedStyle {
-  // 1. Collect specified-style contributions from interpreters.
-  let specified: Partial<Style> = {};
-  for (const [key, value] of Object.entries(attrs)) {
-    const interpreter = attrRegistry.get(key);
-    if (interpreter !== undefined) {
-      specified = { ...specified, ...interpreter.toStyle(value) };
-    }
-  }
-  // 2. Compose: specified + parent computed + initial.
+  const specified: Partial<Style> = attrRegistry.applyAll(attrs);
   const base = parentComputed ?? INITIAL_COMPUTED_STYLE;
-  return composeComputed(specified, base);
+  const composed = composeComputed(specified, base);
+  return flattenLengths(composed);
 }
 
 /**
  * Expand inline content items into RenderNodes. Per master spec § text/span
  * removal: no `text` or `span` component dispatch — the renderer directly
  * emits TextBoxes for TextItems and ElementBoxes for EmbedItems.
+ *
+ * Keys are scoped under the leaf block id (`${blockId}/inline/${i}`) so
+ * they're stable across re-renders of the same block but won't collide
+ * with sibling-block keys (each block's keys live under its own id
+ * prefix).
  */
 function expandInlineItems(
   blockId: BlockId,
-  content: { readonly items: ReadonlyArray<unknown> },
+  content: InlineContent,
   blockComputed: ComputedStyle,
+  attrRegistry: AttrRegistry,
 ): RenderNode[] {
   const out: RenderNode[] = [];
   let i = 0;
   for (const item of content.items) {
-    const itemAny = item as {
-      kind: "text" | "embed";
-      text?: string;
-      attrs: ReadonlyAttrs;
-      embedType?: string;
-      properties?: ReadonlyAttrs;
-    };
-    if (itemAny.kind === "text") {
-      const itemStyle: Partial<Style> = composeItemSpecifiedStyle(itemAny.attrs);
-      const itemComputed = composeComputed(itemStyle, blockComputed);
+    const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs);
+    const itemComputed = flattenLengths(composeComputed(itemStyle, blockComputed));
+    const key = `${blockId}/inline/${i}`;
+    if (item.kind === "text") {
+      // InlineItem narrows to TextItem here via the discriminated union.
       out.push(
         Object.freeze({
-          ...createTextBox(`${blockId}/inline/${i}`, itemStyle, itemAny.text ?? ""),
+          ...createTextBox(key, itemStyle, item.text),
           computedStyle: itemComputed,
         }),
       );
     } else {
-      // Embed: ElementBox shell with embedType + properties in metadata.
-      const itemStyle: Partial<Style> = composeItemSpecifiedStyle(itemAny.attrs);
-      const itemComputed = composeComputed(itemStyle, blockComputed);
+      // InlineItem narrows to EmbedItem here.
       out.push(
         Object.freeze({
-          ...createElementBox(`${blockId}/inline/${i}`, itemStyle, [], {
-            embedType: itemAny.embedType ?? "",
-            ...(itemAny.properties ?? {}),
+          ...createElementBox(key, itemStyle, [], {
+            embedType: item.embedType,
+            ...item.properties,
           }),
           computedStyle: itemComputed,
         }),
@@ -1095,17 +1350,6 @@ function expandInlineItems(
     i++;
   }
   return out;
-}
-
-function composeItemSpecifiedStyle(attrs: ReadonlyAttrs): Partial<Style> {
-  let specified: Partial<Style> = {};
-  for (const [key, value] of Object.entries(attrs)) {
-    const interpreter = attrRegistry.get(key);
-    if (interpreter !== undefined) {
-      specified = { ...specified, ...interpreter.toStyle(value) };
-    }
-  }
-  return specified;
 }
 ```
 
@@ -1133,12 +1377,13 @@ git commit -m "feat(p7): new render() walker + cascade integration + inline expa
 
 ## Constraints
 
-- Signature `render(state, registry): RenderOutput`.
-- Cascade integration: each block's computedStyle composed from parent + interpreters + initial.
-- Inline expansion: TextItems → TextBoxes, EmbedItems → ElementBoxes (no `text`/`span` component dispatch).
+- Signature: `render(state, componentRegistry, attrRegistry): RenderOutput`. Three required args per Decisions F + G.
+- Cascade integration: `applyAll` → `composeComputed` → `flattenLengths`. Full pipeline.
+- Inline expansion: discriminated-union narrowing on `InlineItem.kind` — no casts. TextItems → TextBoxes, EmbedItems → ElementBoxes (no `text`/`span` component dispatch).
 - Cycle defense via visited Set.
-- Error messages preserve component-name context.
-- NO `as any`. NO `!`. (`as` casts on inline item shapes are tolerated where the InlineItem type doesn't narrow nicely on iteration; use locally-scoped narrows.)
+- `RenderContext.getView` / `getEmbedContent` throw with a clear "wired in P10" message — surfaces accidental P7 callers.
+- Error messages preserve block-type / block-id context.
+- NO `as any`. NO `!`.
 
 ---
 
@@ -1157,7 +1402,7 @@ The walker now also enumerates `state.embedContents` blocks, rendering each as i
 Append to `render.test.ts`:
 
 ```typescript
-import { getEmbedContent } from "../state/state";
+import type { BlockId } from "../state/block-id";
 
 describe("render — embed-content zones", () => {
   const fnBodyComponent: LeafComponentDefinition = {
@@ -1191,7 +1436,7 @@ describe("render — embed-content zones", () => {
     });
     const reg = basicRegistry();
     reg.register(fnBodyComponent);
-    const out = render(state, reg);
+    const out = render(state, reg, createDefaultAttrRegistry());
     expect(out.embedContents.size).toBe(1);
     const body = out.embedContents.get("fn-body-1" as BlockId);
     expect(body).toBeDefined();
@@ -1220,7 +1465,7 @@ describe("render — embed-content zones", () => {
     });
     const reg = basicRegistry();
     reg.register(fnBodyComponent);
-    const out = render(state, reg);
+    const out = render(state, reg, createDefaultAttrRegistry());
     const p = ((out.root as { children: ReadonlyArray<RenderNode> }).children[0]) as { children: ReadonlyArray<RenderNode> };
     // Single inline child: the fn-anchor ElementBox. NOT the fn-body content.
     expect(p.children).toHaveLength(1);
@@ -1249,7 +1494,7 @@ describe("render — embed-content zones", () => {
     });
     const reg = basicRegistry();
     reg.register(fnBodyComponent);
-    const out = render(state, reg);
+    const out = render(state, reg, createDefaultAttrRegistry());
     expect(out.embedContents.size).toBe(2);
     expect(out.embedContents.has("fn-1" as BlockId)).toBe(true);
     expect(out.embedContents.has("fn-2" as BlockId)).toBe(true);
@@ -1267,13 +1512,13 @@ npm test --workspace=packages/core -- "src/render/render.test" 2>&1 | tail -15
 
 Update the implementation:
 
-1. After rendering the main tree, walk `state.embedContents` (via `getEmbedContent` for each id present in the map). The renderer needs to enumerate the embed-contents map keys. Add a helper:
+1. After rendering the main tree, walk `state.embedContents` (via `getEmbedContent` for each id present in the map). The renderer needs to enumerate the embed-contents map keys. Add imports + body extension:
 
 ```typescript
 import { getEmbedContent } from "../state/state";
 import { getEmbedContentsMap } from "../state/yjs-doc";
 
-// inside render():
+// inside render(), AFTER constructing `root`:
 const embedContents = new Map<BlockId, RenderNode>();
 const yEmbeds = getEmbedContentsMap(state.doc);
 for (const id of yEmbeds.keys()) {
@@ -1281,35 +1526,24 @@ for (const id of yEmbeds.keys()) {
   if (block === null) continue; // shouldn't happen since we just enumerated the map
   // Each embed-content block renders as a fresh subtree with no parent
   // computed style (uses initial). Independent cascade context.
+  //
+  // The `visited` set is RESET per embed-content subtree: each is a
+  // self-contained walk over its own descendants; sharing `visited`
+  // across the main-tree walk and embed-content walks would prevent
+  // legitimate re-entry into a body (e.g., the same id-namespace doesn't
+  // imply cycles when the two trees are independent).
   const visitedEmbed = new Set<BlockId>();
-  embedContents.set(id as BlockId, renderBlock(block, null, state, registry, context, visitedEmbed));
+  embedContents.set(
+    id as BlockId,
+    renderBlock(block, null, state, componentRegistry, attrRegistry, context, visitedEmbed),
+  );
 }
 return Object.freeze({ root, embedContents });
 ```
 
-The `visited` set is reset per embed-content tree (each is a self-contained subtree).
+2. The main walker does NOT follow `contentBlockId` references. The current implementation only recurses on `firstChildId`/`nextSiblingId`, so contentBlockId references stay inline (emitted as ElementBoxes via `expandInlineItems`). No change needed — covered by test "main-tree walker does NOT recurse into embedContents."
 
-2. Confirm the main walker does NOT follow contentBlockId references. The current implementation only recurses on `firstChildId`/`nextSiblingId`, so contentBlockId references stay inline (emitted as ElementBoxes via `expandInlineItems`). No change needed.
-
-3. Update the RenderContext's `getView` and `getEmbedContent` to actually consult the state (currently returns undefined). They aren't load-bearing for P7's tests, but stub them properly:
-
-```typescript
-const context: RenderContext = {
-  state,
-  getView: (id: BlockId) => {
-    // P7 stub: returns undefined. Future phases / cross-references may
-    // wire this through a per-block-view cache.
-    const _ = getBlock(state, id);
-    return undefined;
-  },
-  getEmbedContent: (id: BlockId) => {
-    const _ = getEmbedContent(state, id);
-    return undefined;
-  },
-};
-```
-
-(Or just leave them as undefined-returning stubs with a clear TODO note. P10 / future cross-reference phases will wire these.)
+3. `RenderContext.getView` / `getEmbedContent` continue to throw. T8 doesn't change them.
 
 - [ ] **S4: Run tests**
 
@@ -1317,7 +1551,7 @@ const context: RenderContext = {
 npm test --workspace=packages/core -- "src/render/render.test" 2>&1 | tail -15
 ```
 
-Expected: all (9+) tests pass.
+Expected: all 9 tests pass.
 
 - [ ] **S5: Full suite + build**
 
@@ -1330,7 +1564,7 @@ npm test --workspace=packages/core 2>&1 | tail -5
 
 ```bash
 git add packages/core/src/render/render.ts packages/core/src/render/render.test.ts
-git commit -m "feat(p7): render embeds-content blocks as parallel RenderNode map"
+git commit -m "feat(p7): render embed-content blocks as parallel RenderNode map"
 ```
 
 ---
@@ -1340,17 +1574,18 @@ git commit -m "feat(p7): render embeds-content blocks as parallel RenderNode map
 - [ ] **S1: Test count audit**
 
 ```bash
-npm test --workspace=packages/core -- "src/render/render.test" "src/render/block-view.test" "src/components/component-definition.test" "src/components/component-registry.test" 2>&1 | tail -5
+npm test --workspace=packages/core -- "src/render/render.test" "src/render/block-view.test" "src/components/component-definition.test" "src/components/component-registry.test" "src/cascade/flatten-lengths.test" 2>&1 | tail -5
 ```
 
-Should be ≥ 15 tests (T4: 4, T5: 3, T6: 4, T7: 6, T8: 3 = 20).
+Should be ≥ 15 tests across the new render module (T4: 4, T5: 3, T6: 4, T7: 6, T8: 3 = 20; plus T0a's 5 cascade tests for context).
 
 - [ ] **S2: Confirm spec success criteria**
 
-- ✅ New render entry point: `render(state, registry): RenderOutput`.
-- ✅ Builds on cascade pipeline (composeBlockStyle + attrRegistry).
+- ✅ New render entry point: `render(state, componentRegistry, attrRegistry): RenderOutput`.
+- ✅ Builds on cascade pipeline: `applyAll` → `composeComputed` → `flattenLengths`.
 - ✅ Dispatches via the new component registry.
-- ≥ 15 tests across new render module — verified above.
+- ✅ AttrRegistry injection (Decision G); both registries are constructor-injected.
+- ✅ ≥ 15 tests across new render module — verified above.
 - ✅ Legacy `render-legacy.ts` still compiles and works (parallel implementation; integration tests still use it).
 - ✅ Browser smoke deferred: P7 is render-engine-only, no editor wiring. Legacy renderer drives the example apps unchanged. Smoke gates land at the first downstream UI consumer (P8 components rewrite + cutover at P11.4).
 
@@ -1361,14 +1596,12 @@ npm run build --workspace=packages/core 2>&1 | tail -3
 npm test --workspace=packages/core 2>&1 | tail -5
 ```
 
-Expected: clean. ~1267 + ~20 new = ~1287 passing.
-
-- [ ] **S4: Verification commit (if anything needs touch-up)**
-
-If all green, no commit. Otherwise, fix and commit per the affected file's pattern.
+Expected: clean. ~1267 + ~28 new (T0a:5 + T0b:3 + T4:4 + T5:3 + T6:4 + T7:6 + T8:3) = ~1295 passing.
 
 ## End of P7
 
-After T9 the new render module is shipped alongside the legacy. P8 will migrate each built-in component (paragraph, document, heading, list, list-item, table family, image, horizontal-line) from the legacy `ComponentDefinition` shape to the new union — and `createDefaultComponentRegistry()` will populate them. Until then, the new renderer is exercised only by P7's tests with stub component fixtures.
+After T9 the new render module is shipped alongside the legacy. P8 will migrate each built-in component (paragraph, document, heading, list, list-item, table family, image, horizontal-line) from the legacy `ComponentDefinition` shape to the new union — and `createDefaultComponentRegistry()` will populate them.
+
+**P8 pre-flag (naming collision):** After T1 renames legacy types to `-legacy`, `components/index.ts` continues to re-export `ComponentRegistry` / `ComponentDefinition` from the legacy paths under those names. T6 introduces NEW `ComponentRegistry` / `ComponentDefinition` symbols inside `components/component-registry.ts` and `component-definition.ts` — but `components/index.ts` does NOT re-export the new ones in P7. So `core/src/index.ts` continues to expose only the legacy symbols publicly through the existing names. P8 must decide whether to introduce parallel public exports (with different names) or to break the public API. Recommended: P8 adds the new exports as `ContainerComponentDefinition` / `LeafComponentDefinition` / `ComponentDefinition` (the existing legacy `ComponentDefinition` export name) via a P8-local naming negotiation — flagged for that plan author to resolve at planning time.
 
 The legacy renderer (`render-legacy.ts`) continues to serve the legacy editor path through P11.4. Browser smoke for the new renderer is deferred to the first downstream UI consumer phase.
