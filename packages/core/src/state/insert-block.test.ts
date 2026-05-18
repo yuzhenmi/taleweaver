@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { insertBlock } from "./insert-block";
 import { getBlock } from "./state";
-import { buildBlock, buildState } from "../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import { createTestAllocator } from "./block-id";
-import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
 
 describe("insertBlock — between siblings", () => {
@@ -13,8 +12,8 @@ describe("insertBlock — between siblings", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -25,7 +24,7 @@ describe("insertBlock — between siblings", () => {
       state,
       "doc" as BlockId,
       "p2" as BlockId,
-      { type: "paragraph", inlineContent: createInlineContent([]) },
+      { type: "paragraph", inlineContent: inlineContent([]) },
       allocator,
     );
     const newId = "new-0" as BlockId;
@@ -72,8 +71,8 @@ describe("insertBlock — prepend (no prev sibling)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -99,8 +98,8 @@ describe("insertBlock — append (beforeSiblingId === null)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -133,7 +132,7 @@ describe("insertBlock — first child of empty container", () => {
   it("inserts as the only child of an empty container (with beforeSiblingId === null)", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
-    const result = insertBlock(state, "s" as BlockId, null, { type: "paragraph", inlineContent: createInlineContent([]) }, allocator);
+    const result = insertBlock(state, "s" as BlockId, null, { type: "paragraph", inlineContent: inlineContent([]) }, allocator);
     const newId = "new-0" as BlockId;
     const newBlock = getBlock(result.state, newId);
     expect(newBlock?.parentId).toBe("s");
@@ -159,9 +158,9 @@ describe("insertBlock — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
         buildBlock({ id: "section", type: "section" }), // orphan; for test purposes
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", inlineContent: inlineContent([]) }),
       ],
     });
     const allocator = createTestAllocator("new");

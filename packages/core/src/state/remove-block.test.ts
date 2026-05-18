@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { removeBlock } from "./remove-block";
 import { getBlock } from "./state";
-import { buildBlock, buildState } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
 describe("removeBlock — middle child", () => {
@@ -12,9 +11,9 @@ describe("removeBlock — middle child", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -56,9 +55,9 @@ describe("removeBlock — container block with children (subtree cascade)", () =
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "p3" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", nextSiblingId: "p3", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "section", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "section", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -108,9 +107,9 @@ describe("removeBlock — first child", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -130,9 +129,9 @@ describe("removeBlock — last child", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -152,7 +151,7 @@ describe("removeBlock — only child", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -181,7 +180,7 @@ describe("removeBlock — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document" }),
-        buildBlock({ id: "orphan", type: "paragraph", inlineContent: createInlineContent([]) }), // no parentId
+        buildBlock({ id: "orphan", type: "paragraph", inlineContent: inlineContent([]) }), // no parentId
       ],
     });
     expect(() => removeBlock(state, "orphan" as BlockId)).toThrow(/no parentId/);

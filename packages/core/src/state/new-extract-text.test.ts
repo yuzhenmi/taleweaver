@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractText } from "./new-extract-text";
-import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
@@ -11,7 +10,7 @@ describe("extractText", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
@@ -23,7 +22,7 @@ describe("extractText", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
@@ -37,7 +36,7 @@ describe("extractText", () => {
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({
           id: "p", type: "paragraph", parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text(" "), text("world")]),
+          inlineContent: inlineContent([text("hello"), text(" "), text("world")]),
         }),
       ],
     });
@@ -52,7 +51,7 @@ describe("extractText", () => {
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({
           id: "p", type: "paragraph", parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("image"), text("b")]),
         }),
       ],
     });
@@ -65,8 +64,8 @@ describe("extractText", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("world")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
@@ -78,7 +77,7 @@ describe("extractText", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const pos = createPosition("p" as BlockId, 2);
@@ -93,8 +92,8 @@ describe("extractText", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("world")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));

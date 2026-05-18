@@ -1,14 +1,8 @@
 import type { State } from "./state";
 import { getBlock } from "./state";
 import type { Block } from "./block";
-import { createBlock } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
-import {
-  createEmbedItem,
-  createInlineContent,
-  type InlineContent,
-  type InlineItem,
-} from "./inline-content";
+import type { InlineContent, InlineItem } from "./inline-content";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained:
@@ -82,7 +76,7 @@ export function clonePastedSubtree(
 
     const isRoot = oldId === sourceRootId;
 
-    const cloned = createBlock({
+    const cloned: Block = Object.freeze({
       id: newId,
       type: oldBlock.type,
       attrs: oldBlock.attrs,
@@ -178,14 +172,16 @@ function rewriteInlineContent(
             `clonePastedSubtree: embed contentBlockId "${cbId}" was not visited`,
           );
         }
-        return createEmbedItem(
-          item.embedType,
-          { ...item.properties, contentBlockId: newCbId },
-          item.attrs,
-        );
+        const rewritten: InlineItem = Object.freeze({
+          kind: "embed",
+          embedType: item.embedType,
+          attrs: item.attrs,
+          properties: Object.freeze({ ...item.properties, contentBlockId: newCbId }),
+        });
+        return rewritten;
       }
     }
     return item;
   });
-  return createInlineContent(newItems);
+  return Object.freeze({ items: Object.freeze(newItems) });
 }

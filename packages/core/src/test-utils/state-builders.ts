@@ -29,6 +29,15 @@ export function embed(
   });
 }
 
+/**
+ * Build a frozen InlineContent fixture from a list of items. Test-only
+ * wrapper around the bare `{ items }` shape — production code constructs
+ * InlineContent directly via Y.Doc helpers, not through a factory.
+ */
+export function inlineContent(items: ReadonlyArray<TextItem | EmbedItem>): InlineContent {
+  return Object.freeze({ items: Object.freeze([...items]) });
+}
+
 export function buildBlock(args: {
   id: string;
   type: string;

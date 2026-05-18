@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
-import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { getBlock } from "./state";
 
@@ -19,7 +18,7 @@ describe("clonePastedSubtree — basic single-leaf clone", () => {
           type: "paragraph",
           attrs: { textAlign: "left" },
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello world")]),
+          inlineContent: inlineContent([text("hello world")]),
         }),
       ],
     });
@@ -55,8 +54,8 @@ describe("clonePastedSubtree — tree shapes", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("first")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text("second")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: inlineContent([text("first")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: inlineContent([text("second")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -101,8 +100,8 @@ describe("clonePastedSubtree — tree shapes", () => {
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "list", lastChildId: "list" }),
         buildBlock({ id: "list", type: "list", parentId: "section", firstChildId: "i1", lastChildId: "i2" }),
-        buildBlock({ id: "i1", type: "list-item", parentId: "list", nextSiblingId: "i2", inlineContent: createInlineContent([text("a")]) }),
-        buildBlock({ id: "i2", type: "list-item", parentId: "list", prevSiblingId: "i1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "i1", type: "list-item", parentId: "list", nextSiblingId: "i2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "i2", type: "list-item", parentId: "list", prevSiblingId: "i1", inlineContent: inlineContent([text("b")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -137,7 +136,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p_only", lastChildId: "p_only" }),
-        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: createInlineContent([text("alone")]) }),
+        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: inlineContent([text("alone")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -186,7 +185,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
           id: "p1",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("see"),
             embed("footnote-anchor", { contentBlockId: "fn-body" }),
           ]),
@@ -194,7 +193,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
         buildBlock({
           id: "fn-body",
           type: "footnote-body",
-          inlineContent: createInlineContent([text("the footnote text")]),
+          inlineContent: inlineContent([text("the footnote text")]),
         }),
       ],
     });
@@ -235,15 +234,15 @@ describe("clonePastedSubtree — embed-content cloning", () => {
           id: "p1",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("a"),
             embed("footnote-anchor", { contentBlockId: "fn-a" }),
             text("b"),
             embed("footnote-anchor", { contentBlockId: "fn-b" }),
           ]),
         }),
-        buildBlock({ id: "fn-a", type: "footnote-body", inlineContent: createInlineContent([text("body a")]) }),
-        buildBlock({ id: "fn-b", type: "footnote-body", inlineContent: createInlineContent([text("body b")]) }),
+        buildBlock({ id: "fn-a", type: "footnote-body", inlineContent: inlineContent([text("body a")]) }),
+        buildBlock({ id: "fn-b", type: "footnote-body", inlineContent: inlineContent([text("body b")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -280,14 +279,14 @@ describe("clonePastedSubtree — embed-content cloning", () => {
           id: "p1",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "fn-outer" })]),
+          inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-outer" })]),
         }),
         buildBlock({
           id: "fn-outer",
           type: "footnote-body",
-          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "fn-inner" })]),
+          inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-inner" })]),
         }),
-        buildBlock({ id: "fn-inner", type: "footnote-body", inlineContent: createInlineContent([text("deep")]) }),
+        buildBlock({ id: "fn-inner", type: "footnote-body", inlineContent: inlineContent([text("deep")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -319,7 +318,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const beforeP = getBlock(sourceState, "p" as BlockId);
@@ -340,9 +339,9 @@ describe("clonePastedSubtree — block-level invariants", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("b")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("c")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("b")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("c")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -366,7 +365,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
           type: "list-item",
           attrs: { level: 2, ordered: true, custom: { meta: "x" } },
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("hello", { bold: true, color: "red" }),
             embed("image", { src: "img.png", width: 200 }, { link: "https://example.com" }),
           ]),
@@ -398,9 +397,9 @@ describe("clonePastedSubtree — block-level invariants", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: createInlineContent([text("first"), embed("footnote-anchor", { contentBlockId: "fn" })]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: createInlineContent([text("second")]) }),
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote text")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: inlineContent([text("first"), embed("footnote-anchor", { contentBlockId: "fn" })]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: inlineContent([text("second")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -438,7 +437,7 @@ describe("clonePastedSubtree — edge cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -459,7 +458,7 @@ describe("clonePastedSubtree — edge cases", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([embed("image", { src: "x.png" })]),
+          inlineContent: inlineContent([embed("image", { src: "x.png" })]),
         }),
       ],
     });
@@ -480,7 +479,7 @@ describe("clonePastedSubtree — edge cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
 
@@ -501,7 +500,7 @@ describe("clonePastedSubtree — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
@@ -534,7 +533,7 @@ describe("clonePastedSubtree — error cases", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([embed("footnote-anchor", { contentBlockId: "ghost" })]),
+          inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "ghost" })]),
         }),
       ],
     });

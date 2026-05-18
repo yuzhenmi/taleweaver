@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { splitBlockAtPosition } from "./split-block";
 import { getBlock } from "./state";
-import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 
@@ -14,7 +13,7 @@ describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello world")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
       ],
     });
 
@@ -66,7 +65,7 @@ describe("splitBlockAtPosition — split at text-item boundary", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text(" world", { italic: true })]),
+          inlineContent: inlineContent([text("hello"), text(" world", { italic: true })]),
         }),
       ],
     });
@@ -93,7 +92,7 @@ describe("splitBlockAtPosition — split inside a multi-item block (preserves at
     //   right = [text("d", { bold: true }), text("ef", {})]
     // Both halves of the split bold item must carry { bold: true } — this is the
     // most likely place an attrs-preservation bug would silently strip formatting
-    // (e.g., createTextItem(slice) without the attrs arg). Pin it explicitly.
+    // (e.g., a text-item builder called without the attrs arg). Pin it explicitly.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -102,7 +101,7 @@ describe("splitBlockAtPosition — split inside a multi-item block (preserves at
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("ab"),
             text("cd", { bold: true }),
             text("ef"),
@@ -138,7 +137,7 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("img"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("img"), text("b")]),
         }),
       ],
     });
@@ -166,7 +165,7 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("img"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("img"), text("b")]),
         }),
       ],
     });
@@ -195,7 +194,7 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([embed("img"), text("a")]),
+          inlineContent: inlineContent([embed("img"), text("a")]),
         }),
       ],
     });
@@ -218,7 +217,7 @@ describe("splitBlockAtPosition — edge offsets", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const allocator = createTestAllocator("p2");
@@ -243,7 +242,7 @@ describe("splitBlockAtPosition — edge offsets", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const allocator = createTestAllocator("p2");
@@ -266,7 +265,7 @@ describe("splitBlockAtPosition — edge offsets", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
     const allocator = createTestAllocator("p2");
@@ -293,9 +292,9 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("three")]) }),
       ],
     });
 
@@ -363,7 +362,7 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p_only", lastChildId: "p_only" }),
-        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const allocator = createTestAllocator("pNew");
@@ -399,7 +398,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
           type: "list-item",
           attrs: { level: 2, ordered: true },
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello")]),
+          inlineContent: inlineContent([text("hello")]),
         }),
       ],
     });
@@ -417,7 +416,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator("custom");
@@ -433,9 +432,9 @@ describe("splitBlockAtPosition — block-level invariants", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("three")]) }),
       ],
     });
     const beforeP1 = getBlock(state, "p1" as BlockId);
@@ -449,7 +448,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     // Cache pre-op snapshots BEFORE the op so the pre-op State.snapshotCache
@@ -482,7 +481,7 @@ describe("splitBlockAtPosition — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator();
@@ -497,7 +496,7 @@ describe("splitBlockAtPosition — error cases", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
         buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator();
@@ -529,7 +528,7 @@ describe("splitBlockAtPosition — error cases", () => {
     const state = buildState({
       rootId: "p",
       blocks: [
-        buildBlock({ id: "p", type: "paragraph", parentId: null, inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: null, inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator();
@@ -543,7 +542,7 @@ describe("splitBlockAtPosition — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator();
@@ -557,7 +556,7 @@ describe("splitBlockAtPosition — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const allocator = createTestAllocator();

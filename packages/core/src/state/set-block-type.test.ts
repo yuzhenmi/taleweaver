@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setBlockType } from "./set-block-type";
 import { getBlock } from "./state";
-import { buildBlock, buildState } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
 describe("setBlockType", () => {
@@ -11,7 +10,7 @@ describe("setBlockType", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
 

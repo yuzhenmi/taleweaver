@@ -3,8 +3,7 @@ import { describe, it, expect } from "vitest";
 import { insertText } from "./insert-text";
 import { getBlock } from "./state";
 import { getYBlock } from "./yjs-doc";
-import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition } from "./block-position";
 import type { BlockId } from "./block-id";
 
@@ -19,7 +18,7 @@ describe("insertText — middle of single text item", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello world")]),
+          inlineContent: inlineContent([text("hello world")]),
         }),
       ],
     });
@@ -63,7 +62,7 @@ describe("insertText — middle of single text item", () => {
   it("normalizes already-unnormalized inline content (merges adjacent same-attrs text items in input)", () => {
     // Input is unnormalized: three adjacent same-attrs text items. The
     // post-pass should merge them all (along with any new insertion).
-    // createInlineContent does NOT normalize, so this is a real input shape.
+    // inlineContent() does NOT normalize, so this is a real input shape.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -72,7 +71,7 @@ describe("insertText — middle of single text item", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), text("b"), text("c")]),
+          inlineContent: inlineContent([text("a"), text("b"), text("c")]),
         }),
       ],
     });
@@ -90,7 +89,7 @@ describe("insertText — offset 0 (beginning of block)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("world")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", { bold: true });
@@ -105,7 +104,7 @@ describe("insertText — offset 0 (beginning of block)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("world")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("world")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hello ", {});
@@ -121,7 +120,7 @@ describe("insertText — end of block (offset === inlineContentLength)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "!", { italic: true });
@@ -136,7 +135,7 @@ describe("insertText — end of block (offset === inlineContentLength)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
@@ -152,7 +151,7 @@ describe("insertText — empty block", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 0), "hi", { bold: true });
@@ -171,7 +170,7 @@ describe("insertText — split a different-attrs text item", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("helloworld")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("helloworld")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 5), "BOLD", { bold: true });
@@ -197,7 +196,7 @@ describe("insertText — at boundary between two text items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+          inlineContent: inlineContent([text("hello"), text("world", { bold: true })]),
         }),
       ],
     });
@@ -217,7 +216,7 @@ describe("insertText — at boundary between two text items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+          inlineContent: inlineContent([text("hello"), text("world", { bold: true })]),
         }),
       ],
     });
@@ -244,7 +243,7 @@ describe("insertText — at boundary between two text items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a", { bold: true }), text("b", { bold: true })]),
+          inlineContent: inlineContent([text("a", { bold: true }), text("b", { bold: true })]),
         }),
       ],
     });
@@ -269,7 +268,7 @@ describe("insertText — adjacent to embed items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("image"), text("b")]),
         }),
       ],
     });
@@ -291,7 +290,7 @@ describe("insertText — adjacent to embed items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("image"), text("b")]),
         }),
       ],
     });
@@ -313,7 +312,7 @@ describe("insertText — adjacent to embed items", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([embed("image"), text("b")]),
+          inlineContent: inlineContent([embed("image"), text("b")]),
         }),
       ],
     });
@@ -333,7 +332,7 @@ describe("insertText — empty text", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const result = insertText(state, createPosition("p" as BlockId, 2), "", {});
@@ -359,7 +358,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const beforeYText = getYTextAt(state, "p" as BlockId, 0);
@@ -374,7 +373,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const beforeYText = getYTextAt(state, "p" as BlockId, 0);
@@ -395,7 +394,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text("world", { bold: true })]),
+          inlineContent: inlineContent([text("hello"), text("world", { bold: true })]),
         }),
       ],
     });
@@ -416,7 +415,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("helloworld")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("helloworld")]) }),
       ],
     });
     const beforeYText = getYTextAt(state, "p" as BlockId, 0);
@@ -448,7 +447,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("a"),
             text("b"),
             { kind: "embed", embedType: "image", attrs: {}, properties: {} },
@@ -498,7 +497,7 @@ describe("insertText — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     expect(() => insertText(state, createPosition("p" as BlockId, -1), "x", {})).toThrow(/out of range/);
@@ -509,7 +508,7 @@ describe("insertText — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     // Inline-content length is 2; valid offsets are [0, 2]. Offset 3 is out of range.

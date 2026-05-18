@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
-import { buildBlock, buildState, text } from "../test-utils/state-builders";
+import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
-import { createInlineContent } from "./inline-content";
 import type { BlockId } from "./block-id";
 
 describe("normalizeSpan", () => {
@@ -11,8 +10,8 @@ describe("normalizeSpan", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: createInlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
       ],
     });
 
@@ -73,9 +72,9 @@ describe("iterateSpan", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("world")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("!")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("world")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("!")]) }),
       ],
     });
 
@@ -151,7 +150,7 @@ describe("iterateSpan", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
         buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const onContainer = createSpan(createPosition("s" as BlockId, 0), createPosition("p1" as BlockId, 1));
@@ -164,9 +163,9 @@ describe("iterateSpan", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
         // Footnote-body sub-tree with its own root (parentId = null).
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
     const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
@@ -182,10 +181,10 @@ describe("iterateBlocksInSpan", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
         buildBlock({ id: "s1", type: "section", parentId: "doc", nextSiblingId: "s2", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: inlineContent([text("b")]) }),
         buildBlock({ id: "s2", type: "section", parentId: "doc", prevSiblingId: "s1", firstChildId: "p3", lastChildId: "p3" }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: createInlineContent([text("c")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: inlineContent([text("c")]) }),
       ],
     });
 
@@ -237,11 +236,11 @@ describe("iterateBlocksInSpan", () => {
         buildBlock({ id: "doc", type: "document", firstChildId: "o1", lastChildId: "o2" }),
         buildBlock({ id: "o1", type: "section", parentId: "doc", nextSiblingId: "o2", firstChildId: "s1", lastChildId: "s1" }),
         buildBlock({ id: "s1", type: "section", parentId: "o1", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: createInlineContent([text("a")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: createInlineContent([text("b")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: inlineContent([text("b")]) }),
         buildBlock({ id: "o2", type: "section", parentId: "doc", prevSiblingId: "o1", firstChildId: "s2", lastChildId: "s2" }),
         buildBlock({ id: "s2", type: "section", parentId: "o2", firstChildId: "p3", lastChildId: "p3" }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: createInlineContent([text("c")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: inlineContent([text("c")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
@@ -255,8 +254,8 @@ describe("iterateBlocksInSpan", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
     const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));

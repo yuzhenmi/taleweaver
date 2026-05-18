@@ -4,7 +4,7 @@ import { attrsEqual } from "./attrs";
 /**
  * Inline content of a leaf block: an ordered sequence of styled text runs
  * and inline embed items. Adjacent text items with equal attrs should be
- * merged in a normalize pass after every Layer-3 operation (Phase 2).
+ * merged in a normalize pass after every Layer-3 operation.
  */
 export interface InlineContent {
   readonly items: ReadonlyArray<InlineItem>;
@@ -31,33 +31,6 @@ export interface EmbedItem {
   readonly embedType: string;
   readonly attrs: ReadonlyAttrs;
   readonly properties: Readonly<Record<string, unknown>>;
-}
-
-const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
-
-export function createTextItem(text: string, attrs: ReadonlyAttrs = EMPTY_ATTRS): TextItem {
-  return Object.freeze({
-    kind: "text",
-    text,
-    attrs: attrs === EMPTY_ATTRS ? attrs : Object.freeze({ ...attrs }),
-  });
-}
-
-export function createEmbedItem(
-  embedType: string,
-  properties: Readonly<Record<string, unknown>> = {},
-  attrs: ReadonlyAttrs = EMPTY_ATTRS,
-): EmbedItem {
-  return Object.freeze({
-    kind: "embed",
-    embedType,
-    attrs: attrs === EMPTY_ATTRS ? attrs : Object.freeze({ ...attrs }),
-    properties: Object.freeze({ ...properties }),
-  });
-}
-
-export function createInlineContent(items: ReadonlyArray<InlineItem>): InlineContent {
-  return Object.freeze({ items: Object.freeze([...items]) });
 }
 
 /**
@@ -120,7 +93,11 @@ export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): Inline
   for (const item of items) {
     if (item.kind === "text") {
       if (pending && attrsEqual(pending.attrs, item.attrs)) {
-        pending = createTextItem(pending.text + item.text, pending.attrs);
+        pending = Object.freeze({
+          kind: "text" as const,
+          text: pending.text + item.text,
+          attrs: pending.attrs,
+        });
       } else {
         if (pending) out.push(pending);
         pending = item;
@@ -168,8 +145,16 @@ export function splitInlineContentAtOffset(
       `splitInlineContentAtOffset: offset falls inside non-text item at index ${itemIndex} (kind="${straddle.kind}")`,
     );
   }
-  const leftHead = createTextItem(straddle.text.slice(0, withinItem), straddle.attrs);
-  const rightHead = createTextItem(straddle.text.slice(withinItem), straddle.attrs);
+  const leftHead: TextItem = Object.freeze({
+    kind: "text",
+    text: straddle.text.slice(0, withinItem),
+    attrs: straddle.attrs,
+  });
+  const rightHead: TextItem = Object.freeze({
+    kind: "text",
+    text: straddle.text.slice(withinItem),
+    attrs: straddle.attrs,
+  });
   return [
     [...items.slice(0, itemIndex), leftHead],
     [rightHead, ...items.slice(itemIndex + 1)],

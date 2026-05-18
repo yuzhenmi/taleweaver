@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { applyAttrsToRange } from "./apply-attrs";
 import { getBlock } from "./state";
-import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
-import { createInlineContent } from "./inline-content";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
@@ -19,7 +18,7 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("helloworld")]),
+          inlineContent: inlineContent([text("helloworld")]),
         }),
       ],
     });
@@ -70,7 +69,7 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("helloworld", { italic: true })]),
+          inlineContent: inlineContent([text("helloworld", { italic: true })]),
         }),
       ],
     });
@@ -99,7 +98,7 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("helloworld", { bold: true })]),
+          inlineContent: inlineContent([text("helloworld", { bold: true })]),
         }),
       ],
     });
@@ -124,7 +123,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text("world", { italic: true })]),
+          inlineContent: inlineContent([text("hello"), text("world", { italic: true })]),
         }),
       ],
     });
@@ -149,7 +148,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello"), text("world")]),
+          inlineContent: inlineContent([text("hello"), text("world")]),
         }),
       ],
     });
@@ -174,7 +173,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("aaa"), text("bbb"), text("ccc")]),
+          inlineContent: inlineContent([text("aaa"), text("bbb"), text("ccc")]),
         }),
       ],
     });
@@ -207,7 +206,7 @@ describe("applyAttrsToRange — embed items in range", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("a"),
             embed("image", { src: "u" }),
             text("b"),
@@ -240,7 +239,7 @@ describe("applyAttrsToRange — embed items in range", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             embed("image", { src: "u" }, { comment: "c1" }),
           ]),
         }),
@@ -266,9 +265,9 @@ describe("applyAttrsToRange — multi-block span", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: createInlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: createInlineContent([text("world")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("!")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("world")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("!")]) }),
       ],
     });
 
@@ -349,7 +348,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello world", { bold: true, italic: true })]),
+          inlineContent: inlineContent([text("hello world", { bold: true, italic: true })]),
         }),
       ],
     });
@@ -371,7 +370,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello", { italic: true })]),
+          inlineContent: inlineContent([text("hello", { italic: true })]),
         }),
       ],
     });
@@ -395,7 +394,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("hello", { bold: true })]),
+          inlineContent: inlineContent([text("hello", { bold: true })]),
         }),
       ],
     });
@@ -413,7 +412,7 @@ describe("applyAttrsToRange — empty span no-op", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     const pos = createPosition("p" as BlockId, 2);
@@ -429,7 +428,7 @@ describe("applyAttrsToRange — empty span no-op", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello", { bold: true })]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello", { bold: true })]) }),
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
@@ -454,7 +453,7 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([
+          inlineContent: inlineContent([
             text("a", { bold: true }),
             text("b"),
             text("c", { bold: true }),
@@ -481,7 +480,7 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: createInlineContent([text("a"), embed("image"), text("b")]),
+          inlineContent: inlineContent([text("a"), embed("image"), text("b")]),
         }),
       ],
     });
@@ -501,7 +500,7 @@ describe("applyAttrsToRange — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const span = createSpan(
@@ -517,7 +516,7 @@ describe("applyAttrsToRange — error cases", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
         buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: createInlineContent([text("hi")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
     const span = createSpan(
@@ -532,8 +531,8 @@ describe("applyAttrsToRange — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hi")]) }),
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: createInlineContent([text("footnote")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
     const span = createSpan(
