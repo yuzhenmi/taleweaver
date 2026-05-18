@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createState, getBlock, applyOperation, freshState } from "./state";
+import { createState, getBlock, applyOperation, freshState, getBlockFromEither } from "./state";
 import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
+import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 
 describe("state", () => {
   it("createState produces a State with a Y.Doc-backed root", () => {
@@ -131,5 +132,56 @@ describe("applyOperation", () => {
     // p1 was dirtied → fresh snapshot.
     expect(getBlock(result.state, "p1" as BlockId)).not.toBe(p1Before);
     expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
+  });
+});
+
+describe("getBlockFromEither", () => {
+  it("returns blocks from the main tree", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+    });
+    const block = getBlockFromEither(state, "root" as BlockId);
+    expect(block?.type).toBe("document");
+  });
+
+  it("returns blocks from the embedContents map", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      embedContents: [
+        buildBlock({
+          id: "fn-body-1",
+          type: "fn-body",
+          inlineContent: inlineContent([text("note")]),
+        }),
+      ],
+    });
+    const body = getBlockFromEither(state, "fn-body-1" as BlockId);
+    expect(body?.type).toBe("fn-body");
+  });
+
+  it("returns null when the id is in neither map", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+    });
+    expect(getBlockFromEither(state, "missing" as BlockId)).toBeNull();
+  });
+
+  it("prefers the main tree if an id collision somehow exists (defensive)", () => {
+    // Allocator should prevent this, but if it ever happens we return the main-tree block.
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document" }),
+        buildBlock({ id: "dup-id", type: "paragraph", parentId: "root" }),
+      ],
+      embedContents: [
+        buildBlock({ id: "dup-id", type: "fn-body" }),
+      ],
+    });
+    const block = getBlockFromEither(state, "dup-id" as BlockId);
+    expect(block?.type).toBe("paragraph");
   });
 });

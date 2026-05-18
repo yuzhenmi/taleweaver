@@ -55,6 +55,20 @@ export function getEmbedContent(state: State, id: BlockId): Block | null {
 }
 
 /**
+ * Read a frozen Block snapshot from either the main tree or the
+ * embedContents tree. Used by Layer 3 ops that don't know in advance
+ * which tree an id belongs to (paste walker, future cross-tree
+ * references). Main tree takes precedence in the unlikely event of
+ * an id collision.
+ *
+ * Most ops should call `getBlock` or `getEmbedContent` directly — they
+ * know which tree they operate on.
+ */
+export function getBlockFromEither(state: State, id: BlockId): Block | null {
+  return getBlock(state, id) ?? getEmbedContent(state, id);
+}
+
+/**
  * Result of every Layer 3 state-mutating operation. The dirtyIds set is
  * produced at write-time by the operation itself, captured from the
  * Y.Doc transaction's change set.
