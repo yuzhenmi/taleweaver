@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createEmptyDocument } from "./new-initial-state";
+import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { createState, getBlock } from "./state";
 

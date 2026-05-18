@@ -1,4 +1,4 @@
-import type { NewNode } from "../state/new-node";
+import type { NewNode } from "../state/node";
 
 export function createText(content: string): NewNode {
   return Object.freeze({

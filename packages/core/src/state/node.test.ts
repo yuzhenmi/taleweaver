@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { NewNode } from "./new-node";
+import type { NewNode } from "./node";
 
 describe("NewNode", () => {
   it("is StateNode minus the id", () => {

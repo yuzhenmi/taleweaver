@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createHistory } from "./history";
-import { createEmptyDocument } from "./new-initial-state";
+import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { getBlock } from "./state";
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createEmptyDocument } from "./new-initial-state";
+import { createEmptyDocument } from "./initial-state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 

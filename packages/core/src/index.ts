@@ -13,7 +13,7 @@ export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
 // State tree
 export type { StateNode } from "./state/state-node-legacy";
-export type { NewNode } from "./state/new-node";
+export type { NewNode } from "./state/node";
 export { createNode, createTextNode } from "./state/create-node-legacy";
 export {
   updateProperties,
@@ -58,7 +58,7 @@ export { createEmptyDocument } from "./state/initial-state-legacy";
 // deep-import what they need:
 //   - State / createState / getBlock / getEmbedContent / applyOperation /
 //     freshState from "./state/state"
-//   - Y.Doc-backed createEmptyDocument from "./state/new-initial-state"
+//   - Y.Doc-backed createEmptyDocument from "./state/initial-state"
 //   - Layer 3 ops + ClonedSubtree from "./state/operations"
 //   - Block / InlineContent / TextItem / EmbedItem interfaces from
 //     "./state/block" and "./state/inline-content" (factory functions

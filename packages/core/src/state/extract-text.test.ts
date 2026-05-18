@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractText } from "./new-extract-text";
+import { extractText } from "./extract-text";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";

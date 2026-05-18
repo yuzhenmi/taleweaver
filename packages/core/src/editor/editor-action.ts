@@ -1,5 +1,5 @@
 import type { Selection } from "../cursor/selection";
-import type { NewNode } from "../state/new-node";
+import type { NewNode } from "../state/node";
 import type { Position } from "../state/position";
 
 export type EditorAction =
