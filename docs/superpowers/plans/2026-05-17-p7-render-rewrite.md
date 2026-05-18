@@ -128,7 +128,7 @@ npm test --workspace=packages/core -- "src/cascade/flatten-lengths.test" 2>&1 | 
 
 - [ ] **S3: Move the implementation**
 
-Copy lines 49–146 of `packages/core/src/cascade/cascade-pass.ts` (`flattenLengths`, `isIntrinsicKeyword`, `flattenLength`, `flattenLengthOrAuto`, `flattenSizingValue`, `flattenSizingOrIntrinsic`, `flattenSizingOrNone`, `flattenLineHeight`, `resolveFontSize`) into the new `packages/core/src/cascade/flatten-lengths.ts`. Export `flattenLengths` as the public API:
+Copy `flattenLengths` and its private helpers (lines 50–146 of `packages/core/src/cascade/cascade-pass.ts` — `flattenLengths`, `isIntrinsicKeyword`, `flattenLength`, `flattenLengthOrAuto`, `flattenSizingValue`, `flattenSizingOrIntrinsic`, `flattenSizingOrNone`, `flattenLineHeight`, `resolveFontSize`) into the new `packages/core/src/cascade/flatten-lengths.ts`. Export `flattenLengths` as the public API:
 
 ```typescript
 import type { ComputedStyle } from "../styles";
@@ -266,7 +266,7 @@ export function createDefaultAttrRegistry(): AttrRegistry {
 }
 ```
 
-(Watch out for circular-import ordering: `builtin-attrs.ts` imports `AttrRegistry` from `attr-registry.ts`. Placing the `import { registerBuiltinAttrs }` AT THE BOTTOM of `attr-registry.ts` keeps the order safe; the `class AttrRegistry` declaration is hoisted before the import-evaluation point inside `builtin-attrs`.)
+(`builtin-attrs.ts` imports `AttrRegistry` and `AttrInterpreter` from `attr-registry.ts` as **type-only** imports — they're erased at runtime, so there is no runtime cycle. Place the `import { registerBuiltinAttrs }` wherever is stylistically natural inside `attr-registry.ts`.)
 
 - [ ] **S4: Run tests**
 
