@@ -8,6 +8,11 @@
 
 **Tech Stack:** Same as P4e (TypeScript, Vitest, Yjs).
 
+## Resolved spec questions
+
+- **History schema (spec Open Q 2): N/A.** `Change` wraps the legacy `StateNode` (in `state/change.ts`), NOT the new Y.Doc-backed `State`. Adding `embedContents` to the new State does not affect `Change` or its consumers. The new History (Y.UndoManager-backed at `state/history.ts`) tracks Yjs transactions, not State snapshots — embedContents mutations are tracked via the existing dirty-id capture (see P4e Task 2 yjs-doc tests). Don't waste cycles on this question.
+- **`buildState` helper signature (spec Open Q 1): optional `embedContents` parameter.** See Task 1.
+
 ---
 
 ## File Structure
@@ -31,12 +36,12 @@
 
 ## Sub-phase ordering
 
-The build stays green throughout. Each task has its own test cycle.
+The build stays green at every commit. Each task has its own test cycle.
 
 1. Task 1: `buildState` learns about `embedContents` (test-util change; no production-code impact).
 2. Task 2: `getBlockFromEither` helper added (small unblocking helper).
-3. Task 3: Migrate the four test files' fn-body fixtures from `state.blocks` to `embedContents`.
-4. Task 4: `clonePastedSubtree` walker + return shape updated to two-map model.
+3. Task 3: Migrate 4 test files' fn-body fixtures from `state.blocks` to `embedContents` (one commit per file, all green). clone-pasted-subtree.test.ts is DEFERRED to Task 4 to keep every commit green.
+4. Task 4: `clonePastedSubtree` walker + return shape updated to two-map model, AND clone-pasted-subtree.test.ts fixtures migrated (same atomic commit).
 5. Task 5: `removeBlock` cascade-delete implementation (resolves the TODO).
 6. Task 6: Final verification (full build + test sweep + grep cleanup audit).
 
@@ -50,10 +55,10 @@ The build stays green throughout. Each task has its own test cycle.
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `packages/core/src/test-utils/state-builders.test.ts`:
+Add to `packages/core/src/test-utils/state-builders.test.ts` (also ensure `getBlock` is imported — needed for the second test below):
 
 ```typescript
-import { getEmbedContent } from "../state/state";
+import { getBlock, getEmbedContent } from "../state/state";
 
 // ... existing tests ...
 
@@ -305,48 +310,47 @@ git commit -m "feat(p6): add getBlockFromEither helper for cross-map lookups"
 
 ---
 
-## Task 3: Migrate fn-body fixtures across test files
+## Task 3: Migrate fn-body fixtures across 4 test files (one commit per file)
 
-**Files:**
+**Files (this task — 4 files, all green after each commit):**
 - Modify: `packages/core/src/state/yjs-doc.test.ts`
-- Modify: `packages/core/src/state/clone-pasted-subtree.test.ts`
 - Modify: `packages/core/src/state/delete-range.test.ts`
 - Modify: `packages/core/src/state/merge-blocks.test.ts`
 - Modify: `packages/core/src/state/replace-range.test.ts`
 
-These test files currently put `fn-body` blocks in `state.blocks` with `parentId: null` — violating the "only root has null parentId" invariant. Migrate them to `embedContents`.
+**Deferred to Task 4:** `clone-pasted-subtree.test.ts` fixture migration. That file's tests can't go green until the walker is updated (Task 4); to preserve the "build green every commit" invariant, that migration lands in the same commit as the walker change.
 
-**Important**: don't migrate test fixtures BLINDLY. Some `clone-pasted-subtree.test.ts` tests specifically verify that `clonePastedSubtree` walks contentBlockId references. Those tests need the fn-body in `embedContents` (where clonePastedSubtree looks for it after Task 4). Other tests may use fn-body merely as "another block id" — those can stay in `state.blocks` IF they aren't asserting embed-content-specific behavior (rename to a non-fn-body id, or keep in main tree with a real parent).
+These four files currently put `fn-body` blocks in `state.blocks` with `parentId: null` — violating the "only root has null parentId" invariant. Migrate them to `embedContents`.
 
-- [ ] **Step 1: Audit each test file**
-
-For each of the 5 files, list every fn-body usage and categorize:
-- **Category A**: fn-body is genuinely an embed-content block (referenced via `EmbedItem.properties.contentBlockId` from a main-tree block). MIGRATE to `embedContents`.
-- **Category B**: fn-body is used as "just another block" with no contentBlockId pointer. Either rename to a generic id (e.g., `"side-x"`) or restructure as a real child block with a parent. Most likely the fixture INTENDED Category A but the spec didn't have a place to put it yet.
+- [ ] **Step 1: Audit each file**
 
 ```bash
-for f in /Users/hansyu/code/taleweaver/packages/core/src/state/yjs-doc.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/clone-pasted-subtree.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/delete-range.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/merge-blocks.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/replace-range.test.ts; do
+for f in /Users/hansyu/code/taleweaver/packages/core/src/state/yjs-doc.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/delete-range.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/merge-blocks.test.ts /Users/hansyu/code/taleweaver/packages/core/src/state/replace-range.test.ts; do
   echo "=== $f ==="
-  grep -n "fn-body\|fn-anchor\|contentBlockId" "$f"
+  grep -n "fn-body\|fn-anchor\|footnote-body\|contentBlockId\|\"fn\"" "$f"
 done
 ```
 
-Categorize each match. The most likely outcome: ALL are Category A (the spec lists them as preventive-cleanup targets).
+For each match, categorize:
+- **Category A**: fn-body is genuinely an embed-content block (referenced via `EmbedItem.properties.contentBlockId` from a main-tree block). MIGRATE to `embedContents`; assertion `state.blocks.get("fn-body")` becomes `getEmbedContent(state, "fn-body" as BlockId)`.
+- **Category B (special — orphan-position error test)**: `delete-range.test.ts:557` puts a `fn` block at top-level with no parent and no contentBlockId reference, deliberately, to trigger `comparePositions`'s "no common ancestor → different selection contexts" error. **Migrate this fn block to `embedContents` too** — the error path still works (`comparePositions` walks up the parent chain from `p` and never reaches a common ancestor with `fn`, which lives in a separate tree). The test assertion (the thrown error pattern) is unchanged. DO NOT delete this test.
+- **Category C ("no-cascade-delete" tests)**: `delete-range.test.ts:313`, `merge-blocks.test.ts` (similar pattern), `replace-range.test.ts:285` — these test that an embed-content block SURVIVES the operation because the embed reference is TRANSFERRED to the new merged block (not orphaned). Post-P6: migrate the fn-body fixture to `embedContents`, swap the assertion from `getBlock` to `getEmbedContent`. The test logic still holds — `deleteRange`/`mergeAdjacentBlocks`/`replaceRange` move the focus block's inline content (including embed anchors) into the anchor block, so the embed reference survives. **These ops do NOT call `removeBlock`; they call `yBlocks.delete(focusId)` directly, bypassing Task 5's cascade-delete.** The fn-body in `embedContents` is therefore NOT cascade-deleted; the test name "(no cascade-delete)" remains accurate.
 
-- [ ] **Step 2: Migrate Category A fixtures**
+- [ ] **Step 2: Migrate Category A & B & C fixtures**
 
-For each fixture that's Category A:
-- Move the fn-body `buildBlock(...)` from the `blocks: [...]` array to a NEW `embedContents: [...]` array.
-- Ensure the fn-body block has `parentId: null` (embed-content blocks have no parent — they're referenced by id).
-- Ensure the main-tree block that references it has the correct `EmbedItem.properties.contentBlockId` (this should already be the case).
-- Update any assertions like `result.state.blocks.get("fn-body")` → `getEmbedContent(result.state, "fn-body" as BlockId)`.
+For each fixture:
+- Move the fn-body `buildBlock(...)` from `blocks: [...]` to `embedContents: [...]`.
+- Ensure the fn-body block has `parentId: null`.
+- Update any assertions: `result.state.blocks.get("fn-body")` → `getEmbedContent(result.state, "fn-body" as BlockId)`; `state.blocks.has("fn-body")` → `getEmbedContent(state, "fn-body" as BlockId) !== null`.
 
-- [ ] **Step 3: Per-file commit**
+For Category C tests, also verify the assertion text matches the new shape (e.g., the assertion name says "fn-body still in state.blocks" → rename to "fn-body still in embedContents").
 
-After migrating each file:
+- [ ] **Step 3: Per-file commit (4 commits)**
+
+After each file:
 
 ```bash
-npm test --workspace=packages/core -- <file>.test 2>&1 | tail -10
+npm test --workspace=packages/core -- "src/state/<file>.test.ts" 2>&1 | tail -10
 ```
 
 Confirm green, then:
@@ -356,31 +360,26 @@ git add packages/core/src/state/<file>.test.ts
 git commit -m "test(p6): migrate fn-body fixtures from blocks to embedContents in <file>"
 ```
 
-Repeat for all 5 files. Five commits, one per file.
-
-NOTE: clone-pasted-subtree.test.ts will likely fail until Task 4 lands (clonePastedSubtree doesn't yet look up contentBlockId in embedContents). If a test fails BECAUSE clonePastedSubtree can't find the fn-body, leave the test file in its migrated state and proceed to Task 4 — Task 4's success criterion is "these tests pass."
-
-If clone-pasted-subtree.test.ts has tests that don't depend on the walker following contentBlockId, those should pass after migration alone.
-
-- [ ] **Step 4: Run full suite**
+After all 4 files, run full suite — expect green:
 
 ```bash
 npm test --workspace=packages/core 2>&1 | tail -5
 ```
 
-Expected: most tests pass; some clone-pasted-subtree tests may fail pending Task 4. Document the failures in the Task 4 commit message.
+(clone-pasted-subtree.test.ts is unchanged at this point; its tests still pass against the pre-Task-4 walker because the source fixtures still use `state.blocks` for fn-body. Task 4 migrates that file's fixtures AND the walker in one atomic commit.)
 
 ---
 
-## Task 4: Update `clonePastedSubtree` walker + return shape
+## Task 4: Update `clonePastedSubtree` walker + return shape + migrate its tests
 
-**Files:**
+**Files (all in one atomic commit to preserve build-green invariant):**
 - Modify: `packages/core/src/state/clone-pasted-subtree.ts`
-- Modify: `packages/core/src/state/clone-pasted-subtree.test.ts`
+- Modify: `packages/core/src/state/clone-pasted-subtree.test.ts` (fixture migration AND assertion updates AND new tests)
 
-Two changes:
+Three changes:
 1. Walker resolves `EmbedItem.properties.contentBlockId` via `getEmbedContent` (not `getBlock`).
 2. Return type adds `embedContents: ReadonlyMap<BlockId, Block>` field — cloned embed-content blocks go there, cloned tree blocks stay in `blocks`.
+3. Test fixtures: move fn-body blocks from `blocks: [...]` to `embedContents: [...]`. Existing `result.blocks.has("cloned-fn-body-id")` assertions → `result.embedContents.has("cloned-fn-body-id")`.
 
 - [ ] **Step 1: Read the legacy implementation**
 
@@ -564,6 +563,8 @@ git commit -m "feat(p6): clonePastedSubtree walks embedContents + segregates out
 - Modify: `packages/core/src/state/remove-block.test.ts`
 
 Resolve the TODO at lines 30-37: when removing a block, walk its removed subtree's inlineContent for `EmbedItem.properties.contentBlockId` references; recursively delete each from `state.embedContents` (including the embed-content's own children + nested embed-content references).
+
+**Scope clarification.** Cascade-delete fires ONLY when callers invoke `removeBlock` directly. Other ops that delete blocks (`deleteRange`, `replaceRange`) call `yBlocks.delete(id)` directly inside their transactions to bypass `removeBlock`'s overhead — and in those ops, the focus block's inline content (including any embed anchors) is TRANSFERRED into the anchor block before the delete. So embed references are preserved across `deleteRange`/`replaceRange`, not orphaned. Task 3's Category C tests pin this behavior. Future ops that add new block-deletion paths must either invoke `removeBlock` (free cascade) or replicate the cascade-collect manually.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -801,6 +802,10 @@ Expected: clean. Test count: ~1256 + ~14 new = ~1270 passing.
 - [ ] **Step 4: If everything's green, no commit needed**
 
 If anything fails, identify the cause and fix in a follow-up commit (don't squash — keep the per-task commits for review traceability).
+
+- [ ] **Step 5: Browser smoke — deferred**
+
+P6 doesn't touch render / paint / editor wiring. The new `embedContents` map and cascade-delete behavior will affect what downstream phases see, but no UI consumer of the new Y.Doc-backed state exists yet (legacy editor still drives the example apps via `StateNode`). Browser smoke is therefore deferred to the first downstream phase that wires the new state into a UI consumer (P7 render rewrite or P11.x editor cutover). Note in the final commit message that this is intentional.
 
 ## End of P6
 
