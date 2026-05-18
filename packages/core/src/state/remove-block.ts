@@ -47,10 +47,12 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
   }
   const parentId = block.parentId;
   if (parentId === null) {
-    // Defensive: a non-root block with no parent is malformed state.
-    // Note: when state.embedContents lands, footnote-body roots will
-    // have parentId === null and SHOULD be removable via this function.
-    // Revisit this guard at that time.
+    // Defensive: a non-root, non-orphan block in state.blocks must have a
+    // parent. Embed-content blocks (which DO have parentId === null) live
+    // in state.embedContents — not in state.blocks — and are removed via
+    // cascade-delete from their referencing tree block, never directly
+    // via removeBlock. So if we see a null-parent block here, state.blocks
+    // is malformed.
     throw new Error(`removeBlock: block "${blockId}" has no parentId (orphan)`);
   }
   const parent = getBlock(state, parentId);
