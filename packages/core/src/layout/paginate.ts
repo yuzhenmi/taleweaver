@@ -1,5 +1,5 @@
 // packages/core/src/layout/paginate.ts
-import type { ElementBox } from "../render/render-node-v2";
+import type { ElementBox } from "../render/render-node";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";

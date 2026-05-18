@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
-import type { RenderNode, ElementBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
+import type { RenderNode, ElementBox } from "../render/render-node";
 import { cascadePass, cascadePassIncremental } from "../cascade";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
 import { layoutBlock } from "../layout/bfc";

@@ -1,4 +1,4 @@
-import type { RenderNode, ElementBox, TextBox } from "../render/render-node-v2";
+import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import { composeComputed } from "./compose";
 import { flattenLengths } from "./flatten-lengths";

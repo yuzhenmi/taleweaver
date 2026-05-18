@@ -14,7 +14,7 @@
  *   - Floats on both sides leaving inadequate gap — line pushes below
  */
 import { describe, it, expect } from "vitest";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { createMockShaper } from "../layout/mock-shaper";

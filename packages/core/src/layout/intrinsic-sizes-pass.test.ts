@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { createIntrinsicSizesCache } from "./intrinsic-sizes";
 import { createMockShaper } from "./mock-shaper";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 
 describe("computeIntrinsicSizes", () => {

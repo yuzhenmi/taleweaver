@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   type RenderNode, type ElementBox, type TextBox,
   createElementBox, createTextBox,
-} from "./render-node-v2";
+} from "./render-node";
 
 describe("ElementBox", () => {
   it("constructs with key, style, children", () => {

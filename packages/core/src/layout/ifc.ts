@@ -1,5 +1,5 @@
-import type { RenderNode } from "../render/render-node-v2";
-import type { ElementBox } from "../render/render-node-v2";
+import type { RenderNode } from "../render/render-node";
+import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, createBlockBox } from "./layout-box-v2";

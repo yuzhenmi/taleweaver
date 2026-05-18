@@ -2,7 +2,7 @@
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "../layout/mock-shaper";
-import type { RenderNode } from "../render/render-node-v2";
+import type { RenderNode } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
 import type { BlockBox, LayoutBox } from "../layout/layout-box-v2";
 import type { PageBox } from "../layout/page-box";

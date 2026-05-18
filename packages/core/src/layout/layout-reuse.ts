@@ -1,5 +1,5 @@
 import type { LayoutBox } from "./layout-box-v2";
-import type { RenderNode } from "../render/render-node-v2";
+import type { RenderNode } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import { computedStylesEqual } from "../cascade/cascade-pass";
 

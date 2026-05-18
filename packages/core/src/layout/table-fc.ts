@@ -1,4 +1,4 @@
-import type { RenderNode, ElementBox } from "../render/render-node-v2";
+import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { TableBox, TableRowBox, TableCellBox } from "./layout-box-v2";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box-v2";

@@ -13,7 +13,7 @@
  * canonical tests in intrinsic-sizing.test.ts — they are not duplicated here.
  */
 import { describe, it, expect } from "vitest";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "../layout/mock-shaper";

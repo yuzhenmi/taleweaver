@@ -5,7 +5,7 @@
  * and auto-table column distribution all produce correct inline sizes.
  */
 import { describe, it, expect } from "vitest";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { layoutTable } from "../layout/table-fc";

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groupChildren, anonymousBlockKey } from "./group-children";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 
 describe("groupChildren", () => {

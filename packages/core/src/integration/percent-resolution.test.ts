@@ -6,7 +6,7 @@
  * inline size.
  */
 import { describe, it, expect } from "vitest";
-import { createElementBox } from "../render/render-node-v2";
+import { createElementBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "../layout/mock-shaper";

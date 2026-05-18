@@ -1,5 +1,5 @@
 import type { StateNode } from "../state/state-node-legacy";
-import type { RenderNode } from "../render/render-node-v2";
+import type { RenderNode } from "../render/render-node";
 
 /**
  * A component render function.

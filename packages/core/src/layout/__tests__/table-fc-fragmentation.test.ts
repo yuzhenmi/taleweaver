@@ -6,8 +6,8 @@ import { makeRootContext } from "../layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../../styles";
 import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
-import { createElementBox, createTextBox } from "../../render/render-node-v2";
-import type { ElementBox } from "../../render/render-node-v2";
+import { createElementBox, createTextBox } from "../../render/render-node";
+import type { ElementBox } from "../../render/render-node";
 
 /** Build a simple table with N body rows, fixed row height via blockSize style. */
 function buildSimpleTable(numBodyRows: number, rowHeight: number = 30): ElementBox {

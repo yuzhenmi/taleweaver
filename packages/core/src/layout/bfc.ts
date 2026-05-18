@@ -1,4 +1,4 @@
-import type { ElementBox } from "../render/render-node-v2";
+import type { ElementBox } from "../render/render-node";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
 import { createBlockBox, createMarkerBox } from "./layout-box-v2";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";

@@ -1,4 +1,4 @@
-import type { RenderNode, ElementBox, TextBox } from "../render/render-node-v2";
+import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
 import type { TextShaper } from "./text-shaper";
 import type { IntrinsicSizes, IntrinsicSizesCache } from "./intrinsic-sizes";
 

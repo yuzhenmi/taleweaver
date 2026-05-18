@@ -26,7 +26,7 @@
  *   non-cell content inside a `display:table-row` element.  Parent key =
  *   the row's key (real or itself anonymous).
  */
-import type { RenderNode, ElementBox } from "../render/render-node-v2";
+import type { RenderNode, ElementBox } from "../render/render-node";
 
 export type ChildGroup =
   | { readonly kind: "block";  readonly child: RenderNode; readonly positionalIndex: number }

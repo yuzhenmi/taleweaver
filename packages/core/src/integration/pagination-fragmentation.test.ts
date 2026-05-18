@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { paginatedHarness } from "../test-utils/paginated-harness";
 import type { PageConfig } from "../layout/page-config";
-import type { RenderNode } from "../render/render-node-v2";
+import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, BlockBox } from "../layout/layout-box-v2";
 import type { PageBox } from "../layout/page-box";
 import { layoutTreeIncremental } from "../layout/layout-incremental";

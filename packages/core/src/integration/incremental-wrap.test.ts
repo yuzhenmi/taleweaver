@@ -6,8 +6,8 @@
  * - Edit to one paragraph invalidates only that paragraph's cached state.
  */
 import { describe, it, expect } from "vitest";
-import { createElementBox, createTextBox } from "../render/render-node-v2";
-import type { ElementBox } from "../render/render-node-v2";
+import { createElementBox, createTextBox } from "../render/render-node";
+import type { ElementBox } from "../render/render-node";
 import { cascadePass, cascadePassIncremental } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { createMockShaper } from "../layout/mock-shaper";
