@@ -1,0 +1,50 @@
+import { describe, it, expect } from "vitest";
+import { headingComponent, HEADING_FONT_SIZES } from "./heading";
+import type { LeafBlockView, RenderContext } from "../render/block-view";
+import type { ElementBox } from "../render/render-node";
+import type { BlockId } from "../state/block-id";
+import type { State } from "../state/state";
+import type { ComputedStyle } from "../styles";
+import type { ReadonlyAttrs } from "../state/attrs";
+
+function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
+  return {
+    id: "h1" as BlockId,
+    type: "heading",
+    attrs: Object.freeze(attrs),
+    computedStyle: {} as ComputedStyle,
+    kind: "leaf",
+    inlineContent: { items: [] },
+  };
+}
+
+function stubCtx(): RenderContext {
+  return {
+    state: {} as State,
+    getView: () => { throw new Error("stub"); },
+    getEmbedContent: () => { throw new Error("stub"); },
+  };
+}
+
+describe("headingComponent (new)", () => {
+  it("has type 'heading' and kind 'leaf'", () => {
+    expect(headingComponent.type).toBe("heading");
+    expect(headingComponent.kind).toBe("leaf");
+  });
+
+  it("renders an ElementBox with bold font weight and level-derived font size", () => {
+    const view = leafView({ level: 1 });
+    const node = headingComponent.render(view, stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.style.display).toBe("block");
+    expect(el.style.fontWeight).toBe("bold");
+    expect(el.style.fontSize).toBe(HEADING_FONT_SIZES[1]);
+  });
+
+  it("falls back to level 1 size when attrs.level is missing", () => {
+    const view = leafView({});
+    const node = headingComponent.render(view, stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.style.fontSize).toBe(HEADING_FONT_SIZES[1]);
+  });
+});
