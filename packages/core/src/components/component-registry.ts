@@ -1,4 +1,14 @@
 import type { ComponentDefinition } from "./component-definition";
+import { documentComponent } from "./document";
+import { paragraphComponent } from "./paragraph";
+import { headingComponent } from "./heading";
+import { listComponent } from "./list";
+import { listItemComponent } from "./list-item";
+import { tableComponent } from "./table";
+import { tableRowComponent } from "./table-row";
+import { tableCellComponent } from "./table-cell";
+import { imageComponent } from "./image";
+import { horizontalLineComponent } from "./horizontal-line";
 
 /**
  * Component registry for the new render pipeline. Constructor-injectable
@@ -37,17 +47,26 @@ export function createComponentRegistry(): ComponentRegistry {
 }
 
 /**
- * Returns a registry pre-populated with all built-in components. In P7
- * the registry is empty (no components are yet migrated to the new
- * ComponentDefinition union). P8 migrates each built-in component and
- * adds explicit `register()` calls here.
+ * Returns a registry pre-populated with all 10 built-in components.
+ * Per Decision F: explicit register() calls, no side-effect imports.
+ *
+ * `text` and `span` are deliberately NOT registered — per master spec,
+ * `componentRegistry.has("text") === false`, `has("span") === false`
+ * for the new pipeline. The renderer expands inline items directly.
  */
 export function createDefaultComponentRegistry(): ComponentRegistry {
-  return createComponentRegistry();
-  // P8 will replace with:
-  //   const reg = createComponentRegistry();
-  //   reg.register(documentComponent);
-  //   reg.register(paragraphComponent);
-  //   ... etc.
-  //   return reg;
+  const reg = createComponentRegistry();
+  // Containers
+  reg.register(documentComponent);
+  reg.register(listComponent);
+  reg.register(listItemComponent);
+  reg.register(tableComponent);
+  reg.register(tableRowComponent);
+  reg.register(tableCellComponent);
+  // Leaves
+  reg.register(paragraphComponent);
+  reg.register(headingComponent);
+  reg.register(imageComponent);
+  reg.register(horizontalLineComponent);
+  return reg;
 }
