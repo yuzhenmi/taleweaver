@@ -6,7 +6,12 @@ import { createPosition } from "../state/block-position";
 import type { InlineContent } from "../state/inline-content";
 import { inlineContentLength, findItemAtOffset } from "../state/inline-content";
 import { nextBlockInDocOrder, prevBlockInDocOrder } from "../state/block-traversal";
-import { nextGraphemeBoundary, prevGraphemeBoundary } from "./grapheme-utils";
+import {
+  nextGraphemeBoundary,
+  prevGraphemeBoundary,
+  nextWordBoundary,
+  prevWordBoundary,
+} from "./grapheme-utils";
 
 /**
  * Move the cursor by one grapheme cluster in the given direction.
@@ -124,4 +129,100 @@ function advanceBackward(content: InlineContent, offset: number): number {
   }
   // Previous item is an embed — single-unit step.
   return offset - 1;
+}
+
+/**
+ * Move the cursor by one word (UAX #29 word boundary) in the given direction.
+ *
+ * Word boundaries are detected within each text item's text via
+ * `Intl.Segmenter`. Embeds act as word barriers — `moveByWord` does NOT
+ * traverse through an embed; instead, when it would cross one, the
+ * position lands at the offset immediately before (forward) or after
+ * (backward) the embed. Cross-block transitions: forward advances to
+ * offset 0 of the next content-bearing block; backward retreats to the
+ * start of the last word of the previous content-bearing block. Container
+ * blocks (document, section, list, table, etc.) are skipped via
+ * `findNextContentBlock` / `findPrevContentBlock` — cursors are not
+ * valid in containers.
+ */
+export function moveByWord(
+  state: State,
+  position: Position,
+  direction: "forward" | "backward",
+): Position {
+  const block = getBlock(state, position.blockId);
+  if (block === null) return position;
+  const content: InlineContent = block.inlineContent ?? { items: [] };
+  const total = inlineContentLength(content);
+
+  if (direction === "forward") {
+    if (position.offset >= total) {
+      const next = findNextContentBlock(state, position.blockId);
+      return next === null ? position : createPosition(next, 0);
+    }
+    const advanced = advanceWordForward(content, position.offset);
+    return createPosition(position.blockId, advanced);
+  }
+
+  if (position.offset <= 0) {
+    const prev = findPrevContentBlock(state, position.blockId);
+    if (prev === null) return position;
+    const prevBlock = getBlock(state, prev);
+    if (prevBlock === null) return position;
+    const prevContent = prevBlock.inlineContent ?? { items: [] };
+    const prevTotal = inlineContentLength(prevContent);
+    // Find last word start in prev block. Iterate items in reverse, pick
+    // first text item's prevWordBoundary from its end.
+    for (let i = prevContent.items.length - 1; i >= 0; i--) {
+      const item = prevContent.items[i];
+      if (item === undefined || item.kind !== "text") continue;
+      const boundary = prevWordBoundary(item.text, item.text.length);
+      // Compute the cumulative offset of this item's start in the block.
+      let cum = 0;
+      for (let j = 0; j < i; j++) {
+        const it = prevContent.items[j];
+        if (it === undefined) continue;
+        cum += it.kind === "text" ? it.text.length : 1;
+      }
+      return createPosition(prev, cum + boundary);
+    }
+    // No text items in prev block — land at its end (block boundary).
+    return createPosition(prev, prevTotal);
+  }
+  const retreated = advanceWordBackward(content, position.offset);
+  return createPosition(position.blockId, retreated);
+}
+
+function advanceWordForward(content: InlineContent, offset: number): number {
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  const item = content.items[itemIndex];
+  if (item === undefined) return offset;
+  if (item.kind !== "text") {
+    // Inside an embed — word movement steps past it (treat as a 1-unit step).
+    return offset + 1;
+  }
+  const nextBoundary = nextWordBoundary(item.text, withinItem);
+  if (nextBoundary > withinItem) {
+    return offset + (nextBoundary - withinItem);
+  }
+  // At end of text item — step 1 unit (embed barrier or next item start).
+  return offset + 1;
+}
+
+function advanceWordBackward(content: InlineContent, offset: number): number {
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  if (withinItem > 0) {
+    const item = content.items[itemIndex];
+    if (item !== undefined && item.kind === "text") {
+      const prevBoundary = prevWordBoundary(item.text, withinItem);
+      return offset - (withinItem - prevBoundary);
+    }
+    return offset - 1;
+  }
+  // At item boundary — step into previous item.
+  const prev = content.items[itemIndex - 1];
+  if (prev === undefined) return offset;
+  if (prev.kind !== "text") return offset - 1;
+  const prevBoundary = prevWordBoundary(prev.text, prev.text.length);
+  return offset - (prev.text.length - prevBoundary);
 }

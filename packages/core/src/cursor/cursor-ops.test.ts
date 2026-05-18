@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moveByCharacter } from "./cursor-ops";
+import { moveByCharacter, moveByWord } from "./cursor-ops";
 import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
@@ -153,5 +153,87 @@ describe("moveByCharacter (new) — cross-block", () => {
     const pos = createPosition("missing" as BlockId, 0);
     const out = moveByCharacter(state, pos, "forward");
     expect(out).toEqual(pos);
+  });
+});
+
+describe("moveByWord (new)", () => {
+  it("advances forward to end of next word within a text item", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
+      ],
+    });
+    const out = moveByWord(state, createPosition("p" as BlockId, 0), "forward");
+    expect(out).toEqual({ blockId: "p", offset: 5 });
+  });
+
+  it("retreats backward to start of current/previous word within a text item", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
+      ],
+    });
+    const out = moveByWord(state, createPosition("p" as BlockId, 8), "backward");
+    expect(out).toEqual({ blockId: "p", offset: 6 });
+  });
+
+  it("crosses block boundary to offset 0 when at end of last word in block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("world")]) }),
+      ],
+    });
+    const out = moveByWord(state, createPosition("p1" as BlockId, 5), "forward");
+    expect(out).toEqual({ blockId: "p2", offset: 0 });
+  });
+
+  it("crosses block boundary backward from offset 0 to last word start of previous block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello there")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("world")]) }),
+      ],
+    });
+    const out = moveByWord(state, createPosition("p2" as BlockId, 0), "backward");
+    expect(out).toEqual({ blockId: "p1", offset: 6 });
+  });
+
+  it("treats an embed as a word boundary (forward stops just before embed)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello"), embed("fn-anchor", { contentBlockId: "x" }), text("world")]),
+        }),
+      ],
+    });
+    // From offset 0, forward word lands at end of "hello" (5).
+    const out = moveByWord(state, createPosition("p" as BlockId, 0), "forward");
+    expect(out).toEqual({ blockId: "p", offset: 5 });
+  });
+
+  it("returns input unchanged at document boundaries", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+      ],
+    });
+    expect(moveByWord(state, createPosition("p" as BlockId, 0), "backward")).toEqual(createPosition("p" as BlockId, 0));
+    expect(moveByWord(state, createPosition("p" as BlockId, 2), "forward")).toEqual(createPosition("p" as BlockId, 2));
   });
 });
