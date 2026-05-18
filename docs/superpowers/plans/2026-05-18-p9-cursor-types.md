@@ -673,7 +673,7 @@ git commit -m "feat(p9): new moveByCharacter (grapheme + embed + cross-block)"
 ## Constraints
 
 - Returns new `Position` (`{ blockId, offset }`), NOT legacy `Selection` / `Span`.
-- Cross-block via `nextBlockInDocOrder` / `prevBlockInDocOrder` only — no manual tree walk.
+- Cross-block via `nextBlockInDocOrder` / `prevBlockInDocOrder`, **filtered to content-bearing blocks**: the bare traversal helpers return ANY block in document order, including containers (`document`, `section`, `list`, `list-item`, `table`, `table-row`, `table-cell`) whose `inlineContent === null`. Cursors are not valid in containers — wrap the bare traversal in `findNextContentBlock(state, blockId)` / `findPrevContentBlock(state, blockId)` helpers (private to `cursor-ops.ts`) that skip past blocks where `inlineContent === null` until a leaf or null is reached. T4 reuses these same helpers.
 - Embed = 1 offset unit per master spec.
 - Defensive on unknown blockIds: returns input unchanged (caller is expected to validate).
 - **Public API surface is unchanged.** The new `moveByCharacter` / `moveByWord` / `selectWord` / `expandSelection` are NOT re-exported from `cursor/index.ts` or `packages/core/src/index.ts` during P9. The legacy names there continue to point at `cursor-ops-legacy.ts`. P11.4 cutover swaps the barrel; P15 deletes the legacy entries. Adding the new exports to the barrel in P9 would shadow the legacy ones under the same names and break the editor.
