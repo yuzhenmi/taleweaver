@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createCursor } from "../../cursor/selection";
-import { moveToLineBoundary } from "../line-navigation";
+import { moveToLineBoundary } from "../line-navigation-legacy";
 
 export function handleMoveLineBoundary(
   editor: EditorState,

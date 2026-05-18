@@ -9,7 +9,7 @@ import {
   layoutTree,
   createPosition,
 } from "@taleweaver/core";
-import { moveToLine, moveToLineBoundary } from "./line-navigation";
+import { moveToLine, moveToLineBoundary } from "./line-navigation-legacy";
 
 const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);

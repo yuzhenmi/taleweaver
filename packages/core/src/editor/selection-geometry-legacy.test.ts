@@ -11,7 +11,7 @@ import {
   createSelection,
   createPosition,
 } from "@taleweaver/core";
-import { computeSelectionRects } from "./selection-geometry";
+import { computeSelectionRects } from "./selection-geometry-legacy";
 
 const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);

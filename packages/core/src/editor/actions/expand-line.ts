@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createSelection } from "../../cursor/selection";
-import { moveToLine } from "../line-navigation";
+import { moveToLine } from "../line-navigation-legacy";
 
 export function handleExpandLine(
   editor: EditorState,

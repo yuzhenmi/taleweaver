@@ -8,7 +8,7 @@ import {
   renderTree,
   layoutTree,
 } from "@taleweaver/core";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolvePositionFromPixel } from "./hit-test-legacy";
 
 const measurer = createMockShaper(8, 16); // 8px/char, 16px line height
 const registry = createRegistry([...defaultComponents]);

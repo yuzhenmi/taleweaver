@@ -8,7 +8,7 @@ import type { ComputedStyle } from "../styles";
 import { selectionStart, selectionEnd } from "../cursor/selection";
 import { getNodeByPath } from "../state/operations-legacy";
 import { getTextContentLength } from "../state/text-utils-legacy";
-import { resolvePixelPosition } from "./cursor-position";
+import { resolvePixelPosition } from "./cursor-position-legacy";
 import { collectAllTextBoxes, collectBlockBoundaryLines, type AbsoluteTextBox } from "./layout-utils";
 import { markStart, markEnd } from "../perf/perf-trace";
 

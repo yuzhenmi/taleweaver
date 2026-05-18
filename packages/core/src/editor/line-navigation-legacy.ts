@@ -6,8 +6,8 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { createPosition } from "../state/position";
 import { getTextContentLength } from "../state/text-utils-legacy";
-import { resolvePixelPosition } from "./cursor-position";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolvePixelPosition } from "./cursor-position-legacy";
+import { resolvePositionFromPixel } from "./hit-test-legacy";
 import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
 import { findFirstTextDescendant, findLastTextDescendant } from "./actions/helpers";
 

@@ -5,7 +5,7 @@ import {
   selectionStart,
   selectionEnd,
 } from "../../cursor/selection";
-import { moveToLine } from "../line-navigation";
+import { moveToLine } from "../line-navigation-legacy";
 
 export function handleMoveLine(
   editor: EditorState,

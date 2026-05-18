@@ -138,12 +138,12 @@ export {
 export type { EditorAction } from "./editor/editor-action";
 export type { AbsoluteTextBox } from "./editor/layout-utils";
 export { collectAllTextBoxes } from "./editor/layout-utils";
-export type { PixelPosition } from "./editor/cursor-position";
-export { resolvePixelPosition } from "./editor/cursor-position";
-export { resolvePositionFromPixel } from "./editor/hit-test";
-export type { SelectionRect } from "./editor/selection-geometry";
-export { computeSelectionRects } from "./editor/selection-geometry";
-export { moveToLine, moveToLineBoundary } from "./editor/line-navigation";
+export type { PixelPosition } from "./editor/cursor-position-legacy";
+export { resolvePixelPosition } from "./editor/cursor-position-legacy";
+export { resolvePositionFromPixel } from "./editor/hit-test-legacy";
+export type { SelectionRect } from "./editor/selection-geometry-legacy";
+export { computeSelectionRects } from "./editor/selection-geometry-legacy";
+export { moveToLine, moveToLineBoundary } from "./editor/line-navigation-legacy";
 export type {
   EditorState,
   EditorConfig,

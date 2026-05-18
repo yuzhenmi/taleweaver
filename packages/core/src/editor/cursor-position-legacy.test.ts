@@ -12,7 +12,7 @@ import {
   insertText,
   splitNode,
 } from "@taleweaver/core";
-import { resolvePixelPosition } from "./cursor-position";
+import { resolvePixelPosition } from "./cursor-position-legacy";
 
 const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);
