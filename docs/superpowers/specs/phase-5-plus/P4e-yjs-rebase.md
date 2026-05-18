@@ -164,29 +164,26 @@ P4e tests fall into categories:
 - `change.test.ts` (likely deleted).
 - Tests asserting PersistentMap-specific internals (replaced by Y.Map equivalents).
 
-## Open questions (to resolve in Phase 4e per-phase plan)
+## Open questions
 
-1. **Snapshot view caching strategy.** Per-id with version tracking? WeakMap with version-tagged keys? Plain LRU? Performance characteristics + correctness tradeoffs. Decide in plan.
+1. ✅ **Snapshot view caching strategy.** Per-id Map keyed by BlockId, invalidated via `applyOperation`'s carry-forward cache: each op produces a fresh `SnapshotCache` that copies non-dirty entries forward from the input state's cache. Preserves both structural sharing (snapshots of unchanged blocks reference-equal across ops) AND per-State view stability (pre-op cache untouched). See `state/state.ts:applyOperation`.
 
-2. **`Y.Text` vs `Y.Array<{char, attrs}>` for text items.** Y.Text is Yjs's primary text CRDT with formatting marks; pre-existing solutions for what we need. But it requires consumers to use Yjs format-mark APIs for per-char attrs. Alternative: keep our TextItem as a Y.Map with `text: string` field (treating the run as atomic) and accept that intra-run concurrent edits resolve via LWW. Tradeoff: Y.Text gives Google Docs-grade fine-grained concurrent editing; the alternative is simpler but loses fine-grained collab. **Per decision C, per-character granularity is required. Use Y.Text.**
+2. ✅ **`Y.Text` vs `Y.Array<{char, attrs}>` for text items.** Y.Text per Decision C — per-character granularity required for Google Docs-grade collab.
 
-3. **Y.Text format marks for inline attrs.** When a TextItem has attrs `{bold: true}`, do we express that as:
-   - A Y.Map attrs field at the TextItem level (whole-run formatting), OR
-   - A Y.Text format mark spanning the run (per-character formatting that happens to apply to the whole run).
-   The second is more "Yjs-idiomatic" and supports collab-friendly per-char attr changes. The first is simpler for current scope. Decide in plan; second is probably right.
+3. ✅ **Y.Text format marks for inline attrs.** Attrs stored as a `Y.Map<string, unknown>` field at the TextItem level (whole-run formatting). Format marks NOT used — deferred. The simpler shape was sufficient for P4e; per-character attrs via format marks can be added later if/when a use case demands it.
 
-4. **History entry shape with Yjs UndoManager.** Yjs's UndoManager records transactions; our HistoryEntry adds selection metadata. How exactly does the wrapper combine these? `selectionBefore`/`selectionAfter` per entry, tracked alongside the UndoManager's transaction list? Or integrated via Yjs's transaction-origin field? Decide in plan.
+4. ✅ **History entry shape with Yjs UndoManager.** `History` is a class wrapping `Y.UndoManager` with parallel `selectionStack` / `redoSelectionStack` arrays. `captureTimeout: 0` + explicit `push()` calls control grouping (1:1 alignment between selection entries and UndoManager stack entries). See `state/history.ts`.
 
-5. **Task decomposition.** P4e is big enough that task-grain matters. Suggested sub-phases:
-   - **4e.1**: introduce Y.Doc as State internal storage; minimal Block facade; build infrastructure (transactions, snapshots).
-   - **4e.2**: migrate Layer 1 types (Block, InlineContent, attrs, etc.) to Y-backed.
-   - **4e.3**: migrate Layer 2 utilities.
-   - **4e.4**: migrate Layer 3 ops (per-op, one at a time, like Phase 4 sub-phases).
-   - **4e.5**: migrate history to Yjs UndoManager.
-   - **4e.6**: delete `persistent-map.ts` and `change.ts`; clean up.
-   - **4e.7**: integration tests + perf benchmarks.
+5. ✅ **Task decomposition.** Final sub-phases shipped:
+   - **4e.1**: Yjs infrastructure (Tasks 1-5: dep, yjs-doc, snapshot, y-block, pathToBlockId).
+   - **4e.2**: Replace State internals + builders + Layer 2 utilities (Tasks 6-11).
+   - **4e.3**: Layer 3 ops migration (Tasks 12-23: applyOperation + 11 ops; getYBlock and y-utils extracted as cross-cutting helpers).
+   - **4e.4**: History migration (Tasks 24-25: rename legacy + new Y.UndoManager wrapper).
+   - **4e.5**: Cleanup + deletions (Tasks 26-31: block/inline-content trim, delete PersistentMap, mark Change deprecated, update barrel).
+   - **4e.6**: Integration verification (Tasks 32-34: encoding round-trip, snapshot cache stress, full build).
+   - **4e.7**: Perf benchmark (Task 36, optional).
 
-6. **Whether to migrate Phase 1-4 PR commit history.** Probably no — Phase 1-4 work shipped on a different storage model; reset state via squashing or just continue forward.
+6. ✅ **Phase 1-4 PR commit history.** Continued forward; no rewrites.
 
 ## Success criteria
 
@@ -222,3 +219,14 @@ Post-execution: extensive. Verify public API preservation, no behavior regressio
 - Sync protocol: https://docs.yjs.dev/getting-started/a-collaborative-editor
 
 (Per-phase plan author should re-verify these are current at the time of writing the P4e plan.)
+
+## Plan executed
+
+P4e shipped 2026-05-17. Plan: `docs/superpowers/plans/2026-05-16-p4e-yjs-rebase.md`. 43 commits across the seven sub-phases, from `551f53b` (Task 1: add yjs dep) through current HEAD. All 1254 prior tests pass on Y.Doc-backed state; new P4e tests cover Y.Doc encoding round-trip, snapshot-cache stress (100-block doc with reference-equality assertion), Y.UndoManager wrapper semantics, getYBlock helper, mergeAdjacentSameAttrsTextItems helper, and Strategy A/B Y.Text identity preservation for insertText.
+
+Notable design decisions made during execution:
+- Introduced `getYBlock(doc, id, opName, kind?)` helper to standardize inside-transaction reads across all 11 Layer 3 ops (eliminates per-op defensive narrowing duplication; avoids `!` non-null assertions per CLAUDE.md).
+- Extracted `y-utils.ts` for shared `yMapAsObject`, `cloneInlineItem`, `mergeAdjacentSameAttrsTextItems` helpers used across multiple ops.
+- `applyOperation` carry-forward cache (after Task 17 review feedback) preserves both structural sharing AND per-State view stability — superseded the initial fresh-cache-per-op design that broke the legacy immutability contract.
+- `insertText` Strategy B (Y.Text-identity preservation) ships alongside Strategy A fallback with a bail-on-pre-existing-unnormalized-pair scan to preserve the mergeAdjacentTextItems invariant.
+- `state/change.ts` deferred to P11.4 cutover (many legacy consumers remain).
