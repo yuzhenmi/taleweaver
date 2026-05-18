@@ -16,7 +16,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = getBlock(state0, getBlock(state0, state0.rootId)!.firstChildId!)!;
-    const state1 = setBlockAttrs(state0, child.id, { bold: true }).state;
+    setBlockAttrs(state0, child.id, { bold: true });
     history.push({ selection: null });
     expect(history.canUndo()).toBe(true);
 
