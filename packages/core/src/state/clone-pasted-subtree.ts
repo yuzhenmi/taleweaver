@@ -1,6 +1,8 @@
 import type { State } from "./state";
+import { getBlock } from "./state";
+import type { Block } from "./block";
+import { createBlock } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
-import { createBlock, type Block } from "./block";
 import {
   createEmbedItem,
   createInlineContent,
@@ -16,6 +18,9 @@ import {
  *
  * The caller composes this with insertBlock (or similar) to merge the
  * cloned subtree into a destination state.
+ *
+ * `blocks` is a plain JS Map of immutable Block snapshots. This op does
+ * NOT mutate the source State (the underlying Y.Doc is never touched).
  */
 export interface ClonedSubtree {
   readonly blocks: ReadonlyMap<BlockId, Block>;
@@ -35,17 +40,16 @@ export interface ClonedSubtree {
  * during insertion. Non-root parent/sibling/child references are mapped
  * via the oldId → newId map.
  *
- * Throws if sourceRootId is not in sourceState.blocks, or if any reachable
- * id (child, sibling, contentBlockId) points to a block missing from
- * sourceState.blocks (corrupted source state).
+ * Throws if sourceRootId is not in sourceState, or if any reachable id
+ * (child, sibling, contentBlockId) points to a block missing from
+ * sourceState (corrupted source state).
  */
 export function clonePastedSubtree(
   sourceState: State,
   sourceRootId: BlockId,
   allocator: IdAllocator,
 ): ClonedSubtree {
-  const root = sourceState.blocks.get(sourceRootId);
-  if (!root) {
+  if (getBlock(sourceState, sourceRootId) === null) {
     throw new Error(
       `clonePastedSubtree: source root "${sourceRootId}" not found in sourceState`,
     );
@@ -64,8 +68,8 @@ export function clonePastedSubtree(
   // Phase 3: construct cloned blocks with rewritten references.
   const clonedBlocks = new Map<BlockId, Block>();
   for (const oldId of visited) {
-    const oldBlock = sourceState.blocks.get(oldId);
-    if (!oldBlock) {
+    const oldBlock = getBlock(sourceState, oldId);
+    if (oldBlock === null) {
       // Defensive — visited only contains ids that resolved during phase 1.
       throw new Error(
         `clonePastedSubtree: block "${oldId}" disappeared between phase 1 and phase 3`,
@@ -117,17 +121,18 @@ export function clonePastedSubtree(
  */
 function collectSubtreeIds(state: State, id: BlockId, visited: Set<BlockId>): void {
   if (visited.has(id)) return;
-  const block = state.blocks.get(id);
-  if (!block) {
+  const block = getBlock(state, id);
+  if (block === null) {
     throw new Error(`clonePastedSubtree: referenced block "${id}" not found in sourceState`);
   }
   visited.add(id);
 
   // Walk children: from firstChildId, follow each child's nextSiblingId.
+  // Cycle defense: collectSubtreeIds is a no-op for ids already in `visited`.
   let cur: BlockId | null = block.firstChildId;
   while (cur !== null) {
     collectSubtreeIds(state, cur, visited);
-    const child = state.blocks.get(cur);
+    const child = getBlock(state, cur);
     cur = child ? child.nextSiblingId : null;
   }
 

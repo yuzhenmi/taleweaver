@@ -3,6 +3,7 @@ import { clonePastedSubtree } from "./clone-pasted-subtree";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createTestAllocator, type BlockId } from "./block-id";
+import { getBlock } from "./state";
 
 describe("clonePastedSubtree — basic single-leaf clone", () => {
   // Source: doc > [p("hello world")]. Clone the paragraph alone.
@@ -321,16 +322,16 @@ describe("clonePastedSubtree — block-level invariants", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
       ],
     });
-    const beforeP = sourceState.blocks.get("p" as BlockId);
-    const beforeDoc = sourceState.blocks.get("doc" as BlockId);
+    const beforeP = getBlock(sourceState, "p" as BlockId);
+    const beforeDoc = getBlock(sourceState, "doc" as BlockId);
     const allocator = createTestAllocator("c");
     clonePastedSubtree(sourceState, "p" as BlockId, allocator);
 
     // Source state's blocks unchanged.
-    expect(sourceState.blocks.get("p" as BlockId)).toBe(beforeP);
-    expect(sourceState.blocks.get("doc" as BlockId)).toBe(beforeDoc);
+    expect(getBlock(sourceState, "p" as BlockId)).toBe(beforeP);
+    expect(getBlock(sourceState, "doc" as BlockId)).toBe(beforeDoc);
     // No new blocks added to the source.
-    expect(sourceState.blocks.has("c-0" as BlockId)).toBe(false);
+    expect(getBlock(sourceState, "c-0" as BlockId)).toBeNull();
   });
 
   it("the cloned root has parentId/sibling pointers all null, even when the source did not", () => {
