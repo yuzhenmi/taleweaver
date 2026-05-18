@@ -30,18 +30,17 @@ export {
 } from "./state/formatting";
 
 // Y.Doc-backed state module (P4e). The legacy StateNode/createEmptyDocument
-// path below stays canonical through the P11.4 cutover per Decision D. The
-// new surface is NOT yet re-exported here — P5+ phases inside packages/core
-// deep-import what they need:
-//   - State / createState / getBlock / getEmbedContent / applyOperation /
-//     freshState from "./state/state"
-//   - Y.Doc-backed createEmptyDocument from "./state/initial-state"
-//   - Layer 3 ops + ClonedSubtree from "./state/operations"
-//   - Block / InlineContent / TextItem / EmbedItem interfaces from
-//     "./state/block" and "./state/inline-content" (factory functions
-//     have been removed; tests use buildBlock/text/embed/inlineContent
-//     from "./test-utils/state-builders")
-//   - History (Y.UndoManager wrapper) re-exported above
+// path below stays canonical through the P11.4 cutover per Decision D.
+//
+// The remaining new surface (State / createState / getBlock /
+// getEmbedContent / applyOperation / freshState / Layer 3 ops / canonical
+// createEmptyDocument / Block / InlineContent / TextItem / EmbedItem) is
+// NOT yet re-exported here; P5+ phases inside packages/core deep-import
+// these directly from "./state/state", "./state/initial-state",
+// "./state/operations", "./state/block", and "./state/inline-content"
+// (factory functions have been removed; tests use buildBlock/text/embed/
+// inlineContent from "./test-utils/state-builders").
+//
 // The export-surface flip from legacy to new happens at the P11.4 cutover.
 
 // Cascade

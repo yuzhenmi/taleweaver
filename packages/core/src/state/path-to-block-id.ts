@@ -1,15 +1,11 @@
 import type { BlockId } from "./block-id";
 
 /**
- * @deprecated Remove at P11.4 cutover.
+ * @deprecated Remove at P11.4 cutover. Parallel-window bridge between the
+ * legacy path-based editor action layer and the canonical BlockId-keyed
+ * state. Used only by the P11.0 dual-rep editor. Drop entirely once the
+ * editor is fully on the BlockId model.
  *
- * Parallel-window bridge between the legacy path-based editor action
- * layer and the canonical BlockId-keyed state. Used only by the P11.0
- * dual-rep editor. Drop entirely once the editor is fully on the
- * BlockId model.
- */
-
-/**
  * Deterministic 1:1 encoding from a path (root-to-block index sequence)
  * to a BlockId string. Used during the P11.0 parallel window per
  * decision D: when `rebuildStateFromLegacy` reconstructs `State` from
