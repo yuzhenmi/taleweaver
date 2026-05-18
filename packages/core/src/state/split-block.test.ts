@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { splitBlockAtPosition } from "./split-block";
+import { getBlock } from "./state";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition } from "./block-position";
@@ -23,7 +24,7 @@ describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
 
     // Original block: same id, content "hello", nextSibling rewired to new block.
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left).toBeDefined();
     expect(left?.id).toBe("p");
     expect(left?.inlineContent?.items).toHaveLength(1);
@@ -31,7 +32,7 @@ describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
     expect(left?.nextSiblingId).toBe("p2-0");
 
     // New block: id from allocator, content " world", parentId same as original.
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right).toBeDefined();
     expect(right?.type).toBe("paragraph");
     expect(right?.parentId).toBe("doc");
@@ -43,7 +44,7 @@ describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: " world" });
 
     // Parent: lastChildId updated to new block (original was the only/last child).
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p");
     expect(parent?.lastChildId).toBe("p2-0");
 
@@ -72,11 +73,11 @@ describe("splitBlockAtPosition — split at text-item boundary", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(1);
     expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(1);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: " world", attrs: { italic: true } });
   });
@@ -112,12 +113,12 @@ describe("splitBlockAtPosition — split inside a multi-item block (preserves at
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 3), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(2);
     expect(left?.inlineContent?.items[0]).toMatchObject({ text: "ab", attrs: {} });
     expect(left?.inlineContent?.items[1]).toMatchObject({ text: "c", attrs: { bold: true } });
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(2);
     expect(right?.inlineContent?.items[0]).toMatchObject({ text: "d", attrs: { bold: true } });
     expect(right?.inlineContent?.items[1]).toMatchObject({ text: "ef", attrs: {} });
@@ -144,11 +145,11 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(1);
     expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(2);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "embed", embedType: "img" });
     expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "b" });
@@ -172,12 +173,12 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(2);
     expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
     expect(left?.inlineContent?.items[1]).toMatchObject({ kind: "embed", embedType: "img" });
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(1);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "b" });
   });
@@ -201,10 +202,10 @@ describe("splitBlockAtPosition — split at embed-item boundaries", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toEqual([]);
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(2);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "embed", embedType: "img" });
     expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "a" });
@@ -223,15 +224,15 @@ describe("splitBlockAtPosition — edge offsets", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toEqual([]);
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toHaveLength(1);
     expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
 
     // Parent's lastChildId rewired (original was the last child).
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
 
     // dirtyIds: original block, new block, parent (lastChildId changed).
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
@@ -248,14 +249,14 @@ describe("splitBlockAtPosition — edge offsets", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toHaveLength(1);
     expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toEqual([]);
 
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 
@@ -271,16 +272,16 @@ describe("splitBlockAtPosition — edge offsets", () => {
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
 
-    const left = result.state.blocks.get("p" as BlockId);
+    const left = getBlock(result.state, "p" as BlockId);
     expect(left?.inlineContent?.items).toEqual([]);
 
-    const right = result.state.blocks.get("p2-0" as BlockId);
+    const right = getBlock(result.state, "p2-0" as BlockId);
     expect(right?.inlineContent?.items).toEqual([]);
     expect(right?.type).toBe("paragraph");
     expect(right?.parentId).toBe("doc");
     expect(right?.prevSiblingId).toBe("p");
 
-    expect(result.state.blocks.get("doc" as BlockId)?.lastChildId).toBe("p2-0");
+    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
   });
 });
@@ -303,14 +304,14 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     const allocator = createTestAllocator("p2b");
     const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
 
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
-    expect(result.state.blocks.get("p2" as BlockId)?.nextSiblingId).toBe("p2b-0"); // rewired
-    expect(result.state.blocks.get("p2b-0" as BlockId)?.prevSiblingId).toBe("p2");
-    expect(result.state.blocks.get("p2b-0" as BlockId)?.nextSiblingId).toBe("p3");
-    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p2b-0"); // rewired
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
+    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe("p2b-0"); // rewired
+    expect(getBlock(result.state, "p2b-0" as BlockId)?.prevSiblingId).toBe("p2");
+    expect(getBlock(result.state, "p2b-0" as BlockId)?.nextSiblingId).toBe("p3");
+    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p2b-0"); // rewired
 
     // Parent's first/last unchanged (split was a middle child).
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1");
     expect(parent?.lastChildId).toBe("p3");
 
@@ -323,13 +324,13 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     const allocator = createTestAllocator("p1b");
     const result = splitBlockAtPosition(state, createPosition("p1" as BlockId, 1), allocator);
 
-    expect(result.state.blocks.get("p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p1b-0");
-    expect(result.state.blocks.get("p1b-0" as BlockId)?.prevSiblingId).toBe("p1");
-    expect(result.state.blocks.get("p1b-0" as BlockId)?.nextSiblingId).toBe("p2");
-    expect(result.state.blocks.get("p2" as BlockId)?.prevSiblingId).toBe("p1b-0"); // rewired
+    expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p1b-0");
+    expect(getBlock(result.state, "p1b-0" as BlockId)?.prevSiblingId).toBe("p1");
+    expect(getBlock(result.state, "p1b-0" as BlockId)?.nextSiblingId).toBe("p2");
+    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe("p1b-0"); // rewired
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1"); // unchanged
     expect(parent?.lastChildId).toBe("p3"); // unchanged
 
@@ -341,11 +342,11 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     const allocator = createTestAllocator("p3b");
     const result = splitBlockAtPosition(state, createPosition("p3" as BlockId, 2), allocator);
 
-    expect(result.state.blocks.get("p3" as BlockId)?.nextSiblingId).toBe("p3b-0");
-    expect(result.state.blocks.get("p3b-0" as BlockId)?.prevSiblingId).toBe("p3");
-    expect(result.state.blocks.get("p3b-0" as BlockId)?.nextSiblingId).toBeNull();
+    expect(getBlock(result.state, "p3" as BlockId)?.nextSiblingId).toBe("p3b-0");
+    expect(getBlock(result.state, "p3b-0" as BlockId)?.prevSiblingId).toBe("p3");
+    expect(getBlock(result.state, "p3b-0" as BlockId)?.nextSiblingId).toBeNull();
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1"); // unchanged
     expect(parent?.lastChildId).toBe("p3b-0"); // rewired
 
@@ -369,16 +370,16 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
     const result = splitBlockAtPosition(state, createPosition("p_only" as BlockId, 3), allocator);
 
     // New block's parent is the section, NOT the doc.
-    const right = result.state.blocks.get("pNew-0" as BlockId);
+    const right = getBlock(result.state, "pNew-0" as BlockId);
     expect(right?.parentId).toBe("section");
 
     // Section's child pointers: firstChildId unchanged (still p_only), lastChildId rewired to new block.
-    const section = result.state.blocks.get("section" as BlockId);
+    const section = getBlock(result.state, "section" as BlockId);
     expect(section?.firstChildId).toBe("p_only");
     expect(section?.lastChildId).toBe("pNew-0");
 
     // doc's child pointers untouched.
-    const doc = result.state.blocks.get("doc" as BlockId);
+    const doc = getBlock(result.state, "doc" as BlockId);
     expect(doc?.firstChildId).toBe("section");
     expect(doc?.lastChildId).toBe("section");
 
@@ -405,7 +406,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
     const allocator = createTestAllocator("li2");
     const result = splitBlockAtPosition(state, createPosition("li" as BlockId, 3), allocator);
 
-    const right = result.state.blocks.get("li2-0" as BlockId);
+    const right = getBlock(result.state, "li2-0" as BlockId);
     expect(right?.type).toBe("list-item");
     expect(right?.attrs).toEqual({ level: 2, ordered: true });
     expect(right?.parentId).toBe("doc");
@@ -422,8 +423,8 @@ describe("splitBlockAtPosition — block-level invariants", () => {
     const allocator = createTestAllocator("custom");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator);
 
-    expect(result.state.blocks.has("custom-0" as BlockId)).toBe(true);
-    expect(result.state.blocks.get("p" as BlockId)?.nextSiblingId).toBe("custom-0");
+    expect(getBlock(result.state, "custom-0" as BlockId) !== null).toBe(true);
+    expect(getBlock(result.state, "p" as BlockId)?.nextSiblingId).toBe("custom-0");
   });
 
   it("preserves structural sharing: untouched blocks retain object identity", () => {
@@ -437,13 +438,13 @@ describe("splitBlockAtPosition — block-level invariants", () => {
         buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("three")]) }),
       ],
     });
-    const beforeP1 = state.blocks.get("p1" as BlockId);
+    const beforeP1 = getBlock(state, "p1" as BlockId);
     const allocator = createTestAllocator("p2b");
     const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
-    expect(result.state.blocks.get("p1" as BlockId)).toBe(beforeP1);
+    expect(getBlock(result.state, "p1" as BlockId)).toBe(beforeP1);
   });
 
-  it("does not mutate the original state", () => {
+  it("preserves immutability (original snapshots and state not mutated; modified block produces a fresh snapshot)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -451,14 +452,27 @@ describe("splitBlockAtPosition — block-level invariants", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: createInlineContent([text("hello")]) }),
       ],
     });
+    // Cache pre-op snapshots BEFORE the op so the pre-op State.snapshotCache
+    // holds them. (Y.Doc itself is mutated in place; per-State view stability
+    // comes from each State's cache, not from Y.Doc immutability.)
+    const beforeP = getBlock(state, "p" as BlockId);
+    const beforeDoc = getBlock(state, "doc" as BlockId);
     const allocator = createTestAllocator("p2");
     const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), allocator);
 
+    // Original state instance is replaced by a fresh one (fresh snapshot cache).
     expect(result.state).not.toBe(state);
-    // Original state's "p" block still has its original content + nextSibling.
-    expect(state.blocks.get("p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
-    expect(state.blocks.get("p" as BlockId)?.nextSiblingId).toBeNull();
-    expect(state.blocks.has("p2-0" as BlockId)).toBe(false);
+    // Pre-op snapshots are frozen and unchanged.
+    expect(beforeP?.inlineContent?.items).toHaveLength(1);
+    expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
+    expect(beforeP?.nextSiblingId).toBeNull();
+    // Reading via the pre-op state handle still sees the pre-op snapshots
+    // (cached on state.snapshotCache, untouched by applyOperation).
+    expect(getBlock(state, "p" as BlockId)).toBe(beforeP);
+    expect(getBlock(state, "doc" as BlockId)).toBe(beforeDoc);
+    // The post-op state sees the new block.
+    expect(getBlock(result.state, "p2-0" as BlockId)).not.toBeNull();
+    expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
   });
 });
 
