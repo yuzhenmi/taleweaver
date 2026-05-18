@@ -31,11 +31,12 @@ import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
  *   - blocks are not adjacent siblings (left.nextSiblingId !== rightId
  *     OR right.prevSiblingId !== leftId).
  *
- * Y.Doc identity: left's existing inline Y.Map items are NOT touched
- * (their Y.Text identity is preserved); right's items are deep-cloned
- * onto left's inlineContent Y.Array (Yjs forbids re-parenting a Y type)
- * and then a same-attrs merge pass runs over left to uphold the
- * normalized inline-content invariant.
+ * Y.Doc identity: right's items are deep-cloned onto left's inlineContent
+ * Y.Array (Yjs forbids re-parenting a Y type). Left's existing items retain
+ * their Y.Text identity EXCEPT when the seam converges (last-of-left and
+ * first-of-right have value-equal attrs): the same-attrs merge pass replaces
+ * both seam items with a single fresh Y.Text holding the concatenated
+ * content. Items away from the seam are never touched.
  */
 export function mergeAdjacentBlocks(
   state: State,
@@ -82,7 +83,8 @@ export function mergeAdjacentBlocks(
 
   // Defensive — same-parent + adjacency implies non-null parent (siblings can't
   // both be the root, since the root is unique and has no siblings).
-  if (left.parentId === null) {
+  const parentId = left.parentId;
+  if (parentId === null) {
     throw new Error(
       `mergeAdjacentBlocks: blocks "${leftId}" and "${rightId}" have null parent (state corruption)`,
     );
@@ -119,13 +121,12 @@ export function mergeAdjacentBlocks(
       );
     } else {
       // Right was the last child — rewire parent.lastChildId to left.
-      const parentId = left.parentId;
-      if (parentId !== null) {
-        const yParent = getYBlock(state.doc, parentId, "mergeAdjacentBlocks");
-        if (yParent.get("lastChildId") === rightId) {
-          yParent.set("lastChildId", leftId);
-        }
-      }
+      // Preconditions guarantee parent.lastChildId is rightId (same-parent
+      // + adjacent-sibling + right.nextSibling===null). Unconditional
+      // rewire mirrors the legacy contract; an upstream invariant violation
+      // would surface as a getYBlock throw.
+      const yParent = getYBlock(state.doc, parentId, "mergeAdjacentBlocks");
+      yParent.set("lastChildId", leftId);
     }
 
     // Delete right last (after reads of yRight are done).
