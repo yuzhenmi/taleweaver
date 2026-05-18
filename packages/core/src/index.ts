@@ -51,6 +51,22 @@ export {
 // snapshot-based history at the P11.4 cutover.
 export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
 export { createEmptyDocument } from "./state/initial-state";
+
+// Y.Doc-backed state module (P4e). The legacy StateNode/createEmptyDocument
+// path above stays canonical through the P11.4 cutover per Decision D. The
+// new surface is NOT yet re-exported here — P5+ phases inside packages/core
+// deep-import what they need:
+//   - State / createState / getBlock / getEmbedContent / applyOperation /
+//     freshState from "./state/state"
+//   - Y.Doc-backed createEmptyDocument from "./state/new-initial-state"
+//   - Layer 3 ops + ClonedSubtree from "./state/operations"
+//   - Block / InlineContent / TextItem / EmbedItem interfaces from
+//     "./state/block" and "./state/inline-content" (factory functions
+//     have been removed; tests use buildBlock/text/embed/inlineContent
+//     from "./test-utils/state-builders")
+//   - History (Y.UndoManager wrapper) re-exported above
+// The export-surface flip from legacy to new happens at the P11.4 cutover.
+
 export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils";
 export { findPathById } from "./state/find-path";
 export {

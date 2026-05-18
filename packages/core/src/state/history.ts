@@ -64,7 +64,17 @@ export class History {
     );
   }
 
-  /** Replace the wrapper's notion of "current state" (after an external op). */
+  /**
+   * Replace the wrapper's notion of "current state" after an external op.
+   *
+   * Contract: consumers SHOULD call `setState(opResult.state)` after every
+   * op that mutates the Y.Doc, before the next `push()`. Skipping this
+   * works for undo/redo correctness (because `freshState` always re-reads
+   * from the live Y.Doc), but the wrapper's `currentState` snapshot cache
+   * may then lag behind reality between op and undo. P11.0's bridge
+   * wrapper may fold this into `push()` directly — deferred until then so
+   * the final API shape can be chosen with full parallel-window context.
+   */
   setState(state: State): void {
     this.currentState = state;
   }
