@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { imageComponent } from "./image";
+import { imageComponent } from "./image-legacy";
 
 describe("imageComponent", () => {
   it("produces a block with width/height and image metadata", () => {

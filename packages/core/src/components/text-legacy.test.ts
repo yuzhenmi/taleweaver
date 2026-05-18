@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { textComponent } from "./text";
+import { textComponent } from "./text-legacy";
 
 describe("textComponent", () => {
   it("produces a TextBox with the content from properties", () => {

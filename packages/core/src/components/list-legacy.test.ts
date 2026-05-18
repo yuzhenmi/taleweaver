@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { listComponent } from "./list";
-import { listItemComponent } from "./list-item";
+import { listComponent } from "./list-legacy";
+import { listItemComponent } from "./list-item-legacy";
 
 describe("listComponent", () => {
   it("ordered list has decimal listStyleType and gutter padding", () => {

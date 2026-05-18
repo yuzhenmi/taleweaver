@@ -8,7 +8,7 @@ import {
   createTable,
   createImage,
   createHorizontalLine,
-} from "./factories";
+} from "./factories-legacy";
 
 describe("factories", () => {
   it("createText produces a text NewNode", () => {

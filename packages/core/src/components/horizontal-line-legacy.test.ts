@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { horizontalLineComponent } from "./horizontal-line";
+import { horizontalLineComponent } from "./horizontal-line-legacy";
 
 describe("horizontalLineComponent", () => {
   it("produces a block with metadata.horizontalLine flag", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { spanComponent } from "./span";
+import { spanComponent } from "./span-legacy";
 
 describe("spanComponent", () => {
   it("produces an inline element with state.style merged in", () => {

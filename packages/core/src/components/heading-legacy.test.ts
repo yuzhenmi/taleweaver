@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { headingComponent } from "./heading";
+import { headingComponent } from "./heading-legacy";
 
 describe("headingComponent", () => {
   it("renders block with bold, level-derived fontSize", () => {

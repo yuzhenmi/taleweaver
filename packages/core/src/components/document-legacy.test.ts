@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { documentComponent } from "./document";
+import { documentComponent } from "./document-legacy";
 
 describe("documentComponent", () => {
   it("renders a state node into an ElementBox with display: block", () => {

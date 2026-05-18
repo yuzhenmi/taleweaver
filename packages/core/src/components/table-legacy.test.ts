@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { tableComponent } from "./table";
-import { tableRowComponent } from "./table-row";
-import { tableCellComponent } from "./table-cell";
+import { tableComponent } from "./table-legacy";
+import { tableRowComponent } from "./table-row-legacy";
+import { tableCellComponent } from "./table-cell-legacy";
 
 describe("tableComponent", () => {
   it("produces display: table with metadata.columnWidths", () => {

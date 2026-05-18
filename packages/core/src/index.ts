@@ -116,7 +116,7 @@ export {
   createTable,
   createImage,
   createHorizontalLine,
-} from "./components/factories";
+} from "./components/factories-legacy";
 
 // Cursor
 export type { Selection } from "./cursor/selection";

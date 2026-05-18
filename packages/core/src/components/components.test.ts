@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { ComponentRegistry, createRegistry } from "./component-registry-legacy";
 
-import { documentComponent } from "./document";
-import { paragraphComponent } from "./paragraph";
-import { textComponent } from "./text";
-import { spanComponent } from "./span";
+import { documentComponent } from "./document-legacy";
+import { paragraphComponent } from "./paragraph-legacy";
+import { textComponent } from "./text-legacy";
+import { spanComponent } from "./span-legacy";
 import { defaultComponents } from "./index";
-import { headingComponent } from "./heading";
-import { listComponent } from "./list";
-import { listItemComponent } from "./list-item";
+import { headingComponent } from "./heading-legacy";
+import { listComponent } from "./list-legacy";
+import { listItemComponent } from "./list-item-legacy";
 import { createNode, createTextNode } from "../state/create-node-legacy";
 
 describe("ComponentRegistry", () => {

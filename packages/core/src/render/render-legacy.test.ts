@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { renderTree, renderTreeIncremental } from "./render-legacy";
 import { createRegistry } from "../components/component-registry-legacy";
-import { documentComponent } from "../components/document";
-import { paragraphComponent } from "../components/paragraph";
-import { textComponent } from "../components/text";
+import { documentComponent } from "../components/document-legacy";
+import { paragraphComponent } from "../components/paragraph-legacy";
+import { textComponent } from "../components/text-legacy";
 import { createNode, createTextNode } from "../state/create-node-legacy";
 import { updateAtPath } from "../state/operations-legacy";
 

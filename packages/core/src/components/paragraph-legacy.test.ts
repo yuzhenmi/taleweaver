@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { paragraphComponent } from "./paragraph";
+import { paragraphComponent } from "./paragraph-legacy";
 
 describe("paragraphComponent", () => {
   it("produces a block with a small marginBlockEnd default", () => {

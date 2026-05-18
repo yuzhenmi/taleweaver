@@ -1,30 +1,30 @@
 import type { ComponentDefinition } from "./component-definition-legacy";
-import { documentComponent } from "./document";
-import { paragraphComponent } from "./paragraph";
-import { textComponent } from "./text";
-import { headingComponent } from "./heading";
-import { spanComponent } from "./span";
-import { listComponent } from "./list";
-import { listItemComponent } from "./list-item";
-import { imageComponent } from "./image";
-import { horizontalLineComponent } from "./horizontal-line";
-import { tableComponent } from "./table";
-import { tableRowComponent } from "./table-row";
-import { tableCellComponent } from "./table-cell";
+import { documentComponent } from "./document-legacy";
+import { paragraphComponent } from "./paragraph-legacy";
+import { textComponent } from "./text-legacy";
+import { headingComponent } from "./heading-legacy";
+import { spanComponent } from "./span-legacy";
+import { listComponent } from "./list-legacy";
+import { listItemComponent } from "./list-item-legacy";
+import { imageComponent } from "./image-legacy";
+import { horizontalLineComponent } from "./horizontal-line-legacy";
+import { tableComponent } from "./table-legacy";
+import { tableRowComponent } from "./table-row-legacy";
+import { tableCellComponent } from "./table-cell-legacy";
 
 export type { ComponentRenderFn, ComponentDefinition } from "./component-definition-legacy";
-export { documentComponent } from "./document";
-export { paragraphComponent } from "./paragraph";
-export { textComponent } from "./text";
-export { headingComponent } from "./heading";
-export { spanComponent } from "./span";
-export { listComponent } from "./list";
-export { listItemComponent } from "./list-item";
-export { imageComponent } from "./image";
-export { horizontalLineComponent } from "./horizontal-line";
-export { tableComponent } from "./table";
-export { tableRowComponent } from "./table-row";
-export { tableCellComponent } from "./table-cell";
+export { documentComponent } from "./document-legacy";
+export { paragraphComponent } from "./paragraph-legacy";
+export { textComponent } from "./text-legacy";
+export { headingComponent } from "./heading-legacy";
+export { spanComponent } from "./span-legacy";
+export { listComponent } from "./list-legacy";
+export { listItemComponent } from "./list-item-legacy";
+export { imageComponent } from "./image-legacy";
+export { horizontalLineComponent } from "./horizontal-line-legacy";
+export { tableComponent } from "./table-legacy";
+export { tableRowComponent } from "./table-row-legacy";
+export { tableCellComponent } from "./table-cell-legacy";
 
 export { ComponentRegistry, createRegistry } from "./component-registry-legacy";
 
@@ -53,4 +53,4 @@ export {
   createTable,
   createImage,
   createHorizontalLine,
-} from "./factories";
+} from "./factories-legacy";
