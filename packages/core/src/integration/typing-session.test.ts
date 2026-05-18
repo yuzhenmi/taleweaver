@@ -8,10 +8,10 @@ import { createPosition } from "../state/position";
 import { insertText } from "../state/transformations";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
-import { createHistory, pushChange, undo, redo } from "../state/history";
+import { createHistory, pushChange, undo, redo } from "../state/history-legacy";
 import type { Change } from "../state/change";
 import type { StateNode } from "../state/state-node";
-import type { History } from "../state/history";
+import type { History } from "../state/history-legacy";
 import { registry, measurer, expectTextBox, lineText } from "./setup";
 
 function setup(containerWidth: number) {

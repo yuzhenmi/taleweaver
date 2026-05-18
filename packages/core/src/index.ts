@@ -38,8 +38,15 @@ export {
   splitNode,
 } from "./state/transformations";
 export { findDirtyPaths, isDirty } from "./state/dirty";
-export type { History } from "./state/history";
-export { createHistory, pushChange, undo, redo } from "./state/history";
+// Legacy history (pre-P4e snapshot-based). Will be removed at P11.4 cutover.
+// New Y.UndoManager-backed History is exported below from "./state/history".
+export type { History as HistoryLegacy } from "./state/history-legacy";
+export {
+  createHistory as createHistoryLegacy,
+  pushChange,
+  undo as undoLegacy,
+  redo as redoLegacy,
+} from "./state/history-legacy";
 export { createEmptyDocument } from "./state/initial-state";
 export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils";
 export { findPathById } from "./state/find-path";
