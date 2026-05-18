@@ -1,13 +1,14 @@
 import type { State, OperationResult } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import {
-  createInlineContent,
   inlineContentLength,
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
 } from "./inline-content";
-import { updateBlock } from "./block";
+import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
 
 /**
@@ -27,7 +28,7 @@ import { normalizeSpan } from "./span-iteration";
  * Empty-span (collapsed) is a no-op.
  *
  * Returns OperationResult with dirtyIds containing every block id whose
- * entry in state.blocks differs from the previous state.
+ * Y representation changed (captured by the Y.Doc transaction).
  *
  * Throws if:
  *   - either endpoint references a missing block,
@@ -38,6 +39,11 @@ import { normalizeSpan } from "./span-iteration";
  *   - cross-context (inherited via normalizeSpan's comparePositions
  *     call which throws on no-common-ancestor),
  *   - any offset is outside [0, inlineContentLength].
+ *
+ * Y.Doc note: the anchor block's `inlineContent` Y.Array is fully replaced
+ * via `buildYInlineContent` (legacy parity preserves the merged-content
+ * semantics over Y.Text identity for the touched block — same trade-off as
+ * insertText's full-replace fallback).
  */
 export function deleteRange(state: State, span: Span): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -56,7 +62,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
   // as Phase 4c-1's applyAttrsToRange fix.
   const sameBlock = span.anchor.blockId === span.focus.blockId;
 
-  const rawAnchor = state.blocks.get(span.anchor.blockId);
+  const rawAnchor = getBlock(state, span.anchor.blockId);
   if (!rawAnchor) {
     throw new Error(
       sameBlock
@@ -73,7 +79,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
   }
 
   if (!sameBlock) {
-    const rawFocus = state.blocks.get(span.focus.blockId);
+    const rawFocus = getBlock(state, span.focus.blockId);
     if (!rawFocus) {
       throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
     }
@@ -90,7 +96,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
 
   // SAME-BLOCK case
   if (normalized.anchor.blockId === normalized.focus.blockId) {
-    const block = state.blocks.get(normalized.anchor.blockId);
+    const block = getBlock(state, normalized.anchor.blockId);
     if (!block) {
       throw new Error(`deleteRange: block "${normalized.anchor.blockId}" not found`);
     }
@@ -124,22 +130,18 @@ export function deleteRange(state: State, span: Span): OperationResult {
     const [, suffix] = splitInlineContentAtOffset(block.inlineContent, normalized.focus.offset);
     const merged = mergeAdjacentTextItems([...prefix, ...suffix]);
 
-    const updated = updateBlock(block, {
-      inlineContent: createInlineContent(merged),
+    return applyOperation(state, () => {
+      const yBlock = getYBlock(state.doc, block.id, "deleteRange");
+      yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
     });
-
-    return {
-      state: { ...state, blocks: state.blocks.set(block.id, updated) },
-      dirtyIds: new Set<BlockId>([block.id]),
-    };
   }
 
   // CROSS-BLOCK case
-  const anchorBlock = state.blocks.get(normalized.anchor.blockId);
+  const anchorBlock = getBlock(state, normalized.anchor.blockId);
   if (!anchorBlock) {
     throw new Error(`deleteRange: anchor block "${normalized.anchor.blockId}" not found`);
   }
-  const focusBlock = state.blocks.get(normalized.focus.blockId);
+  const focusBlock = getBlock(state, normalized.focus.blockId);
   if (!focusBlock) {
     throw new Error(`deleteRange: focus block "${normalized.focus.blockId}" not found`);
   }
@@ -164,8 +166,11 @@ export function deleteRange(state: State, span: Span): OperationResult {
   }
 
   // Defensive: same-parent + cross-block implies non-null parent (siblings
-  // can't span the root since the root has no siblings).
-  if (anchorBlock.parentId === null) {
+  // can't span the root since the root has no siblings). Hoist into a const
+  // so the non-null narrowing survives into the transaction closure (avoids
+  // a non-null assertion when calling getYBlock(parentId)).
+  const parentId = anchorBlock.parentId;
+  if (parentId === null) {
     throw new Error(
       `deleteRange: blocks "${normalized.anchor.blockId}" and "${normalized.focus.blockId}" have null parent (state corruption)`,
     );
@@ -192,7 +197,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
   let cur: BlockId | null = anchorBlock.nextSiblingId;
   while (cur !== null && cur !== focusBlock.id) {
     interveningIds.push(cur);
-    const node = state.blocks.get(cur);
+    const node = getBlock(state, cur);
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
     }
@@ -204,51 +209,58 @@ export function deleteRange(state: State, span: Span): OperationResult {
     );
   }
 
-  // Build merged anchor inline content.
+  // Validate the focus's old nextSibling rewire-target now (outside the
+  // transaction) so the legacy "focus block's next sibling not found" error
+  // contract is preserved. Symmetric: validate the parent for the
+  // last-child rewire branch.
+  const focusNextId = focusBlock.nextSiblingId;
+  if (focusNextId !== null) {
+    if (getBlock(state, focusNextId) === null) {
+      throw new Error(
+        `deleteRange: focus block's next sibling "${focusNextId}" not found`,
+      );
+    }
+  } else {
+    if (getBlock(state, parentId) === null) {
+      throw new Error(
+        `deleteRange: parent "${parentId}" of anchor block not found`,
+      );
+    }
+  }
+
+  // Build merged anchor inline content (pure JS — Y materialization happens
+  // inside the transaction via buildYInlineContent).
   const [anchorPrefix] = splitInlineContentAtOffset(anchorBlock.inlineContent, normalized.anchor.offset);
   const [, focusSuffix] = splitInlineContentAtOffset(focusBlock.inlineContent, normalized.focus.offset);
   const mergedItems = mergeAdjacentTextItems([...anchorPrefix, ...focusSuffix]);
 
-  // Update anchor: new content + nextSiblingId rewired to focus's old next.
-  let blocks = state.blocks.set(anchorBlock.id, updateBlock(anchorBlock, {
-    inlineContent: createInlineContent(mergedItems),
-    nextSiblingId: focusBlock.nextSiblingId,
-  }));
-  const dirtyIds = new Set<BlockId>([anchorBlock.id, focusBlock.id]);
+  return applyOperation(state, () => {
+    const yBlocks = getBlocksMap(state.doc);
+    const yAnchor = getYBlock(state.doc, anchorBlock.id, "deleteRange");
 
-  // Delete focus.
-  blocks = blocks.delete(focusBlock.id);
+    // Update anchor: new content + nextSiblingId rewired to focus's old next.
+    yAnchor.set("inlineContent", buildYInlineContent({ items: mergedItems }));
+    yAnchor.set("nextSiblingId", focusNextId);
 
-  // Delete intervening leaves.
-  for (const id of interveningIds) {
-    blocks = blocks.delete(id);
-    dirtyIds.add(id);
-  }
-
-  // Rewire focus's old nextSibling, if any.
-  if (focusBlock.nextSiblingId) {
-    const oldFocusNext = state.blocks.get(focusBlock.nextSiblingId);
-    if (!oldFocusNext) {
-      throw new Error(
-        `deleteRange: focus block's next sibling "${focusBlock.nextSiblingId}" not found`,
+    // Rewire focus's old nextSibling, if any. Else update the parent's
+    // lastChildId to anchor (focus was the parent's last child).
+    if (focusNextId !== null) {
+      getYBlock(state.doc, focusNextId, "deleteRange").set(
+        "prevSiblingId",
+        anchorBlock.id,
+      );
+    } else {
+      getYBlock(state.doc, parentId, "deleteRange").set(
+        "lastChildId",
+        anchorBlock.id,
       );
     }
-    blocks = blocks.set(focusBlock.nextSiblingId, updateBlock(oldFocusNext, { prevSiblingId: anchorBlock.id }));
-    dirtyIds.add(focusBlock.nextSiblingId);
-  } else {
-    // Focus was the parent's last child — parent's lastChildId rewires to anchor.
-    const parent = state.blocks.get(anchorBlock.parentId);
-    if (!parent) {
-      throw new Error(
-        `deleteRange: parent "${anchorBlock.parentId}" of anchor block not found`,
-      );
-    }
-    blocks = blocks.set(anchorBlock.parentId, updateBlock(parent, { lastChildId: anchorBlock.id }));
-    dirtyIds.add(anchorBlock.parentId);
-  }
 
-  return {
-    state: { ...state, blocks },
-    dirtyIds,
-  };
+    // Delete focus + all intervening leaves last (after reads of yAnchor /
+    // sibling updates are done).
+    yBlocks.delete(focusBlock.id);
+    for (const id of interveningIds) {
+      yBlocks.delete(id);
+    }
+  });
 }

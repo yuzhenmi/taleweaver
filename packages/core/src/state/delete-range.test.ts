@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deleteRange } from "./delete-range";
+import { getBlock } from "./state";
 import { buildBlock, buildState, text, embed } from "../test-utils/state-builders";
 import { createInlineContent } from "./inline-content";
 import { createPosition, createSpan } from "./block-position";
@@ -23,7 +24,7 @@ describe("deleteRange — basic same-block range delete", () => {
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = deleteRange(state, span);
 
-    const block = result.state.blocks.get("p" as BlockId);
+    const block = getBlock(result.state, "p" as BlockId);
     expect(block?.inlineContent?.items).toHaveLength(1);
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "helorld" });
 
@@ -44,7 +45,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: " world" });
   });
@@ -60,7 +61,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 5));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     // After run-merging: text("a") and text("f") have same attrs ({}), so they merge.
     expect(items?.[0]).toMatchObject({ text: "af", attrs: {} });
@@ -77,7 +78,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 2));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "ab" }); // run-merged at the seam
   });
@@ -95,7 +96,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "helorld", attrs: { bold: true } });
   });
@@ -124,7 +125,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 3));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "img" });
@@ -148,13 +149,13 @@ describe("deleteRange — cross-block (same-parent)", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = deleteRange(state, span);
 
-    const p1 = result.state.blocks.get("p1" as BlockId);
+    const p1 = getBlock(result.state, "p1" as BlockId);
     expect(p1?.inlineContent?.items).toHaveLength(1);
     expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "herld" });
     expect(p1?.nextSiblingId).toBeNull(); // p2 deleted; p2 had no nextSibling
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect((getBlock(result.state, "p2" as BlockId) !== null)).toBe(false);
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.lastChildId).toBe("p1"); // rewired from p2
 
     // dirtyIds: { p1, p2, doc } — p2 was last child so doc.lastChildId changed.
@@ -177,15 +178,15 @@ describe("deleteRange — cross-block (same-parent)", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
     const result = deleteRange(state, span);
 
-    const p1 = result.state.blocks.get("p1" as BlockId);
+    const p1 = getBlock(result.state, "p1" as BlockId);
     expect(p1?.inlineContent?.items).toHaveLength(1);
     expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "herld" });
     expect(p1?.nextSiblingId).toBeNull();
 
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
-    expect(result.state.blocks.has("p3" as BlockId)).toBe(false);
+    expect((getBlock(result.state, "p2" as BlockId) !== null)).toBe(false);
+    expect((getBlock(result.state, "p3" as BlockId) !== null)).toBe(false);
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1");
     expect(parent?.lastChildId).toBe("p1");
 
@@ -208,12 +209,12 @@ describe("deleteRange — cross-block (same-parent)", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
     const result = deleteRange(state, span);
 
-    expect(result.state.blocks.get("p0" as BlockId)?.nextSiblingId).toBe("p1"); // unchanged
-    expect(result.state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p3"); // rewired
-    expect(result.state.blocks.get("p3" as BlockId)?.prevSiblingId).toBe("p1"); // rewired
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect(getBlock(result.state, "p0" as BlockId)?.nextSiblingId).toBe("p1"); // unchanged
+    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p3"); // rewired
+    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p1"); // rewired
+    expect((getBlock(result.state, "p2" as BlockId) !== null)).toBe(false);
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p0"); // unchanged
     expect(parent?.lastChildId).toBe("p3"); // unchanged
 
@@ -236,13 +237,13 @@ describe("deleteRange — cross-block (same-parent)", () => {
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 1));
     const result = deleteRange(state, span);
 
-    const p1 = result.state.blocks.get("p1" as BlockId);
+    const p1 = getBlock(result.state, "p1" as BlockId);
     expect(p1?.inlineContent?.items).toEqual([]);
     expect(p1?.nextSiblingId).toBeNull();
 
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect((getBlock(result.state, "p2" as BlockId) !== null)).toBe(false);
 
-    const parent = result.state.blocks.get("doc" as BlockId);
+    const parent = getBlock(result.state, "doc" as BlockId);
     expect(parent?.firstChildId).toBe("p1");
     expect(parent?.lastChildId).toBe("p1");
 
@@ -264,15 +265,15 @@ describe("deleteRange — cross-block (same-parent)", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
     const result = deleteRange(state, span);
 
-    const section = result.state.blocks.get("section" as BlockId);
+    const section = getBlock(result.state, "section" as BlockId);
     expect(section?.firstChildId).toBe("p1");
     expect(section?.lastChildId).toBe("p1"); // rewired from p2
 
-    const doc = result.state.blocks.get("doc" as BlockId);
+    const doc = getBlock(result.state, "doc" as BlockId);
     expect(doc?.firstChildId).toBe("section");
     expect(doc?.lastChildId).toBe("section");
 
-    expect(result.state.blocks.has("p2" as BlockId)).toBe(false);
+    expect((getBlock(result.state, "p2" as BlockId) !== null)).toBe(false);
 
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "section"]));
   });
@@ -292,7 +293,7 @@ describe("deleteRange — block-level invariants", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 2), createPosition("h" as BlockId, 2));
     const result = deleteRange(state, span);
-    expect(result.state.blocks.get("p" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("paragraph");
   });
 
   it("anchor wins attrs when blocks have different attrs (cross-block)", () => {
@@ -307,7 +308,7 @@ describe("deleteRange — block-level invariants", () => {
     });
     const span = createSpan(createPosition("li1" as BlockId, 0), createPosition("li2" as BlockId, 1));
     const result = deleteRange(state, span);
-    expect(result.state.blocks.get("li1" as BlockId)?.attrs).toEqual({ level: 2 });
+    expect(getBlock(result.state, "li1" as BlockId)?.attrs).toEqual({ level: 2 });
   });
 
   it("preserves embed-referenced content blocks (no cascade-delete on focus's content)", () => {
@@ -325,9 +326,9 @@ describe("deleteRange — block-level invariants", () => {
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
     const result = deleteRange(state, span);
-    expect(result.state.blocks.has("fn-body" as BlockId)).toBe(true);
+    expect((getBlock(result.state, "fn-body" as BlockId) !== null)).toBe(true);
     // p1 absorbed p2's content (embed) since focus.offset=0 → focus.suffix is full focus content.
-    const items = result.state.blocks.get("p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } });
   });
@@ -345,9 +346,9 @@ describe("deleteRange — block-level invariants", () => {
         buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: createInlineContent([text("end")]) }),
       ],
     });
-    const beforeP0 = state.blocks.get("p0" as BlockId);
+    const beforeP0 = getBlock(state, "p0" as BlockId);
     const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2)));
-    expect(result.state.blocks.get("p0" as BlockId)).toBe(beforeP0);
+    expect(getBlock(result.state, "p0" as BlockId)).toBe(beforeP0);
   });
 
   it("does not mutate the original state", () => {
@@ -363,8 +364,8 @@ describe("deleteRange — block-level invariants", () => {
 
     expect(result.state).not.toBe(state);
     // Original state still has p2.
-    expect(state.blocks.has("p2" as BlockId)).toBe(true);
-    expect(state.blocks.get("p1" as BlockId)?.nextSiblingId).toBe("p2");
+    expect((getBlock(state, "p2" as BlockId) !== null)).toBe(true);
+    expect(getBlock(state, "p1" as BlockId)?.nextSiblingId).toBe("p2");
   });
 });
 
@@ -393,7 +394,7 @@ describe("deleteRange — edge offsets and special cases", () => {
       ],
     });
     const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3)));
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "lo" });
   });
@@ -408,7 +409,7 @@ describe("deleteRange — edge offsets and special cases", () => {
       ],
     });
     const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 5)));
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "he" });
   });
@@ -423,7 +424,7 @@ describe("deleteRange — edge offsets and special cases", () => {
       ],
     });
     const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5)));
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toEqual([]);
   });
 
@@ -438,7 +439,7 @@ describe("deleteRange — edge offsets and special cases", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 7), createPosition("p" as BlockId, 3));
     const result = deleteRange(state, span);
-    const items = result.state.blocks.get("p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helorld" });
   });
