@@ -1,4 +1,4 @@
-import type { ComponentDefinition } from "./component-definition";
+import type { ComponentDefinition } from "./component-definition-legacy";
 import { createElementBox } from "../render/render-node-v2";
 
 export const documentComponent: ComponentDefinition = {

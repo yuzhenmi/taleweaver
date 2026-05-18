@@ -1,4 +1,4 @@
-import type { ComponentDefinition } from "./component-definition";
+import type { ComponentDefinition } from "./component-definition-legacy";
 import { documentComponent } from "./document";
 import { paragraphComponent } from "./paragraph";
 import { textComponent } from "./text";
@@ -12,7 +12,7 @@ import { tableComponent } from "./table";
 import { tableRowComponent } from "./table-row";
 import { tableCellComponent } from "./table-cell";
 
-export type { ComponentRenderFn, ComponentDefinition } from "./component-definition";
+export type { ComponentRenderFn, ComponentDefinition } from "./component-definition-legacy";
 export { documentComponent } from "./document";
 export { paragraphComponent } from "./paragraph";
 export { textComponent } from "./text";
@@ -26,7 +26,7 @@ export { tableComponent } from "./table";
 export { tableRowComponent } from "./table-row";
 export { tableCellComponent } from "./table-cell";
 
-export { ComponentRegistry, createRegistry } from "./component-registry";
+export { ComponentRegistry, createRegistry } from "./component-registry-legacy";
 
 /** All default component definitions (Plan 1 stubs for all node types). */
 export const defaultComponents: readonly ComponentDefinition[] = [

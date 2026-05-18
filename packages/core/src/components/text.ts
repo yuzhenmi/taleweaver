@@ -1,4 +1,4 @@
-import type { ComponentDefinition } from "./component-definition";
+import type { ComponentDefinition } from "./component-definition-legacy";
 import { createTextBox } from "../render/render-node-v2";
 import { getTextContent } from "../state/text-utils-legacy";
 

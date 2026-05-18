@@ -1,4 +1,4 @@
-import type { ComponentDefinition } from "./component-definition";
+import type { ComponentDefinition } from "./component-definition-legacy";
 
 /** Registry mapping component type strings to component definitions. */
 export class ComponentRegistry {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ComponentRegistry, createRegistry } from "./component-registry";
+import { ComponentRegistry, createRegistry } from "./component-registry-legacy";
 
 import { documentComponent } from "./document";
 import { paragraphComponent } from "./paragraph";

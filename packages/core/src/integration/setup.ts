@@ -4,7 +4,7 @@
  * and type-narrowing helpers for render/layout nodes.
  */
 import { defaultComponents } from "../components";
-import { createRegistry } from "../components/component-registry";
+import { createRegistry } from "../components/component-registry-legacy";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, TextRunBox } from "../layout/layout-node";

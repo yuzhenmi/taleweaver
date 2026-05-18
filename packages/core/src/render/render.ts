@@ -1,6 +1,6 @@
 import type { StateNode } from "../state/state-node-legacy";
 import type { RenderNode } from "./render-node";
-import type { ComponentRegistry } from "../components/component-registry";
+import type { ComponentRegistry } from "../components/component-registry-legacy";
 
 /** Render the state tree to a render tree, bottom-up. */
 export function renderTree(state: StateNode, registry: ComponentRegistry): RenderNode {

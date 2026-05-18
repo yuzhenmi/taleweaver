@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderTree, renderTreeIncremental } from "./render";
-import { createRegistry } from "../components/component-registry";
+import { createRegistry } from "../components/component-registry-legacy";
 import { documentComponent } from "../components/document";
 import { paragraphComponent } from "../components/paragraph";
 import { textComponent } from "../components/text";

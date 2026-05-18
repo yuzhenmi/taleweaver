@@ -1,5 +1,5 @@
 import { describe, it, expectTypeOf, expect } from "vitest";
-import type { ComponentDefinition } from "./component-definition";
+import type { ComponentDefinition } from "./component-definition-legacy";
 
 describe("ComponentDefinition (post-redesign)", () => {
   it("has type and render only", () => {
