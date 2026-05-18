@@ -1,7 +1,7 @@
 import type { StateNode } from "../state/state-node-legacy";
 import type { Position } from "../state/position";
 import { createPosition } from "../state/position";
-import { getNodeByPath } from "../state/operations";
+import { getNodeByPath } from "../state/operations-legacy";
 import { getTextContent, getTextContentLength } from "../state/text-utils-legacy";
 import { createSelection, type Selection } from "./selection";
 

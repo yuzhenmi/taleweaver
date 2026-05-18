@@ -6,7 +6,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { selectionStart, selectionEnd } from "../cursor/selection";
-import { getNodeByPath } from "../state/operations";
+import { getNodeByPath } from "../state/operations-legacy";
 import { getTextContentLength } from "../state/text-utils-legacy";
 import { resolvePixelPosition } from "./cursor-position";
 import { collectAllTextBoxes, collectBlockBoundaryLines, type AbsoluteTextBox } from "./layout-utils";

@@ -4,7 +4,7 @@ import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { getNodeByPath } from "../state/operations";
+import { getNodeByPath } from "../state/operations-legacy";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 export interface PixelPosition {

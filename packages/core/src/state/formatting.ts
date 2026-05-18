@@ -5,7 +5,7 @@ import type { Change } from "./change-legacy";
 import { createChange } from "./change-legacy";
 import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
 import { createNode } from "./create-node-legacy";
-import { getNodeByPath, updateAtPath } from "./operations";
+import { getNodeByPath, updateAtPath } from "./operations-legacy";
 import { getTextContent, getTextContentLength } from "./text-utils-legacy";
 
 /**

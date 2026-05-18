@@ -8,7 +8,7 @@ import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import { createCursor } from "../../cursor/selection";
 import { normalizeSpan, pathsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations-legacy";
-import { getNodeByPath } from "../../state/operations";
+import { getNodeByPath } from "../../state/operations-legacy";
 import { getTextContent, getTextContentLength } from "../../state/text-utils-legacy";
 
 /** Find the last text node descendant of a node at the given base path. */

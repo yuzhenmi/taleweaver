@@ -4,7 +4,7 @@ import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createPosition, createSpan, positionsEqual } from "../../state/position";
 import { deleteRange } from "../../state/transformations-legacy";
 import { moveByCharacter } from "../../cursor/cursor-ops";
-import { getNodeByPath } from "../../state/operations";
+import { getNodeByPath } from "../../state/operations-legacy";
 import { getTextContentLength } from "../../state/text-utils-legacy";
 import { createNode } from "../../state/create-node-legacy";
 import { isStructuralParagraph } from "../../state/normalize-legacy";

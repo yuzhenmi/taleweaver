@@ -11,17 +11,8 @@ export type {
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
-// State tree
-export type { StateNode } from "./state/state-node-legacy";
+// State tree (canonical, Y.Doc-backed surface)
 export type { NewNode } from "./state/node";
-export { createNode, createTextNode } from "./state/create-node-legacy";
-export {
-  updateProperties,
-  insertChild,
-  removeChild,
-  getNodeByPath,
-  updateAtPath,
-} from "./state/operations";
 export type { Position, Span } from "./state/position";
 export {
   createPosition,
@@ -29,31 +20,17 @@ export {
   comparePositions,
   normalizeSpan,
 } from "./state/position";
-export type { Change } from "./state/change-legacy";
-export { createChange } from "./state/change-legacy";
-export {
-  insertText,
-  deleteRange,
-  replaceRange,
-  splitNode,
-} from "./state/transformations-legacy";
-export { findDirtyPaths, isDirty } from "./state/dirty-legacy";
-// Legacy history (pre-P4e snapshot-based). Will be removed at P11.4 cutover.
-// New Y.UndoManager-backed History is exported below from "./state/history".
-export type { History as HistoryLegacy } from "./state/history-legacy";
-export {
-  createHistory as createHistoryLegacy,
-  pushChange,
-  undo as undoLegacy,
-  redo as redoLegacy,
-} from "./state/history-legacy";
-// New Y.UndoManager-backed history (per decision C). Replaces the legacy
+// Y.UndoManager-backed history (per Decision C). Replaces the legacy
 // snapshot-based history at the P11.4 cutover.
 export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
-export { createEmptyDocument } from "./state/initial-state-legacy";
+export {
+  applyInlineStyle,
+  getStyleInRange,
+  remapPosition,
+} from "./state/formatting";
 
 // Y.Doc-backed state module (P4e). The legacy StateNode/createEmptyDocument
-// path above stays canonical through the P11.4 cutover per Decision D. The
+// path below stays canonical through the P11.4 cutover per Decision D. The
 // new surface is NOT yet re-exported here — P5+ phases inside packages/core
 // deep-import what they need:
 //   - State / createState / getBlock / getEmbedContent / applyOperation /
@@ -66,15 +43,6 @@ export { createEmptyDocument } from "./state/initial-state-legacy";
 //     from "./test-utils/state-builders")
 //   - History (Y.UndoManager wrapper) re-exported above
 // The export-surface flip from legacy to new happens at the P11.4 cutover.
-
-export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils-legacy";
-export { findPathById } from "./state/find-path-legacy";
-export {
-  applyInlineStyle,
-  getStyleInRange,
-  remapPosition,
-} from "./state/formatting";
-export { extractText } from "./state/extract-text-legacy";
 
 // Cascade
 export { cascadePass, composeComputed, resolveLength } from "./cascade";
@@ -196,3 +164,54 @@ export {
   setPerfTraceEnabled, isPerfTraceEnabled,
   markStart, markEnd, recordSample, report, resetPerfTrace,
 } from "./perf/perf-trace";
+
+// =============================================================================
+// === LEGACY (pre-P11.4 cutover) ===
+//
+// The exports below are part of the pre-Yjs StateNode model. They remain
+// in the public API surface until P11.4 retires the path-based editor
+// action layer. New code should not import them.
+// =============================================================================
+
+/** @deprecated Removed at P11.4 cutover. */
+export type { StateNode } from "./state/state-node-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { createNode, createTextNode } from "./state/create-node-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export {
+  updateProperties,
+  insertChild,
+  removeChild,
+  getNodeByPath,
+  updateAtPath,
+} from "./state/operations-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export type { Change } from "./state/change-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { createChange } from "./state/change-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export {
+  insertText,
+  deleteRange,
+  replaceRange,
+  splitNode,
+} from "./state/transformations-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { findDirtyPaths, isDirty } from "./state/dirty-legacy";
+/** @deprecated Removed at P11.4 cutover. Use Y.UndoManager-backed History from "./state/history". */
+export type { History as HistoryLegacy } from "./state/history-legacy";
+/** @deprecated Removed at P11.4 cutover. Use Y.UndoManager-backed History from "./state/history". */
+export {
+  createHistory as createHistoryLegacy,
+  pushChange,
+  undo as undoLegacy,
+  redo as redoLegacy,
+} from "./state/history-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { createEmptyDocument } from "./state/initial-state-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { findPathById } from "./state/find-path-legacy";
+/** @deprecated Removed at P11.4 cutover. */
+export { extractText } from "./state/extract-text-legacy";

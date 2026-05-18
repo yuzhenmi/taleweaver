@@ -6,7 +6,7 @@ import {
   selectionEnd,
 } from "../../cursor/selection";
 import { moveByCharacter } from "../../cursor/cursor-ops";
-import { getNodeByPath } from "../../state/operations";
+import { getNodeByPath } from "../../state/operations-legacy";
 import { getTextContentLength } from "../../state/text-utils-legacy";
 
 export function handleMoveCursor(

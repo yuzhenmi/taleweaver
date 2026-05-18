@@ -3,7 +3,7 @@ import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { splitNode } from "../../state/transformations-legacy";
 import { createNode, createTextNode } from "../../state/create-node-legacy";
-import { getNodeByPath, updateAtPath } from "../../state/operations";
+import { getNodeByPath, updateAtPath } from "../../state/operations-legacy";
 import { getTextContentLength } from "../../state/text-utils-legacy";
 import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant } from "./helpers";
 

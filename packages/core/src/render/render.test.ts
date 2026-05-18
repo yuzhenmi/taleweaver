@@ -5,7 +5,7 @@ import { documentComponent } from "../components/document";
 import { paragraphComponent } from "../components/paragraph";
 import { textComponent } from "../components/text";
 import { createNode, createTextNode } from "../state/create-node-legacy";
-import { updateAtPath } from "../state/operations";
+import { updateAtPath } from "../state/operations-legacy";
 
 describe("renderTree", () => {
   it("renders a document → paragraph → text tree", () => {

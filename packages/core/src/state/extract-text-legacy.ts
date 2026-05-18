@@ -2,7 +2,7 @@ import type { StateNode } from "./state-node-legacy";
 import type { Span, Position } from "./position";
 import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
 import { getTextContent, getTextContentLength } from "./text-utils-legacy";
-import { getNodeByPath } from "./operations";
+import { getNodeByPath } from "./operations-legacy";
 
 const BLOCK_TYPES = new Set(["paragraph", "heading", "list-item"]);
 

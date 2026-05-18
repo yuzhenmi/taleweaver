@@ -23,7 +23,3 @@ export { mergeAdjacentBlocks } from "./merge-blocks";
 export { deleteRange } from "./delete-range";
 export { replaceRange } from "./replace-range";
 export { clonePastedSubtree, type ClonedSubtree } from "./clone-pasted-subtree";
-
-// Legacy tree operations (pre-Phase 4a path-based API, used by the
-// legacy editor path until the P11.4 cutover).
-export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations-legacy";

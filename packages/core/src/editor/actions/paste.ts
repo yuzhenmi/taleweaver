@@ -4,7 +4,7 @@ import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createPosition, type Position } from "../../state/position";
 import { insertText, splitNode } from "../../state/transformations-legacy";
 import { createNode } from "../../state/create-node-legacy";
-import { updateAtPath } from "../../state/operations";
+import { updateAtPath } from "../../state/operations-legacy";
 import { deleteSelectionRange, rebuildTrees, findFirstTextDescendant } from "./helpers";
 
 export function handlePaste(

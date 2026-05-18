@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createNode } from "../../state/create-node-legacy";
-import { updateAtPath } from "../../state/operations";
+import { updateAtPath } from "../../state/operations-legacy";
 import { rebuildTrees } from "./helpers";
 
 export function handleSetBlockType(
