@@ -1,4 +1,4 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 
 /** Get the text content string of a node, or "" if not a text node. */
 export function getTextContent(node: StateNode): string {

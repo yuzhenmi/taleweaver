@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { renderTree } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";

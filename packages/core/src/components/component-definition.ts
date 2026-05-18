@@ -1,4 +1,4 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { RenderNode } from "../render/render-node-v2";
 
 /**

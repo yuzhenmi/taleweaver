@@ -1,12 +1,12 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 import type { Style } from "../styles";
 import type { Span, Position } from "./position";
-import type { Change } from "./change";
-import { createChange } from "./change";
+import type { Change } from "./change-legacy";
+import { createChange } from "./change-legacy";
 import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
-import { createNode } from "./create-node";
+import { createNode } from "./create-node-legacy";
 import { getNodeByPath, updateAtPath } from "./operations";
-import { getTextContent, getTextContentLength } from "./text-utils";
+import { getTextContent, getTextContentLength } from "./text-utils-legacy";
 
 /**
  * Style values to apply. Use `undefined` to remove a property.

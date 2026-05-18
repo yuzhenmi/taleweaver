@@ -1,6 +1,6 @@
 import type { ComponentDefinition } from "./component-definition";
 import { createTextBox } from "../render/render-node-v2";
-import { getTextContent } from "../state/text-utils";
+import { getTextContent } from "../state/text-utils-legacy";
 
 export const textComponent: ComponentDefinition = {
   type: "text",

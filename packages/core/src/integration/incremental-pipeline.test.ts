@@ -3,9 +3,9 @@
  * TODO Plan 2 — incremental render/layout reuse tests removed.
  */
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
-import { insertText } from "../state/transformations";
+import { insertText } from "../state/transformations-legacy";
 import { renderTree } from "../render/render";
 import { moveByWord } from "../cursor/cursor-ops";
 import { registry } from "./setup";

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import { createPosition, createSpan } from "./position";
-import { insertText, deleteRange, replaceRange, splitNode } from "./transformations";
+import { insertText, deleteRange, replaceRange, splitNode } from "./transformations-legacy";
 
 function makeDoc() {
   const t1 = createTextNode("t1", "Hello ");

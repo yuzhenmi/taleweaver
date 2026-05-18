@@ -1,5 +1,5 @@
-import type { StateNode } from "./state-node";
-import { createNode } from "./create-node";
+import type { StateNode } from "./state-node-legacy";
+import { createNode } from "./create-node-legacy";
 
 /** Return a new node with merged properties (structural sharing on children). */
 export function updateProperties(

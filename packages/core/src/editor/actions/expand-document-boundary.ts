@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import { createSelection } from "../../cursor/selection";
 import { createPosition } from "../../state/position";
-import { getTextContentLength } from "../../state/text-utils";
+import { getTextContentLength } from "../../state/text-utils-legacy";
 import { findFirstTextDescendant, findLastTextDescendant } from "./helpers";
 
 export function handleExpandDocumentBoundary(

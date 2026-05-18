@@ -1,4 +1,4 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 
 /** Find the path (array of child indices) to the node with the given id. */
 export function findPathById(

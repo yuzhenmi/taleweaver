@@ -5,7 +5,7 @@
 // nodes flow through the pipeline.
 import { describe, it, expect } from "vitest";
 import { layoutTree } from "./dispatch";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { renderTree } from "../render/render";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createChange } from "./change";
-import { createNode } from "./create-node";
+import { createChange } from "./change-legacy";
+import { createNode } from "./create-node-legacy";
 
 describe("createChange", () => {
   it("stores old and new state", () => {

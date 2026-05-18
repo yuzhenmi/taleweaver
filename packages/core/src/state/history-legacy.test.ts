@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import { createHistory, pushChange, undo, redo } from "./history-legacy";
-import type { Change } from "./change";
+import type { Change } from "./change-legacy";
 
 function makeChange(
   oldContent: string,

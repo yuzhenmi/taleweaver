@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isOpaqueBlock, isStructuralParagraph, normalizeDocument } from "./normalize";
-import { createNode, createTextNode } from "./create-node";
+import { isOpaqueBlock, isStructuralParagraph, normalizeDocument } from "./normalize-legacy";
+import { createNode, createTextNode } from "./create-node-legacy";
 
 function para(id: string, text = ""): ReturnType<typeof createNode> {
   return createNode(id, "paragraph", {}, [createTextNode(`${id}-t`, text)]);

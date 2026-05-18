@@ -1,4 +1,4 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { Selection } from "../cursor/selection";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -7,7 +7,7 @@ import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { selectionStart, selectionEnd } from "../cursor/selection";
 import { getNodeByPath } from "../state/operations";
-import { getTextContentLength } from "../state/text-utils";
+import { getTextContentLength } from "../state/text-utils-legacy";
 import { resolvePixelPosition } from "./cursor-position";
 import { collectAllTextBoxes, collectBlockBoundaryLines, type AbsoluteTextBox } from "./layout-utils";
 import { markStart, markEnd } from "../perf/perf-trace";

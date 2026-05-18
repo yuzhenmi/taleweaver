@@ -5,9 +5,9 @@
  * Full inline formatting rendering is Plan 2.
  */
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition, createSpan } from "../state/position";
-import { deleteRange } from "../state/transformations";
+import { deleteRange } from "../state/transformations-legacy";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
 import { moveByCharacter } from "../cursor/cursor-ops";

@@ -1,6 +1,6 @@
-import type { StateNode } from "./state-node";
-import { createNode, createTextNode } from "./create-node";
-import { getTextContent } from "./text-utils";
+import type { StateNode } from "./state-node-legacy";
+import { createNode, createTextNode } from "./create-node-legacy";
+import { getTextContent } from "./text-utils-legacy";
 
 /** Non-text block types that are considered "opaque" for normalization. */
 const OPAQUE_TYPES = new Set(["table"]);

@@ -1,4 +1,4 @@
-import type { StateNode } from "../../state/state-node";
+import type { StateNode } from "../../state/state-node-legacy";
 import type { Position } from "../../state/position";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
@@ -7,9 +7,9 @@ import { cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import { createCursor } from "../../cursor/selection";
 import { normalizeSpan, pathsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { deleteRange } from "../../state/transformations-legacy";
 import { getNodeByPath } from "../../state/operations";
-import { getTextContent, getTextContentLength } from "../../state/text-utils";
+import { getTextContent, getTextContentLength } from "../../state/text-utils-legacy";
 
 /** Find the last text node descendant of a node at the given base path. */
 export function findLastTextDescendant(

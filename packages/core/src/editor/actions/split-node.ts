@@ -1,10 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
-import { splitNode } from "../../state/transformations";
-import { createNode, createTextNode } from "../../state/create-node";
+import { splitNode } from "../../state/transformations-legacy";
+import { createNode, createTextNode } from "../../state/create-node-legacy";
 import { getNodeByPath, updateAtPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
+import { getTextContentLength } from "../../state/text-utils-legacy";
 import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant } from "./helpers";
 
 export function handleSplitNode(

@@ -1,8 +1,8 @@
-import type { StateNode } from "../../state/state-node";
+import type { StateNode } from "../../state/state-node-legacy";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor } from "../../cursor/selection";
-import { createNode } from "../../state/create-node";
+import { createNode } from "../../state/create-node-legacy";
 import { rebuildTrees } from "./helpers";
 
 export function handleToggleList(

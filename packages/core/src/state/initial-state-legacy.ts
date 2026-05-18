@@ -1,5 +1,5 @@
-import type { StateNode } from "./state-node";
-import { createNode, createTextNode } from "./create-node";
+import type { StateNode } from "./state-node-legacy";
+import { createNode, createTextNode } from "./create-node-legacy";
 
 /**
  * Create the minimum valid document: a document root with one empty paragraph

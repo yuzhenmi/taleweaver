@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
-import { findPathById } from "./find-path";
+import { createNode, createTextNode } from "./create-node-legacy";
+import { findPathById } from "./find-path-legacy";
 
 describe("findPathById", () => {
   const doc = createNode("doc", "document", {}, [

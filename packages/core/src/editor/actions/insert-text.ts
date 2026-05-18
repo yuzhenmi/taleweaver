@@ -2,7 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createPosition, normalizeSpan } from "../../state/position";
-import { insertText, replaceRange } from "../../state/transformations";
+import { insertText, replaceRange } from "../../state/transformations-legacy";
 import { rebuildTrees } from "./helpers";
 
 export function handleInsertText(

@@ -12,9 +12,9 @@ export type {
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
 // State tree
-export type { StateNode } from "./state/state-node";
+export type { StateNode } from "./state/state-node-legacy";
 export type { NewNode } from "./state/new-node";
-export { createNode, createTextNode } from "./state/create-node";
+export { createNode, createTextNode } from "./state/create-node-legacy";
 export {
   updateProperties,
   insertChild,
@@ -29,15 +29,15 @@ export {
   comparePositions,
   normalizeSpan,
 } from "./state/position";
-export type { Change } from "./state/change";
-export { createChange } from "./state/change";
+export type { Change } from "./state/change-legacy";
+export { createChange } from "./state/change-legacy";
 export {
   insertText,
   deleteRange,
   replaceRange,
   splitNode,
-} from "./state/transformations";
-export { findDirtyPaths, isDirty } from "./state/dirty";
+} from "./state/transformations-legacy";
+export { findDirtyPaths, isDirty } from "./state/dirty-legacy";
 // Legacy history (pre-P4e snapshot-based). Will be removed at P11.4 cutover.
 // New Y.UndoManager-backed History is exported below from "./state/history".
 export type { History as HistoryLegacy } from "./state/history-legacy";
@@ -50,7 +50,7 @@ export {
 // New Y.UndoManager-backed history (per decision C). Replaces the legacy
 // snapshot-based history at the P11.4 cutover.
 export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
-export { createEmptyDocument } from "./state/initial-state";
+export { createEmptyDocument } from "./state/initial-state-legacy";
 
 // Y.Doc-backed state module (P4e). The legacy StateNode/createEmptyDocument
 // path above stays canonical through the P11.4 cutover per Decision D. The
@@ -67,14 +67,14 @@ export { createEmptyDocument } from "./state/initial-state";
 //   - History (Y.UndoManager wrapper) re-exported above
 // The export-surface flip from legacy to new happens at the P11.4 cutover.
 
-export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils";
-export { findPathById } from "./state/find-path";
+export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils-legacy";
+export { findPathById } from "./state/find-path-legacy";
 export {
   applyInlineStyle,
   getStyleInRange,
   remapPosition,
 } from "./state/formatting";
-export { extractText } from "./state/extract-text";
+export { extractText } from "./state/extract-text-legacy";
 
 // Cascade
 export { cascadePass, composeComputed, resolveLength } from "./cascade";

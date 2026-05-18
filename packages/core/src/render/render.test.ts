@@ -4,7 +4,7 @@ import { createRegistry } from "../components/component-registry";
 import { documentComponent } from "../components/document";
 import { paragraphComponent } from "../components/paragraph";
 import { textComponent } from "../components/text";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { updateAtPath } from "../state/operations";
 
 describe("renderTree", () => {

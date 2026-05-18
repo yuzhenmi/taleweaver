@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
-import { createNode } from "../../state/create-node";
+import { createNode } from "../../state/create-node-legacy";
 import { updateAtPath } from "../../state/operations";
 import { rebuildTrees } from "./helpers";
 

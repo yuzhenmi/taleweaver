@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import { createPosition, createSpan } from "./position";
-import { getTextContent } from "./text-utils";
+import { getTextContent } from "./text-utils-legacy";
 import { applyInlineStyle, getStyleInRange, remapPosition } from "./formatting";
 
 function makeDoc(content: string) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { renderTree } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
@@ -11,7 +11,7 @@ import { resolvePositionFromPixel } from "../editor/hit-test";
 import { moveToLine } from "../editor/line-navigation";
 import { createPosition, createSpan } from "../state/position";
 import type { PageConfig } from "../layout/page-config";
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { LayoutBox } from "../layout/layout-node";
 
 const PAGE_CONFIG: PageConfig = {

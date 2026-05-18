@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import { createPosition, createSpan } from "./position";
-import { extractText } from "./extract-text";
+import { extractText } from "./extract-text-legacy";
 
 function makeDoc(texts: string[]) {
   const paragraphs = texts.map((t, i) =>

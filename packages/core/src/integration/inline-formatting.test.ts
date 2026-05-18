@@ -3,7 +3,7 @@
  * Plan 1: spans rendered as element boxes (stub).
  */
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
 import { moveByCharacter } from "../cursor/cursor-ops";
 

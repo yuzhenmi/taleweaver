@@ -1,4 +1,4 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 
 /**
  * Dirty tracking via identity comparison.

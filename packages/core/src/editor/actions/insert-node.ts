@@ -1,8 +1,8 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import type { NewNode } from "../../state/new-node";
 import type { Position } from "../../state/position";
-import type { StateNode } from "../../state/state-node";
-import { createNode } from "../../state/create-node";
+import type { StateNode } from "../../state/state-node-legacy";
+import { createNode } from "../../state/create-node-legacy";
 import { rebuildTrees } from "./helpers";
 
 /**

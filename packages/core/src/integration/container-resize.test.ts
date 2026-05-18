@@ -2,7 +2,7 @@
  * Integration: re-layout on container width change.
  */
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
 import type { LayoutBox } from "../layout/layout-node";

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createEmptyDocument } from "./initial-state";
+import { createEmptyDocument } from "./initial-state-legacy";
 
 describe("createEmptyDocument", () => {
   it("creates a document with one paragraph and one text node", () => {

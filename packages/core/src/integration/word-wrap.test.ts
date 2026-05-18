@@ -3,9 +3,9 @@
  * TODO Plan 2 — incremental pipeline tests replaced with non-incremental.
  */
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
-import { insertText } from "../state/transformations";
+import { insertText } from "../state/transformations-legacy";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
 import { moveByCharacter } from "../cursor/cursor-ops";

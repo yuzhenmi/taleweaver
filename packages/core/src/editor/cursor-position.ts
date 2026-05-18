@@ -1,4 +1,4 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { Position } from "../state/position";
 import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";

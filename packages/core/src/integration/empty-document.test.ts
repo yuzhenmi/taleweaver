@@ -2,9 +2,9 @@
  * Integration: starting from an empty document.
  */
 import { describe, it, expect } from "vitest";
-import { createEmptyDocument } from "../state/initial-state";
+import { createEmptyDocument } from "../state/initial-state-legacy";
 import { createPosition, createSpan } from "../state/position";
-import { insertText, deleteRange, splitNode } from "../state/transformations";
+import { insertText, deleteRange, splitNode } from "../state/transformations-legacy";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
 import { registry, measurer, expectTextBox } from "./setup";

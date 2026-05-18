@@ -1,6 +1,6 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { Selection } from "../cursor/selection";
-import type { Change } from "../state/change";
+import type { Change } from "../state/change-legacy";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
@@ -8,7 +8,7 @@ import type { LayoutBox } from "../layout/layout-node";
 import type { PageConfig } from "../layout/page-config";
 import {
   createEmptyDocument,
-} from "../state/initial-state";
+} from "../state/initial-state-legacy";
 import {
   createCursor,
 } from "../cursor/selection";

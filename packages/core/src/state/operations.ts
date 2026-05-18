@@ -26,4 +26,4 @@ export { clonePastedSubtree, type ClonedSubtree } from "./clone-pasted-subtree";
 
 // Legacy tree operations (pre-Phase 4a path-based API, used by the
 // legacy editor path until the P11.4 cutover).
-export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations";
+export { updateProperties, insertChild, removeChild, getNodeByPath, updateAtPath } from "./node-operations-legacy";

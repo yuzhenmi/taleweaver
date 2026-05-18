@@ -4,7 +4,7 @@
 // in index.ts). The new Y.UndoManager-backed history (state/history.ts)
 // does NOT use this. Delete at the P11.4 cutover when the legacy editor
 // path is removed.
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 
 /** A reversible change record produced by a transformation. */
 export interface Change {

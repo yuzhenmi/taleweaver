@@ -1,5 +1,5 @@
-import type { Change } from "./change";
-import type { StateNode } from "./state-node";
+import type { Change } from "./change-legacy";
+import type { StateNode } from "./state-node-legacy";
 
 /** Collapse threshold in milliseconds: changes within this window are grouped. */
 const COLLAPSE_THRESHOLD_MS = 500;

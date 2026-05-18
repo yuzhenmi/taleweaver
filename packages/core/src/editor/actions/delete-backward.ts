@@ -2,12 +2,12 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createPosition, createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { deleteRange } from "../../state/transformations-legacy";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
-import { createNode } from "../../state/create-node";
-import { isStructuralParagraph } from "../../state/normalize";
+import { getTextContentLength } from "../../state/text-utils-legacy";
+import { createNode } from "../../state/create-node-legacy";
+import { isStructuralParagraph } from "../../state/normalize-legacy";
 import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant, isAtCellBoundary } from "./helpers";
 
 export function handleDeleteBackward(

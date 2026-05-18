@@ -9,7 +9,7 @@ import { defaultComponents } from "./index";
 import { headingComponent } from "./heading";
 import { listComponent } from "./list";
 import { listItemComponent } from "./list-item";
-import { createNode, createTextNode } from "../state/create-node";
+import { createNode, createTextNode } from "../state/create-node-legacy";
 
 describe("ComponentRegistry", () => {
   it("register and get", () => {

@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import {
   updateProperties,
   insertChild,
   removeChild,
   getNodeByPath,
   updateAtPath,
-} from "./node-operations";
+} from "./node-operations-legacy";
 
 describe("updateProperties", () => {
   it("returns a new node with updated properties", () => {

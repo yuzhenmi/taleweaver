@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getTextContent, getTextContentLength, clampOffset } from "./text-utils";
-import { createNode, createTextNode } from "./create-node";
+import { getTextContent, getTextContentLength, clampOffset } from "./text-utils-legacy";
+import { createNode, createTextNode } from "./create-node-legacy";
 
 describe("getTextContent", () => {
   it("returns content for text node", () => {

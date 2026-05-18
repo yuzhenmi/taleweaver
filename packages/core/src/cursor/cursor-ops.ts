@@ -1,8 +1,8 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { Position } from "../state/position";
 import { createPosition } from "../state/position";
 import { getNodeByPath } from "../state/operations";
-import { getTextContent, getTextContentLength } from "../state/text-utils";
+import { getTextContent, getTextContentLength } from "../state/text-utils-legacy";
 import { createSelection, type Selection } from "./selection";
 
 // --- Grapheme cluster segmentation ---

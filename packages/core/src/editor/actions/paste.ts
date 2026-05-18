@@ -2,8 +2,8 @@ import type { EditorState, EditorConfig, EditorHistoryEntry } from "../editor-st
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createPosition, type Position } from "../../state/position";
-import { insertText, splitNode } from "../../state/transformations";
-import { createNode } from "../../state/create-node";
+import { insertText, splitNode } from "../../state/transformations-legacy";
+import { createNode } from "../../state/create-node-legacy";
 import { updateAtPath } from "../../state/operations";
 import { deleteSelectionRange, rebuildTrees, findFirstTextDescendant } from "./helpers";
 

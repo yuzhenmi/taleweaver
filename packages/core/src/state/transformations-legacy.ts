@@ -1,11 +1,11 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 import type { Position, Span } from "./position";
-import type { Change } from "./change";
-import { createChange } from "./change";
+import type { Change } from "./change-legacy";
+import { createChange } from "./change-legacy";
 import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
-import { createNode } from "./create-node";
+import { createNode } from "./create-node-legacy";
 import { getNodeByPath, updateAtPath } from "./operations";
-import { getTextContent, clampOffset } from "./text-utils";
+import { getTextContent, clampOffset } from "./text-utils-legacy";
 
 /** Create a text node with updated content, preserving id and other properties. */
 function withContent(node: StateNode, content: string): StateNode {

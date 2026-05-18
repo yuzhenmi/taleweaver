@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 
 describe("createNode", () => {
   it("creates a node with the given id and type", () => {

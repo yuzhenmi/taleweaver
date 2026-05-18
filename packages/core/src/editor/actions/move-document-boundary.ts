@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import { createCursor } from "../../cursor/selection";
-import { getTextContentLength } from "../../state/text-utils";
+import { getTextContentLength } from "../../state/text-utils-legacy";
 import { findFirstTextDescendant, findLastTextDescendant } from "./helpers";
 
 export function handleMoveDocumentBoundary(

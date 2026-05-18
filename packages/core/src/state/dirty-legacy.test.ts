@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createNode, createTextNode } from "./create-node";
+import { createNode, createTextNode } from "./create-node-legacy";
 import { createPosition } from "./position";
-import { insertText } from "./transformations";
-import { findDirtyPaths, isDirty } from "./dirty";
+import { insertText } from "./transformations-legacy";
+import { findDirtyPaths, isDirty } from "./dirty-legacy";
 
 describe("dirty tracking", () => {
   function makeDoc() {

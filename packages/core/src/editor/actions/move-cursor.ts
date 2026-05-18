@@ -7,7 +7,7 @@ import {
 } from "../../cursor/selection";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
+import { getTextContentLength } from "../../state/text-utils-legacy";
 
 export function handleMoveCursor(
   editor: EditorState,

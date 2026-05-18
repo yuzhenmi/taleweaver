@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 
 describe("StateNode (post-redesign)", () => {
   it("carries style: Style instead of styles: NodeStyles", () => {

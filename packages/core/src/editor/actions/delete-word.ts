@@ -2,7 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
 import { createCursor, isCollapsed } from "../../cursor/selection";
 import { createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { deleteRange } from "../../state/transformations-legacy";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { rebuildTrees, deleteSelectionRange } from "./helpers";
 

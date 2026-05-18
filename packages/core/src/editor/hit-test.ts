@@ -1,4 +1,4 @@
-import type { StateNode } from "../state/state-node";
+import type { StateNode } from "../state/state-node-legacy";
 import type { Position } from "../state/position";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -6,7 +6,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { createPosition, } from "../state/position";
-import { findPathById } from "../state/find-path";
+import { findPathById } from "../state/find-path-legacy";
 import { collectAllTextBoxes, type AbsoluteTextBox } from "./layout-utils";
 import { markStart, markEnd } from "../perf/perf-trace";
 

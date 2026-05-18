@@ -1,4 +1,4 @@
-import type { StateNode } from "./state-node";
+import type { StateNode } from "./state-node-legacy";
 import type { Style } from "../styles";
 
 const EMPTY_STYLE: Readonly<Style> = Object.freeze({});
