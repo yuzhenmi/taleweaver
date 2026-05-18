@@ -79,17 +79,23 @@ Total commits: 12. Total new tests: ~32 (10 × 3 + 2 registry assertions in T12)
 - Modify: `packages/core/src/components/index.ts` — all imports flip to `-legacy`. The `defaultComponents` constant remains exported (consumed by legacy registry callers). The `createParagraph` / etc. re-exports source from `factories-legacy`.
 - Modify: `packages/core/src/components/components.test.ts` — confirm imports remain valid (most go through `./index`; those that deep-import a component file flip to `-legacy`).
 - Modify: `packages/core/src/render/render-legacy.test.ts` — flip any direct component imports to `-legacy`.
-- Modify: `packages/core/src/index.ts` — top-level barrel re-exports (e.g., `documentComponent`, `paragraphComponent`, factories) ALREADY route through `./components` per the index.ts read; no direct deep imports of component files at the top level. Verify with grep; if any exist, flip them. The legacy export NAMES (e.g., `paragraphComponent`, `createParagraph`, `defaultComponents`) stay the same — preserves the public API surface.
+- Modify: `packages/core/src/index.ts` — most top-level barrel re-exports route through `./components`, but `index.ts:119` deep-imports from `./components/factories` (the factory functions `createParagraph` etc.). Flip that to `./components/factories-legacy`. Grep below confirms anything else needing a flip. The legacy export NAMES (e.g., `paragraphComponent`, `createParagraph`, `defaultComponents`) stay the same — preserves the public API surface.
 
 ### Steps
 
 - [ ] **S1: Audit imports**
 
 ```bash
-grep -rln "from.*components/\\(document\\|paragraph\\|heading\\|list-item\\|list\\|table-cell\\|table-row\\|table\\|image\\|horizontal-line\\|text\\|span\\|factories\\)\"" /Users/hansyu/code/taleweaver/packages/core/src/ /Users/hansyu/code/taleweaver/packages/dom/src/ /Users/hansyu/code/taleweaver/packages/react/src/ 2>/dev/null | sort -u
+grep -rln -E 'from "(\.{1,2}/)+(components/)?(document|paragraph|heading|list-item|list|table-cell|table-row|table|image|horizontal-line|text|span|factories)"' /Users/hansyu/code/taleweaver/packages/core/src/ /Users/hansyu/code/taleweaver/packages/dom/src/ /Users/hansyu/code/taleweaver/packages/react/src/ 2>/dev/null | sort -u
 ```
 
-Save the list. Expected: handful of files (the index barrel + the components.test.ts + a few callers).
+Save the list. Known hits (confirm grep returns these at minimum):
+- `packages/core/src/components/index.ts` — imports + re-exports of all 12 components AND factories.
+- `packages/core/src/components/components.test.ts` — registry-level test that imports from `./index`; may also deep-import.
+- `packages/core/src/index.ts` — deep-imports `./components/factories` for the factory function re-exports (line ~119 at time of plan writing).
+- `packages/core/src/render/render-legacy.test.ts` — deep-imports several component definitions (`documentComponent`, `paragraphComponent`, `textComponent`) for stub fixtures.
+
+If the grep returns fewer than these, refine the pattern before proceeding.
 
 - [ ] **S2: Check which `.test.ts` siblings exist**
 
