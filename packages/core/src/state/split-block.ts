@@ -35,6 +35,13 @@ import { yMapAsObject, cloneInlineItem } from "./y-utils";
  *   - the block is a container (has firstChildId or null inlineContent),
  *   - the block is the root (parentId === null),
  *   - the offset is out of range [0, inlineContentLength].
+ *
+ * Y.Doc identity: the original block's content Y.Text retains identity
+ * for the left half — when the split lands inside a text run, the
+ * straddling Y.Text is shortened in place (not rebuilt). Only the new
+ * block's suffix items are freshly materialized. No normalization
+ * post-pass is needed: a clean split of normalized inline content yields
+ * two halves that are each individually normalized.
  */
 export function splitBlockAtPosition(
   state: State,
