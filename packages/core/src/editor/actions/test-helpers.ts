@@ -4,9 +4,7 @@ import {
   defaultComponents,
   getNodeByPath,
   getTextContent,
-  createPosition,
   createSelection,
-  createCursor,
 } from "@taleweaver/core";
 import {
   createInitialEditorState,

@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node";
 import { createPosition, createSpan } from "../state/position";
-import { insertText, deleteRange } from "../state/transformations";
+import { deleteRange } from "../state/transformations";
 import { renderTree } from "../render/render";
 import { layoutTree } from "../layout/layout-engine";
 import { moveByCharacter } from "../cursor/cursor-ops";

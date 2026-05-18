@@ -9,7 +9,6 @@ import {
   createPosition,
   createSelection,
   isCollapsed,
-  getTextContentLength,
 } from "./test-helpers";
 
 describe("MOVE_CURSOR", () => {

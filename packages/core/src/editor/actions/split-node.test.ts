@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTextContent, getNodeByPath } from "@taleweaver/core";
+import { getTextContent } from "@taleweaver/core";
 import {
   config,
   getTextAt,

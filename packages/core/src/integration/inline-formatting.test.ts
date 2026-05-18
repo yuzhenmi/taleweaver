@@ -5,10 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node";
 import { createPosition } from "../state/position";
-import { renderTree } from "../render/render";
-import { layoutTree } from "../layout/layout-engine";
 import { moveByCharacter } from "../cursor/cursor-ops";
-import { registry, measurer, expectTextBox } from "./setup";
 
 describe("Integration: inline formatting with span", () => {
   it("cursor moves through span boundary", () => {

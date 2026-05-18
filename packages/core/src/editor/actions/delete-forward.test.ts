@@ -5,7 +5,6 @@ import {
   stateWithText,
   stateWithTwoParagraphs,
   withSelection,
-  createInitialEditorState,
   reduceEditor,
   createPosition,
   createSelection,

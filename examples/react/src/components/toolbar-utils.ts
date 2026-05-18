@@ -1,7 +1,6 @@
 import {
   isCollapsed,
   getStyleInRange,
-  getNodeByPath,
   type StateNode,
 } from "@taleweaver/core";
 import type { EditorState } from "@taleweaver/dom";

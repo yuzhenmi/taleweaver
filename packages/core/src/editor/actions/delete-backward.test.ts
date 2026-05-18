@@ -8,7 +8,6 @@ import {
   reduceEditor,
   createPosition,
   createSelection,
-  createCursor,
   isCollapsed,
 } from "./test-helpers";
 

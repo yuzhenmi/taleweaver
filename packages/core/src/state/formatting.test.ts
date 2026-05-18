@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "./create-node";
 import { createPosition, createSpan } from "./position";
-import { getNodeByPath } from "./operations";
 import { getTextContent } from "./text-utils";
 import { applyInlineStyle, getStyleInRange, remapPosition } from "./formatting";
 

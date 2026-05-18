@@ -5,7 +5,6 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { createPosition } from "../state/position";
-import { getNodeByPath } from "../state/operations";
 import { getTextContentLength } from "../state/text-utils";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";

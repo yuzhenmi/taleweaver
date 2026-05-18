@@ -5,7 +5,6 @@ import { createPosition, type Position } from "../../state/position";
 import { insertText, splitNode } from "../../state/transformations";
 import { createNode } from "../../state/create-node";
 import { updateAtPath } from "../../state/operations";
-import type { StateNode } from "../../state/state-node";
 import { deleteSelectionRange, rebuildTrees, findFirstTextDescendant } from "./helpers";
 
 export function handlePaste(

@@ -248,7 +248,7 @@ export function reduceEditor(
       result = handleInsertNode(editor, action.node, action.position, config);
       break;
     default: {
-      const _exhaustive: never = action;
+      action satisfies never;
       result = editor;
       break;
     }
