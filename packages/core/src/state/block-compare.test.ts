@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { compareBlocksInDocOrder, comparePositions, selectionContextOf } from "./block-compare";
+import { compareBlocksInDocOrder, comparePositions, selectionContextOf, spanStart, spanEnd } from "./block-compare";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
-import { createPosition } from "./block-position";
+import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
 describe("compareBlocksInDocOrder", () => {
@@ -189,6 +189,36 @@ describe("comparePositions", () => {
     const b = createPosition("p2" as BlockId, 0);
     expect(comparePositions(state, a, b)).toBeLessThan(0);
     expect(comparePositions(state, b, a)).toBeGreaterThan(0);
+  });
+});
+
+describe("spanStart / spanEnd", () => {
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
+      ],
+    });
+
+  it("returns anchor first / focus second when anchor precedes focus", () => {
+    const state = fixture();
+    const anchor = createPosition("p1" as BlockId, 1);
+    const focus = createPosition("p2" as BlockId, 4);
+    const span = createSpan(anchor, focus);
+    expect(spanStart(state, span)).toBe(anchor);
+    expect(spanEnd(state, span)).toBe(focus);
+  });
+
+  it("returns focus first / anchor second when focus precedes anchor", () => {
+    const state = fixture();
+    const anchor = createPosition("p2" as BlockId, 4);
+    const focus = createPosition("p1" as BlockId, 1);
+    const span = createSpan(anchor, focus);
+    expect(spanStart(state, span)).toBe(focus);
+    expect(spanEnd(state, span)).toBe(anchor);
   });
 });
 

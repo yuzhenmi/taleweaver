@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import { getBlock, type State } from "./state";
-import type { Position } from "./block-position";
+import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 import { getBlocksMap } from "./yjs-doc";
 
@@ -81,6 +81,31 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
 export function comparePositions(state: State, a: Position, b: Position): number {
   if (a.blockId === b.blockId) return a.offset - b.offset;
   return compareBlocksInDocOrder(state, a.blockId, b.blockId);
+}
+
+/**
+ * Return the earlier position of a Span in document order. If anchor
+ * precedes focus, returns anchor; otherwise returns focus. Collapsed spans
+ * (anchor.equals(focus)) return anchor.
+ *
+ * Uses `comparePositions` (which dispatches to within-block or cross-block
+ * compare). Constant-time when anchor and focus share a blockId;
+ * O(depth + LCA-fanout) when they don't.
+ */
+export function spanStart(state: State, span: Span): Position {
+  return comparePositions(state, span.anchor, span.focus) <= 0
+    ? span.anchor
+    : span.focus;
+}
+
+/**
+ * Return the later position of a Span in document order. Mirror of
+ * `spanStart`. Collapsed spans return focus.
+ */
+export function spanEnd(state: State, span: Span): Position {
+  return comparePositions(state, span.anchor, span.focus) <= 0
+    ? span.focus
+    : span.anchor;
 }
 
 /**
