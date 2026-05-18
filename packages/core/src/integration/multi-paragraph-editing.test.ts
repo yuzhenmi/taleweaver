@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition, createSpan } from "../state/position";
 import { deleteRange } from "../state/transformations-legacy";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { layoutTree } from "../layout/layout-engine";
 import { moveByCharacter } from "../cursor/cursor-ops";
 import { registry, measurer, lineText } from "./setup";

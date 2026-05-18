@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node-legacy";
 import { createPosition } from "../state/position";
 import { insertText } from "../state/transformations-legacy";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { moveByWord } from "../cursor/cursor-ops";
 import { registry } from "./setup";
 

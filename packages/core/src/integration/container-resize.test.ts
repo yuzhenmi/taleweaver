@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { createNode, createTextNode } from "../state/create-node-legacy";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { layoutTree } from "../layout/layout-engine";
 import type { LayoutBox } from "../layout/layout-node";
 import { registry, measurer } from "./setup";

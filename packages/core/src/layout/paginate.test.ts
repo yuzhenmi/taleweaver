@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { layoutTree } from "./dispatch";
 import { createNode, createTextNode } from "../state/create-node-legacy";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { createRegistry, defaultComponents } from "../components";

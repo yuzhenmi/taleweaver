@@ -2,7 +2,7 @@ import type { StateNode } from "../../state/state-node-legacy";
 import type { Position } from "../../state/position";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { pushEditorChange } from "../editor-state";
-import { renderTreeIncremental } from "../../render/render";
+import { renderTreeIncremental } from "../../render/render-legacy";
 import { cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import { createCursor } from "../../cursor/selection";

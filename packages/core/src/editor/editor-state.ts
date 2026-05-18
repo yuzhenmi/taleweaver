@@ -12,7 +12,7 @@ import {
 import {
   createCursor,
 } from "../cursor/selection";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/layout-engine";
 import { ComponentRegistry } from "../components";

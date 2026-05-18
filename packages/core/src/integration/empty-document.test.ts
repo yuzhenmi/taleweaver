@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { createEmptyDocument } from "../state/initial-state-legacy";
 import { createPosition, createSpan } from "../state/position";
 import { insertText, deleteRange, splitNode } from "../state/transformations-legacy";
-import { renderTree } from "../render/render";
+import { renderTree } from "../render/render-legacy";
 import { layoutTree } from "../layout/layout-engine";
 import { registry, measurer, expectTextBox } from "./setup";
 

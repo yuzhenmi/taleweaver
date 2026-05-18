@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderTree, renderTreeIncremental } from "./render";
+import { renderTree, renderTreeIncremental } from "./render-legacy";
 import { createRegistry } from "../components/component-registry-legacy";
 import { documentComponent } from "../components/document";
 import { paragraphComponent } from "../components/paragraph";

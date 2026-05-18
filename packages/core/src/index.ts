@@ -56,7 +56,7 @@ export {
   createElementBox,
   createTextBox,
 } from "./render/render-node";
-export { renderTree, renderTreeIncremental } from "./render/render";
+export { renderTree, renderTreeIncremental } from "./render/render-legacy";
 
 // Layout tree
 export type {
