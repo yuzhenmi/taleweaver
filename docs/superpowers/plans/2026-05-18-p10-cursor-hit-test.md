@@ -188,15 +188,15 @@ Create `packages/core/src/cursor/cursor-position.test.ts`. Tests run the FULL pi
 
 8 tests:
 1. Position at offset 0 of a single paragraph → returns `{ x: ~leftMargin, y: ~topMargin, ... }`.
-2. Position at mid-text of a single paragraph → x advances by measured prefix width.
-3. Position at end-of-line wraps correctly (in a paragraph wider than container, position at the wrap point).
-4. Position in a second paragraph → y advances past paragraph 1.
-5. Position in different blocks of a multi-block doc returns different pages when pagination applies (run the pagination test).
+2. Position at mid-text of a single paragraph → x advances by measured prefix width (with 8px-per-char mock shaper, offset 3 → x is 3 chars wider than offset 0).
+3. Position at end-of-line wraps correctly: build a paragraph with 200 chars at containerInlineSize 800 → with 8px chars and ~100 chars/line, position at offset 100 lands at start of line 2 (x near leftMargin, y advanced by lineHeight).
+4. Position in a second paragraph → y advances past paragraph 1 (single page).
+5. Position lands on page 2 when paginated: build 5 paragraphs of 1 line each (each block ~16px tall + margins), set `pageConfig = { pageBlockSize: 60, pageInlineSize: 800, marginBlockStart: 10, marginBlockEnd: 10, marginInlineStart: 0, marginInlineEnd: 0, headerHeight: 0, footerHeight: 0 }`, then resolve a position in the 4th paragraph and assert `pageIndex === 1`. (Confirm the `PageConfig` field names against `packages/core/src/layout/page-config.ts` — the implementer should grep the actual fields and adjust if the names differ.)
 6. Unknown blockId returns null OR throws (match legacy behavior — read legacy and match).
 7. Position at offset 0 of an empty block → returns the block's baseline coords (no text to measure).
 8. Position on an embed item: returns coords of the embed's ElementBox.
 
-Use the canonical test setup pattern from P9:
+Use the canonical test setup pattern:
 
 ```typescript
 import { describe, it, expect } from "vitest";
@@ -204,21 +204,26 @@ import { resolvePixelPosition } from "./cursor-position";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { layoutTree } from "../layout/layout-engine";
-import { createMockMeasurer } from "../layout/text-measurer";
+import { layoutTree } from "../layout/dispatch";
+import { createMockShaper } from "../layout/mock-shaper";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
+import type { State } from "../state/state";
 
-function pipeline(state) {
+function pipeline(state: State) {
   const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
-  const measurer = createMockMeasurer();
-  const layout = layoutTree(root, measurer, /* containerWidth */ 800, /* pageConfig */ undefined);
-  return { layout, measurer };
+  const shaper = createMockShaper(8, 16); // 8px char width, 16px line height — codebase convention
+  // layoutTree signature: (root, containerInlineSize, shaperOrMeasurer, pageConfig?)
+  const layout = layoutTree(root, /* containerInlineSize */ 800, shaper, /* pageConfig */ undefined);
+  return { layout, shaper };
 }
 ```
 
-(Implementer: confirm `createMockMeasurer` and `layoutTree`'s signature against the actual exports. If `layoutTree` needs different args, adapt.)
+Note on test infrastructure (verified pre-flight against actual exports):
+- `layoutTree` lives in `../layout/dispatch` (not `../layout/layout-engine`). Signature: `(root, containerInlineSize, shaperOrMeasurer, pageConfig?)`.
+- `createMockShaper(charWidth, lineHeight)` from `../layout/mock-shaper` is the codebase-standard mock. `createMockMeasurer` exists in `../layout/text-measurer` but is a 2-arg constructor (`(charWidth, lineHeight)`), not the no-arg call the earlier plan draft used. Prefer `createMockShaper` for uniformity with existing tests.
+- T3/T4/T5 inherit this corrected pattern.
 
 - [ ] **S2: Run tests (expected failure: module not found)**
 
@@ -353,15 +358,21 @@ New `computeSelectionRects(state, span, layoutTree, shaperOrMeasurer, containerW
 
 Read `editor/selection-geometry-legacy.ts` (248 lines — the largest of the four). Mirror its structure, but consume new `Span` (from `state/block-position.ts`) and new `State`.
 
-Span-related helpers: `selectionStart(span)` and `selectionEnd(span)` exist in `cursor/selection.ts` for legacy Selection, but they're typed to legacy Position. The new Span doesn't have an established `selectionStart` / `selectionEnd` helper yet — the new `block-position.ts` exports the Span type but not normalization helpers. Either:
-- Add `selectionStart` / `selectionEnd` for new Span to `state/block-position.ts` (mirror the legacy helpers but for the new type), OR
-- Inline the start/end logic into this file via cross-block-aware comparison from `state/block-compare.ts`.
+Span-related helpers: `selectionStart(span)` and `selectionEnd(span)` exist in `cursor/selection.ts` for legacy Selection, but they're typed to legacy Position. The new Span doesn't have established normalization helpers yet.
 
-Recommend the first option (extract to `state/block-position.ts`) — keeps geometry logic clean and benefits any future caller. Includes 2 tests in `state/block-position.test.ts` for the new helpers; bump T4's test count accordingly.
+**Resolution (layering-aware):** add `spanStart(state, span): Position` and `spanEnd(state, span): Position` to `packages/core/src/state/block-compare.ts`. They use the existing cross-block compare there (which already takes `State` to walk the block tree). This is the correct architectural layer:
+- `block-position.ts` is a leaf type module that imports only `BlockId` — adding `State`-dependent helpers there would invert the dependency hierarchy.
+- `block-compare.ts` already imports `State` and is the documented home for cross-block compare (see `block-position.ts:47` comment pointing at `block-compare.ts`).
+
+Add 2 tests for `spanStart` / `spanEnd` to `packages/core/src/state/block-compare.test.ts`:
+1. Span where anchor precedes focus in doc order → `spanStart === anchor`, `spanEnd === focus`.
+2. Span where focus precedes anchor in doc order → `spanStart === focus`, `spanEnd === anchor`.
+
+T4 imports `spanStart`, `spanEnd` from `../state/block-compare`. Bump T4's test count accordingly.
 
 ### Steps
 
-- [ ] **S1: Add `selectionStart` / `selectionEnd` to `state/block-position.ts`** with cross-block-aware compare. Add 2 tests to `state/block-position.test.ts`. Verify build.
+- [ ] **S1: Add `spanStart` / `spanEnd` to `state/block-compare.ts`** (uses the existing cross-block compare; takes `State`). Add 2 tests to `state/block-compare.test.ts`. Verify build.
 
 - [ ] **S2: Failing test in `cursor/selection-geometry.test.ts`** — 8 tests:
   1. Single-block single-line selection → one rect.
@@ -375,7 +386,7 @@ Recommend the first option (extract to `state/block-position.ts`) — keeps geom
 
 - [ ] **S3: Implement `cursor/selection-geometry.ts`** mirroring `selection-geometry-legacy.ts`'s algorithm but:
   - Input is new `Span` (not legacy `Selection`).
-  - Uses new `resolvePixelPosition` (T2) and `selectionStart`/`selectionEnd` from `state/block-position.ts`.
+  - Uses new `resolvePixelPosition` (T2) and `spanStart`/`spanEnd` from `state/block-compare`.
   - Replaces `getNodeByPath` / `getTextContentLength` with `getBlock` / `inlineContentLength`.
   - Box-key parsing per the new format (T2's shared helper).
 
@@ -385,7 +396,7 @@ Recommend the first option (extract to `state/block-position.ts`) — keeps geom
 
 - Consumes new `State` and new `Span`.
 - Depends on T2's `resolvePixelPosition`.
-- Adds `selectionStart` / `selectionEnd` to `state/block-position.ts` (small but real API addition).
+- Adds `spanStart` / `spanEnd` to `state/block-compare.ts` (small but real API addition; cross-block-aware compare lives there per layering).
 - Public API barrel UNCHANGED.
 - No `as any`, no `!`, no `as unknown as`.
 
@@ -437,7 +448,7 @@ Read `editor/line-navigation-legacy.ts` (149 lines). Mirror its structure; swap 
 npm test --workspace=packages/core -- "src/cursor/cursor-position.test" "src/cursor/hit-test.test" "src/cursor/selection-geometry.test" "src/cursor/line-navigation.test" 2>&1 | tail -5
 ```
 
-Expected: ≥ 30 tests across the new files. Actual: T2: 8, T3: 8, T4: 10 (8 + 2 from selectionStart/End helpers in block-position), T5: 6 = **32 new tests**.
+Expected: ≥ 30 tests across the new files. Actual: T2: 8, T3: 8, T4: 8 cursor/selection-geometry tests + 2 in `state/block-compare.test.ts` (spanStart/spanEnd helpers added in T4 S1), T5: 6 = **32 new tests** total (10 in T4 across two files).
 
 - [ ] **S2: Confirm spec success criteria**
 
