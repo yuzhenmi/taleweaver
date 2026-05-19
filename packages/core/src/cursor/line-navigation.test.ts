@@ -183,4 +183,49 @@ describe("moveToLineBoundary (new)", () => {
     // End of "hello" — offset 5.
     expect(result.offset).toBe(5);
   });
+
+  it("'end' uses grapheme boundary (not raw UTF-16 unit) at soft-wrap", () => {
+    // Build a paragraph where the inline-item boundary lands right after a
+    // surrogate-pair grapheme. With charWidth=8 and container=8 the wrap
+    // forces item 2 to line 1; resolvePositionFromPixel returns the start of
+    // item 2 (offset 2), whose pixel lives on line 1. The pre-fix code then
+    // backs up by 1 raw UTF-16 unit → offset 1 (the LOW surrogate of "🌟"),
+    // an invalid Position mid-grapheme. The fix must use a grapheme step
+    // and land on offset 0 (the grapheme boundary before "🌟").
+    //
+    // Inline items: [text("🌟"), text("b")]
+    //   UTF-16 offsets:   hi(0) lo(1) | b(2)
+    //   Graphemes:        🌟          | b
+    //
+    // With containerInlineSize=8 (1 ASCII char) the emoji's unbreakable run
+    // overflows on line 0 alone; the next item ("b") wraps to line 1.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("🌟"), text("b")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state, 8);
+    const pos = createPosition("p" as BlockId, 0);
+    const result = moveToLineBoundary(state, pos, layout, shaper, "end");
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("p");
+    // Pre-fix: returned offset 1 (LOW surrogate — INVALID). Post-fix: must
+    // land on a grapheme boundary. For this inline-content the boundaries
+    // are {0, 2, 3}; offset 1 is mid-surrogate.
+    expect(result.offset).not.toBe(1);
+    expect(new Set([0, 2, 3]).has(result.offset)).toBe(true);
+  });
 });

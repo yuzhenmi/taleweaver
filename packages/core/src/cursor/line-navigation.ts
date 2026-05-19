@@ -1,5 +1,6 @@
 import type { State } from "../state/state";
 import { getBlock } from "../state/state";
+import type { BlockId } from "../state/block-id";
 import type { Position } from "../state/block-position";
 import { createPosition } from "../state/block-position";
 import type { LayoutBox } from "../layout/layout-node";
@@ -7,7 +8,8 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { firstLeafBlock, lastLeafBlock } from "../state/block-traversal";
-import { inlineContentLength } from "../state/inline-content";
+import { inlineContentLength, findItemAtOffset } from "../state/inline-content";
+import { prevGraphemeBoundary } from "./grapheme-utils";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import {
@@ -184,12 +186,58 @@ export function moveToLineBoundary(
       resultPixel.lineY !== currentPixel.lineY ||
       resultPixel.pageIndex !== currentPixel.pageIndex
     ) {
-      return createPosition(result.blockId, Math.max(0, result.offset - 1));
+      // Soft-wrap edge: back up by one grapheme cluster (UAX #29), not one
+      // raw UTF-16 code unit. A raw `-1` step can land mid-surrogate-pair
+      // for emojis / astral codepoints, producing an invalid Position. The
+      // grapheme-aware step mirrors `cursor-ops.ts`'s within-block backward
+      // step.
+      return createPosition(
+        result.blockId,
+        stepBackWithinBlock(state, result.blockId, result.offset),
+      );
     }
     return result;
   } finally {
     markEnd("cursor.line-navigation.moveToLineBoundary", t);
   }
+}
+
+/**
+ * Step back by one grapheme cluster within a block's inline content, using
+ * the same logic as `cursor-ops.ts`'s `advanceBackward`. Used by
+ * `moveToLineBoundary` to ensure the soft-wrap back-up never lands inside a
+ * surrogate pair or other multi-code-unit grapheme.
+ *
+ * Defensive fallback: if the block or its inline content is missing (which
+ * shouldn't happen for a position the hit-test successfully produced), step
+ * back by one raw UTF-16 unit (`max(0, offset - 1)`).
+ */
+function stepBackWithinBlock(
+  state: State,
+  blockId: BlockId,
+  offset: number,
+): number {
+  if (offset <= 0) return 0;
+  const block = getBlock(state, blockId);
+  if (block === null || block.inlineContent === null) {
+    return Math.max(0, offset - 1);
+  }
+  const content = block.inlineContent;
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  if (withinItem > 0) {
+    const item = content.items[itemIndex];
+    if (item !== undefined && item.kind === "text") {
+      const prevBoundary = prevGraphemeBoundary(item.text, withinItem);
+      return offset - (withinItem - prevBoundary);
+    }
+    return Math.max(0, offset - 1);
+  }
+  // At an item boundary (start of items[itemIndex]). Step into the previous item.
+  const prev = content.items[itemIndex - 1];
+  if (prev === undefined) return Math.max(0, offset - 1);
+  if (prev.kind !== "text") return offset - 1;
+  const prevBoundary = prevGraphemeBoundary(prev.text, prev.text.length);
+  return offset - (prev.text.length - prevBoundary);
 }
 
 /** Collect unique (pageIndex, Y) pairs for all lines, sorted by page then Y. */
