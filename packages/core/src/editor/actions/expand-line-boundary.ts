@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSelection } from "../../cursor/selection";
-import { moveToLineBoundary } from "../line-navigation-legacy";
+import { createSpan } from "../../state/block-position";
+import { moveToLineBoundary } from "../../cursor/line-navigation";
 
 export function handleExpandLineBoundary(
   editor: EditorState,
@@ -8,18 +8,15 @@ export function handleExpandLineBoundary(
   config: EditorConfig,
 ): EditorState {
   const pos = moveToLineBoundary(
-    editor.stateLegacy,
+    editor.state,
     editor.selection.focus,
     editor.layoutTree,
     config.measurer,
     boundary,
   );
-  if (!pos) return editor;
+  if (pos === null) return editor;
   return {
     ...editor,
-    selection: createSelection(
-      editor.selection.anchor,
-      pos,
-    ),
+    selection: createSpan(editor.selection.anchor, pos),
   };
 }

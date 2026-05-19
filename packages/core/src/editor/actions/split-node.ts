@@ -1,210 +1,69 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { splitNode } from "../../state/transformations-legacy";
-import { createNode, createTextNode } from "../../state/create-node-legacy";
-import { getNodeByPath, updateAtPath } from "../../state/operations-legacy";
-import { getTextContentLength } from "../../state/text-utils-legacy";
-import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant } from "./helpers";
+import { getBlock } from "../../state/state";
+import { productionAllocator } from "../../state/block-id";
+import { createPosition, createSpan } from "../../state/block-position";
+import { spanStart } from "../../state/block-compare";
+import { deleteRange } from "../../state/delete-range";
+import { splitBlockAtPosition } from "../../state/split-block";
+import { rebuildTrees } from "./helpers";
 
 export function handleSplitNode(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, delete selection first
   let current = editor;
-  if (!isCollapsed(editor.selection)) {
-    current = deleteSelectionRange(editor, config);
-  }
+  const { selection } = editor;
+  const collapsed =
+    selection.anchor.blockId === selection.focus.blockId &&
+    selection.anchor.offset === selection.focus.offset;
 
-  const pos = current.selection.focus;
-  const paraIdx = pos.path[0];
-  const block = current.stateLegacy.children[paraIdx];
-
-  // Special handling: enter on list item
-  if (block.type === "list" && pos.path.length >= 3) {
-    return handleSplitListItem(current, editor, config);
-  }
-
-  // Special handling: enter inside table cell
-  if (block.type === "table" && pos.path.length >= 5) {
-    return handleSplitTableCell(current, editor, config);
-  }
-
-  const nodeId = `node-${current.nextId}`;
-  const change = splitNode(current.stateLegacy, pos, nodeId, 0);
-
-  // Special handling: enter on heading → new paragraph (convert the new block)
-  let newState = change.newState;
-  if (block.type === "heading") {
-    const newBlock = newState.children[paraIdx + 1];
-    const converted = createNode(
-      newBlock.id,
-      "paragraph",
-      {},
-      newBlock.children,
-    );
-    newState = updateAtPath(newState, [paraIdx + 1], converted);
-  }
-
-  // Find the first text node in the new block for cursor placement
-  const newBlock = newState.children[paraIdx + 1];
-  const firstText = findFirstTextDescendant(newBlock, [paraIdx + 1]);
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([paraIdx + 1, 0], 0);
-
-  return rebuildTrees(
-    {
-      ...current,
-      stateLegacy: newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(current.historyLegacy, {
-        change: { oldState: current.stateLegacy, newState, timestamp: 0 },
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
-    config,
-  );
-}
-
-function handleSplitListItem(
-  current: EditorState,
-  originalEditor: EditorState,
-  config: EditorConfig,
-): EditorState {
-  const pos = current.selection.focus;
-  const listIdx = pos.path[0];
-  const itemIdx = pos.path[1];
-  const list = current.stateLegacy.children[listIdx];
-  const item = list.children[itemIdx];
-
-  // Check if current list item is empty (enter on empty → exit list)
-  const textNode = getNodeByPath(current.stateLegacy, pos.path);
-  if (textNode && getTextContentLength(textNode) === 0 && item.children.length === 1) {
-    // Remove the empty item from the list
-    const newListChildren = [...list.children];
-    newListChildren.splice(itemIdx, 1);
-
-    // Create a new paragraph after the list
-    const newPara = createNode(
-      `node-${current.nextId}-para`,
-      "paragraph",
-      {},
-      [createTextNode(`node-${current.nextId}-text`, "")],
-    );
-
-    const docChildren = [...current.stateLegacy.children];
-
-    if (newListChildren.length === 0) {
-      // Empty list — replace with paragraph
-      docChildren[listIdx] = newPara;
-    } else {
-      // Update list and insert paragraph after
-      const newList = createNode(list.id, list.type, { ...list.properties }, newListChildren);
-      docChildren[listIdx] = newList;
-      docChildren.splice(listIdx + 1, 0, newPara);
+  if (!collapsed) {
+    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
+    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    if (anchorBlock === null || focusBlock === null) return editor;
+    if (
+      selection.anchor.blockId !== selection.focus.blockId &&
+      anchorBlock.parentId !== focusBlock.parentId
+    ) {
+      return editor;
     }
-
-    const newDoc = createNode(
-      current.stateLegacy.id,
-      current.stateLegacy.type,
-      { ...current.stateLegacy.properties },
-      docChildren,
-    );
-
-    const newParaIdx = newListChildren.length === 0 ? listIdx : listIdx + 1;
-    const newSelection = createCursor([newParaIdx, 0], 0);
-
-    return rebuildTrees(
-      {
-        ...current,
-        stateLegacy: newDoc,
-        selection: newSelection,
-        historyLegacy: pushEditorChange(current.historyLegacy, {
-          change: { oldState: current.stateLegacy, newState: newDoc, timestamp: 0 },
-          selectionBefore: originalEditor.selection,
-          selectionAfter: newSelection,
-        }),
-        nextId: current.nextId + 1,
-      },
-      current,
-      config,
-    );
+    const start = spanStart(editor.state, selection);
+    const deleteResult = deleteRange(editor.state, selection);
+    const collapsedCursor = createPosition(start.blockId, start.offset);
+    current = {
+      ...editor,
+      state: deleteResult.state,
+      selection: createSpan(collapsedCursor, collapsedCursor),
+    };
   }
 
-  // Normal split: create a new list item
-  const nodeId = `node-${current.nextId}`;
-
-  // Split within the list item (splitDepth = 1 to split the list-item within the list)
-  const change = splitNode(current.stateLegacy, pos, nodeId, 1);
-
-  // Find first text descendant in the new list item for cursor placement
-  const newItem = change.newState.children[listIdx]?.children[itemIdx + 1];
-  const firstText = newItem ? findFirstTextDescendant(newItem, [listIdx, itemIdx + 1]) : null;
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([listIdx, itemIdx + 1, 0], 0);
-
-  return rebuildTrees(
-    {
-      ...current,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(current.historyLegacy, {
-        change,
-        selectionBefore: originalEditor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
-    config,
-  );
-}
-
-function handleSplitTableCell(
-  current: EditorState,
-  originalEditor: EditorState,
-  config: EditorConfig,
-): EditorState {
   const pos = current.selection.focus;
-  const tableIdx = pos.path[0];
-  const rowIdx = pos.path[1];
-  const cellIdx = pos.path[2];
-  const paraIdx = pos.path[3];
+  const block = getBlock(current.state, pos.blockId);
+  if (block === null) return editor;
 
-  const nodeId = `node-${current.nextId}`;
+  // Split is only meaningful on leaf blocks under a non-null parent.
+  if (block.inlineContent === null || block.parentId === null) {
+    return current === editor ? editor : current;
+  }
 
-  // Split within the cell: splitDepth = 3 splits the paragraph within the cell
-  const change = splitNode(current.stateLegacy, pos, nodeId, 3);
+  const splitResult = splitBlockAtPosition(
+    current.state,
+    pos,
+    productionAllocator,
+  );
 
-  // Cursor → first text in the new paragraph within the same cell
-  const newCell = change.newState.children[tableIdx]?.children[rowIdx]?.children[cellIdx];
-  const newPara = newCell?.children[paraIdx + 1];
-  const firstText = newPara
-    ? findFirstTextDescendant(newPara, [tableIdx, rowIdx, cellIdx, paraIdx + 1])
-    : null;
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([tableIdx, rowIdx, cellIdx, paraIdx + 1, 0], 0);
+  const updatedOriginal = getBlock(splitResult.state, pos.blockId);
+  if (updatedOriginal === null) return editor;
+  const newBlockId = updatedOriginal.nextSiblingId;
+  if (newBlockId === null) return editor;
+  const newCursor = createPosition(newBlockId, 0);
+  const newSelection = createSpan(newCursor, newCursor);
 
+  editor.history.setState(splitResult.state);
+  editor.history.push({ selection: newSelection });
   return rebuildTrees(
-    {
-      ...current,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(current.historyLegacy, {
-        change,
-        selectionBefore: originalEditor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
+    { ...current, state: splitResult.state, selection: newSelection },
+    editor,
     config,
   );
 }

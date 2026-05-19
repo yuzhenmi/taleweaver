@@ -1,28 +1,16 @@
-import type { EditorState, EditorConfig, EditorHistory } from "../editor-state";
+import type { EditorState, EditorConfig } from "../editor-state";
+import type { Selection } from "../../state/block-position";
 import { rebuildTrees } from "./helpers";
 
 export function handleUndo(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  const { undoStack } = editor.historyLegacy;
-  if (undoStack.length === 0) return editor;
-
-  const entry = undoStack[undoStack.length - 1];
-  const newHistory: EditorHistory = {
-    undoStack: undoStack.slice(0, -1),
-    redoStack: [...editor.historyLegacy.redoStack, entry],
-    lastEditTimestamp: 0,
-    lastEditTag: "",
-  };
-
+  const result = editor.history.undo();
+  if (result === null) return editor;
+  const selection = (result.selection as Selection | null) ?? editor.selection;
   return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: entry.change.oldState,
-      selection: entry.selectionBefore,
-      historyLegacy: newHistory,
-    },
+    { ...editor, state: result.state, selection },
     editor,
     config,
   );

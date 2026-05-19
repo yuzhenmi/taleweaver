@@ -1,14 +1,18 @@
 import type { EditorState } from "../editor-state";
-import { createSelection } from "../../cursor/selection";
-import { moveByWord } from "../../cursor/cursor-ops-legacy";
+import { createSpan } from "../../state/block-position";
+import { moveByWord } from "../../cursor/cursor-ops";
 
 export function handleExpandWord(
   editor: EditorState,
   direction: "forward" | "backward",
 ): EditorState {
-  const moved = moveByWord(editor.stateLegacy, editor.selection.focus, direction);
+  const newFocus = moveByWord(
+    editor.state,
+    editor.selection.focus,
+    direction,
+  );
   return {
     ...editor,
-    selection: createSelection(editor.selection.anchor, moved.focus),
+    selection: createSpan(editor.selection.anchor, newFocus),
   };
 }

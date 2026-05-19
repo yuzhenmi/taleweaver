@@ -1,4 +1,10 @@
 // @taleweaver/core — word processor engine
+//
+// Public API surface after the P11-cutover. The pre-Yjs legacy modules
+// (StateNode, path-based positions, renderTree-legacy, etc.) have been
+// fully retired; everything below is the new Y.Doc-backed pipeline.
+// Downstream consumers (packages/dom, packages/react, examples/*) are
+// updated in T2/T3 to import from this surface only.
 
 // Styles
 export type {
@@ -11,42 +17,97 @@ export type {
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
-// State tree (canonical, Y.Doc-backed surface)
-export type { NewNode } from "./state/node";
-export type { Position, Span } from "./state/position";
+// State (Y.Doc-backed)
+export type { State, OperationResult } from "./state/state";
+export {
+  createState,
+  applyOperation,
+  freshState,
+  getBlock,
+  getEmbedContent,
+  getBlockFromEither,
+} from "./state/state";
+export { createEmptyDocument } from "./state/initial-state";
+export type { Block } from "./state/block";
+export type { BlockId, IdAllocator } from "./state/block-id";
+export {
+  productionAllocator,
+  createTestAllocator,
+} from "./state/block-id";
+export type {
+  InlineContent,
+  InlineItem,
+  TextItem,
+  EmbedItem,
+} from "./state/inline-content";
+export {
+  inlineContentLength,
+  findItemAtOffset,
+  mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
+} from "./state/inline-content";
+export type { ReadonlyAttrs } from "./state/attrs";
+export {
+  deepValueEqual,
+  attrsEqual,
+  mergeAttrs,
+} from "./state/attrs";
+export type {
+  Position,
+  Span,
+  Selection,
+} from "./state/block-position";
 export {
   createPosition,
   createSpan,
-  comparePositions,
-  normalizeSpan,
-} from "./state/position";
-// Y.UndoManager-backed history (per Decision C). Replaces the legacy
-// snapshot-based history at the P11.4 cutover.
-export { History, createHistory, type PushHistoryArgs, type UndoRedoResult } from "./state/history";
+  positionsEqual,
+  comparePositionsWithinBlock,
+} from "./state/block-position";
 export {
-  applyInlineStyle,
-  getStyleInRange,
-  remapPosition,
-} from "./state/formatting";
+  compareBlocksInDocOrder,
+  comparePositions,
+  spanStart,
+  spanEnd,
+  selectionContextOf,
+} from "./state/block-compare";
+export {
+  nextBlockInDocOrder,
+  prevBlockInDocOrder,
+  ancestorChain,
+  firstLeafBlock,
+  lastLeafBlock,
+} from "./state/block-traversal";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state/span-iteration";
 
-// Y.Doc-backed state module (P4e). The legacy StateNode/createEmptyDocument
-// path below stays canonical through the P11.4 cutover per Decision D.
-//
-// The remaining new surface (State / createState / getBlock /
-// getEmbedContent / applyOperation / freshState / Layer 3 ops / canonical
-// createEmptyDocument / Block / InlineContent / TextItem / EmbedItem) is
-// NOT yet re-exported here; P5+ phases inside packages/core deep-import
-// these directly from "./state/state", "./state/initial-state",
-// "./state/operations", "./state/block", and "./state/inline-content"
-// (factory functions have been removed; tests use buildBlock/text/embed/
-// inlineContent from "./test-utils/state-builders").
-//
-// The export-surface flip from legacy to new happens at the P11.4 cutover.
+// Layer 3 ops
+export { insertText } from "./state/insert-text";
+export { deleteRange } from "./state/delete-range";
+export { replaceRange } from "./state/replace-range";
+export { splitBlockAtPosition } from "./state/split-block";
+export { insertBlock } from "./state/insert-block";
+export type { InsertBlockArgs } from "./state/insert-block";
+export { removeBlock } from "./state/remove-block";
+export { mergeAdjacentBlocks } from "./state/merge-blocks";
+export { setBlockType } from "./state/set-block-type";
+export { setBlockAttrs } from "./state/set-block-attrs";
+export { applyAttrsToRange } from "./state/apply-attrs";
+export { clonePastedSubtree } from "./state/clone-pasted-subtree";
+export type { ClonedSubtree } from "./state/clone-pasted-subtree";
+
+// History (Y.UndoManager-backed)
+export {
+  History,
+  createHistory,
+  type PushHistoryArgs,
+  type UndoRedoResult,
+} from "./state/history";
 
 // Cascade
 export { cascadePass, composeComputed, resolveLength } from "./cascade";
+export { AttrRegistry, createDefaultAttrRegistry } from "./cascade/attr-registry";
+export type { AttrInterpreter, CascadeContext } from "./cascade/attr-registry";
 
-// Render tree
+// Render tree (new pipeline)
 export type {
   RenderNode,
   ElementBox,
@@ -56,9 +117,10 @@ export {
   createElementBox,
   createTextBox,
 } from "./render/render-node";
-export { renderTree, renderTreeIncremental } from "./render/render-legacy";
+export { render } from "./render/render";
+export type { RenderOutput } from "./render/render";
 
-// Layout tree
+// Layout
 export type {
   LayoutBox,
   BlockBox,
@@ -81,21 +143,23 @@ export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export type { IFCState, IFCStateCache } from "./layout/ifc-state";
 export { createIFCStateCache } from "./layout/ifc-state";
-export { layoutTree } from "./layout/layout-engine";
+export { layoutTree } from "./layout/dispatch";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
 export type { PageBox } from "./layout/page-box";
 export { createPageBox } from "./layout/page-box";
 export type { PageConfig, PageMargins } from "./layout/page-config";
 
-// Components
-export type { ComponentRenderFn, ComponentDefinition } from "./components";
+// Components (new pipeline)
+export type {
+  ComponentDefinition,
+  ComponentRegistry,
+} from "./components";
 export {
-  defaultComponents,
+  createComponentRegistry,
+  createDefaultComponentRegistry,
   documentComponent,
   paragraphComponent,
-  textComponent,
-  spanComponent,
   headingComponent,
   listComponent,
   listItemComponent,
@@ -104,113 +168,48 @@ export {
   tableComponent,
   tableRowComponent,
   tableCellComponent,
-  ComponentRegistry,
-  createRegistry,
 } from "./components";
-export {
-  createParagraph,
-  createHeading,
-  createText,
-  createList,
-  createListItem,
-  createTable,
-  createImage,
-  createHorizontalLine,
-} from "./components/factories-legacy";
 
 // Cursor
-export type { Selection } from "./cursor/selection";
-export {
-  createSelection,
-  createCursor,
-  isCollapsed,
-  selectionStart,
-  selectionEnd,
-} from "./cursor/selection";
 export {
   moveByCharacter,
   moveByWord,
   expandSelection,
   selectWord,
-} from "./cursor/cursor-ops-legacy";
+} from "./cursor/cursor-ops";
+export { resolvePositionFromPixel } from "./cursor/hit-test";
+export type { PixelPosition } from "./cursor/cursor-position";
+export { resolvePixelPosition } from "./cursor/cursor-position";
+export type { SelectionRect } from "./cursor/selection-geometry";
+export { computeSelectionRects } from "./cursor/selection-geometry";
+export { moveToLine, moveToLineBoundary } from "./cursor/line-navigation";
 
-// Editor (platform-agnostic editor modules)
+// Editor
 export type { EditorAction } from "./editor/editor-action";
 export type { AbsoluteTextBox } from "./editor/layout-utils";
 export { collectAllTextBoxes } from "./editor/layout-utils";
-export type { PixelPosition } from "./editor/cursor-position-legacy";
-export { resolvePixelPosition } from "./editor/cursor-position-legacy";
-export { resolvePositionFromPixel } from "./editor/hit-test-legacy";
-export type { SelectionRect } from "./editor/selection-geometry-legacy";
-export { computeSelectionRects } from "./editor/selection-geometry-legacy";
-export { moveToLine, moveToLineBoundary } from "./editor/line-navigation-legacy";
 export type {
   EditorState,
   EditorConfig,
-  EditorHistory,
-  EditorHistoryEntry,
 } from "./editor/editor-state";
 export {
   createInitialEditorState,
   reduceEditor,
-  findFirstTextDescendant,
-  findLastTextDescendant,
+  findFirstContentBlock,
+  findLastContentBlock,
 } from "./editor/editor-state";
+
+// NewNode helper (still used by INSERT_NODE action payload).
+export type { NewNode } from "./state/node";
 
 // Performance tracing
 export type { PerfReport } from "./perf/perf-trace";
 export {
-  setPerfTraceEnabled, isPerfTraceEnabled,
-  markStart, markEnd, recordSample, report, resetPerfTrace,
+  setPerfTraceEnabled,
+  isPerfTraceEnabled,
+  markStart,
+  markEnd,
+  recordSample,
+  report,
+  resetPerfTrace,
 } from "./perf/perf-trace";
-
-// =============================================================================
-// === LEGACY (pre-P11.4 cutover) ===
-//
-// The exports below are part of the pre-Yjs StateNode model. They remain
-// in the public API surface until P11.4 retires the path-based editor
-// action layer. New code should not import them.
-// =============================================================================
-
-/** @deprecated Removed at P11.4 cutover. */
-export type { StateNode } from "./state/state-node-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { createNode, createTextNode } from "./state/create-node-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export {
-  updateProperties,
-  insertChild,
-  removeChild,
-  getNodeByPath,
-  updateAtPath,
-} from "./state/operations-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export type { Change } from "./state/change-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { createChange } from "./state/change-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export {
-  insertText,
-  deleteRange,
-  replaceRange,
-  splitNode,
-} from "./state/transformations-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { findDirtyPaths, isDirty } from "./state/dirty-legacy";
-/** @deprecated Removed at P11.4 cutover. Use Y.UndoManager-backed History from "./state/history". */
-export type { History as HistoryLegacy } from "./state/history-legacy";
-/** @deprecated Removed at P11.4 cutover. Use Y.UndoManager-backed History from "./state/history". */
-export {
-  createHistory as createHistoryLegacy,
-  pushChange,
-  undo as undoLegacy,
-  redo as redoLegacy,
-} from "./state/history-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { createEmptyDocument } from "./state/initial-state-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { getTextContent, getTextContentLength, clampOffset } from "./state/text-utils-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { findPathById } from "./state/find-path-legacy";
-/** @deprecated Removed at P11.4 cutover. */
-export { extractText } from "./state/extract-text-legacy";

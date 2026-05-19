@@ -1,4 +1,4 @@
-export { findFirstTextDescendant, findLastTextDescendant } from "./helpers";
+export { findFirstContentBlock, findLastContentBlock } from "./helpers";
 export { handleInsertText } from "./insert-text";
 export { handleDeleteBackward } from "./delete-backward";
 export { handleDeleteForward } from "./delete-forward";

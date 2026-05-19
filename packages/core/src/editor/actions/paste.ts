@@ -1,99 +1,84 @@
-import type { EditorState, EditorConfig, EditorHistoryEntry } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, type Position } from "../../state/position";
-import { insertText, splitNode } from "../../state/transformations-legacy";
-import { createNode } from "../../state/create-node-legacy";
-import { updateAtPath } from "../../state/operations-legacy";
-import { deleteSelectionRange, rebuildTrees, findFirstTextDescendant } from "./helpers";
+import type { EditorState, EditorConfig } from "../editor-state";
+import type { State } from "../../state/state";
+import { getBlock } from "../../state/state";
+import { productionAllocator } from "../../state/block-id";
+import { createPosition, createSpan, type Position } from "../../state/block-position";
+import { spanStart } from "../../state/block-compare";
+import { deleteRange } from "../../state/delete-range";
+import { insertText } from "../../state/insert-text";
+import { splitBlockAtPosition } from "../../state/split-block";
+import { rebuildTrees } from "./helpers";
 
 export function handlePaste(
   editor: EditorState,
-  text: string,
+  rawText: string,
   config: EditorConfig,
 ): EditorState {
-  if (text.length === 0) return editor;
+  if (rawText.length === 0) return editor;
 
-  // Normalize line endings: strip \r so \r\n becomes \n
-  text = text.replace(/\r/g, "");
+  // Normalize line endings: strip \r so \r\n becomes \n.
+  const text = rawText.replace(/\r/g, "");
 
-  // If selection expanded, delete it first
-  let current = editor;
-  if (!isCollapsed(editor.selection)) {
-    current = deleteSelectionRange(editor, config);
+  // Collapse selection (delete the existing range first).
+  let state: State = editor.state;
+  let pos: Position = editor.selection.focus;
+  const { selection } = editor;
+  const collapsed =
+    selection.anchor.blockId === selection.focus.blockId &&
+    selection.anchor.offset === selection.focus.offset;
+
+  if (!collapsed) {
+    const anchorBlock = getBlock(state, selection.anchor.blockId);
+    const focusBlock = getBlock(state, selection.focus.blockId);
+    if (anchorBlock === null || focusBlock === null) return editor;
+    if (
+      selection.anchor.blockId !== selection.focus.blockId &&
+      anchorBlock.parentId !== focusBlock.parentId
+    ) {
+      return editor;
+    }
+    const start = spanStart(state, selection);
+    const deleteResult = deleteRange(state, selection);
+    state = deleteResult.state;
+    pos = createPosition(start.blockId, start.offset);
   }
-
-  // Save the original state for a single undo entry (before any deletion)
-  const stateBeforePaste = editor.stateLegacy;
-  const selectionBeforePaste = editor.selection;
 
   const lines = text.split("\n");
-  let state = current.stateLegacy;
-  let pos: Position = current.selection.focus;
-  let nextId = current.nextId;
 
-  // Insert first line as text
+  // Insert first line as text at the current position.
   if (lines[0].length > 0) {
-    const change = insertText(state, pos, lines[0]);
-    state = change.newState;
-    pos = createPosition(pos.path, pos.offset + lines[0].length);
+    const r = insertText(state, pos, lines[0], {});
+    state = r.state;
+    pos = createPosition(pos.blockId, pos.offset + lines[0].length);
   }
 
-  // For subsequent lines, split then insert
+  // Subsequent lines: split block, then insert text into the new block.
   for (let i = 1; i < lines.length; i++) {
-    const nodeId = `node-${nextId}`;
-    const change = splitNode(state, pos, nodeId);
-    state = change.newState;
-    nextId++;
-
-    // After split, find the new block and place cursor there
-    const paraIdx = pos.path[0];
-    const newBlockIdx = paraIdx + 1;
-
-    // Convert heading blocks to paragraphs (Enter on heading creates paragraph)
-    const newBlock = state.children[newBlockIdx];
-    if (newBlock.type === "heading") {
-      const converted = createNode(
-        newBlock.id,
-        "paragraph",
-        {},
-        newBlock.children,
-      );
-      state = updateAtPath(state, [newBlockIdx], converted);
+    const block = getBlock(state, pos.blockId);
+    if (block === null || block.inlineContent === null || block.parentId === null) {
+      break;
     }
-
-    // Cursor at first text descendant of the new block
-    const block = state.children[newBlockIdx];
-    const firstText = findFirstTextDescendant(block, [newBlockIdx]);
-    pos = firstText
-      ? createPosition(firstText.path, 0)
-      : createPosition([newBlockIdx, 0], 0);
+    const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
+    state = splitResult.state;
+    const updatedOriginal = getBlock(state, pos.blockId);
+    if (updatedOriginal === null) break;
+    const newBlockId = updatedOriginal.nextSiblingId;
+    if (newBlockId === null) break;
+    pos = createPosition(newBlockId, 0);
 
     if (lines[i].length > 0) {
-      const insertChange = insertText(state, pos, lines[i]);
-      state = insertChange.newState;
-      pos = createPosition(pos.path, pos.offset + lines[i].length);
+      const r = insertText(state, pos, lines[i], {});
+      state = r.state;
+      pos = createPosition(pos.blockId, pos.offset + lines[i].length);
     }
   }
 
-  const newSelection = createCursor(pos.path, pos.offset);
-
-  const pasteEntry: EditorHistoryEntry = {
-    change: { oldState: stateBeforePaste, newState: state, timestamp: 0 },
-    selectionBefore: selectionBeforePaste,
-    selectionAfter: newSelection,
-  };
-
-  // Rebuild render + layout trees only once for the entire paste
+  const newSelection = createSpan(pos, pos);
+  editor.history.setState(state);
+  editor.history.push({ selection: newSelection });
   return rebuildTrees(
-    {
-      ...current,
-      stateLegacy: state,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(editor.historyLegacy, pasteEntry),
-      nextId,
-    },
-    current,
+    { ...editor, state, selection: newSelection },
+    editor,
     config,
   );
 }

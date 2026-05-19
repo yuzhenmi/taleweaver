@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSelection } from "../../cursor/selection";
-import { moveToLine } from "../line-navigation-legacy";
+import { createSpan } from "../../state/block-position";
+import { moveToLine } from "../../cursor/line-navigation";
 
 export function handleExpandLine(
   editor: EditorState,
@@ -8,20 +8,17 @@ export function handleExpandLine(
   config: EditorConfig,
 ): EditorState {
   const result = moveToLine(
-    editor.stateLegacy,
+    editor.state,
     editor.selection.focus,
     editor.layoutTree,
     config.measurer,
     direction,
     editor.targetX,
   );
-  if (!result) return editor;
+  if (result === null) return editor;
   return {
     ...editor,
-    selection: createSelection(
-      editor.selection.anchor,
-      result.position,
-    ),
+    selection: createSpan(editor.selection.anchor, result.position),
     targetX: result.targetX,
   };
 }

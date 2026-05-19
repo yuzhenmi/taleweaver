@@ -1,134 +1,104 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations-legacy";
-import { moveByCharacter } from "../../cursor/cursor-ops-legacy";
-import { getNodeByPath } from "../../state/operations-legacy";
-import { getTextContentLength } from "../../state/text-utils-legacy";
-import { createNode } from "../../state/create-node-legacy";
-import { isStructuralParagraph } from "../../state/normalize-legacy";
-import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant, isAtCellBoundary } from "./helpers";
+import { getBlock } from "../../state/state";
+import { createPosition, createSpan } from "../../state/block-position";
+import { spanStart } from "../../state/block-compare";
+import { deleteRange } from "../../state/delete-range";
+import { mergeAdjacentBlocks } from "../../state/merge-blocks";
+import { moveByCharacter } from "../../cursor/cursor-ops";
+import { inlineContentLength } from "../../state/inline-content";
+import { rebuildTrees } from "./helpers";
 
 export function handleDeleteBackward(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, delete the range
-  if (!isCollapsed(editor.selection)) {
-    return deleteSelectionRange(editor, config);
-  }
+  const { selection } = editor;
+  const collapsed =
+    selection.anchor.blockId === selection.focus.blockId &&
+    selection.anchor.offset === selection.focus.offset;
 
-  const pos = editor.selection.focus;
-
-  // At very start of document — nothing to delete
-  if (pos.path.every((v) => v === 0) && pos.offset === 0) {
-    return editor;
-  }
-
-  // At start of a table cell — prevent cross-cell merge
-  if (isAtCellBoundary(editor.stateLegacy, pos, "start")) {
-    return editor;
-  }
-
-  // At offset 0 of a structural paragraph — no-op to preserve cursor landing spot
-  if (pos.offset === 0 && pos.path.length === 2 && isStructuralParagraph(editor.stateLegacy, pos.path[0])) {
-    return editor;
-  }
-
-  // At start of a block (offset 0), check if previous sibling is a void block
-  if (pos.offset === 0 && pos.path[0] > 0) {
-    const prevIdx = pos.path[0] - 1;
-    const prevBlock = editor.stateLegacy.children[prevIdx];
-    if (prevBlock && prevBlock.children.length === 0) {
-      // Remove the void block
-      const docChildren = [...editor.stateLegacy.children];
-      docChildren.splice(prevIdx, 1);
-      const newDoc = createNode(
-        editor.stateLegacy.id,
-        editor.stateLegacy.type,
-        { ...editor.stateLegacy.properties },
-        docChildren,
-      );
-
-      // Adjust cursor path: the current block moved up by 1
-      const newBlockIdx = pos.path[0] - 1;
-      const currentBlock = newDoc.children[newBlockIdx];
-      const firstText = currentBlock ? findFirstTextDescendant(currentBlock, [newBlockIdx]) : null;
-      const newSelection = firstText
-        ? createCursor(firstText.path, 0)
-        : createCursor([newBlockIdx, 0], 0);
-
-      return rebuildTrees(
-        {
-          ...editor,
-          stateLegacy: newDoc,
-          selection: newSelection,
-          historyLegacy: pushEditorChange(editor.historyLegacy, {
-            change: { oldState: editor.stateLegacy, newState: newDoc, timestamp: 0 },
-            selectionBefore: editor.selection,
-            selectionAfter: newSelection,
-          }),
-        },
-        editor,
-        config,
-      );
+  // Non-collapsed: delete range. Cursor goes to spanStart.
+  if (!collapsed) {
+    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
+    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    if (anchorBlock === null || focusBlock === null) return editor;
+    // deleteRange throws on cross-parent — skip with no-op if so.
+    if (
+      selection.anchor.blockId !== selection.focus.blockId &&
+      anchorBlock.parentId !== focusBlock.parentId
+    ) {
+      return editor;
     }
-  }
-
-  if (pos.offset > 0) {
-    // Delete within the same text node
-    const prevSel = moveByCharacter(editor.stateLegacy, pos, "backward");
-    const deleteSpan = createSpan(prevSel.focus, pos);
-    const change = deleteRange(editor.stateLegacy, deleteSpan);
-    const newSelection = createCursor(prevSel.focus.path, prevSel.focus.offset);
-
+    const start = spanStart(editor.state, selection);
+    const result = deleteRange(editor.state, selection);
+    const newCursor = createPosition(start.blockId, start.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.setState(result.state);
+    editor.history.push({ selection: newSelection });
     return rebuildTrees(
-      {
-        ...editor,
-        stateLegacy: change.newState,
-        selection: newSelection,
-        historyLegacy: pushEditorChange(editor.historyLegacy, {
-          change,
-          selectionBefore: editor.selection,
-          selectionAfter: newSelection,
-        }, "delete"),
-      },
+      { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
     );
   }
 
-  // At start of a text node with offset 0 — merge with previous block
-  // Use moveByCharacter to find previous position, which handles all nesting
-  const prevSel = moveByCharacter(editor.stateLegacy, pos, "backward");
-  const prevPos = prevSel.focus;
+  const pos = selection.focus;
 
-  // If we didn't move (already at document start), nothing to delete
-  if (positionsEqual(prevPos, pos)) {
+  // Mid-block: delete one grapheme cluster going backward.
+  if (pos.offset > 0) {
+    const prev = moveByCharacter(editor.state, pos, "backward");
+    if (prev.blockId !== pos.blockId) return editor;
+    if (prev.offset === pos.offset) return editor;
+    const span = createSpan(prev, pos);
+    const result = deleteRange(editor.state, span);
+    const newCursor = createPosition(prev.blockId, prev.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.setState(result.state);
+    editor.history.push({ selection: newSelection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+    );
+  }
+
+  // pos.offset === 0: cross-block backspace.
+  const currentBlock = getBlock(editor.state, pos.blockId);
+  if (currentBlock === null) return editor;
+  const prevPos = moveByCharacter(editor.state, pos, "backward");
+  if (prevPos.blockId === pos.blockId) {
+    // moveByCharacter returned same position (at start of doc, or no
+    // prev content block) — no-op.
+    return editor;
+  }
+  const prevBlock = getBlock(editor.state, prevPos.blockId);
+  if (prevBlock === null) return editor;
+
+  // Only merge if same parent + adjacent siblings.
+  if (
+    prevBlock.parentId !== currentBlock.parentId ||
+    prevBlock.nextSiblingId !== currentBlock.id ||
+    currentBlock.prevSiblingId !== prevBlock.id
+  ) {
     return editor;
   }
 
-  // Find the end of the previous text node (one char forward from where moveByCharacter landed)
-  const prevTextNode = getNodeByPath(editor.stateLegacy, prevPos.path);
-  if (!prevTextNode) return editor;
-  const prevTextEnd = createPosition(prevPos.path, getTextContentLength(prevTextNode));
+  const prevEndOffset =
+    prevBlock.inlineContent === null
+      ? 0
+      : inlineContentLength(prevBlock.inlineContent);
 
-  const deleteSpan = createSpan(prevTextEnd, pos);
-  const change = deleteRange(editor.stateLegacy, deleteSpan);
-  const newSelection = createCursor(prevTextEnd.path, prevTextEnd.offset);
-
+  const result = mergeAdjacentBlocks(
+    editor.state,
+    prevBlock.id,
+    currentBlock.id,
+  );
+  const newCursor = createPosition(prevBlock.id, prevEndOffset);
+  const newSelection = createSpan(newCursor, newCursor);
+  editor.history.setState(result.state);
+  editor.history.push({ selection: newSelection });
   return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(editor.historyLegacy, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
   );

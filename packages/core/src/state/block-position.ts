@@ -29,6 +29,14 @@ export function createSpan(anchor: Position, focus: Position): Span {
   return Object.freeze({ anchor, focus });
 }
 
+/**
+ * `Selection` is a type alias for `Span` (anchor + focus, each a `Position`).
+ * Kept as an alias so consumer code that historically imported `Selection`
+ * from `cursor/selection` continues to compile. New code can use `Span`
+ * directly.
+ */
+export type Selection = Span;
+
 /** True iff a and b have the same blockId and offset. */
 export function positionsEqual(a: Position, b: Position): boolean {
   return a.blockId === b.blockId && a.offset === b.offset;

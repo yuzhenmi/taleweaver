@@ -3,13 +3,14 @@
  * Provides the default component registry, a mock text measurer,
  * and type-narrowing helpers for render/layout nodes.
  */
-import { defaultComponents } from "../components";
-import { createRegistry } from "../components/component-registry-legacy";
+import { createDefaultComponentRegistry } from "../components/component-registry";
+import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, TextRunBox } from "../layout/layout-node";
 
-export const registry = createRegistry(defaultComponents);
+export const registry = createDefaultComponentRegistry();
+export const attrRegistry = createDefaultAttrRegistry();
 export const measurer = createMockShaper(8, 16); // 8px per char, 16px line height
 
 /** Narrow a RenderNode to text type, throwing if it isn't one. */

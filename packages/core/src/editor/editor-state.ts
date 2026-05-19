@@ -1,24 +1,20 @@
-import type { StateNode } from "../state/state-node-legacy";
-import type { Selection } from "../cursor/selection";
-import type { Change } from "../state/change-legacy";
+import { createEmptyDocument } from "../state/initial-state";
+import { History, createHistory } from "../state/history";
+import { type State, getBlock } from "../state/state";
+import {
+  createPosition,
+  createSpan,
+  type Selection,
+} from "../state/block-position";
+import { render } from "../render/render";
+import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
 import type { PageConfig } from "../layout/page-config";
-import type { State } from "../state/state";
-import {
-  createEmptyDocument,
-} from "../state/initial-state-legacy";
-import { createEmptyDocument as createEmptyState } from "../state/initial-state";
-import { History, createHistory } from "../state/history";
-import {
-  createCursor,
-} from "../cursor/selection";
-import { renderTree } from "../render/render-legacy";
-import { cascadePass } from "../cascade";
-import { layoutTree } from "../layout/layout-engine";
-import { ComponentRegistry } from "../components";
+import type { ComponentRegistry } from "../components/component-registry";
+import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
 import {
   handleInsertText,
@@ -48,140 +44,60 @@ import {
   handlePaste,
   handleInsertNode,
 } from "./actions";
-import { rebuildStateFromLegacy } from "./rebuild-state-from-legacy";
 
-// Re-export helpers that are part of the public API
-export { findFirstTextDescendant, findLastTextDescendant } from "./actions";
-
-// --- EditorHistory (selection-aware wrapper around core changes) ---
-
-const MAX_HISTORY_DEPTH = 500;
-const MERGE_THRESHOLD_MS = 500;
-
-export interface EditorHistoryEntry {
-  change: Change;
-  selectionBefore: Selection;
-  selectionAfter: Selection;
-}
-
-export interface EditorHistory {
-  undoStack: readonly EditorHistoryEntry[];
-  redoStack: readonly EditorHistoryEntry[];
-  /** Timestamp of last mergeable edit (0 = none / chain broken). */
-  lastEditTimestamp: number;
-  /** Tag identifying the kind of mergeable edit (e.g. "insert", "delete"). */
-  lastEditTag: string;
-}
-
-function createEditorHistory(): EditorHistory {
-  return { undoStack: [], redoStack: [], lastEditTimestamp: 0, lastEditTag: "" };
-}
-
-/**
- * Push a history entry. When `mergeTag` is provided (non-empty), the entry
- * is merged with the previous one if the timestamps are within the threshold
- * and the tag matches. This groups rapid keystrokes into a single undo step.
- */
-export function pushEditorChange(
-  history: EditorHistory,
-  entry: EditorHistoryEntry,
-  mergeTag = "",
-): EditorHistory {
-  const now = entry.change.timestamp;
-
-  const shouldMerge =
-    mergeTag !== "" &&
-    mergeTag === history.lastEditTag &&
-    history.lastEditTimestamp > 0 &&
-    now - history.lastEditTimestamp <= MERGE_THRESHOLD_MS &&
-    history.undoStack.length > 0;
-
-  let newStack: EditorHistoryEntry[];
-
-  if (shouldMerge) {
-    const prev = history.undoStack[history.undoStack.length - 1];
-    const merged: EditorHistoryEntry = {
-      change: { oldState: prev.change.oldState, newState: entry.change.newState, timestamp: now },
-      selectionBefore: prev.selectionBefore,
-      selectionAfter: entry.selectionAfter,
-    };
-    newStack = [...history.undoStack.slice(0, -1), merged];
-  } else {
-    newStack = [...history.undoStack, entry];
-  }
-
-  // Cap stack depth
-  if (newStack.length > MAX_HISTORY_DEPTH) {
-    newStack = newStack.slice(newStack.length - MAX_HISTORY_DEPTH);
-  }
-
-  return {
-    undoStack: newStack,
-    redoStack: [],
-    lastEditTimestamp: mergeTag !== "" ? now : 0,
-    lastEditTag: mergeTag,
-  };
-}
+// Re-export helpers that are part of the public API.
+export { findFirstContentBlock, findLastContentBlock } from "./actions";
 
 // --- EditorState ---
 
 export interface EditorState {
-  /**
-   * New Y.Doc-backed State (Decision D dual-rep). PASSTHROUGH in P11.0 —
-   * no action handler reads/writes this field. T5 wires
-   * `rebuildStateFromLegacy` so it stays in sync with `stateLegacy`.
-   */
-  state: State;
-  /**
-   * Legacy StateNode tree. CANONICAL during the parallel window —
-   * every action handler reads/writes this field and the renderer
-   * continues to consume it. P15 deletes this field after cutover.
-   */
-  stateLegacy: StateNode;
-  selection: Selection;
-  /**
-   * Y.UndoManager-backed history wrapper, bound to the canonical
-   * `state: State` field's Y.Doc. PASSIVE in P11.0 — no action
-   * handler reads/writes it. `historyLegacy` continues to back
-   * undo/redo until cutover.
-   */
-  history: History;
-  historyLegacy: EditorHistory;
-  renderTree: RenderNode;
-  layoutTree: LayoutBox;
-  containerWidth: number;
-  nextId: number;
-  targetX: number | null;
+  readonly state: State;
+  readonly selection: Selection;
+  readonly history: History;
+  readonly renderTree: RenderNode;
+  readonly layoutTree: LayoutBox;
+  readonly containerWidth: number;
+  readonly targetX: number | null;
 }
 
 export interface EditorConfig {
-  measurer: TextShaper | TextMeasurer;
-  registry: ComponentRegistry;
-  containerWidth: number;
-  pageConfig?: PageConfig;
+  readonly measurer: TextShaper | TextMeasurer;
+  readonly componentRegistry: ComponentRegistry;
+  readonly attrRegistry: AttrRegistry;
+  readonly containerWidth: number;
+  readonly pageConfig?: PageConfig;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
-  const stateLegacy = createEmptyDocument();
-  // Canonical new-shape State. History is bound to THIS Y.Doc — the
-  // T3-introduced placeholder is discarded here because Y.UndoManager's
-  // Y.Doc binding is irreversible.
-  const state = createEmptyState();
-  const selection = createCursor([0, 0], 0);
-  const rendered = renderTree(stateLegacy, config.registry);
-  const cascaded = cascadePass(rendered);
-  const layout = layoutTree(cascaded, config.containerWidth, config.measurer, config.pageConfig);
+  const state = createEmptyDocument();
+  const docBlock = getBlock(state, state.rootId);
+  if (docBlock === null) {
+    throw new Error("createInitialEditorState: root block not found");
+  }
+  const firstParagraphId = docBlock.firstChildId;
+  if (firstParagraphId === null) {
+    throw new Error(
+      "createInitialEditorState: empty document has no paragraph child",
+    );
+  }
+  const cursor = createPosition(firstParagraphId, 0);
+  const selection = createSpan(cursor, cursor);
+
+  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  const layout = layoutTree(
+    rendered.root,
+    config.containerWidth,
+    config.measurer,
+    config.pageConfig,
+  );
 
   return {
     state,
-    stateLegacy,
     selection,
     history: createHistory(state),
-    historyLegacy: createEditorHistory(),
-    renderTree: cascaded,
+    renderTree: rendered.root,
     layoutTree: layout,
     containerWidth: config.containerWidth,
-    nextId: 1,
     targetX: null,
   };
 }
@@ -192,7 +108,7 @@ export function reduceEditor(
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
-  // Vertical actions preserve targetX; all others clear it
+  // Vertical actions preserve targetX; all others clear it.
   const isVertical = action.type === "MOVE_LINE" || action.type === "EXPAND_LINE";
 
   let result: EditorState;
@@ -246,7 +162,12 @@ export function reduceEditor(
       result = handlePaste(editor, action.text, config);
       break;
     case "SET_BLOCK_TYPE":
-      result = handleSetBlockType(editor, action.blockType, action.properties ?? {}, config);
+      result = handleSetBlockType(
+        editor,
+        action.blockType,
+        action.properties ?? {},
+        config,
+      );
       break;
     case "TOGGLE_LIST":
       result = handleToggleList(editor, action.listType, config);
@@ -280,14 +201,6 @@ export function reduceEditor(
       result = editor;
       break;
     }
-  }
-
-  // Parallel-window sync (Decision D): after every state-mutating
-  // action, refresh the new-shape `state` field from the post-handler
-  // `stateLegacy`. Reference-equality gate skips rebuild for
-  // selection-only and other no-op-on-stateLegacy actions.
-  if (result.stateLegacy !== editor.stateLegacy) {
-    result = { ...result, state: rebuildStateFromLegacy(result.stateLegacy) };
   }
 
   if (!isVertical && result.targetX !== null) {

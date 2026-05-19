@@ -1,6 +1,5 @@
-import type { Selection } from "../cursor/selection";
+import type { Selection, Position } from "../state/block-position";
 import type { NewNode } from "../state/node";
-import type { Position } from "../state/position";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }

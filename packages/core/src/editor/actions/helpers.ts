@@ -1,140 +1,83 @@
-import type { StateNode } from "../../state/state-node-legacy";
-import type { Position } from "../../state/position";
+import type { State } from "../../state/state";
+import { getBlock } from "../../state/state";
+import type { BlockId } from "../../state/block-id";
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { renderTreeIncremental } from "../../render/render-legacy";
-import { cascadePassIncremental } from "../../cascade";
-import { layoutTreeIncremental } from "../../layout/layout-incremental";
-import { createCursor } from "../../cursor/selection";
-import { normalizeSpan, pathsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations-legacy";
-import { getNodeByPath } from "../../state/operations-legacy";
-import { getTextContent, getTextContentLength } from "../../state/text-utils-legacy";
+import { render } from "../../render/render";
+import { layoutTree } from "../../layout/dispatch";
+import {
+  firstLeafBlock,
+  lastLeafBlock,
+  nextBlockInDocOrder,
+  prevBlockInDocOrder,
+} from "../../state/block-traversal";
 
-/** Find the last text node descendant of a node at the given base path. */
-export function findLastTextDescendant(
-  node: StateNode,
-  basePath: number[],
-): { path: number[]; node: StateNode } | null {
-  if (node.type === "text") return { path: basePath, node };
-  for (let i = node.children.length - 1; i >= 0; i--) {
-    const result = findLastTextDescendant(node.children[i], [...basePath, i]);
-    if (result) return result;
-  }
-  return null;
-}
-
-/** Find the first text node descendant of a node at the given base path. */
-export function findFirstTextDescendant(
-  node: StateNode,
-  basePath: number[],
-): { path: number[]; node: StateNode } | null {
-  if (node.type === "text") return { path: basePath, node };
-  for (let i = 0; i < node.children.length; i++) {
-    const result = findFirstTextDescendant(node.children[i], [...basePath, i]);
-    if (result) return result;
-  }
-  return null;
-}
-
-/** Check if a node is an empty paragraph (single empty text child). */
-export function isEmptyParagraph(node: StateNode): boolean {
-  return node.type === "paragraph"
-    && node.children.length === 1
-    && node.children[0].type === "text"
-    && getTextContent(node.children[0]) === "";
-}
-
+/**
+ * Re-run the render + layout pipeline for the editor's current state.
+ * Used by every state-mutating handler after producing newState +
+ * newSelection. Returns a new EditorState with refreshed renderTree
+ * + layoutTree (other fields untouched on the input newEditor).
+ *
+ * The `oldEditor` parameter is currently unused — kept for signature
+ * stability since the legacy incremental pipeline used it, and so that
+ * a future optimization layer can re-introduce reference-equality
+ * memoization without touching every handler.
+ */
 export function rebuildTrees(
   newEditor: EditorState,
-  oldEditor: EditorState,
+  _oldEditor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // Use renderTreeIncremental so unchanged subtrees retain reference equality
-  // with `oldEditor.renderTree` (which IS the previously-cascaded tree —
-  // EditorState reuses one field for both because cascade only adds
-  // computedStyle, not different shape). cascadePassIncremental's
-  // `newNode === oldNode` short-circuit then fires for unchanged paragraphs.
-  const rendered = renderTreeIncremental(
-    newEditor.stateLegacy,
-    oldEditor.stateLegacy,
-    oldEditor.renderTree,
-    config.registry,
+  const rendered = render(
+    newEditor.state,
+    config.componentRegistry,
+    config.attrRegistry,
   );
-  const cascaded = cascadePassIncremental(rendered, oldEditor.renderTree, oldEditor.renderTree);
-  const layout = layoutTreeIncremental(
-    cascaded,
-    oldEditor.renderTree,
-    oldEditor.layoutTree,
+  const layout = layoutTree(
+    rendered.root,
     newEditor.containerWidth,
     config.measurer,
     config.pageConfig,
   );
   return {
     ...newEditor,
-    renderTree: cascaded,
+    renderTree: rendered.root,
     layoutTree: layout,
   };
 }
 
 /**
- * Check if the cursor is at the start or end boundary of a table cell.
- * Returns true if the cursor is at the first/last text position in a cell,
- * which should prevent cross-cell deletion.
+ * Find the first content-bearing leaf block in the document (the first
+ * block in document order whose `inlineContent !== null`). Returns null
+ * if no such block exists (e.g., a fully-empty document with only
+ * containers — shouldn't happen with the standard empty-document
+ * factory, which always seeds one paragraph).
  */
-export function isAtCellBoundary(
-  state: StateNode,
-  pos: Position,
-  boundary: "start" | "end",
-): boolean {
-  // Find if there's a table-cell ancestor in the path
-  // Path structure for table: [tableIdx, rowIdx, cellIdx, paraIdx, textIdx]
-  // We need to check if path[0] points to a table node
-  const topBlock = state.children[pos.path[0]];
-  if (!topBlock || topBlock.type !== "table") return false;
-
-  // Must have at least 5 path elements for table > row > cell > para > text
-  if (pos.path.length < 5) return false;
-
-  const cellPath = pos.path.slice(0, 3); // [tableIdx, rowIdx, cellIdx]
-  const cell = getNodeByPath(state, cellPath);
-  if (!cell || cell.type !== "table-cell") return false;
-
-  if (boundary === "start") {
-    const firstText = findFirstTextDescendant(cell, [...cellPath]);
-    if (!firstText) return false;
-    return pathsEqual(pos.path, firstText.path) && pos.offset === 0;
-  } else {
-    const lastText = findLastTextDescendant(cell, [...cellPath]);
-    if (!lastText) return false;
-    const textLen = getTextContentLength(lastText.node);
-    return pathsEqual(pos.path, lastText.path) && pos.offset === textLen;
+export function findFirstContentBlock(state: State): BlockId | null {
+  const firstLeaf = firstLeafBlock(state, state.rootId);
+  if (firstLeaf === null) return null;
+  let cursor: BlockId | null = firstLeaf;
+  while (cursor !== null) {
+    const block = getBlock(state, cursor);
+    if (block === null) return null;
+    if (block.inlineContent !== null) return cursor;
+    cursor = nextBlockInDocOrder(state, cursor);
   }
+  return null;
 }
 
-export function deleteSelectionRange(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
-  const normalized = normalizeSpan(editor.selection);
-  const change = deleteRange(editor.stateLegacy, normalized);
-  const newSelection = createCursor(
-    normalized.anchor.path,
-    normalized.anchor.offset,
-  );
-
-  return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(editor.historyLegacy, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-    },
-    editor,
-    config,
-  );
+/**
+ * Find the last content-bearing leaf block in the document. Symmetric to
+ * `findFirstContentBlock` — walks backward via `prevBlockInDocOrder`.
+ */
+export function findLastContentBlock(state: State): BlockId | null {
+  const lastLeaf = lastLeafBlock(state, state.rootId);
+  if (lastLeaf === null) return null;
+  let cursor: BlockId | null = lastLeaf;
+  while (cursor !== null) {
+    const block = getBlock(state, cursor);
+    if (block === null) return null;
+    if (block.inlineContent !== null) return cursor;
+    cursor = prevBlockInDocOrder(state, cursor);
+  }
+  return null;
 }

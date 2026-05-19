@@ -1,49 +1,67 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations-legacy";
-import { moveToLineBoundary } from "../line-navigation-legacy";
-import { rebuildTrees, deleteSelectionRange } from "./helpers";
+import { getBlock } from "../../state/state";
+import { createPosition, createSpan } from "../../state/block-position";
+import { spanStart } from "../../state/block-compare";
+import { deleteRange } from "../../state/delete-range";
+import { moveToLineBoundary } from "../../cursor/line-navigation";
+import { rebuildTrees } from "./helpers";
 
 export function handleDeleteLine(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  if (!isCollapsed(editor.selection)) {
-    return deleteSelectionRange(editor, config);
+  const { selection } = editor;
+  const collapsed =
+    selection.anchor.blockId === selection.focus.blockId &&
+    selection.anchor.offset === selection.focus.offset;
+
+  if (!collapsed) {
+    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
+    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    if (anchorBlock === null || focusBlock === null) return editor;
+    if (
+      selection.anchor.blockId !== selection.focus.blockId &&
+      anchorBlock.parentId !== focusBlock.parentId
+    ) {
+      return editor;
+    }
+    const start = spanStart(editor.state, selection);
+    const result = deleteRange(editor.state, selection);
+    const newCursor = createPosition(start.blockId, start.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.setState(result.state);
+    editor.history.push({ selection: newSelection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+    );
   }
 
-  const pos = editor.selection.focus;
+  const pos = selection.focus;
   const lineStart = moveToLineBoundary(
-    editor.stateLegacy,
+    editor.state,
     pos,
     editor.layoutTree,
     config.measurer,
     "start",
   );
-  if (!lineStart) return editor;
-
-  // If already at line start, nothing to delete
-  if (positionsEqual(lineStart, pos)) {
+  if (lineStart === null) return editor;
+  if (lineStart.blockId === pos.blockId && lineStart.offset === pos.offset) {
     return editor;
   }
+  // Only support within-block line deletion (line boundaries always stay
+  // inside one block in our model).
+  if (lineStart.blockId !== pos.blockId) return editor;
 
   const span = createSpan(lineStart, pos);
-  const change = deleteRange(editor.stateLegacy, span);
-  const newSelection = createCursor(lineStart.path, lineStart.offset);
-
+  const result = deleteRange(editor.state, span);
+  const newCursor = createPosition(lineStart.blockId, lineStart.offset);
+  const newSelection = createSpan(newCursor, newCursor);
+  editor.history.setState(result.state);
+  editor.history.push({ selection: newSelection });
   return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(editor.historyLegacy, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
   );

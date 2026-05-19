@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createNode } from "../../state/create-node-legacy";
-import { updateAtPath } from "../../state/operations-legacy";
+import { getBlock } from "../../state/state";
+import { setBlockType } from "../../state/set-block-type";
+import { setBlockAttrs } from "../../state/set-block-attrs";
 import { rebuildTrees } from "./helpers";
 
 export function handleSetBlockType(
@@ -10,34 +10,33 @@ export function handleSetBlockType(
   properties: Record<string, unknown>,
   config: EditorConfig,
 ): EditorState {
-  const pos = editor.selection.focus;
-  const paraIdx = pos.path[0];
-  const para = editor.stateLegacy.children[paraIdx];
-  if (!para) return editor;
+  const focusBlockId = editor.selection.focus.blockId;
+  const block = getBlock(editor.state, focusBlockId);
+  if (block === null) return editor;
 
-  // If already this type, convert back to paragraph
-  const newType = para.type === blockType ? "paragraph" : blockType;
-  const newProps = para.type === blockType ? {} : properties;
+  // Walk up from the leaf to the top-level ancestor (child of root) —
+  // the legacy code targeted the document's direct child for retyping.
+  let targetId = focusBlockId;
+  let cur = block;
+  while (cur.parentId !== null && cur.parentId !== editor.state.rootId) {
+    targetId = cur.parentId;
+    const parent = getBlock(editor.state, cur.parentId);
+    if (parent === null) break;
+    cur = parent;
+  }
+  const target = getBlock(editor.state, targetId);
+  if (target === null) return editor;
 
-  const newPara = createNode(
-    para.id,
-    newType,
-    { ...newProps },
-    para.children,
-  );
-  const newState = updateAtPath(editor.stateLegacy, [paraIdx], newPara);
-  const change = { oldState: editor.stateLegacy, newState, timestamp: 0 };
+  // Toggle behavior: if already this type, revert to paragraph.
+  const newType = target.type === blockType ? "paragraph" : blockType;
+  const newAttrs = target.type === blockType ? {} : properties;
 
+  const typeResult = setBlockType(editor.state, targetId, newType);
+  const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
+  editor.history.setState(attrsResult.state);
+  editor.history.push({ selection: editor.selection });
   return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: newState,
-      historyLegacy: pushEditorChange(editor.historyLegacy, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: editor.selection,
-      }),
-    },
+    { ...editor, state: attrsResult.state },
     editor,
     config,
   );

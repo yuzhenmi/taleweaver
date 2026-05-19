@@ -1,8 +1,8 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, normalizeSpan } from "../../state/position";
-import { insertText, replaceRange } from "../../state/transformations-legacy";
+import { insertText } from "../../state/insert-text";
+import { replaceRange } from "../../state/replace-range";
+import { createPosition, createSpan } from "../../state/block-position";
+import { spanStart } from "../../state/block-compare";
 import { rebuildTrees } from "./helpers";
 
 export function handleInsertText(
@@ -10,48 +10,36 @@ export function handleInsertText(
   text: string,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, replace the selected range
-  if (!isCollapsed(editor.selection)) {
-    const normalized = normalizeSpan(editor.selection);
-    const change = replaceRange(editor.stateLegacy, normalized, text);
-    const newPos = createPosition(
-      normalized.anchor.path,
-      normalized.anchor.offset + text.length,
-    );
-    const newSelection = createCursor(newPos.path, newPos.offset);
+  const selectionBefore = editor.selection;
+  const collapsed =
+    selectionBefore.anchor.blockId === selectionBefore.focus.blockId &&
+    selectionBefore.anchor.offset === selectionBefore.focus.offset;
 
-    return rebuildTrees(
-      {
-        ...editor,
-        stateLegacy: change.newState,
-        selection: newSelection,
-        historyLegacy: pushEditorChange(editor.historyLegacy, {
-          change,
-          selectionBefore: editor.selection,
-          selectionAfter: newSelection,
-        }),
-      },
-      editor,
-      config,
-    );
+  let newState;
+  let newCursorBlockId;
+  let newCursorOffset;
+  if (!collapsed) {
+    const start = spanStart(editor.state, selectionBefore);
+    const result = replaceRange(editor.state, selectionBefore, text, {});
+    newState = result.state;
+    newCursorBlockId = start.blockId;
+    newCursorOffset = start.offset + text.length;
+  } else {
+    const focus = selectionBefore.focus;
+    const result = insertText(editor.state, focus, text, {});
+    newState = result.state;
+    newCursorBlockId = focus.blockId;
+    newCursorOffset = focus.offset + text.length;
   }
 
-  const pos = editor.selection.focus;
-  const change = insertText(editor.stateLegacy, pos, text);
-  const newPos = createPosition(pos.path, pos.offset + text.length);
-  const newSelection = createCursor(newPos.path, newPos.offset);
+  const newCursor = createPosition(newCursorBlockId, newCursorOffset);
+  const newSelection = createSpan(newCursor, newCursor);
+
+  editor.history.setState(newState);
+  editor.history.push({ selection: newSelection });
 
   return rebuildTrees(
-    {
-      ...editor,
-      stateLegacy: change.newState,
-      selection: newSelection,
-      historyLegacy: pushEditorChange(editor.historyLegacy, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }, "insert"),
-    },
+    { ...editor, state: newState, selection: newSelection },
     editor,
     config,
   );
