@@ -47,12 +47,20 @@ import type { Style, FontWeight, FontStyle, TextDecoration } from "../styles";
  * paths translate directly to BlockIds; calling rebuild twice on the
  * same legacy state produces blocks with the same ids.
  *
- * UNDO-STACK INTEGRITY: this function uses `doc.transact(fn, "rebuild")`
- * directly (NOT `runTransaction`, which doesn't accept an origin
- * parameter). The `"rebuild"` origin opts out of `Y.UndoManager`
- * tracking (which only tracks `origin=null` per `state/history.ts:62`),
- * so rebuild transactions don't pollute the `History` wrapper's undo
- * stack.
+ * UNDO-STACK PROTECTION: this function uses `doc.transact(fn, "rebuild")`
+ * directly. In the current P11.0 wiring this is defensive rather than
+ * load-bearing — each call creates a fresh Y.Doc (via createState),
+ * and EditorState.history is bound to the original state.doc from
+ * createInitialEditorState. The History's Y.UndoManager observes only
+ * the original Y.Doc, never the rebuild-output Y.Docs, so even without
+ * a tagged origin, rebuild transactions could not reach the undo stack.
+ *
+ * The tagged origin is kept as a defensive invariant for future
+ * refactors where the rebuild output might share a Y.Doc with the
+ * History wrapper (e.g., a hypothetical optimization that mutates an
+ * existing Y.Doc rather than creating a fresh one). The Y.UndoManager
+ * tracks only origin=null per state/history.ts:62, so the "rebuild"
+ * tag opts out of tracking regardless of Y.Doc relationship.
  *
  * Throwaway: each call produces a fresh `State` with its own `Y.Doc`;
  * the prior State is GC'd.
