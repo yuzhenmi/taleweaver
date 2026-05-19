@@ -1,17 +1,14 @@
 import {
-  createCursor,
-  createSelection,
+  createSpan,
   createPosition,
-  isCollapsed,
+  positionsEqual,
   extractText,
   selectWord,
-  getNodeByPath,
-  getTextContentLength,
+  getBlock,
+  inlineContentLength,
   resolvePixelPosition,
   resolvePositionFromPixel,
   computeSelectionRects,
-  findFirstTextDescendant,
-  findLastTextDescendant,
   type LayoutBox,
   type Position,
   type TextShaper,
@@ -19,6 +16,7 @@ import {
   type EditorAction,
   type EditorState,
   type SelectionRect,
+  type PixelPosition,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
@@ -85,7 +83,16 @@ export function createEditorController(
   }
 
   // Computed on update
-  let cursorPos = { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 24, pageIndex: 0 };
+  let cursorPos: PixelPosition = {
+    x: 0,
+    y: 0,
+    height: 16,
+    lineY: 0,
+    lineHeight: 24,
+    lineMarginTop: 0,
+    lineMarginBottom: 0,
+    pageIndex: 0,
+  };
   let selectionRects: SelectionRect[] = [];
   let pages: LayoutBox[] = [];
 
@@ -558,7 +565,7 @@ export function createEditorController(
     if (!coords) return;
 
     const pos = resolvePositionFromPixel(
-      state.stateLegacy,
+      state.state,
       state.layoutTree,
       measurer,
       coords.x,
@@ -570,31 +577,29 @@ export function createEditorController(
       return;
     }
 
-    // Triple-click: select paragraph
+    // Triple-click: select paragraph (the entire leaf block).
+    // In the new model `pos.blockId` IS the leaf block, so we select from
+    // offset 0 to that block's inline-content length.
     if (e.detail >= 3) {
-      const blockPath = pos.path.slice(0, 1);
-      const block = getNodeByPath(state.stateLegacy, blockPath);
+      const block = getBlock(state.state, pos.blockId);
       if (block) {
-        const first = findFirstTextDescendant(block, blockPath);
-        const last = findLastTextDescendant(block, blockPath);
-        if (first && last) {
-          const lastNode = getNodeByPath(state.stateLegacy, last.path);
-          const endOffset = lastNode ? getTextContentLength(lastNode) : 0;
-          dispatch({
-            type: "SET_SELECTION",
-            selection: createSelection(
-              createPosition(first.path, 0),
-              createPosition(last.path, endOffset),
-            ),
-          });
-        }
+        const length = block.inlineContent
+          ? inlineContentLength(block.inlineContent)
+          : 0;
+        dispatch({
+          type: "SET_SELECTION",
+          selection: createSpan(
+            createPosition(pos.blockId, 0),
+            createPosition(pos.blockId, length),
+          ),
+        });
       }
       return;
     }
 
     // Double-click: select word
     if (e.detail === 2) {
-      const wordSel = selectWord(state.stateLegacy, pos);
+      const wordSel = selectWord(state.state, pos);
       dispatch({ type: "SET_SELECTION", selection: wordSel });
       return;
     }
@@ -603,10 +608,7 @@ export function createEditorController(
     if (e.shiftKey) {
       dispatch({
         type: "SET_SELECTION",
-        selection: createSelection(
-          state.selection.anchor,
-          createPosition(pos.path, pos.offset),
-        ),
+        selection: createSpan(state.selection.anchor, pos),
       });
       return;
     }
@@ -616,7 +618,7 @@ export function createEditorController(
     dragAnchor = pos;
     dispatch({
       type: "SET_SELECTION",
-      selection: createCursor(pos.path, pos.offset),
+      selection: createSpan(pos, pos),
     });
   }
 
@@ -627,7 +629,7 @@ export function createEditorController(
     if (!coords) return;
 
     const pos = resolvePositionFromPixel(
-      state.stateLegacy,
+      state.state,
       state.layoutTree,
       measurer,
       coords.x,
@@ -637,10 +639,7 @@ export function createEditorController(
     if (pos) {
       dispatch({
         type: "SET_SELECTION",
-        selection: createSelection(
-          dragAnchor,
-          createPosition(pos.path, pos.offset),
-        ),
+        selection: createSpan(dragAnchor, pos),
       });
     }
   }
@@ -685,16 +684,18 @@ export function createEditorController(
   // ── Clipboard handling ─────────────────────────────────────────────────
 
   function handleCopy(e: ClipboardEvent) {
-    if (!state || isCollapsed(state.selection)) return;
+    if (!state) return;
+    if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
     e.preventDefault();
-    const text = extractText(state.stateLegacy, state.selection);
+    const text = extractText(state.state, state.selection);
     e.clipboardData?.setData("text/plain", text);
   }
 
   function handleCut(e: ClipboardEvent) {
-    if (!state || isCollapsed(state.selection)) return;
+    if (!state) return;
+    if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
     e.preventDefault();
-    const text = extractText(state.stateLegacy, state.selection);
+    const text = extractText(state.state, state.selection);
     e.clipboardData?.setData("text/plain", text);
     dispatch({ type: "DELETE_BACKWARD" });
   }
@@ -754,21 +755,32 @@ export function createEditorController(
     if (destroyed) return;
     state = editorState;
 
-    // Compute cursor position and selection rects
-    cursorPos = resolvePixelPosition(
-      state.stateLegacy,
+    // Compute cursor position and selection rects. resolvePixelPosition
+    // returns null for unknown blockIds; fall back to default coords so
+    // the controller can still paint a placeholder cursor.
+    const resolved = resolvePixelPosition(
+      state.state,
       state.selection.focus,
       state.layoutTree,
       measurer,
     );
-    selectionRects = isCollapsed(state.selection)
+    cursorPos = resolved ?? {
+      x: 0,
+      y: 0,
+      height: 16,
+      lineY: 0,
+      lineHeight: 24,
+      lineMarginTop: 0,
+      lineMarginBottom: 0,
+      pageIndex: 0,
+    };
+    selectionRects = positionsEqual(state.selection.anchor, state.selection.focus)
       ? []
       : computeSelectionRects(
-          state.stateLegacy,
+          state.state,
           state.selection,
           state.layoutTree,
           measurer,
-          state.containerWidth,
         );
 
     syncDom();

@@ -93,6 +93,7 @@ export { setBlockAttrs } from "./state/set-block-attrs";
 export { applyAttrsToRange } from "./state/apply-attrs";
 export { clonePastedSubtree } from "./state/clone-pasted-subtree";
 export type { ClonedSubtree } from "./state/clone-pasted-subtree";
+export { extractText } from "./state/extract-text";
 
 // History (Y.UndoManager-backed)
 export {
@@ -148,6 +149,7 @@ export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
 export type { PageBox } from "./layout/page-box";
 export { createPageBox } from "./layout/page-box";
+export { computeUsedStyle } from "./layout/used-style";
 export type { PageConfig, PageMargins } from "./layout/page-config";
 
 // Components (new pipeline)

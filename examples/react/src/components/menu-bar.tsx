@@ -8,7 +8,14 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import type { EditorAction, EditorState } from "@taleweaver/dom";
-import { createParagraph } from "@taleweaver/core";
+import type { NewNode } from "@taleweaver/core";
+
+// Minimal paragraph factory. Mirrors the previous `createParagraph()` helper:
+// produces a NewNode with type=paragraph and no children. `handleInsertNode`
+// ignores `style` in the new model, so the empty object is fine here.
+function createParagraph(): NewNode {
+  return { type: "paragraph", properties: {}, style: {}, children: [] };
+}
 
 interface DocMenuBarProps {
   dispatch: React.Dispatch<EditorAction>;

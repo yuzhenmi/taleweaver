@@ -1,6 +1,6 @@
 import {
-  createRegistry,
-  defaultComponents,
+  createDefaultComponentRegistry,
+  createDefaultAttrRegistry,
   createInitialEditorState,
   reduceEditor,
   type EditorConfig,
@@ -28,11 +28,11 @@ async function init() {
 
   const canvas = document.createElement("canvas");
   const measurer = createCanvasMeasurer(canvas);
-  const registry = createRegistry([...defaultComponents]);
 
   const config: EditorConfig = {
     measurer,
-    registry,
+    componentRegistry: createDefaultComponentRegistry(),
+    attrRegistry: createDefaultAttrRegistry(),
     containerWidth: PAGE_WIDTH,
   };
 

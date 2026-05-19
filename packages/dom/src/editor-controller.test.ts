@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createEditorController,
-  type EditorController,
   type EditorControllerOptions,
 } from "./editor-controller";
 import * as canvasRenderer from "./canvas-renderer";
@@ -19,26 +18,32 @@ vi.mock("./key-handler", () => ({
   mapKeyEvent: vi.fn(),
 }));
 
+const MOCK_PIXEL_POSITION: core.PixelPosition = {
+  x: 10,
+  y: 20,
+  height: 16,
+  lineY: 18,
+  lineHeight: 24,
+  lineMarginTop: 0,
+  lineMarginBottom: 0,
+  pageIndex: 0,
+};
+
 vi.mock("@taleweaver/core", async () => {
   const actual = await vi.importActual<typeof core>("@taleweaver/core");
   return {
     ...actual,
-    resolvePixelPosition: vi.fn(() => ({
-      x: 10,
-      y: 20,
-      height: 16,
-      lineY: 18,
-      lineHeight: 24,
-    })),
+    resolvePixelPosition: vi.fn(() => MOCK_PIXEL_POSITION),
     computeSelectionRects: vi.fn(() => []),
-    resolvePositionFromPixel: vi.fn(() => ({
-      path: [0, 0],
-      offset: 0,
-    })),
-    selectWord: vi.fn(() => ({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 5 },
-    })),
+    resolvePositionFromPixel: vi.fn(() =>
+      actual.createPosition("mock-block" as core.BlockId, 0),
+    ),
+    selectWord: vi.fn(() =>
+      actual.createSpan(
+        actual.createPosition("mock-block" as core.BlockId, 0),
+        actual.createPosition("mock-block" as core.BlockId, 5),
+      ),
+    ),
     extractText: vi.fn(() => "hello"),
   };
 });
@@ -69,14 +74,15 @@ function createMockCanvasCtx(): CanvasRenderingContext2D {
 
 let originalGetContext: PropertyDescriptor | undefined;
 
-// Build a real EditorState via the public-API factory, then override only
-// the test-specific fields. Avoids type-unsafe casts over missing fields
-// (per CLAUDE.md type-safety rule) while keeping the test free of
-// hard-to-mock internals like Y.Doc / Y.UndoManager — `createInitialEditorState`
-// constructs those correctly.
+// Real EditorState produced by the public-API factory. The empty document
+// it creates is a valid layout tree of total height defined by the
+// containerWidth/registry/measurer wiring; tests only assert shape, not
+// specific dimensions, so we don't need to override layoutTree for the
+// non-paginated tests.
 const fakeEditorBase: core.EditorState = core.createInitialEditorState({
-  measurer: core.createMockMeasurer(),
-  registry: core.createRegistry(core.defaultComponents),
+  measurer: core.createMockMeasurer(8, 16),
+  componentRegistry: core.createDefaultComponentRegistry(),
+  attrRegistry: core.createDefaultAttrRegistry(),
   containerWidth: 600,
 });
 
@@ -85,66 +91,59 @@ function makeFakeEditorState(
 ): core.EditorState {
   return {
     ...fakeEditorBase,
-    // Defaults below preserve the pre-existing test stub shape so existing
-    // assertions about empty docs / 100-tall layoutTree continue to hold.
-    stateLegacy: { type: "doc", id: "doc", children: [], properties: {} },
-    selection: {
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 0 },
-    },
-    renderTree: { type: "doc", id: "doc", children: [], properties: {} },
-    layoutTree: {
-      type: "block",
-      key: "doc",
-      x: 0,
-      y: 0,
-      width: 600,
-      height: 100,
-      children: [],
-    },
-    containerWidth: 600,
-    nextId: 1,
-    targetX: null,
     ...overrides,
   };
 }
 
+/** Build a paginated layout tree with `pageCount` pages, each `pageHeight` tall. */
+function buildPaginatedLayoutTree(
+  pageCount: number,
+  width: number,
+  pageHeight: number,
+): core.LayoutBox {
+  const cs = core.INITIAL_COMPUTED_STYLE;
+  const us = core.computeUsedStyle(cs, width, "indefinite");
+  const pages: core.LayoutBox[] = [];
+  for (let i = 0; i < pageCount; i++) {
+    pages.push(
+      core.createPageBox(
+        `page-${i}`,
+        0,
+        i * pageHeight,
+        width,
+        pageHeight,
+        cs.writingMode,
+        cs.direction,
+        cs,
+        us,
+        [],
+        i,
+        width,
+      ),
+    );
+  }
+  return core.createBlockBox(
+    "doc",
+    0,
+    0,
+    width,
+    pageCount * pageHeight,
+    cs.writingMode,
+    cs.direction,
+    cs,
+    us,
+    pages,
+    width,
+  );
+}
+
 function makePaginatedEditorState(): core.EditorState {
-  const page1: core.LayoutBox = {
-    type: "page",
-    key: "page-0",
-    x: 0,
-    y: 0,
-    width: 600,
-    height: 100,
-    children: [],
-  };
-  const page2: core.LayoutBox = {
-    type: "page",
-    key: "page-1",
-    x: 0,
-    y: 100,
-    width: 600,
-    height: 100,
-    children: [],
-  };
   return makeFakeEditorState({
-    layoutTree: {
-      type: "block",
-      key: "doc",
-      x: 0,
-      y: 0,
-      width: 600,
-      height: 200,
-      children: [page1, page2],
-    },
+    layoutTree: buildPaginatedLayoutTree(2, 600, 100),
   });
 }
 
-const measurer: core.TextMeasurer = {
-  measureWidth: vi.fn(() => 8),
-  measureCharWidths: vi.fn(() => [8]),
-};
+const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
 function makeOptions(
   overrides?: Partial<EditorControllerOptions>,
@@ -179,7 +178,7 @@ beforeEach(() => {
   });
 
   // Mock IntersectionObserver
-  global.IntersectionObserver = vi.fn().mockImplementation(
+  globalThis.IntersectionObserver = vi.fn().mockImplementation(
     (callback: IntersectionObserverCallback) => {
       return {
         observe: vi.fn((el: Element) => {
@@ -198,7 +197,7 @@ beforeEach(() => {
         disconnect: vi.fn(),
       };
     },
-  );
+  ) as unknown as typeof IntersectionObserver;
 
   vi.mocked(canvasRenderer.paintCanvas).mockClear();
   vi.mocked(canvasRenderer.paintPage).mockClear();
@@ -403,26 +402,9 @@ describe("createEditorController", () => {
       ).toBe(2);
 
       // Go to 1 page
-      const onePage: core.LayoutBox = {
-        type: "page",
-        key: "page-0",
-        x: 0,
-        y: 0,
-        width: 600,
-        height: 100,
-        children: [],
-      };
       ctrl.update(
         makeFakeEditorState({
-          layoutTree: {
-            type: "block",
-            key: "doc",
-            x: 0,
-            y: 0,
-            width: 600,
-            height: 100,
-            children: [onePage],
-          },
+          layoutTree: buildPaginatedLayoutTree(1, 600, 100),
         }),
       );
       expect(
@@ -442,7 +424,7 @@ describe("createEditorController", () => {
       // Custom IntersectionObserver that lets us control visibility
       let ioCallback: IntersectionObserverCallback;
       const observed: Element[] = [];
-      global.IntersectionObserver = vi.fn().mockImplementation(
+      globalThis.IntersectionObserver = vi.fn().mockImplementation(
         (callback: IntersectionObserverCallback) => {
           ioCallback = callback;
           return {
@@ -458,7 +440,7 @@ describe("createEditorController", () => {
             disconnect: vi.fn(),
           };
         },
-      );
+      ) as unknown as typeof IntersectionObserver;
 
       const container = document.createElement("div");
       const ctrl = createEditorController(
@@ -563,12 +545,13 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 5 },
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 5),
+          ),
         }),
       );
 
@@ -586,12 +569,13 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions());
 
       // Non-collapsed selection with virtual line break (like select-all in empty doc)
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 1 }, // virtual line break
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 1),
+          ),
         }),
       );
 
@@ -680,12 +664,13 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
       // Non-collapsed selection
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 3 },
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 3),
+          ),
         }),
       );
 
@@ -862,25 +847,18 @@ describe("createEditorController", () => {
         makeOptions({ dispatch }),
       );
 
-      // Need a state with actual children so getNodeByPath works
-      const state = makeFakeEditorState({
-        stateLegacy: {
-          type: "doc",
-          id: "doc",
-          properties: {},
-          children: [
-            {
-              type: "paragraph",
-              id: "p1",
-              properties: {},
-              children: [
-                { type: "text", id: "t1", properties: { content: "hello" }, children: [] },
-              ],
-            },
-          ],
-        },
-      } as Partial<core.EditorState>);
-      ctrl.update(state);
+      // Use the real initial-document state — it has a single empty paragraph
+      // block whose id is reachable via the base selection. The
+      // resolvePositionFromPixel mock returns a "mock-block" id which does
+      // NOT exist in state, so triple-click no-ops the dispatch. To make
+      // the triple-click branch fire a dispatch we override the mock to
+      // return the real paragraph's blockId.
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
+
+      ctrl.update(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1072,11 +1050,12 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions());
 
       // Set up a non-collapsed selection
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       const state = makeFakeEditorState({
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 5 },
-        },
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
       });
       ctrl.update(state);
 
@@ -1109,11 +1088,12 @@ describe("createEditorController", () => {
         makeOptions({ dispatch }),
       );
 
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       const state = makeFakeEditorState({
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 5 },
-        },
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
       });
       ctrl.update(state);
 
@@ -1261,6 +1241,9 @@ describe("createEditorController", () => {
         height: 16,
         lineY: 82,
         lineHeight: 24,
+        lineMarginTop: 0,
+        lineMarginBottom: 0,
+        pageIndex: 0,
       });
 
       ctrl.update(makeFakeEditorState());

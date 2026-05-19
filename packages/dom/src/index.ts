@@ -15,9 +15,10 @@ export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // Re-exports from core (backward compatibility)
 export type { EditorAction, PixelPosition, SelectionRect, AbsoluteTextBox } from "@taleweaver/core";
-export type { EditorState, EditorConfig, EditorHistory, EditorHistoryEntry } from "@taleweaver/core";
+export type { EditorState, EditorConfig } from "@taleweaver/core";
+export { History } from "@taleweaver/core";
+export type { PushHistoryArgs, UndoRedoResult } from "@taleweaver/core";
 export { resolvePixelPosition, resolvePositionFromPixel, computeSelectionRects } from "@taleweaver/core";
 export { moveToLine, moveToLineBoundary } from "@taleweaver/core";
 export { collectAllTextBoxes } from "@taleweaver/core";
 export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
-export { findFirstTextDescendant, findLastTextDescendant } from "@taleweaver/core";

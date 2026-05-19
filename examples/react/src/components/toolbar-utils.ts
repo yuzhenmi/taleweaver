@@ -1,9 +1,9 @@
 import {
-  isCollapsed,
-  getStyleInRange,
-  type StateNode,
+  positionsEqual,
+  getBlock,
+  iterateSpan,
+  type EditorState,
 } from "@taleweaver/core";
-import type { EditorState } from "@taleweaver/dom";
 
 export interface FormatState {
   bold: boolean;
@@ -15,65 +15,100 @@ export interface FormatState {
   canRedo: boolean;
 }
 
-/** Check if a single text node (or its span ancestors) has the given style property */
-function hasStyleAtNode(
-  state: StateNode,
-  path: readonly number[],
-  property: "fontWeight" | "fontStyle" | "textDecoration",
+const ATTR_KEYS = {
+  bold: "fontWeight",
+  italic: "fontStyle",
+  underline: "textDecoration",
+} as const;
+
+/**
+ * Check whether the inline-content span has a non-default value for `attrKey`
+ * present in EVERY text item that overlaps the span. Returns false for empty
+ * spans, embed-only spans, or any text item missing the attribute.
+ *
+ * Mirrors the legacy `getStyleInRange(state, selection, attrKey) !== undefined`
+ * semantics, scoped to the new inline-content shape (each TextItem carries
+ * its own `attrs`).
+ */
+function selectionHasAttr(
+  editor: EditorState,
+  attrKey: string,
 ): boolean {
-  // Walk from root down to the text node, checking span ancestors
-  let node = state;
-  for (let i = 0; i < path.length; i++) {
-    if (node.type === "span" && node.style[property] !== undefined) {
-      return true;
+  let sawTextItem = false;
+  for (const { block, rangeStart, rangeEnd } of iterateSpan(
+    editor.state,
+    editor.selection,
+  )) {
+    if (!block.inlineContent) continue;
+    let cursor = 0;
+    for (const item of block.inlineContent.items) {
+      const len = item.kind === "text" ? item.text.length : 1;
+      const itemStart = cursor;
+      const itemEnd = cursor + len;
+      cursor = itemEnd;
+      if (itemEnd <= rangeStart) continue;
+      if (itemStart >= rangeEnd) break;
+      if (item.kind !== "text") continue;
+      sawTextItem = true;
+      if (item.attrs[attrKey] === undefined) return false;
     }
-    const child = node.children[path[i]];
-    if (!child) return false;
-    node = child;
   }
-  // Check the node itself
-  if (node.type === "span" && node.style[property] !== undefined) {
-    return true;
+  return sawTextItem;
+}
+
+/**
+ * Check whether the cursor's containing text item carries `attrKey`. Used for
+ * collapsed selections (single cursor position).
+ */
+function cursorHasAttr(editor: EditorState, attrKey: string): boolean {
+  const { blockId, offset } = editor.selection.focus;
+  const block = getBlock(editor.state, blockId);
+  if (!block || !block.inlineContent) return false;
+  let cursor = 0;
+  for (const item of block.inlineContent.items) {
+    const len = item.kind === "text" ? item.text.length : 1;
+    const itemEnd = cursor + len;
+    // Cursor lands at the boundary between items. By convention check the
+    // item to the LEFT of the cursor (mirrors typical word-processor
+    // behavior: typing inherits the style of the character to the left).
+    // For cursor at offset 0 of a block, check the first item.
+    if (offset === 0 && cursor === 0) {
+      return item.kind === "text" && item.attrs[attrKey] !== undefined;
+    }
+    if (offset > cursor && offset <= itemEnd) {
+      return item.kind === "text" && item.attrs[attrKey] !== undefined;
+    }
+    cursor = itemEnd;
   }
   return false;
 }
 
-export function getFormatState(editorState: EditorState): FormatState {
-  // P11.0+ parallel window: example app still reads from the legacy
-  // representation (stateLegacy, historyLegacy). Cutover at P11.4 will
-  // flip these to the new state / History wrapper APIs.
-  const { stateLegacy, selection, historyLegacy } = editorState;
+export function getFormatState(editor: EditorState): FormatState {
+  const { state, selection, history } = editor;
 
-  // Block type from focus position
-  const focusPath = selection.focus.path;
+  // Block type and heading level from the focus block.
+  const focusBlock = getBlock(state, selection.focus.blockId);
   let blockType = "paragraph";
   let headingLevel: number | null = null;
-  if (focusPath.length > 0) {
-    const block = stateLegacy.children[focusPath[0]];
-    if (block) {
-      blockType = block.type;
-      if (block.type === "heading" && typeof block.properties.level === "number") {
-        headingLevel = block.properties.level;
-      }
+  if (focusBlock) {
+    blockType = focusBlock.type;
+    if (focusBlock.type === "heading") {
+      const level = focusBlock.attrs.level;
+      if (typeof level === "number") headingLevel = level;
     }
   }
 
-  // Inline formatting
-  let bold = false;
-  let italic = false;
-  let underline = false;
-
-  if (isCollapsed(selection)) {
-    // Collapsed: check style at cursor position
-    bold = hasStyleAtNode(stateLegacy, focusPath, "fontWeight");
-    italic = hasStyleAtNode(stateLegacy, focusPath, "fontStyle");
-    underline = hasStyleAtNode(stateLegacy, focusPath, "textDecoration");
-  } else {
-    // Expanded: use getStyleInRange
-    bold = getStyleInRange(stateLegacy, selection, "fontWeight") !== undefined;
-    italic = getStyleInRange(stateLegacy, selection, "fontStyle") !== undefined;
-    underline = getStyleInRange(stateLegacy, selection, "textDecoration") !== undefined;
-  }
+  // Inline formatting (bold / italic / underline).
+  const collapsed = positionsEqual(selection.anchor, selection.focus);
+  const bold = collapsed
+    ? cursorHasAttr(editor, ATTR_KEYS.bold)
+    : selectionHasAttr(editor, ATTR_KEYS.bold);
+  const italic = collapsed
+    ? cursorHasAttr(editor, ATTR_KEYS.italic)
+    : selectionHasAttr(editor, ATTR_KEYS.italic);
+  const underline = collapsed
+    ? cursorHasAttr(editor, ATTR_KEYS.underline)
+    : selectionHasAttr(editor, ATTR_KEYS.underline);
 
   return {
     bold,
@@ -81,7 +116,7 @@ export function getFormatState(editorState: EditorState): FormatState {
     underline,
     blockType,
     headingLevel,
-    canUndo: historyLegacy.undoStack.length > 0,
-    canRedo: historyLegacy.redoStack.length > 0,
+    canUndo: history.canUndo(),
+    canRedo: history.canRedo(),
   };
 }

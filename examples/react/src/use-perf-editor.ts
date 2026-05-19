@@ -10,8 +10,8 @@
  */
 import { useReducer, useRef, useEffect, useCallback } from "react";
 import {
-  createRegistry,
-  defaultComponents,
+  createDefaultComponentRegistry,
+  createDefaultAttrRegistry,
   createInitialEditorState,
   reduceEditor,
   type EditorAction,
@@ -34,10 +34,10 @@ const PAGE_CONFIG: PageConfig = {
 function createConfig(): EditorConfig {
   const canvas = document.createElement("canvas");
   const measurer = createCanvasMeasurer(canvas);
-  const registry = createRegistry([...defaultComponents]);
   return {
     measurer,
-    registry,
+    componentRegistry: createDefaultComponentRegistry(),
+    attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
     pageConfig: PAGE_CONFIG,
   };
