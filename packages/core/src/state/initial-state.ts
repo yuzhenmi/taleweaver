@@ -1,11 +1,12 @@
 /**
- * Y.Doc-backed `createEmptyDocument` (P4e). Parallel to
- * `./initial-state.ts` (legacy, returns `StateNode`); the two coexist
- * through the P11.4 cutover per Decision D's parallel-window strategy.
- * At cutover, the legacy file is deleted and this file is renamed to
- * `initial-state.ts` (taking the canonical name). Until then, P5+
- * phases inside `packages/core` deep-import this module directly when
- * they need the Y.Doc-backed empty document.
+ * Y.Doc-backed `createEmptyDocument` (canonical, post-P4e). Produces a
+ * minimal valid document: a `document` root block containing one empty
+ * `paragraph` child block. Uses the production BlockId allocator by
+ * default; tests can inject a deterministic allocator.
+ *
+ * The pre-Yjs version lives at `./initial-state-legacy.ts` and continues
+ * to serve the editor's legacy action layer through the P11.4 cutover.
+ * P15 deletes the legacy file.
  */
 import type { IdAllocator } from "./block-id";
 import { productionAllocator } from "./block-id";
