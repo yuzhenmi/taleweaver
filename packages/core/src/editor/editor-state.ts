@@ -124,7 +124,7 @@ export function pushEditorChange(
 export interface EditorState {
   state: StateNode;
   selection: Selection;
-  history: EditorHistory;
+  historyLegacy: EditorHistory;
   renderTree: RenderNode;
   layoutTree: LayoutBox;
   containerWidth: number;
@@ -149,7 +149,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   return {
     state,
     selection,
-    history: createEditorHistory(),
+    historyLegacy: createEditorHistory(),
     renderTree: cascaded,
     layoutTree: layout,
     containerWidth: config.containerWidth,

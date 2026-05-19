@@ -128,7 +128,7 @@ export function deleteSelectionRange(
       ...editor,
       state: change.newState,
       selection: newSelection,
-      history: pushEditorChange(editor.history, {
+      historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
         selectionBefore: editor.selection,
         selectionAfter: newSelection,

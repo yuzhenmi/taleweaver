@@ -66,7 +66,7 @@ describe("TOGGLE_STYLE", () => {
       createPosition([0, 0], 5),
     ));
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "bold" }, config);
-    expect(s.history.undoStack.length).toBeGreaterThan(0);
+    expect(s.historyLegacy.undoStack.length).toBeGreaterThan(0);
     s = reduceEditor(s, { type: "UNDO" }, config);
     // After undo, should be plain text again
     const para = s.state.children[0];

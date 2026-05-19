@@ -149,7 +149,7 @@ describe("PASTE", () => {
     expect(getTextAt(s, [1, 0])).toBe("bbb");
     expect(s.selection.focus.path).toEqual([1, 0]);
     expect(s.selection.focus.offset).toBe(3);
-    expect(s.history.undoStack).toHaveLength(1);
+    expect(s.historyLegacy.undoStack).toHaveLength(1);
 
     s = reduceEditor(s, { type: "PASTE", text: "ccc\nddd" }, config);
 
@@ -164,7 +164,7 @@ describe("PASTE", () => {
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbbccc");
     expect(getTextAt(s, [2, 0])).toBe("ddd");
-    expect(s.history.undoStack).toHaveLength(2);
+    expect(s.historyLegacy.undoStack).toHaveLength(2);
 
     // Undo paste 2
     s = reduceEditor(s, { type: "UNDO" }, config);

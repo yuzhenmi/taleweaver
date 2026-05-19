@@ -90,7 +90,7 @@ export function handlePaste(
       ...current,
       state,
       selection: newSelection,
-      history: pushEditorChange(editor.history, pasteEntry),
+      historyLegacy: pushEditorChange(editor.historyLegacy, pasteEntry),
       nextId,
     },
     current,

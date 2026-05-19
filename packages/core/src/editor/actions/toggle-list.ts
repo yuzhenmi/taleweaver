@@ -50,7 +50,7 @@ export function handleToggleList(
         ...editor,
         state: newDoc,
         selection: newSelection,
-        history: pushEditorChange(editor.history, {
+        historyLegacy: pushEditorChange(editor.historyLegacy, {
           change,
           selectionBefore: editor.selection,
           selectionAfter: newSelection,
@@ -94,7 +94,7 @@ export function handleToggleList(
       ...editor,
       state: newDoc,
       selection: newSelection,
-      history: pushEditorChange(editor.history, {
+      historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
         selectionBefore: editor.selection,
         selectionAfter: newSelection,

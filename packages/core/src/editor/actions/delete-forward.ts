@@ -59,7 +59,7 @@ export function handleDeleteForward(
               ...editor,
               state: newDoc,
               selection: newSelection,
-              history: pushEditorChange(editor.history, {
+              historyLegacy: pushEditorChange(editor.historyLegacy, {
                 change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
                 selectionBefore: editor.selection,
                 selectionAfter: newSelection,
@@ -91,7 +91,7 @@ export function handleDeleteForward(
       ...editor,
       state: change.newState,
       selection: newSelection,
-      history: pushEditorChange(editor.history, {
+      historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
         selectionBefore: editor.selection,
         selectionAfter: newSelection,

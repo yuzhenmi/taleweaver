@@ -5,12 +5,12 @@ export function handleRedo(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  const { redoStack } = editor.history;
+  const { redoStack } = editor.historyLegacy;
   if (redoStack.length === 0) return editor;
 
   const entry = redoStack[redoStack.length - 1];
   const newHistory: EditorHistory = {
-    undoStack: [...editor.history.undoStack, entry],
+    undoStack: [...editor.historyLegacy.undoStack, entry],
     redoStack: redoStack.slice(0, -1),
     lastEditTimestamp: 0,
     lastEditTag: "",
@@ -21,7 +21,7 @@ export function handleRedo(
       ...editor,
       state: entry.change.newState,
       selection: entry.selectionAfter,
-      history: newHistory,
+      historyLegacy: newHistory,
     },
     editor,
     config,

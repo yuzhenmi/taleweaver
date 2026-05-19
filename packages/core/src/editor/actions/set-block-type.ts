@@ -32,7 +32,7 @@ export function handleSetBlockType(
     {
       ...editor,
       state: newState,
-      history: pushEditorChange(editor.history, {
+      historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
         selectionBefore: editor.selection,
         selectionAfter: editor.selection,

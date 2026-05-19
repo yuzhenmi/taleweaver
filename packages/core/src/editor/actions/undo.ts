@@ -5,13 +5,13 @@ export function handleUndo(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  const { undoStack } = editor.history;
+  const { undoStack } = editor.historyLegacy;
   if (undoStack.length === 0) return editor;
 
   const entry = undoStack[undoStack.length - 1];
   const newHistory: EditorHistory = {
     undoStack: undoStack.slice(0, -1),
-    redoStack: [...editor.history.redoStack, entry],
+    redoStack: [...editor.historyLegacy.redoStack, entry],
     lastEditTimestamp: 0,
     lastEditTag: "",
   };
@@ -21,7 +21,7 @@ export function handleUndo(
       ...editor,
       state: entry.change.oldState,
       selection: entry.selectionBefore,
-      history: newHistory,
+      historyLegacy: newHistory,
     },
     editor,
     config,

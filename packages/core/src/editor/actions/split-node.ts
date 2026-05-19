@@ -59,7 +59,7 @@ export function handleSplitNode(
       ...current,
       state: newState,
       selection: newSelection,
-      history: pushEditorChange(current.history, {
+      historyLegacy: pushEditorChange(current.historyLegacy, {
         change: { oldState: current.state, newState, timestamp: 0 },
         selectionBefore: editor.selection,
         selectionAfter: newSelection,
@@ -124,7 +124,7 @@ function handleSplitListItem(
         ...current,
         state: newDoc,
         selection: newSelection,
-        history: pushEditorChange(current.history, {
+        historyLegacy: pushEditorChange(current.historyLegacy, {
           change: { oldState: current.state, newState: newDoc, timestamp: 0 },
           selectionBefore: originalEditor.selection,
           selectionAfter: newSelection,
@@ -154,7 +154,7 @@ function handleSplitListItem(
       ...current,
       state: change.newState,
       selection: newSelection,
-      history: pushEditorChange(current.history, {
+      historyLegacy: pushEditorChange(current.historyLegacy, {
         change,
         selectionBefore: originalEditor.selection,
         selectionAfter: newSelection,
@@ -197,7 +197,7 @@ function handleSplitTableCell(
       ...current,
       state: change.newState,
       selection: newSelection,
-      history: pushEditorChange(current.history, {
+      historyLegacy: pushEditorChange(current.historyLegacy, {
         change,
         selectionBefore: originalEditor.selection,
         selectionAfter: newSelection,
