@@ -6,7 +6,7 @@ export function handleExpandSelection(
   direction: "forward" | "backward",
 ): EditorState {
   const newSelection = expandSelectionByCharacter(
-    editor.state,
+    editor.stateLegacy,
     editor.selection,
     direction,
   );

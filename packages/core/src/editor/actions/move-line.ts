@@ -20,7 +20,7 @@ export function handleMoveLine(
     : editor.selection.focus;
 
   const result = moveToLine(
-    editor.state,
+    editor.stateLegacy,
     moveFocus,
     editor.layoutTree,
     config.measurer,

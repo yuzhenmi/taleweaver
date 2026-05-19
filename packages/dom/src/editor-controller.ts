@@ -558,7 +558,7 @@ export function createEditorController(
     if (!coords) return;
 
     const pos = resolvePositionFromPixel(
-      state.state,
+      state.stateLegacy,
       state.layoutTree,
       measurer,
       coords.x,
@@ -573,12 +573,12 @@ export function createEditorController(
     // Triple-click: select paragraph
     if (e.detail >= 3) {
       const blockPath = pos.path.slice(0, 1);
-      const block = getNodeByPath(state.state, blockPath);
+      const block = getNodeByPath(state.stateLegacy, blockPath);
       if (block) {
         const first = findFirstTextDescendant(block, blockPath);
         const last = findLastTextDescendant(block, blockPath);
         if (first && last) {
-          const lastNode = getNodeByPath(state.state, last.path);
+          const lastNode = getNodeByPath(state.stateLegacy, last.path);
           const endOffset = lastNode ? getTextContentLength(lastNode) : 0;
           dispatch({
             type: "SET_SELECTION",
@@ -594,7 +594,7 @@ export function createEditorController(
 
     // Double-click: select word
     if (e.detail === 2) {
-      const wordSel = selectWord(state.state, pos);
+      const wordSel = selectWord(state.stateLegacy, pos);
       dispatch({ type: "SET_SELECTION", selection: wordSel });
       return;
     }
@@ -627,7 +627,7 @@ export function createEditorController(
     if (!coords) return;
 
     const pos = resolvePositionFromPixel(
-      state.state,
+      state.stateLegacy,
       state.layoutTree,
       measurer,
       coords.x,
@@ -687,14 +687,14 @@ export function createEditorController(
   function handleCopy(e: ClipboardEvent) {
     if (!state || isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.stateLegacy, state.selection);
     e.clipboardData?.setData("text/plain", text);
   }
 
   function handleCut(e: ClipboardEvent) {
     if (!state || isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.stateLegacy, state.selection);
     e.clipboardData?.setData("text/plain", text);
     dispatch({ type: "DELETE_BACKWARD" });
   }
@@ -756,7 +756,7 @@ export function createEditorController(
 
     // Compute cursor position and selection rects
     cursorPos = resolvePixelPosition(
-      state.state,
+      state.stateLegacy,
       state.selection.focus,
       state.layoutTree,
       measurer,
@@ -764,7 +764,7 @@ export function createEditorController(
     selectionRects = isCollapsed(state.selection)
       ? []
       : computeSelectionRects(
-          state.state,
+          state.stateLegacy,
           state.selection,
           state.layoutTree,
           measurer,

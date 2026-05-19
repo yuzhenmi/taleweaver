@@ -24,11 +24,11 @@ export function handlePaste(
   }
 
   // Save the original state for a single undo entry (before any deletion)
-  const stateBeforePaste = editor.state;
+  const stateBeforePaste = editor.stateLegacy;
   const selectionBeforePaste = editor.selection;
 
   const lines = text.split("\n");
-  let state = current.state;
+  let state = current.stateLegacy;
   let pos: Position = current.selection.focus;
   let nextId = current.nextId;
 
@@ -88,7 +88,7 @@ export function handlePaste(
   return rebuildTrees(
     {
       ...current,
-      state,
+      stateLegacy: state,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, pasteEntry),
       nextId,

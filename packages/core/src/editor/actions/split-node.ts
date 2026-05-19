@@ -19,7 +19,7 @@ export function handleSplitNode(
 
   const pos = current.selection.focus;
   const paraIdx = pos.path[0];
-  const block = current.state.children[paraIdx];
+  const block = current.stateLegacy.children[paraIdx];
 
   // Special handling: enter on list item
   if (block.type === "list" && pos.path.length >= 3) {
@@ -32,7 +32,7 @@ export function handleSplitNode(
   }
 
   const nodeId = `node-${current.nextId}`;
-  const change = splitNode(current.state, pos, nodeId, 0);
+  const change = splitNode(current.stateLegacy, pos, nodeId, 0);
 
   // Special handling: enter on heading → new paragraph (convert the new block)
   let newState = change.newState;
@@ -57,10 +57,10 @@ export function handleSplitNode(
   return rebuildTrees(
     {
       ...current,
-      state: newState,
+      stateLegacy: newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(current.historyLegacy, {
-        change: { oldState: current.state, newState, timestamp: 0 },
+        change: { oldState: current.stateLegacy, newState, timestamp: 0 },
         selectionBefore: editor.selection,
         selectionAfter: newSelection,
       }),
@@ -79,11 +79,11 @@ function handleSplitListItem(
   const pos = current.selection.focus;
   const listIdx = pos.path[0];
   const itemIdx = pos.path[1];
-  const list = current.state.children[listIdx];
+  const list = current.stateLegacy.children[listIdx];
   const item = list.children[itemIdx];
 
   // Check if current list item is empty (enter on empty → exit list)
-  const textNode = getNodeByPath(current.state, pos.path);
+  const textNode = getNodeByPath(current.stateLegacy, pos.path);
   if (textNode && getTextContentLength(textNode) === 0 && item.children.length === 1) {
     // Remove the empty item from the list
     const newListChildren = [...list.children];
@@ -97,7 +97,7 @@ function handleSplitListItem(
       [createTextNode(`node-${current.nextId}-text`, "")],
     );
 
-    const docChildren = [...current.state.children];
+    const docChildren = [...current.stateLegacy.children];
 
     if (newListChildren.length === 0) {
       // Empty list — replace with paragraph
@@ -110,9 +110,9 @@ function handleSplitListItem(
     }
 
     const newDoc = createNode(
-      current.state.id,
-      current.state.type,
-      { ...current.state.properties },
+      current.stateLegacy.id,
+      current.stateLegacy.type,
+      { ...current.stateLegacy.properties },
       docChildren,
     );
 
@@ -122,10 +122,10 @@ function handleSplitListItem(
     return rebuildTrees(
       {
         ...current,
-        state: newDoc,
+        stateLegacy: newDoc,
         selection: newSelection,
         historyLegacy: pushEditorChange(current.historyLegacy, {
-          change: { oldState: current.state, newState: newDoc, timestamp: 0 },
+          change: { oldState: current.stateLegacy, newState: newDoc, timestamp: 0 },
           selectionBefore: originalEditor.selection,
           selectionAfter: newSelection,
         }),
@@ -140,7 +140,7 @@ function handleSplitListItem(
   const nodeId = `node-${current.nextId}`;
 
   // Split within the list item (splitDepth = 1 to split the list-item within the list)
-  const change = splitNode(current.state, pos, nodeId, 1);
+  const change = splitNode(current.stateLegacy, pos, nodeId, 1);
 
   // Find first text descendant in the new list item for cursor placement
   const newItem = change.newState.children[listIdx]?.children[itemIdx + 1];
@@ -152,7 +152,7 @@ function handleSplitListItem(
   return rebuildTrees(
     {
       ...current,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(current.historyLegacy, {
         change,
@@ -180,7 +180,7 @@ function handleSplitTableCell(
   const nodeId = `node-${current.nextId}`;
 
   // Split within the cell: splitDepth = 3 splits the paragraph within the cell
-  const change = splitNode(current.state, pos, nodeId, 3);
+  const change = splitNode(current.stateLegacy, pos, nodeId, 3);
 
   // Cursor → first text in the new paragraph within the same cell
   const newCell = change.newState.children[tableIdx]?.children[rowIdx]?.children[cellIdx];
@@ -195,7 +195,7 @@ function handleSplitTableCell(
   return rebuildTrees(
     {
       ...current,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(current.historyLegacy, {
         change,

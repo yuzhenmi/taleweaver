@@ -13,7 +13,7 @@ export function handleInsertText(
   // If selection is expanded, replace the selected range
   if (!isCollapsed(editor.selection)) {
     const normalized = normalizeSpan(editor.selection);
-    const change = replaceRange(editor.state, normalized, text);
+    const change = replaceRange(editor.stateLegacy, normalized, text);
     const newPos = createPosition(
       normalized.anchor.path,
       normalized.anchor.offset + text.length,
@@ -23,7 +23,7 @@ export function handleInsertText(
     return rebuildTrees(
       {
         ...editor,
-        state: change.newState,
+        stateLegacy: change.newState,
         selection: newSelection,
         historyLegacy: pushEditorChange(editor.historyLegacy, {
           change,
@@ -37,14 +37,14 @@ export function handleInsertText(
   }
 
   const pos = editor.selection.focus;
-  const change = insertText(editor.state, pos, text);
+  const change = insertText(editor.stateLegacy, pos, text);
   const newPos = createPosition(pos.path, pos.offset + text.length);
   const newSelection = createCursor(newPos.path, newPos.offset);
 
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

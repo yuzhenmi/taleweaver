@@ -9,7 +9,7 @@ export function handleExpandDocumentBoundary(
   boundary: "start" | "end",
 ): EditorState {
   if (boundary === "start") {
-    const first = findFirstTextDescendant(editor.state, []);
+    const first = findFirstTextDescendant(editor.stateLegacy, []);
     if (!first) return editor;
     return {
       ...editor,
@@ -19,7 +19,7 @@ export function handleExpandDocumentBoundary(
       ),
     };
   } else {
-    const last = findLastTextDescendant(editor.state, []);
+    const last = findLastTextDescendant(editor.stateLegacy, []);
     if (!last) return editor;
     return {
       ...editor,

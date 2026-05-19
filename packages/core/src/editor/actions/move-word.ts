@@ -6,7 +6,7 @@ export function handleMoveWord(
   direction: "forward" | "backward",
 ): EditorState {
   const newSelection = moveByWord(
-    editor.state,
+    editor.stateLegacy,
     editor.selection.focus,
     direction,
   );

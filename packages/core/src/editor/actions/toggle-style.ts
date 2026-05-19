@@ -24,24 +24,24 @@ export function handleToggleStyle(
 
   const { property, value } = STYLE_VALUES[style];
   const idBase = `style-${editor.nextId}`;
-  const current = getStyleInRange(editor.state, editor.selection, property);
+  const current = getStyleInRange(editor.stateLegacy, editor.selection, property);
 
   const change = current !== undefined
-    ? applyInlineStyle(editor.state, editor.selection, { [property]: undefined }, idBase)
-    : applyInlineStyle(editor.state, editor.selection, { [property]: value }, idBase);
+    ? applyInlineStyle(editor.stateLegacy, editor.selection, { [property]: undefined }, idBase)
+    : applyInlineStyle(editor.stateLegacy, editor.selection, { [property]: value }, idBase);
 
-  if (change.newState === editor.state) return editor;
+  if (change.newState === editor.stateLegacy) return editor;
 
   // Remap selection through the tree restructuring (paths change but text content doesn't)
   const newSelection = createSelection(
-    remapPosition(editor.state, change.newState, editor.selection.anchor),
-    remapPosition(editor.state, change.newState, editor.selection.focus),
+    remapPosition(editor.stateLegacy, change.newState, editor.selection.anchor),
+    remapPosition(editor.stateLegacy, change.newState, editor.selection.focus),
   );
 
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

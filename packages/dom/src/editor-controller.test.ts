@@ -73,7 +73,7 @@ function makeFakeEditorState(
   overrides?: Partial<core.EditorState>,
 ): core.EditorState {
   return {
-    state: { type: "doc", id: "doc", children: [], properties: {} },
+    stateLegacy: { type: "doc", id: "doc", children: [], properties: {} },
     selection: {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -851,7 +851,7 @@ describe("createEditorController", () => {
 
       // Need a state with actual children so getNodeByPath works
       const state = makeFakeEditorState({
-        state: {
+        stateLegacy: {
           type: "doc",
           id: "doc",
           properties: {},
@@ -866,7 +866,7 @@ describe("createEditorController", () => {
             },
           ],
         },
-      });
+      } as Partial<core.EditorState>);
       ctrl.update(state);
 
       container.getBoundingClientRect = vi.fn(() => ({

@@ -30,17 +30,17 @@ export function handleInsertNode(
   // Plan 1: insert as the last child of the document.
   // Plan 2/3 may extend with explicit position support; for now `_position` is unused.
   const newDoc = createNode(
-    editor.state.id,
-    editor.state.type,
-    editor.state.properties,
-    [...editor.state.children, constructed],
-    editor.state.style,
+    editor.stateLegacy.id,
+    editor.stateLegacy.type,
+    editor.stateLegacy.properties,
+    [...editor.stateLegacy.children, constructed],
+    editor.stateLegacy.style,
   );
 
   return rebuildTrees(
     {
       ...editor,
-      state: newDoc,
+      stateLegacy: newDoc,
       nextId: idCounter.value,
     },
     editor,

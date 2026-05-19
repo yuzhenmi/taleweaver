@@ -16,7 +16,7 @@ export function handleDeleteLine(
 
   const pos = editor.selection.focus;
   const lineStart = moveToLineBoundary(
-    editor.state,
+    editor.stateLegacy,
     pos,
     editor.layoutTree,
     config.measurer,
@@ -30,13 +30,13 @@ export function handleDeleteLine(
   }
 
   const span = createSpan(lineStart, pos);
-  const change = deleteRange(editor.state, span);
+  const change = deleteRange(editor.stateLegacy, span);
   const newSelection = createCursor(lineStart.path, lineStart.offset);
 
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

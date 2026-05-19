@@ -24,7 +24,7 @@ describe("TOGGLE_STYLE", () => {
     ));
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "bold" }, config);
     // The paragraph should now contain a span with fontWeight: "bold"
-    const para = s.state.children[0];
+    const para = s.stateLegacy.children[0];
     const hasSpanWithBold = para.children.some(
       (child) => child.type === "span" && child.style.fontWeight === "bold",
     );
@@ -38,7 +38,7 @@ describe("TOGGLE_STYLE", () => {
       createPosition([0, 0], 4),
     ));
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "italic" }, config);
-    const para = s.state.children[0];
+    const para = s.stateLegacy.children[0];
     const hasSpanWithItalic = para.children.some(
       (child) => child.type === "span" && child.style.fontStyle === "italic",
     );
@@ -52,7 +52,7 @@ describe("TOGGLE_STYLE", () => {
       createPosition([0, 0], 5),
     ));
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "underline" }, config);
-    const para = s.state.children[0];
+    const para = s.stateLegacy.children[0];
     const hasSpanWithUnderline = para.children.some(
       (child) => child.type === "span" && child.style.textDecoration === "underline",
     );
@@ -69,7 +69,7 @@ describe("TOGGLE_STYLE", () => {
     expect(s.historyLegacy.undoStack.length).toBeGreaterThan(0);
     s = reduceEditor(s, { type: "UNDO" }, config);
     // After undo, should be plain text again
-    const para = s.state.children[0];
+    const para = s.stateLegacy.children[0];
     expect(para.children).toHaveLength(1);
     expect(para.children[0].type).toBe("text");
   });

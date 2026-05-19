@@ -8,7 +8,7 @@ export function handleExpandLine(
   config: EditorConfig,
 ): EditorState {
   const result = moveToLine(
-    editor.state,
+    editor.stateLegacy,
     editor.selection.focus,
     editor.layoutTree,
     config.measurer,

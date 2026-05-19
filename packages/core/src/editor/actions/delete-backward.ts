@@ -27,27 +27,27 @@ export function handleDeleteBackward(
   }
 
   // At start of a table cell — prevent cross-cell merge
-  if (isAtCellBoundary(editor.state, pos, "start")) {
+  if (isAtCellBoundary(editor.stateLegacy, pos, "start")) {
     return editor;
   }
 
   // At offset 0 of a structural paragraph — no-op to preserve cursor landing spot
-  if (pos.offset === 0 && pos.path.length === 2 && isStructuralParagraph(editor.state, pos.path[0])) {
+  if (pos.offset === 0 && pos.path.length === 2 && isStructuralParagraph(editor.stateLegacy, pos.path[0])) {
     return editor;
   }
 
   // At start of a block (offset 0), check if previous sibling is a void block
   if (pos.offset === 0 && pos.path[0] > 0) {
     const prevIdx = pos.path[0] - 1;
-    const prevBlock = editor.state.children[prevIdx];
+    const prevBlock = editor.stateLegacy.children[prevIdx];
     if (prevBlock && prevBlock.children.length === 0) {
       // Remove the void block
-      const docChildren = [...editor.state.children];
+      const docChildren = [...editor.stateLegacy.children];
       docChildren.splice(prevIdx, 1);
       const newDoc = createNode(
-        editor.state.id,
-        editor.state.type,
-        { ...editor.state.properties },
+        editor.stateLegacy.id,
+        editor.stateLegacy.type,
+        { ...editor.stateLegacy.properties },
         docChildren,
       );
 
@@ -62,10 +62,10 @@ export function handleDeleteBackward(
       return rebuildTrees(
         {
           ...editor,
-          state: newDoc,
+          stateLegacy: newDoc,
           selection: newSelection,
           historyLegacy: pushEditorChange(editor.historyLegacy, {
-            change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
+            change: { oldState: editor.stateLegacy, newState: newDoc, timestamp: 0 },
             selectionBefore: editor.selection,
             selectionAfter: newSelection,
           }),
@@ -78,15 +78,15 @@ export function handleDeleteBackward(
 
   if (pos.offset > 0) {
     // Delete within the same text node
-    const prevSel = moveByCharacter(editor.state, pos, "backward");
+    const prevSel = moveByCharacter(editor.stateLegacy, pos, "backward");
     const deleteSpan = createSpan(prevSel.focus, pos);
-    const change = deleteRange(editor.state, deleteSpan);
+    const change = deleteRange(editor.stateLegacy, deleteSpan);
     const newSelection = createCursor(prevSel.focus.path, prevSel.focus.offset);
 
     return rebuildTrees(
       {
         ...editor,
-        state: change.newState,
+        stateLegacy: change.newState,
         selection: newSelection,
         historyLegacy: pushEditorChange(editor.historyLegacy, {
           change,
@@ -101,7 +101,7 @@ export function handleDeleteBackward(
 
   // At start of a text node with offset 0 — merge with previous block
   // Use moveByCharacter to find previous position, which handles all nesting
-  const prevSel = moveByCharacter(editor.state, pos, "backward");
+  const prevSel = moveByCharacter(editor.stateLegacy, pos, "backward");
   const prevPos = prevSel.focus;
 
   // If we didn't move (already at document start), nothing to delete
@@ -110,18 +110,18 @@ export function handleDeleteBackward(
   }
 
   // Find the end of the previous text node (one char forward from where moveByCharacter landed)
-  const prevTextNode = getNodeByPath(editor.state, prevPos.path);
+  const prevTextNode = getNodeByPath(editor.stateLegacy, prevPos.path);
   if (!prevTextNode) return editor;
   const prevTextEnd = createPosition(prevPos.path, getTextContentLength(prevTextNode));
 
   const deleteSpan = createSpan(prevTextEnd, pos);
-  const change = deleteRange(editor.state, deleteSpan);
+  const change = deleteRange(editor.stateLegacy, deleteSpan);
   const newSelection = createCursor(prevTextEnd.path, prevTextEnd.offset);
 
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

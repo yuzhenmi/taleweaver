@@ -8,7 +8,7 @@ export function handleExpandLineBoundary(
   config: EditorConfig,
 ): EditorState {
   const pos = moveToLineBoundary(
-    editor.state,
+    editor.stateLegacy,
     editor.selection.focus,
     editor.layoutTree,
     config.measurer,

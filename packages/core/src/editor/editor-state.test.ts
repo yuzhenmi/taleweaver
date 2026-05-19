@@ -22,7 +22,7 @@ function getTextAt(
   state: ReturnType<typeof createInitialEditorState>,
   path: readonly number[],
 ): string {
-  const node = getNodeByPath(state.state, path);
+  const node = getNodeByPath(state.stateLegacy, path);
   return node ? getTextContent(node) : "";
 }
 
@@ -40,8 +40,8 @@ function typeChars(
 describe("createInitialEditorState", () => {
   it("creates state with empty document", () => {
     const s = createInitialEditorState(config);
-    expect(s.state.type).toBe("document");
-    expect(s.state.children).toHaveLength(1);
+    expect(s.stateLegacy.type).toBe("document");
+    expect(s.stateLegacy.children).toHaveLength(1);
     expect(getTextAt(s, [0, 0])).toBe("");
   });
 

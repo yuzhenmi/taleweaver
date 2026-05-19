@@ -12,7 +12,7 @@ export function handleSetBlockType(
 ): EditorState {
   const pos = editor.selection.focus;
   const paraIdx = pos.path[0];
-  const para = editor.state.children[paraIdx];
+  const para = editor.stateLegacy.children[paraIdx];
   if (!para) return editor;
 
   // If already this type, convert back to paragraph
@@ -25,13 +25,13 @@ export function handleSetBlockType(
     { ...newProps },
     para.children,
   );
-  const newState = updateAtPath(editor.state, [paraIdx], newPara);
-  const change = { oldState: editor.state, newState, timestamp: 0 };
+  const newState = updateAtPath(editor.stateLegacy, [paraIdx], newPara);
+  const change = { oldState: editor.stateLegacy, newState, timestamp: 0 };
 
   return rebuildTrees(
     {
       ...editor,
-      state: newState,
+      stateLegacy: newState,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
         selectionBefore: editor.selection,

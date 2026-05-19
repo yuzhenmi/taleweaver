@@ -12,13 +12,13 @@ export function handleToggleList(
 ): EditorState {
   const pos = editor.selection.focus;
   const paraIdx = pos.path[0];
-  const currentBlock = editor.state.children[paraIdx];
+  const currentBlock = editor.stateLegacy.children[paraIdx];
   if (!currentBlock) return editor;
 
   // If already in a list, unwrap
   if (currentBlock.type === "list") {
     // Extract list items as paragraphs
-    const newChildren = [...editor.state.children];
+    const newChildren = [...editor.stateLegacy.children];
     const listItems = currentBlock.children;
     const paragraphs: StateNode[] = [];
 
@@ -34,12 +34,12 @@ export function handleToggleList(
 
     newChildren.splice(paraIdx, 1, ...paragraphs);
     const newDoc = createNode(
-      editor.state.id,
-      editor.state.type,
-      { ...editor.state.properties },
+      editor.stateLegacy.id,
+      editor.stateLegacy.type,
+      { ...editor.stateLegacy.properties },
       newChildren,
     );
-    const change = { oldState: editor.state, newState: newDoc, timestamp: 0 };
+    const change = { oldState: editor.stateLegacy, newState: newDoc, timestamp: 0 };
 
     // Adjust selection path — cursor was at [paraIdx, itemIdx, textIdx...], now [paraIdx + itemIdx, textIdx...]
     const itemIdx = pos.path[1] ?? 0;
@@ -48,7 +48,7 @@ export function handleToggleList(
     return rebuildTrees(
       {
         ...editor,
-        state: newDoc,
+        stateLegacy: newDoc,
         selection: newSelection,
         historyLegacy: pushEditorChange(editor.historyLegacy, {
           change,
@@ -75,15 +75,15 @@ export function handleToggleList(
     [listItem],
   );
 
-  const newChildren = [...editor.state.children];
+  const newChildren = [...editor.stateLegacy.children];
   newChildren[paraIdx] = list;
   const newDoc = createNode(
-    editor.state.id,
-    editor.state.type,
-    { ...editor.state.properties },
+    editor.stateLegacy.id,
+    editor.stateLegacy.type,
+    { ...editor.stateLegacy.properties },
     newChildren,
   );
-  const change = { oldState: editor.state, newState: newDoc, timestamp: 0 };
+  const change = { oldState: editor.stateLegacy, newState: newDoc, timestamp: 0 };
 
   // Selection path changes: [paraIdx, textIdx] → [paraIdx, 0, textIdx]
   const textPathRest = pos.path.slice(1);
@@ -92,7 +92,7 @@ export function handleToggleList(
   return rebuildTrees(
     {
       ...editor,
-      state: newDoc,
+      stateLegacy: newDoc,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

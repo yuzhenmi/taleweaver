@@ -21,22 +21,22 @@ export function handleDeleteForward(
   const pos = editor.selection.focus;
 
   // At end of a table cell — prevent cross-cell merge
-  if (isAtCellBoundary(editor.state, pos, "end")) {
+  if (isAtCellBoundary(editor.stateLegacy, pos, "end")) {
     return editor;
   }
 
   // In a structural paragraph — no-op to preserve cursor landing spot
-  if (pos.path.length === 2 && isStructuralParagraph(editor.state, pos.path[0])) {
+  if (pos.path.length === 2 && isStructuralParagraph(editor.stateLegacy, pos.path[0])) {
     return editor;
   }
 
   // Check if cursor is at end of current block and next sibling is a void block
   const blockIdx = pos.path[0];
-  if (blockIdx < editor.state.children.length - 1) {
-    const nextBlock = editor.state.children[blockIdx + 1];
+  if (blockIdx < editor.stateLegacy.children.length - 1) {
+    const nextBlock = editor.stateLegacy.children[blockIdx + 1];
     if (nextBlock && nextBlock.children.length === 0) {
       // Verify cursor is at end of the current block
-      const currentBlock = editor.state.children[blockIdx];
+      const currentBlock = editor.stateLegacy.children[blockIdx];
       const lastText = findLastTextDescendant(currentBlock, [blockIdx]);
       if (lastText) {
         const textLen = getTextContentLength(lastText.node);
@@ -44,12 +44,12 @@ export function handleDeleteForward(
           pos.path.every((v, i) => v === lastText.path[i]);
         if (pathMatch && pos.offset === textLen) {
           // Remove the void block
-          const docChildren = [...editor.state.children];
+          const docChildren = [...editor.stateLegacy.children];
           docChildren.splice(blockIdx + 1, 1);
           const newDoc = createNode(
-            editor.state.id,
-            editor.state.type,
-            { ...editor.state.properties },
+            editor.stateLegacy.id,
+            editor.stateLegacy.type,
+            { ...editor.stateLegacy.properties },
             docChildren,
           );
           const newSelection = createCursor(pos.path, pos.offset);
@@ -57,10 +57,10 @@ export function handleDeleteForward(
           return rebuildTrees(
             {
               ...editor,
-              state: newDoc,
+              stateLegacy: newDoc,
               selection: newSelection,
               historyLegacy: pushEditorChange(editor.historyLegacy, {
-                change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
+                change: { oldState: editor.stateLegacy, newState: newDoc, timestamp: 0 },
                 selectionBefore: editor.selection,
                 selectionAfter: newSelection,
               }),
@@ -74,7 +74,7 @@ export function handleDeleteForward(
   }
 
   // Use moveByCharacter to find the next position (handles all nesting)
-  const nextSel = moveByCharacter(editor.state, pos, "forward");
+  const nextSel = moveByCharacter(editor.stateLegacy, pos, "forward");
   const nextPos = nextSel.focus;
 
   // If we didn't move (at end of document), nothing to delete
@@ -83,13 +83,13 @@ export function handleDeleteForward(
   }
 
   const deleteSpan = createSpan(pos, nextPos);
-  const change = deleteRange(editor.state, deleteSpan);
+  const change = deleteRange(editor.stateLegacy, deleteSpan);
   const newSelection = createCursor(pos.path, pos.offset);
 
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

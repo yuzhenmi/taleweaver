@@ -15,7 +15,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 describe("useEditor", () => {
   it("returns editorState with initial document", () => {
     const { result } = renderHook(() => useEditor());
-    expect(result.current.editorState.state.type).toBe("document");
+    expect(result.current.editorState.stateLegacy.type).toBe("document");
   });
 
   it("returns dispatch function", () => {
@@ -34,7 +34,7 @@ describe("useEditor", () => {
       result.current.dispatch({ type: "INSERT_TEXT", text: "a" });
     });
     const textNode =
-      result.current.editorState.state.children[0].children[0];
+      result.current.editorState.stateLegacy.children[0].children[0];
     expect(textNode.properties.content).toBe("a");
   });
 

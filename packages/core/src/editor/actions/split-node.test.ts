@@ -22,7 +22,7 @@ describe("SPLIT_NODE", () => {
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("abc");
     expect(getTextAt(s, [1, 0])).toBe("def");
     // Cursor at start of new paragraph
@@ -35,7 +35,7 @@ describe("SPLIT_NODE", () => {
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
 
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("abc");
     expect(getTextAt(s, [1, 0])).toBe("");
   });
@@ -48,7 +48,7 @@ describe("SPLIT_NODE", () => {
       createPosition([0, 0], 4),
     ));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("ab");
     expect(getTextAt(s, [1, 0])).toBe("ef");
   });
@@ -66,7 +66,7 @@ describe("SPLIT_NODE with styled text", () => {
     ));
     s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "bold" }, config);
     // Move cursor to end of bolded text, then split to create second paragraph
-    const boldPara = s.state.children[0];
+    const boldPara = s.stateLegacy.children[0];
     const boldTextPath = boldPara.children.some(c => c.type === "span")
       ? [0, 0, 0] // paragraph > span > text
       : [0, 0];   // paragraph > text
@@ -80,7 +80,7 @@ describe("SPLIT_NODE with styled text", () => {
     // Type in second paragraph (plain)
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" }, config);
 
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
 
     // Now select from middle of first paragraph to end of second
     s = withSelection(s, createSelection(
@@ -90,7 +90,7 @@ describe("SPLIT_NODE with styled text", () => {
 
     // This should not crash
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     // Cursor should be at start of new (second) paragraph
     expect(s.selection.focus.offset).toBe(0);
   });
@@ -107,9 +107,9 @@ describe("SPLIT_NODE on heading", () => {
     // Move cursor to middle of heading
     s = withSelection(s, createCursor([0, 0], 5));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(s.state.children[0].type).toBe("heading");
-    expect(s.state.children[1].type).toBe("paragraph");
+    expect(s.stateLegacy.children).toHaveLength(2);
+    expect(s.stateLegacy.children[0].type).toBe("heading");
+    expect(s.stateLegacy.children[1].type).toBe("paragraph");
     expect(getTextAt(s, [0, 0])).toBe("Title");
     expect(getTextAt(s, [1, 0])).toBe(" text");
   });
@@ -122,7 +122,7 @@ describe("SPLIT_NODE in list", () => {
     // Move to middle: [0, 0, 0] offset 4
     s = withSelection(s, createCursor([0, 0, 0], 4));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    const list = s.state.children[0];
+    const list = s.stateLegacy.children[0];
     expect(list.type).toBe("list");
     expect(list.children).toHaveLength(2);
     expect(getTextContent(list.children[0].children[0])).toBe("item");
@@ -136,7 +136,7 @@ describe("SPLIT_NODE in list", () => {
     s = withSelection(s, createCursor([0, 0, 0], 0));
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
     // Should have exited the list — first child should be a paragraph
-    expect(s.state.children[0].type).toBe("paragraph");
+    expect(s.stateLegacy.children[0].type).toBe("paragraph");
   });
 });
 

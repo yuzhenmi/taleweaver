@@ -6,7 +6,7 @@ export function handleExpandWord(
   editor: EditorState,
   direction: "forward" | "backward",
 ): EditorState {
-  const moved = moveByWord(editor.state, editor.selection.focus, direction);
+  const moved = moveByWord(editor.stateLegacy, editor.selection.focus, direction);
   return {
     ...editor,
     selection: createSelection(editor.selection.anchor, moved.focus),

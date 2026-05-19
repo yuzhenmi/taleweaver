@@ -19,7 +19,7 @@ export function handleUndo(
   return rebuildTrees(
     {
       ...editor,
-      state: entry.change.oldState,
+      stateLegacy: entry.change.oldState,
       selection: entry.selectionBefore,
       historyLegacy: newHistory,
     },

@@ -19,7 +19,7 @@ export function handleRedo(
   return rebuildTrees(
     {
       ...editor,
-      state: entry.change.newState,
+      stateLegacy: entry.change.newState,
       selection: entry.selectionAfter,
       historyLegacy: newHistory,
     },

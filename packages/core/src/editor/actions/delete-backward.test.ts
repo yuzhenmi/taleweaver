@@ -36,7 +36,7 @@ describe("DELETE_BACKWARD", () => {
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
     s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
     s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
-    expect(s.state.children).toHaveLength(1);
+    expect(s.stateLegacy.children).toHaveLength(1);
     expect(getTextAt(s, [0, 0])).toBe("abcdef");
     expect(s.selection.focus.offset).toBe(3);
   });

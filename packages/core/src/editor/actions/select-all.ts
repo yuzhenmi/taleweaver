@@ -5,8 +5,8 @@ import { getTextContentLength } from "../../state/text-utils-legacy";
 import { findFirstTextDescendant, findLastTextDescendant } from "./helpers";
 
 export function handleSelectAll(editor: EditorState): EditorState {
-  const first = findFirstTextDescendant(editor.state, []);
-  const last = findLastTextDescendant(editor.state, []);
+  const first = findFirstTextDescendant(editor.stateLegacy, []);
+  const last = findLastTextDescendant(editor.stateLegacy, []);
   if (!first || !last) return editor;
   return {
     ...editor,

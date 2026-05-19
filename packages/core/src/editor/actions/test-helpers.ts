@@ -21,7 +21,7 @@ export function getTextAt(
   state: EditorState,
   path: readonly number[],
 ): string {
-  const node = getNodeByPath(state.state, path);
+  const node = getNodeByPath(state.stateLegacy, path);
   return node ? getTextContent(node) : "";
 }
 

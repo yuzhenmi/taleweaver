@@ -20,14 +20,14 @@ export function handleMoveCursor(
         ? selectionEnd(editor.selection)
         : selectionStart(editor.selection);
     // Clamp virtual line break offset to textLength
-    const node = getNodeByPath(editor.state, pos.path);
+    const node = getNodeByPath(editor.stateLegacy, pos.path);
     const maxOffset = node ? getTextContentLength(node) : pos.offset;
     const offset = Math.min(pos.offset, maxOffset);
     return { ...editor, selection: createCursor(pos.path, offset) };
   }
 
   const newSelection = moveByCharacter(
-    editor.state,
+    editor.stateLegacy,
     editor.selection.focus,
     direction,
   );

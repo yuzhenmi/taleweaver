@@ -13,7 +13,7 @@ describe("TOGGLE_LIST", () => {
   it("wraps paragraph in a list", () => {
     let s = stateWithText("item");
     s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
-    const firstChild = s.state.children[0];
+    const firstChild = s.stateLegacy.children[0];
     expect(firstChild.type).toBe("list");
     expect(firstChild.properties.listType).toBe("unordered");
     expect(firstChild.children).toHaveLength(1);
@@ -34,9 +34,9 @@ describe("TOGGLE_LIST", () => {
   it("unwraps list back to paragraph", () => {
     let s = stateWithText("item");
     s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
-    expect(s.state.children[0].type).toBe("list");
+    expect(s.stateLegacy.children[0].type).toBe("list");
     s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
-    expect(s.state.children[0].type).toBe("paragraph");
+    expect(s.stateLegacy.children[0].type).toBe("paragraph");
     expect(getTextAt(s, [0, 0])).toBe("item");
   });
 });

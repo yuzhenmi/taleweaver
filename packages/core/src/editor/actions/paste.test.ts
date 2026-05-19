@@ -23,7 +23,7 @@ describe("PASTE", () => {
   it("pastes multi-line text creating new paragraphs", () => {
     let s = createInitialEditorState(config);
     s = reduceEditor(s, { type: "PASTE", text: "line1\nline2\nline3" }, config);
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     expect(getTextAt(s, [0, 0])).toBe("line1");
     expect(getTextAt(s, [1, 0])).toBe("line2");
     expect(getTextAt(s, [2, 0])).toBe("line3");
@@ -49,7 +49,7 @@ describe("PASTE", () => {
   it("pastes text with trailing newline", () => {
     let s = createInitialEditorState(config);
     s = reduceEditor(s, { type: "PASTE", text: "hello\n" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("hello");
     expect(getTextAt(s, [1, 0])).toBe("");
   });
@@ -71,10 +71,10 @@ describe("PASTE", () => {
     let s = stateWithText("ab");
     s = withSelection(s, createCursor([0, 0], 1));
     s = reduceEditor(s, { type: "PASTE", text: "X\nY\nZ" }, config);
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     // Single undo should collapse back to one paragraph
     s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(1);
+    expect(s.stateLegacy.children).toHaveLength(1);
     expect(getTextAt(s, [0, 0])).toBe("ab");
   });
 
@@ -83,7 +83,7 @@ describe("PASTE", () => {
 
     // Paste 1: three lines into empty document
     s = reduceEditor(s, { type: "PASTE", text: "aaa\nbbb\nccc" }, config);
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbb");
     expect(getTextAt(s, [2, 0])).toBe("ccc");
@@ -92,7 +92,7 @@ describe("PASTE", () => {
 
     // Paste 2: two lines at current cursor (end of "ccc")
     s = reduceEditor(s, { type: "PASTE", text: "ddd\neee" }, config);
-    expect(s.state.children).toHaveLength(4);
+    expect(s.stateLegacy.children).toHaveLength(4);
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbb");
     expect(getTextAt(s, [2, 0])).toBe("cccddd");
@@ -112,7 +112,7 @@ describe("PASTE", () => {
 
     // Paste 1: split "abcdef" → "abcX", "Ydef"
     s = reduceEditor(s, { type: "PASTE", text: "X\nY" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("abcX");
     expect(getTextAt(s, [1, 0])).toBe("Ydef");
     expect(s.selection.focus.path).toEqual([1, 0]);
@@ -120,7 +120,7 @@ describe("PASTE", () => {
 
     // Paste 2: at cursor inside "Ydef" → "YM", "Ndef"
     s = reduceEditor(s, { type: "PASTE", text: "M\nN" }, config);
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     expect(getTextAt(s, [0, 0])).toBe("abcX");
     expect(getTextAt(s, [1, 0])).toBe("YM");
     expect(getTextAt(s, [2, 0])).toBe("Ndef");
@@ -133,7 +133,7 @@ describe("PASTE", () => {
   it("strips carriage returns from pasted text", () => {
     let s = createInitialEditorState(config);
     s = reduceEditor(s, { type: "PASTE", text: "line1\r\nline2\r\nline3" }, config);
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     expect(getTextAt(s, [0, 0])).toBe("line1");
     expect(getTextAt(s, [1, 0])).toBe("line2");
     expect(getTextAt(s, [2, 0])).toBe("line3");
@@ -144,7 +144,7 @@ describe("PASTE", () => {
     s = reduceEditor(s, { type: "PASTE", text: "aaa\nbbb" }, config);
 
     // After paste 1: 2 paragraphs, cursor at end of "bbb"
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbb");
     expect(s.selection.focus.path).toEqual([1, 0]);
@@ -160,7 +160,7 @@ describe("PASTE", () => {
     // Split at [1,0]:6 → "bbbccc" and "", cursor at [2,0]:0
     // Insert "ddd" at [2,0]:0 → "ddd", cursor at [2,0]:3
     // So: aaa, bbbccc, ddd — 3 paragraphs is correct!
-    expect(s.state.children).toHaveLength(3);
+    expect(s.stateLegacy.children).toHaveLength(3);
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbbccc");
     expect(getTextAt(s, [2, 0])).toBe("ddd");
@@ -168,13 +168,13 @@ describe("PASTE", () => {
 
     // Undo paste 2
     s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
     expect(getTextAt(s, [0, 0])).toBe("aaa");
     expect(getTextAt(s, [1, 0])).toBe("bbb");
 
     // Undo paste 1
     s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(1);
+    expect(s.stateLegacy.children).toHaveLength(1);
     expect(getTextAt(s, [0, 0])).toBe("");
   });
 });

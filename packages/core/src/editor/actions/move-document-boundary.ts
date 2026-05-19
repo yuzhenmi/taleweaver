@@ -8,11 +8,11 @@ export function handleMoveDocumentBoundary(
   boundary: "start" | "end",
 ): EditorState {
   if (boundary === "start") {
-    const first = findFirstTextDescendant(editor.state, []);
+    const first = findFirstTextDescendant(editor.stateLegacy, []);
     if (!first) return editor;
     return { ...editor, selection: createCursor(first.path, 0) };
   } else {
-    const last = findLastTextDescendant(editor.state, []);
+    const last = findLastTextDescendant(editor.stateLegacy, []);
     if (!last) return editor;
     return {
       ...editor,

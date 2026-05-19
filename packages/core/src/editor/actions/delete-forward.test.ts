@@ -32,7 +32,7 @@ describe("DELETE_FORWARD", () => {
     let s = stateWithTwoParagraphs();
     s = withSelection(s, createCursor([0, 0], 3));
     s = reduceEditor(s, { type: "DELETE_FORWARD" }, config);
-    expect(s.state.children).toHaveLength(1);
+    expect(s.stateLegacy.children).toHaveLength(1);
     expect(getTextAt(s, [0, 0])).toBe("abcdef");
     expect(s.selection.focus.offset).toBe(3);
   });
@@ -63,7 +63,7 @@ describe("DELETE_FORWARD", () => {
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, config);
     s = withSelection(s, createCursor([1, 0], 0));
     s = reduceEditor(s, { type: "DELETE_FORWARD" }, config);
-    expect(s.state.children).toHaveLength(2);
+    expect(s.stateLegacy.children).toHaveLength(2);
   });
 });
 

@@ -56,8 +56,8 @@ export function rebuildTrees(
   // computedStyle, not different shape). cascadePassIncremental's
   // `newNode === oldNode` short-circuit then fires for unchanged paragraphs.
   const rendered = renderTreeIncremental(
-    newEditor.state,
-    oldEditor.state,
+    newEditor.stateLegacy,
+    oldEditor.stateLegacy,
     oldEditor.renderTree,
     config.registry,
   );
@@ -117,7 +117,7 @@ export function deleteSelectionRange(
   config: EditorConfig,
 ): EditorState {
   const normalized = normalizeSpan(editor.selection);
-  const change = deleteRange(editor.state, normalized);
+  const change = deleteRange(editor.stateLegacy, normalized);
   const newSelection = createCursor(
     normalized.anchor.path,
     normalized.anchor.offset,
@@ -126,7 +126,7 @@ export function deleteSelectionRange(
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,

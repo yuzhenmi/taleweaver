@@ -6,6 +6,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
 import type { PageConfig } from "../layout/page-config";
+import type { State } from "../state/state";
 import {
   createEmptyDocument,
 } from "../state/initial-state-legacy";
@@ -124,13 +125,24 @@ export function pushEditorChange(
 // --- EditorState ---
 
 export interface EditorState {
-  state: StateNode;
+  /**
+   * New Y.Doc-backed State (Decision D dual-rep). PASSTHROUGH in P11.0 —
+   * no action handler reads/writes this field. T5 wires
+   * `rebuildStateFromLegacy` so it stays in sync with `stateLegacy`.
+   */
+  state: State;
+  /**
+   * Legacy StateNode tree. CANONICAL during the parallel window —
+   * every action handler reads/writes this field and the renderer
+   * continues to consume it. P15 deletes this field after cutover.
+   */
+  stateLegacy: StateNode;
   selection: Selection;
   /**
-   * New Y.UndoManager-backed history wrapper. PASSIVE in P11.0 — no
-   * action handler reads/writes it. T4 will REPLACE this placeholder
-   * with one backed by the canonical `state: State` field (introduced
-   * in T4). `historyLegacy` continues to back undo/redo until cutover.
+   * Y.UndoManager-backed history wrapper, bound to the canonical
+   * `state: State` field's Y.Doc. PASSIVE in P11.0 — no action
+   * handler reads/writes it. `historyLegacy` continues to back
+   * undo/redo until cutover.
    */
   history: History;
   historyLegacy: EditorHistory;
@@ -149,21 +161,21 @@ export interface EditorConfig {
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
-  const state = createEmptyDocument();
-  // Placeholder History backed by a throwaway State. T4 will REPLACE
-  // this instance with one bound to the canonical `state: State` field.
-  // The Y.UndoManager's Y.Doc binding is irreversible, so this throwaway
-  // wrapper must not be carried forward — T4 constructs a fresh one.
-  const placeholderNewState = createEmptyState();
+  const stateLegacy = createEmptyDocument();
+  // Canonical new-shape State. History is bound to THIS Y.Doc — the
+  // T3-introduced placeholder is discarded here because Y.UndoManager's
+  // Y.Doc binding is irreversible.
+  const state = createEmptyState();
   const selection = createCursor([0, 0], 0);
-  const rendered = renderTree(state, config.registry);
+  const rendered = renderTree(stateLegacy, config.registry);
   const cascaded = cascadePass(rendered);
   const layout = layoutTree(cascaded, config.containerWidth, config.measurer, config.pageConfig);
 
   return {
     state,
+    stateLegacy,
     selection,
-    history: createHistory(placeholderNewState),
+    history: createHistory(state),
     historyLegacy: createEditorHistory(),
     renderTree: cascaded,
     layoutTree: layout,

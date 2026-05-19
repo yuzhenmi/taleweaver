@@ -16,8 +16,8 @@ describe("SET_BLOCK_TYPE", () => {
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
       config,
     );
-    expect(s.state.children[0].type).toBe("heading");
-    expect(s.state.children[0].properties.level).toBe(1);
+    expect(s.stateLegacy.children[0].type).toBe("heading");
+    expect(s.stateLegacy.children[0].properties.level).toBe(1);
     // Content should be preserved
     expect(getTextAt(s, [0, 0])).toBe("Title");
   });
@@ -29,13 +29,13 @@ describe("SET_BLOCK_TYPE", () => {
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
       config,
     );
-    expect(s.state.children[0].type).toBe("heading");
+    expect(s.stateLegacy.children[0].type).toBe("heading");
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
       config,
     );
-    expect(s.state.children[0].type).toBe("paragraph");
+    expect(s.stateLegacy.children[0].type).toBe("paragraph");
   });
 
   it("preserves selection after block type change", () => {
@@ -57,6 +57,6 @@ describe("SET_BLOCK_TYPE", () => {
       config,
     );
     s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children[0].type).toBe("paragraph");
+    expect(s.stateLegacy.children[0].type).toBe("paragraph");
   });
 });

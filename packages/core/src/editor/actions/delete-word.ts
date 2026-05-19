@@ -16,7 +16,7 @@ export function handleDeleteWord(
   }
 
   const pos = editor.selection.focus;
-  const target = moveByWord(editor.state, pos, direction);
+  const target = moveByWord(editor.stateLegacy, pos, direction);
   const targetPos = target.focus;
 
   // If we didn't move, nothing to delete
@@ -28,7 +28,7 @@ export function handleDeleteWord(
     direction === "backward"
       ? createSpan(targetPos, pos)
       : createSpan(pos, targetPos);
-  const change = deleteRange(editor.state, span);
+  const change = deleteRange(editor.stateLegacy, span);
   const newCursorPos =
     direction === "backward" ? targetPos : pos;
   const newSelection = createCursor(newCursorPos.path, newCursorPos.offset);
@@ -36,7 +36,7 @@ export function handleDeleteWord(
   return rebuildTrees(
     {
       ...editor,
-      state: change.newState,
+      stateLegacy: change.newState,
       selection: newSelection,
       historyLegacy: pushEditorChange(editor.historyLegacy, {
         change,
