@@ -69,10 +69,24 @@ function createMockCanvasCtx(): CanvasRenderingContext2D {
 
 let originalGetContext: PropertyDescriptor | undefined;
 
+// Build a real EditorState via the public-API factory, then override only
+// the test-specific fields. Avoids type-unsafe casts over missing fields
+// (per CLAUDE.md type-safety rule) while keeping the test free of
+// hard-to-mock internals like Y.Doc / Y.UndoManager — `createInitialEditorState`
+// constructs those correctly.
+const fakeEditorBase: core.EditorState = core.createInitialEditorState({
+  measurer: core.createMockMeasurer(),
+  registry: core.createRegistry(core.defaultComponents),
+  containerWidth: 600,
+});
+
 function makeFakeEditorState(
   overrides?: Partial<core.EditorState>,
 ): core.EditorState {
   return {
+    ...fakeEditorBase,
+    // Defaults below preserve the pre-existing test stub shape so existing
+    // assertions about empty docs / 100-tall layoutTree continue to hold.
     stateLegacy: { type: "doc", id: "doc", children: [], properties: {} },
     selection: {
       anchor: { path: [0, 0], offset: 0 },
@@ -89,11 +103,10 @@ function makeFakeEditorState(
       children: [],
     },
     containerWidth: 600,
-    history: { undo: [], redo: [] },
     nextId: 1,
     targetX: null,
     ...overrides,
-  } as core.EditorState;
+  };
 }
 
 function makePaginatedEditorState(): core.EditorState {
