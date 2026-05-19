@@ -39,14 +39,17 @@ function hasStyleAtNode(
 }
 
 export function getFormatState(editorState: EditorState): FormatState {
-  const { state, selection, history } = editorState;
+  // P11.0+ parallel window: example app still reads from the legacy
+  // representation (stateLegacy, historyLegacy). Cutover at P11.4 will
+  // flip these to the new state / History wrapper APIs.
+  const { stateLegacy, selection, historyLegacy } = editorState;
 
   // Block type from focus position
   const focusPath = selection.focus.path;
   let blockType = "paragraph";
   let headingLevel: number | null = null;
   if (focusPath.length > 0) {
-    const block = state.children[focusPath[0]];
+    const block = stateLegacy.children[focusPath[0]];
     if (block) {
       blockType = block.type;
       if (block.type === "heading" && typeof block.properties.level === "number") {
@@ -62,14 +65,14 @@ export function getFormatState(editorState: EditorState): FormatState {
 
   if (isCollapsed(selection)) {
     // Collapsed: check style at cursor position
-    bold = hasStyleAtNode(state, focusPath, "fontWeight");
-    italic = hasStyleAtNode(state, focusPath, "fontStyle");
-    underline = hasStyleAtNode(state, focusPath, "textDecoration");
+    bold = hasStyleAtNode(stateLegacy, focusPath, "fontWeight");
+    italic = hasStyleAtNode(stateLegacy, focusPath, "fontStyle");
+    underline = hasStyleAtNode(stateLegacy, focusPath, "textDecoration");
   } else {
     // Expanded: use getStyleInRange
-    bold = getStyleInRange(state, selection, "fontWeight") !== undefined;
-    italic = getStyleInRange(state, selection, "fontStyle") !== undefined;
-    underline = getStyleInRange(state, selection, "textDecoration") !== undefined;
+    bold = getStyleInRange(stateLegacy, selection, "fontWeight") !== undefined;
+    italic = getStyleInRange(stateLegacy, selection, "fontStyle") !== undefined;
+    underline = getStyleInRange(stateLegacy, selection, "textDecoration") !== undefined;
   }
 
   return {
@@ -78,7 +81,7 @@ export function getFormatState(editorState: EditorState): FormatState {
     underline,
     blockType,
     headingLevel,
-    canUndo: history.undoStack.length > 0,
-    canRedo: history.redoStack.length > 0,
+    canUndo: historyLegacy.undoStack.length > 0,
+    canRedo: historyLegacy.redoStack.length > 0,
   };
 }

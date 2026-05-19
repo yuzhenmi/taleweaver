@@ -4,28 +4,26 @@ import {
   renderTree,
   cascadePass,
   layoutTree,
-  createCursor,
+  createInitialEditorState,
   type EditorState,
   type EditorConfig,
-  type EditorHistory,
 } from "@taleweaver/core";
 
 const SAMPLE_TEXT =
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.";
 
-function createEmptyHistory(): EditorHistory {
-  return {
-    undoStack: [],
-    redoStack: [],
-    lastEditTimestamp: 0,
-    lastEditTag: "",
-  };
-}
-
 /**
  * Build a synthetic EditorState containing `paragraphCount` paragraphs, each
  * with a single text run of ~`charsPerParagraph` characters. The entire
  * document is laid out in one pass — no per-paragraph layout passes.
+ *
+ * P11.0+: the fixture overrides only the legacy representation
+ * (`stateLegacy`, `renderTree`, `layoutTree`) for benchmark setup. The
+ * new `state: State` and `history: History` come from a real
+ * `createInitialEditorState(config)` call and will be out of sync with
+ * the synthetic `stateLegacy` until the first `reduceEditor` call (which
+ * triggers `rebuildStateFromLegacy` per the dual-rep gate). Acceptable
+ * for perf benchmarks that exercise the legacy pipeline.
  */
 export function buildPerfFixture(
   config: EditorConfig,
@@ -55,15 +53,16 @@ export function buildPerfFixture(
   const cascaded = cascadePass(rendered);
   const layout = layoutTree(cascaded, config.containerWidth, config.measurer);
 
+  // Use createInitialEditorState as the base to populate the new dual-rep
+  // fields (state, history) with valid instances; override only the legacy
+  // representation with synthetic content.
+  const base = createInitialEditorState(config);
   return {
-    state: docState,
-    selection: createCursor([0, 0], 0),
-    history: createEmptyHistory(),
+    ...base,
+    stateLegacy: docState,
     renderTree: cascaded,
     layoutTree: layout,
-    containerWidth: config.containerWidth,
     nextId: 2 * paragraphCount + 1,
-    targetX: null,
   };
 }
 
