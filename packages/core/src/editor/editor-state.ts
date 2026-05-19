@@ -48,6 +48,7 @@ import {
   handlePaste,
   handleInsertNode,
 } from "./actions";
+import { rebuildStateFromLegacy } from "./rebuild-state-from-legacy";
 
 // Re-export helpers that are part of the public API
 export { findFirstTextDescendant, findLastTextDescendant } from "./actions";
@@ -279,6 +280,14 @@ export function reduceEditor(
       result = editor;
       break;
     }
+  }
+
+  // Parallel-window sync (Decision D): after every state-mutating
+  // action, refresh the new-shape `state` field from the post-handler
+  // `stateLegacy`. Reference-equality gate skips rebuild for
+  // selection-only and other no-op-on-stateLegacy actions.
+  if (result.stateLegacy !== editor.stateLegacy) {
+    result = { ...result, state: rebuildStateFromLegacy(result.stateLegacy) };
   }
 
   if (!isVertical && result.targetX !== null) {
