@@ -9,6 +9,8 @@ import type { PageConfig } from "../layout/page-config";
 import {
   createEmptyDocument,
 } from "../state/initial-state-legacy";
+import { createEmptyDocument as createEmptyState } from "../state/initial-state";
+import { History, createHistory } from "../state/history";
 import {
   createCursor,
 } from "../cursor/selection";
@@ -124,6 +126,13 @@ export function pushEditorChange(
 export interface EditorState {
   state: StateNode;
   selection: Selection;
+  /**
+   * New Y.UndoManager-backed history wrapper. PASSIVE in P11.0 — no
+   * action handler reads/writes it. T4 will REPLACE this placeholder
+   * with one backed by the canonical `state: State` field (introduced
+   * in T4). `historyLegacy` continues to back undo/redo until cutover.
+   */
+  history: History;
   historyLegacy: EditorHistory;
   renderTree: RenderNode;
   layoutTree: LayoutBox;
@@ -141,6 +150,11 @@ export interface EditorConfig {
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
   const state = createEmptyDocument();
+  // Placeholder History backed by a throwaway State. T4 will REPLACE
+  // this instance with one bound to the canonical `state: State` field.
+  // The Y.UndoManager's Y.Doc binding is irreversible, so this throwaway
+  // wrapper must not be carried forward — T4 constructs a fresh one.
+  const placeholderNewState = createEmptyState();
   const selection = createCursor([0, 0], 0);
   const rendered = renderTree(state, config.registry);
   const cascaded = cascadePass(rendered);
@@ -149,6 +163,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   return {
     state,
     selection,
+    history: createHistory(placeholderNewState),
     historyLegacy: createEditorHistory(),
     renderTree: cascaded,
     layoutTree: layout,

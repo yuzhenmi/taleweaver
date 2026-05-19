@@ -12,6 +12,7 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./editor-state";
+import { History } from "../state/history";
 
 const measurer = createMockShaper(8, 16);
 const registry = createRegistry([...defaultComponents]);
@@ -147,5 +148,25 @@ describe("undo history grouping", () => {
     // Delete 1 char — different action type, should start new group
     state = reduceEditor(state, { type: "DELETE_BACKWARD" }, config);
     expect(state.historyLegacy.undoStack.length).toBe(2);
+  });
+});
+
+describe("EditorState.history wrapper (P11.0)", () => {
+  it("createInitialEditorState returns an editor with a History wrapper instance", () => {
+    const editor = createInitialEditorState(config);
+    expect(editor.history).toBeInstanceOf(History);
+  });
+
+  it("historyLegacy still backs undo/redo (wrapper is passive in P11.0)", () => {
+    let editor = createInitialEditorState(config);
+    expect(editor.historyLegacy.undoStack).toEqual([]);
+    expect(editor.historyLegacy.redoStack).toEqual([]);
+
+    // Type something and confirm the LEGACY history is what records it.
+    editor = typeChars(editor, "ab");
+    expect(editor.historyLegacy.undoStack.length).toBeGreaterThan(0);
+    // The wrapper remains constructed but P11.0 does not push to it.
+    expect(editor.history).toBeInstanceOf(History);
+    expect(editor.history.canUndo()).toBe(false);
   });
 });
