@@ -544,12 +544,16 @@ function paintBox(
   }
 
   if (box.type === "page") {
-    // White page background.
-    ctx.fillStyle = "white";
-    ctx.fillRect(absX, absY, box.width, box.height);
-    // Recurse into page's content children (no per-page borders or margins
-    // here — those are managed by paintPage in paginated mode; this branch
-    // is a defensive fallback for single-canvas mode painting a paginated tree).
+    // The page's white background is painted by `paintPage` before the
+    // paintBox walk (and before selection rects are drawn). Repainting it
+    // here would overwrite the selection-rect layer that was just drawn
+    // between paintPage's background fill and this paintBox call.
+    //
+    // The earlier comment claimed this was a defensive fallback for
+    // single-canvas mode painting a paginated tree — but `paintCanvas` /
+    // single-canvas mode never receives a paginated tree (the controller
+    // routes paginated layouts through `paintPages` / `paintPage`). The
+    // fallback was dead code masking a real rendering bug.
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
     }
