@@ -6,14 +6,73 @@ import type { BlockId, IdAllocator } from "../../state/block-id";
 import { productionAllocator } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { insertBlock } from "../../state/insert-block";
+import type { InlineItem, TextItem } from "../../state/inline-content";
+import { mergeAdjacentTextItems } from "../../state/inline-content";
+import type { ReadonlyAttrs } from "../../state/attrs";
 import { rebuildTrees } from "./helpers";
 
 /**
+ * Block types whose `inlineContent` carries text directly (the new model's
+ * inline-bearing leaves). For these, NewNode.children of type "text" / "span"
+ * are collapsed into inlineContent items rather than inserted as child blocks.
+ */
+const INLINE_BEARING_LEAF_TYPES = new Set([
+  "paragraph",
+  "heading",
+]);
+
+/**
+ * Atomic leaf types: no inline content, no children. NewNode.children are
+ * ignored entirely for these.
+ */
+const ATOMIC_LEAF_TYPES = new Set([
+  "image",
+  "horizontal-line",
+]);
+
+/**
+ * Walk a NewNode tree (legacy shape: text/span are children, not inline
+ * content) and produce a flat list of InlineItems. Span nodes propagate
+ * their `properties` as attrs to inner text items.
+ */
+function collectInlineItemsFromNewNode(
+  newNode: NewNode,
+  inheritedAttrs: ReadonlyAttrs,
+): InlineItem[] {
+  const out: InlineItem[] = [];
+  for (const child of newNode.children) {
+    if (child.type === "text") {
+      const content = child.properties.content;
+      if (typeof content !== "string" || content.length === 0) continue;
+      const item: TextItem = {
+        kind: "text",
+        text: content,
+        attrs: Object.freeze({ ...inheritedAttrs }),
+      };
+      out.push(Object.freeze(item));
+    } else if (child.type === "span") {
+      const spanAttrs = { ...inheritedAttrs, ...child.properties };
+      out.push(...collectInlineItemsFromNewNode(child, spanAttrs));
+    }
+    // Other child types under an inline-bearing leaf are ignored — they
+    // shouldn't appear in a well-formed legacy paragraph/heading tree.
+  }
+  return mergeAdjacentTextItems(out);
+}
+
+/**
  * Insert `newNode` (and recursively its descendants) under `parentId` as
- * the last child. Returns the resulting state and the new root block id.
- * Closed-schema `style` from NewNode is ignored in the new model — only
- * `properties` (treated as attrs) flow into the inserted block. Callers
- * that need styling should set attrs that route through AttrRegistry.
+ * the last child. Translates legacy NewNode shape to the new block model:
+ *
+ *   - For inline-bearing leaf types (paragraph, heading): collect text/span
+ *     descendants into `inlineContent.items`. Do NOT recurse into children
+ *     as blocks.
+ *   - For atomic leaf types (image, horizontal-line): ignore children.
+ *   - For container types (document, list, list-item, table, table-row,
+ *     table-cell, etc.): recurse into children as blocks.
+ *
+ * Closed-schema `style` from NewNode is dropped — styling routes through
+ * AttrRegistry-recognized attrs in the new model.
  */
 function insertNewNodeAt(
   state: State,
@@ -21,10 +80,20 @@ function insertNewNodeAt(
   parentId: BlockId,
   allocator: IdAllocator,
 ): State {
+  const isLeaf = INLINE_BEARING_LEAF_TYPES.has(newNode.type)
+    || ATOMIC_LEAF_TYPES.has(newNode.type);
+  const inlineContent = isLeaf
+    ? {
+        items: INLINE_BEARING_LEAF_TYPES.has(newNode.type)
+          ? collectInlineItemsFromNewNode(newNode, {})
+          : [],
+      }
+    : null;
+
   const insertResult = insertBlock(state, parentId, null, {
     type: newNode.type,
     attrs: newNode.properties,
-    inlineContent: newNode.children.length === 0 ? { items: [] } : null,
+    inlineContent,
   }, allocator);
   let cur = insertResult.state;
   // After insert, the new block is the parent's lastChildId.
@@ -32,8 +101,13 @@ function insertNewNodeAt(
   if (parent === null) return cur;
   const newId = parent.lastChildId;
   if (newId === null) return cur;
-  for (const child of newNode.children) {
-    cur = insertNewNodeAt(cur, child, newId, allocator);
+
+  // Only recurse for container types. For leaves, children were already
+  // consumed into inlineContent (or ignored for atomic leaves).
+  if (!isLeaf) {
+    for (const child of newNode.children) {
+      cur = insertNewNodeAt(cur, child, newId, allocator);
+    }
   }
   return cur;
 }
