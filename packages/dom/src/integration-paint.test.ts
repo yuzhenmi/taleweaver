@@ -250,6 +250,13 @@ describe("paintCanvas root short-circuit", () => {
       isUnchanged(b: LayoutBox) { return baseCache.isUnchanged(b); },
       getLastRoot() { return baseCache.getLastRoot(); },
       setLastRoot(r: LayoutBox | null) { baseCache.setLastRoot(r); },
+      // Cursor / selection snapshot — delegate to baseCache so addCursorDirty
+      // and addSelectionDirty in paintCanvas can short-circuit when the
+      // cursor/selection are unchanged.
+      getLastCursor() { return baseCache.getLastCursor(); },
+      setLastCursor(c: Parameters<typeof baseCache.setLastCursor>[0]) { baseCache.setLastCursor(c); },
+      getLastSelectionRects() { return baseCache.getLastSelectionRects(); },
+      setLastSelectionRects(r: Parameters<typeof baseCache.setLastSelectionRects>[0]) { baseCache.setLastSelectionRects(r); },
     };
 
     // First paint: walks the whole tree, populates cache. Many `get` calls.

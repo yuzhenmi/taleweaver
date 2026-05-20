@@ -72,6 +72,16 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
  * a WeakMap so dropped boxes are auto-cleared). Persists across paints
  * to enable change detection.
  */
+/** Snapshot of the cursor's last paint inputs — used by the incremental paint
+ * loop to detect cursor moves / blink-state changes that don't touch layout.
+ * `null` means "no cursor painted last frame." */
+export interface CursorSnapshot {
+  readonly x: number;
+  readonly y: number;
+  readonly height: number;
+  readonly state: "active" | "inactive" | "hidden";
+}
+
 export interface PaintCache {
   get(box: LayoutBox): PaintInputHash | undefined;
   set(box: LayoutBox, hash: PaintInputHash): void;
@@ -83,11 +93,21 @@ export interface PaintCache {
   getLastRoot(): LayoutBox | null;
   /** Record the root of the just-walked tree. Pass null to clear. */
   setLastRoot(root: LayoutBox | null): void;
+  /** Last frame's cursor snapshot (or null on first paint). */
+  getLastCursor(): CursorSnapshot | null;
+  /** Record this frame's cursor snapshot. */
+  setLastCursor(cursor: CursorSnapshot | null): void;
+  /** Last frame's selection rects (or null on first paint). */
+  getLastSelectionRects(): readonly Rect[] | null;
+  /** Record this frame's selection rects. */
+  setLastSelectionRects(rects: readonly Rect[] | null): void;
 }
 
 export function createPaintCache(): PaintCache {
   const map = new WeakMap<LayoutBox, PaintInputHash>();
   let lastRoot: LayoutBox | null = null;
+  let lastCursor: CursorSnapshot | null = null;
+  let lastSelectionRects: readonly Rect[] | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -103,6 +123,8 @@ export function createPaintCache(): PaintCache {
     },
     clear() {
       lastRoot = null;
+      lastCursor = null;
+      lastSelectionRects = null;
       // WeakMap entries auto-clear when keys are GC'd
     },
     getLastRoot() {
@@ -110,6 +132,18 @@ export function createPaintCache(): PaintCache {
     },
     setLastRoot(r) {
       lastRoot = r;
+    },
+    getLastCursor() {
+      return lastCursor;
+    },
+    setLastCursor(c) {
+      lastCursor = c;
+    },
+    getLastSelectionRects() {
+      return lastSelectionRects;
+    },
+    setLastSelectionRects(r) {
+      lastSelectionRects = r;
     },
   };
 }

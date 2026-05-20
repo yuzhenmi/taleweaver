@@ -82,6 +82,12 @@ export function paintCanvas(
     walkAndDetectChanges(layoutTree, 0, 0, cache, dirty, true);
     cache.setLastRoot(layoutTree);
 
+    // Also dirty the cursor and selection regions when they change — these
+    // don't touch the layout tree but still need a repaint (cursor moves on
+    // click, selection rects on drag, cursor visibility on blink).
+    addCursorDirty(dirty, cache, cursorPos, cursorState);
+    addSelectionDirty(dirty, cache, selectionRects);
+
     if (dirty.length > 0) {
       for (const r of dirty) {
         ctx.clearRect(r.x, r.y, r.w, r.h);
@@ -175,6 +181,17 @@ export function paintPage(
     // see comment at the paintBox call below.
     walkAndDetectChanges(pageBox, -pageBox.x, -pageBox.y, cache, dirty, true);
     cache.setLastRoot(pageBox);
+
+    // Dirty the cursor region when the cursor moved or changed state
+    // (paintPage is called per-page; cursorPos may be null when the cursor
+    // is not on this page).
+    addCursorDirty(
+      dirty,
+      cache,
+      cursorPos ?? { x: 0, y: 0, height: 0 },
+      cursorPos === null ? "hidden" : cursorState,
+    );
+    addSelectionDirty(dirty, cache, selectionRects);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
@@ -278,6 +295,78 @@ export function paintPage(
  * @param cache     Per-canvas PaintCache (1:1 with paint target).
  * @param dirty     Accumulator — rectangles of changed boxes are appended here.
  */
+/**
+ * If the cursor's position or state has changed since the last paint, push
+ * the OLD and NEW cursor rects into `dirty` so the paint loop clears + redraws
+ * those regions. Width is hardcoded to 2px (the cursor's painted width).
+ * This is what lets click/move/blink visually update even when the layout
+ * tree is reference-equal to the previous frame.
+ */
+function addCursorDirty(
+  dirty: Rect[],
+  cache: PaintCache,
+  cursorPos: { x: number; y: number; height: number },
+  cursorState: "active" | "inactive" | "hidden",
+): void {
+  const last = cache.getLastCursor();
+  const current = { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height, state: cursorState };
+  const moved = last === null
+    || last.x !== current.x
+    || last.y !== current.y
+    || last.height !== current.height
+    || last.state !== current.state;
+  if (moved) {
+    if (last !== null && last.state !== "hidden") {
+      dirty.push({ x: last.x, y: last.y, w: 2, h: last.height });
+    }
+    if (current.state !== "hidden") {
+      dirty.push({ x: current.x, y: current.y, w: 2, h: current.height });
+    }
+    cache.setLastCursor(current);
+  }
+}
+
+/**
+ * If the selection rects changed since the last paint, push union(prev, curr)
+ * into `dirty`. Selection rect changes happen on drag-select; without this
+ * dirty entry, the layout-reference-equal short-circuit would skip painting.
+ *
+ * SelectionRect uses `width/height`; the cache stores `Rect` shape (`w/h`),
+ * so each rect is translated before storage and comparison.
+ */
+function addSelectionDirty(
+  dirty: Rect[],
+  cache: PaintCache,
+  selectionRects: readonly SelectionRect[],
+): void {
+  const last = cache.getLastSelectionRects();
+  const current: Rect[] = selectionRects.map((r) => ({
+    x: r.x,
+    y: r.y,
+    w: r.width,
+    h: r.height,
+  }));
+  // Cheap structural compare: same length + every rect matches by value.
+  let same = last !== null && last.length === current.length;
+  if (same && last !== null) {
+    for (let i = 0; i < current.length; i++) {
+      const a = last[i];
+      const b = current[i];
+      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h) {
+        same = false;
+        break;
+      }
+    }
+  }
+  if (!same) {
+    if (last !== null) {
+      for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    }
+    for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    cache.setLastSelectionRects(current);
+  }
+}
+
 function walkAndDetectChanges(
   box: LayoutBox,
   parentX: number,
