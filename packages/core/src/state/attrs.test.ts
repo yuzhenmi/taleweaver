@@ -101,4 +101,14 @@ describe("mergeAttrs", () => {
     const existing: ReadonlyAttrs = { bold: true, fontSize: 12 };
     expect(mergeAttrs(existing, {})).toEqual({ bold: true, fontSize: 12 });
   });
+
+  it("returns a frozen object for parity with other attrs producers", () => {
+    const a: ReadonlyAttrs = { bold: true };
+    const b: ReadonlyAttrs = { italic: true };
+    expect(Object.isFrozen(mergeAttrs(a, b))).toBe(true);
+  });
+
+  it("returns a frozen object even when both inputs are empty", () => {
+    expect(Object.isFrozen(mergeAttrs({}, {}))).toBe(true);
+  });
 });

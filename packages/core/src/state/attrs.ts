@@ -79,5 +79,5 @@ export function mergeAttrs(existing: ReadonlyAttrs, incoming: ReadonlyAttrs): Re
       result[key] = incoming[key];
     }
   }
-  return result;
+  return Object.freeze(result) as ReadonlyAttrs;
 }
