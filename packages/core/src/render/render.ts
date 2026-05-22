@@ -209,5 +209,26 @@ function expandInlineItems(
     }
     i++;
   }
+
+  // Empty-paragraph strut sentinel: when a leaf block has no inline items
+  // (e.g. an empty paragraph after the user pressed Enter), the layout
+  // pipeline keys IFC dispatch off the presence of inline children. To
+  // ensure the IFC is invoked — so its zero-tokens path emits the strut
+  // LineBox carrying one line-height of vertical space (browser-faithful
+  // empty-<p> behavior) — we emit a single empty TextBox here. Its empty
+  // text produces zero tokens (collectInlineTokens short-circuits on empty
+  // text), so the only effect is triggering IFC dispatch. Atomic-leaf
+  // components (image, horizontal-line) ignore inlineRenderNodes entirely
+  // (they read attrs and pass [] to createElementBox), so the sentinel is
+  // discarded for them — only inline-bearing leaves see the strut behavior.
+  if (out.length === 0) {
+    out.push(
+      Object.freeze({
+        ...createTextBox(`${blockId}/inline/0`, {}, ""),
+        computedStyle: flattenLengths(composeComputed({}, blockComputed)),
+      }),
+    );
+  }
+
   return out;
 }

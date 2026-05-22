@@ -50,6 +50,118 @@ describe("layoutInlineContent — wrapping", () => {
   });
 });
 
+describe("layoutInlineContent — empty inline content (strut line)", () => {
+  // Empty inline-bearing-leaf blocks (e.g. an empty <p>) must display as one
+  // line-height of vertical space, per CSS line-box "strut" semantics — not as
+  // zero-height. The IFC emits one empty LineBox carrying the parent block's
+  // font line-height so adjacent paragraphs don't visually collapse together.
+  it("empty inline-bearing-leaf block layouts to one line-height tall", () => {
+    // A block with a single empty TextBox child — this is what the IFC sees
+    // when an inline-bearing-leaf component has no inline content items.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, ""),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const block = result.box;
+    expect(block.children).toHaveLength(1);
+    const line = block.children[0];
+    if (line.type !== "line") throw new Error("expected line box");
+    // Mock shaper's measureHeight returns 16 (lineHeight = 16).
+    expect(line.height).toBe(16);
+    expect(line.children).toHaveLength(0);
+    // Block's total block size = the strut line's height.
+    expect(block.height).toBe(16);
+  });
+
+  it("strut line has the parent block's font line-height", () => {
+    // Same scenario but with explicit per-block style: ensure the strut uses
+    // the parent's computed style for line height, not a constant.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, ""),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line box");
+    expect(line.height).toBeGreaterThan(0);
+    expect(line.y).toBe(0); // first line at the block's blockOffset
+  });
+
+  it("IFC dispatched on a block with an empty TextBox child emits one strut line", () => {
+    // This mirrors the real-world dispatch path: the renderer's
+    // expandInlineItems emits a sentinel empty TextBox when a leaf block has
+    // no inline items. The resulting ElementBox has one TextBox child with
+    // text="", which routes through the BFC → inline-run group → IFC, and
+    // the IFC's zero-tokens path emits the strut line.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("p/inline/0", {}, ""),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    expect(out.height).toBe(16);
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].height).toBe(16);
+  });
+
+  it("consecutive empty paragraphs each get their own full line-height", () => {
+    // Three empty paragraphs stacked. Each must contribute one line-height
+    // to the parent's total block size (no collapsing into zero).
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p1", { display: "block" }, [createTextBox("t1", {}, "")]),
+        createElementBox("p2", { display: "block" }, [createTextBox("t2", {}, "")]),
+        createElementBox("p3", { display: "block" }, [createTextBox("t3", {}, "")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    // Each empty paragraph should contribute >= one line-height (16).
+    expect(out.height).toBeGreaterThanOrEqual(48);
+  });
+
+  it("empty paragraph between two non-empty paragraphs maintains visible spacing", () => {
+    // <p>Welcome</p><p></p><p>Goodbye</p> — the middle empty paragraph must
+    // occupy one line-height of space; the third paragraph's y must be at
+    // least (first paragraph height + empty line height) below the start.
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p1", { display: "block" }, [createTextBox("t1", {}, "Welcome")]),
+        createElementBox("p2", { display: "block" }, [createTextBox("t2", {}, "")]),
+        createElementBox("p3", { display: "block" }, [createTextBox("t3", {}, "Goodbye")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const blocks = out.children.filter(c => c.type === "block");
+    expect(blocks).toHaveLength(3);
+    // The empty middle paragraph must be at least one line-height tall.
+    expect(blocks[1].height).toBeGreaterThanOrEqual(16);
+    // Third paragraph must be below first paragraph + middle paragraph's height.
+    expect(blocks[2].y).toBeGreaterThanOrEqual(blocks[0].height + blocks[1].height);
+  });
+});
+
 describe("IFC whiteSpace handling", () => {
   it("nowrap produces a single line even when text exceeds width", () => {
     const tree = cascadePass(

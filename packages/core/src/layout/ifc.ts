@@ -555,6 +555,36 @@ export function layoutInlineContent(
     currentWidth += unit.totalWidth;
   }
 
+  // Strut line (CSS line-box semantics): an inline-bearing block with no
+  // wrap units (e.g. an empty paragraph — no text, no inline-block, no
+  // hard break) must still display as ONE line-height of vertical space,
+  // not collapse to zero. Browsers achieve this via the line-box "strut" —
+  // a synthetic, zero-content line carrying the block's font line-height.
+  // Without this, empty paragraphs are invisible (h=0) and stacked-tight
+  // against their neighbours, and selection/caret on the empty line has no
+  // line box to attach to.
+  if (units.length === 0) {
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    const strutBlockSize = measurer.measureHeight(parentCs);
+    const strutUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+    const strutLine = createLineBox(
+      `${parent.key}-l${lineIndex++}`,
+      lineInlineCursor,
+      lineBlockOffset,
+      lineInlineSize,
+      strutBlockSize,
+      writingMode,
+      direction,
+      parentCs,
+      strutUsedStyle,
+      [],
+      /* baseline */ strutBlockSize,
+      /* containingInlineSize */ availableInlineSize,
+    );
+    lines.push(strutLine);
+    lineBlockOffset += strutBlockSize;
+  }
+
   // Units queue: we may inject split suffix units back into the front.
   let unitQueue: WrapUnit[] = [...units];
   let uqi = 0;
