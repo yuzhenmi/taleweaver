@@ -71,6 +71,16 @@ export function App() {
         },
       },
     });
+
+    // Move cursor to the very start of the document. INSERT_TEXT leaves the
+    // cursor at the END of the inserted text (offset 76 of the welcome
+    // paragraph) — landing the cursor there on first paint isn't useful for
+    // a fresh editor. Put the cursor at offset 0 so a fresh user sees it at
+    // the document start.
+    editor.dispatch({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
