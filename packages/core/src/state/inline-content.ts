@@ -61,6 +61,17 @@ export function findItemAtOffset(
   content: InlineContent,
   offset: number,
 ): { itemIndex: number; withinItem: number } {
+  // T32: out-of-range guard. Pre-T32, `offset > total` silently fell through
+  // the loop and returned end-of-content — making out-of-bounds callers
+  // (and the splitInlineContentAtOffset delegate) silently truncate. The
+  // check is STRICTLY GREATER, not >=, because `offset === total` is a
+  // legitimate end-of-block position used by end-of-block splits.
+  const total = inlineContentLength(content);
+  if (offset < 0 || offset > total) {
+    throw new Error(
+      `findItemAtOffset: offset ${offset} out of range [0, ${total}]`,
+    );
+  }
   let cursor = 0;
   for (let i = 0; i < content.items.length; i++) {
     const item = content.items[i];

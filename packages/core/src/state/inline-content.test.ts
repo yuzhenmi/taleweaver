@@ -65,6 +65,27 @@ describe("findItemAtOffset", () => {
     const empty = inlineContent([]);
     expect(findItemAtOffset(empty, 0)).toEqual({ itemIndex: 0, withinItem: 0 });
   });
+
+  // T32: out-of-range guard. The pre-T32 implementation silently treated
+  // offset > inlineContentLength like offset === inlineContentLength (both
+  // fell through to end-of-content). After T32, anything strictly past the
+  // total throws. Negative offsets throw too. The exact equality case
+  // (offset === inlineContentLength) must remain a legitimate end-of-block
+  // position — this is what end-of-block splits rely on.
+  it("throws when offset is strictly greater than the total length", () => {
+    const c = inlineContent([text("abc")]);
+    expect(() => findItemAtOffset(c, 100)).toThrow(/out of range \[0, 3\]/);
+  });
+
+  it("throws when offset is negative", () => {
+    const c = inlineContent([text("abc")]);
+    expect(() => findItemAtOffset(c, -1)).toThrow(/out of range \[0, 3\]/);
+  });
+
+  it("does NOT throw when offset equals total length (end-of-content)", () => {
+    const c = inlineContent([text("abc")]);
+    expect(findItemAtOffset(c, 3)).toEqual({ itemIndex: 1, withinItem: 0 });
+  });
 });
 
 describe("mergeAdjacentTextItems", () => {
@@ -260,5 +281,18 @@ describe("splitInlineContentAtOffset", () => {
     expect(left[1]).toMatchObject({ kind: "embed", embedType: "img" });
     expect(right).toHaveLength(1);
     expect(right[0]).toMatchObject({ kind: "text", text: "b" });
+  });
+
+  // T32 defensive lock-in: the new out-of-range guard in findItemAtOffset
+  // uses a STRICTLY GREATER check (offset > total), not >=. The exact
+  // equality case (offset === inlineContentLength) must remain a valid
+  // end-of-block split that yields [allItems, []]. If a future contributor
+  // tightens the guard to `offset >= total`, this test fires.
+  it("does NOT throw at offset === inlineContentLength (end-of-block split, T32)", () => {
+    const content = inlineContent([text("abc")]);
+    const [left, right] = splitInlineContentAtOffset(content, 3);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ kind: "text", text: "abc" });
+    expect(right).toEqual([]);
   });
 });
