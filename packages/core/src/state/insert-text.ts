@@ -130,8 +130,9 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
  * `applyOperation` is opened. Throws on every condition `insertText`'s
  * docstring lists.
  *
- * Used by `insertText` and by `replaceRange` (via `planInsertTextOnItems`
- * for the in-transaction composition path).
+ * Used by the public `insertText` wrapper. `replaceRange` does NOT call
+ * this — see `planInsertTextFullReplace` below for the
+ * post-delete composition path's planner.
  */
 export function planInsertText(
   state: State,
@@ -158,26 +159,23 @@ export function planInsertText(
 }
 
 /**
- * Plan an insertion against a pre-computed items array (NOT read from
- * `state`). Used by `replaceRange` to plan the insertion against the
- * POST-DELETE items (which exist only as the in-flight `mergedItems` of
- * the delete plan — they're not in `state` yet, since the surrounding
- * `applyOperation` hasn't been opened).
+ * Plan an insertion against a pre-computed items array. Considers
+ * `findInPlaceTarget` and returns an in-place plan when an existing
+ * Y.Text run can absorb the new text (preserves per-character CRDT
+ * identity); otherwise falls back to a full-replace plan.
+ *
+ * Currently called only by `planInsertText` — the items array passed in
+ * is `block.inlineContent.items`, a snapshot of the CURRENT Y.Array, so
+ * in-place targeting is safe (it points at the live Y.Text).
+ *
+ * NOTE: this helper is unsafe for the post-delete composition path
+ * (`replaceRange`), because by then the anchor block's Y.Array has been
+ * fully replaced by `deleteRangeInTx` via `buildYInlineContent` — the
+ * old Y.Text identity is gone. Use `planInsertTextFullReplace` instead
+ * from that path.
  *
  * Caller must guarantee `items` is normalized in the sense that
  * `offset ∈ [0, sum(item.length)]`.
- *
- * NOTE: planInsertTextOnItems forces `mode: "full-replace"` whenever the
- * caller's `items` array could have non-canonical Y.Text identity. When
- * called from the post-delete composition path, the caller is about to
- * blow away the existing Y.Array via `buildYInlineContent`, so in-place
- * targeting would point at the OLD (pre-delete) Y.Text — defaulting to
- * full-replace is the safe choice.
- *
- * For the standalone-insert path (`planInsertText` → `insertText` →
- * single transaction), the items came from `block.inlineContent.items`,
- * which is a snapshot of the CURRENT Y.Array — in-place targeting via
- * `findInPlaceTarget` is correct there.
  */
 function planInsertTextOnItems(
   blockId: BlockId,
