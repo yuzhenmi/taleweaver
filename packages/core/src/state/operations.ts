@@ -1,9 +1,9 @@
 /**
  * Layer 3 state-mutating operations barrel.
  *
- * Each operation takes a State (Y.Doc-backed per Decision C / Phase 4e)
- * and arguments, returns OperationResult (new state + dirtyIds of
- * changed blocks). Internally each op opens a Y.Doc transaction via
+ * Each operation takes a State (Y.Doc-backed per Decision C) and
+ * arguments, returns OperationResult (new state + dirtyIds of changed
+ * blocks). Internally each op opens a Y.Doc transaction via
  * applyOperation; the dirtyIds set is captured from the transaction's
  * change records.
  *

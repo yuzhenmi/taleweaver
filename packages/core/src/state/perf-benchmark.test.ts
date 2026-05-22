@@ -45,7 +45,7 @@ describe("perf benchmark (smoke)", () => {
     const result = setBlockAttrs(state, "p-5000" as BlockId, { bold: true });
     const elapsed = performance.now() - t0;
     expect(result.dirtyIds.has("p-5000" as BlockId)).toBe(true);
-    expect(elapsed).toBeLessThan(50); // 50ms — generous; tighter in P14.
+    expect(elapsed).toBeLessThan(50); // 50ms — generous; tighten as perf work matures.
   });
 
   it("getBlock on cached snapshot is sub-millisecond", () => {

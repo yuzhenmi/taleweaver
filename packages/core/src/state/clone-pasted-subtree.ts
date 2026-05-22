@@ -16,7 +16,7 @@ import type { InlineContent, InlineItem } from "./inline-content";
  *     and any further contentBlockId references it contains all land here
  *     as well.
  *
- * The split mirrors P6's State.blocks vs State.embedContents segregation:
+ * The split mirrors State.blocks vs State.embedContents segregation:
  * the caller inserts each map into the destination's matching tree.
  *
  * `rootId` is the new BlockId of the cloned root (always in `blocks`).
@@ -199,7 +199,7 @@ function collectTreeSubtreeIds(
     cur = child ? child.nextSiblingId : null;
   }
 
-  // Walk embed-content references — resolve via getEmbedContent (P6 split).
+  // Walk embed-content references — resolve via getEmbedContent (embed-tree split).
   if (block.inlineContent) {
     for (const item of block.inlineContent.items) {
       if (item.kind !== "embed") continue;

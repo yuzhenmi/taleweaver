@@ -1,12 +1,8 @@
 /**
- * Y.Doc-backed `createEmptyDocument` (canonical, post-P4e). Produces a
- * minimal valid document: a `document` root block containing one empty
- * `paragraph` child block. Uses the production BlockId allocator by
- * default; tests can inject a deterministic allocator.
- *
- * The pre-Yjs version lives at `./initial-state-legacy.ts` and continues
- * to serve the editor's legacy action layer through the P11.4 cutover.
- * P15 deletes the legacy file.
+ * Y.Doc-backed `createEmptyDocument`. Produces a minimal valid document:
+ * a `document` root block containing one empty `paragraph` child block.
+ * Uses the production BlockId allocator by default; tests can inject a
+ * deterministic allocator.
  */
 import type { IdAllocator } from "./block-id";
 import { productionAllocator } from "./block-id";

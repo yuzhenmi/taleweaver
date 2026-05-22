@@ -123,8 +123,8 @@ export function mergeAdjacentBlocks(
       // Right was the last child — rewire parent.lastChildId to left.
       // Preconditions guarantee parent.lastChildId is rightId (same-parent
       // + adjacent-sibling + right.nextSibling===null). Unconditional
-      // rewire mirrors the legacy contract; an upstream invariant violation
-      // would surface as a getYBlock throw.
+      // rewire matches the documented contract; an upstream invariant
+      // violation would surface as a getYBlock throw.
       const yParent = getYBlock(state.doc, parentId, "mergeAdjacentBlocks");
       yParent.set("lastChildId", leftId);
     }

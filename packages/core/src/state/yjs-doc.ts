@@ -157,8 +157,8 @@ export function runTransaction(
  * i.e. the key under blocksMap or embedContentsMap whose value is an
  * ancestor of `type`. Returns null if `type` is not nested under either.
  *
- * O(depth) per call. Acceptable for P4e; revisit in P14 if benchmarks
- * justify a reverse map.
+ * O(depth) per call. Acceptable in practice; revisit with a reverse map
+ * if benchmarks justify the additional bookkeeping.
  */
 function findOwningBlockId(
   type: AnyYType,

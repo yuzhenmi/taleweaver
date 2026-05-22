@@ -196,8 +196,8 @@ describe("applyAttrsToRange — embed items in range", () => {
     //   - embed gets attrs = { link: "http://x" }; properties unchanged
     //   - text("b") gets { link: "http://x" }
     // The embed-affected behavior pins that embed items ARE included in
-    // the range (the Y.Doc impl mirrors the legacy contract: embeds are
-    // single positions whose wrap-attrs participate in the merge).
+    // the range: embeds are single positions whose wrap-attrs participate
+    // in the merge.
     const state = buildState({
       rootId: "doc",
       blocks: [

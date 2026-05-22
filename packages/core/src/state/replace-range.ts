@@ -10,7 +10,7 @@ import { insertText } from "./insert-text";
 /**
  * Replace the inline content within a Span with the given text + attrs.
  *
- * Composes deleteRange (Phase 4c-4) and insertText (Phase 4b):
+ * Composes deleteRange and insertText:
  *   1. If the span is non-collapsed, delete its content via deleteRange.
  *   2. If the text is non-empty, insert it at the cursor position via
  *      insertText.
@@ -45,9 +45,9 @@ import { insertText } from "./insert-text";
  * either endpoint references a missing block. That message would shadow
  * deleteRange's prefixed contract ("anchor block ... not found", "focus
  * block ... not found"). By calling deleteRange first (which has its own
- * pre-normalize existence/leaf guards from Phase 4c-4), the operation's
- * stated error contract wins. Same architectural pattern as Phase 4c-1's
- * applyAttrsToRange fix and Phase 4c-4's deleteRange fix.
+ * pre-normalize existence/leaf guards), the operation's stated error
+ * contract wins. Same architectural pattern applyAttrsToRange and
+ * deleteRange use for the same reason.
  */
 export function replaceRange(
   state: State,

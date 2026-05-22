@@ -48,7 +48,8 @@ export function getBlock(state: State, id: BlockId): Block | null {
 
 /**
  * Read a frozen Block snapshot from the embed-contents tree by id.
- * P6 populates this map; for P4e it's empty.
+ * Returns null for unknown ids. The embed-contents tree is initially
+ * empty; embed operations populate it as embed nodes are created.
  */
 export function getEmbedContent(state: State, id: BlockId): Block | null {
   return getEmbedContentSnapshot(state.doc, id, state.snapshotCache);

@@ -341,7 +341,7 @@ describe("insertText — empty text", () => {
   });
 });
 
-describe("insertText — Y.Text identity preservation (Strategy B)", () => {
+describe("insertText — Y.Text identity preservation (in-place mutation)", () => {
   // When the insertion lands inside (or adjacent to) a text run whose attrs
   // match the incoming attrs, we mutate that run's existing Y.Text in place
   // via yText.insert(...). This preserves per-character CRDT identity across
@@ -423,7 +423,7 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
     // After fallback the Y.Array is rebuilt; the original Y.Text instance is no longer attached.
     const afterYText0 = getYTextAt(result.state, "p" as BlockId, 0);
     expect(afterYText0).not.toBe(beforeYText);
-    // Structural result still correct (legacy semantics).
+    // Structural result still correct.
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
@@ -434,11 +434,11 @@ describe("insertText — Y.Text identity preservation (Strategy B)", () => {
   it("falls back to full-replace when the block has a pre-existing unnormalized pair elsewhere", () => {
     // [text("a"){}, text("b"){}, embed, text("hello"){italic}]
     // Insert "X" {italic} at offset 4 (inside the last item).
-    // Without the full-items normalization scan, Strategy B would in-place
-    // mutate the last item's Y.Text and leave the [text("a"), text("b")]
-    // adjacency intact. The fix: detect the pre-existing adjacent same-attrs
-    // pair, bail to Strategy A so mergeAdjacentTextItems normalizes the whole
-    // block.
+    // Without the full-items normalization scan, the in-place strategy
+    // would mutate the last item's Y.Text and leave the
+    // [text("a"), text("b")] adjacency intact. The fix: detect the
+    // pre-existing adjacent same-attrs pair, bail to the full-replace
+    // fallback so mergeAdjacentTextItems normalizes the whole block.
     const state = buildState({
       rootId: "doc",
       blocks: [

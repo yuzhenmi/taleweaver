@@ -41,9 +41,9 @@ import { normalizeSpan } from "./span-iteration";
  *   - any offset is outside [0, inlineContentLength].
  *
  * Y.Doc note: the anchor block's `inlineContent` Y.Array is fully replaced
- * via `buildYInlineContent` (legacy parity preserves the merged-content
- * semantics over Y.Text identity for the touched block — same trade-off as
- * insertText's full-replace fallback).
+ * via `buildYInlineContent` — preserving the merged-content result shape
+ * takes priority over per-character Y.Text identity for the touched
+ * block (same trade-off as insertText's full-replace fallback).
  */
 export function deleteRange(state: State, span: Span): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -59,7 +59,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
   // found", "... is a container") wins over compareBlocksInDocOrder's
   // generic "block ... not found" message that would otherwise leak through
   // the normalizeSpan → comparePositions path. Same architectural pattern
-  // as Phase 4c-1's applyAttrsToRange fix.
+  // applyAttrsToRange uses for the same reason.
   const sameBlock = span.anchor.blockId === span.focus.blockId;
 
   const rawAnchor = getBlock(state, span.anchor.blockId);
@@ -210,7 +210,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
   }
 
   // Validate the focus's old nextSibling rewire-target now (outside the
-  // transaction) so the legacy "focus block's next sibling not found" error
+  // transaction) so the "focus block's next sibling not found" error
   // contract is preserved. Symmetric: validate the parent for the
   // last-child rewire branch.
   const focusNextId = focusBlock.nextSiblingId;
