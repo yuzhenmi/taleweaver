@@ -251,6 +251,190 @@ describe("computeSelectionRects (new)", () => {
     expect(rects[0].x).toBe(16);
   });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Selection across / within empty (strut-line) paragraphs (#169).
+  // After #168 added a strut LineBox for empty inline-bearing leaves, the
+  // selection-rect computation must paint a visible highlight on those
+  // empty lines too. Browser-faithful behavior (Google Docs / Word): an
+  // empty paragraph between two non-empty paragraphs highlights as a
+  // single line-height-tall rect spanning the line's content area.
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("paints one rect per line when selection crosses one empty paragraph", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p1",
+          lastChildId: "p3",
+        }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          nextSiblingId: "p3",
+          // Empty paragraph — strut line.
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "p3",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p2",
+          inlineContent: inlineContent([text("world")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Select from offset 3 of p1 ("hel|lo") to offset 3 of p3 ("wor|ld").
+    const span = createSpan(
+      createPosition("p1" as BlockId, 3),
+      createPosition("p3" as BlockId, 3),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    // Three lines visited (p1, empty p2, p3) → three rects.
+    expect(rects.length).toBe(3);
+    // Each rect lives on a strictly greater y.
+    const ys = rects.map((r) => r.y);
+    expect(ys[1]).toBeGreaterThan(ys[0]);
+    expect(ys[2]).toBeGreaterThan(ys[1]);
+    // The middle rect (on the empty paragraph) has positive width — the
+    // bug was width=0 / no rect emitted for empty lines.
+    expect(rects[1].width).toBeGreaterThan(0);
+    // And positive height (line-height).
+    expect(rects[1].height).toBeGreaterThan(0);
+  });
+
+  it("paints rects for N consecutive empty paragraphs in a selection", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p1",
+          lastChildId: "p5",
+        }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([text("start")]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          nextSiblingId: "p3",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "p3",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p2",
+          nextSiblingId: "p4",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "p4",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p3",
+          nextSiblingId: "p5",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "p5",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p4",
+          inlineContent: inlineContent([text("end")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Span the entire range from start of p1 to end of p5.
+    const span = createSpan(
+      createPosition("p1" as BlockId, 0),
+      createPosition("p5" as BlockId, 3),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    // Five distinct line ys: p1's line, three empty paragraphs, p5's line.
+    expect(rects.length).toBe(5);
+    // The three middle rects (empty paragraphs) all have positive width
+    // and positive height.
+    for (let i = 1; i <= 3; i++) {
+      expect(rects[i].width).toBeGreaterThan(0);
+      expect(rects[i].height).toBeGreaterThan(0);
+    }
+  });
+
+  it("paints a rect inside a single empty paragraph when selection starts at its end and extends to next block", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p1",
+          lastChildId: "p2",
+        }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          inlineContent: inlineContent([text("next")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Selection from start of empty p1 to mid p2.
+    const span = createSpan(
+      createPosition("p1" as BlockId, 0),
+      createPosition("p2" as BlockId, 2),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    // Two lines: empty p1's strut, p2's line.
+    expect(rects.length).toBe(2);
+    // First rect (empty p1) must have positive width.
+    expect(rects[0].width).toBeGreaterThan(0);
+    expect(rects[0].height).toBeGreaterThan(0);
+  });
+
+  it("does not regress: single-line selection in a non-empty paragraph still produces text-width rect (not full-line)", () => {
+    const state = singleParagraph("hello world");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 1),
+      createPosition("p" as BlockId, 4),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    // Width of "ell" = 24px (8px/char). Must not be full-line (800px).
+    expect(rects[0].width).toBe(24);
+  });
+
   it("produces a rect covering content around an embed item", () => {
     const state = buildState({
       rootId: "doc",

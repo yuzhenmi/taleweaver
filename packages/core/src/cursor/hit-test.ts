@@ -59,9 +59,16 @@ export function resolvePositionFromPixel(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    // 1. Collect all text boxes with absolute coordinates.
-    const allBoxes: AbsoluteTextBox[] = [];
-    collectAllTextBoxes(layoutTree, 0, 0, allBoxes);
+    // 1. Collect all text boxes with absolute coordinates. Filter out
+    //    synthetic strut-line entries — hit-test needs a real text-run
+    //    to derive a state Position from (parseInlineBoxKey on a synthetic
+    //    returns null, which would produce a null hit even though there's
+    //    an empty paragraph at that y). Clicking an empty paragraph
+    //    currently falls through to nearest-real-line behavior; leaving
+    //    that as a follow-up — see #169.
+    const rawBoxes: AbsoluteTextBox[] = [];
+    collectAllTextBoxes(layoutTree, 0, 0, rawBoxes);
+    const allBoxes = rawBoxes.filter((b) => b.synthetic !== true);
 
     // 2. Filter to target page (when paginated).
     const hasPagination = allBoxes.some((b) => b.pageIndex > 0);

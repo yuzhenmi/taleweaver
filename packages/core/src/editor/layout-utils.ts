@@ -1,4 +1,5 @@
-import type { LayoutBox, TextRunBox } from "../layout/layout-node";
+import type { LayoutBox, TextRunBox, LineBox } from "../layout/layout-node";
+import { createTextRunBox } from "../layout/layout-node";
 
 export interface AbsoluteTextBox {
   box: TextRunBox;
@@ -7,9 +8,70 @@ export interface AbsoluteTextBox {
   lineMarginTop: number;
   lineMarginBottom: number;
   pageIndex: number;
+  /**
+   * True when this entry is a synthetic stand-in for an empty
+   * (strut) line — there is no real text-run in the layout tree for
+   * that line, but the line still occupies one line-height of vertical
+   * space and selection-rect computation needs an entry to drive its
+   * line-edge maps.
+   *
+   * Consumers that interpret entries as actual rendered text (hit-test
+   * mapping pixel → state Position, cursor-position mapping state →
+   * pixel) should filter these out. Consumers that only care about
+   * line geometry (selection-rect line edges, line navigation y
+   * coordinates) can treat them like any other entry.
+   *
+   * The synthetic box has `text === ""` and `width === line.width` so
+   * the line's full content area shows up as a non-zero highlight.
+   * Its key does NOT match the inline-item key format
+   * (`${blockId}/inline/${itemIndex}`), so `parseInlineBoxKey` returns
+   * null for it — code that gates on parseInlineBoxKey naturally
+   * excludes synthetic entries.
+   */
+  synthetic?: boolean;
 }
 
-/** Collect all text-run layout boxes with absolute coordinates from a layout tree. */
+/**
+ * Build a synthetic AbsoluteTextBox entry for an empty (strut) LineBox.
+ * The synthetic TextRunBox carries the line's width/height/style so that
+ * selection-rect line-edge maps produce a full-line highlight on empty
+ * paragraphs (browser-faithful empty-<p> selection behavior).
+ */
+function makeSyntheticStrutEntry(
+  line: LineBox,
+  absoluteX: number,
+  absoluteY: number,
+  pageIndex: number,
+): AbsoluteTextBox {
+  const synthetic = createTextRunBox(
+    `${line.key}:strut`,
+    0, 0,
+    line.inlineSize, line.blockSize,
+    line.writingMode, line.direction,
+    line.computedStyle, line.usedStyle,
+    "",
+    line.inlineSize,
+  );
+  return {
+    box: synthetic,
+    absoluteX,
+    absoluteY,
+    lineMarginTop: 0,
+    lineMarginBottom: 0,
+    pageIndex,
+    synthetic: true,
+  };
+}
+
+/**
+ * Collect all text-run layout boxes (and synthetic stand-ins for
+ * strut/empty lines) with absolute coordinates from a layout tree.
+ *
+ * For each `LineBox` whose children produced no real text-run entries
+ * (an empty paragraph's strut line, per CSS line-box semantics), one
+ * synthetic entry is appended carrying the line's geometry. See
+ * `AbsoluteTextBox.synthetic` for consumer guidance.
+ */
 export function collectAllTextBoxes(
   box: LayoutBox,
   parentX: number,
@@ -50,9 +112,15 @@ export function collectAllTextBoxes(
     mt = 0;
     mb = 0;
   }
-  // BlockBox or LineBox — recurse into children
+  // LineBox: if no real text-run children produce entries for this
+  // line, emit one synthetic entry so selection-rect / line-navigation
+  // see the line. Detect by comparing `out.length` before/after recursion.
+  const startLen = box.type === "line" ? out.length : -1;
   for (const child of box.children) {
     collectAllTextBoxes(child, absX, absY, out, pageIndex, mt, mb);
+  }
+  if (box.type === "line" && out.length === startLen && box.blockSize > 0) {
+    out.push(makeSyntheticStrutEntry(box, absX, absY, pageIndex));
   }
 }
 
