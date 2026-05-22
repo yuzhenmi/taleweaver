@@ -370,6 +370,182 @@ describe("deleteRange — block-level invariants", () => {
   });
 });
 
+describe("deleteRange — cascade-delete embed-content references in the DELETED portion", () => {
+  it("same-block: deleting a span that covers an embed cascade-deletes its fn-body", () => {
+    // p[text("a"), embed("fn-anchor", { contentBlockId: "fn-body" }), text("b")]
+    // Delete [1, 2) — drops the embed; fn-body must be removed from embedContents.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("a"),
+            embed("fn-anchor", { contentBlockId: "fn-body" }),
+            text("b"),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn-body", type: "fn-body", inlineContent: inlineContent([text("note")]) }),
+      ],
+    });
+    expect(getEmbedContent(state, "fn-body" as BlockId)).not.toBeNull();
+
+    const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 2));
+    const result = deleteRange(state, span);
+
+    expect(getEmbedContent(result.state, "fn-body" as BlockId)).toBeNull();
+    expect(result.dirtyIds.has("fn-body" as BlockId)).toBe(true);
+  });
+
+  it("same-block: recursively cascade-deletes nested embed-content (footnote in footnote)", () => {
+    // p[embed("fn-anchor", { contentBlockId: "outer" })]
+    // outer body contains another embed → "inner"
+    // Delete the whole inline content → both outer and inner must cascade.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "outer" })]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "outer",
+          type: "fn-body",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "inner" })]),
+        }),
+        buildBlock({
+          id: "inner",
+          type: "fn-body",
+          inlineContent: inlineContent([text("deep")]),
+        }),
+      ],
+    });
+
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 1));
+    const result = deleteRange(state, span);
+
+    expect(getEmbedContent(result.state, "outer" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "inner" as BlockId)).toBeNull();
+    expect(result.dirtyIds.has("outer" as BlockId)).toBe(true);
+    expect(result.dirtyIds.has("inner" as BlockId)).toBe(true);
+  });
+
+  it("cross-block: cascade-deletes embeds in anchor suffix, intervening leaves, and focus prefix", () => {
+    // doc > [p1[text("x"), embed("fn-anchor", { contentBlockId: "fn-a" })],
+    //        p2[embed("fn-anchor", { contentBlockId: "fn-b" })],
+    //        p3[embed("fn-anchor", { contentBlockId: "fn-c" }), text("y")]]
+    // Delete span p1@1 → p3@1. The deleted portion is:
+    //   - anchor (p1) suffix items[1..] → embed referencing fn-a
+    //   - intervening (p2) all items → embed referencing fn-b
+    //   - focus (p3) prefix items[..1] → embed referencing fn-c
+    // The transferred suffix from focus is items[1..] → text("y").
+    // All three referenced fn-bodies must be removed.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([
+            text("x"),
+            embed("fn-anchor", { contentBlockId: "fn-a" }),
+          ]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          nextSiblingId: "p3",
+          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "fn-b" })]),
+        }),
+        buildBlock({
+          id: "p3",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p2",
+          inlineContent: inlineContent([
+            embed("fn-anchor", { contentBlockId: "fn-c" }),
+            text("y"),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn-a", type: "fn-body", inlineContent: inlineContent([text("A")]) }),
+        buildBlock({ id: "fn-b", type: "fn-body", inlineContent: inlineContent([text("B")]) }),
+        buildBlock({ id: "fn-c", type: "fn-body", inlineContent: inlineContent([text("C")]) }),
+      ],
+    });
+
+    const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
+    const result = deleteRange(state, span);
+
+    expect(getEmbedContent(result.state, "fn-a" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "fn-b" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "fn-c" as BlockId)).toBeNull();
+    expect(result.dirtyIds.has("fn-a" as BlockId)).toBe(true);
+    expect(result.dirtyIds.has("fn-b" as BlockId)).toBe(true);
+    expect(result.dirtyIds.has("fn-c" as BlockId)).toBe(true);
+  });
+
+  it("cross-block: preserves embed in transferred focus suffix; cascade-deletes embed in deleted focus prefix", () => {
+    // doc > [p1[text("x")],
+    //        p2[embed("fn-anchor", { contentBlockId: "drop" }),
+    //           embed("fn-anchor", { contentBlockId: "keep" })]]
+    // Delete p1@1 → p2@1. Deleted = "" from p1 suffix (empty) +
+    //   p2 prefix items[..1] = embed referencing "drop".
+    // Transferred suffix from p2 = items[1..] = embed referencing "keep".
+    // Result: "drop" must be cascade-deleted, "keep" must NOT.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({
+          id: "p1",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p2",
+          inlineContent: inlineContent([text("x")]),
+        }),
+        buildBlock({
+          id: "p2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "p1",
+          inlineContent: inlineContent([
+            embed("fn-anchor", { contentBlockId: "drop" }),
+            embed("fn-anchor", { contentBlockId: "keep" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "drop", type: "fn-body", inlineContent: inlineContent([text("drop")]) }),
+        buildBlock({ id: "keep", type: "fn-body", inlineContent: inlineContent([text("keep")]) }),
+      ],
+    });
+
+    const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p2" as BlockId, 1));
+    const result = deleteRange(state, span);
+
+    expect(getEmbedContent(result.state, "drop" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "keep" as BlockId)).not.toBeNull();
+    expect(result.dirtyIds.has("drop" as BlockId)).toBe(true);
+  });
+});
+
 describe("deleteRange — edge offsets and special cases", () => {
   it("collapsed span (anchor === focus) is a no-op (returns same state, empty dirtyIds)", () => {
     const state = buildState({

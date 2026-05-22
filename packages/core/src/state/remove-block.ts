@@ -1,7 +1,8 @@
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock, getEmbedContent } from "./state";
+import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
+import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
 
 /**
  * Remove a block (and its entire subtree) from the document tree.
@@ -81,12 +82,11 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     for (const id of subtreeIds) {
       const subBlock = getBlock(state, id);
       if (subBlock === null || subBlock.inlineContent === null) continue;
-      for (const item of subBlock.inlineContent.items) {
-        if (item.kind !== "embed") continue;
-        const cbId = item.properties.contentBlockId;
-        if (typeof cbId !== "string") continue;
-        collectEmbedContentSubtree(state, cbId as BlockId, embedContentIdsToDelete);
-      }
+      collectEmbedContentSubtreeFromInlineContent(
+        state,
+        subBlock.inlineContent,
+        embedContentIdsToDelete,
+      );
     }
     const yEmbeds = getEmbedContentsMap(state.doc);
     for (const id of embedContentIdsToDelete) {
@@ -144,44 +144,5 @@ function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): vo
     collectSubtreeIds(state, current, out);
     const c = getBlock(state, current);
     current = c !== null ? c.nextSiblingId : null;
-  }
-}
-
-/**
- * Walk an embed-content subtree rooted at `rootId` and add every visited
- * id to `out`. Follows both child links (descendants) and nested
- * EmbedItem.properties.contentBlockId references in this embed-content's
- * inlineContent (e.g., a footnote whose body contains another footnote
- * anchor). Cycle-defended: a block already in `out` is not re-visited.
- *
- * Gracefully no-ops if `rootId` is not in state.embedContents — this
- * handles the case where two anchors reference the same body and one
- * has already been processed in an earlier `removeBlock` call.
- */
-function collectEmbedContentSubtree(
-  state: State,
-  rootId: BlockId,
-  out: Set<BlockId>,
-): void {
-  if (out.has(rootId)) return;
-  const block = getEmbedContent(state, rootId);
-  if (block === null) return;
-  out.add(rootId);
-  // Children of an embed-content block (if any) are themselves embed-content.
-  let childId = block.firstChildId;
-  while (childId !== null) {
-    if (out.has(childId)) break;
-    collectEmbedContentSubtree(state, childId, out);
-    const child = getEmbedContent(state, childId);
-    childId = child?.nextSiblingId ?? null;
-  }
-  // Nested embed-content references in this embed-content's inlineContent.
-  if (block.inlineContent !== null) {
-    for (const item of block.inlineContent.items) {
-      if (item.kind !== "embed") continue;
-      const cbId = item.properties.contentBlockId;
-      if (typeof cbId !== "string") continue;
-      collectEmbedContentSubtree(state, cbId as BlockId, out);
-    }
   }
 }

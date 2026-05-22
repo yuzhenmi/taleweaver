@@ -7,9 +7,10 @@ import {
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
 } from "./inline-content";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
+import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
 
 /**
  * Delete the inline content within a Span.
@@ -44,6 +45,14 @@ import { normalizeSpan } from "./span-iteration";
  * via `buildYInlineContent` — preserving the merged-content result shape
  * takes priority over per-character Y.Text identity for the touched
  * block (same trade-off as insertText's full-replace fallback).
+ *
+ * Cascade-deletes embed-content references for the DELETED inline portion:
+ * walks dropped `EmbedItem.properties.contentBlockId` references and
+ * recursively removes each referenced block (plus its descendants and any
+ * nested contentBlockId refs) from `state.embedContents`. The transferred
+ * suffix (focus.items[focus.offset..) into anchor) is preserved, so embed
+ * references that survive the operation are NOT cascade-deleted. Mirrors
+ * the same invariant `removeBlock` upholds; see `embed-content-cascade.ts`.
  */
 export function deleteRange(state: State, span: Span): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -126,13 +135,39 @@ export function deleteRange(state: State, span: Span): OperationResult {
       return { state, dirtyIds: new Set<BlockId>() };
     }
 
-    const [prefix] = splitInlineContentAtOffset(block.inlineContent, normalized.anchor.offset);
+    const [prefix, afterPrefix] = splitInlineContentAtOffset(
+      block.inlineContent,
+      normalized.anchor.offset,
+    );
     const [, suffix] = splitInlineContentAtOffset(block.inlineContent, normalized.focus.offset);
     const merged = mergeAdjacentTextItems([...prefix, ...suffix]);
+
+    // Collect embed-content ids referenced by the DELETED inline portion
+    // (items[anchor.offset .. focus.offset)). Splitting afterPrefix at
+    // (focus.offset - anchor.offset) yields the deleted slice as its
+    // prefix. Per the "no orphaned blocks" invariant, dropped EmbedItems
+    // own their referenced contentBlockId subtrees and must cascade-delete.
+    const deletedLength = normalized.focus.offset - normalized.anchor.offset;
+    const [deletedItems] = splitInlineContentAtOffset(
+      { items: afterPrefix },
+      deletedLength,
+    );
+    const embedContentIdsToDelete = new Set<BlockId>();
+    collectEmbedContentSubtreeFromInlineContent(
+      state,
+      { items: deletedItems },
+      embedContentIdsToDelete,
+    );
 
     return applyOperation(state, () => {
       const yBlock = getYBlock(state.doc, block.id, "deleteRange");
       yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
+      if (embedContentIdsToDelete.size > 0) {
+        const yEmbeds = getEmbedContentsMap(state.doc);
+        for (const id of embedContentIdsToDelete) {
+          yEmbeds.delete(id);
+        }
+      }
     });
   }
 
@@ -230,9 +265,43 @@ export function deleteRange(state: State, span: Span): OperationResult {
 
   // Build merged anchor inline content (pure JS — Y materialization happens
   // inside the transaction via buildYInlineContent).
-  const [anchorPrefix] = splitInlineContentAtOffset(anchorBlock.inlineContent, normalized.anchor.offset);
-  const [, focusSuffix] = splitInlineContentAtOffset(focusBlock.inlineContent, normalized.focus.offset);
+  const [anchorPrefix, anchorDeletedSuffix] = splitInlineContentAtOffset(
+    anchorBlock.inlineContent,
+    normalized.anchor.offset,
+  );
+  const [focusDeletedPrefix, focusSuffix] = splitInlineContentAtOffset(
+    focusBlock.inlineContent,
+    normalized.focus.offset,
+  );
   const mergedItems = mergeAdjacentTextItems([...anchorPrefix, ...focusSuffix]);
+
+  // Collect embed-content ids referenced by the DELETED inline portion of
+  // the cross-block range. The deleted portion is:
+  //   - anchor suffix: items[anchor.offset..) of anchorBlock
+  //   - all intervening leaves' items
+  //   - focus prefix: items[..focus.offset) of focusBlock
+  // Per the "no orphaned blocks" invariant, dropped EmbedItems own their
+  // referenced contentBlockId subtrees and must cascade-delete.
+  const embedContentIdsToDelete = new Set<BlockId>();
+  collectEmbedContentSubtreeFromInlineContent(
+    state,
+    { items: anchorDeletedSuffix },
+    embedContentIdsToDelete,
+  );
+  for (const id of interveningIds) {
+    const interveningBlock = getBlock(state, id);
+    if (interveningBlock === null || interveningBlock.inlineContent === null) continue;
+    collectEmbedContentSubtreeFromInlineContent(
+      state,
+      interveningBlock.inlineContent,
+      embedContentIdsToDelete,
+    );
+  }
+  collectEmbedContentSubtreeFromInlineContent(
+    state,
+    { items: focusDeletedPrefix },
+    embedContentIdsToDelete,
+  );
 
   return applyOperation(state, () => {
     const yBlocks = getBlocksMap(state.doc);
@@ -261,6 +330,16 @@ export function deleteRange(state: State, span: Span): OperationResult {
     yBlocks.delete(focusBlock.id);
     for (const id of interveningIds) {
       yBlocks.delete(id);
+    }
+
+    // Cascade-delete embed-content subtrees referenced by the dropped
+    // inline portion. Done last (after block writes/deletes) so the
+    // y-doc transaction observers see a single atomic write.
+    if (embedContentIdsToDelete.size > 0) {
+      const yEmbeds = getEmbedContentsMap(state.doc);
+      for (const id of embedContentIdsToDelete) {
+        yEmbeds.delete(id);
+      }
     }
   });
 }
