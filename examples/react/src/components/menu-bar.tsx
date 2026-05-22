@@ -8,13 +8,13 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import type { EditorAction, EditorState } from "@taleweaver/dom";
-import type { NewNode } from "@taleweaver/core";
+import type { BlockInit } from "@taleweaver/core";
 
-// Minimal paragraph factory. Mirrors the previous `createParagraph()` helper:
-// produces a NewNode with type=paragraph and no children. `handleInsertNode`
-// ignores `style` in the new model, so the empty object is fine here.
-function createParagraph(): NewNode {
-  return { type: "paragraph", properties: {}, style: {}, children: [] };
+// Minimal paragraph factory. Builds a BlockInit for a paragraph block with
+// no inlineContent (empty paragraph). `INSERT_NODE` validates the shape
+// against `blockKindOf("paragraph") === "inline-bearing-leaf"`.
+function createParagraph(): BlockInit {
+  return { type: "paragraph", attrs: {}, inlineContent: { items: [] } };
 }
 
 interface DocMenuBarProps {

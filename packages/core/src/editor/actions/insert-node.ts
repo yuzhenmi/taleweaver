@@ -1,18 +1,13 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import type { NewNode } from "../../state/node";
+import type { BlockInit } from "../../state/block-init";
 import type { Position } from "../../state/block-position";
 import type { State } from "../../state/state";
 import type { BlockId, IdAllocator } from "../../state/block-id";
 import { productionAllocator } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { insertBlock } from "../../state/insert-block";
-import type { InlineItem, TextItem } from "../../state/inline-content";
-import { mergeAdjacentTextItems } from "../../state/inline-content";
-import type { ReadonlyAttrs } from "../../state/attrs";
-import {
-  INLINE_BEARING_LEAF_TYPES,
-  ATOMIC_LEAF_TYPES,
-} from "../../state/block-kinds";
+import type { InlineContent } from "../../state/inline-content";
+import { blockKindOf } from "../../state/block-kinds";
 import { rebuildTrees } from "./helpers";
 
 interface InsertNodeFold {
@@ -21,71 +16,75 @@ interface InsertNodeFold {
 }
 
 /**
- * Walk a NewNode tree (legacy shape: text/span are children, not inline
- * content) and produce a flat list of InlineItems. Span nodes propagate
- * their `properties` as attrs to inner text items.
- */
-function collectInlineItemsFromNewNode(
-  newNode: NewNode,
-  inheritedAttrs: ReadonlyAttrs,
-): InlineItem[] {
-  const out: InlineItem[] = [];
-  for (const child of newNode.children) {
-    if (child.type === "text") {
-      const content = child.properties.content;
-      if (typeof content !== "string" || content.length === 0) continue;
-      const item: TextItem = {
-        kind: "text",
-        text: content,
-        attrs: Object.freeze({ ...inheritedAttrs }),
-      };
-      out.push(Object.freeze(item));
-    } else if (child.type === "span") {
-      const spanAttrs = { ...inheritedAttrs, ...child.properties };
-      out.push(...collectInlineItemsFromNewNode(child, spanAttrs));
-    }
-    // Other child types under an inline-bearing leaf are ignored — they
-    // shouldn't appear in a well-formed legacy paragraph/heading tree.
-  }
-  return mergeAdjacentTextItems(out);
-}
-
-/**
- * Insert `newNode` (and recursively its descendants) under `parentId` as
- * the last child. Translates legacy NewNode shape to the new block model:
+ * Insert a `BlockInit` (and its descendants) under `parentId` as the last
+ * child. Dispatches on `blockKindOf(init.type)`:
  *
- *   - For inline-bearing leaf types (paragraph, heading, list-item):
- *     collect text/span descendants into `inlineContent.items`. Do NOT
- *     recurse into children as blocks.
- *   - For atomic leaf types (image, horizontal-line): ignore children.
- *   - For container types (document, list, table, table-row, table-cell,
- *     etc.): recurse into children as blocks.
- *
- * Closed-schema `style` from NewNode is dropped — styling routes through
- * AttrRegistry-recognized attrs in the new model.
+ *   - inline-bearing-leaf (paragraph, heading, list-item): use
+ *     `init.inlineContent` directly. `init.children` MUST be undefined or
+ *     empty; otherwise throws (shape mismatch).
+ *   - atomic-leaf (image, horizontal-line): no inlineContent, no children.
+ *     Throws if either is populated.
+ *   - container (document, list, table, table-row, table-cell, etc.):
+ *     no inlineContent. Recurses into `init.children` to build the subtree.
+ *     Throws if `init.inlineContent` is populated.
  */
-function insertNewNodeAt(
+function insertBlockInitAt(
   state: State,
-  newNode: NewNode,
+  init: BlockInit,
   parentId: BlockId,
   allocator: IdAllocator,
   accumulatedDirtyIds: Set<BlockId>,
 ): InsertNodeFold {
-  const isLeaf = INLINE_BEARING_LEAF_TYPES.has(newNode.type)
-    || ATOMIC_LEAF_TYPES.has(newNode.type);
-  const inlineContent = isLeaf
-    ? {
-        items: INLINE_BEARING_LEAF_TYPES.has(newNode.type)
-          ? collectInlineItemsFromNewNode(newNode, {})
-          : [],
-      }
-    : null;
+  const kind = blockKindOf(init.type);
 
-  const insertResult = insertBlock(state, parentId, null, {
-    type: newNode.type,
-    attrs: newNode.properties,
-    inlineContent,
-  }, allocator);
+  const inlineProvided =
+    init.inlineContent !== undefined
+    && init.inlineContent !== null
+    && init.inlineContent.items.length > 0;
+  const childrenProvided =
+    init.children !== undefined && init.children.length > 0;
+
+  let inlineContent: InlineContent | null;
+  if (kind === "inline-bearing-leaf") {
+    if (childrenProvided) {
+      throw new Error(
+        `INSERT_NODE: inline-bearing-leaf block "${init.type}" must not have children`,
+      );
+    }
+    inlineContent = init.inlineContent ?? { items: [] };
+  } else if (kind === "atomic-leaf") {
+    if (inlineProvided) {
+      throw new Error(
+        `INSERT_NODE: atomic-leaf block "${init.type}" must not have inlineContent`,
+      );
+    }
+    if (childrenProvided) {
+      throw new Error(
+        `INSERT_NODE: atomic-leaf block "${init.type}" must not have children`,
+      );
+    }
+    inlineContent = null;
+  } else {
+    // container
+    if (inlineProvided) {
+      throw new Error(
+        `INSERT_NODE: container block "${init.type}" must not have inlineContent`,
+      );
+    }
+    inlineContent = null;
+  }
+
+  const insertResult = insertBlock(
+    state,
+    parentId,
+    null,
+    {
+      type: init.type,
+      attrs: init.attrs,
+      inlineContent,
+    },
+    allocator,
+  );
   for (const id of insertResult.dirtyIds) accumulatedDirtyIds.add(id);
   let cur = insertResult.state;
   // After insert, the new block is the parent's lastChildId.
@@ -94,11 +93,15 @@ function insertNewNodeAt(
   const newId = parent.lastChildId;
   if (newId === null) return { state: cur, dirtyIds: accumulatedDirtyIds };
 
-  // Only recurse for container types. For leaves, children were already
-  // consumed into inlineContent (or ignored for atomic leaves).
-  if (!isLeaf) {
-    for (const child of newNode.children) {
-      const sub = insertNewNodeAt(cur, child, newId, allocator, accumulatedDirtyIds);
+  if (kind === "container" && init.children !== undefined) {
+    for (const child of init.children) {
+      const sub = insertBlockInitAt(
+        cur,
+        child,
+        newId,
+        allocator,
+        accumulatedDirtyIds,
+      );
       cur = sub.state;
     }
   }
@@ -107,13 +110,13 @@ function insertNewNodeAt(
 
 export function handleInsertNode(
   editor: EditorState,
-  newNode: NewNode,
+  init: BlockInit,
   _position: Position | undefined,
   config: EditorConfig,
 ): EditorState {
-  const fold = insertNewNodeAt(
+  const fold = insertBlockInitAt(
     editor.state,
-    newNode,
+    init,
     editor.state.rootId,
     productionAllocator,
     new Set<BlockId>(),

@@ -1,8 +1,8 @@
 /**
  * Block-shape classification. Used by:
  *   - setBlockType to enforce shape-consistent type changes (T11).
- *   - editor/actions/insert-node.ts to translate legacy NewNode shape.
- *   - T31's future replacement of NewNode with BlockInit.
+ *   - editor/actions/insert-node.ts to dispatch `BlockInit` shape
+ *     validation per kind (inline-bearing-leaf vs atomic-leaf vs container).
  *
  * Three kinds:
  *   - inline-bearing-leaf: has inlineContent items, no children

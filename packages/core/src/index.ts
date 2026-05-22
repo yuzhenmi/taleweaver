@@ -203,8 +203,8 @@ export {
   findLastContentBlock,
 } from "./editor/editor-state";
 
-// NewNode helper (still used by INSERT_NODE action payload).
-export type { NewNode } from "./state/node";
+// Public input shape for the INSERT_NODE action payload.
+export type { BlockInit } from "./state/block-init";
 
 // Performance tracing
 export type { PerfReport } from "./perf/perf-trace";

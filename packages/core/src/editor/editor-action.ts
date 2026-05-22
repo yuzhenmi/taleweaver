@@ -1,5 +1,5 @@
 import type { Selection, Position } from "../state/block-position";
-import type { NewNode } from "../state/node";
+import type { BlockInit } from "../state/block-init";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -27,4 +27,4 @@ export type EditorAction =
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
   | { type: "DELETE_LINE" }
-  | { type: "INSERT_NODE"; node: NewNode; position?: Position };
+  | { type: "INSERT_NODE"; node: BlockInit; position?: Position };

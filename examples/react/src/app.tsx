@@ -43,16 +43,16 @@ export function App() {
       type: "INSERT_NODE",
       node: {
         type: "paragraph",
-        properties: {},
-        style: {},
-        children: [
-          {
-            type: "text",
-            properties: { content: "Welcome to Taleweaver — a document editor built with a custom layout engine." },
-            style: {},
-            children: [],
-          },
-        ],
+        attrs: {},
+        inlineContent: {
+          items: [
+            {
+              kind: "text",
+              text: "Welcome to Taleweaver — a document editor built with a custom layout engine.",
+              attrs: {},
+            },
+          ],
+        },
       },
     });
 
@@ -65,16 +65,16 @@ export function App() {
       type: "INSERT_NODE",
       node: {
         type: "paragraph",
-        properties: {},
-        style: { direction: "rtl" },
-        children: [
-          {
-            type: "text",
-            properties: { content: "שלום world עולם" },
-            style: {},
-            children: [],
-          },
-        ],
+        attrs: { direction: "rtl" },
+        inlineContent: {
+          items: [
+            {
+              kind: "text",
+              text: "שלום world עולם",
+              attrs: {},
+            },
+          ],
+        },
       },
     });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
