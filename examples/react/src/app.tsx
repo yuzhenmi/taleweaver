@@ -39,21 +39,15 @@ export function App() {
 
     // Seed the initial document with some demo content so there is visible text
     // to exercise the layout engine on first load.
+    //
+    // createEmptyDocument seeds the doc with a single empty paragraph and the
+    // initial cursor sits inside it. We INSERT_TEXT into that existing empty
+    // paragraph rather than appending a new one — otherwise the empty
+    // paragraph remains as a tiny invisible line above the seeded content,
+    // and the cursor lands there on first load.
     editor.dispatch({
-      type: "INSERT_NODE",
-      node: {
-        type: "paragraph",
-        attrs: {},
-        inlineContent: {
-          items: [
-            {
-              kind: "text",
-              text: "Welcome to Taleweaver — a document editor built with a custom layout engine.",
-              attrs: {},
-            },
-          ],
-        },
-      },
+      type: "INSERT_TEXT",
+      text: "Welcome to Taleweaver — a document editor built with a custom layout engine.",
     });
 
     // RTL smoke-test paragraph: Hebrew + Latin mixed text, direction rtl.

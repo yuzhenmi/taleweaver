@@ -19,7 +19,7 @@ import {
   type EditorConfig,
   type PageConfig,
 } from "@taleweaver/core";
-import { createCanvasMeasurer } from "@taleweaver/dom";
+import { createCanvasShaper } from "@taleweaver/dom";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 
 const DEFAULT_WIDTH = 600;
@@ -33,9 +33,17 @@ const PAGE_CONFIG: PageConfig = {
 
 function createConfig(): EditorConfig {
   const canvas = document.createElement("canvas");
-  const measurer = createCanvasMeasurer(canvas);
+  // Pass the shaper directly (NOT createCanvasMeasurer). The measurer adapter
+  // chain (adaptShaperToMeasurer → measurerToShaper) distributes a string's
+  // total width uniformly across its characters — every cluster gets
+  // `total / length` — losing the per-character widths the canvas shaper
+  // actually produced. Symptom: words rendered too close together (the
+  // sum-of-per-char advance for a wide word like "Welcome" exceeds the
+  // uniform-distribution estimate, but the renderer paints at the layout
+  // position that assumed the uniform estimate — so "Welcome " ends where
+  // "Welco" would have ended visually, and the next word starts there).
   return {
-    measurer,
+    measurer: createCanvasShaper(canvas),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
