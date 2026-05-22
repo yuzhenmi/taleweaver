@@ -54,9 +54,8 @@ describe("block-schema BLOCK_FIELDS roundtrip", () => {
       getBlocksMap(doc).set("p1", buildYBlock(init));
     });
     const cache = createSnapshotCache();
-    const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
-    expect(snap).not.toBeNull();
-    const b = snap!;
+    const b = getBlockSnapshot(doc, "p1" as BlockId, cache);
+    if (b === null) throw new Error("expected snapshot for p1");
 
     expect(b.id).toBe("p1");
     expect(b.type).toBe(init.type);
@@ -66,15 +65,15 @@ describe("block-schema BLOCK_FIELDS roundtrip", () => {
     expect(b.nextSiblingId).toBe(init.nextSiblingId);
     expect(b.firstChildId).toBe(init.firstChildId);
     expect(b.lastChildId).toBe(init.lastChildId);
-    expect(b.inlineContent).not.toBeNull();
-    expect(b.inlineContent!.items.length).toBe(3);
-    const first = b.inlineContent!.items[0];
+    if (b.inlineContent === null) throw new Error("expected inlineContent");
+    expect(b.inlineContent.items.length).toBe(3);
+    const first = b.inlineContent.items[0];
     expect(first.kind).toBe("text");
     if (first.kind === "text") {
       expect(first.text).toBe("hello ");
       expect(first.attrs).toEqual({ bold: true });
     }
-    const second = b.inlineContent!.items[1];
+    const second = b.inlineContent.items[1];
     expect(second.kind).toBe("embed");
     if (second.kind === "embed") {
       expect(second.embedType).toBe("image");
@@ -98,9 +97,8 @@ describe("block-schema BLOCK_FIELDS roundtrip", () => {
       getBlocksMap(doc).set("s1", buildYBlock(init));
     });
     const cache = createSnapshotCache();
-    const snap = getBlockSnapshot(doc, "s1" as BlockId, cache);
-    expect(snap).not.toBeNull();
-    const b = snap!;
+    const b = getBlockSnapshot(doc, "s1" as BlockId, cache);
+    if (b === null) throw new Error("expected snapshot for s1");
 
     expect(b.id).toBe("s1");
     expect(b.type).toBe("section");
@@ -134,8 +132,8 @@ describe("block-schema BLOCK_FIELDS roundtrip", () => {
     });
     const cache = createSnapshotCache();
     const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
-    expect(snap).not.toBeNull();
-    const b = snap! as unknown as Record<string, unknown>;
+    if (snap === null) throw new Error("expected snapshot for p1");
+    const b = snap as unknown as Record<string, unknown>;
     for (const spec of BLOCK_FIELDS) {
       // The snapshot must have the key — `null` is OK, `undefined` is not.
       expect(spec.key in b).toBe(true);
