@@ -138,10 +138,11 @@ export class History {
    * before/after selection pair, and clears the redo stack.
    *
    * **Contract:** callers MUST NOT invoke `commit` on a no-op operation
-   * (`opResult.dirtyIds.size === 0`). Yjs skips no-op groups under
-   * `captureTimeout: 0`; calling `commit` anyway would push a selection
-   * entry without a matching `undoStack` entry and break alignment. The
-   * dev-mode assertion below catches this.
+   * (`opResult.dirtyIds.size === 0`). Yjs skips no-op groups (verified
+   * empirically — see the class-level docstring above for the
+   * captureTimeout discussion); calling `commit` anyway would push a
+   * selection entry without a matching `undoStack` entry and break
+   * alignment. The dev-mode assertion below catches this.
    */
   commit(opResult: OperationResult, selections: SelectionEntry): void {
     this.currentState = opResult.state;
