@@ -99,7 +99,7 @@ export { extractText } from "./state/extract-text";
 export {
   History,
   createHistory,
-  type PushHistoryArgs,
+  type SelectionEntry,
   type UndoRedoResult,
 } from "./state/history";
 

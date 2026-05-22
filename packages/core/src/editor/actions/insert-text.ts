@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import type { OperationResult } from "../../state/state";
 import { insertText } from "../../state/insert-text";
 import { replaceRange } from "../../state/replace-range";
 import { createPosition, createSpan } from "../../state/block-position";
@@ -15,31 +16,35 @@ export function handleInsertText(
     selectionBefore.anchor.blockId === selectionBefore.focus.blockId &&
     selectionBefore.anchor.offset === selectionBefore.focus.offset;
 
-  let newState;
+  let result: OperationResult;
   let newCursorBlockId;
   let newCursorOffset;
   if (!collapsed) {
     const start = spanStart(editor.state, selectionBefore);
-    const result = replaceRange(editor.state, selectionBefore, text, {});
-    newState = result.state;
+    result = replaceRange(editor.state, selectionBefore, text, {});
     newCursorBlockId = start.blockId;
     newCursorOffset = start.offset + text.length;
   } else {
     const focus = selectionBefore.focus;
-    const result = insertText(editor.state, focus, text, {});
-    newState = result.state;
+    result = insertText(editor.state, focus, text, {});
     newCursorBlockId = focus.blockId;
     newCursorOffset = focus.offset + text.length;
   }
 
+  // No-op short-circuit: Yjs skips no-op groups, so committing here
+  // would break the History stack-alignment invariant.
+  if (result.dirtyIds.size === 0) return editor;
+
   const newCursor = createPosition(newCursorBlockId, newCursorOffset);
   const newSelection = createSpan(newCursor, newCursor);
 
-  editor.history.setState(newState);
-  editor.history.push({ selection: newSelection });
+  editor.history.commit(result, {
+    before: selectionBefore,
+    after: newSelection,
+  });
 
   return rebuildTrees(
-    { ...editor, state: newState, selection: newSelection },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
   );

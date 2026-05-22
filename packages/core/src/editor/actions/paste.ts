@@ -1,5 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import type { State } from "../../state/state";
+import type { BlockId } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { productionAllocator } from "../../state/block-id";
 import { createPosition, createSpan, type Position } from "../../state/block-position";
@@ -27,6 +28,10 @@ export function handlePaste(
     selection.anchor.blockId === selection.focus.blockId &&
     selection.anchor.offset === selection.focus.offset;
 
+  // Accumulate dirtyIds across every chained op so commit reflects the
+  // full set of touched blocks for downstream consumers.
+  const accumulatedDirtyIds = new Set<BlockId>();
+
   if (!collapsed) {
     const anchorBlock = getBlock(state, selection.anchor.blockId);
     const focusBlock = getBlock(state, selection.focus.blockId);
@@ -40,6 +45,7 @@ export function handlePaste(
     const start = spanStart(state, selection);
     const deleteResult = deleteRange(state, selection);
     state = deleteResult.state;
+    for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     pos = createPosition(start.blockId, start.offset);
   }
 
@@ -49,6 +55,7 @@ export function handlePaste(
   if (lines[0].length > 0) {
     const r = insertText(state, pos, lines[0], {});
     state = r.state;
+    for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
     pos = createPosition(pos.blockId, pos.offset + lines[0].length);
   }
 
@@ -60,6 +67,7 @@ export function handlePaste(
     }
     const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
     state = splitResult.state;
+    for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
     const updatedOriginal = getBlock(state, pos.blockId);
     if (updatedOriginal === null) break;
     const newBlockId = updatedOriginal.nextSiblingId;
@@ -69,13 +77,18 @@ export function handlePaste(
     if (lines[i].length > 0) {
       const r = insertText(state, pos, lines[i], {});
       state = r.state;
+      for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
       pos = createPosition(pos.blockId, pos.offset + lines[i].length);
     }
   }
 
+  if (accumulatedDirtyIds.size === 0) return editor;
+
   const newSelection = createSpan(pos, pos);
-  editor.history.setState(state);
-  editor.history.push({ selection: newSelection });
+  editor.history.commit(
+    { state, dirtyIds: accumulatedDirtyIds },
+    { before: selection, after: newSelection },
+  );
   return rebuildTrees(
     { ...editor, state, selection: newSelection },
     editor,

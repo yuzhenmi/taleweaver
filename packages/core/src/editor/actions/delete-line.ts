@@ -27,10 +27,13 @@ export function handleDeleteLine(
     }
     const start = spanStart(editor.state, selection);
     const result = deleteRange(editor.state, selection);
+    if (result.dirtyIds.size === 0) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
-    editor.history.setState(result.state);
-    editor.history.push({ selection: newSelection });
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
     return rebuildTrees(
       { ...editor, state: result.state, selection: newSelection },
       editor,
@@ -56,10 +59,13 @@ export function handleDeleteLine(
 
   const span = createSpan(lineStart, pos);
   const result = deleteRange(editor.state, span);
+  if (result.dirtyIds.size === 0) return editor;
   const newCursor = createPosition(lineStart.blockId, lineStart.offset);
   const newSelection = createSpan(newCursor, newCursor);
-  editor.history.setState(result.state);
-  editor.history.push({ selection: newSelection });
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
     { ...editor, state: result.state, selection: newSelection },
     editor,

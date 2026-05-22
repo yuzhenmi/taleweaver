@@ -284,10 +284,12 @@ describe("editor flow: undo / redo", () => {
     if (afterUndoBlock !== null && afterUndoBlock.inlineContent !== null) {
       expect(inlineContentLength(afterUndoBlock.inlineContent)).toBe(0);
     }
-    // Selection: per the quirk above, lands at the post-first-keystroke
-    // snapshot (offset 1) rather than the pre-typing position (offset 0).
+    // Selection: with the pre-action selection algebra (T1/T4), undo
+    // restores the caret to where it sat BEFORE each keystroke. After
+    // undoing all five keystrokes, the caret is back at the original
+    // pre-typing position (offset 0).
     expect(editor.selection.focus.blockId).toBe(blockId);
-    expect(editor.selection.focus.offset).toBe(1);
+    expect(editor.selection.focus.offset).toBe(0);
 
     for (let i = 0; i < 5; i++) {
       editor = reduceEditor(editor, { type: "REDO" }, config);

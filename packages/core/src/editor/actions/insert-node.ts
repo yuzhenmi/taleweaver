@@ -11,6 +11,11 @@ import { mergeAdjacentTextItems } from "../../state/inline-content";
 import type { ReadonlyAttrs } from "../../state/attrs";
 import { rebuildTrees } from "./helpers";
 
+interface InsertNodeFold {
+  readonly state: State;
+  readonly dirtyIds: Set<BlockId>;
+}
+
 /**
  * Block types whose `inlineContent` carries text directly (the new model's
  * inline-bearing leaves). For these, NewNode.children of type "text" / "span"
@@ -79,7 +84,8 @@ function insertNewNodeAt(
   newNode: NewNode,
   parentId: BlockId,
   allocator: IdAllocator,
-): State {
+  accumulatedDirtyIds: Set<BlockId>,
+): InsertNodeFold {
   const isLeaf = INLINE_BEARING_LEAF_TYPES.has(newNode.type)
     || ATOMIC_LEAF_TYPES.has(newNode.type);
   const inlineContent = isLeaf
@@ -95,21 +101,23 @@ function insertNewNodeAt(
     attrs: newNode.properties,
     inlineContent,
   }, allocator);
+  for (const id of insertResult.dirtyIds) accumulatedDirtyIds.add(id);
   let cur = insertResult.state;
   // After insert, the new block is the parent's lastChildId.
   const parent = getBlock(cur, parentId);
-  if (parent === null) return cur;
+  if (parent === null) return { state: cur, dirtyIds: accumulatedDirtyIds };
   const newId = parent.lastChildId;
-  if (newId === null) return cur;
+  if (newId === null) return { state: cur, dirtyIds: accumulatedDirtyIds };
 
   // Only recurse for container types. For leaves, children were already
   // consumed into inlineContent (or ignored for atomic leaves).
   if (!isLeaf) {
     for (const child of newNode.children) {
-      cur = insertNewNodeAt(cur, child, newId, allocator);
+      const sub = insertNewNodeAt(cur, child, newId, allocator, accumulatedDirtyIds);
+      cur = sub.state;
     }
   }
-  return cur;
+  return { state: cur, dirtyIds: accumulatedDirtyIds };
 }
 
 export function handleInsertNode(
@@ -118,16 +126,21 @@ export function handleInsertNode(
   _position: Position | undefined,
   config: EditorConfig,
 ): EditorState {
-  const newState = insertNewNodeAt(
+  const fold = insertNewNodeAt(
     editor.state,
     newNode,
     editor.state.rootId,
     productionAllocator,
+    new Set<BlockId>(),
   );
-  editor.history.setState(newState);
-  editor.history.push({ selection: editor.selection });
+  if (fold.dirtyIds.size === 0) return editor;
+
+  editor.history.commit(
+    { state: fold.state, dirtyIds: fold.dirtyIds },
+    { before: editor.selection, after: editor.selection },
+  );
   return rebuildTrees(
-    { ...editor, state: newState },
+    { ...editor, state: fold.state },
     editor,
     config,
   );

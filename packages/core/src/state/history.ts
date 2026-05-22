@@ -1,15 +1,37 @@
 import * as Y from "yjs";
-import type { State } from "./state";
+import type { Selection } from "./block-position";
+import type { OperationResult, State } from "./state";
 import { freshState } from "./state";
 import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
 
-export interface PushHistoryArgs {
-  selection: unknown | null;
+/**
+ * True iff we should run dev-mode invariant checks. Reads `process.env`
+ * defensively because the engine compiles for browsers (no `process`
+ * global) — `globalThis` is the safe vehicle and the typeof guard keeps
+ * us from referencing a missing identifier.
+ */
+function isDevMode(): boolean {
+  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
+    .process;
+  return proc?.env?.NODE_ENV !== "production";
+}
+
+/**
+ * One entry on the undo / redo selection stacks: the pre-action and
+ * post-action selections captured at commit time.
+ *
+ * The stacks hold the SAME shape: when an entry moves from undo→redo
+ * (via `undo()`) or redo→undo (via `redo()`), the pair travels intact
+ * so both directions of traversal can return the correct side.
+ */
+export interface SelectionEntry {
+  readonly before: Selection | null;
+  readonly after: Selection | null;
 }
 
 export interface UndoRedoResult {
   readonly state: State;
-  readonly selection: unknown | null;
+  readonly selection: Selection | null;
 }
 
 /**
@@ -19,11 +41,7 @@ export interface UndoRedoResult {
  * to detect changes).
  *
  * Selection is per-client local state (not in Y.Doc); tracked separately
- * in parallel stacks and returned on undo/redo for the caller to apply.
- *
- * Per Decision D point 9: during P11.0+ parallel window the editor
- * wraps this in a backend-selector that also delegates to a legacy
- * EditorHistory. Within P4e, this is the only backend.
+ * in the per-entry pairs and returned on undo/redo for the caller to apply.
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
  * with ONLY the blocks map and the embedContents map as tracked scopes.
@@ -42,70 +60,105 @@ export interface UndoRedoResult {
  * which case extend the UndoManager's tracked-types list here AND
  * update this docstring. Silently writing to meta produces non-undoable
  * changes — that is a footgun, not a feature.
+ *
+ * ## Yjs no-op behavior (empirical, see history.test.ts)
+ *
+ * Under both `captureTimeout: 0` AND `captureTimeout:
+ * Number.MAX_SAFE_INTEGER`, an empty transaction followed by
+ * `stopCapturing()` does NOT increment `undoManager.undoStack.length`.
+ * Yjs skips no-op groups. Consequence: action handlers MUST short-circuit
+ * BEFORE calling `commit` on a no-op operation (e.g., check
+ * `opResult.dirtyIds.size === 0`). The dev-mode write-time assertion in
+ * `commit` catches accidental violations of this contract.
+ *
+ * ## Multi-transaction grouping
+ *
+ * Empirically, under `captureTimeout: Number.MAX_SAFE_INTEGER` Yjs MERGES
+ * consecutive `doc.transact` calls into a single undo group until
+ * `stopCapturing()` is called. This is the configuration we want: action
+ * handlers may compose multiple internal ops (each its own
+ * `doc.transact`), and they collapse to one undo entry at the action
+ * boundary marked by `commit`. Under `captureTimeout: 0` Yjs would split
+ * every transaction into its own undo group, breaking the alignment
+ * invariant for any handler that chains ops.
  */
 export class History {
   private readonly undoManager: Y.UndoManager;
   private currentState: State;
   /**
-   * Selection snapshots paired with the UndoManager's undo stack.
+   * Selection-entry stack aligned 1:1 with `undoManager.undoStack`.
+   * Each entry stores BOTH the pre-action and post-action selection so
+   * `undo()` can return `before` and `redo()` (after the entry has
+   * traveled to the redo stack) can return `after`.
    *
-   * Alignment invariant: `push()` is the ONLY caller of
-   * `undoManager.stopCapturing()`. Because `captureTimeout: 0` means
-   * the UndoManager doesn't auto-close groups based on time, each
-   * call to `push()` corresponds 1:1 with one UndoManager undo-stack
-   * entry (since the prior transaction's group is closed at exactly
-   * that point). Therefore `selectionStack.length === undoManager.undoStack.length`
-   * after every `push()`. The same invariant holds for redo.
-   *
-   * CAVEAT: if a transaction runs WITHOUT a subsequent `push()`, the
-   * UndoManager still records it as a separate undo entry the next time
-   * `stopCapturing` fires (or on the next transaction with a different
-   * origin). In our model, every action handler is expected to call
-   * `push()` after producing an OperationResult — that's the action
-   * boundary. Tests verifying alignment should assert the invariant.
+   * Alignment invariant: `commit()` is the ONLY caller of
+   * `stopCapturing()`. Because `captureTimeout: Number.MAX_SAFE_INTEGER`
+   * disables time-based group closure, every transaction since the prior
+   * `commit()` merges into one undo group, and `commit()` closes it.
+   * Therefore each call to `commit()` corresponds 1:1 with one UndoManager
+   * undo-stack entry — provided the action mutated tracked types (Yjs
+   * skips no-op groups, so handlers must short-circuit when
+   * `opResult.dirtyIds.size === 0`). Hence
+   * `undoSelectionStack.length === undoManager.undoStack.length` holds
+   * after every `commit()`. The same invariant holds for redo.
    */
-  private readonly selectionStack: Array<unknown | null> = [];
-  /** Selection snapshots aligned with the UndoManager's redo stack. */
-  private readonly redoSelectionStack: Array<unknown | null> = [];
+  private readonly undoSelectionStack: SelectionEntry[] = [];
+  /** Selection-entry stack aligned 1:1 with `undoManager.redoStack`. */
+  private readonly redoSelectionStack: SelectionEntry[] = [];
 
   constructor(state: State) {
     this.currentState = state;
     this.undoManager = new Y.UndoManager(
       [getBlocksMap(state.doc), getEmbedContentsMap(state.doc)],
       {
-        // captureTimeout: 0 — we control grouping via explicit `push` calls.
-        captureTimeout: 0,
-        // Only track transactions with our default origin (null). Rebuilds
-        // (post-P11.0) will use a tagged origin to opt OUT of undo tracking.
+        // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close
+        // groups based on wall-clock time"; we control grouping entirely
+        // via explicit `commit` calls (each one fires `stopCapturing`,
+        // which closes the current group). This lets a single action
+        // handler chain multiple `applyOperation` calls (deleteRange +
+        // insertText, type + attrs, etc.) and have them merge into ONE
+        // undo entry — matching user-facing "one action = one undo".
+        //
+        // We do NOT use `captureTimeout: 0`. That config would split every
+        // `doc.transact` into its own undo entry, breaking action-level
+        // grouping and the `undoSelectionStack.length === undoStack.length`
+        // alignment invariant for any handler that composes ops.
+        captureTimeout: Number.MAX_SAFE_INTEGER,
+        // Only track transactions with our default origin (null). Future
+        // non-undoable mutations (e.g., remote collab edits) can opt OUT
+        // of undo tracking by using a tagged origin.
         trackedOrigins: new Set([null]),
       },
     );
   }
 
   /**
-   * Replace the wrapper's notion of "current state" after an external op.
+   * Record an undo entry. Updates the wrapper's notion of current state,
+   * closes the current Y.UndoManager capture group, records the
+   * before/after selection pair, and clears the redo stack.
    *
-   * Contract: consumers SHOULD call `setState(opResult.state)` after every
-   * op that mutates the Y.Doc, before the next `push()`. Skipping this
-   * works for undo/redo correctness (because `freshState` always re-reads
-   * from the live Y.Doc), but the wrapper's `currentState` snapshot cache
-   * may then lag behind reality between op and undo. P11.0's bridge
-   * wrapper may fold this into `push()` directly — deferred until then so
-   * the final API shape can be chosen with full parallel-window context.
+   * **Contract:** callers MUST NOT invoke `commit` on a no-op operation
+   * (`opResult.dirtyIds.size === 0`). Yjs skips no-op groups under
+   * `captureTimeout: 0`; calling `commit` anyway would push a selection
+   * entry without a matching `undoStack` entry and break alignment. The
+   * dev-mode assertion below catches this.
    */
-  setState(state: State): void {
-    this.currentState = state;
-  }
-
-  /**
-   * Close the current undo group and record an entry boundary. The
-   * provided selection (opaque) is stored alongside this entry for
-   * restoration on undo. Clears the redo stack.
-   */
-  push(args: PushHistoryArgs): void {
+  commit(opResult: OperationResult, selections: SelectionEntry): void {
+    this.currentState = opResult.state;
     this.undoManager.stopCapturing();
-    this.selectionStack.push(args.selection);
+    this.undoSelectionStack.push(selections);
     this.redoSelectionStack.length = 0;
+    if (isDevMode()) {
+      if (this.undoSelectionStack.length !== this.undoManager.undoStack.length) {
+        throw new Error(
+          `History.commit: stack alignment broken ` +
+            `(undoSelectionStack=${this.undoSelectionStack.length}, ` +
+            `undoStack=${this.undoManager.undoStack.length}). ` +
+            `Did a handler call commit on a no-op operation? ` +
+            `Handlers must short-circuit when opResult.dirtyIds.size === 0.`,
+        );
+      }
+    }
   }
 
   canUndo(): boolean {
@@ -117,33 +170,40 @@ export class History {
   }
 
   /**
-   * Pop the latest undo entry: mutate Y.Doc back, restore selection,
-   * mint a fresh State (new snapshot cache). Returns null if nothing
-   * to undo.
+   * Pop the latest undo entry: mutate Y.Doc back, mint a fresh State,
+   * and return the pre-action selection so the caller can restore it.
+   * The popped entry travels intact to the redo stack so a subsequent
+   * `redo()` can return its `after` side. Returns null if nothing to undo.
    */
   undo(): UndoRedoResult | null {
     if (!this.canUndo()) return null;
+    const entry = this.undoSelectionStack[this.undoSelectionStack.length - 1];
+    if (entry === undefined) return null;
     this.undoManager.undo();
-    const selection = this.selectionStack.pop() ?? null;
-    this.redoSelectionStack.push(selection);
+    this.undoSelectionStack.pop();
+    this.redoSelectionStack.push(entry);
     this.currentState = freshState(this.currentState);
-    return { state: this.currentState, selection };
+    return { state: this.currentState, selection: entry.before };
   }
 
   /**
-   * Re-apply the most recently undone entry.
+   * Re-apply the most recently undone entry. Returns the post-action
+   * selection so the caller can restore it. The entry travels back
+   * to the undo stack so the cycle can continue.
    */
   redo(): UndoRedoResult | null {
     if (!this.canRedo()) return null;
+    const entry = this.redoSelectionStack[this.redoSelectionStack.length - 1];
+    if (entry === undefined) return null;
     this.undoManager.redo();
-    const selection = this.redoSelectionStack.pop() ?? null;
-    this.selectionStack.push(selection);
+    this.redoSelectionStack.pop();
+    this.undoSelectionStack.push(entry);
     this.currentState = freshState(this.currentState);
-    return { state: this.currentState, selection };
+    return { state: this.currentState, selection: entry.after };
   }
 }
 
-/** Convenience factory matching the legacy API shape. */
+/** Convenience factory for constructing a `History` instance. */
 export function createHistory(state: State): History {
   return new History(state);
 }

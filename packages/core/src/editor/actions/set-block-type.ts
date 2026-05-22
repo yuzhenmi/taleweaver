@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import type { BlockId } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { setBlockType } from "../../state/set-block-type";
 import { setBlockAttrs } from "../../state/set-block-attrs";
@@ -33,8 +34,19 @@ export function handleSetBlockType(
 
   const typeResult = setBlockType(editor.state, targetId, newType);
   const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
-  editor.history.setState(attrsResult.state);
-  editor.history.push({ selection: editor.selection });
+
+  // Union dirtyIds across the chained ops so the renderer sees one
+  // OperationResult that reflects both mutations.
+  const mergedDirtyIds = new Set<BlockId>([
+    ...typeResult.dirtyIds,
+    ...attrsResult.dirtyIds,
+  ]);
+  if (mergedDirtyIds.size === 0) return editor;
+
+  editor.history.commit(
+    { state: attrsResult.state, dirtyIds: mergedDirtyIds },
+    { before: editor.selection, after: editor.selection },
+  );
   return rebuildTrees(
     { ...editor, state: attrsResult.state },
     editor,

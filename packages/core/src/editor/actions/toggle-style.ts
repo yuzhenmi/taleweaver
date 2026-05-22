@@ -81,8 +81,10 @@ export function handleToggleStyle(
     createPosition(end.blockId, end.offset),
   );
 
-  editor.history.setState(result.state);
-  editor.history.push({ selection: newSelection });
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
     { ...editor, state: result.state, selection: newSelection },
     editor,

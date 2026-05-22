@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import type { BlockId } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { productionAllocator } from "../../state/block-id";
 import { createPosition, createSpan } from "../../state/block-position";
@@ -17,6 +18,9 @@ export function handleSplitNode(
     selection.anchor.blockId === selection.focus.blockId &&
     selection.anchor.offset === selection.focus.offset;
 
+  // Accumulate dirtyIds across the optional delete + the required split.
+  const accumulatedDirtyIds = new Set<BlockId>();
+
   if (!collapsed) {
     const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
     const focusBlock = getBlock(editor.state, selection.focus.blockId);
@@ -29,6 +33,7 @@ export function handleSplitNode(
     }
     const start = spanStart(editor.state, selection);
     const deleteResult = deleteRange(editor.state, selection);
+    for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     const collapsedCursor = createPosition(start.blockId, start.offset);
     current = {
       ...editor,
@@ -51,6 +56,9 @@ export function handleSplitNode(
     pos,
     productionAllocator,
   );
+  for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
+
+  if (accumulatedDirtyIds.size === 0) return editor;
 
   const updatedOriginal = getBlock(splitResult.state, pos.blockId);
   if (updatedOriginal === null) return editor;
@@ -59,8 +67,10 @@ export function handleSplitNode(
   const newCursor = createPosition(newBlockId, 0);
   const newSelection = createSpan(newCursor, newCursor);
 
-  editor.history.setState(splitResult.state);
-  editor.history.push({ selection: newSelection });
+  editor.history.commit(
+    { state: splitResult.state, dirtyIds: accumulatedDirtyIds },
+    { before: selection, after: newSelection },
+  );
   return rebuildTrees(
     { ...current, state: splitResult.state, selection: newSelection },
     editor,
