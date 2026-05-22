@@ -61,12 +61,16 @@ describe("mergeBlockAttrs", () => {
     expect(getBlock(result.state, "p" as BlockId)?.attrs).toEqual({ bold: true });
   });
 
-  it("is a no-op when incoming merges to the same bag (no Y mutation)", () => {
+  it("is a no-op when incoming merges to the same bag (state reference identity preserved)", () => {
     const state = fixture({ bold: true });
     const result = mergeBlockAttrs(state, "p" as BlockId, { bold: true });
-    // The merged result is structurally equal to existing. Whether the
-    // underlying Y.Map write produces a change record is up to Yjs; the
-    // public contract here is just that the merged attrs equal the input.
+    // The merged result is structurally equal to existing. The op's
+    // attrsEqual short-circuit must skip the Y.Map write entirely so
+    // applyOperation returns the input state reference unchanged (T7
+    // no-op contract). This is the more interesting case than empty
+    // incoming — it pins the structural-equality short-circuit.
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
     expect(getBlock(result.state, "p" as BlockId)?.attrs).toEqual({ bold: true });
   });
 
