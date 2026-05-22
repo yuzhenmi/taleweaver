@@ -177,11 +177,13 @@ export class History {
    * `redo()` can return its `after` side. Returns null if nothing to undo.
    *
    * **Error recovery (T33):** the whole body is wrapped in try/catch.
-   * If `undoManager.undo()` or `freshState()` throws, the selection
-   * stacks are NOT mutated (the pop / push / `freshState` assignment
-   * happen INSIDE the try). Caller sees a wrapped error identifying
-   * the failure as history-internal; stack alignment is preserved so
-   * a retry has correct shape.
+   * Step order is `undoManager.undo` → `freshState` → stack mutations.
+   * If either of the first two throws, the selection stacks remain
+   * untouched, so stack alignment is preserved and a retry has the
+   * correct shape (note: `undoManager.undo` may have mutated the Y.Doc
+   * before throwing — that part is non-recoverable, but the wrapper's
+   * accounting stays consistent). Caller sees a wrapped error
+   * identifying the failure as history-internal.
    */
   undo(): UndoRedoResult | null {
     if (isDevMode()) {
@@ -201,14 +203,16 @@ export class History {
     if (entry === undefined) return null;
     try {
       this.undoManager.undo();
-      // Only mutate stacks AFTER undoManager.undo succeeds.
+      // Construct the new state BEFORE mutating stacks. If freshState throws
+      // (theoretical OOM), stacks remain untouched and a retry is sound.
+      const newState = freshState(this.currentState);
       this.undoSelectionStack.pop();
       this.redoSelectionStack.push(entry);
-      this.currentState = freshState(this.currentState);
-      return { state: this.currentState, selection: entry.before };
+      this.currentState = newState;
+      return { state: newState, selection: entry.before };
     } catch (err) {
-      // ANY throw above leaves the Y.Doc and selection stack possibly
-      // inconsistent. Don't touch the stacks; surface a wrapped error.
+      // Any throw above leaves the Y.Doc possibly mutated (if undoManager.undo
+      // ran) but the selection stacks untouched. Surface a wrapped error.
       throw new Error(
         `History.undo: failed mid-operation, history may be inconsistent: ${err}`,
       );
@@ -241,10 +245,12 @@ export class History {
     if (entry === undefined) return null;
     try {
       this.undoManager.redo();
+      // Construct the new state BEFORE mutating stacks (mirrors undo()).
+      const newState = freshState(this.currentState);
       this.redoSelectionStack.pop();
       this.undoSelectionStack.push(entry);
-      this.currentState = freshState(this.currentState);
-      return { state: this.currentState, selection: entry.after };
+      this.currentState = newState;
+      return { state: newState, selection: entry.after };
     } catch (err) {
       throw new Error(
         `History.redo: failed mid-operation, history may be inconsistent: ${err}`,
