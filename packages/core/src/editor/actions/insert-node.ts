@@ -9,31 +9,16 @@ import { insertBlock } from "../../state/insert-block";
 import type { InlineItem, TextItem } from "../../state/inline-content";
 import { mergeAdjacentTextItems } from "../../state/inline-content";
 import type { ReadonlyAttrs } from "../../state/attrs";
+import {
+  INLINE_BEARING_LEAF_TYPES,
+  ATOMIC_LEAF_TYPES,
+} from "../../state/block-kinds";
 import { rebuildTrees } from "./helpers";
 
 interface InsertNodeFold {
   readonly state: State;
   readonly dirtyIds: Set<BlockId>;
 }
-
-/**
- * Block types whose `inlineContent` carries text directly (the new model's
- * inline-bearing leaves). For these, NewNode.children of type "text" / "span"
- * are collapsed into inlineContent items rather than inserted as child blocks.
- */
-const INLINE_BEARING_LEAF_TYPES = new Set([
-  "paragraph",
-  "heading",
-]);
-
-/**
- * Atomic leaf types: no inline content, no children. NewNode.children are
- * ignored entirely for these.
- */
-const ATOMIC_LEAF_TYPES = new Set([
-  "image",
-  "horizontal-line",
-]);
 
 /**
  * Walk a NewNode tree (legacy shape: text/span are children, not inline
