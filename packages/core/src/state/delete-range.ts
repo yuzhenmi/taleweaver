@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
@@ -6,11 +7,42 @@ import {
   inlineContentLength,
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
+  type InlineItem,
 } from "./inline-content";
 import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
+
+/**
+ * Pre-computed mutation plan for `deleteRangeInTx`. Discriminated by
+ * `mode`: same-block writes only the anchor block's inlineContent;
+ * cross-block additionally deletes the focus block, any intervening
+ * leaves, and rewires the focus's old next sibling (or the parent's
+ * `lastChildId` if focus was the last child).
+ *
+ * `mergedItems` is the new anchor block inlineContent: the surviving
+ * prefix + suffix, with run-merging already applied. `embedContentIds`
+ * is the set of embed-content subtree roots to cascade-delete from
+ * `state.embedContents`.
+ */
+export type DeleteRangePlan =
+  | {
+      readonly mode: "same-block";
+      readonly blockId: BlockId;
+      readonly mergedItems: ReadonlyArray<InlineItem>;
+      readonly embedContentIds: ReadonlySet<BlockId>;
+    }
+  | {
+      readonly mode: "cross-block";
+      readonly anchorId: BlockId;
+      readonly focusId: BlockId;
+      readonly interveningIds: ReadonlyArray<BlockId>;
+      readonly focusNextId: BlockId | null;
+      readonly parentId: BlockId;
+      readonly mergedItems: ReadonlyArray<InlineItem>;
+      readonly embedContentIds: ReadonlySet<BlockId>;
+    };
 
 /**
  * Delete the inline content within a Span.
@@ -53,6 +85,10 @@ import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cas
  * suffix (focus.items[focus.offset..) into anchor) is preserved, so embed
  * references that survive the operation are NOT cascade-deleted. Mirrors
  * the same invariant `removeBlock` upholds; see `embed-content-cascade.ts`.
+ *
+ * Composition: see `deleteRangeInTx` for the in-transaction primitive
+ * used by `replaceRange` to compose delete + insert in a single Y.Doc
+ * transaction (T12 atomicity).
  */
 export function deleteRange(state: State, span: Span): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -63,6 +99,108 @@ export function deleteRange(state: State, span: Span): OperationResult {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
+  const plan = planDeleteRange(state, span);
+  if (plan === null) {
+    // Re-collapsed after normalization (e.g., reverse-order positions in
+    // the same block at the same offset).
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
+
+  return applyOperation(state, () => {
+    deleteRangeInTx(state.doc, plan);
+  });
+}
+
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `DeleteRangePlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Used by:
+ *   - `deleteRange` (thin wrapper that validates + plans + wraps in
+ *     `applyOperation`).
+ *   - `replaceRange` (composes `deleteRangeInTx` + `insertTextInTx` in a
+ *     single `applyOperation` transaction so collab peers can never
+ *     observe the post-delete pre-insert mid-state).
+ *
+ * Postcondition (cross-block): after this call, the anchor block's
+ * `inlineContent` is `plan.mergedItems`. Callers composing further
+ * mutations (e.g., `replaceRange` calling `insertTextInTx` next) MUST
+ * compute their plans against `plan.mergedItems`, NOT against the
+ * pre-delete state read via `getBlock` (the snapshot cache is stale
+ * until `applyOperation` mints a fresh State).
+ */
+export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
+  if (plan.mode === "same-block") {
+    const yBlock = getYBlock(doc, plan.blockId, "deleteRange");
+    yBlock.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
+    if (plan.embedContentIds.size > 0) {
+      const yEmbeds = getEmbedContentsMap(doc);
+      for (const id of plan.embedContentIds) {
+        yEmbeds.delete(id);
+      }
+    }
+    return;
+  }
+
+  // Cross-block.
+  const yBlocks = getBlocksMap(doc);
+  const yAnchor = getYBlock(doc, plan.anchorId, "deleteRange");
+
+  // Update anchor: new content + nextSiblingId rewired to focus's old next.
+  yAnchor.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
+  yAnchor.set("nextSiblingId", plan.focusNextId);
+
+  // Rewire focus's old nextSibling, if any. Else update the parent's
+  // lastChildId to anchor (focus was the parent's last child).
+  if (plan.focusNextId !== null) {
+    getYBlock(doc, plan.focusNextId, "deleteRange").set(
+      "prevSiblingId",
+      plan.anchorId,
+    );
+  } else {
+    getYBlock(doc, plan.parentId, "deleteRange").set(
+      "lastChildId",
+      plan.anchorId,
+    );
+  }
+
+  // Delete focus + all intervening leaves last (after reads of yAnchor /
+  // sibling updates are done).
+  yBlocks.delete(plan.focusId);
+  for (const id of plan.interveningIds) {
+    yBlocks.delete(id);
+  }
+
+  // Cascade-delete embed-content subtrees referenced by the dropped
+  // inline portion. Done last (after block writes/deletes) so the
+  // y-doc transaction observers see a single atomic write.
+  if (plan.embedContentIds.size > 0) {
+    const yEmbeds = getEmbedContentsMap(doc);
+    for (const id of plan.embedContentIds) {
+      yEmbeds.delete(id);
+    }
+  }
+}
+
+/**
+ * Validate `span` against `state` and produce a `DeleteRangePlan`
+ * describing the Y.Doc mutations needed. Returns `null` for the
+ * post-normalization re-collapsed case (caller treats as no-op).
+ *
+ * All validation reads happen here, BEFORE the surrounding
+ * `applyOperation` is opened — snapshot reads against the pre-mutation
+ * Y.Doc state. The plan captures everything `deleteRangeInTx` needs to
+ * run the mutations without further reads.
+ *
+ * Throws on every condition `deleteRange`'s docstring lists.
+ *
+ * Used by `deleteRange` and by `replaceRange` (which composes a delete
+ * plan + an insert plan into a single transaction). See `deleteRangeInTx`
+ * for the dual primitive.
+ */
+export function planDeleteRange(state: State, span: Span): DeleteRangePlan | null {
   // Pre-normalize existence + leaf guards. These run before normalizeSpan
   // so the operation's stated error contract ("anchor/focus block ... not
   // found", "... is a container") wins over compareBlocksInDocOrder's
@@ -132,7 +270,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
     // same offset. The normalized form would be identical to either input.
     // Re-check here for completeness.
     if (normalized.anchor.offset === normalized.focus.offset) {
-      return { state, dirtyIds: new Set<BlockId>() };
+      return null;
     }
 
     const [prefix, afterPrefix] = splitInlineContentAtOffset(
@@ -152,23 +290,19 @@ export function deleteRange(state: State, span: Span): OperationResult {
       { items: afterPrefix },
       deletedLength,
     );
-    const embedContentIdsToDelete = new Set<BlockId>();
+    const embedContentIds = new Set<BlockId>();
     collectEmbedContentSubtreeFromInlineContent(
       state,
       { items: deletedItems },
-      embedContentIdsToDelete,
+      embedContentIds,
     );
 
-    return applyOperation(state, () => {
-      const yBlock = getYBlock(state.doc, block.id, "deleteRange");
-      yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
-      if (embedContentIdsToDelete.size > 0) {
-        const yEmbeds = getEmbedContentsMap(state.doc);
-        for (const id of embedContentIdsToDelete) {
-          yEmbeds.delete(id);
-        }
-      }
-    });
+    return {
+      mode: "same-block",
+      blockId: block.id,
+      mergedItems: merged,
+      embedContentIds,
+    };
   }
 
   // CROSS-BLOCK case
@@ -282,11 +416,11 @@ export function deleteRange(state: State, span: Span): OperationResult {
   //   - focus prefix: items[..focus.offset) of focusBlock
   // Per the "no orphaned blocks" invariant, dropped EmbedItems own their
   // referenced contentBlockId subtrees and must cascade-delete.
-  const embedContentIdsToDelete = new Set<BlockId>();
+  const embedContentIds = new Set<BlockId>();
   collectEmbedContentSubtreeFromInlineContent(
     state,
     { items: anchorDeletedSuffix },
-    embedContentIdsToDelete,
+    embedContentIds,
   );
   for (const id of interveningIds) {
     const interveningBlock = getBlock(state, id);
@@ -294,52 +428,23 @@ export function deleteRange(state: State, span: Span): OperationResult {
     collectEmbedContentSubtreeFromInlineContent(
       state,
       interveningBlock.inlineContent,
-      embedContentIdsToDelete,
+      embedContentIds,
     );
   }
   collectEmbedContentSubtreeFromInlineContent(
     state,
     { items: focusDeletedPrefix },
-    embedContentIdsToDelete,
+    embedContentIds,
   );
 
-  return applyOperation(state, () => {
-    const yBlocks = getBlocksMap(state.doc);
-    const yAnchor = getYBlock(state.doc, anchorBlock.id, "deleteRange");
-
-    // Update anchor: new content + nextSiblingId rewired to focus's old next.
-    yAnchor.set("inlineContent", buildYInlineContent({ items: mergedItems }));
-    yAnchor.set("nextSiblingId", focusNextId);
-
-    // Rewire focus's old nextSibling, if any. Else update the parent's
-    // lastChildId to anchor (focus was the parent's last child).
-    if (focusNextId !== null) {
-      getYBlock(state.doc, focusNextId, "deleteRange").set(
-        "prevSiblingId",
-        anchorBlock.id,
-      );
-    } else {
-      getYBlock(state.doc, parentId, "deleteRange").set(
-        "lastChildId",
-        anchorBlock.id,
-      );
-    }
-
-    // Delete focus + all intervening leaves last (after reads of yAnchor /
-    // sibling updates are done).
-    yBlocks.delete(focusBlock.id);
-    for (const id of interveningIds) {
-      yBlocks.delete(id);
-    }
-
-    // Cascade-delete embed-content subtrees referenced by the dropped
-    // inline portion. Done last (after block writes/deletes) so the
-    // y-doc transaction observers see a single atomic write.
-    if (embedContentIdsToDelete.size > 0) {
-      const yEmbeds = getEmbedContentsMap(state.doc);
-      for (const id of embedContentIdsToDelete) {
-        yEmbeds.delete(id);
-      }
-    }
-  });
+  return {
+    mode: "cross-block",
+    anchorId: anchorBlock.id,
+    focusId: focusBlock.id,
+    interveningIds,
+    focusNextId,
+    parentId,
+    mergedItems,
+    embedContentIds,
+  };
 }

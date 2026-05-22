@@ -16,6 +16,31 @@ import { getYBlock } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 
 /**
+ * Pre-computed mutation plan for `insertTextInTx`. Discriminated by
+ * `mode`:
+ *   - `in-place`: insert into an existing Y.Text run at `itemIndex` /
+ *     `within`, preserving its per-character CRDT identity.
+ *   - `full-replace`: rebuild the block's Y.Array<inlineContent> from
+ *     `items`. Used for cases where in-place mutation cannot reproduce
+ *     the documented result shape (attrs split, embed-adjacent, empty
+ *     block, post-delete CRDT-identity-already-blown anchor block, etc.).
+ */
+export type InsertTextPlan = {
+  readonly blockId: BlockId;
+} & (
+  | {
+      readonly mode: "in-place";
+      readonly itemIndex: number;
+      readonly within: number;
+      readonly text: string;
+    }
+  | {
+      readonly mode: "full-replace";
+      readonly items: ReadonlyArray<InlineItem>;
+    }
+);
+
+/**
  * Insert text into a leaf block's inlineContent at `position`.
  *
  * `attrs` is the attribute bag for the inserted text. Caller computes
@@ -45,6 +70,10 @@ import { buildYInlineContent } from "./y-block";
  * cases where in-place mutation cannot reproduce the documented result
  * shape (e.g., different-attrs split, insertion adjacent to embed, empty
  * block).
+ *
+ * Composition: see `insertTextInTx` for the in-transaction primitive
+ * used by `replaceRange` to compose delete + insert in a single Y.Doc
+ * transaction (T12 atomicity).
  */
 export function insertText(
   state: State,
@@ -56,6 +85,60 @@ export function insertText(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
+  const plan = planInsertText(state, position, text, attrs);
+  return applyOperation(state, () => {
+    insertTextInTx(state.doc, plan);
+  });
+}
+
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `InsertTextPlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Used by:
+ *   - `insertText` (thin wrapper that validates + plans + wraps in
+ *     `applyOperation`).
+ *   - `replaceRange` (composes `deleteRangeInTx` + `insertTextInTx` in a
+ *     single `applyOperation` transaction so collab peers can never
+ *     observe the post-delete pre-insert mid-state).
+ */
+export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
+  if (plan.mode === "in-place") {
+    const yBlock = getYBlock(doc, plan.blockId, "insertText");
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yItem = yItems.get(plan.itemIndex);
+    const yText = yItem.get("text") as Y.Text;
+    yText.insert(plan.within, plan.text);
+    return;
+  }
+
+  const yBlock = getYBlock(doc, plan.blockId, "insertText");
+  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+}
+
+/**
+ * Validate `position` + `text` against `state` and produce an
+ * `InsertTextPlan` describing the Y.Doc mutation. Caller is responsible
+ * for the `text === ""` short-circuit BEFORE calling this — `planInsertText`
+ * assumes a non-empty text argument and will produce a redundant plan
+ * (in-place insert of empty string / full-replace identical items) if
+ * called with `text === ""`.
+ *
+ * All validation reads happen here, BEFORE the surrounding
+ * `applyOperation` is opened. Throws on every condition `insertText`'s
+ * docstring lists.
+ *
+ * Used by `insertText` and by `replaceRange` (via `planInsertTextOnItems`
+ * for the in-transaction composition path).
+ */
+export function planInsertText(
+  state: State,
+  position: Position,
+  text: string,
+  attrs: ReadonlyAttrs,
+): InsertTextPlan {
   const block = getBlock(state, position.blockId);
   if (block === null) {
     throw new Error(`insertText: block "${position.blockId}" not found`);
@@ -71,8 +154,38 @@ export function insertText(
     );
   }
 
-  const items = block.inlineContent.items;
+  return planInsertTextOnItems(position.blockId, block.inlineContent.items, position.offset, text, attrs);
+}
 
+/**
+ * Plan an insertion against a pre-computed items array (NOT read from
+ * `state`). Used by `replaceRange` to plan the insertion against the
+ * POST-DELETE items (which exist only as the in-flight `mergedItems` of
+ * the delete plan — they're not in `state` yet, since the surrounding
+ * `applyOperation` hasn't been opened).
+ *
+ * Caller must guarantee `items` is normalized in the sense that
+ * `offset ∈ [0, sum(item.length)]`.
+ *
+ * NOTE: planInsertTextOnItems forces `mode: "full-replace"` whenever the
+ * caller's `items` array could have non-canonical Y.Text identity. When
+ * called from the post-delete composition path, the caller is about to
+ * blow away the existing Y.Array via `buildYInlineContent`, so in-place
+ * targeting would point at the OLD (pre-delete) Y.Text — defaulting to
+ * full-replace is the safe choice.
+ *
+ * For the standalone-insert path (`planInsertText` → `insertText` →
+ * single transaction), the items came from `block.inlineContent.items`,
+ * which is a snapshot of the CURRENT Y.Array — in-place targeting via
+ * `findInPlaceTarget` is correct there.
+ */
+function planInsertTextOnItems(
+  blockId: BlockId,
+  items: ReadonlyArray<InlineItem>,
+  offset: number,
+  text: string,
+  attrs: ReadonlyAttrs,
+): InsertTextPlan {
   // Identify the in-place target text item (if any). Two cases:
   //   (a) offset lies strictly inside a text item (withinItem > 0) with matching attrs.
   //   (b) offset is at the leading edge of a text item (withinItem === 0) AND
@@ -83,30 +196,61 @@ export function insertText(
   //       and no eligible prev (e.g., at offset 0 or after an embed).
   //   (d) offset is at end of content AND the last item is text with
   //       matching attrs — mutate the last item.
-  const inPlace = findInPlaceTarget(items, position.offset, attrs);
+  const inPlace = findInPlaceTarget(items, offset, attrs);
 
   if (inPlace !== null) {
-    return applyOperation(state, () => {
-      const yBlock = getYBlock(state.doc, position.blockId, "insertText");
-      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-      const yItem = yItems.get(inPlace.itemIndex);
-      const yText = yItem.get("text") as Y.Text;
-      yText.insert(inPlace.within, text);
-    });
+    return {
+      blockId,
+      mode: "in-place",
+      itemIndex: inPlace.itemIndex,
+      within: inPlace.within,
+      text,
+    };
   }
 
   // Full-replace fallback: compute new items via the existing pure
   // helpers, then rebuild the Y.Array. Used when no eligible
   // matching-attrs text run exists at/adjacent to the insertion point
   // (different attrs split, embed-adjacent, empty block, etc.).
-  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
+  const [left, right] = splitInlineContentAtOffset({ items }, offset);
   const newRun: InlineItem = { kind: "text", text, attrs };
   const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
 
-  return applyOperation(state, () => {
-    const yBlock = getYBlock(state.doc, position.blockId, "insertText");
-    yBlock.set("inlineContent", buildYInlineContent({ items: merged }));
-  });
+  return {
+    blockId,
+    mode: "full-replace",
+    items: merged,
+  };
+}
+
+/**
+ * Build a `full-replace` InsertTextPlan against a pre-computed `items`
+ * array (e.g., the `mergedItems` of a `DeleteRangePlan`). Used by
+ * `replaceRange` to compose insert AFTER delete in a single transaction:
+ * the post-delete Y.Array doesn't exist yet (`deleteRangeInTx` will
+ * create it), so we can't use the in-place strategy — full-replace it is.
+ *
+ * Caller must guarantee `offset ∈ [0, sum(item.length)]`. For
+ * `replaceRange`, this is always true: the seam offset is
+ * `normalized.anchor.offset` and `mergedItems` has length equal to
+ * `anchor.offset + (focus block's length - focus.offset)` ≥ anchor.offset.
+ */
+export function planInsertTextFullReplace(
+  blockId: BlockId,
+  items: ReadonlyArray<InlineItem>,
+  offset: number,
+  text: string,
+  attrs: ReadonlyAttrs,
+): InsertTextPlan {
+  const [left, right] = splitInlineContentAtOffset({ items }, offset);
+  const newRun: InlineItem = { kind: "text", text, attrs };
+  const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
+
+  return {
+    blockId,
+    mode: "full-replace",
+    items: merged,
+  };
 }
 
 /**

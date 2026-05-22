@@ -508,3 +508,62 @@ describe("replaceRange — error propagation", () => {
     expect(() => replaceRange(state, createSpan(pos, pos), "X", {})).toThrow(/out of range/);
   });
 });
+
+describe("replaceRange — atomicity (T12)", () => {
+  it("non-collapsed span + non-empty text runs delete + insert in a single Y.Doc transaction", () => {
+    // Under collab, a peer must not observe the post-delete pre-insert
+    // mid-state. Both mutations must commit as one transaction so the
+    // afterTransaction observer fires exactly once across the whole
+    // operation.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
+      ],
+    });
+
+    let transactionCount = 0;
+    const listener = () => {
+      transactionCount += 1;
+    };
+    state.doc.on("afterTransaction", listener);
+    try {
+      const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+      replaceRange(state, span, "FOO", {});
+    } finally {
+      state.doc.off("afterTransaction", listener);
+    }
+
+    expect(transactionCount).toBe(1);
+  });
+
+  it("non-collapsed cross-block span + non-empty text runs in a single Y.Doc transaction", () => {
+    // Cross-block exercises deleteRange's cross-block branch (more Y
+    // writes: anchor inlineContent + nextSiblingId, focus deletion,
+    // intervening deletions, parent/sibling rewires). Single transaction
+    // must still hold.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(" world")]) }),
+      ],
+    });
+
+    let transactionCount = 0;
+    const listener = () => {
+      transactionCount += 1;
+    };
+    state.doc.on("afterTransaction", listener);
+    try {
+      const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+      replaceRange(state, span, "FOO", {});
+    } finally {
+      state.doc.off("afterTransaction", listener);
+    }
+
+    expect(transactionCount).toBe(1);
+  });
+});
