@@ -13,11 +13,12 @@ import { blockKindOf } from "./block-kinds";
  * Shape-invariance contract (T11): cross-kind transitions are REFUSED.
  * A block's kind (inline-bearing-leaf / atomic-leaf / container — see
  * `block-kinds.ts`) determines which of its structural fields are
- * meaningful: `inlineContent.items` for inline-bearing-leaves, neither
- * for atomic-leaves, `firstChildId`/`lastChildId` for containers. A bare
- * `type` swap across kinds would leave those fields inconsistent with
- * the new shape — the rendered tree would point at children that don't
- * belong, or inline runs that have no slot.
+ * meaningful: `inlineContent.items` for inline-bearing-leaves (paragraph,
+ * heading, list-item), neither for atomic-leaves (image, horizontal-line),
+ * `firstChildId`/`lastChildId` for containers (document, list, table,
+ * table-row, table-cell). A bare `type` swap across kinds would leave
+ * those fields inconsistent with the new shape — the rendered tree would
+ * point at children that don't belong, or inline runs that have no slot.
  *
  * Callers that need to change a block's kind must compose remove +
  * insert (which lets them construct the new shape's structural fields

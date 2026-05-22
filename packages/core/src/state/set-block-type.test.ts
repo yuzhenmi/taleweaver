@@ -43,6 +43,24 @@ describe("setBlockType", () => {
     expect(getBlock(result.state, "p" as BlockId)?.type).toBe("heading");
   });
 
+  it("allows same-kind change: paragraph -> list-item (both inline-bearing-leaf)", () => {
+    const state = fixture();
+    const result = setBlockType(state, "p" as BlockId, "list-item");
+    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("list-item");
+  });
+
+  it("allows same-kind change: list-item -> paragraph (both inline-bearing-leaf)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({ id: "li", type: "list-item", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const result = setBlockType(state, "li" as BlockId, "paragraph");
+    expect(getBlock(result.state, "li" as BlockId)?.type).toBe("paragraph");
+  });
+
   it("allows same-kind change: list -> table (both container)", () => {
     const state = buildState({
       rootId: "doc",

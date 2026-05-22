@@ -45,16 +45,16 @@ describe("component-registry (new)", () => {
 
   it("createDefaultComponentRegistry registers all 10 built-in components", () => {
     const reg = createDefaultComponentRegistry();
-    // Containers (6)
+    // Containers (5)
     expect(reg.has("document")).toBe(true);
     expect(reg.has("list")).toBe(true);
-    expect(reg.has("list-item")).toBe(true);
     expect(reg.has("table")).toBe(true);
     expect(reg.has("table-row")).toBe(true);
     expect(reg.has("table-cell")).toBe(true);
-    // Leaves (4)
+    // Leaves (5)
     expect(reg.has("paragraph")).toBe(true);
     expect(reg.has("heading")).toBe(true);
+    expect(reg.has("list-item")).toBe(true);
     expect(reg.has("image")).toBe(true);
     expect(reg.has("horizontal-line")).toBe(true);
   });
@@ -69,12 +69,12 @@ describe("component-registry (new)", () => {
     const reg = createDefaultComponentRegistry();
     expect(reg.get("document")?.kind).toBe("container");
     expect(reg.get("list")?.kind).toBe("container");
-    expect(reg.get("list-item")?.kind).toBe("container");
     expect(reg.get("table")?.kind).toBe("container");
     expect(reg.get("table-row")?.kind).toBe("container");
     expect(reg.get("table-cell")?.kind).toBe("container");
     expect(reg.get("paragraph")?.kind).toBe("leaf");
     expect(reg.get("heading")?.kind).toBe("leaf");
+    expect(reg.get("list-item")?.kind).toBe("leaf");
     expect(reg.get("image")?.kind).toBe("leaf");
     expect(reg.get("horizontal-line")?.kind).toBe("leaf");
   });

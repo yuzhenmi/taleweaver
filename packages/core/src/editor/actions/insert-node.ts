@@ -54,12 +54,12 @@ function collectInlineItemsFromNewNode(
  * Insert `newNode` (and recursively its descendants) under `parentId` as
  * the last child. Translates legacy NewNode shape to the new block model:
  *
- *   - For inline-bearing leaf types (paragraph, heading): collect text/span
- *     descendants into `inlineContent.items`. Do NOT recurse into children
- *     as blocks.
+ *   - For inline-bearing leaf types (paragraph, heading, list-item):
+ *     collect text/span descendants into `inlineContent.items`. Do NOT
+ *     recurse into children as blocks.
  *   - For atomic leaf types (image, horizontal-line): ignore children.
- *   - For container types (document, list, list-item, table, table-row,
- *     table-cell, etc.): recurse into children as blocks.
+ *   - For container types (document, list, table, table-row, table-cell,
+ *     etc.): recurse into children as blocks.
  *
  * Closed-schema `style` from NewNode is dropped — styling routes through
  * AttrRegistry-recognized attrs in the new model.

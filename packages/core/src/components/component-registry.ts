@@ -59,13 +59,13 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   // Containers
   reg.register(documentComponent);
   reg.register(listComponent);
-  reg.register(listItemComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);
   reg.register(tableCellComponent);
   // Leaves
   reg.register(paragraphComponent);
   reg.register(headingComponent);
+  reg.register(listItemComponent);
   reg.register(imageComponent);
   reg.register(horizontalLineComponent);
   return reg;
