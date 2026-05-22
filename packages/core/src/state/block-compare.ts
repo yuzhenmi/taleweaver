@@ -126,6 +126,8 @@ export function spanEnd(state: State, span: Span): Position {
 export function selectionContextOf(state: State, blockId: BlockId): BlockId | null {
   let cursor = getBlock(state, blockId);
   if (cursor === null) return null;
+  // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts
+  // for the rationale on why this uses main-tree size only (not embedContents).
   const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.parentId) {

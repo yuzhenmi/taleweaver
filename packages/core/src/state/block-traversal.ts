@@ -16,6 +16,14 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   if (block === null) return null;
   if (block.firstChildId) return block.firstChildId;
   let cursor = block;
+  // Cycle-detection bound: main-tree size only. Embed-content blocks
+  // (in state.embedContents) have parentId === null per the data model —
+  // they're a separate tree, never reachable via main-tree parent/child/
+  // sibling traversal (parentId chain, nextSiblingId, firstChildId).
+  // Adding embedContents.size here would loosen the bound without making
+  // this traversal handle anything new — wrong direction. If a future
+  // schema makes embed-content blocks reachable via main-tree traversal,
+  // this bound must be widened then.
   const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (true) {
@@ -47,6 +55,8 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     // Descend to the deepest last child of the previous sibling.
     let cursor = getBlock(state, block.prevSiblingId);
     if (cursor === null) return null;
+    // Cycle-detection bound: see nextBlockInDocOrder for the rationale
+    // on why this uses main-tree size only (not embedContents).
     const maxSteps = getBlocksMap(state.doc).size + 1;
     let steps = 0;
     while (cursor.lastChildId) {
@@ -73,6 +83,8 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   if (getBlock(state, blockId) === null) return [];
   const result: BlockId[] = [];
   let current: BlockId | null = blockId;
+  // Cycle-detection bound: see nextBlockInDocOrder for the rationale
+  // on why this uses main-tree size only (not embedContents).
   const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (current) {
@@ -100,6 +112,8 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
 export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = getBlock(state, blockId);
   if (cursor === null) return null;
+  // Cycle-detection bound: see nextBlockInDocOrder for the rationale
+  // on why this uses main-tree size only (not embedContents).
   const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.firstChildId) {
@@ -121,6 +135,8 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
 export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = getBlock(state, blockId);
   if (cursor === null) return null;
+  // Cycle-detection bound: see nextBlockInDocOrder for the rationale
+  // on why this uses main-tree size only (not embedContents).
   const maxSteps = getBlocksMap(state.doc).size + 1;
   let steps = 0;
   while (cursor.lastChildId) {
