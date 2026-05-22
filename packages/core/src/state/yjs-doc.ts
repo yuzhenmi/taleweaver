@@ -134,8 +134,6 @@ export function runTransaction(
         type,
         blocksMapAsAny,
         embedContentsMapAsAny,
-        blocksMap,
-        embedContentsMap,
       );
       if (owningBlockId !== null) {
         dirtyIds.add(owningBlockId);
@@ -157,30 +155,50 @@ export function runTransaction(
  * i.e. the key under blocksMap or embedContentsMap whose value is an
  * ancestor of `type`. Returns null if `type` is not nested under either.
  *
- * O(depth) per call. Acceptable in practice; revisit with a reverse map
- * if benchmarks justify the additional bookkeeping.
+ * **O(depth) per call** — no linear scan of the outer map. Once we reach a
+ * `cursor` whose `parent` is the blocks map or the embedContents map,
+ * `cursor` is the block-level Y.Map and its insertion key is recoverable
+ * from `_item.parentSub`. This is the Yjs internal field that records the
+ * key under which a shared type was inserted into its parent Y.Map.
+ *
+ * `_item.parentSub` is documented as internal but is stable across Yjs 13.x
+ * and used by Yjs's own bindings (e.g. y-prosemirror). The version is
+ * pinned to `~13.6.x` in `packages/core/package.json` (patch-only upgrades)
+ * and `yjs-version-guard.test.ts` fails loudly if the field is ever removed.
+ *
+ * `_item` and `parentSub` are TypeScript-invisible; the `as unknown as
+ * { ... }` cast is the compliant escape hatch (CLAUDE.md forbids `as any`).
  */
 function findOwningBlockId(
   type: AnyYType,
   blocksMapAsAny: AnyYType,
   embedContentsMapAsAny: AnyYType,
-  blocksMap: Y.Map<Y.Map<unknown>>,
-  embedContentsMap: Y.Map<Y.Map<unknown>>,
 ): BlockId | null {
   let cursor: AnyYType | null = type;
   while (cursor !== null) {
     const parent = cursor.parent as AnyYType | null;
     if (parent === blocksMapAsAny || parent === embedContentsMapAsAny) {
-      const owningMap =
-        parent === blocksMapAsAny ? blocksMap : embedContentsMap;
-      for (const [key, value] of owningMap.entries()) {
-        if ((value as unknown as AnyYType) === cursor) {
-          return key as BlockId;
-        }
-      }
-      return null;
+      // `cursor` is the block-level Y.Map. Its key in the outer map is the
+      // `parentSub` field of its CRDT item.
+      const item = (cursor as unknown as { _item?: { parentSub?: string } })
+        ._item;
+      if (item === undefined || item.parentSub === undefined) return null;
+      return item.parentSub as BlockId;
     }
     cursor = parent;
   }
   return null;
+}
+
+/**
+ * Test-only export of `findOwningBlockId` for direct perf measurement.
+ * Production code path is via `runTransaction`; do not import this from
+ * non-test files.
+ */
+export function findOwningBlockIdForTest(
+  blocksMapAsAny: AnyYType,
+  embedContentsMapAsAny: AnyYType,
+  type: AnyYType,
+): BlockId | null {
+  return findOwningBlockId(type, blocksMapAsAny, embedContentsMapAsAny);
 }
