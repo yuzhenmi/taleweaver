@@ -15,6 +15,7 @@ import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent, InlineItem } from "./inline-content";
+import { assertNoNestedYTypes } from "./y-utils";
 
 export interface YBlockInit {
   type: string;
@@ -60,6 +61,16 @@ export function buildYInlineContent(content: InlineContent): Y.Array<Y.Map<unkno
 }
 
 export function buildYInlineItem(item: InlineItem): Y.Map<unknown> {
+  // T39: assert before any Y type is constructed, so a bad value never
+  // enters the Y.Doc (and a partially-built item is not left dangling).
+  for (const [key, value] of Object.entries(item.attrs)) {
+    assertNoNestedYTypes(value, `attrs.${key}`);
+  }
+  if (item.kind === "embed") {
+    for (const [key, value] of Object.entries(item.properties)) {
+      assertNoNestedYTypes(value, `properties.${key}`);
+    }
+  }
   const yItem = new Y.Map<unknown>();
   if (item.kind === "text") {
     yItem.set("kind", "text");

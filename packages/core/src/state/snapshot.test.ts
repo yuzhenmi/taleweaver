@@ -87,5 +87,57 @@ describe("snapshot", () => {
         expect(item.text).toBe("hello");
       }
     });
+
+    // T39: read-path guard. Snapshot must reject nested Y types in embed
+    // `properties`. Without this guard a nested Y.Map / Y.Text would leak
+    // into the frozen snapshot as a live shared-type reference (mutating
+    // it post-snapshot would silently mutate the "frozen" reference) and
+    // would propagate to a foreign Y.Doc on cross-doc paste.
+    function seedEmbedWithNestedProperty(
+      doc: Y.Doc,
+      id: string,
+      nestedProperty: unknown,
+    ): void {
+      runTransaction(doc, () => {
+        const blocks = getBlocksMap(doc);
+        const yBlock = new Y.Map<unknown>();
+        yBlock.set("type", "paragraph");
+        yBlock.set("attrs", new Y.Map<unknown>());
+        yBlock.set("parentId", null);
+        yBlock.set("prevSiblingId", null);
+        yBlock.set("nextSiblingId", null);
+        yBlock.set("firstChildId", null);
+        yBlock.set("lastChildId", null);
+        const items = new Y.Array<Y.Map<unknown>>();
+        const embedItem = new Y.Map<unknown>();
+        embedItem.set("kind", "embed");
+        embedItem.set("embedType", "image");
+        embedItem.set("attrs", new Y.Map<unknown>());
+        const yProps = new Y.Map<unknown>();
+        yProps.set("nested", nestedProperty);
+        embedItem.set("properties", yProps);
+        items.push([embedItem]);
+        yBlock.set("inlineContent", items);
+        blocks.set(id, yBlock);
+      });
+    }
+
+    it("throws on snapshot when embed properties contains a nested Y.Map", () => {
+      const doc = createYDoc();
+      seedEmbedWithNestedProperty(doc, "p1", new Y.Map<unknown>());
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /nested Y types are not allowed/i,
+      );
+    });
+
+    it("throws on snapshot when embed properties contains a nested Y.Text", () => {
+      const doc = createYDoc();
+      seedEmbedWithNestedProperty(doc, "p1", new Y.Text());
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /nested Y types are not allowed/i,
+      );
+    });
   });
 });

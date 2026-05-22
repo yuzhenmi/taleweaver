@@ -9,6 +9,7 @@ import type {
   EmbedItem,
 } from "./inline-content";
 import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+import { assertNoNestedYTypes } from "./y-utils";
 
 export interface SnapshotCache {
   readonly blocks: Map<BlockId, Block>;
@@ -123,9 +124,17 @@ function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineCont
   return Object.freeze({ items: Object.freeze(items) });
 }
 
+/**
+ * Read a Y.Map of attrs/properties into a plain object. Asserts that no
+ * value (or nested array/object value) is a live Yjs shared type — see
+ * `assertNoNestedYTypes` in y-utils.ts. Without this guard a snapshot
+ * could embed a live Y.Map/Y.Text reference, defeating the "frozen
+ * value snapshot" contract and propagating cross-doc on paste.
+ */
 function yMapToObject(yMap: Y.Map<unknown>): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
   for (const [key, value] of yMap.entries()) {
+    assertNoNestedYTypes(value, key);
     obj[key] = value;
   }
   return obj;

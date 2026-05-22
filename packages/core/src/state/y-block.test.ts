@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { buildYBlock, type YBlockInit } from "./y-block";
+import { buildYBlock, buildYInlineItem, type YBlockInit } from "./y-block";
 import type { BlockId } from "./block-id";
 
 // Yjs forbids reading from a Y.Map / Y.Array / Y.Text that is not yet
@@ -100,5 +100,46 @@ describe("y-block", () => {
     expect(yItem.get("kind")).toBe("embed");
     expect(yItem.get("embedType")).toBe("image");
     expect((yItem.get("properties") as Y.Map<unknown>).get("src")).toBe("url");
+  });
+
+  // T39: write-path guard. Constructing an inline embed item with a nested
+  // Y type in `properties` (or `attrs`) must throw at construction so the
+  // bad reference never enters the Y.Doc. The same Y type written into a
+  // foreign Y.Doc via cross-doc paste would produce undefined CRDT
+  // behavior, and a snapshot of such properties would be a live reference
+  // rather than a value.
+  describe("buildYInlineItem nested Y-type guard", () => {
+    it("throws when an embed property is a Y.Map", () => {
+      expect(() =>
+        buildYInlineItem({
+          kind: "embed",
+          embedType: "image",
+          attrs: {},
+          properties: { nested: new Y.Map<unknown>() },
+        }),
+      ).toThrow(/nested Y types are not allowed/i);
+    });
+
+    it("throws when an embed property is a Y.Text", () => {
+      expect(() =>
+        buildYInlineItem({
+          kind: "embed",
+          embedType: "image",
+          attrs: {},
+          properties: { nested: new Y.Text() },
+        }),
+      ).toThrow(/nested Y types are not allowed/i);
+    });
+
+    it("throws when an embed attr is a Y.Array", () => {
+      expect(() =>
+        buildYInlineItem({
+          kind: "embed",
+          embedType: "image",
+          attrs: { nested: new Y.Array<unknown>() },
+          properties: {},
+        }),
+      ).toThrow(/nested Y types are not allowed/i);
+    });
   });
 });
