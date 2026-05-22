@@ -189,6 +189,65 @@ describe("replaceRange — cross-block coverage", () => {
     expect(items?.[2]).toMatchObject({ text: "rld", attrs: { italic: true } });
   });
 
+  it("succeeds when the focus block's snapshot is never cached during the call (T28 TOCTOU)", () => {
+    // Regression guard for the TOCTOU bug fixed in T28.
+    //
+    // Before T28, replaceRange called normalizeSpan(state, span) AFTER
+    // deleteRange had mutated the Y.Doc — the focus block was already
+    // deleted from getBlocksMap by then. The call worked only because
+    // deleteRange's pre-flight read of the focus populated
+    // state.snapshotCache.blocks with the focus snapshot, letting the
+    // post-delete normalizeSpan find it via cache hit. That made the
+    // correctness of replaceRange depend on an unrelated implementation
+    // detail of deleteRange's validation order.
+    //
+    // To prove this is a real TOCTOU and not just a theoretical worry,
+    // this test installs a cache that REFUSES to remember the focus
+    // snapshot (silently drops any .set for the focus id). deleteRange's
+    // pre-flight read still finds the focus in the Y.Doc, but the
+    // snapshot is not retained. After deleteRange's transaction commits,
+    // the focus is gone from both the Y.Doc AND the cache. If
+    // normalizeSpan runs at this point (pre-fix ordering), getBlock
+    // returns null → ancestorChain returns [] →
+    // compareBlocksInDocOrder throws "compareBlocksInDocOrder: block
+    // \"p3\" not found".
+    //
+    // After T28 the fix moves normalizeSpan BEFORE deleteRange so it
+    // reads against the pre-delete state where the focus block still
+    // exists in the Y.Doc — the cache state is irrelevant.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("middle")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("world")]) }),
+      ],
+    });
+    const focusBlockId = "p3" as BlockId;
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition(focusBlockId, 2));
+
+    // Wrap the snapshot cache's `set` to refuse to cache the focus id.
+    // This simulates the absence of deleteRange's incidental cache
+    // population for the focus, isolating replaceRange's own ordering
+    // requirement.
+    const blocksMap = state.snapshotCache.blocks;
+    blocksMap.delete(focusBlockId);
+    const originalSet = blocksMap.set.bind(blocksMap);
+    blocksMap.set = function (id, snap) {
+      if (id === focusBlockId) return this;
+      return originalSet(id, snap);
+    };
+
+    const result = replaceRange(state, span, "Z", {});
+
+    const p1 = getBlock(result.state, "p1" as BlockId);
+    expect(p1?.inlineContent?.items).toHaveLength(1);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
+    expect(getBlock(result.state, focusBlockId)).toBe(null);
+  });
+
   it("nested: cross-block replacement inside a section container", () => {
     // doc > section > [p1("hello"), p2(" world")] — replace cross-block inside the section.
     // section's lastChildId rewires; doc untouched.
