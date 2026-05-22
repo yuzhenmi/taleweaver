@@ -10,6 +10,7 @@ import type {
 } from "./inline-content";
 import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
 import { assertNoNestedYTypes } from "./y-utils";
+import { BLOCK_FIELDS } from "./block-schema";
 
 export interface SnapshotCache {
   readonly blocks: Map<BlockId, Block>;
@@ -105,34 +106,47 @@ function requireNullableField<T>(
   return raw as T | null;
 }
 
+/**
+ * Build a frozen Block snapshot from a block's inner Y.Map. Iterates the
+ * shared BLOCK_FIELDS catalog and dispatches on each field's `kind`, so
+ * the read path cannot drift from the write path's field list (see
+ * block-schema.ts for the compile-time coverage check).
+ */
 function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
-  const type = requireField<string>(yBlock, id, "type");
-  const yAttrs = requireField<Y.Map<unknown>>(yBlock, id, "attrs");
-  const attrs = freezeAttrs(yMapToObject(yAttrs));
-  const parentId = requireNullableField<BlockId>(yBlock, id, "parentId");
-  const prevSiblingId = requireNullableField<BlockId>(yBlock, id, "prevSiblingId");
-  const nextSiblingId = requireNullableField<BlockId>(yBlock, id, "nextSiblingId");
-  const firstChildId = requireNullableField<BlockId>(yBlock, id, "firstChildId");
-  const lastChildId = requireNullableField<BlockId>(yBlock, id, "lastChildId");
-
-  const yInline = requireNullableField<Y.Array<Y.Map<unknown>>>(
-    yBlock,
-    id,
-    "inlineContent",
-  );
-  const inlineContent = yInline === null ? null : buildInlineContentSnapshot(yInline);
-
-  return Object.freeze({
-    id,
-    type,
-    attrs,
-    parentId,
-    prevSiblingId,
-    nextSiblingId,
-    firstChildId,
-    lastChildId,
-    inlineContent,
-  });
+  // We accumulate into a record then cast to Block at the end. The cast is
+  // safe because (a) BLOCK_FIELDS' compile-time coverage check guarantees
+  // every Block field except `id` is iterated, (b) `id` is assigned
+  // separately below, and (c) each kind's branch assigns a value of the
+  // correct shape for its key.
+  const result: Record<string, unknown> = { id };
+  for (const spec of BLOCK_FIELDS) {
+    switch (spec.kind) {
+      case "string": {
+        result[spec.key] = requireField<string>(yBlock, id, spec.key);
+        break;
+      }
+      case "id-nullable": {
+        result[spec.key] = requireNullableField<BlockId>(yBlock, id, spec.key);
+        break;
+      }
+      case "attrs-map": {
+        const yAttrs = requireField<Y.Map<unknown>>(yBlock, id, spec.key);
+        result[spec.key] = freezeAttrs(yMapToObject(yAttrs));
+        break;
+      }
+      case "inline-content-array-nullable": {
+        const yInline = requireNullableField<Y.Array<Y.Map<unknown>>>(
+          yBlock,
+          id,
+          spec.key,
+        );
+        result[spec.key] =
+          yInline === null ? null : buildInlineContentSnapshot(yInline);
+        break;
+      }
+    }
+  }
+  return Object.freeze(result) as unknown as Block;
 }
 
 function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineContent {

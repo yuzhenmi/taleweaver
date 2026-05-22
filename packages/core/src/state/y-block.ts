@@ -16,6 +16,7 @@ import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoNestedYTypes } from "./y-utils";
+import { BLOCK_FIELDS } from "./block-schema";
 
 export interface YBlockInit {
   type: string;
@@ -28,19 +29,35 @@ export interface YBlockInit {
   inlineContent: InlineContent | null;
 }
 
+/**
+ * Materialize a Block-shaped JS init into a detached Y.Map. Iterates the
+ * shared BLOCK_FIELDS catalog and dispatches on each field's `kind`, so
+ * the write path cannot drift from the read path's field list (the
+ * catalog is the single source of truth, with a compile-time coverage
+ * check in block-schema.ts).
+ */
 export function buildYBlock(init: YBlockInit): Y.Map<unknown> {
   const yBlock = new Y.Map<unknown>();
-  yBlock.set("type", init.type);
-  yBlock.set("attrs", buildYAttrs(init.attrs));
-  yBlock.set("parentId", init.parentId);
-  yBlock.set("prevSiblingId", init.prevSiblingId);
-  yBlock.set("nextSiblingId", init.nextSiblingId);
-  yBlock.set("firstChildId", init.firstChildId);
-  yBlock.set("lastChildId", init.lastChildId);
-  yBlock.set(
-    "inlineContent",
-    init.inlineContent === null ? null : buildYInlineContent(init.inlineContent),
-  );
+  for (const spec of BLOCK_FIELDS) {
+    const value = init[spec.key];
+    switch (spec.kind) {
+      case "string":
+        yBlock.set(spec.key, value as string);
+        break;
+      case "id-nullable":
+        yBlock.set(spec.key, value as BlockId | null);
+        break;
+      case "attrs-map":
+        yBlock.set(spec.key, buildYAttrs(value as ReadonlyAttrs));
+        break;
+      case "inline-content-array-nullable":
+        yBlock.set(
+          spec.key,
+          value === null ? null : buildYInlineContent(value as InlineContent),
+        );
+        break;
+    }
+  }
   return yBlock;
 }
 
