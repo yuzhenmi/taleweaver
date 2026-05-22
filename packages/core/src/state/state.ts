@@ -111,9 +111,24 @@ export function freshState(state: State): State {
  *     pre-mutation snapshot. (Y.Doc is mutable in place, so this is
  *     a cached-view property, not true immutability — it lasts until
  *     the pre-op cache is invalidated or replaced.)
+ *
+ * No-op contract: when the transaction produces no Y.Doc mutations
+ * (`dirtyIds.size === 0`), this function returns the LITERAL input
+ * `state` reference unchanged. Callers can therefore use
+ * `result.state === input.state` as an O(1) "did anything change?"
+ * guard — e.g., action handlers short-circuit before calling
+ * `history.commit`, and the cascade/render pipeline skips a recomputation
+ * pass entirely. The carry-forward / fresh-frozen-State allocation only
+ * runs on the non-no-op branch.
  */
 export function applyOperation(state: State, fn: () => void): OperationResult {
   const { dirtyIds } = runTransaction(state.doc, fn);
+  if (dirtyIds.size === 0) {
+    // No-op transaction: return the input state reference unchanged.
+    // Preserves identity so callers can short-circuit on
+    // `result.state === input.state`.
+    return { state, dirtyIds };
+  }
   const newCache = createSnapshotCache();
   for (const [id, snap] of state.snapshotCache.blocks) {
     if (!dirtyIds.has(id)) newCache.blocks.set(id, snap);

@@ -4,6 +4,11 @@ import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { insertText } from "./insert-text";
+import { applyAttrsToRange } from "./apply-attrs";
+import { deleteRange } from "./delete-range";
+import { replaceRange } from "./replace-range";
+import { createPosition, createSpan } from "./block-position";
 
 describe("state", () => {
   it("createState produces a State with a Y.Doc-backed root", () => {
@@ -94,6 +99,19 @@ describe("applyOperation", () => {
     expect(next.snapshotCache).not.toBe(state.snapshotCache);
   });
 
+  it("returns the input state reference unchanged when the transaction is a no-op", () => {
+    // Contract: when the closure produces no Y.Doc mutations (dirtyIds is
+    // empty), `applyOperation` short-circuits and returns the literal input
+    // State reference. Callers can then check `result.state === input.state`
+    // as an O(1) "did anything change?" guard.
+    const state = createState({ rootId: "root" as BlockId });
+    const result = applyOperation(state, () => {
+      /* no mutations */
+    });
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
   it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
     const state = createState({ rootId: "root" as BlockId });
     applyOperation(state, () => {
@@ -132,6 +150,73 @@ describe("applyOperation", () => {
     // p1 was dirtied → fresh snapshot.
     expect(getBlock(result.state, "p1" as BlockId)).not.toBe(p1Before);
     expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
+  });
+});
+
+describe("applyOperation no-op invariant across ops", () => {
+  // Per T7 step 7.3: every op that can produce a no-op input MUST return
+  // `result.state === input.state` (reference equality) and an empty
+  // dirtyIds set. Other ops (setBlockAttrs, setBlockType, insertBlock,
+  // splitBlockAtPosition, removeBlock, mergeAdjacentBlocks,
+  // clonePastedSubtree) don't have a natural no-op input — they always
+  // mutate by construction — so they're not covered here.
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello world")]),
+        }),
+      ],
+    });
+
+  it("insertText with empty text is a no-op (preserves state identity)", () => {
+    const state = fixture();
+    const result = insertText(state, createPosition("p" as BlockId, 5), "", {});
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("applyAttrsToRange with empty attrs is a no-op (preserves state identity)", () => {
+    const state = fixture();
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 5),
+    );
+    const result = applyAttrsToRange(state, span, {});
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("deleteRange with a collapsed span is a no-op (preserves state identity)", () => {
+    const state = fixture();
+    const collapsed = createSpan(
+      createPosition("p" as BlockId, 3),
+      createPosition("p" as BlockId, 3),
+    );
+    const result = deleteRange(state, collapsed);
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("replaceRange with a collapsed span + empty text is a no-op (preserves state identity)", () => {
+    const state = fixture();
+    const collapsed = createSpan(
+      createPosition("p" as BlockId, 3),
+      createPosition("p" as BlockId, 3),
+    );
+    const result = replaceRange(state, collapsed, "", {});
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
   });
 });
 
