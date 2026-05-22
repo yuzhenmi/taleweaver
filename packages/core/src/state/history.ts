@@ -24,6 +24,24 @@ export interface UndoRedoResult {
  * Per Decision D point 9: during P11.0+ parallel window the editor
  * wraps this in a backend-selector that also delegates to a legacy
  * EditorHistory. Within P4e, this is the only backend.
+ *
+ * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
+ * with ONLY the blocks map and the embedContents map as tracked scopes.
+ * Writes to the doc's meta Y.Map (see `getMetaMap` in `yjs-doc.ts`) are
+ * deliberately NOT undoable. Today the meta map holds only `rootId`,
+ * which is immutable for the lifetime of a session (created once in
+ * `createYDoc`, never reassigned). Because that single field never
+ * changes after document construction, there is nothing to undo and no
+ * observable behavior gap.
+ *
+ * If a future caller adds a new meta-map writer, they MUST consider
+ * undoability explicitly. Either (a) the new field is also genuinely
+ * immutable / session-scoped (e.g. format version, doc id) and the
+ * non-undoable behavior is correct, in which case document the intent
+ * at the write site; or (b) the new field needs undo coverage, in
+ * which case extend the UndoManager's tracked-types list here AND
+ * update this docstring. Silently writing to meta produces non-undoable
+ * changes — that is a footgun, not a feature.
  */
 export class History {
   private readonly undoManager: Y.UndoManager;

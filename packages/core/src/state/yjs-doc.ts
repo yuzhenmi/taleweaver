@@ -24,6 +24,29 @@ export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(EMBED_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
+/**
+ * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
+ * set once in `createYDoc` and never reassigned during a session.
+ *
+ * **Not tracked by the History UndoManager.** The `History` class
+ * (`history.ts`) constructs its `Y.UndoManager` with only the blocks
+ * map and the embedContents map as tracked scopes — writes to this
+ * meta map are intentionally outside the undo/redo stack. The current
+ * design relies on the meta map holding only immutable session-level
+ * fields (rootId today; possibly format version, doc id, etc. in the
+ * future).
+ *
+ * If you are adding a NEW meta-map writer, you MUST decide explicitly
+ * whether the field should be undoable:
+ *   - Genuinely immutable / set-once → meta map is fine; document the
+ *     write site to make the non-undoable behavior visible to readers.
+ *   - Mutable and user-observable → either put it under a tracked map
+ *     (blocks/embedContents) or extend the UndoManager's tracked list
+ *     in `history.ts` AND update its docstring.
+ *
+ * Silently mutating the meta map after document creation is a footgun —
+ * the change will not appear in undo history and may surprise users.
+ */
 export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
   return doc.getMap(META_KEY);
 }

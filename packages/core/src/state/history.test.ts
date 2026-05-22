@@ -3,6 +3,7 @@ import { createHistory } from "./history";
 import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { getBlock } from "./state";
+import { getMetaMap } from "./yjs-doc";
 
 describe("history (Y.UndoManager wrapper)", () => {
   it("starts with no undo/redo available", () => {
@@ -56,6 +57,33 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.redo()).not.toBeNull();
     expect(history.redo()).not.toBeNull();
     expect(history.canRedo()).toBe(false);
+  });
+
+  // T1 will migrate this test's call to history.commit when it lands.
+  it("History does not undo direct writes to the meta map", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+
+    // Perform a tracked op so there IS something on the undo stack.
+    const child = getBlock(
+      state0,
+      getBlock(state0, state0.rootId)!.firstChildId!,
+    )!;
+    setBlockAttrs(state0, child.id, { bold: true });
+    history.push({ selection: null });
+    expect(history.canUndo()).toBe(true);
+
+    // Directly write to the meta map — this is intentionally NOT tracked
+    // by the UndoManager (see History docstring + getMetaMap docstring).
+    getMetaMap(state0.doc).set("foo", "bar");
+    expect(getMetaMap(state0.doc).get("foo")).toBe("bar");
+
+    // Undo should rewind the tracked op (the bold attr) but leave the
+    // meta-map write in place.
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    expect(getBlock(undone!.state, child.id)?.attrs.bold).toBeUndefined();
+    expect(getMetaMap(state0.doc).get("foo")).toBe("bar");
   });
 
   it("a new op after undo clears the redo stack", () => {
