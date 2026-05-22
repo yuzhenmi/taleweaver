@@ -139,5 +139,103 @@ describe("snapshot", () => {
         /nested Y types are not allowed/i,
       );
     });
+
+    // T30: undefined-vs-null hardening. Yjs `Y.Map.get` returns
+    // `undefined` for absent keys. Previously `?? null` widened undefined
+    // to null silently, hiding malformed blocks; now every required field
+    // is explicitly guarded.
+    //
+    // Helper seeds a block but skips setting one named field, then asserts
+    // that getBlockSnapshot throws a clear error naming that field.
+    function seedBlockMissingField(doc: Y.Doc, id: string, omit: string): void {
+      runTransaction(doc, () => {
+        const blocks = getBlocksMap(doc);
+        const yBlock = new Y.Map<unknown>();
+        if (omit !== "type") yBlock.set("type", "paragraph");
+        if (omit !== "attrs") yBlock.set("attrs", new Y.Map<unknown>());
+        if (omit !== "parentId") yBlock.set("parentId", null);
+        if (omit !== "prevSiblingId") yBlock.set("prevSiblingId", null);
+        if (omit !== "nextSiblingId") yBlock.set("nextSiblingId", null);
+        if (omit !== "firstChildId") yBlock.set("firstChildId", null);
+        if (omit !== "lastChildId") yBlock.set("lastChildId", null);
+        if (omit !== "inlineContent") {
+          const items = new Y.Array<Y.Map<unknown>>();
+          yBlock.set("inlineContent", items);
+        }
+        blocks.set(id, yBlock);
+      });
+    }
+
+    it("throws when block is missing required type field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "type");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "type" field/,
+      );
+    });
+
+    it("throws when block is missing required attrs field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "attrs");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "attrs" field/,
+      );
+    });
+
+    it("throws when block is missing required parentId field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "parentId");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "parentId" field/,
+      );
+    });
+
+    it("throws when block is missing required prevSiblingId field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "prevSiblingId");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "prevSiblingId" field/,
+      );
+    });
+
+    it("throws when block is missing required nextSiblingId field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "nextSiblingId");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "nextSiblingId" field/,
+      );
+    });
+
+    it("throws when block is missing required firstChildId field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "firstChildId");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "firstChildId" field/,
+      );
+    });
+
+    it("throws when block is missing required lastChildId field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "lastChildId");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "lastChildId" field/,
+      );
+    });
+
+    it("throws when block is missing required inlineContent field", () => {
+      const doc = createYDoc();
+      seedBlockMissingField(doc, "p1", "inlineContent");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /missing required "inlineContent" field/,
+      );
+    });
   });
 });

@@ -68,17 +68,58 @@ export function getEmbedContentSnapshot(
   return snap;
 }
 
-function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
-  const type = yBlock.get("type") as string;
-  const yAttrs = yBlock.get("attrs") as Y.Map<unknown>;
-  const attrs = freezeAttrs(yMapToObject(yAttrs));
-  const parentId = (yBlock.get("parentId") as BlockId | null) ?? null;
-  const prevSiblingId = (yBlock.get("prevSiblingId") as BlockId | null) ?? null;
-  const nextSiblingId = (yBlock.get("nextSiblingId") as BlockId | null) ?? null;
-  const firstChildId = (yBlock.get("firstChildId") as BlockId | null) ?? null;
-  const lastChildId = (yBlock.get("lastChildId") as BlockId | null) ?? null;
+/**
+ * Read a required field from a block's Y.Map. Yjs `Y.Map.get` returns
+ * `undefined` for absent keys, distinct from a value that was
+ * deliberately set to `null`. Casting the result silently widens
+ * `undefined` to the expected type and crashes opaquely downstream;
+ * this helper turns "missing key" into a clear error naming the field.
+ */
+function requireField<T>(yBlock: Y.Map<unknown>, id: BlockId, key: string): T {
+  const raw = yBlock.get(key);
+  if (raw === undefined) {
+    throw new Error(
+      `buildBlockSnapshot: block "${id}" missing required "${key}" field`,
+    );
+  }
+  return raw as T;
+}
 
-  const yInline = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+/**
+ * Like requireField, but for fields whose legal value-set includes
+ * `null` (e.g. `parentId`, `inlineContent`). `null` is a valid value
+ * meaning "no parent" / "container without inline content"; `undefined`
+ * (the key wasn't set) is still an error.
+ */
+function requireNullableField<T>(
+  yBlock: Y.Map<unknown>,
+  id: BlockId,
+  key: string,
+): T | null {
+  const raw = yBlock.get(key);
+  if (raw === undefined) {
+    throw new Error(
+      `buildBlockSnapshot: block "${id}" missing required "${key}" field (use null for absence)`,
+    );
+  }
+  return raw as T | null;
+}
+
+function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
+  const type = requireField<string>(yBlock, id, "type");
+  const yAttrs = requireField<Y.Map<unknown>>(yBlock, id, "attrs");
+  const attrs = freezeAttrs(yMapToObject(yAttrs));
+  const parentId = requireNullableField<BlockId>(yBlock, id, "parentId");
+  const prevSiblingId = requireNullableField<BlockId>(yBlock, id, "prevSiblingId");
+  const nextSiblingId = requireNullableField<BlockId>(yBlock, id, "nextSiblingId");
+  const firstChildId = requireNullableField<BlockId>(yBlock, id, "firstChildId");
+  const lastChildId = requireNullableField<BlockId>(yBlock, id, "lastChildId");
+
+  const yInline = requireNullableField<Y.Array<Y.Map<unknown>>>(
+    yBlock,
+    id,
+    "inlineContent",
+  );
   const inlineContent = yInline === null ? null : buildInlineContentSnapshot(yInline);
 
   return Object.freeze({
