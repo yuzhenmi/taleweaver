@@ -264,8 +264,10 @@ describe("resolvePositionFromPixel (new)", () => {
     expect(["p3", "p4", "p5"]).toContain(result.blockId);
   });
 
-  it("returns null for click outside any box (no boxes)", () => {
-    // Empty document with no inline content → no text-runs → null.
+  it("resolves to offset 0 of the empty paragraph for a click in its strut line", () => {
+    // Empty paragraph still occupies one line-height (strut). A click at its
+    // y should land on offset 0 of THAT paragraph (not null, not the prev/next
+    // line — there are none here). See #170.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -284,7 +286,109 @@ describe("resolvePositionFromPixel (new)", () => {
       ],
     });
     const { layout, shaper } = pipeline(state);
-    const result = resolvePositionFromPixel(state, layout, shaper, -100, -100);
-    expect(result).toBeNull();
+    // Click anywhere inside the strut line (y=0 is the top of the strut).
+    const result = resolvePositionFromPixel(state, layout, shaper, 0, 0);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("p");
+    expect(result.offset).toBe(0);
+  });
+
+  it("resolves click on an empty paragraph between two non-empty ones to offset 0 of the empty block", () => {
+    // Structure: [A] / [empty] / [B]. Clicking on the middle (empty) line
+    // should land on offset 0 of the empty paragraph — NOT fall through to
+    // A's last line or B's first line. See #170.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pB",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "pEmpty",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Layout: pA at y=0 h=16, pEmpty strut at y=24 h=16, pB at y=48 h=16
+    // (default 8px paragraph margins). Click well into pEmpty's strut line.
+    const result = resolvePositionFromPixel(state, layout, shaper, 8, 30);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("pEmpty");
+    expect(result.offset).toBe(0);
+  });
+
+  it("still resolves to a non-empty paragraph when the click is on its line (synthetic does not override real)", () => {
+    // Non-regression: with synthetic entries now consulted as a fallback,
+    // a click on a real text-run line must still resolve to that text-run
+    // (not to a synthetic on a different line). See #170.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pB",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("AAAA")]),
+        }),
+        buildBlock({
+          id: "pEmpty",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("BBBB")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Click at y=0 (pA's line), x=8 — must resolve in pA, not pEmpty.
+    const onA = resolvePositionFromPixel(state, layout, shaper, 8, 0);
+    expect(onA).not.toBeNull();
+    if (onA === null) return;
+    expect(onA.blockId).toBe("pA");
+
+    // Click at y=50 (within pB's line), x=8 — must resolve in pB, not pEmpty.
+    const onB = resolvePositionFromPixel(state, layout, shaper, 8, 50);
+    expect(onB).not.toBeNull();
+    if (onB === null) return;
+    expect(onB.blockId).toBe("pB");
   });
 });

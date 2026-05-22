@@ -59,18 +59,19 @@ export function resolvePositionFromPixel(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    // 1. Collect all text boxes with absolute coordinates. Filter out
-    //    synthetic strut-line entries — hit-test needs a real text-run
-    //    to derive a state Position from (parseInlineBoxKey on a synthetic
-    //    returns null, which would produce a null hit even though there's
-    //    an empty paragraph at that y). Clicking an empty paragraph
-    //    currently falls through to nearest-real-line behavior; leaving
-    //    that as a follow-up — see #169.
-    const rawBoxes: AbsoluteTextBox[] = [];
-    collectAllTextBoxes(layoutTree, 0, 0, rawBoxes);
-    const allBoxes = rawBoxes.filter((b) => b.synthetic !== true);
+    // 1. Collect all text boxes with absolute coordinates. We keep
+    //    synthetic strut-line entries: clicks on an empty paragraph need to
+    //    land at offset 0 of THAT paragraph (not fall through to the
+    //    nearest real line). The synthetic entry carries the owning
+    //    block's id (`blockId` field) so we can build a Position without
+    //    parsing an inline-item key — parseInlineBoxKey returns null on
+    //    `${lineKey}:strut` keys. See #170.
+    const allBoxes: AbsoluteTextBox[] = [];
+    collectAllTextBoxes(layoutTree, 0, 0, allBoxes);
 
-    // 2. Filter to target page (when paginated).
+    // 2. Filter to target page (when paginated). Real text-runs drive the
+    //    pagination check — synthetic entries inherit their page index from
+    //    the recursion but a doc with only synthetics is still page 0.
     const hasPagination = allBoxes.some((b) => b.pageIndex > 0);
     const boxes = hasPagination
       ? allBoxes.filter((b) => b.pageIndex === pageIndex)
@@ -118,13 +119,29 @@ export function resolvePositionFromPixel(
     // Sort by X within the line.
     lineBoxes.sort((a, b) => a.absoluteX - b.absoluteX);
 
-    // 5. Pick target box by X.
-    let targetBox = lineBoxes[lineBoxes.length - 1];
-    for (let i = 0; i < lineBoxes.length; i++) {
-      const b = lineBoxes[i];
+    // 5. Empty-line (strut) fallback: if the target line has only synthetic
+    //    entries, the click landed on an empty paragraph's strut line. Use
+    //    the synthetic's owning blockId to return offset 0 of that block.
+    //    We check by looking for ANY non-synthetic entry on this line —
+    //    a real-and-synthetic mix never occurs (the synthetic is only
+    //    emitted when no real text-run produced an entry; see
+    //    `collectAllTextBoxes`).
+    const realOnLine = lineBoxes.filter((b) => b.synthetic !== true);
+    if (realOnLine.length === 0) {
+      // All entries on this line are synthetic. Take the first one's blockId.
+      const synthetic = lineBoxes[0];
+      if (synthetic.blockId === undefined) return null;
+      if (getBlock(state, synthetic.blockId) === null) return null;
+      return createPosition(synthetic.blockId, 0);
+    }
+
+    // 6. Pick target box by X among the real (non-synthetic) entries.
+    let targetBox = realOnLine[realOnLine.length - 1];
+    for (let i = 0; i < realOnLine.length; i++) {
+      const b = realOnLine[i];
       if (x < b.absoluteX) {
         // In gap before this box — prefer previous, else this.
-        targetBox = i > 0 ? lineBoxes[i - 1] : b;
+        targetBox = i > 0 ? realOnLine[i - 1] : b;
         break;
       }
       if (x < b.absoluteX + b.box.width) {
@@ -133,7 +150,7 @@ export function resolvePositionFromPixel(
       }
     }
 
-    // 6. Char offset within target box.
+    // 7. Char offset within target box.
     const localX = x - targetBox.absoluteX;
     const charOffset = findCharOffset(
       targetBox.box.text,
@@ -142,11 +159,13 @@ export function resolvePositionFromPixel(
       measurer,
     );
 
-    // 7. Resolve target box's blockId; accumulate block-level offset across
+    // 8. Resolve target box's blockId; accumulate block-level offset across
     //    every text-run with the same blockId that spatially precedes the
     //    target box. We walk `allBoxes` (NOT the page-filtered list) so
     //    that within-block fragmentation across page breaks doesn't reset
-    //    the offset prematurely.
+    //    the offset prematurely. Synthetic entries naturally drop out of
+    //    the accumulator — parseInlineBoxKey returns null on their key
+    //    shape.
     const parsedTarget = parseInlineBoxKey(targetBox.box.key);
     if (parsedTarget === null) return null;
     const targetBlockId = parsedTarget.blockId;

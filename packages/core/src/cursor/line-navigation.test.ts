@@ -114,6 +114,167 @@ describe("moveToLine (new)", () => {
     expect(result.position.blockId).toBe("p2");
   });
 
+  it("ArrowDown into an empty paragraph lands at offset 0 of that paragraph", () => {
+    // Structure: [A] / [empty] / [B]. Cursor on A; ArrowDown should land at
+    // offset 0 of the empty paragraph (not fall through to B). See #170 and
+    // the line-nav bug.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pB",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "pEmpty",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    const pos = createPosition("pA" as BlockId, 1);
+    const result = moveToLine(state, pos, layout, shaper, "down", null);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.position.blockId).toBe("pEmpty");
+    expect(result.position.offset).toBe(0);
+  });
+
+  it("ArrowUp into an empty paragraph lands at offset 0 of that paragraph", () => {
+    // Same structure; cursor on B at offset 1; ArrowUp lands on the empty.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pB",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "pEmpty",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    const pos = createPosition("pB" as BlockId, 1);
+    const result = moveToLine(state, pos, layout, shaper, "up", null);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.position.blockId).toBe("pEmpty");
+    expect(result.position.offset).toBe(0);
+  });
+
+  it("multi-empty: ArrowUp steps through each empty paragraph in turn", () => {
+    // Structure: [A] / [empty1] / [empty2] / [B]. Cursor at B:1.
+    // ArrowUp 1 → empty2:0; ArrowUp 2 → empty1:0; ArrowUp 3 → in A.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pB",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pE1",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "pE1",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          nextSiblingId: "pE2",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pE2",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pE1",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pE2",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+
+    const step1 = moveToLine(
+      state,
+      createPosition("pB" as BlockId, 1),
+      layout,
+      shaper,
+      "up",
+      null,
+    );
+    expect(step1).not.toBeNull();
+    if (step1 === null) return;
+    expect(step1.position.blockId).toBe("pE2");
+    expect(step1.position.offset).toBe(0);
+
+    const step2 = moveToLine(state, step1.position, layout, shaper, "up", step1.targetX);
+    expect(step2).not.toBeNull();
+    if (step2 === null) return;
+    expect(step2.position.blockId).toBe("pE1");
+    expect(step2.position.offset).toBe(0);
+
+    const step3 = moveToLine(state, step2.position, layout, shaper, "up", step2.targetX);
+    expect(step3).not.toBeNull();
+    if (step3 === null) return;
+    expect(step3.position.blockId).toBe("pA");
+  });
+
   it("at last line moving down returns end-of-doc (last block, max offset)", () => {
     const state = buildState({
       rootId: "doc",
