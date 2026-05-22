@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { createHistory } from "./history";
+import type { SelectionEntry } from "./history";
 import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { getBlock } from "./state";
@@ -128,6 +129,116 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
   });
 
+  it("four-step walk-through asserts selection algebra (T4)", () => {
+    // Plan §T4 walk-through (with setBlockAttrs standing in for typing
+    // — same algebra, simpler setup):
+    //   commit({before: pos0, after: pos1})  ← "type 'abc'"
+    //   undo  → returns {selection: pos0}, undoStack=[], redoStack=[{pos0,pos1}]
+    //   redo  → returns {selection: pos1}, undoStack=[{pos0,pos1}], redoStack=[]
+    //   commit({before: pos1, after: pos2})  ← "type 'def'"
+    //   undo  → returns {selection: pos1}, undoStack=[{pos0,pos1}], redoStack=[{pos1,pos2}]
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const pos0 = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const pos1 = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    const pos2 = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
+
+    // Step 1: first commit
+    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    history.commit(r1, { before: pos0, after: pos1 });
+
+    // Step 2: undo → returns BEFORE side
+    const u1 = history.undo();
+    expect(u1).not.toBeNull();
+    if (u1 === null) throw new Error("expected undo to succeed");
+    expect(u1.selection).toEqual(pos0);
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(true);
+
+    // Step 3: redo → returns AFTER side (catches the original-draft bug
+    // where redo would have returned the same `before` value)
+    const r1Redone = history.redo();
+    expect(r1Redone).not.toBeNull();
+    if (r1Redone === null) throw new Error("expected redo to succeed");
+    expect(r1Redone.selection).toEqual(pos1);
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(false);
+
+    // Step 4: second commit
+    const r2 = setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    history.commit(r2, { before: pos1, after: pos2 });
+
+    // Step 5: undo → returns r2's BEFORE side
+    const u2 = history.undo();
+    expect(u2).not.toBeNull();
+    if (u2 === null) throw new Error("expected undo to succeed");
+    expect(u2.selection).toEqual(pos1);
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(true);
+  });
+
+  it("three undos then two redos preserve selection algebra (T4)", () => {
+    // Build three distinct commits with non-aliased before/after pairs,
+    // undo them all, then redo twice. Each step asserts the exact
+    // selection returned.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const p0 = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const p1 = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    const p2 = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
+    const p3 = createSpan(createPosition(child.id, 3), createPosition(child.id, 3));
+
+    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    history.commit(r1, { before: p0, after: p1 });
+    const r2 = setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    history.commit(r2, { before: p1, after: p2 });
+    const r3 = setBlockAttrs(state0, child.id, {
+      bold: true,
+      italic: true,
+      underline: true,
+    });
+    history.commit(r3, { before: p2, after: p3 });
+
+    // Three consecutive undos — each returns its commit's BEFORE side
+    // in reverse order: p2, p1, p0.
+    const u3 = history.undo();
+    expect(u3).not.toBeNull();
+    if (u3 === null) throw new Error("expected undo to succeed");
+    expect(u3.selection).toEqual(p2);
+
+    const u2 = history.undo();
+    expect(u2).not.toBeNull();
+    if (u2 === null) throw new Error("expected undo to succeed");
+    expect(u2.selection).toEqual(p1);
+
+    const u1 = history.undo();
+    expect(u1).not.toBeNull();
+    if (u1 === null) throw new Error("expected undo to succeed");
+    expect(u1.selection).toEqual(p0);
+
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(true);
+
+    // Two redos — each returns its commit's AFTER side in oldest-first
+    // order: p1, p2.
+    const redo1 = history.redo();
+    expect(redo1).not.toBeNull();
+    if (redo1 === null) throw new Error("expected redo to succeed");
+    expect(redo1.selection).toEqual(p1);
+
+    const redo2 = history.redo();
+    expect(redo2).not.toBeNull();
+    if (redo2 === null) throw new Error("expected redo to succeed");
+    expect(redo2.selection).toEqual(p2);
+
+    expect(history.canUndo()).toBe(true);
+    expect(history.canRedo()).toBe(true);
+  });
+
   it("History does not undo direct writes to the meta map", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
@@ -164,6 +275,100 @@ describe("history (Y.UndoManager wrapper)", () => {
     const r2 = setBlockAttrs(state0, child.id, { italic: true });
     history.commit(r2, { before: sel, after: sel });
     expect(history.canRedo()).toBe(false);
+  });
+
+  it("undo() read-time alignment assertion fires on manual desync (T2)", () => {
+    // T2 read-time defense-in-depth: if the selection stack and the
+    // Y.UndoManager undo stack ever desync (e.g., because an op fired
+    // without a corresponding history.commit), the assertion at the top
+    // of undo() catches it before any state read or mutation.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    // Manually push an entry onto the selection stack without firing
+    // a Y.Doc transaction — synthesizes the desync condition.
+    (
+      history as unknown as { undoSelectionStack: SelectionEntry[] }
+    ).undoSelectionStack.push({ before: sel, after: sel });
+
+    expect(() => history.undo()).toThrow(/stack misalignment/);
+  });
+
+  it("redo() read-time alignment assertion fires on manual desync (T2)", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    (
+      history as unknown as { redoSelectionStack: SelectionEntry[] }
+    ).redoSelectionStack.push({ before: sel, after: sel });
+
+    expect(() => history.redo()).toThrow(/stack misalignment/);
+  });
+
+  it("undo() error-recovery: if undoManager.undo throws, stacks are not mutated (T33)", () => {
+    // Monkey-patch undoManager.undo to throw. The whole undo() body is
+    // wrapped in try/catch (per plan §T33 step 33.2); on any throw the
+    // selection stacks MUST remain untouched so a subsequent retry has
+    // correct alignment. The wrapped error message is surfaced so
+    // callers can identify history corruption.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    history.commit(opResult, { before, after });
+
+    type StacksView = {
+      undoSelectionStack: SelectionEntry[];
+      redoSelectionStack: SelectionEntry[];
+      undoManager: { undo: () => void };
+    };
+    const internals = history as unknown as StacksView;
+    const undoStackBefore = internals.undoSelectionStack.slice();
+    const redoStackBefore = internals.redoSelectionStack.slice();
+    internals.undoManager.undo = () => {
+      throw new Error("simulated Yjs failure");
+    };
+
+    expect(() => history.undo()).toThrow(/failed mid-operation/);
+    // Stacks are NOT mutated despite the throw.
+    expect(internals.undoSelectionStack).toEqual(undoStackBefore);
+    expect(internals.redoSelectionStack).toEqual(redoStackBefore);
+  });
+
+  it("redo() error-recovery: if undoManager.redo throws, stacks are not mutated (T33)", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    history.commit(opResult, { before, after });
+    // Move the entry onto the redo stack so the redo() path is exercised.
+    history.undo();
+
+    type StacksView = {
+      undoSelectionStack: SelectionEntry[];
+      redoSelectionStack: SelectionEntry[];
+      undoManager: { redo: () => void };
+    };
+    const internals = history as unknown as StacksView;
+    const undoStackBefore = internals.undoSelectionStack.slice();
+    const redoStackBefore = internals.redoSelectionStack.slice();
+    internals.undoManager.redo = () => {
+      throw new Error("simulated Yjs failure");
+    };
+
+    expect(() => history.redo()).toThrow(/failed mid-operation/);
+    expect(internals.undoSelectionStack).toEqual(undoStackBefore);
+    expect(internals.redoSelectionStack).toEqual(redoStackBefore);
   });
 
   it("commit on a no-op opResult would misalign — handlers must short-circuit (assertion fires)", () => {

@@ -175,32 +175,81 @@ export class History {
    * and return the pre-action selection so the caller can restore it.
    * The popped entry travels intact to the redo stack so a subsequent
    * `redo()` can return its `after` side. Returns null if nothing to undo.
+   *
+   * **Error recovery (T33):** the whole body is wrapped in try/catch.
+   * If `undoManager.undo()` or `freshState()` throws, the selection
+   * stacks are NOT mutated (the pop / push / `freshState` assignment
+   * happen INSIDE the try). Caller sees a wrapped error identifying
+   * the failure as history-internal; stack alignment is preserved so
+   * a retry has correct shape.
    */
   undo(): UndoRedoResult | null {
+    if (isDevMode()) {
+      if (this.undoSelectionStack.length !== this.undoManager.undoStack.length) {
+        throw new Error(
+          `History.undo: stack misalignment ` +
+            `(undoSelectionStack=${this.undoSelectionStack.length}, ` +
+            `undoStack=${this.undoManager.undoStack.length}). ` +
+            `An op fired without calling history.commit, ` +
+            `or a no-op commit was issued without short-circuit.`,
+        );
+      }
+    }
     if (!this.canUndo()) return null;
+    // Peek selection BEFORE any mutation.
     const entry = this.undoSelectionStack[this.undoSelectionStack.length - 1];
     if (entry === undefined) return null;
-    this.undoManager.undo();
-    this.undoSelectionStack.pop();
-    this.redoSelectionStack.push(entry);
-    this.currentState = freshState(this.currentState);
-    return { state: this.currentState, selection: entry.before };
+    try {
+      this.undoManager.undo();
+      // Only mutate stacks AFTER undoManager.undo succeeds.
+      this.undoSelectionStack.pop();
+      this.redoSelectionStack.push(entry);
+      this.currentState = freshState(this.currentState);
+      return { state: this.currentState, selection: entry.before };
+    } catch (err) {
+      // ANY throw above leaves the Y.Doc and selection stack possibly
+      // inconsistent. Don't touch the stacks; surface a wrapped error.
+      throw new Error(
+        `History.undo: failed mid-operation, history may be inconsistent: ${err}`,
+      );
+    }
   }
 
   /**
    * Re-apply the most recently undone entry. Returns the post-action
    * selection so the caller can restore it. The entry travels back
    * to the undo stack so the cycle can continue.
+   *
+   * **Error recovery (T33):** mirrored from `undo()` — try/catch wraps
+   * the whole body so a Yjs throw or `freshState` allocation failure
+   * does not leave the stacks half-mutated.
    */
   redo(): UndoRedoResult | null {
+    if (isDevMode()) {
+      if (this.redoSelectionStack.length !== this.undoManager.redoStack.length) {
+        throw new Error(
+          `History.redo: stack misalignment ` +
+            `(redoSelectionStack=${this.redoSelectionStack.length}, ` +
+            `redoStack=${this.undoManager.redoStack.length}). ` +
+            `An op fired without calling history.commit, ` +
+            `or a no-op commit was issued without short-circuit.`,
+        );
+      }
+    }
     if (!this.canRedo()) return null;
     const entry = this.redoSelectionStack[this.redoSelectionStack.length - 1];
     if (entry === undefined) return null;
-    this.undoManager.redo();
-    this.redoSelectionStack.pop();
-    this.undoSelectionStack.push(entry);
-    this.currentState = freshState(this.currentState);
-    return { state: this.currentState, selection: entry.after };
+    try {
+      this.undoManager.redo();
+      this.redoSelectionStack.pop();
+      this.undoSelectionStack.push(entry);
+      this.currentState = freshState(this.currentState);
+      return { state: this.currentState, selection: entry.after };
+    } catch (err) {
+      throw new Error(
+        `History.redo: failed mid-operation, history may be inconsistent: ${err}`,
+      );
+    }
   }
 }
 
