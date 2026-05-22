@@ -385,7 +385,7 @@ describe("insertText — Y.Text identity preservation (in-place mutation)", () =
 
   it("preserves prev-run Y.Text identity at a text→text boundary when attrs match prev", () => {
     // [text("hello") {}, text("world") {bold:true}]; insert " " {} at offset 5.
-    // Legacy prefers trailing-edge of the prev text item → mutate the first run.
+    // Trailing-edge preference: insert at the end of the prev text item → mutate the first run.
     const state = buildState({
       rootId: "doc",
       blocks: [
