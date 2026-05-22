@@ -65,7 +65,7 @@ export function handleToggleStyle(
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
   const result = applyAttrsToRange(editor.state, selection, incoming);
-  if (result.dirtyIds.size === 0) {
+  if (result.state === editor.state) {
     return editor;
   }
 
