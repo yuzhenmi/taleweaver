@@ -440,8 +440,12 @@ function paintBox(
     }
     ctx.fillStyle = cs.color;
     const fontSize = cs.fontSize;
-    const lineHeight = us.lineHeight;
-    const halfLeading = (lineHeight - fontSize) / 2;
+    // box.height is the line's pixel height (tokBlockSize from the IFC).
+    // us.lineHeight is the CSS computed value — for `line-height: 1.2` this
+    // is `1.2` (the unitless ratio), NOT `19.2` (the resolved pixels). Using
+    // us.lineHeight directly produces halfLeading = (1.2 - 16) / 2 = -7.4
+    // and paints text ~9px above the line top.
+    const halfLeading = (box.height - fontSize) / 2;
     ctx.fillText(box.text, absX, absY + halfLeading);
     if (cs.textDecoration === "underline") {
       const ulY = absY + halfLeading + fontSize + 1;
@@ -458,8 +462,8 @@ function paintBox(
     }
     ctx.fillStyle = cs.color;
     const fontSize = cs.fontSize;
-    const lineHeight = us.lineHeight;
-    const halfLeading = (lineHeight - fontSize) / 2;
+    // See text-run branch above for why box.height (not us.lineHeight).
+    const halfLeading = (box.height - fontSize) / 2;
     ctx.fillText(box.text, absX, absY + halfLeading);
     return;
   }
