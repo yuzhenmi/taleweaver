@@ -634,6 +634,27 @@ describe("clonePastedSubtree — error cases", () => {
     );
   });
 
+  it("throws when the allocator returns a colliding id (already exists in source state)", () => {
+    // Seed source state with a block named "c-0", then provide an allocator
+    // whose first allocation also returns "c-0". Without the dev-mode
+    // collision check, the cloned subtree would contain id-references that
+    // overlap with the source state's namespace, breaking downstream insertion
+    // (where the cloned blocks merge into a single Y.Doc).
+    const sourceState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "c-0" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "c-0", inlineContent: inlineContent([text("hello")]) }),
+        // A block with the id the allocator's first allocation will return.
+        buildBlock({ id: "c-0", type: "paragraph", parentId: "doc", prevSiblingId: "p", inlineContent: inlineContent([])}),
+      ],
+    });
+    const allocator = createTestAllocator("c");
+    expect(() => clonePastedSubtree(sourceState, "p" as BlockId, allocator)).toThrow(
+      /allocator returned a colliding id "c-0"/,
+    );
+  });
+
   it("handles cycles in the source state without infinite recursion (cycle defense)", () => {
     // Pathological source state: section.firstChildId points to itself (cycle).
     // The walker should add "section" to visited on first encounter and skip on second.

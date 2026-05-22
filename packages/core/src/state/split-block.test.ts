@@ -564,4 +564,23 @@ describe("splitBlockAtPosition — error cases", () => {
       splitBlockAtPosition(state, createPosition("p" as BlockId, 999), allocator),
     ).toThrow(/out of range/);
   });
+
+  it("throws when the allocator returns a colliding id (already exists in blocks)", () => {
+    // Seed state with a block named "collide-0", then provide an allocator
+    // whose first allocation also returns "collide-0". Without the dev-mode
+    // collision check, the Y.Map.set for the new split-block would silently
+    // overwrite the existing "collide-0" block.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "collide-0" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "collide-0", inlineContent: inlineContent([text("hello world")]) }),
+        buildBlock({ id: "collide-0", type: "paragraph", parentId: "doc", prevSiblingId: "p", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("collide");
+    expect(() =>
+      splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator),
+    ).toThrow(/allocator returned a colliding id "collide-0"/);
+  });
 });

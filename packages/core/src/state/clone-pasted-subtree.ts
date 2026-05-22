@@ -3,6 +3,7 @@ import { getBlock, getEmbedContent } from "./state";
 import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
+import { assertNoIdCollision } from "./id-collision-check";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained
@@ -79,12 +80,23 @@ export function clonePastedSubtree(
   // tree ids first (in walk order), then embed-content ids. Either order
   // is valid — internal references are remapped by id, not by allocation
   // position.
+  //
+  // Each newly-allocated id is verified (in dev) against the source state's
+  // Y.Doc to detect colliding ids — the cloned subtree's ids must not
+  // overlap with the source namespace, or downstream merges/inserts will
+  // corrupt either tree. This matters more here than for single-block ops
+  // because clonePastedSubtree allocates many ids in a row, multiplying
+  // collision risk under counter-based test allocators.
   const idMap = new Map<BlockId, BlockId>();
   for (const oldId of treeIds) {
-    idMap.set(oldId, allocator.allocate());
+    const newId = allocator.allocate();
+    assertNoIdCollision(sourceState.doc, newId, "clonePastedSubtree");
+    idMap.set(oldId, newId);
   }
   for (const oldId of embedContentIds) {
-    idMap.set(oldId, allocator.allocate());
+    const newId = allocator.allocate();
+    assertNoIdCollision(sourceState.doc, newId, "clonePastedSubtree");
+    idMap.set(oldId, newId);
   }
 
   // Phase 3: construct cloned blocks with rewritten references, routed to

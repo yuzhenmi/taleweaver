@@ -7,6 +7,7 @@ import { inlineContentLength } from "./inline-content";
 import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock, buildYInlineItem } from "./y-block";
 import { yMapAsObject, cloneInlineItem } from "./y-utils";
+import { assertNoIdCollision } from "./id-collision-check";
 
 /**
  * Split a leaf block at `position` into two adjacent siblings under the
@@ -75,6 +76,12 @@ export function splitBlockAtPosition(
   const parentId = block.parentId;
 
   return applyOperation(state, () => {
+    // Dev-mode defense against allocator id collision (test allocators with
+    // counter-based ids can collide with seeded state; production
+    // crypto.randomUUID effectively cannot). Without this, the yBlocks.set
+    // below would silently overwrite the existing block of the same id.
+    assertNoIdCollision(state.doc, newBlockId, "splitBlockAtPosition");
+
     const yBlocks = getBlocksMap(state.doc);
     const yOriginal = getYBlock(state.doc, position.blockId, "splitBlockAtPosition");
 

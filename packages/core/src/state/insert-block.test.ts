@@ -183,4 +183,23 @@ describe("insertBlock — error cases", () => {
       insertBlock(state, "doc" as BlockId, "missing-sibling" as BlockId, { type: "paragraph" }, allocator),
     ).toThrow(/beforeSibling.*not found/);
   });
+
+  it("throws when the allocator returns a colliding id (already exists in blocks)", () => {
+    // Seed state with a block named "collide-0", then provide an allocator
+    // whose first allocation also returns "collide-0". Without the dev-mode
+    // collision check, the Y.Map.set would silently overwrite the existing
+    // "collide-0" block.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "collide-0", lastChildId: "collide-0" }),
+        buildBlock({ id: "collide-0", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    // createTestAllocator with prefix "collide" yields "collide-0" first.
+    const allocator = createTestAllocator("collide");
+    expect(() =>
+      insertBlock(state, "doc" as BlockId, null, { type: "paragraph" }, allocator),
+    ).toThrow(/allocator returned a colliding id "collide-0"/);
+  });
 });

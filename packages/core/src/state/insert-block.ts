@@ -5,6 +5,7 @@ import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent } from "./inline-content";
 import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
+import { assertNoIdCollision } from "./id-collision-check";
 
 export interface InsertBlockArgs {
   type: string;
@@ -67,6 +68,12 @@ export function insertBlock(
   const newId = allocator.allocate();
 
   return applyOperation(state, () => {
+    // Dev-mode defense against allocator id collision (test allocators with
+    // counter-based ids can collide with seeded state; production
+    // crypto.randomUUID effectively cannot). Without this, Y.Map.set below
+    // would silently overwrite the existing block of the same id.
+    assertNoIdCollision(state.doc, newId, "insertBlock");
+
     // Add the new block to the blocks map with full linkage.
     getBlocksMap(state.doc).set(
       newId,

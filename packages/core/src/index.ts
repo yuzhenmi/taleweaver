@@ -94,7 +94,8 @@ export { mergeBlockAttrs } from "./state/merge-block-attrs";
 export { applyAttrsToRange } from "./state/apply-attrs";
 export { clonePastedSubtree } from "./state/clone-pasted-subtree";
 export type { ClonedSubtree } from "./state/clone-pasted-subtree";
-export { extractText } from "./state/extract-text";
+export { extractText, builtinEmbedSerializer } from "./state/extract-text";
+export type { EmbedSerializer } from "./state/extract-text";
 
 // History (Y.UndoManager-backed)
 export {

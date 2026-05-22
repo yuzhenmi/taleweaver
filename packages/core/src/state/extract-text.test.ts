@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractText } from "./extract-text";
+import { extractText, builtinEmbedSerializer, type EmbedSerializer } from "./extract-text";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
@@ -98,5 +98,89 @@ describe("extractText", () => {
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
     expect(extractText(state, span)).toBe("hello\n");
+  });
+
+  describe("embed serializer (T17)", () => {
+    it("default serializer maps a hard-break embed to U+FFFC (preserves legacy contract)", () => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([text("a"), embed("hard-break"), text("b")]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+      expect(extractText(state, span)).toBe("a￼b");
+    });
+
+    it("builtin serializer maps a hard-break embed to \\n", () => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([text("a"), embed("hard-break"), text("b")]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a\nb");
+    });
+
+    it("builtin serializer maps a tab embed to \\t", () => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([text("a"), embed("tab"), text("b")]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a\tb");
+    });
+
+    it("builtin serializer falls back to U+FFFC for unknown embed types", () => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([text("a"), embed("image"), text("b")]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a￼b");
+    });
+
+    it("caller-provided custom serializer is used in place of default and builtin", () => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([
+              text("a"),
+              embed("hard-break"),
+              embed("tab"),
+              embed("image"),
+              text("b"),
+            ]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+      const custom: EmbedSerializer = (item) => `<${item.embedType}>`;
+      expect(extractText(state, span, custom)).toBe("a<hard-break><tab><image>b");
+    });
   });
 });

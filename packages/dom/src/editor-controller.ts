@@ -3,6 +3,7 @@ import {
   createPosition,
   positionsEqual,
   extractText,
+  builtinEmbedSerializer,
   selectWord,
   getBlock,
   inlineContentLength,
@@ -687,7 +688,7 @@ export function createEditorController(
     if (!state) return;
     if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
   }
 
@@ -695,7 +696,7 @@ export function createEditorController(
     if (!state) return;
     if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
     dispatch({ type: "DELETE_BACKWARD" });
   }
