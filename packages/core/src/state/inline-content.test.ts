@@ -177,6 +177,14 @@ describe("mergeAdjacentTextItems", () => {
     expect(result[1]).toMatchObject({ kind: "embed", embedType: "img" });
     expect(result[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
   });
+
+  it("drops an empty text item between two embeds without merging the embeds", () => {
+    const items = [embed("img1"), text("", {}), embed("img2")];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ kind: "embed", embedType: "img1" });
+    expect(result[1]).toMatchObject({ kind: "embed", embedType: "img2" });
+  });
 });
 
 describe("splitInlineContentAtOffset", () => {

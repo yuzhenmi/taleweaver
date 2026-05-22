@@ -208,5 +208,18 @@ describe("y-utils", () => {
         { kind: "text", text: "b", attrs: { bold: true } },
       ]);
     });
+
+    it("drops an empty text item between two embeds without merging the embeds", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "embed", embedType: "img1", attrs: {}, properties: {} }),
+        buildYInlineItem({ kind: "text", text: "", attrs: {} }),
+        buildYInlineItem({ kind: "embed", embedType: "img2", attrs: {}, properties: {} }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([
+        { kind: "embed" },
+        { kind: "embed" },
+      ]);
+    });
   });
 });
