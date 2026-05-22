@@ -4,6 +4,7 @@ import * as ops from "./operations";
 describe("operations barrel", () => {
   it("re-exports block-level operations", () => {
     expect(typeof ops.setBlockAttrs).toBe("function");
+    expect(typeof ops.mergeBlockAttrs).toBe("function");
     expect(typeof ops.setBlockType).toBe("function");
     expect(typeof ops.insertBlock).toBe("function");
     expect(typeof ops.removeBlock).toBe("function");

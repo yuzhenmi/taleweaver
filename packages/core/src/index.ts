@@ -90,6 +90,7 @@ export { removeBlock } from "./state/remove-block";
 export { mergeAdjacentBlocks } from "./state/merge-blocks";
 export { setBlockType } from "./state/set-block-type";
 export { setBlockAttrs } from "./state/set-block-attrs";
+export { mergeBlockAttrs } from "./state/merge-block-attrs";
 export { applyAttrsToRange } from "./state/apply-attrs";
 export { clonePastedSubtree } from "./state/clone-pasted-subtree";
 export type { ClonedSubtree } from "./state/clone-pasted-subtree";

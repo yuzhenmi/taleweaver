@@ -13,6 +13,7 @@
  */
 
 export { setBlockAttrs } from "./set-block-attrs";
+export { mergeBlockAttrs } from "./merge-block-attrs";
 export { setBlockType } from "./set-block-type";
 export { insertBlock, type InsertBlockArgs } from "./insert-block";
 export { removeBlock } from "./remove-block";
