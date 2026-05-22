@@ -151,5 +151,62 @@ describe("y-utils", () => {
         { kind: "text", text: "x", attrs: {} },
       ]);
     });
+
+    it("drops a sole zero-length text item", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "text", text: "", attrs: {} }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([]);
+    });
+
+    it("drops a leading zero-length text item", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "text", text: "", attrs: {} }),
+        buildYInlineItem({ kind: "text", text: "a", attrs: {} }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([
+        { kind: "text", text: "a", attrs: {} },
+      ]);
+    });
+
+    it("drops a trailing zero-length text item", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "text", text: "a", attrs: {} }),
+        buildYInlineItem({ kind: "text", text: "", attrs: {} }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([
+        { kind: "text", text: "a", attrs: {} },
+      ]);
+    });
+
+    it("drops an empty bridge text item, allowing the two same-attrs neighbors to merge", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "text", text: "a", attrs: { bold: true } }),
+        buildYInlineItem({ kind: "text", text: "", attrs: {} }),
+        buildYInlineItem({ kind: "text", text: "b", attrs: { bold: true } }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([
+        { kind: "text", text: "ab", attrs: { bold: true } },
+      ]);
+    });
+
+    it("drops an empty text item between an embed and a text item without breaking embed barrier", () => {
+      const yItems = makeArray([
+        buildYInlineItem({ kind: "text", text: "a", attrs: { bold: true } }),
+        buildYInlineItem({ kind: "embed", embedType: "img", attrs: {}, properties: {} }),
+        buildYInlineItem({ kind: "text", text: "", attrs: { bold: true } }),
+        buildYInlineItem({ kind: "text", text: "b", attrs: { bold: true } }),
+      ]);
+      mergeAdjacentSameAttrsTextItems(yItems);
+      expect(itemsAsTuples(yItems)).toEqual([
+        { kind: "text", text: "a", attrs: { bold: true } },
+        { kind: "embed" },
+        { kind: "text", text: "b", attrs: { bold: true } },
+      ]);
+    });
   });
 });

@@ -78,13 +78,21 @@ export function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
 }
 
 /**
- * Walk `yItems` and merge any adjacent same-attrs text-item pairs. Items
- * whose neighbors don't converge keep their Y.Text identity intact —
- * only the converging pairs lose identity (the merged result is a fresh
- * Y.Text holding the concatenated content). Upholds the
- * mergeAdjacentTextItems invariant for Layer 3 ops that may produce
- * adjacent text items with equal attrs (e.g. applyAttrsToRange after
- * attr changes, mergeAdjacentBlocks at the seam).
+ * Walk `yItems` and merge any adjacent same-attrs text-item pairs, and
+ * drop any zero-length text items. Items whose neighbors don't converge
+ * keep their Y.Text identity intact — only the converging pairs lose
+ * identity (the merged result is a fresh Y.Text holding the concatenated
+ * content).
+ *
+ * Zero-length text items are dropped in-place. The drop must happen WITHIN
+ * the merge loop (not as a separate pre-pass) so that an empty bridge
+ * between two same-attrs neighbors does not block their merge: when an
+ * empty item is removed, we step back so the now-adjacent pair is
+ * re-evaluated for a same-attrs merge.
+ *
+ * Upholds two normalization invariants mirroring `mergeAdjacentTextItems`:
+ *   (a) no two adjacent text items with equal attrs;
+ *   (b) no zero-length text items.
  */
 export function mergeAdjacentSameAttrsTextItems(
   yItems: Y.Array<Y.Map<unknown>>,
@@ -93,6 +101,20 @@ export function mergeAdjacentSameAttrsTextItems(
   while (i + 1 < yItems.length) {
     const a = yItems.get(i);
     const b = yItems.get(i + 1);
+    // Drop a zero-length text item at position i. Step back so the pair
+    // (i-1, i) that was previously bridged by the empty item is re-evaluated
+    // for a same-attrs merge.
+    if (a.get("kind") === "text" && (a.get("text") as Y.Text).toString() === "") {
+      yItems.delete(i, 1);
+      if (i > 0) i--;
+      continue;
+    }
+    // Drop a zero-length text item at position i+1. Don't advance i — the
+    // next item slides into position i+1 and needs evaluation against a.
+    if (b.get("kind") === "text" && (b.get("text") as Y.Text).toString() === "") {
+      yItems.delete(i + 1, 1);
+      continue;
+    }
     if (a.get("kind") !== "text" || b.get("kind") !== "text") {
       i++;
       continue;
@@ -108,5 +130,13 @@ export function mergeAdjacentSameAttrsTextItems(
     yItems.delete(i, 2);
     yItems.insert(i, [buildYInlineItem({ kind: "text", text: aText + bText, attrs: aAttrs })]);
     // Don't advance i — the merged item may now be mergeable with the next.
+  }
+  // Trailing single empty item (length is 1 and only item is empty text)
+  // is not reachable by the pairwise loop above; sweep it here.
+  if (yItems.length === 1) {
+    const only = yItems.get(0);
+    if (only.get("kind") === "text" && (only.get("text") as Y.Text).toString() === "") {
+      yItems.delete(0, 1);
+    }
   }
 }

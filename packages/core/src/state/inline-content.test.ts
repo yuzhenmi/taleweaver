@@ -130,6 +130,53 @@ describe("mergeAdjacentTextItems", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ kind: "text", text: "abc", attrs: { bold: true } });
   });
+
+  it("drops a sole zero-length text item", () => {
+    const items = [text("", {})];
+    expect(mergeAdjacentTextItems(items)).toEqual([]);
+  });
+
+  it("drops a leading zero-length text item", () => {
+    const items = [text("", {}), text("a", {})];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ kind: "text", text: "a", attrs: {} });
+  });
+
+  it("drops a trailing zero-length text item", () => {
+    const items = [text("a", {}), text("", {})];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ kind: "text", text: "a", attrs: {} });
+  });
+
+  it("drops an empty bridge text item, allowing the two same-attrs neighbors to merge", () => {
+    // Without dropping the empty bridge, the merge would not happen — the
+    // empty item's attrs ({}) differ from the bold neighbors. The empty must
+    // be dropped WITHIN the merge loop so the same-attrs merge fires.
+    const items = [
+      text("a", { bold: true }),
+      text("", {}),
+      text("b", { bold: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ kind: "text", text: "ab", attrs: { bold: true } });
+  });
+
+  it("drops an empty text item between an embed and a text item without breaking embed barrier", () => {
+    const items = [
+      text("a", { bold: true }),
+      embed("img"),
+      text("", { bold: true }),
+      text("b", { bold: true }),
+    ];
+    const result = mergeAdjacentTextItems(items);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(result[1]).toMatchObject({ kind: "embed", embedType: "img" });
+    expect(result[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+  });
 });
 
 describe("splitInlineContentAtOffset", () => {

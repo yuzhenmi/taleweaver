@@ -74,24 +74,34 @@ export function findItemAtOffset(
 }
 
 /**
- * Merge adjacent text items with equal attrs into a single item.
- * Embed items act as barriers and are not merged with their neighbors,
- * even if neighboring text items have identical attrs.
+ * Merge adjacent text items with equal attrs into a single item, and drop
+ * zero-length text items. Embed items act as barriers and are not merged
+ * with their neighbors, even if neighboring text items have identical attrs.
+ *
+ * Zero-length text items are dropped WITHIN the merge loop (not as a
+ * separate pre-pass) so that an empty bridge between two same-attrs
+ * neighbors does not block their merge: e.g.
+ *   [text("a", {bold}), text("", {}), text("b", {bold})]
+ *     → [text("ab", {bold})]
  *
  * Used by every Layer 3 operation that produces inline content (insertText,
  * applyAttrsToRange, splitBlockAtPosition, mergeAdjacentBlocks, etc.) to
- * uphold the normalization invariant: a block's items[] never has two
- * adjacent text items with equal attrs.
+ * uphold two normalization invariants on a block's items[]:
+ *   (a) no two adjacent text items with equal attrs;
+ *   (b) no zero-length text items.
  *
  * Returns a fresh array; never mutates the input.
  */
 export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
-  if (items.length <= 1) return [...items];
   const out: InlineItem[] = [];
   let pending: TextItem | null = null;
 
   for (const item of items) {
     if (item.kind === "text") {
+      // Drop zero-length text items. We treat them as if they weren't there
+      // — pending stays pending, so two same-attrs neighbors separated only
+      // by empty items still merge.
+      if (item.text.length === 0) continue;
       if (pending && attrsEqual(pending.attrs, item.attrs)) {
         pending = Object.freeze({
           kind: "text" as const,
