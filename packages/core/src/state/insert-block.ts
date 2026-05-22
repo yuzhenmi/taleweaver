@@ -19,7 +19,9 @@ export interface InsertBlockArgs {
  *
  * Returns OperationResult with the new state and dirtyIds containing:
  *   - the new block's id
- *   - the parent's id (firstChild/lastChild may have changed)
+ *   - the parent's id ONLY when its firstChildId or lastChildId actually
+ *     changed (i.e. boundary insert: prepend or append). Middle inserts
+ *     leave the parent unchanged and out of dirtyIds.
  *   - the previous sibling's id (its nextSiblingId is rewired)
  *   - the next sibling's id (its prevSiblingId is rewired)
  *
@@ -63,8 +65,6 @@ export function insertBlock(
   // Allocate the new block's id outside the transaction so the allocator
   // is bumped exactly once even if the transaction body re-runs.
   const newId = allocator.allocate();
-  const newFirstChildId = prevSiblingId === null ? newId : parent.firstChildId;
-  const newLastChildId = nextSiblingId === null ? newId : parent.lastChildId;
 
   return applyOperation(state, () => {
     // Add the new block to the blocks map with full linkage.
@@ -94,9 +94,17 @@ export function insertBlock(
       yNext.set("prevSiblingId", newId);
     }
 
-    // Update parent's firstChildId / lastChildId if the new block sits at a boundary.
-    const yParent = getYBlock(state.doc, parentId, "insertBlock");
-    yParent.set("firstChildId", newFirstChildId);
-    yParent.set("lastChildId", newLastChildId);
+    // Update parent's firstChildId / lastChildId only when the new block sits at a
+    // boundary. Writing same-value to a Y.Map still fires a change event, which would
+    // cause the parent to land in dirtyIds and trigger an unnecessary re-paint.
+    if (prevSiblingId === null || nextSiblingId === null) {
+      const yParent = getYBlock(state.doc, parentId, "insertBlock");
+      if (prevSiblingId === null) {
+        yParent.set("firstChildId", newId);
+      }
+      if (nextSiblingId === null) {
+        yParent.set("lastChildId", newId);
+      }
+    }
   });
 }

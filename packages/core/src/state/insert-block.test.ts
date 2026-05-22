@@ -48,7 +48,7 @@ describe("insertBlock — between siblings", () => {
     expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
   });
 
-  it("returns dirtyIds for new block + parent + both adjacent siblings", () => {
+  it("returns dirtyIds for new block + both adjacent siblings only — parent unchanged on middle insert", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
     const result = insertBlock(
@@ -58,9 +58,13 @@ describe("insertBlock — between siblings", () => {
       { type: "paragraph" },
       allocator,
     );
-    // Expected dirty: new block, doc (parent — its firstChild/lastChild may or may not have changed but parent was inspected/updated), p1 (nextSibling rewired), p2 (prevSibling rewired).
-    // Note: when inserting between siblings, doc's first/lastChildId stay the same so dirtying it is conservative but correct.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "doc", "p1", "p2"]));
+    // Expected dirty: new block, p1 (nextSibling rewired), p2 (prevSibling rewired).
+    // Parent (doc) is NOT dirty: neither firstChildId nor lastChildId changed.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "p1", "p2"]));
+    expect(result.dirtyIds.has("doc" as BlockId)).toBe(false);
+
+    // Snapshot identity preserved for the unchanged parent.
+    expect(getBlock(result.state, "doc" as BlockId)).toBe(getBlock(state, "doc" as BlockId));
   });
 });
 
