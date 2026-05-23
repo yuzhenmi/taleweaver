@@ -112,6 +112,8 @@ module imports its type vocabulary.
 
 **Cursor** — `isCollapsed`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`.
 
-**Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`. `AbsoluteTextBox`, `collectAllTextBoxes`.
+**Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`.
+
+**Line traversal (under `cursor/`)** — `AbsoluteLineBox`, `LineLeaf`. `collectLineBoxes`, `collectLineLeaves`, `findLineForPosition`. (Consumed by hit-test, cursor-position, selection-geometry, line-navigation for line-level geometry queries.)
 
 **Perf** — `PerfReport`. `setPerfTraceEnabled`, `isPerfTraceEnabled`, `markStart`, `markEnd`, `recordSample`, `report`, `resetPerfTrace`.

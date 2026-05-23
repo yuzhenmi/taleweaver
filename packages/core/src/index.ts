@@ -191,8 +191,11 @@ export { isCollapsed } from "./cursor/selection";
 
 // Editor
 export type { EditorAction } from "./editor/editor-action";
-export type { AbsoluteTextBox } from "./editor/layout-utils";
-export { collectAllTextBoxes } from "./editor/layout-utils";
+// LineBox-canonical line traversal — replaces the deleted
+// text-run-driven `AbsoluteTextBox` / `collectAllTextBoxes` flatten
+// (lived under `editor/layout-utils.ts` until E-E.7).
+export type { AbsoluteLineBox, LineLeaf } from "./cursor/line-flatten";
+export { collectLineBoxes, collectLineLeaves, findLineForPosition } from "./cursor/line-flatten";
 export type {
   EditorState,
   EditorConfig,
