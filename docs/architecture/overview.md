@@ -90,7 +90,7 @@ dependency order so each layer's surface is grounded by the time you
 reach its consumer:
 
 1. [`1-core/overview.md`](1-core/overview.md) — core's modules and the
-   rendering pipeline. Defines the data structures (`StateNode`,
+   rendering pipeline. Defines the data structures (`State` / `Block`,
    `RenderNode`, `LayoutBox`, `EditorState`) and the contracts the host
    depends on.
 2. [`2-dom/overview.md`](2-dom/overview.md) — dom's modules: controller,

@@ -14,25 +14,19 @@ directory is one module.
   fully numeric), and supporting primitives (`Length`, `Color`,
   `Display`, `WritingMode`, etc.). Every other module imports from here.
 
-- **`state/`** — the document model. An immutable tree of `StateNode`s
-  with path-based operations, text transformations, inline-style
-  application, position primitives, and undo/redo history.
+- **`state/`** — the document model. A Y.Doc-backed block tree of
+  styled-run sequences, with id-based positions, three layers of API
+  (types and access; pure utilities; state-mutating operations), and
+  Y.UndoManager-backed history with per-entry selection alignment.
 
 - **`components/`** — the plugin registry. Each component registers a
-  render function for a node type. Lets downstream consumers add new
+  render function for a block type. Lets downstream consumers add new
   document primitives (charts, equations, embeds) without forking core.
-  *(During the P7–P11.4 parallel window, the canonical
-  `component-registry.ts` is the new constructor-injectable shape per
-  Decision F; `component-registry-legacy.ts` remains in service until
-  cutover.)*
 
-- **`render/`** — the render tree. Walks a state tree bottom-up and
-  dispatches each node through the component registry to produce a
-  `RenderNode` tree of layout-relevant elements with declared styles.
-  *(During the P7–P11.4 parallel window, `render.ts` is the new
-  Y.Doc-backed `render(state, componentRegistry, attrRegistry)` walker
-  per Decisions B / F / G; `render-legacy.ts` keeps the legacy
-  `renderTree` / `renderTreeIncremental` API live until cutover.)*
+- **`render/`** — the render tree. Walks the state's block tree
+  top-down (driven by `dirtyIds` for incremental work) and dispatches
+  each block through the component registry to produce a `RenderNode`
+  tree of layout-relevant elements with declared styles.
 
 - **`cascade/`** — the value-resolution pass. Walks the render tree
   top-down applying inheritance, initial values, and length flattening
@@ -104,18 +98,18 @@ module imports its type vocabulary.
 
 **Styles** — `Style`, `ComputedStyle`, `UsedStyle`, `Length`, `LengthOrAuto`, `Color`, `Display`, `BorderStyle`, `FontWeight`, `FontStyle`, `TextDecoration`, `WhiteSpace`, `VerticalAlign`, `Float`, `Clear`, `BreakBefore`, `BreakAfter`, `BreakInside`, `ListStyleType`, `ListStylePosition`, `BoxSizing`, `Direction`, `WritingMode`. `PROPERTY_META`, `INITIAL_COMPUTED_STYLE`.
 
-**State** — `StateNode`, `NewNode`. `createNode`, `createTextNode`. `updateProperties`, `insertChild`, `removeChild`, `getNodeByPath`, `updateAtPath`. `Position`, `Span`. `createPosition`, `createSpan`, `comparePositions`, `normalizeSpan`. `Change`, `createChange`. `insertText`, `deleteRange`, `replaceRange`, `splitNode`. `findDirtyPaths`, `isDirty`. `History`, `createHistory`, `pushChange`, `undo`, `redo`. `createEmptyDocument`. `getTextContent`, `getTextContentLength`, `clampOffset`. `findPathById`. `applyInlineStyle`, `getStyleInRange`, `remapPosition`. `extractText`.
+**State** — Types: `State`, `Block`, `BlockId`, `BlockInit`, `InlineContent`, `InlineItem`, `TextItem`, `EmbedItem`, `ReadonlyAttrs`, `Position`, `Span`, `Selection`, `OperationResult`, `IdAllocator`, `EmbedSerializer`, `ClonedSubtree`, `InsertBlockArgs`. Factories and access: `createState`, `createEmptyDocument`, `productionAllocator`, `createTestAllocator`, `getBlock`, `getEmbedContent`, `getBlockFromEither`, `applyOperation`, `freshState`, `createPosition`, `createSpan`, `positionsEqual`, `comparePositionsWithinBlock`. Layer 2 utilities: `attrsEqual`, `deepValueEqual`, `mergeAttrs`, `nextBlockInDocOrder`, `prevBlockInDocOrder`, `ancestorChain`, `firstLeafBlock`, `lastLeafBlock`, `compareBlocksInDocOrder`, `comparePositions`, `spanStart`, `spanEnd`, `selectionContextOf`, `normalizeSpan`, `iterateSpan`, `iterateBlocksInSpan`, `extractText`, `builtinEmbedSerializer`, `inlineContentLength`, `findItemAtOffset`, `mergeAdjacentTextItems`, `splitInlineContentAtOffset`. Layer 3 operations: `insertText`, `deleteRange`, `replaceRange`, `splitBlockAtPosition`, `mergeAdjacentBlocks`, `applyAttrsToRange`, `setBlockAttrs`, `mergeBlockAttrs`, `setBlockType`, `insertBlock`, `removeBlock`, `clonePastedSubtree`. History: `History`, `SelectionEntry`, `UndoRedoResult`, `createHistory`.
 
-**Cascade** — `cascadePass`, `cascadePassIncremental`, `composeComputed`, `resolveLength`.
+**Cascade** — `cascadePass`, `composeComputed`, `resolveLength`. Attribute interpreter registry: `AttrRegistry`, `createDefaultAttrRegistry`, `AttrInterpreter`, `CascadeContext`.
 
-**Render tree** — `RenderNode`, `ElementBox`, `TextBox`. `createElementBox`, `createTextBox`. `renderTree`, `renderTreeIncremental`.
+**Render tree** — `RenderNode`, `ElementBox`, `TextBox`. `createElementBox`, `createTextBox`. `render`, `RenderOutput`.
 
-**Layout tree** — `LayoutBox`, `BlockBox`, `LineBox`, `TextRunBox`. `createBlockBox`, `createLineBox`, `createTextRunBox`. `layoutTree`, `layoutTreeIncremental`. `establishesNewBFC`. `IntrinsicSizes`, `IntrinsicSizesCache`, `createIntrinsicSizesCache`, `computeIntrinsicSizes`. `IFCState`, `IFCStateCache`, `createIFCStateCache`. `TextShaper`, `ShapedRun`, `Cluster`, `BreakOpportunity`, `FontMetrics`, `GlyphId`. `TextMeasurer`, `createMockMeasurer`, `adaptShaperToMeasurer`. `createMockShaper`.
+**Layout tree** — `LayoutBox`, `BlockBox`, `LineBox`, `TextRunBox`. `createBlockBox`, `createLineBox`, `createTextRunBox`. `layoutTree`, `layoutTreeIncremental`. `establishesNewBFC`. `computeUsedStyle`. `PageBox`, `createPageBox`, `PageConfig`, `PageMargins`. `IntrinsicSizes`, `IntrinsicSizesCache`, `createIntrinsicSizesCache`, `computeIntrinsicSizes`. `IFCState`, `IFCStateCache`, `createIFCStateCache`. `TextShaper`, `ShapedRun`, `Cluster`, `BreakOpportunity`, `FontMetrics`, `GlyphId`. `TextMeasurer`, `createMockMeasurer`, `adaptShaperToMeasurer`. `createMockShaper`.
 
-**Components** — `ComponentRenderFn`, `ComponentDefinition`, `ComponentRegistry`, `createRegistry`. `defaultComponents`, plus individual component definitions (`documentComponent`, `paragraphComponent`, `textComponent`, `spanComponent`, `headingComponent`, `listComponent`, `listItemComponent`, etc.). Factories: `createParagraph`, `createHeading`, `createText`, `createList`, `createListItem`, `createTable`, `createImage`, `createHorizontalLine`.
+**Components** — `ComponentDefinition`, `ComponentRegistry`, `createComponentRegistry`, `createDefaultComponentRegistry`. Built-in component definitions: `documentComponent`, `paragraphComponent`, `headingComponent`, `listComponent`, `listItemComponent`, `imageComponent`, `horizontalLineComponent`, `tableComponent`, `tableRowComponent`, `tableCellComponent`. (`text` and `span` are deleted — text is items inside `inlineContent`; spans are reconstructed by render from same-attr text-item groupings.)
 
-**Cursor** — `Selection`, `createSelection`, `createCursor`, `isCollapsed`, `selectionStart`, `selectionEnd`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`.
+**Cursor** — `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`.
 
-**Editor** — `EditorAction`, `EditorState`, `EditorConfig`, `EditorHistory`, `EditorHistoryEntry`. `createInitialEditorState`, `reduceEditor`. `findFirstTextDescendant`, `findLastTextDescendant`. `PixelPosition`, `SelectionRect`, `AbsoluteTextBox`. `resolvePixelPosition`, `resolvePositionFromPixel`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`. `collectAllTextBoxes`.
+**Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`. `AbsoluteTextBox`, `collectAllTextBoxes`.
 
 **Perf** — `PerfReport`. `setPerfTraceEnabled`, `isPerfTraceEnabled`, `markStart`, `markEnd`, `recordSample`, `report`, `resetPerfTrace`.
