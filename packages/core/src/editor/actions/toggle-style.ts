@@ -4,6 +4,7 @@ import type { Span } from "../../state/block-position";
 import { createPosition, createSpan } from "../../state/block-position";
 import { spanStart, spanEnd } from "../../state/block-compare";
 import { iterateSpan } from "../../state/span-iteration";
+import { findItemAtOffset } from "../../state/inline-content";
 import { applyAttrsToRange } from "../../state/apply-attrs";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -27,27 +28,35 @@ function selectionAllHaveAttr(
   attrKey: string,
 ): boolean {
   let sawText = false;
-  let allHave = true;
   for (const seg of iterateSpan(state, span)) {
     const content = seg.block.inlineContent;
     if (content === null) continue;
-    let cursor = 0;
-    for (const item of content.items) {
+    // Skip directly to the first item containing rangeStart; iterate
+    // forward only while the item's start is still before rangeEnd.
+    // The prior implementation walked every item in the block — O(N)
+    // per segment regardless of span size.
+    const startInfo = findItemAtOffset(content, seg.rangeStart);
+    let cursor = seg.rangeStart - startInfo.withinItem;
+    for (let i = startInfo.itemIndex; i < content.items.length; i++) {
+      const item = content.items[i];
+      if (item === undefined) break;
       const itemLen = item.kind === "text" ? item.text.length : 1;
       const itemEnd = cursor + itemLen;
-      const overlaps =
-        Math.max(cursor, seg.rangeStart) < Math.min(itemEnd, seg.rangeEnd);
-      if (overlaps && item.kind === "text") {
+      if (cursor >= seg.rangeEnd) break;
+      if (item.kind === "text") {
+        // Within rangeEnd by the loop guard; itemEnd may exceed but the
+        // overlap is non-empty since cursor < rangeEnd.
         sawText = true;
-        const v = item.attrs[attrKey];
-        if (!v) {
-          allHave = false;
+        if (!item.attrs[attrKey]) {
+          // Early exit: a single non-attr text item is enough to know
+          // the result is false. No need to keep scanning.
+          return false;
         }
       }
       cursor = itemEnd;
     }
   }
-  return sawText && allHave;
+  return sawText;
 }
 
 export function handleToggleStyle(

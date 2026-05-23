@@ -175,7 +175,10 @@ export function collectAllTextBoxes(
   let mt = lineMarginTop;
   let mb = lineMarginBottom;
   if (box.type === "line") {
-    // TODO Plan 2 — use actual line margin when available
+    // The LineBox's own block-axis size already contains its line-height
+    // box; there are no separate per-line margins in the current model.
+    // Reset the threaded margin values so child text-runs see 0 (margins
+    // come from the surrounding BlockBox, not the LineBox itself).
     mt = 0;
     mb = 0;
   }
