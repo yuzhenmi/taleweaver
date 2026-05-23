@@ -22,19 +22,15 @@ export function handleToggleList(
   listType: "ordered" | "unordered",
   config: EditorConfig,
 ): EditorState {
-  const focusBlockId = editor.selection.focus.blockId;
-  const block = getBlock(editor.state, focusBlockId);
-  if (block === null) return editor;
-
-  // Walk up to the top-level ancestor (child of root).
-  let targetId = focusBlockId;
-  let cur = block;
-  while (cur.parentId !== null && cur.parentId !== editor.state.rootId) {
-    targetId = cur.parentId;
-    const parent = getBlock(editor.state, cur.parentId);
-    if (parent === null) break;
-    cur = parent;
-  }
+  // E-A13 / 2026-05-23 audit: toggle the LEAF block containing the cursor,
+  // not the outermost ancestor. The pre-fix walk-up logic retyped the
+  // containing LIST for cursors inside list-items — a cross-kind change
+  // (container → leaf) that setBlockType refuses per T11, so the toggle
+  // either threw or silently no-op'd. Under the nested document model,
+  // toggle-list must operate on the cursor's leaf paragraph/list-item.
+  // Google Docs / Word convention: TOGGLE_LIST on a paragraph → list-item;
+  // on an existing list-item → paragraph (un-list).
+  const targetId = editor.selection.focus.blockId;
   const target = getBlock(editor.state, targetId);
   if (target === null) return editor;
 

@@ -16,8 +16,13 @@ import {
   reduceEditor,
   firstChildId,
 } from "./test-helpers";
+import type { EditorState } from "../editor-state";
 import { getBlock } from "../../state/state";
 import type { BlockId } from "../../state/block-id";
+import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { createHistory } from "../../state/history";
+import { render } from "../../render/render";
+import { layoutTree } from "../../layout/dispatch";
 
 describe("handleSetBlockType — same-kind transitions succeed (regression #155)", () => {
   it("converts paragraph → heading without throwing", () => {
@@ -46,6 +51,57 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
 
     expect(getBlock(next.state, paraId)?.type).toBe("list-item");
     expect(getBlock(next.state, paraId)?.attrs).toEqual({ listType: "unordered" });
+  });
+
+  // E-A13 / 2026-05-23 audit: cursor inside a nested block (e.g., a
+  // list-item inside a list, a paragraph inside a table cell) should
+  // retype the LEAF the cursor is actually in — NOT the outermost
+  // ancestor. Pre-fix walked up to the document's direct child,
+  // retyping the LIST instead of the list-item (cross-kind: container
+  // → leaf, refused by setBlockType per T11 → silently no-op or
+  // throw). Post-fix: the leaf is retyped.
+  it("E-A13: cursor inside a list-item retypes the list-item, NOT the containing list", () => {
+    // Build state with `document → list → list-item("hello")`.
+    // Default initial doc is just `document → paragraph`, so we
+    // construct directly via buildState.
+    const initialState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "list", lastChildId: "list" }),
+        buildBlock({ id: "list", type: "list", parentId: "doc", firstChildId: "li", lastChildId: "li", attrs: { listType: "unordered" } }),
+        buildBlock({ id: "li", type: "list-item", parentId: "list", inlineContent: inlineContent([text("hello")]) }),
+      ],
+    });
+    // Render + layout up-front (mirrors createInitialEditorState) so the
+    // EditorState's renderTree / layoutTree are properly typed and
+    // populated — no `null as never` escape hatch.
+    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
+    const layout = layoutTree(
+      rendered.root,
+      config.containerWidth,
+      config.measurer,
+      config.pageConfig,
+    );
+    const initial: EditorState = {
+      state: initialState,
+      selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
+      history: createHistory(initialState),
+      renderTree: rendered.root,
+      layoutTree: layout,
+      containerWidth: config.containerWidth,
+      targetX: null,
+    };
+    // Action: SET_BLOCK_TYPE heading. Pre-fix: targets "list" (cross-kind →
+    // throws). Post-fix: targets "li" (same-kind: list-item is
+    // inline-bearing-leaf, heading is inline-bearing-leaf → succeeds).
+    const next = reduceEditor(
+      initial,
+      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
+      config,
+    );
+    // The list-item became a heading; the containing list is unchanged.
+    expect(getBlock(next.state, "li" as BlockId)?.type).toBe("heading");
+    expect(getBlock(next.state, "list" as BlockId)?.type).toBe("list");
   });
 
   it("re-invoking with the same block type reverts to paragraph", () => {

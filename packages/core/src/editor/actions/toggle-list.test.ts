@@ -14,8 +14,13 @@ import {
   reduceEditor,
   firstChildId,
 } from "./test-helpers";
+import type { EditorState } from "../editor-state";
 import { getBlock } from "../../state/state";
 import type { BlockId } from "../../state/block-id";
+import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { createHistory } from "../../state/history";
+import { render } from "../../render/render";
+import { layoutTree } from "../../layout/dispatch";
 
 describe("handleToggleList — paragraph ⇄ list-item round-trip (regression #155)", () => {
   it("converts a paragraph to a list-item without throwing", () => {
@@ -63,5 +68,47 @@ describe("handleToggleList — paragraph ⇄ list-item round-trip (regression #1
       kind: "text",
       text: "hello",
     });
+  });
+
+  // E-A13 / 2026-05-23 audit: cursor inside a nested list-item should
+  // toggle the LIST-ITEM (back to paragraph), NOT the containing LIST.
+  // Pre-fix walked up to document's direct child (the LIST), tried
+  // setBlockType(list, "list-item") — cross-kind (container → leaf)
+  // refused by T11. Silently no-op or throw.
+  it("E-A13: cursor inside a list-item toggles the leaf back to paragraph (NOT the containing list)", () => {
+    const initialState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "list", lastChildId: "list" }),
+        buildBlock({ id: "list", type: "list", parentId: "doc", firstChildId: "li", lastChildId: "li", attrs: { listType: "unordered" } }),
+        buildBlock({ id: "li", type: "list-item", parentId: "list", inlineContent: inlineContent([text("hello")]) }),
+      ],
+    });
+    // Render + layout up-front (mirrors createInitialEditorState) so the
+    // EditorState's renderTree / layoutTree are properly typed and
+    // populated — no `null as never` escape hatch.
+    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
+    const layout = layoutTree(
+      rendered.root,
+      config.containerWidth,
+      config.measurer,
+      config.pageConfig,
+    );
+    const initial: EditorState = {
+      state: initialState,
+      selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
+      history: createHistory(initialState),
+      renderTree: rendered.root,
+      layoutTree: layout,
+      containerWidth: config.containerWidth,
+      targetX: null,
+    };
+    const next = reduceEditor(
+      initial,
+      { type: "TOGGLE_LIST", listType: "unordered" },
+      config,
+    );
+    expect(getBlock(next.state, "li" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(next.state, "list" as BlockId)?.type).toBe("list");
   });
 });

@@ -11,20 +11,18 @@ export function handleSetBlockType(
   properties: Record<string, unknown>,
   config: EditorConfig,
 ): EditorState {
-  const focusBlockId = editor.selection.focus.blockId;
-  const block = getBlock(editor.state, focusBlockId);
-  if (block === null) return editor;
-
-  // Walk up from the leaf to the top-level ancestor (child of root) —
-  // the legacy code targeted the document's direct child for retyping.
-  let targetId = focusBlockId;
-  let cur = block;
-  while (cur.parentId !== null && cur.parentId !== editor.state.rootId) {
-    targetId = cur.parentId;
-    const parent = getBlock(editor.state, cur.parentId);
-    if (parent === null) break;
-    cur = parent;
-  }
+  // E-A13 / 2026-05-23 audit: retype the LEAF block containing the cursor,
+  // not the outermost ancestor. The pre-fix logic walked UP from the focus
+  // block to the document's direct child — vestigial from a pre-nesting
+  // document model where every block was a root child. Under the
+  // block-tree-of-styled-runs model (2026-05-02 redesign), documents nest:
+  // a cursor inside a list-item lives in `document → list → list-item`, so
+  // walking-up retyped the LIST instead of the list-item the user is
+  // editing. For cursors inside table cells, walked-up retyped the TABLE.
+  // Both cross-kind transitions are refused by `setBlockType` per T11,
+  // so the action either threw or silently no-op'd. Google Docs / Word
+  // convention: retype the leaf the cursor is actually inside.
+  const targetId = editor.selection.focus.blockId;
   const target = getBlock(editor.state, targetId);
   if (target === null) return editor;
 
