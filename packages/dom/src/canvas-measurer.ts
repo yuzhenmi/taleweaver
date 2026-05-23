@@ -8,16 +8,35 @@ export interface CanvasMeasurerOptions {
 }
 
 /**
- * Create a `TextMeasurer` backed by a canvas 2D context. This is a thin
- * adapter over `createCanvasShaper` for backwards-compat with callers
- * that only need string width and font height.
+ * @deprecated Use `createCanvasShaper(canvas)` directly. The measurer
+ * adapter synthesizes per-character widths by dividing the total string
+ * width by character count, which produces equal advances for every
+ * glyph — visibly wrong for any proportional font. The shaper provides
+ * true per-cluster glyph advances, ligature boundaries, and UAX-14
+ * break opportunities the IFC needs. The `TextShaper` type is accepted
+ * directly by `EditorConfig.measurer` and `EditorController.measurer`.
  *
- * New code should prefer `createCanvasShaper(canvas)` directly for
- * cluster-level info needed by the IFC.
+ * Internally still a thin adapter over `createCanvasShaper` for
+ * backwards-compat with existing callers; emits a dev-mode warning
+ * pointing them at the shaper.
  */
 export function createCanvasMeasurer(
   canvas: HTMLCanvasElement,
   _options?: CanvasMeasurerOptions,
 ): TextMeasurer {
+  const g = globalThis as {
+    process?: { env?: { NODE_ENV?: string } };
+    console?: { warn(...args: unknown[]): void };
+  };
+  const isDev = g.process?.env?.NODE_ENV !== "production";
+  if (isDev && g.console !== undefined) {
+    g.console.warn(
+      "[@taleweaver/dom] createCanvasMeasurer is deprecated. " +
+        "Use createCanvasShaper(canvas) directly — per-glyph cluster " +
+        "info is needed by the IFC, and createCanvasMeasurer synthesizes " +
+        "equal per-character widths via division (wrong for proportional " +
+        "fonts). EditorConfig.measurer accepts TextShaper directly.",
+    );
+  }
   return adaptShaperToMeasurer(createCanvasShaper(canvas));
 }

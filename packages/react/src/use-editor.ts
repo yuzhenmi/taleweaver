@@ -8,7 +8,7 @@ import {
   type EditorState,
   type EditorConfig,
 } from "@taleweaver/core";
-import { createCanvasMeasurer } from "@taleweaver/dom";
+import { createCanvasShaper } from "@taleweaver/dom";
 
 const DEFAULT_WIDTH = 600;
 
@@ -17,10 +17,19 @@ export interface UseEditorOptions {
 }
 
 function createConfig(_options?: UseEditorOptions): EditorConfig {
+  // L-B / closes #164: pass createCanvasShaper directly. The legacy
+  // createCanvasMeasurer is a thin adapter that adaptShaperToMeasurer-wraps
+  // the shaper into a TextMeasurer interface (per-string total width,
+  // not per-character glyph info). That adapter then synthesizes per-
+  // character widths by dividing the total — which produces equal per-
+  // character advances regardless of glyph metrics. For any proportional
+  // font this is visibly wrong: cursor position drift, hit-test
+  // misalignment, line-wrap at the wrong characters. Using the shaper
+  // directly delivers true per-glyph advances and cluster boundaries.
   const canvas = document.createElement("canvas");
-  const measurer = createCanvasMeasurer(canvas);
+  const shaper = createCanvasShaper(canvas);
   return {
-    measurer,
+    measurer: shaper,
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
@@ -69,7 +78,7 @@ export function useEditor(options?: UseEditorOptions) {
     editorState,
     dispatch,
     containerRef,
-    measurer: config.measurer,
+    shaper: config.measurer,
     focus,
   };
 }
