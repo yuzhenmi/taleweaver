@@ -46,9 +46,10 @@ directory is one module.
 - **`editor/`** — the reducer and the geometry-query API. Wraps the
   entire pipeline behind a single function that takes `(state, action,
   config)` and returns new state. Owns one action handler per
-  `EditorAction` type and the read-only geometry queries
+  `EditorAction` type. The read-only geometry queries
   (`resolvePixelPosition`, `resolvePositionFromPixel`,
-  `computeSelectionRects`).
+  `computeSelectionRects`, `moveToLine`, `moveToLineBoundary`) live in
+  `cursor/`; see [1.7-editor.md](1.7-editor.md) for the full surface.
 
 - **`perf/`** — performance instrumentation. A flag-gated tracing API.
   Other modules call into it; when disabled, calls are zero-cost.
@@ -109,7 +110,7 @@ module imports its type vocabulary.
 
 **Components** — `ComponentDefinition`, `ComponentRegistry`, `createComponentRegistry`, `createDefaultComponentRegistry`. Built-in component definitions: `documentComponent`, `paragraphComponent`, `headingComponent`, `listComponent`, `listItemComponent`, `imageComponent`, `horizontalLineComponent`, `tableComponent`, `tableRowComponent`, `tableCellComponent`. (`text` and `span` are deleted — text is items inside `inlineContent`; spans are reconstructed by render from same-attr text-item groupings.)
 
-**Cursor** — `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`.
+**Cursor** — `isCollapsed`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `moveToLine`, `moveToLineBoundary`.
 
 **Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`. `AbsoluteTextBox`, `collectAllTextBoxes`.
 
