@@ -148,8 +148,8 @@ reducer.
 
 | Task | Status | Commit | Notes |
 |------|--------|--------|-------|
-| R-D.1 | not started | — | renderIncremental core + tests. |
-| R-D.2 | not started | — | Cascade-incremental wired into editor reducer. |
-| R-D.3 | not started | — | layout cascadedInput option. |
-| R-D.4 | not started | — | Performance benchmarks. |
-| R-D.5 | not started | — | Architecture doc updates. |
+| R-D.1 | ✅ done | `17517de` | `renderIncremental` core + 4 tests. Additive — editor reducer unchanged. Embed-content invalidation gap (parentId chain coverage) carved out as task #221. Spec deviation re: `getBlock(state, id) === getBlock(prevState, id)` runtime check documented inline (Y.Doc wrapper identity makes the check useless at runtime; dirtyIds contract is authoritative). |
+| R-D.2 | not started | — | Cascade-incremental wired into editor reducer. EditorState extends with `previousRenderOutput`, `previousCascaded`; reducer calls render → cascade → layout explicitly with prev chain. |
+| R-D.3 | not started | — | layout `cascadedInput` option so layoutTreeIncremental can consume a pre-cascaded tree without re-cascading. |
+| R-D.4 | not started | — | Performance benchmarks: cold full vs warm incremental at 1000-block / 10000-block docs. |
+| R-D.5 | not started | — | Architecture doc updates: mark render + reducer perf-contract O(D) targets as `[implemented]` once R-D.4 confirms. |
