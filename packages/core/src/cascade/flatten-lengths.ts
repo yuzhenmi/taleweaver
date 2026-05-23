@@ -99,9 +99,55 @@ function flattenSizingOrNone(
   return flattenLength(v, fontSize);
 }
 
+/**
+ * Flatten a `lineHeight` value per CSS Inline Layout semantics, restricted
+ * to the input forms a word-processor engine supports (per the C-B
+ * decision in 2026-05-23-line-height-disambiguation-design.md):
+ *
+ * - **unitless `number`**: passes through. This is a RATIO of the
+ *   element's own fontSize; the ratio is the COMPUTED value and
+ *   inherits as a ratio. Used-value resolution (in layout) multiplies
+ *   by own fontSize.
+ * - **em `Length`**: converts to a unitless ratio of the same value.
+ *   Per CSS, `1.5em` line-height semantically equals "multiply by own
+ *   fontSize" — the same as a unitless ratio of `1.5`. Treating em as
+ *   syntactic sugar for unitless is spec-faithful (and the only way
+ *   to preserve the inherit-as-ratio property since em resolution at
+ *   cascade time would collapse to plain px and lose the ratio
+ *   semantics).
+ * - **percent `ComputedLength`**: passes through. Used-value resolves
+ *   percent against own fontSize (NOT containing-block).
+ * - **px `Length`**: NOT SUPPORTED. Document authors don't use px
+ *   line-height; the engine restricts the input vocabulary to keep
+ *   the ComputedStyle.lineHeight type unambiguous (a plain number
+ *   always means a unitless ratio, never a literal px). Dev mode
+ *   warns; production falls back to the initial unitless ratio.
+ */
 function flattenLineHeight(v: number | ComputedLength | Length, fontSize: number): number | ComputedLength {
   if (typeof v === "number") return v;
-  return flattenLength(v, fontSize);
+  if (v.unit === "em") return v.value;
+  if (v.unit === "percent") return v;
+  // unit === "px" — unsupported under the C-B input restriction.
+  // Warn in dev so authors who hit this notice; production silently falls
+  // back to the initial unitless ratio. The `process` and `console`
+  // globals are read defensively because the engine compiles for
+  // browsers (no Node `process` is guaranteed; `console` is normally
+  // there but typed as the lib's `console` interface).
+  const g = globalThis as {
+    process?: { env?: { NODE_ENV?: string } };
+    console?: { warn(...args: unknown[]): void };
+  };
+  const isDev = g.process?.env?.NODE_ENV !== "production";
+  if (isDev && g.console !== undefined) {
+    g.console.warn(
+      `flattenLineHeight: px-specified lineHeight is not supported (got ${JSON.stringify(v)}); ` +
+      `falling back to the initial unitless ratio. Use a unitless ratio (e.g. 1.5) or percent instead.`,
+    );
+  }
+  // fontSize is unused on this branch — kept in the signature for parallelism
+  // with the other helpers.
+  void fontSize;
+  return INITIAL_COMPUTED_STYLE.lineHeight;
 }
 
 function resolveFontSize(cs: ComputedStyle): number {

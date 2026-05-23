@@ -107,9 +107,21 @@ export function computeUsedStyle(
     fontWeight: cs.fontWeight,
     fontStyle: cs.fontStyle,
     textDecoration: cs.textDecoration,
-    lineHeight: typeof cs.lineHeight === "number"
-      ? cs.lineHeight
-      : resolveUsedLength(cs.lineHeight, containingInlineSize, 0),
+    // C-B (#166): line-height resolution per CSS Inline Layout.
+    //   - unitless number → ratio × own fontSize (the most common author form).
+    //   - percent ComputedLength → resolve against OWN fontSize, NOT the
+    //     containing-block inline size. This corrects a long-standing
+    //     bug where `resolveUsedLength(cs.lineHeight, containingInlineSize, 0)`
+    //     would treat `lineHeight: 150%` as 150% of the page width.
+    //   - bare px (post-flatten ComputedLength other than percent): pass
+    //     through. Currently unreachable under the C-B input restriction —
+    //     cascade refuses px line-height — but kept as a safety branch.
+    lineHeight:
+      typeof cs.lineHeight === "number"
+        ? cs.lineHeight * cs.fontSize
+        : cs.lineHeight.unit === "percent"
+          ? (cs.lineHeight.value / 100) * cs.fontSize
+          : cs.lineHeight.value,
     color: cs.color,
 
     whiteSpace: cs.whiteSpace,

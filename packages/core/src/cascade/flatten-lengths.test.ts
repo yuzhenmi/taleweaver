@@ -96,4 +96,42 @@ describe("flattenLengths", () => {
     const out = flattenLengths(cs);
     expect(out.letterSpacing).toBe(2);
   });
+
+  // ---------------------------------------------------------------------
+  // C-B: lineHeight disambiguation (per
+  // docs/superpowers/specs/2026-05-23-line-height-disambiguation-design.md).
+  // Unitless number = inherits-as-ratio (used-value multiplies by own
+  // fontSize at layout time); em becomes unitless ratio of the same value;
+  // percent passes through (resolved against own fontSize at used-style).
+  // px is unsupported.
+  // ---------------------------------------------------------------------
+
+  it("C-B: unitless lineHeight passes through as a number (inherits as ratio)", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, lineHeight: 1.5 };
+    const out = flattenLengths(cs);
+    expect(out.lineHeight).toBe(1.5);
+  });
+
+  it("C-B: em lineHeight converts to unitless ratio of the same value", () => {
+    // `1.5em` semantically equals "1.5 × own fontSize" — the same as
+    // unitless 1.5. The conversion preserves the inherit-as-ratio property.
+    const cs = csWith("lineHeight", { unit: "em", value: 1.5 });
+    const out = flattenLengths(cs);
+    expect(out.lineHeight).toBe(1.5);
+  });
+
+  it("C-B: percent lineHeight passes through as ComputedLength", () => {
+    const cs: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      lineHeight: { unit: "percent", value: 150 },
+    };
+    const out = flattenLengths(cs);
+    expect(out.lineHeight).toEqual({ unit: "percent", value: 150 });
+  });
+
+  it("C-B: px lineHeight is unsupported — falls back to the initial unitless ratio", () => {
+    const cs = csWith("lineHeight", { unit: "px", value: 24 });
+    const out = flattenLengths(cs);
+    expect(out.lineHeight).toBe(INITIAL_COMPUTED_STYLE.lineHeight);
+  });
 });
