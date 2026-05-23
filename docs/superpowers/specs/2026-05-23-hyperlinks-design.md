@@ -47,20 +47,26 @@ A new attr interpreter:
 
 ```ts
 const linkInterpreter: AttrInterpreter = {
-  attr: "link",
-  apply: (value, style, ctx) => ({
-    ...style,
-    color: typeof value === "string" ? "#1a73e8" : style.color,
-    textDecoration:
-      typeof value === "string"
-        ? { line: "underline", color: "#1a73e8" }
-        : style.textDecoration,
-  }),
+  attrKey: "link",
+  toStyle: (value) =>
+    typeof value === "string"
+      ? { color: "#1a73e8", textDecoration: "underline" }
+      : {},
 };
 ```
 
-Registered alongside the other builtins in
-`createDefaultAttrRegistry()`.
+Registered alongside the other builtins (matches the pattern at
+`packages/core/src/cascade/builtin-attrs.ts:underlineInterpreter`).
+
+**Note on underline color.** The existing `TextDecoration` type is
+the string union `"none" | "underline" | "line-through"` — there is
+no structured object form yet. The link's underline therefore
+inherits the text color (blue, via the same interpreter setting
+`color`). For Google-Docs-exact rendering (where the underline can
+be a different color from the text), a future spec extension would
+widen `TextDecoration` to a structured `{ line, color }` shape and
+the painter would honor the new field. Deferred — initial impl
+ships with implicit color match, which is the common case.
 
 ## Painter / DOM layer
 
@@ -79,9 +85,16 @@ intercepts mouse events. New handlers:
   editing.
 - **`mousemove` on link text**: change cursor to pointer; show a
   small tooltip with the URL after a brief hover delay (300ms).
-- **`mousedown` (right click) on link text**: show a context menu
-  with "Edit link", "Copy link", "Remove link". (Context menu is a
-  React component in `packages/react`.)
+- **`contextmenu` event on link text**: `e.preventDefault()` the
+  native menu, then show a custom context menu with "Edit link",
+  "Copy link", "Remove link". (The menu is a React component in
+  `examples/react/src/components/` alongside the other toolbar
+  pieces.)
+
+The existing `mousemove` handler in editor-controller.ts is drag-
+selection only (fires while a mouse button is held). HL.3 adds a
+non-drag mousemove path for hover detection (link cursor + tooltip
+delay).
 
 To know whether a click landed on link text, the hit-test result's
 `Position` needs to map back to the inline item, then check the
@@ -92,7 +105,10 @@ controller does `getBlock(state, position.blockId)` →
 
 ## React / toolbar UI
 
-The toolbar gains a link button + popup:
+The toolbar (lives in `examples/react/src/components/toolbar.tsx`
+alongside the existing Bold / Italic / Underline buttons — NOT in
+`packages/react`, which holds only `EditorView`) gains a link
+button + popup:
 
 - **Toolbar link button**: enabled when selection is non-collapsed.
   Click → popup with a URL input. Type URL, press Enter → apply
@@ -112,7 +128,9 @@ A new `EditorAction` variant:
 | { type: "SET_LINK"; url: string | null }
 ```
 
-`url: null` removes the link. Handler:
+`url: null` removes the link. Handler — mirrors `toggle-style.ts`
+exactly (normalized span via `spanStart` / `spanEnd`, the same
+history-commit shape, dirtyIds threading per R-D.3):
 
 ```ts
 export function handleSetLink(
@@ -122,12 +140,25 @@ export function handleSetLink(
 ): EditorState {
   const { selection } = editor;
   if (isCollapsed(selection)) return editor;
-  // Apply { link: url ?? undefined } to the range.
-  const result = applyAttrsToRange(editor.state, selection, { link: url ?? undefined });
+
+  const result = applyAttrsToRange(editor.state, selection, {
+    link: url ?? undefined,
+  });
   if (result.state === editor.state) return editor;
-  editor.history.commit(result, { before: selection, after: selection });
+
+  // Selection is invariant under attribute changes; preserve the
+  // original anchor/focus but rebuild span ordering from the
+  // normalized start/end so consumers see consistent shape.
+  const start = spanStart(editor.state, selection);
+  const end = spanEnd(editor.state, selection);
+  const newSelection = createSpan(
+    createPosition(start.blockId, start.offset),
+    createPosition(end.blockId, end.offset),
+  );
+
+  editor.history.commit(result, { before: selection, after: newSelection });
   return rebuildTrees(
-    { ...editor, state: result.state },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
     result.dirtyIds,
