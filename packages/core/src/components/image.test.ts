@@ -53,4 +53,37 @@ describe("imageComponent (new)", () => {
     );
     expect((node as ElementBox).children).toHaveLength(0);
   });
+
+  // A6: a fresh image insert (no `width`/`height` attrs) must size
+  // intrinsically (`auto`), not collapse to a 0×0 invisible box.
+  it("falls back to 'auto' inlineSize/blockSize when width/height attrs are missing", () => {
+    const node = imageComponent.render(leafView({ src: "/a.png" }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe("auto");
+    expect(el.style.blockSize).toBe("auto");
+  });
+
+  it("preserves explicit numeric width/height attrs", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 120, height: 80 }),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe(120);
+    expect(el.style.blockSize).toBe(80);
+  });
+
+  it("falls back to 0 when attr is present but non-numeric", () => {
+    // "specified but garbage" remains distinct from "missing" — present
+    // garbage still resolves to 0, not auto. Documents the contract.
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: "garbage", height: null }),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe(0);
+    expect(el.style.blockSize).toBe(0);
+  });
 });

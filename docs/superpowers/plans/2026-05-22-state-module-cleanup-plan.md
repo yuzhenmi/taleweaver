@@ -70,11 +70,11 @@ Each task ends with the standing review-until-clean discipline (per `feedback_re
 | Task | Status | Commit(s) | Notes |
 |------|--------|-----------|-------|
 | T-A: Architecture doc rewrite | ✅ done | `bafbef3` | 1.1-state.md rewrite + 1-core/overview.md + overview.md coherence pass; added `WritingMode` to root barrel (was missing). Three reviewer passes, all clean. |
-| T-B: Privatize State.doc | ✅ done | (this commit) | STATE_INTERNAL symbol introduced; render.ts uses new `getEmbedContentIds` accessor; test-utils delegates to new state-module-internal `buildStateFromBlocks`; encapsulation breach closed and asserted by compile-time test. |
+| T-B: Privatize State.doc | ✅ done | `e5a7386` | STATE_INTERNAL symbol introduced; render.ts uses new `getEmbedContentIds` accessor; test-utils delegates to new state-module-internal `buildStateFromBlocks`; encapsulation breach closed and asserted by compile-time test. |
 | T-C: AttrRegistry into attrsEqual + merges | ✅ done | `acb9dd7` | Optional registry on attrsEqual + both mergers + 5 Layer 3 ops; merge-block-attrs intentionally not threaded (idempotency guard, not run-merge). +11 tests. Two reviewer passes, all clean. |
 | T-D: blockKindOf → component registry | ✅ done | `4850984` | Added `leafShape` field on LeafComponentDefinition; ComponentRegistry extends new `BlockKindResolver` interface; state's hardcoded type-string Sets deleted; setBlockType + insert-node + toggle-list now thread the resolver. +8 tests. Two reviewer passes; second-pass action item was state test importing component registry — closed by hand-rolled resolver literal. |
-| T-E: Extract shared delete-range guard | ✅ done | (this commit) | `assertDeleteRangeEndpoints` extracted into `delete-range.ts`; `replace-range.ts` imports and calls it. Pure refactor; existing tests cover. |
-| T-F: iterateSpan cycle guard | ✅ done | (this commit) | Outer step-count guard added to `iterateSpan` and `iterateBlocksInSpan`; bound = `getBlocksMap(doc).size + 1`; contextual error names anchor + focus. +4 tests (corrupt sibling cycle + healthy traversal regression, per function). |
+| T-E: Extract shared delete-range guard | ✅ done | `4cd0633` | `assertDeleteRangeEndpoints` extracted into `delete-range.ts`; `replace-range.ts` imports and calls it. Pure refactor; existing tests cover. |
+| T-F: iterateSpan cycle guard | ✅ done | `4cd0633` | Outer step-count guard added to `iterateSpan` and `iterateBlocksInSpan`; bound = `getBlocksMap(doc).size + 1`; contextual error names anchor + focus. +4 tests (corrupt sibling cycle + healthy traversal regression, per function). |
 
 ## References
 

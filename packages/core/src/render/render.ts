@@ -33,13 +33,23 @@ export interface RenderOutput {
  * Render a Y.Doc-backed State to a RenderNode tree.
  *
  * Decision B: push-model walker. For each block:
- *   1. Compose its computedStyle: attrRegistry.applyAll(attrs) → compose
- *      with parent + initial → flattenLengths against own fontSize.
+ *   1. Compose its computedStyle: attrRegistry.applyAll(attrs, ctx) →
+ *      compose with parent + initial → flattenLengths against own fontSize.
+ *      The `ctx.parentStyle` field carries the parent block's specified
+ *      style so context-sensitive interpreters (e.g., explicit inheritance
+ *      flags) can consult it.
  *   2. Build a BlockView (container or leaf) with computedStyle attached.
  *   3. Dispatch to the registered component for that type.
  *   4. Recurse into children (containers) or expand inline items (leaves)
  *      BEFORE invoking the component — components receive pre-rendered
  *      children / inline RenderNodes.
+ *
+ * Note: `RenderNode.computedStyle` is intentionally NOT pre-filled on
+ * inline TextBoxes / ElementBoxes here. The downstream `cascadePass`
+ * (called by `layout/dispatch.ts` and `layout/layout-incremental.ts`)
+ * owns that field across the full tree. Pre-filling here would create
+ * a fresh RenderNode identity per render (defeating reference-equality
+ * caching) and would be unconditionally overwritten anyway.
  *
  * Decisions F + G: both registries are constructor-injected (no module-
  * level singletons consulted here).
@@ -66,7 +76,16 @@ export function render(
   if (rootBlock === null) {
     throw new Error(`render: root block "${state.rootId}" not found`);
   }
-  const root = renderBlock(rootBlock, null, state, componentRegistry, attrRegistry, context, visited);
+  const root = renderBlock(
+    rootBlock,
+    null,
+    undefined,
+    state,
+    componentRegistry,
+    attrRegistry,
+    context,
+    visited,
+  );
   const embedContents = new Map<BlockId, RenderNode>();
   for (const id of getEmbedContentIds(state)) {
     const block = getEmbedContent(state, id);
@@ -82,15 +101,50 @@ export function render(
     const visitedEmbed = new Set<BlockId>();
     embedContents.set(
       id,
-      renderBlock(block, null, state, componentRegistry, attrRegistry, context, visitedEmbed),
+      renderBlock(
+        block,
+        null,
+        undefined,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        visitedEmbed,
+      ),
     );
   }
   return Object.freeze({ root, embedContents });
 }
 
+/**
+ * Render a single block. Recursively renders children (containers) or
+ * expands inline items (leaves) before dispatching to the component.
+ *
+ * **`visited` is an ACTIVE-PATH set, drained via `try/finally`.** Re-entry
+ * of an id currently on the recursion stack throws (real cycle). An id
+ * already drained (i.e., its subtree has finished rendering) does NOT
+ * throw on subsequent encounter. The current state-module data model
+ * forbids DAG topologies (a `Block` has exactly one `parentId`), so the
+ * drain is a defense-in-depth measure that costs one `delete` per block
+ * and protects against any future transclusion / shared-subtree work.
+ *
+ * **`parentSpecified`** is the parent block's translated declarable
+ * style (the `Partial<Style>` that `AttrRegistry.applyAll` produced for
+ * the parent). Threaded into `composeBlockStyle` so child interpreters
+ * that consult `CascadeContext.parentStyle` see the right value. Root
+ * call passes `undefined`. Also threaded into `expandInlineItems` so
+ * inline interpreters see the containing block's specified style as
+ * parent context.
+ *
+ * **Leaf dispatch (A5):** `def.leafShape === "atomic"` receives `[]`
+ * directly — `expandInlineItems` is bypassed so the strut sentinel
+ * cannot leak to atomic components. Inline-bearing leaves call
+ * `expandInlineItems` as normal.
+ */
 function renderBlock(
   block: Block,
   parentComputed: ComputedStyle | null,
+  parentSpecified: Partial<Style> | undefined,
   state: State,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
@@ -101,49 +155,79 @@ function renderBlock(
     throw new Error(`render: cycle detected at block "${block.id}"`);
   }
   visited.add(block.id);
+  try {
+    const { specified, computed } = composeBlockStyle(
+      block.attrs,
+      parentComputed,
+      parentSpecified,
+      attrRegistry,
+    );
 
-  const computed = composeBlockStyle(block.attrs, parentComputed, attrRegistry);
+    const def = componentRegistry.get(block.type);
+    if (def === undefined) {
+      throw new Error(`render: no component registered for block type "${block.type}"`);
+    }
 
-  const def = componentRegistry.get(block.type);
-  if (def === undefined) {
-    throw new Error(`render: no component registered for block type "${block.type}"`);
-  }
+    if (def.kind === "container") {
+      const view: ContainerBlockView = Object.freeze({
+        id: block.id,
+        type: block.type,
+        attrs: block.attrs,
+        computedStyle: computed,
+        kind: "container" as const,
+      });
+      const childRenderNodes: RenderNode[] = [];
+      let childId = block.firstChildId;
+      while (childId !== null) {
+        const child = getBlock(state, childId);
+        if (child === null) {
+          throw new Error(`render: child "${childId}" of "${block.id}" not found`);
+        }
+        childRenderNodes.push(
+          renderBlock(
+            child,
+            computed,
+            specified,
+            state,
+            componentRegistry,
+            attrRegistry,
+            context,
+            visited,
+          ),
+        );
+        childId = child.nextSiblingId;
+      }
+      return def.render(view, context, childRenderNodes);
+    }
 
-  if (def.kind === "container") {
-    const view: ContainerBlockView = Object.freeze({
+    // Leaf: build LeafBlockView, expand inline items (only for
+    // inline-bearing leaves), dispatch.
+    const inline: InlineContent = block.inlineContent ?? { items: [] };
+    const view: LeafBlockView = Object.freeze({
       id: block.id,
       type: block.type,
       attrs: block.attrs,
       computedStyle: computed,
-      kind: "container" as const,
+      kind: "leaf" as const,
+      inlineContent: inline,
     });
-    const childRenderNodes: RenderNode[] = [];
-    let childId = block.firstChildId;
-    while (childId !== null) {
-      const child = getBlock(state, childId);
-      if (child === null) {
-        throw new Error(`render: child "${childId}" of "${block.id}" not found`);
-      }
-      childRenderNodes.push(
-        renderBlock(child, computed, state, componentRegistry, attrRegistry, context, visited),
-      );
-      childId = child.nextSiblingId;
-    }
-    return def.render(view, context, childRenderNodes);
+    // A5: atomic-leaf components (image, horizontal-line, …) MUST NOT
+    // receive a strut sentinel. The convention used to be "atomic
+    // components ignore inlineRenderNodes by reading attrs instead"; we
+    // now enforce it at the dispatch site so third-party atomic
+    // components can't accidentally consume the sentinel.
+    const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
+      ? []
+      : expandInlineItems(block.id, inline, specified, attrRegistry);
+    return def.render(view, context, inlineRenderNodes);
+  } finally {
+    // A2: visited tracks the ACTIVE recursion path, not the cumulative
+    // set of visited blocks. Draining on every exit (including throws)
+    // means the same id appearing in two disjoint subtrees is fine, and
+    // a real cycle still fires the throw because the id is still on the
+    // active path when we re-encounter it.
+    visited.delete(block.id);
   }
-
-  // Leaf: build LeafBlockView, expand inline items, dispatch.
-  const inline: InlineContent = block.inlineContent ?? { items: [] };
-  const view: LeafBlockView = Object.freeze({
-    id: block.id,
-    type: block.type,
-    attrs: block.attrs,
-    computedStyle: computed,
-    kind: "leaf" as const,
-    inlineContent: inline,
-  });
-  const inlineRenderNodes = expandInlineItems(block.id, inline, computed, attrRegistry);
-  return def.render(view, context, inlineRenderNodes);
 }
 
 /**
@@ -151,16 +235,25 @@ function renderBlock(
  * the block's attrs, compose against parent + initial, then flatten ems
  * against own fontSize. The full canonical cascade pipeline — matches
  * what cascadePass does for the legacy renderer's tree.
+ *
+ * Returns BOTH the intermediate `specified` (the Partial<Style> emitted
+ * by `attrRegistry.applyAll`) and the final `computed` style. Callers
+ * thread `specified` to child blocks via `CascadeContext.parentStyle`
+ * so context-sensitive interpreters can consult parent declarations
+ * without needing a separate cascade pass.
  */
 function composeBlockStyle(
   attrs: ReadonlyAttrs,
   parentComputed: ComputedStyle | null,
+  parentSpecified: Partial<Style> | undefined,
   attrRegistry: AttrRegistry,
-): ComputedStyle {
-  const specified: Partial<Style> = attrRegistry.applyAll(attrs);
+): { specified: Partial<Style>; computed: ComputedStyle } {
+  const specified: Partial<Style> = attrRegistry.applyAll(attrs, {
+    parentStyle: parentSpecified,
+  });
   const base = parentComputed ?? INITIAL_COMPUTED_STYLE;
   const composed = composeComputed(specified, base);
-  return flattenLengths(composed);
+  return { specified, computed: flattenLengths(composed) };
 }
 
 /**
@@ -172,60 +265,56 @@ function composeBlockStyle(
  * they're stable across re-renders of the same block but won't collide
  * with sibling-block keys (each block's keys live under its own id
  * prefix).
+ *
+ * `computedStyle` is intentionally NOT attached here. The downstream
+ * `cascadePass` populates it for every RenderNode in the tree; pre-filling
+ * would just be overwritten and would create new identities per render.
+ *
+ * Inline interpreters receive `{ parentStyle: blockSpecified }` so any
+ * inline-attr interpreter that consults parent context (e.g., explicit
+ * inheritance flags) sees the block's declared style as parent.
  */
 function expandInlineItems(
   blockId: BlockId,
   content: InlineContent,
-  blockComputed: ComputedStyle,
+  blockSpecified: Partial<Style>,
   attrRegistry: AttrRegistry,
 ): RenderNode[] {
   const out: RenderNode[] = [];
   let i = 0;
   for (const item of content.items) {
-    const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs);
-    const itemComputed = flattenLengths(composeComputed(itemStyle, blockComputed));
+    const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs, {
+      parentStyle: blockSpecified,
+    });
     const key = `${blockId}/inline/${i}`;
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
-      out.push(
-        Object.freeze({
-          ...createTextBox(key, itemStyle, item.text),
-          computedStyle: itemComputed,
-        }),
-      );
+      out.push(createTextBox(key, itemStyle, item.text));
     } else {
       // InlineItem narrows to EmbedItem here.
       out.push(
-        Object.freeze({
-          ...createElementBox(key, itemStyle, [], {
-            embedType: item.embedType,
-            ...item.properties,
-          }),
-          computedStyle: itemComputed,
+        createElementBox(key, itemStyle, [], {
+          embedType: item.embedType,
+          ...item.properties,
         }),
       );
     }
     i++;
   }
 
-  // Empty-paragraph strut sentinel: when a leaf block has no inline items
-  // (e.g. an empty paragraph after the user pressed Enter), the layout
-  // pipeline keys IFC dispatch off the presence of inline children. To
-  // ensure the IFC is invoked — so its zero-tokens path emits the strut
-  // LineBox carrying one line-height of vertical space (browser-faithful
-  // empty-<p> behavior) — we emit a single empty TextBox here. Its empty
-  // text produces zero tokens (collectInlineTokens short-circuits on empty
-  // text), so the only effect is triggering IFC dispatch. Atomic-leaf
-  // components (image, horizontal-line) ignore inlineRenderNodes entirely
-  // (they read attrs and pass [] to createElementBox), so the sentinel is
-  // discarded for them — only inline-bearing leaves see the strut behavior.
+  // Empty-paragraph strut sentinel: when an inline-bearing leaf block has
+  // no inline items (e.g. an empty paragraph after the user pressed
+  // Enter), the layout pipeline keys IFC dispatch off the presence of
+  // inline children. To ensure the IFC is invoked — so its zero-tokens
+  // path emits the strut LineBox carrying one line-height of vertical
+  // space (browser-faithful empty-<p> behavior) — we emit a single empty
+  // TextBox here. Its empty text produces zero tokens
+  // (collectInlineTokens short-circuits on empty text), so the only
+  // effect is triggering IFC dispatch. Atomic-leaf components (image,
+  // horizontal-line) bypass this function entirely (see renderBlock's
+  // leafShape === "atomic" branch), so they never see the sentinel.
   if (out.length === 0) {
-    out.push(
-      Object.freeze({
-        ...createTextBox(`${blockId}/inline/0`, {}, ""),
-        computedStyle: flattenLengths(composeComputed({}, blockComputed)),
-      }),
-    );
+    out.push(createTextBox(`${blockId}/inline/0`, {}, ""));
   }
 
   return out;
