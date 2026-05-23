@@ -172,20 +172,25 @@ export function moveByWord(
     if (prevBlock === null) return position;
     const prevContent = prevBlock.inlineContent ?? { items: [] };
     const prevTotal = inlineContentLength(prevContent);
-    // Find last word start in prev block. Iterate items in reverse, pick
-    // first text item's prevWordBoundary from its end.
+    // Find last word start in prev block. We need the cumulative
+    // offset of each item's start; precompute in one forward pass
+    // (O(n)) so the reverse scan is O(1) per item instead of O(n)
+    // (the prior double-loop was O(n²)).
+    const cumulativeStart: number[] = new Array(prevContent.items.length);
+    {
+      let acc = 0;
+      for (let j = 0; j < prevContent.items.length; j++) {
+        cumulativeStart[j] = acc;
+        const it = prevContent.items[j];
+        if (it === undefined) continue;
+        acc += it.kind === "text" ? it.text.length : 1;
+      }
+    }
     for (let i = prevContent.items.length - 1; i >= 0; i--) {
       const item = prevContent.items[i];
       if (item === undefined || item.kind !== "text") continue;
       const boundary = prevWordBoundary(item.text, item.text.length);
-      // Compute the cumulative offset of this item's start in the block.
-      let cum = 0;
-      for (let j = 0; j < i; j++) {
-        const it = prevContent.items[j];
-        if (it === undefined) continue;
-        cum += it.kind === "text" ? it.text.length : 1;
-      }
-      return createPosition(prev, cum + boundary);
+      return createPosition(prev, cumulativeStart[i] + boundary);
     }
     // No text items in prev block — land at its end (block boundary).
     return createPosition(prev, prevTotal);

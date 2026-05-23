@@ -2,7 +2,6 @@ import type { State } from "../state/state";
 import { getBlock } from "../state/state";
 import type { Position } from "../state/block-position";
 import { createPosition } from "../state/block-position";
-import type { BlockId } from "../state/block-id";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -12,7 +11,6 @@ import {
   collectAllTextBoxes,
   type AbsoluteTextBox,
 } from "../editor/layout-utils";
-import { parseInlineBoxKey } from "./box-key-utils";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -30,11 +28,11 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      (or the last box for clicks past the line end).
  *   5. Binary-scan / linear-scan the character offset within that box's
  *      text via `measurer.measureWidth`.
- *   6. Map the box key → `{ blockId, itemIndex }` via `parseInlineBoxKey`.
- *      Accumulate a within-block offset by walking every text-run of the
- *      same blockId that spatially precedes the target box, summing
- *      `text.length`. The hit position is `Position { blockId, offset }`
- *      where `offset = accumulated + charOffset`.
+ *   6. Read the precomputed `targetBox.blockId` and
+ *      `targetBox.prefixOffsetInBlock` (populated during
+ *      `collectAllTextBoxes`). The hit position is
+ *      `Position { blockId, offset }` where
+ *      `offset = prefixOffsetInBlock + charOffset`.
  *
  * Returns `null` when:
  *   - The layout has no text-runs (e.g., empty document).
@@ -159,31 +157,19 @@ export function resolvePositionFromPixel(
       measurer,
     );
 
-    // 8. Resolve target box's blockId; accumulate block-level offset across
-    //    every text-run with the same blockId that spatially precedes the
-    //    target box. We walk `allBoxes` (NOT the page-filtered list) so
-    //    that within-block fragmentation across page breaks doesn't reset
-    //    the offset prematurely. Synthetic entries naturally drop out of
-    //    the accumulator — parseInlineBoxKey returns null on their key
-    //    shape.
-    const parsedTarget = parseInlineBoxKey(targetBox.box.key);
-    if (parsedTarget === null) return null;
-    const targetBlockId = parsedTarget.blockId;
-
+    // 8. Resolve target box's blockId + base offset via precomputed
+    //    per-block prefix accumulator on AbsoluteTextBox (populated
+    //    during `collectAllTextBoxes`). O(1) here vs the previous
+    //    O(N) walk that re-parsed every box key per click.
+    const targetBlockId = targetBox.blockId;
+    if (targetBlockId === undefined) return null;
     // Defensive: ensure the block exists in state.
     if (getBlock(state, targetBlockId) === null) return null;
 
-    let baseOffset = 0;
-    for (const b of allBoxes) {
-      if (b === targetBox) break;
-      const parsed = parseInlineBoxKey(b.box.key);
-      if (parsed === null) continue;
-      if (parsed.blockId === targetBlockId) {
-        baseOffset += b.box.text.length;
-      }
-    }
-
-    return createPosition(targetBlockId as BlockId, baseOffset + charOffset);
+    return createPosition(
+      targetBlockId,
+      targetBox.prefixOffsetInBlock + charOffset,
+    );
   } finally {
     markEnd("cursor.hit-test", t);
   }
@@ -193,6 +179,13 @@ export function resolvePositionFromPixel(
  * Find the character offset closest to a given X position within `text`.
  * Compares midpoints between adjacent character widths (so a click closer
  * to char i than to char i+1 returns i).
+ *
+ * Binary search on prefix widths, with memoization of each prefix
+ * measurement so no prefix is measured twice. Worst case O(log n)
+ * `measureWidth` calls. The previous implementation did a linear scan
+ * with two `measureWidth` calls per iteration (one for prefix i, one
+ * for prefix i-1) — O(n) calls, each internally O(prefix), giving
+ * O(n²) total.
  */
 function findCharOffset(
   text: string,
@@ -201,12 +194,36 @@ function findCharOffset(
   measurer: TextMeasurer,
 ): number {
   if (localX <= 0) return 0;
-  for (let i = 1; i <= text.length; i++) {
-    const w = measurer.measureWidth(text.slice(0, i), styles);
-    const prevW =
-      i > 1 ? measurer.measureWidth(text.slice(0, i - 1), styles) : 0;
-    const midpoint = (prevW + w) / 2;
-    if (localX < midpoint) return i - 1;
+  if (text.length === 0) return 0;
+
+  const widthCache = new Map<number, number>();
+  widthCache.set(0, 0);
+  const widthOfPrefix = (n: number): number => {
+    let v = widthCache.get(n);
+    if (v === undefined) {
+      v = measurer.measureWidth(text.slice(0, n), styles);
+      widthCache.set(n, v);
+    }
+    return v;
+  };
+
+  // Past the midpoint of the last character: snap to end. Safe because
+  // the `text.length === 0` guard above ensures text.length >= 1 here.
+  const fullW = widthOfPrefix(text.length);
+  const lastMidpoint = (widthOfPrefix(text.length - 1) + fullW) / 2;
+  if (localX >= lastMidpoint) return text.length;
+
+  // Binary-search the smallest i in [1, text.length] such that the
+  // midpoint between prefix(i-1) and prefix(i) is strictly greater than
+  // localX. Returning i-1 matches the original "click closer to char i
+  // than char i+1 returns i" semantics.
+  let lo = 1;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const midpoint = (widthOfPrefix(mid - 1) + widthOfPrefix(mid)) / 2;
+    if (midpoint > localX) hi = mid;
+    else lo = mid + 1;
   }
-  return text.length;
+  return lo - 1;
 }

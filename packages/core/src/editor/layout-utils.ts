@@ -33,13 +33,26 @@ export interface AbsoluteTextBox {
    */
   synthetic?: boolean;
   /**
-   * The owning block's id, populated ONLY on synthetic entries. Used
-   * by hit-test to derive a Position when a click lands on an empty
-   * paragraph's strut line (no real text-run to parse). Non-synthetic
-   * entries leave this `undefined`; their blockId is derived via
-   * `parseInlineBoxKey(box.key)`.
+   * The owning block's id. Populated for both synthetic strut entries
+   * and real text-runs (sourced from the enclosing BlockBox's key —
+   * see `nextOwner` in `collectAllTextBoxes`). May be undefined only
+   * for orphan text-runs outside any BlockBox (defensive — shouldn't
+   * happen in normal layout trees).
    */
   blockId?: BlockId;
+  /**
+   * The block-level inline-content offset of this text-run's first
+   * character (sum of `text.length` of every prior real text-run in
+   * document order with the same `blockId`). Synthetic strut entries
+   * carry 0 (they represent offset 0 of an empty block) and do not
+   * contribute to the running accumulator for sibling text-runs.
+   *
+   * Hit-test reads this directly to map (text-run, charOffset) to a
+   * block-level `Position` in O(1) — the previous implementation
+   * re-walked every text-run in the document per click, parsing each
+   * key, summing matching block-id text lengths.
+   */
+  prefixOffsetInBlock: number;
 }
 
 /**
@@ -76,6 +89,7 @@ function makeSyntheticStrutEntry(
     lineMarginBottom: 0,
     pageIndex,
     synthetic: true,
+    prefixOffsetInBlock: 0,
   };
   if (ownerBlockId !== null) entry.blockId = ownerBlockId;
   return entry;
@@ -106,16 +120,28 @@ export function collectAllTextBoxes(
   lineMarginTop: number = 0,
   lineMarginBottom: number = 0,
   ownerBlockId: BlockId | null = null,
+  // Per-block running accumulator. Threaded through recursion so a
+  // block that fragments across pages keeps a single offset sequence.
+  // Defaults to a fresh Map on the outermost call.
+  prefixOffsets: Map<BlockId, number> = new Map(),
 ): void {
   if (box.type === "text-run") {
-    out.push({
+    const entry: AbsoluteTextBox = {
       box,
       absoluteX: parentX + box.x,
       absoluteY: parentY + box.y,
       lineMarginTop,
       lineMarginBottom,
       pageIndex,
-    });
+      prefixOffsetInBlock: 0,
+    };
+    if (ownerBlockId !== null) {
+      const cur = prefixOffsets.get(ownerBlockId) ?? 0;
+      entry.prefixOffsetInBlock = cur;
+      entry.blockId = ownerBlockId;
+      prefixOffsets.set(ownerBlockId, cur + box.text.length);
+    }
+    out.push(entry);
     return;
   }
   if (box.type === "marker") return;
@@ -123,10 +149,23 @@ export function collectAllTextBoxes(
     // PageBox is a frame: descend into children with page-content-relative
     // origin (0, 0) and the page's pageIndex. The page's own (x, y) is
     // document-relative and not part of the descendant coordinate system.
-    // ownerBlockId resets at the page boundary — page children begin a new
-    // block lineage.
+    // ownerBlockId is set to null here (the first BlockBox child of the
+    // page will re-establish it from its own key). prefixOffsets IS
+    // threaded through so a block fragmented across pages keeps its
+    // single offset sequence — the per-block accumulator's correctness
+    // hinges on this threading, NOT on the ownerBlockId reset.
     for (const child of box.children) {
-      collectAllTextBoxes(child, 0, 0, out, box.pageIndex, lineMarginTop, lineMarginBottom, null);
+      collectAllTextBoxes(
+        child,
+        0,
+        0,
+        out,
+        box.pageIndex,
+        lineMarginTop,
+        lineMarginBottom,
+        null,
+        prefixOffsets,
+      );
     }
     return;
   }
@@ -155,7 +194,17 @@ export function collectAllTextBoxes(
   // after recursion.
   const startLen = box.type === "line" ? out.length : -1;
   for (const child of box.children) {
-    collectAllTextBoxes(child, absX, absY, out, pageIndex, mt, mb, nextOwner);
+    collectAllTextBoxes(
+      child,
+      absX,
+      absY,
+      out,
+      pageIndex,
+      mt,
+      mb,
+      nextOwner,
+      prefixOffsets,
+    );
   }
   if (box.type === "line" && out.length === startLen && box.blockSize > 0) {
     out.push(makeSyntheticStrutEntry(box, absX, absY, pageIndex, ownerBlockId));
