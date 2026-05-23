@@ -29,9 +29,6 @@ sizing, line wrapping, and fragmentation.
   root context so formatting contexts can short-circuit on unchanged
   subtrees. Used by the editor reducer.
 
-- **`layout-engine`** — re-exports the entry points for downstream
-  consumers.
-
 ### Formatting contexts
 
 Each formatting context is a layout algorithm that handles one class of

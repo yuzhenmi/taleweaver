@@ -80,12 +80,12 @@ Each task ends with implementer → reviewer → commit per the standing review-
 
 | Task | Status | Commit(s) | Notes |
 |------|--------|-----------|-------|
-| L-A: Frozen-box invariant fixes (A1+A2+C1) | not started | — | Two correctness bugs + prevention mechanism. TDD with geometric assertions. |
-| L-B: createCanvasMeasurer → shaper in react (A8/#164) | not started | — | Production user-visible. |
-| L-C: extractAncestorKey via explicit field (A3) | not started | — | Add `ancestorKey` field to InlineBox. |
-| L-D: Inline-block makeChildContext (A6) | not started | — | One-line fix. |
-| L-E: Wire rewrapIncremental into IFC (A5) | not started | — | Largest perf gap. Needs spec/brainstorm. |
-| L-F: Bundle small fixes (A4+A7+C2+C3) | not started | — | Sub-10-line each. |
+| L-A: Frozen-box invariant fixes (A1+A2+C1) | ✅ done | `7462baf` | A1 (bfc.ts float positioning) + A2 (ifc.ts applyVerticalAlign) both rewritten to use new withBlockOffset/withOffsets helpers. Dev-mode assertLayoutBoxConsistent added at both former-bug sites as a trap-marker. Two surviving safe spread-and-cast sites in ifc.ts documented with forward-contract comments. +17 tests; zero pre-existing tests modified (confirms the bugs were silent). |
+| L-B: createCanvasMeasurer → shaper in react (A8/#164) | ✅ done | `3030fd3` | Both production callers fixed (react use-editor.ts + examples/dom main.ts). createCanvasMeasurer marked @deprecated + emits dev-mode warning. Closes #164. |
+| L-C: extractAncestorKey via explicit field (A3) | ✅ done | `32c9982` | `InlineBox.ancestorKey: string` field added; createInlineBox + rebuildBoxWithOffsets updated; producer in ifc.ts passes the value explicitly; consumers (assignFragmentEdges, correctFragmentEdge) read it directly; extractAncestorKey deleted. +1 dashed-key regression test pins the fix. Reviewer first-pass approved (all 11 checklist items). |
+| L-D: Inline-block makeChildContext (A6) | ✅ done | `a9db383` | collectInlineTokens threads LayoutContext through; inline-block branch uses makeChildContext when parent ctx is available (production path), falls back to makeRootContext for external callers (rewrap, tests). Inline-block descendants now inherit prevLayoutCache + ifcStateCache. Reviewer approved first pass. |
+| L-E: Wire rewrapIncremental into IFC (A5) | spec written, impl deferred | `244e8bb` (spec) | Spec at `docs/superpowers/specs/2026-05-23-ifc-incremental-wrap-wiring-design.md`. Q1-Q5 decisions recorded. Implementation = one substantial commit (extract wrap-one-line closure in layoutInlineContent + 6 integration tests). Next session picks up. |
+| L-F: Bundle small fixes (A4+A7+C2+C3) | ✅ done (A4, A7, C3); C2 split | `d8cfb2c` | A7 needed TWO sites (resolveBoxInlineSize + empty-block branch); regression test exposed the second. C3 anonymous-block-runs algorithm per CSS Sizing 3 §5.2. A4 dev-mode warning. C2 deferred to task #200. +3 tests. Reviewer agent hit credits quota mid-execution; self-reviewed via regression-test-falsifies-pre-fix discipline. |
 | L-G: Doomed-code cleanup | not started | — | float-context aliases + layout-engine façade. |
 | L-H: Minor arch-doc drift fix | not started | — | One line in `1.4-layout/overview.md`. |
 

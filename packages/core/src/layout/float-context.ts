@@ -202,8 +202,3 @@ function floatsEqual(a: PlacedFloat, b: PlacedFloat): boolean {
     && a.blockSize === b.blockSize;
 }
 
-// Backwards-compat aliases (sunset path). Marked deprecated; remove in a future plan.
-/** @deprecated Use `FloatEnvironment` */
-export type FloatContext = FloatEnvironment;
-/** @deprecated Use `createFloatEnvironment` */
-export const createFloatContext = createFloatEnvironment;
