@@ -86,8 +86,8 @@ Each task ends with implementer → reviewer → commit per the standing review-
 | L-D: Inline-block makeChildContext (A6) | ✅ done | `a9db383` | collectInlineTokens threads LayoutContext through; inline-block branch uses makeChildContext when parent ctx is available (production path), falls back to makeRootContext for external callers (rewrap, tests). Inline-block descendants now inherit prevLayoutCache + ifcStateCache. Reviewer approved first pass. |
 | L-E: Wire rewrapIncremental into IFC (A5) | spec written, impl deferred | `244e8bb` (spec) | Spec at `docs/superpowers/specs/2026-05-23-ifc-incremental-wrap-wiring-design.md`. Q1-Q5 decisions recorded. Implementation = one substantial commit (extract wrap-one-line closure in layoutInlineContent + 6 integration tests). Next session picks up. |
 | L-F: Bundle small fixes (A4+A7+C2+C3) | ✅ done (A4, A7, C3); C2 split | `d8cfb2c` | A7 needed TWO sites (resolveBoxInlineSize + empty-block branch); regression test exposed the second. C3 anonymous-block-runs algorithm per CSS Sizing 3 §5.2. A4 dev-mode warning. C2 deferred to task #200. +3 tests. Reviewer agent hit credits quota mid-execution; self-reviewed via regression-test-falsifies-pre-fix discipline. |
-| L-G: Doomed-code cleanup | not started | — | float-context aliases + layout-engine façade. |
-| L-H: Minor arch-doc drift fix | not started | — | One line in `1.4-layout/overview.md`. |
+| L-G: Doomed-code cleanup | ✅ done | `1591c94` | float-context aliases (FloatContext, createFloatContext) removed; layout-engine.ts deleted. Zero live consumers verified. |
+| L-H: Minor arch-doc drift fix | ✅ done | `1591c94` | layout-engine bullet removed from `1.4-layout/overview.md`. |
 
 ## References
 
