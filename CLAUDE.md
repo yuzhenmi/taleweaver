@@ -31,6 +31,147 @@ Concretely:
 - New plan structure or phase decomposition → write to a plan under `docs/superpowers/plans/` before dispatching implementer subagents.
 - Mid-brainstorm decisions → checkpoint into the spec doc as they happen, don't batch-write at the end.
 
+## First principles (load-bearing — apply on every iteration)
+
+These principles drive every workflow decision in this project. They are
+ABSOLUTE standing rules. The user will not restate them task-by-task.
+
+### 1. Foundations before features
+
+Prioritize lower-level abstractions (state, render, cascade, layout) before
+higher-level features. A weak core multiplies feature debt; a strong core
+makes features cheap.
+
+When picking what to work on next, sort by **layer depth** (pipeline order
+= priority order: state → render → cascade → layout → editor → host) and
+prefer the deeper item. Invariants / type vocabulary beat algorithms beat
+features. Cross-cutting cleanups beat localized fixes. Architectural debt
+beats bug fixes when the bug is a symptom of the debt.
+
+Not a license to refactor endlessly — once the foundation is solid enough
+to support the next feature, move up. The rule says "don't skip the
+foundation pass," not "stay in the foundation forever."
+
+### 2. Fix-now-not-later, scoped to surviving code
+
+We fix issues NOW (instead of later) because procrastination compounds
+into design debt that destroys future design as scope grows. EXCEPT
+issues in code already committed for destruction (per active spec / plan
+/ in-flight decision) — those die with the code, so fixing them is
+waste.
+
+When triaging issues: (1) consult active specs and in-flight decisions to
+identify which code survives; (2) fix surviving-code issues now; (3) note
+doomed-code issues as one-liners only, don't make them action items; (4)
+escalate borderline cases to the user. Discipline is **scope-before-raise**,
+not raise-then-defer.
+
+### 3. Review-until-no-more-feedback (ABSOLUTE)
+
+**Every cycle of planning AND every cycle of implementation must terminate
+with an independent code-reviewer dispatch that returns "approved / no more
+feedback".** No exceptions.
+
+The user has restated this rule four times. It is the standing default. It
+overrides time pressure, "small fix" feels, and "tests pass" feels.
+
+**When the review fires:**
+- After writing a plan → dispatch plan reviewer → iterate → only when
+  approved, dispatch implementer.
+- After every implementation cycle → dispatch code-reviewer → iterate →
+  only when approved, commit.
+- After a stalled / killed / timed-out implementer that left usable
+  changes → STILL dispatch the reviewer on the working tree before
+  commit.
+- End of each phase → phase-level reviewer if appropriate.
+
+**Catch-the-lapse trigger:** before writing `git commit`, ask: *was a
+code-reviewer dispatched for this exact diff and did it approve?* If no,
+dispatch the reviewer first.
+
+**Common rationalizations that mean "I'm about to skip review" (don't):**
+"tests pass, build clean — good enough" / "the implementer claimed
+browser-verified" / "it's a small fix" / "the implementer stalled but
+the work looks right" / "I want to keep momentum" / "the reviewer
+infrastructure failed" (try again; if it persistently fails, escalate to
+user, don't self-review silently).
+
+**Exceptions are narrow:** trivially mechanical edits — one-line typo
+fixes, memory updates, pure git operations with no semantic change. Bug
+fixes, refactors, new features, and tests are NOT in the exception list
+regardless of size.
+
+**When implementer is a subagent:** do NOT include the commit step in
+the implementer's instructions. The implementer stops after build/test
+green and reports the diff. The controller dispatches the reviewer,
+iterates if needed, THEN commits.
+
+### 4. Never downplay issues in reviews
+
+When a reviewer (or audit) raises a concern, it becomes an action item.
+There is no "observation / minor / fine as-is" bucket that quietly drops
+items. If you raise it, it gets resolved — either fixed, or carved out
+explicitly as a follow-up task with its own ticket.
+
+This applies in BOTH directions: don't soften reviewer findings to ship
+faster, AND don't escalate every nitpick to blocker — but every concern
+SURFACES as a tracked outcome.
+
+### 5. Document decisions and plans to disk continuously
+
+Chat is not durable. Compaction summaries preserve implementation
+details but DO NOT reliably preserve strategic choices, scope framings,
+or path/option decisions made in conversation. Multi-step work without
+written plans drifts.
+
+**Concretely:**
+- Goal capture: before non-trivial work, write the goal to a plan/spec
+  doc.
+- Decisions land immediately: when a scope choice, ordering choice, or
+  principle change is made mid-stream, checkpoint it into the doc THAT
+  TURN, before the next tool call.
+- Status tracking: keep both a TaskCreate task list AND a status section
+  in the plan doc, both updated as work proceeds.
+- Findings + ranking from reviewer / explorer subagents go into the
+  plan doc, not just chat.
+
+(This generalizes the Durability rule above to ALL multi-step work, not
+just roadmap-level decisions.)
+
+### 6. Browser engine is the reference
+
+For layout / text / cascade / fragmentation / a11y / IME questions,
+default to "what does the browser do?" Don't drift toward simpler
+heuristics without a spec citation. Decades of browser engineering have
+already solved these problems; borrow that work rather than re-deriving
+inferior versions.
+
+### 7. Top word processors are the reference
+
+For state-model / position-semantics / editing-model questions,
+survey Word / Google Docs / Pages / Notion / ProseMirror / Lexical /
+Slate / TipTap / Quill before recommending. The convergence across these
+systems IS the answer most of the time.
+
+When principles 6 and 7 conflict (e.g., empty-line selection: Chrome
+shows full-line, Firefox shows narrow, Google Docs shows narrow), the
+engine's mission ("match Google Docs quality") settles it: prefer the
+word-processor convention for editing/document-shape questions, prefer
+the browser convention for layout/text-flow questions.
+
+## In-flight architectural decisions
+
+These are durable decisions that affect work across multiple phases.
+Check this section before starting any work that touches the named
+subsystems.
+
+- **State model: block-tree-of-styled-runs (2026-05-02).** Replaced the
+  earlier path-based immutable tree of `StateNode`s with a Y.Doc-backed
+  `Map<BlockId, Block>` plus per-block `inlineContent: InlineItem[]`. ID-
+  based positions (`{ blockId, offset }`). Substantially implemented on
+  `feature/dom-architecture-redesign`. Spec at
+  `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`.
+
 ## Architecture documentation
 
 **Hierarchical living docs at `docs/architecture/`.** Each file describes the **target state** of one slice of the engine — what it should be when complete. Status flags (`[implemented]`, `[partial]`, `[missing]`) annotate items where current state diverges; `state-of-branch.md` is the consolidated audit of implementation vs target.
@@ -90,6 +231,8 @@ Files cross-link rather than duplicate content. Each `overview.md` introduces th
 - **Parallel implementer agents:** never dispatch multiple implementer (file-writing) subagents that share the main checkout. Observed failures: commit scope-leak (Agent B's untracked files get included in Agent A's `git add` / commit), commit-undone-by-reset race (Agent B does `git reset HEAD~1` for its own cleanup and accidentally undoes A's commit), and in-place file revert race (Agent B's file snapshot was taken before A's edit, B's write overwrites). **Default: serialize implementer dispatch.** Reviewer agents (read-only) can run in parallel freely.
 - **`isolation: "worktree"` caveat:** the framework's worktree harness can give an agent a checkout from a stale ancestor commit (observed: a dependabot vite-bump from before the feature branch's state-module work), not the current `feature/dom-architecture-redesign` HEAD. When the implementer reports the worktree's files don't match the current state (e.g., they see `change.ts` / `find-path.ts` instead of the Y.Doc-based files), they MUST commit on `feature/dom-architecture-redesign` directly via the main checkout — that's where current development lives per CLAUDE.md's branch policy. After a worktree agent commits to `feature/dom-architecture-redesign` directly, no merge is needed; from the main checkout, `cd /Users/hansyu/code/taleweaver/` and the commit is already there.
 - **Auto-commit:** commit on user's behalf on the feature branch per milestone. Never commit to `main` without explicit instruction.
+- **Stalled / killed implementer work still needs review.** Implementer agent dying mid-task does NOT exempt the resulting working-tree changes from the reviewer pass. Tests-pass + build-clean is NOT a substitute. Dispatch the reviewer on the working tree before commit.
+- **Implementer must escalate on Create-target collision.** If a plan task says "Create: `<path>`" and that file already exists, the implementer MUST STOP and report BLOCKED. Never silently refactor or consolidate the existing file — the controller needs to disambiguate "fresh-create" vs "merge into existing" before any work proceeds.
 - **TypeScript checks:** use `npm run build --workspace=<pkg>`, not bare `npx tsc`. The IDE's TypeScript server occasionally surfaces stale "Cannot find module" diagnostics after file moves; the authoritative check is `npm run build`.
 - **Browser smoke test for UI work:** `npm test` does not catch geometry / paint / coordinate bugs. After any work that touches layout, paint, the editor controller, or the example apps, run `npm run dev --workspace=examples/react` and exercise the feature in a real browser before declaring it done. Tests assert structure (counts, types, references); only the browser exercises actual coordinates and pixels. P1.B shipped with multiple integration bugs that 840 unit tests passed but the browser exposed in seconds.
 - **TDD:** write/update tests first, then implement. No exceptions. **Test geometry, not just structure** — assertions on `box.children.length` won't catch a line at the wrong y-position.
