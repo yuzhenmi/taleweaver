@@ -1,5 +1,4 @@
 import type { State } from "../state/state";
-import { getBlock } from "../state/state";
 import type { Span } from "../state/block-position";
 import { positionsEqual } from "../state/block-position";
 import type { LayoutBox } from "../layout/layout-node";
@@ -8,17 +7,17 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import { spanStart, spanEnd } from "../state/block-compare";
-import { inlineContentLength } from "../state/inline-content";
 import { resolvePixelPosition, type PixelPosition } from "./cursor-position";
 import {
-  collectAllTextBoxes,
-  collectBlockBoundaryLines,
-  type AbsoluteTextBox,
-} from "../editor/layout-utils";
+  collectLineBoxes,
+  collectLineLeaves,
+  findLineForPosition,
+  type AbsoluteLineBox,
+} from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
- * Visual highlight rectangle for a span of selected content. Coordinates
+ * Visual highlight rectangle for a span of selected content. Coords
  * are page-relative (descendants of PageBox use the page's coordinate
  * frame; otherwise document-relative).
  */
@@ -30,99 +29,6 @@ export interface SelectionRect {
   pageIndex: number;
 }
 
-/** Composite key for (pageIndex, lineY). */
-function lineKey(pageIndex: number, y: number): string {
-  return `${pageIndex}:${y}`;
-}
-
-interface LineEdgeInfo {
-  lineStartMap: Map<string, number>;
-  lineEndMap: Map<string, number>;
-  lineEndStylesMap: Map<string, Readonly<ComputedStyle>>;
-  lineMarginTopMap: Map<string, number>;
-  lineMarginBottomMap: Map<string, number>;
-}
-
-/**
- * Build maps from (pageIndex, lineY) → leftmost/rightmost edge, trailing
- * styles, margins.
- *
- * For SYNTHETIC strut entries (empty-paragraph stand-ins emitted by
- * `collectAllTextBoxes`), the underlying TextRunBox spans the line's
- * full inline-size — that's correct for hit-testing (clicks anywhere on
- * the empty line resolve to the paragraph's only position) but wrong
- * for selection-rect emission (we'd produce a full-line highlight on
- * an empty paragraph in a multi-line selection, instead of the narrow
- * paragraph-break indicator that word processors and Google Docs use).
- *
- * To keep both use cases right with one set of entries, this builder
- * treats synthetic entries asymmetrically:
- *   - `lineStartMap` IS populated from the synthetic (the paragraph's
- *     indent / inline-start). The narrow-indicator rect anchors here.
- *   - `lineEndMap` is NOT populated from the synthetic. The downstream
- *     rect-emitter's `lineEnd === undefined` branch then takes over
- *     and emits a narrow indicator-width rect instead of a full-line
- *     rect.
- *   - `lineEndStylesMap` IS populated (carries the line's intended
- *     paragraph style for the indicator's width measurement).
- *
- * Real text-run entries unchanged.
- */
-function buildLineEdgeMaps(boxes: readonly AbsoluteTextBox[]): LineEdgeInfo {
-  const lineStartMap = new Map<string, number>();
-  const lineEndMap = new Map<string, number>();
-  const lineEndStylesMap = new Map<string, Readonly<ComputedStyle>>();
-  const lineMarginTopMap = new Map<string, number>();
-  const lineMarginBottomMap = new Map<string, number>();
-  for (const b of boxes) {
-    const key = lineKey(b.pageIndex, b.absoluteY);
-    const leftEdge = b.absoluteX;
-    const rightEdge = b.absoluteX + b.box.width;
-
-    const prevStart = lineStartMap.get(key);
-    if (prevStart === undefined || leftEdge < prevStart) {
-      lineStartMap.set(key, leftEdge);
-    }
-    // Synthetic strut entries: do NOT extend lineEnd. The line is
-    // logically empty; the selection rect should be a narrow indicator,
-    // not the full line.
-    if (!b.synthetic) {
-      const prevEnd = lineEndMap.get(key);
-      if (prevEnd === undefined || rightEdge > prevEnd) {
-        lineEndMap.set(key, rightEdge);
-        lineEndStylesMap.set(key, b.box.computedStyle);
-      }
-    } else if (!lineEndStylesMap.has(key)) {
-      // Still record the trailing style so the narrow indicator can be
-      // measured against the paragraph's font metrics.
-      lineEndStylesMap.set(key, b.box.computedStyle);
-    }
-    if (!lineMarginTopMap.has(key)) {
-      lineMarginTopMap.set(key, b.lineMarginTop);
-      lineMarginBottomMap.set(key, b.lineMarginBottom);
-    }
-  }
-  return { lineStartMap, lineEndMap, lineEndStylesMap, lineMarginTopMap, lineMarginBottomMap };
-}
-
-/** Collect sorted unique line Y values per page. */
-function collectPageLines(boxes: readonly AbsoluteTextBox[]): Map<number, number[]> {
-  const pageLines = new Map<number, Set<number>>();
-  for (const b of boxes) {
-    let set = pageLines.get(b.pageIndex);
-    if (set === undefined) {
-      set = new Set();
-      pageLines.set(b.pageIndex, set);
-    }
-    set.add(b.absoluteY);
-  }
-  const result = new Map<number, number[]>();
-  for (const [pi, ys] of pageLines) {
-    result.set(pi, [...ys].sort((a, b) => a - b));
-  }
-  return result;
-}
-
 /**
  * Compute visual highlight rectangles for a selection span.
  *
@@ -130,21 +36,23 @@ function collectPageLines(boxes: readonly AbsoluteTextBox[]): Map<number, number
  * return an empty array — callers that need a 1px caret rect should
  * synthesize it from `resolvePixelPosition(focus)`.
  *
- * Algorithm (mirrors `editor/selection-geometry-legacy.ts`, adapted for
- * new `Span` shape):
- *   1. Normalize the span to (start, end) in document order via
- *      `spanStart` / `spanEnd`.
- *   2. Resolve start and end to PixelPosition via `resolvePixelPosition`.
- *   3. Build line-edge / per-page line maps from layout text-runs.
- *   4. Same line / same page: one rect from startPos.x to endPos.x.
- *   5. Multi-line / multi-page: emit a "first line" rect from startPos.x
- *      to that line's right edge (+ paragraph-break indicator if the
- *      line is a block boundary), zero or more "middle line" rects each
- *      spanning the full content of the line, and a "last line" rect
- *      from that line's start to endPos.x.
- *   6. Virtual-line-break detection: when end.offset exceeds the inline
- *      content length of the end-block, add a small bridge after end.x
- *      so the last rect visually extends past the last character.
+ * Algorithm (LineBox-canonical; see
+ * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
+ *   1. Normalize the span to (start, end) in document order.
+ *   2. Resolve start and end to PixelPositions (for their X coords).
+ *   3. Find the `AbsoluteLineBox` containing each via
+ *      `findLineForPosition`.
+ *   4. Iterate `allLines[startLineIdx..endLineIdx]`. For each line,
+ *      emit one rect:
+ *      - same-line span: x=startX, width=endX-startX.
+ *      - first line of multi-line span: x=startX, width=
+ *        lineRightEdge + boundaryIndicator - startX.
+ *      - last line of multi-line span: x=lineLeftEdge, width=
+ *        endX - lineLeftEdge.
+ *      - middle line: full line content (+ boundary indicator).
+ *   5. `line.isBlockBoundaryLine` drives the paragraph-break
+ *      indicator after a line (replaces the prior
+ *      `collectBlockBoundaryLines` traversal).
  */
 export function computeSelectionRects(
   state: State,
@@ -154,7 +62,6 @@ export function computeSelectionRects(
 ): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
-    // Collapsed: no highlight rects.
     if (positionsEqual(span.anchor, span.focus)) return [];
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
@@ -168,172 +75,101 @@ export function computeSelectionRects(
     const endPos = resolvePixelPosition(state, end, layoutTree, measurer);
     if (startPos === null || endPos === null) return [];
 
-    // Collect text boxes for line edges, line index, block boundaries.
-    const boxes: AbsoluteTextBox[] = [];
-    collectAllTextBoxes(layoutTree, 0, 0, boxes);
-    const {
-      lineStartMap,
-      lineEndMap,
-      lineEndStylesMap,
-      lineMarginTopMap,
-      lineMarginBottomMap,
-    } = buildLineEdgeMaps(boxes);
-    const pageLines = collectPageLines(boxes);
+    const allLines: AbsoluteLineBox[] = [];
+    collectLineBoxes(layoutTree, 0, 0, allLines);
+    if (allLines.length === 0) return [];
 
-    const blockBoundaryLines = new Set<string>();
-    collectBlockBoundaryLines(layoutTree, 0, 0, blockBoundaryLines);
-
-    /** Measure a paragraph-break indicator using the trailing styles on a line. */
-    const lineBreakIndicatorWidth = (
-      pageIndex: number,
-      lineY: number,
-    ): number => {
-      const styles = lineEndStylesMap.get(lineKey(pageIndex, lineY));
-      if (styles === undefined) return 0;
-      return measurer.measureWidth("  ", styles);
-    };
-
-    // Virtual-line-break detection: end-offset past end of the block's
-    // inline content (e.g., selection from prev block ending at offset 0
-    // of the next; the legacy module uses offset > textContentLength).
-    const endBlock = getBlock(state, end.blockId);
-    const endInlineLen =
-      endBlock !== null && endBlock.inlineContent !== null
-        ? inlineContentLength(endBlock.inlineContent)
-        : 0;
-    const isVirtualLineBreak = endBlock !== null && end.offset > endInlineLen;
-
-    // Same line, same page.
-    if (
-      startPos.pageIndex === endPos.pageIndex &&
-      startPos.lineY === endPos.lineY
-    ) {
-      const lb = isVirtualLineBreak
-        ? lineBreakIndicatorWidth(startPos.pageIndex, startPos.lineY)
-        : 0;
-      const width = endPos.x - startPos.x + lb;
-      if (width <= 0) return [];
-      return [
-        {
-          x: startPos.x,
-          y: startPos.lineY - startPos.lineMarginTop,
-          width,
-          height:
-            startPos.lineMarginTop +
-            startPos.lineHeight +
-            startPos.lineMarginBottom,
-          pageIndex: startPos.pageIndex,
-        },
-      ];
-    }
+    const startLineIdx = findLineForPosition(allLines, start);
+    const endLineIdx = findLineForPosition(allLines, end);
+    if (startLineIdx < 0 || endLineIdx < 0) return [];
 
     const rects: SelectionRect[] = [];
 
-    // Iterate pages.
-    for (let pi = startPos.pageIndex; pi <= endPos.pageIndex; pi++) {
-      const lines = pageLines.get(pi) ?? [];
-      if (lines.length === 0) continue;
+    for (let i = startLineIdx; i <= endLineIdx; i++) {
+      const al = allLines[i];
+      const line = al.line;
+      const isFirst = i === startLineIdx;
+      const isLast = i === endLineIdx;
 
-      const isFirstPage = pi === startPos.pageIndex;
-      const isLastPage = pi === endPos.pageIndex;
+      const { lineLeft, lineRight, trailingStyle } = computeLineEdges(al);
+      const indicatorW = line.isBlockBoundaryLine
+        ? measurer.measureWidth("  ", trailingStyle)
+        : 0;
 
-      let firstLineIdx: number;
-      let lastLineIdx: number;
+      let x: number;
+      let width: number;
 
-      if (isFirstPage) {
-        firstLineIdx = lines.indexOf(startPos.lineY);
-        if (firstLineIdx === -1) firstLineIdx = 0;
+      if (isFirst && isLast) {
+        // Same-line selection.
+        x = startPos.x;
+        width = endPos.x - startPos.x;
+      } else if (isFirst) {
+        x = startPos.x;
+        width = lineRight + indicatorW - startPos.x;
+      } else if (isLast) {
+        x = lineLeft;
+        width = endPos.x - lineLeft;
       } else {
-        firstLineIdx = 0;
+        x = lineLeft;
+        width = lineRight + indicatorW - lineLeft;
       }
 
-      if (isLastPage) {
-        lastLineIdx = lines.indexOf(endPos.lineY);
-        if (lastLineIdx === -1) lastLineIdx = lines.length - 1;
-      } else {
-        lastLineIdx = lines.length - 1;
-      }
+      if (width <= 0) continue;
 
-      for (let li = firstLineIdx; li <= lastLineIdx; li++) {
-        const lineY = lines[li];
-        const key = lineKey(pi, lineY);
-        const isFirstLine = isFirstPage && li === firstLineIdx;
-        const isLastLine = isLastPage && li === lastLineIdx;
-
-        const lineEnd = lineEndMap.get(key);
-        const mt = lineMarginTopMap.get(key) ?? 0;
-        const mb = lineMarginBottomMap.get(key) ?? 0;
-
-        const rectY = lineY - mt;
-        const rectHeight = (lh: number): number => mt + lh + mb;
-
-        if (isFirstLine && isLastLine) {
-          const lb = isVirtualLineBreak
-            ? lineBreakIndicatorWidth(pi, lineY)
-            : 0;
-          rects.push({
-            x: startPos.x,
-            y: rectY,
-            width: endPos.x - startPos.x + lb,
-            height: rectHeight(startPos.lineHeight),
-            pageIndex: pi,
-          });
-        } else if (isFirstLine) {
-          const lineEndX = lineEnd ?? startPos.x;
-          const indicator = blockBoundaryLines.has(key)
-            ? lineBreakIndicatorWidth(pi, lineY)
-            : 0;
-          rects.push({
-            x: startPos.x,
-            y: rectY,
-            width: Math.max(lineEndX + indicator - startPos.x, 0),
-            height: rectHeight(startPos.lineHeight),
-            pageIndex: pi,
-          });
-        } else if (isLastLine) {
-          const lineStart = lineStartMap.get(key) ?? 0;
-          const lb = isVirtualLineBreak
-            ? lineBreakIndicatorWidth(pi, lineY)
-            : 0;
-          if (endPos.x > 0 || lb > 0) {
-            rects.push({
-              x: lineStart,
-              y: rectY,
-              width: endPos.x - lineStart + lb,
-              height: rectHeight(endPos.lineHeight),
-              pageIndex: pi,
-            });
-          }
-        } else {
-          const lineStart = lineStartMap.get(key) ?? 0;
-          const indicator = blockBoundaryLines.has(key)
-            ? lineBreakIndicatorWidth(pi, lineY)
-            : 0;
-          if (lineEnd !== undefined) {
-            rects.push({
-              x: lineStart,
-              y: rectY,
-              width: lineEnd + indicator - lineStart,
-              height: rectHeight(startPos.lineHeight),
-              pageIndex: pi,
-            });
-          } else if (indicator > 0) {
-            rects.push({
-              x: lineStart,
-              y: rectY,
-              width: indicator,
-              height: rectHeight(startPos.lineHeight),
-              pageIndex: pi,
-            });
-          }
-        }
-      }
+      rects.push({
+        x,
+        y: al.absoluteY,
+        width,
+        height: line.blockSize,
+        pageIndex: al.pageIndex,
+      });
     }
 
-    return rects.filter((r) => r.width > 0);
+    return rects;
   } finally {
     markEnd("cursor.selection-geometry", t);
   }
+}
+
+/**
+ * Compute the horizontal X extent of a line's content. For lines
+ * with at least one leaf (text-run or inline-block), returns the
+ * leftmost leaf's X and the rightmost leaf's right edge. For empty
+ * (strut) lines, both edges collapse to the line's own X — no visible
+ * content to highlight.
+ *
+ * Also returns the trailing leaf's computed style for paragraph-break
+ * indicator measurement; null for empty lines (no content style to
+ * measure against — the LineBox's own style could be used as a
+ * fallback, but for now we suppress the indicator on empty lines).
+ */
+function computeLineEdges(al: AbsoluteLineBox): {
+  lineLeft: number;
+  lineRight: number;
+  trailingStyle: ComputedStyle;
+} {
+  const leaves = collectLineLeaves(al.line, al.absoluteX);
+  if (leaves.length === 0) {
+    // Empty (strut) line — both edges collapse to the line's X.
+    // Trailing style falls back to the LineBox's own computedStyle
+    // (the IFC stamps it from the source block's parentCs at strut
+    // creation), so paragraph-break indicators on empty paragraphs
+    // are measured against the block's text style.
+    return {
+      lineLeft: al.absoluteX,
+      lineRight: al.absoluteX,
+      trailingStyle: al.line.computedStyle,
+    };
+  }
+  let minX = leaves[0].absoluteX;
+  let maxRight = leaves[0].absoluteX + leaves[0].width;
+  for (const leaf of leaves) {
+    if (leaf.absoluteX < minX) minX = leaf.absoluteX;
+    const right = leaf.absoluteX + leaf.width;
+    if (right > maxRight) maxRight = right;
+  }
+  const trailing = leaves[leaves.length - 1].computedStyle;
+  return { lineLeft: minX, lineRight: maxRight, trailingStyle: trailing };
 }
 
 // Re-export for tests' convenience.

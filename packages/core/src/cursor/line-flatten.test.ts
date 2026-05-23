@@ -6,7 +6,9 @@ import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "../layout/layout-context";
-import { collectLineBoxes, type AbsoluteLineBox } from "./line-flatten";
+import { createPosition } from "../state/block-position";
+import type { BlockId } from "../state/block-id";
+import { collectLineBoxes, findLineForPosition, type AbsoluteLineBox } from "./line-flatten";
 
 const shaper = createMockShaper(8, 16);
 
@@ -199,5 +201,103 @@ describe("collectLineBoxes", () => {
     // IFC-runner block (which may be the anonymous wrap).
     expect([...ownerIds].some(id => /^p(\/anon\[\d+\])?$/.test(id))).toBe(true);
     expect([...ownerIds].some(id => /^ib-p(\/anon\[\d+\])?$/.test(id))).toBe(true);
+  });
+});
+
+describe("findLineForPosition", () => {
+  function singleLineFixture(): AbsoluteLineBox[] {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, "hello")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    const out: AbsoluteLineBox[] = [];
+    collectLineBoxes(r.box, 0, 0, out);
+    return out;
+  }
+
+  function multiLineFixture(): { lines: AbsoluteLineBox[]; ownerId: string } {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, "a b c d e f g h i j")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    const out: AbsoluteLineBox[] = [];
+    collectLineBoxes(r.box, 0, 0, out);
+    return { lines: out, ownerId: out[0].line.ownerBlockId };
+  }
+
+  it("returns index of line containing position in a single-line block", () => {
+    const lines = singleLineFixture();
+    const owner = lines[0].line.ownerBlockId;
+    const idx = findLineForPosition(lines, createPosition(owner as BlockId, 2));
+    expect(idx).toBe(0);
+  });
+
+  it("returns -1 for an unknown blockId", () => {
+    const lines = singleLineFixture();
+    const idx = findLineForPosition(lines, createPosition("not-a-block" as BlockId, 0));
+    expect(idx).toBe(-1);
+  });
+
+  it("returns the last same-block candidate for offset past block end", () => {
+    const { lines, ownerId } = multiLineFixture();
+    expect(lines.length).toBeGreaterThan(1);
+    // Offset far past block end → clamps to last line.
+    const idx = findLineForPosition(lines, createPosition(ownerId as BlockId, 9999));
+    expect(idx).toBe(lines.length - 1);
+  });
+
+  it("at soft-wrap boundary, prefers the next same-block line", () => {
+    const { lines, ownerId } = multiLineFixture();
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0End = lines[0].line.inlineOffsetEnd;
+    // At exact end of line 0, prefer line 1.
+    const idx = findLineForPosition(lines, createPosition(ownerId as BlockId, line0End));
+    expect(idx).toBe(1);
+  });
+
+  it("with inline-block-interleaved lines, walks past foreign lines to find later same-block lines", () => {
+    // Outer paragraph wraps; on one of its lines is an inline-block
+    // whose nested IFC produces its own LineBoxes. These appear
+    // interleaved in `collectLineBoxes` output. A position past the
+    // inline-block, on a subsequent outer-paragraph wrap line, must
+    // still resolve to the outer paragraph's line — not be cut off
+    // by the early-return on foreign blockId.
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p", { display: "block" }, [
+          createTextBox("t1", { display: "inline" }, "a "),
+          createElementBox("ib", { display: "inline-block", inlineSize: 20, blockSize: 16 }, [
+            createElementBox("ib-p", { display: "block" }, [createTextBox("ib-t", {}, "x")]),
+          ]),
+          createTextBox("t2", { display: "inline" }, " b c d e f g h i j k l m n o p"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(r.box, 0, 0, lines);
+    // Find outer-paragraph lines.
+    const outerOwner = lines.find(l => /^p(\/anon\[\d+\])?$/.test(l.line.ownerBlockId))?.line.ownerBlockId;
+    expect(outerOwner).toBeDefined();
+    if (outerOwner === undefined) return;
+    const outerLines = lines.filter(l => l.line.ownerBlockId === outerOwner);
+    expect(outerLines.length).toBeGreaterThan(1);
+    const lastOuter = outerLines[outerLines.length - 1];
+    // Position past the end of the last outer line should resolve to it.
+    const idx = findLineForPosition(lines, createPosition(outerOwner as BlockId, 9999));
+    expect(lines[idx].line).toBe(lastOuter.line);
   });
 });

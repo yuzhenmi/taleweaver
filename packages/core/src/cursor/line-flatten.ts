@@ -1,5 +1,6 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "../styles";
+import type { Position } from "../state/block-position";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -136,6 +137,51 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
   const out: LineLeaf[] = [];
   collectLeavesRec(line, lineAbsX, out);
   return out;
+}
+
+/**
+ * Find the index of the `AbsoluteLineBox` that contains `position`.
+ * Returns -1 if no line owns the position's block (e.g. block has
+ * no LineBoxes — container block with null inlineContent).
+ *
+ * Soft-wrap preference: at `position.offset === current.inlineOffsetEnd`
+ * with a next line for the same block, prefer the next line's start.
+ * This matches Word / Google Docs caret behavior at visual wrap edges.
+ *
+ * Consumed by `cursor-position` and `selection-geometry` to anchor
+ * Position → line lookups.
+ */
+export function findLineForPosition(lines: readonly AbsoluteLineBox[], position: Position): number {
+  // Walk the full list (don't early-exit on foreign-block entries):
+  // `collectLineBoxes` interleaves inline-block-internal lines into
+  // the flat array, so a wrapped outer paragraph containing an
+  // inline-block has foreign-block lines BETWEEN its own lines. The
+  // last matching candidate is what we return for past-block-end
+  // offsets.
+  let candidate = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].line;
+    if (l.ownerBlockId !== position.blockId) continue;
+    candidate = i;
+    if (position.offset < l.inlineOffsetStart) {
+      return i;
+    }
+    if (position.offset <= l.inlineOffsetEnd) {
+      const isExactEnd = position.offset === l.inlineOffsetEnd;
+      // Look ahead for the NEXT same-block line (skipping any
+      // intervening foreign-block lines from interleaved inline-
+      // block descendants).
+      if (isExactEnd) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].line.ownerBlockId === position.blockId) {
+            return j;
+          }
+        }
+      }
+      return i;
+    }
+  }
+  return candidate;
 }
 
 function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): void {
