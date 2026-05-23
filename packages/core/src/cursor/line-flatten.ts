@@ -1,4 +1,5 @@
-import type { LayoutBox, LineBox } from "../layout/layout-node";
+import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
+import type { ComputedStyle } from "../styles";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -81,5 +82,97 @@ export function collectLineBoxes(
   }
   for (const child of box.children) {
     collectLineBoxes(child, absX, absY, out, pageIndex);
+  }
+}
+
+/**
+ * A leaf box within a LineBox (text-run or inline-block) paired with
+ * its absolute X coordinate and state-model offset contribution. Used
+ * by within-line hit-test and X-from-offset queries to find the
+ * specific run that contains a given X / contains a given offset.
+ *
+ * Discriminated union: the `kind` field narrows `box` to its concrete
+ * type (TextRunBox for text-runs, InlineBlockBox for inline-blocks),
+ * so consumers can access `box.text` etc. without casts.
+ *
+ * `offsetContribution` matches the IFC's per-token accumulator rule:
+ * `text.length` for text-runs, `1` for inline-blocks (state-model
+ * embed). Summed across leaves, the total equals the line's
+ * `inlineOffsetEnd - inlineOffsetStart`.
+ */
+export type LineLeaf =
+  | {
+      readonly kind: "text-run";
+      readonly box: TextRunBox;
+      readonly absoluteX: number;
+      readonly width: number;
+      /** Convenience copy from `box.computedStyle`. */
+      readonly computedStyle: Readonly<ComputedStyle>;
+      readonly offsetContribution: number;
+    }
+  | {
+      readonly kind: "inline-block";
+      readonly box: InlineBlockBox;
+      readonly absoluteX: number;
+      readonly width: number;
+      readonly computedStyle: Readonly<ComputedStyle>;
+      readonly offsetContribution: number;
+    };
+
+/**
+ * Walk a single `LineBox`'s subtree, emitting one `LineLeaf` per
+ * leaf box (text-run or inline-block) in visual (post-bidi-reorder)
+ * order. Descends into `InlineBox` children (which wrap groups of
+ * same-inline-element text-runs) but stops at text-runs and inline-
+ * blocks — they are the leaves.
+ *
+ * Skips MarkerBoxes (list bullets etc.) which don't contribute
+ * cursor positions.
+ *
+ * Used by hit-test (pick target leaf by X within the picked line)
+ * and by cursor-position (map Position → leaf for X measurement).
+ */
+export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
+  const out: LineLeaf[] = [];
+  collectLeavesRec(line, lineAbsX, out);
+  return out;
+}
+
+function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): void {
+  if (box.type === "text-run") {
+    out.push({
+      kind: "text-run",
+      box,
+      absoluteX: parentX + box.x,
+      width: box.width,
+      computedStyle: box.computedStyle,
+      offsetContribution: box.text.length,
+    });
+    return;
+  }
+  if (box.type === "inline-block") {
+    out.push({
+      kind: "inline-block",
+      box,
+      absoluteX: parentX + box.x,
+      width: box.width,
+      computedStyle: box.computedStyle,
+      offsetContribution: 1,
+    });
+    return;
+  }
+  if (box.type === "marker") return;
+  if (box.type === "page" || box.type === "block" || box.type === "table" || box.type === "table-row" || box.type === "table-cell") {
+    // Block-axis containers shouldn't appear as a line's descendants;
+    // defensively descend with the same X frame anyway.
+    for (const child of box.children) {
+      collectLeavesRec(child, parentX, out);
+    }
+    return;
+  }
+  // box.type === "line" or "inline" — descend with own X offset.
+  const absX = parentX + box.x;
+  for (const child of box.children) {
+    collectLeavesRec(child, absX, out);
   }
 }

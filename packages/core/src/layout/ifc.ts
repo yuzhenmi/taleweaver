@@ -20,6 +20,25 @@ import { findChangePoint } from "./wrap-incremental";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
+ * Derive the SOURCE block id from an IFC parent's render-node key.
+ * BFC wraps inline runs in anonymous blocks keyed
+ * `${sourceKey}/anon[N]` (see `group-children.ts:anonymousBlockKey`);
+ * the IFC stamps `ownerBlockId` on emitted LineBoxes with the source
+ * id so downstream consumers (hit-test, cursor-position, state APIs)
+ * see the state-model block, not the layout-only wrap.
+ *
+ * The "/anon[N]" suffix is the only marker; nested anonymous blocks
+ * (rare) follow the same convention recursively, but the BFC creates
+ * at most one anonymous layer per inline-run group, so a single
+ * suffix-strip is sufficient.
+ */
+function sourceBlockIdOf(parentKey: string): BlockId {
+  const idx = parentKey.lastIndexOf("/anon[");
+  if (idx === -1) return parentKey as BlockId;
+  return parentKey.slice(0, idx) as BlockId;
+}
+
+/**
  * Shared empty arrays for token creation. Used to ensure reference equality
  * when comparing tokens with identical empty ancestor stacks across layouts.
  */
@@ -592,7 +611,7 @@ export function layoutInlineContent(
       parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
       currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
       hyphen, shaper,
-      parent.key as BlockId, // ownerBlockId (see strut-line comment above)
+      sourceBlockIdOf(parent.key), // ownerBlockId (see strut-line comment)
       startOff,              // inlineOffsetStart
       cursorOffset,          // inlineOffsetEnd
     );
@@ -666,11 +685,14 @@ export function layoutInlineContent(
       [],
       /* baseline */ strutBlockSize,
       /* containingInlineSize */ availableInlineSize,
-      // IFC is always dispatched for a block whose RenderNode key is
-      // its BlockId (per BFC's invocation site — `node.key` for an
-      // inline-bearing leaf block is the source block's id). The cast
-      // is safe at all callers of layoutInlineContent.
-      /* ownerBlockId */ parent.key as BlockId,
+      // IFC is dispatched for the leaf block running the inline-flow.
+      // When the BFC sees mixed inline+block children, it wraps inline
+      // runs in anonymous blocks keyed "${sourceKey}/anon[N]". Strip
+      // that suffix so `ownerBlockId` is the state-model SOURCE block
+      // id (e.g. "p"), not the layout-only anonymous wrap key
+      // (e.g. "p/anon[0]"). Downstream consumers pass this to state
+      // APIs (`getBlock`, etc.) which only know about source blocks.
+      /* ownerBlockId */ sourceBlockIdOf(parent.key),
       /* inlineOffsetStart */ 0,
       /* inlineOffsetEnd */ 0,
       /* isBlockBoundaryLine */ true,

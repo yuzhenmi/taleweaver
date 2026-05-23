@@ -8,40 +8,45 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import {
-  collectAllTextBoxes,
-  type AbsoluteTextBox,
-} from "../editor/layout-utils";
+  collectLineBoxes,
+  collectLineLeaves,
+  type AbsoluteLineBox,
+} from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
- * Resolve a pixel (x, y) coordinate to a document Position using the layout
- * tree.
+ * Resolve a pixel (x, y) coordinate to a document Position using the
+ * layout tree.
  *
- * Algorithm (mirrors `editor/hit-test-legacy.ts`, adapted for the new
- * box-key shape `${blockId}/inline/${itemIndex}[:${runIndex}]`):
- *   1. Collect every text-run box (with absolute coords) via
- *      `collectAllTextBoxes`.
+ * Algorithm (LineBox-canonical; see
+ * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
+ *   1. Collect every `LineBox` with absolute coords via
+ *      `collectLineBoxes` (line identity is the LineBox reference, not
+ *      a `(pageIndex, absoluteY)` tuple — float-Y fragility resolved).
  *   2. Filter to the requested `pageIndex` when the doc is paginated.
- *   3. Group boxes by line Y; pick the line whose Y range contains `y`,
- *      falling back to the last line for clicks below all content.
- *   4. Within the chosen line, pick the box whose X range contains `x`
- *      (or the last box for clicks past the line end).
- *   5. Binary-scan / linear-scan the character offset within that box's
- *      text via `measurer.measureWidth`.
- *   6. Read the precomputed `targetBox.blockId` and
- *      `targetBox.prefixOffsetInBlock` (populated during
- *      `collectAllTextBoxes`). The hit position is
- *      `Position { blockId, offset }` where
- *      `offset = prefixOffsetInBlock + charOffset`.
+ *   3. Pick the line whose vertical range `[absoluteY,
+ *      absoluteY + line.blockSize]` contains `y`, falling back to the
+ *      last line for clicks below all content. Sub-pixel snap at line
+ *      boundaries (0.5 px tolerance to the next line's top).
+ *   4. Empty line (no leaf children): return
+ *      `Position(line.ownerBlockId, line.inlineOffsetStart)`. No
+ *      synthetic-strut fallback needed — the LineBox itself carries
+ *      the owning block and the offset.
+ *   5. Within the picked line, walk leaves (text-runs +
+ *      inline-blocks) in visual order via `collectLineLeaves`. Pick
+ *      the leaf whose X range contains `x`; fall back to the last
+ *      leaf for clicks past line end.
+ *   6. For text-run leaves: `findCharOffset` over the run's text.
+ *      For inline-block leaves: cursor lands at the position just
+ *      before the embed (charOffset = 0).
+ *   7. Position = `(line.ownerBlockId, line.inlineOffsetStart +
+ *      withinLineOffset + charOffset)`, where `withinLineOffset` is
+ *      the sum of preceding leaves' `offsetContribution`.
  *
  * Returns `null` when:
- *   - The layout has no text-runs (e.g., empty document).
- *   - The target box's blockId is unknown to `state` (defensive).
- *
- * Block-level offsets here are inline-content offsets (UTF-16 code units
- * accumulated across text-runs of the same blockId). Embed items produce
- * no text-runs and contribute nothing to the accumulator — clicks at an
- * embed slot land on the closest text-run.
+ *   - The layout has no lines (e.g., empty document).
+ *   - The picked line's `ownerBlockId` is unknown to `state`
+ *     (defensive — shouldn't happen with consistent state + layout).
  */
 export function resolvePositionFromPixel(
   state: State,
@@ -57,118 +62,91 @@ export function resolvePositionFromPixel(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    // 1. Collect all text boxes with absolute coordinates. We keep
-    //    synthetic strut-line entries: clicks on an empty paragraph need to
-    //    land at offset 0 of THAT paragraph (not fall through to the
-    //    nearest real line). The synthetic entry carries the owning
-    //    block's id (`blockId` field) so we can build a Position without
-    //    parsing an inline-item key — parseInlineBoxKey returns null on
-    //    `${lineKey}:strut` keys. See #170.
-    const allBoxes: AbsoluteTextBox[] = [];
-    collectAllTextBoxes(layoutTree, 0, 0, allBoxes);
+    // 1. Collect every LineBox with absolute coords.
+    const allLines: AbsoluteLineBox[] = [];
+    collectLineBoxes(layoutTree, 0, 0, allLines);
+    if (allLines.length === 0) return null;
 
-    // 2. Filter to target page (when paginated). Real text-runs drive the
-    //    pagination check — synthetic entries inherit their page index from
-    //    the recursion but a doc with only synthetics is still page 0.
-    const hasPagination = allBoxes.some((b) => b.pageIndex > 0);
-    const boxes = hasPagination
-      ? allBoxes.filter((b) => b.pageIndex === pageIndex)
-      : allBoxes;
+    // 2. Filter to target page when paginated.
+    const hasPagination = allLines.some((l) => l.pageIndex > 0);
+    const visible = hasPagination
+      ? allLines.filter((l) => l.pageIndex === pageIndex)
+      : allLines;
+    if (visible.length === 0) return null;
 
-    if (boxes.length === 0) return null;
-
-    // 3. Group by line (same absolute Y).
-    const lineMap = new Map<number, AbsoluteTextBox[]>();
-    for (const b of boxes) {
-      const lineY = b.absoluteY;
-      const arr = lineMap.get(lineY);
-      if (arr === undefined) {
-        lineMap.set(lineY, [b]);
-      } else {
-        arr.push(b);
-      }
-    }
-    const lineYs = [...lineMap.keys()].sort((a, b) => a - b);
-
-    // 4. Find target line by Y. Default to last line for clicks below all.
-    let targetLineY = lineYs[lineYs.length - 1];
-    for (let i = 0; i < lineYs.length; i++) {
-      const lineBoxes = lineMap.get(lineYs[i]);
-      if (lineBoxes === undefined) continue;
-      const first = lineBoxes[0];
-      const lineBottom =
-        lineYs[i] + first.box.height + first.lineMarginBottom;
-      if (y < lineBottom || i === lineYs.length - 1) {
-        // Snap to next line at floating-point boundary.
-        if (i + 1 < lineYs.length && Math.abs(y - lineYs[i + 1]) < 0.5) {
-          targetLineY = lineYs[i + 1];
+    // 3. Pick target line by Y.
+    let targetIdx = visible.length - 1;
+    for (let i = 0; i < visible.length; i++) {
+      const l = visible[i];
+      const lineBottom = l.absoluteY + l.line.blockSize;
+      if (y < lineBottom || i === visible.length - 1) {
+        // Sub-pixel snap: if the click is within 0.5 px of the next
+        // line's top, prefer the next line. (Layout pixel rounding
+        // can place a click exactly on the boundary.)
+        if (i + 1 < visible.length && Math.abs(y - visible[i + 1].absoluteY) < 0.5) {
+          targetIdx = i + 1;
         } else {
-          targetLineY = lineYs[i];
+          targetIdx = i;
         }
         break;
       }
     }
+    const targetLine = visible[targetIdx];
+    const ownerBlockId = targetLine.line.ownerBlockId;
+    // Defensive: ensure the picked line's owning block exists in state.
+    if (getBlock(state, ownerBlockId) === null) return null;
 
-    const lineBoxes = lineMap.get(targetLineY);
-    if (lineBoxes === undefined) {
-      // Unreachable: keys come from lineMap.keys().
-      return null;
-    }
-    // Sort by X within the line.
-    lineBoxes.sort((a, b) => a.absoluteX - b.absoluteX);
-
-    // 5. Empty-line (strut) fallback: if the target line has only synthetic
-    //    entries, the click landed on an empty paragraph's strut line. Use
-    //    the synthetic's owning blockId to return offset 0 of that block.
-    //    We check by looking for ANY non-synthetic entry on this line —
-    //    a real-and-synthetic mix never occurs (the synthetic is only
-    //    emitted when no real text-run produced an entry; see
-    //    `collectAllTextBoxes`).
-    const realOnLine = lineBoxes.filter((b) => b.synthetic !== true);
-    if (realOnLine.length === 0) {
-      // All entries on this line are synthetic. Take the first one's blockId.
-      const synthetic = lineBoxes[0];
-      if (synthetic.blockId === undefined) return null;
-      if (getBlock(state, synthetic.blockId) === null) return null;
-      return createPosition(synthetic.blockId, 0);
+    // 4-5. Collect leaves within the picked line.
+    const leaves = collectLineLeaves(targetLine.line, targetLine.absoluteX);
+    if (leaves.length === 0) {
+      // Empty line (strut). LineBox is first-class — return the
+      // line's start offset.
+      return createPosition(ownerBlockId, targetLine.line.inlineOffsetStart);
     }
 
-    // 6. Pick target box by X among the real (non-synthetic) entries.
-    let targetBox = realOnLine[realOnLine.length - 1];
-    for (let i = 0; i < realOnLine.length; i++) {
-      const b = realOnLine[i];
-      if (x < b.absoluteX) {
-        // In gap before this box — prefer previous, else this.
-        targetBox = i > 0 ? realOnLine[i - 1] : b;
+    // Pick target leaf by X. Default: last leaf for clicks past end.
+    let targetLeafIdx = leaves.length - 1;
+    for (let i = 0; i < leaves.length; i++) {
+      const leaf = leaves[i];
+      if (x < leaf.absoluteX) {
+        targetLeafIdx = i > 0 ? i - 1 : i;
         break;
       }
-      if (x < b.absoluteX + b.box.width) {
-        targetBox = b;
+      if (x < leaf.absoluteX + leaf.width) {
+        targetLeafIdx = i;
         break;
       }
     }
 
-    // 7. Char offset within target box.
-    const localX = x - targetBox.absoluteX;
-    const charOffset = findCharOffset(
-      targetBox.box.text,
-      localX,
-      targetBox.box.computedStyle,
-      measurer,
-    );
+    // 6. Char offset within the target leaf.
+    const targetLeaf = leaves[targetLeafIdx];
+    let charOffset: number;
+    if (targetLeaf.kind === "text-run") {
+      const localX = x - targetLeaf.absoluteX;
+      charOffset = findCharOffset(
+        targetLeaf.box.text,
+        localX,
+        targetLeaf.computedStyle,
+        measurer,
+      );
+    } else {
+      // Inline-block: cursor lands at the position just before the
+      // embed item. (Equivalent state-model character is the embed's
+      // 1 unit — its leading edge is the position before, trailing
+      // edge would be +1; we choose leading here to match the prior
+      // "click on embed → land on closest text-run" approximation.)
+      charOffset = 0;
+    }
 
-    // 8. Resolve target box's blockId + base offset via precomputed
-    //    per-block prefix accumulator on AbsoluteTextBox (populated
-    //    during `collectAllTextBoxes`). O(1) here vs the previous
-    //    O(N) walk that re-parsed every box key per click.
-    const targetBlockId = targetBox.blockId;
-    if (targetBlockId === undefined) return null;
-    // Defensive: ensure the block exists in state.
-    if (getBlock(state, targetBlockId) === null) return null;
+    // 7. Accumulate within-line offset for all preceding leaves.
+    let withinLineOffset = 0;
+    for (let i = 0; i < targetLeafIdx; i++) {
+      withinLineOffset += leaves[i].offsetContribution;
+    }
 
     return createPosition(
-      targetBlockId,
-      targetBox.prefixOffsetInBlock + charOffset,
+      ownerBlockId,
+      targetLine.line.inlineOffsetStart + withinLineOffset + charOffset,
     );
   } finally {
     markEnd("cursor.hit-test", t);
