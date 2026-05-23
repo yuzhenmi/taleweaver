@@ -103,6 +103,160 @@ describe("backgroundColorInterpreter", () => {
   });
 });
 
+import {
+  textAlignInterpreter,
+  lineHeightInterpreter,
+  textIndentInterpreter,
+  letterSpacingInterpreter,
+  wordSpacingInterpreter,
+} from "./builtin-attrs";
+
+describe("textAlignInterpreter", () => {
+  it("contributes textAlign for each valid CSS keyword", () => {
+    expect(textAlignInterpreter.attrKey).toBe("textAlign");
+    expect(textAlignInterpreter.toStyle("start")).toEqual({ textAlign: "start" });
+    expect(textAlignInterpreter.toStyle("end")).toEqual({ textAlign: "end" });
+    expect(textAlignInterpreter.toStyle("center")).toEqual({ textAlign: "center" });
+    expect(textAlignInterpreter.toStyle("justify")).toEqual({ textAlign: "justify" });
+  });
+
+  it("contributes nothing for unknown string values", () => {
+    // "left"/"right" are not in Style.textAlign's union (which is logical: start/end/center/justify).
+    expect(textAlignInterpreter.toStyle("left")).toEqual({});
+    expect(textAlignInterpreter.toStyle("right")).toEqual({});
+    expect(textAlignInterpreter.toStyle("middle")).toEqual({});
+    expect(textAlignInterpreter.toStyle("")).toEqual({});
+  });
+
+  it("contributes nothing for non-string values", () => {
+    expect(textAlignInterpreter.toStyle(undefined)).toEqual({});
+    expect(textAlignInterpreter.toStyle(null)).toEqual({});
+    expect(textAlignInterpreter.toStyle(42)).toEqual({});
+    expect(textAlignInterpreter.toStyle({ unit: "px", value: 1 })).toEqual({});
+  });
+});
+
+describe("lineHeightInterpreter", () => {
+  it("contributes lineHeight as a unitless ratio when value is a number", () => {
+    expect(lineHeightInterpreter.attrKey).toBe("lineHeight");
+    expect(lineHeightInterpreter.toStyle(1.2)).toEqual({ lineHeight: 1.2 });
+    expect(lineHeightInterpreter.toStyle(2)).toEqual({ lineHeight: 2 });
+  });
+
+  it("contributes lineHeight as a structured Length for em/percent/px units", () => {
+    expect(lineHeightInterpreter.toStyle({ unit: "em", value: 1.5 })).toEqual({
+      lineHeight: { unit: "em", value: 1.5 },
+    });
+    expect(lineHeightInterpreter.toStyle({ unit: "percent", value: 150 })).toEqual({
+      lineHeight: { unit: "percent", value: 150 },
+    });
+    // px is accepted at the interpreter layer; cascade's flattenLineHeight warns + falls back.
+    expect(lineHeightInterpreter.toStyle({ unit: "px", value: 24 })).toEqual({
+      lineHeight: { unit: "px", value: 24 },
+    });
+  });
+
+  it("contributes nothing for unsupported value types", () => {
+    expect(lineHeightInterpreter.toStyle(undefined)).toEqual({});
+    expect(lineHeightInterpreter.toStyle(null)).toEqual({});
+    expect(lineHeightInterpreter.toStyle("normal")).toEqual({});
+    expect(lineHeightInterpreter.toStyle({ unit: "rem", value: 1 })).toEqual({});
+    expect(lineHeightInterpreter.toStyle({ value: 1 })).toEqual({});
+  });
+});
+
+describe("textIndentInterpreter", () => {
+  it("contributes textIndent as a number (px shorthand) when value is a number", () => {
+    expect(textIndentInterpreter.attrKey).toBe("textIndent");
+    expect(textIndentInterpreter.toStyle(20)).toEqual({ textIndent: 20 });
+    expect(textIndentInterpreter.toStyle(0)).toEqual({ textIndent: 0 });
+  });
+
+  it("contributes textIndent as a structured Length for em/percent/px units", () => {
+    expect(textIndentInterpreter.toStyle({ unit: "em", value: 2 })).toEqual({
+      textIndent: { unit: "em", value: 2 },
+    });
+    expect(textIndentInterpreter.toStyle({ unit: "percent", value: 5 })).toEqual({
+      textIndent: { unit: "percent", value: 5 },
+    });
+    expect(textIndentInterpreter.toStyle({ unit: "px", value: 30 })).toEqual({
+      textIndent: { unit: "px", value: 30 },
+    });
+  });
+
+  it("contributes nothing for unsupported value types", () => {
+    expect(textIndentInterpreter.toStyle(undefined)).toEqual({});
+    expect(textIndentInterpreter.toStyle(null)).toEqual({});
+    expect(textIndentInterpreter.toStyle("20px")).toEqual({});
+    expect(textIndentInterpreter.toStyle({ unit: "rem", value: 2 })).toEqual({});
+    expect(textIndentInterpreter.toStyle({ value: 20 })).toEqual({});
+  });
+});
+
+describe("letterSpacingInterpreter", () => {
+  it("contributes letterSpacing as a number (px shorthand) when value is a number", () => {
+    expect(letterSpacingInterpreter.attrKey).toBe("letterSpacing");
+    expect(letterSpacingInterpreter.toStyle(0.5)).toEqual({ letterSpacing: 0.5 });
+    expect(letterSpacingInterpreter.toStyle(2)).toEqual({ letterSpacing: 2 });
+  });
+
+  it("contributes letterSpacing as a structured Length for em/percent/px units", () => {
+    expect(letterSpacingInterpreter.toStyle({ unit: "em", value: 0.1 })).toEqual({
+      letterSpacing: { unit: "em", value: 0.1 },
+    });
+    expect(letterSpacingInterpreter.toStyle({ unit: "percent", value: 5 })).toEqual({
+      letterSpacing: { unit: "percent", value: 5 },
+    });
+    expect(letterSpacingInterpreter.toStyle({ unit: "px", value: 1 })).toEqual({
+      letterSpacing: { unit: "px", value: 1 },
+    });
+  });
+
+  it("contributes letterSpacing: 'normal' for the 'normal' keyword", () => {
+    expect(letterSpacingInterpreter.toStyle("normal")).toEqual({ letterSpacing: "normal" });
+  });
+
+  it("contributes nothing for unsupported value types", () => {
+    expect(letterSpacingInterpreter.toStyle(undefined)).toEqual({});
+    expect(letterSpacingInterpreter.toStyle(null)).toEqual({});
+    expect(letterSpacingInterpreter.toStyle("wide")).toEqual({});
+    expect(letterSpacingInterpreter.toStyle({ unit: "rem", value: 1 })).toEqual({});
+    expect(letterSpacingInterpreter.toStyle({ value: 1 })).toEqual({});
+  });
+});
+
+describe("wordSpacingInterpreter", () => {
+  it("contributes wordSpacing as a number (px shorthand) when value is a number", () => {
+    expect(wordSpacingInterpreter.attrKey).toBe("wordSpacing");
+    expect(wordSpacingInterpreter.toStyle(1)).toEqual({ wordSpacing: 1 });
+    expect(wordSpacingInterpreter.toStyle(0)).toEqual({ wordSpacing: 0 });
+  });
+
+  it("contributes wordSpacing as a structured Length for em/percent/px units", () => {
+    expect(wordSpacingInterpreter.toStyle({ unit: "em", value: 0.25 })).toEqual({
+      wordSpacing: { unit: "em", value: 0.25 },
+    });
+    expect(wordSpacingInterpreter.toStyle({ unit: "percent", value: 10 })).toEqual({
+      wordSpacing: { unit: "percent", value: 10 },
+    });
+    expect(wordSpacingInterpreter.toStyle({ unit: "px", value: 4 })).toEqual({
+      wordSpacing: { unit: "px", value: 4 },
+    });
+  });
+
+  it("contributes wordSpacing: 'normal' for the 'normal' keyword", () => {
+    expect(wordSpacingInterpreter.toStyle("normal")).toEqual({ wordSpacing: "normal" });
+  });
+
+  it("contributes nothing for unsupported value types", () => {
+    expect(wordSpacingInterpreter.toStyle(undefined)).toEqual({});
+    expect(wordSpacingInterpreter.toStyle(null)).toEqual({});
+    expect(wordSpacingInterpreter.toStyle("wide")).toEqual({});
+    expect(wordSpacingInterpreter.toStyle({ unit: "rem", value: 1 })).toEqual({});
+    expect(wordSpacingInterpreter.toStyle({ value: 1 })).toEqual({});
+  });
+});
+
 import { registerBuiltinAttrs } from "./builtin-attrs";
 import { AttrRegistry } from "./attr-registry";
 
@@ -118,6 +272,17 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("fontSize")).toBe(true);
     expect(r.has("color")).toBe(true);
     expect(r.has("backgroundColor")).toBe(true);
+  });
+
+  it("registers the C-C typography interpreters", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+
+    expect(r.has("textAlign")).toBe(true);
+    expect(r.has("lineHeight")).toBe(true);
+    expect(r.has("textIndent")).toBe(true);
+    expect(r.has("letterSpacing")).toBe(true);
+    expect(r.has("wordSpacing")).toBe(true);
   });
 
   it("end-to-end: a typical inline attrs bag produces the expected Style contribution", () => {
@@ -136,6 +301,25 @@ describe("registerBuiltinAttrs", () => {
       fontFamily: "Helvetica",
       fontSize: 12,
       color: "blue",
+    });
+  });
+
+  it("end-to-end: a typography attrs bag produces the expected Style contribution", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    const attrs = {
+      textAlign: "center",
+      lineHeight: 1.5,
+      textIndent: { unit: "em", value: 2 },
+      letterSpacing: "normal",
+      wordSpacing: { unit: "px", value: 4 },
+    };
+    expect(r.applyAll(attrs)).toEqual({
+      textAlign: "center",
+      lineHeight: 1.5,
+      textIndent: { unit: "em", value: 2 },
+      letterSpacing: "normal",
+      wordSpacing: { unit: "px", value: 4 },
     });
   });
 });
