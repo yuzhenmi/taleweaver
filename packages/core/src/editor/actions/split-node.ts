@@ -6,6 +6,7 @@ import { createPosition, createSpan } from "../../state/block-position";
 import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { splitBlockAtPosition } from "../../state/split-block";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
 export function handleSplitNode(
@@ -14,14 +15,11 @@ export function handleSplitNode(
 ): EditorState {
   let current = editor;
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
   // Accumulate dirtyIds across the optional delete + the required split.
   const accumulatedDirtyIds = new Set<BlockId>();
 
-  if (!collapsed) {
+  if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
     const focusBlock = getBlock(editor.state, selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return editor;
@@ -58,7 +56,21 @@ export function handleSplitNode(
   );
   for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
-  if (accumulatedDirtyIds.size === 0) return editor;
+  // E-B / #141: chained ops accumulate dirtyIds manually. Use the T7
+  // identity contract — splitResult.state === editor.state iff every
+  // chained primitive was a no-op:
+  //   - collapsed branch: splitResult is built from editor.state, so
+  //     splitResult.state === editor.state iff split itself was no-op.
+  //   - !collapsed branch with non-no-op delete: deleteResult.state
+  //     !== editor.state, so splitResult.state (built from it) is
+  //     also !== editor.state regardless of split.
+  //   - !collapsed branch with no-op delete (pathological — e.g.
+  //     equal-position selection that slipped past isCollapsed for
+  //     some structural reason): current.state === editor.state, and
+  //     splitResult.state === editor.state iff split is also no-op.
+  // In every subcase, splitResult.state === editor.state ⇔ both
+  // primitives were no-ops, so returning editor is correct.
+  if (splitResult.state === editor.state) return editor;
 
   const updatedOriginal = getBlock(splitResult.state, pos.blockId);
   if (updatedOriginal === null) return editor;

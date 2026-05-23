@@ -4,6 +4,7 @@ import { createPosition, createSpan } from "../../state/block-position";
 import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { moveToLineBoundary } from "../../cursor/line-navigation";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
 export function handleDeleteLine(
@@ -11,11 +12,8 @@ export function handleDeleteLine(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
-  if (!collapsed) {
+  if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
     const focusBlock = getBlock(editor.state, selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return editor;
@@ -27,7 +25,7 @@ export function handleDeleteLine(
     }
     const start = spanStart(editor.state, selection);
     const result = deleteRange(editor.state, selection);
-    if (result.dirtyIds.size === 0) return editor;
+    if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -59,7 +57,7 @@ export function handleDeleteLine(
 
   const span = createSpan(lineStart, pos);
   const result = deleteRange(editor.state, span);
-  if (result.dirtyIds.size === 0) return editor;
+  if (result.state === editor.state) return editor;
   const newCursor = createPosition(lineStart.blockId, lineStart.offset);
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {

@@ -187,6 +187,7 @@ export { resolvePixelPosition } from "./cursor/cursor-position";
 export type { SelectionRect } from "./cursor/selection-geometry";
 export { computeSelectionRects } from "./cursor/selection-geometry";
 export { moveToLine, moveToLineBoundary } from "./cursor/line-navigation";
+export { isCollapsed } from "./cursor/selection";
 
 // Editor
 export type { EditorAction } from "./editor/editor-action";

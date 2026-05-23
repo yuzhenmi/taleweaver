@@ -103,8 +103,8 @@ Each task ends with implementer → reviewer → commit per the standing review-
 
 | Task | Status | Commit(s) | Notes |
 |------|--------|-----------|-------|
-| E-A: Correctness bugs (E-A4 + E-A13) | not started | — | Bundle. Real user-visible bugs. |
-| E-B: #141 + boilerplate (E-A1 + E-A2 + E-A3) | not started | — | Mechanical, ~30% code reduction. Closes #141. |
+| E-A: Correctness bugs (E-A4 + E-A13) | ✅ done | `260c04c` | E-A13 fixed (handlers retype the cursor's leaf, not the outermost ancestor — pre-fix silently broke inside lists / tables). E-A4 investigated: false positive for these handlers (selection genuinely preserved). INSERT_NODE cursor-positioning carved out as task #210. +2 tests. Two reviewer passes. |
+| E-B: #141 + isCollapsed extraction (E-A2 + E-A3) | ✅ done | `<E-B-commit>` | #141 short-circuit consistency migrated (10 sites in editor/actions now use the T7 `result.state === editor.state` identity check). New `isCollapsed(span)` helper added to `cursor/selection.ts`; 11 hand-rolled predicates in editor/actions + 3 in dom/editor-controller collapsed to one helper. E-A1 (deletion preamble extraction across 8 delete-* handlers) carved out as task #211 — bigger refactor than E-B's mechanical-cleanup scope. Two reviewer passes (one issue found + fixed: dead insert-node guard removed; one issue tightened: split-node comment now enumerates all 3 subcases). |
 | E-C: Rewrite 1.7-editor.md | not started | — | 8 drifts. Zero code change. |
 | E-D: Perf hot-paths (E-A6 + E-A7 + E-A8) | not started | — | Quadratic loops → linear. |
 | E-E: #172 LineBox-canonical refactor | not started; needs spec | — | Architectural. Spec first. Closes #172. |

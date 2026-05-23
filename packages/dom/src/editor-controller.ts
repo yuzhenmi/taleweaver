@@ -1,7 +1,7 @@
 import {
   createSpan,
   createPosition,
-  positionsEqual,
+  isCollapsed,
   extractText,
   builtinEmbedSerializer,
   selectWord,
@@ -686,7 +686,7 @@ export function createEditorController(
 
   function handleCopy(e: ClipboardEvent) {
     if (!state) return;
-    if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
+    if (isCollapsed(state.selection)) return;
     e.preventDefault();
     const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
@@ -694,7 +694,7 @@ export function createEditorController(
 
   function handleCut(e: ClipboardEvent) {
     if (!state) return;
-    if (positionsEqual(state.selection.anchor, state.selection.focus)) return;
+    if (isCollapsed(state.selection)) return;
     e.preventDefault();
     const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
@@ -775,7 +775,7 @@ export function createEditorController(
       lineMarginBottom: 0,
       pageIndex: 0,
     };
-    selectionRects = positionsEqual(state.selection.anchor, state.selection.focus)
+    selectionRects = isCollapsed(state.selection)
       ? []
       : computeSelectionRects(
           state.state,

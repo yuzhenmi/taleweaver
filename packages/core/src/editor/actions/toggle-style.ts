@@ -5,6 +5,7 @@ import { createPosition, createSpan } from "../../state/block-position";
 import { spanStart, spanEnd } from "../../state/block-compare";
 import { iterateSpan } from "../../state/span-iteration";
 import { applyAttrsToRange } from "../../state/apply-attrs";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
 const STYLE_KEYS: Record<"bold" | "italic" | "underline", string> = {
@@ -55,10 +56,7 @@ export function handleToggleStyle(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
-  if (collapsed) return editor;
+  if (isCollapsed(selection)) return editor;
 
   const attrKey = STYLE_KEYS[style];
   const all = selectionAllHaveAttr(editor.state, selection, attrKey);

@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { createSpan } from "../../state/block-position";
 import { spanStart, spanEnd } from "../../state/block-compare";
 import { moveToLine } from "../../cursor/line-navigation";
+import { isCollapsed } from "../../cursor/selection";
 
 export function handleMoveLine(
   editor: EditorState,
@@ -9,12 +10,9 @@ export function handleMoveLine(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
   // If selection is expanded, collapse to appropriate end then move to adjacent line.
-  const moveFocus = collapsed
+  const moveFocus = isCollapsed(selection)
     ? selection.focus
     : direction === "up"
       ? spanStart(editor.state, selection)

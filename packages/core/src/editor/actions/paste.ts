@@ -8,6 +8,7 @@ import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { insertText } from "../../state/insert-text";
 import { splitBlockAtPosition } from "../../state/split-block";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
 export function handlePaste(
@@ -24,15 +25,12 @@ export function handlePaste(
   let state: State = editor.state;
   let pos: Position = editor.selection.focus;
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
   // Accumulate dirtyIds across every chained op so commit reflects the
   // full set of touched blocks for downstream consumers.
   const accumulatedDirtyIds = new Set<BlockId>();
 
-  if (!collapsed) {
+  if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(state, selection.anchor.blockId);
     const focusBlock = getBlock(state, selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return editor;
@@ -82,7 +80,11 @@ export function handlePaste(
     }
   }
 
-  if (accumulatedDirtyIds.size === 0) return editor;
+  // E-B / #141: chained ops accumulate dirtyIds manually. Use
+  // state-equality check (T7 identity contract) for consistency with
+  // other handlers — `state` remains === editor.state iff every chained
+  // op was a no-op.
+  if (state === editor.state) return editor;
 
   const newSelection = createSpan(pos, pos);
   editor.history.commit(

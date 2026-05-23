@@ -120,6 +120,11 @@ export function handleInsertNode(
   _position: Position | undefined,
   config: EditorConfig,
 ): EditorState {
+  // insertBlockInitAt always calls insertBlock at least once for the
+  // root init (line 82), and insertBlock always mutates the Y.Doc
+  // (sets a new blocks-map entry + rewires siblings + updates the
+  // parent's first/last-child pointers). So fold.state is guaranteed
+  // !== editor.state — no no-op short-circuit is reachable.
   const fold = insertBlockInitAt(
     editor.state,
     init,
@@ -128,7 +133,6 @@ export function handleInsertNode(
     config.componentRegistry,
     new Set<BlockId>(),
   );
-  if (fold.dirtyIds.size === 0) return editor;
 
   editor.history.commit(
     { state: fold.state, dirtyIds: fold.dirtyIds },

@@ -5,6 +5,7 @@ import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { mergeAdjacentBlocks } from "../../state/merge-blocks";
 import { moveByCharacter } from "../../cursor/cursor-ops";
+import { isCollapsed } from "../../cursor/selection";
 import { inlineContentLength } from "../../state/inline-content";
 import { rebuildTrees } from "./helpers";
 
@@ -13,12 +14,9 @@ export function handleDeleteBackward(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
-  if (!collapsed) {
+  if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
     const focusBlock = getBlock(editor.state, selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return editor;
@@ -31,7 +29,7 @@ export function handleDeleteBackward(
     }
     const start = spanStart(editor.state, selection);
     const result = deleteRange(editor.state, selection);
-    if (result.dirtyIds.size === 0) return editor;
+    if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -54,7 +52,7 @@ export function handleDeleteBackward(
     if (prev.offset === pos.offset) return editor;
     const span = createSpan(prev, pos);
     const result = deleteRange(editor.state, span);
-    if (result.dirtyIds.size === 0) return editor;
+    if (result.state === editor.state) return editor;
     const newCursor = createPosition(prev.blockId, prev.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -99,7 +97,7 @@ export function handleDeleteBackward(
     prevBlock.id,
     currentBlock.id,
   );
-  if (result.dirtyIds.size === 0) return editor;
+  if (result.state === editor.state) return editor;
   const newCursor = createPosition(prevBlock.id, prevEndOffset);
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {

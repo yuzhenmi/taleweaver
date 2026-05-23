@@ -5,6 +5,7 @@ import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { mergeAdjacentBlocks } from "../../state/merge-blocks";
 import { moveByCharacter } from "../../cursor/cursor-ops";
+import { isCollapsed } from "../../cursor/selection";
 import { inlineContentLength } from "../../state/inline-content";
 import { rebuildTrees } from "./helpers";
 
@@ -13,12 +14,9 @@ export function handleDeleteForward(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  const collapsed =
-    selection.anchor.blockId === selection.focus.blockId &&
-    selection.anchor.offset === selection.focus.offset;
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
-  if (!collapsed) {
+  if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
     const focusBlock = getBlock(editor.state, selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return editor;
@@ -30,7 +28,7 @@ export function handleDeleteForward(
     }
     const start = spanStart(editor.state, selection);
     const result = deleteRange(editor.state, selection);
-    if (result.dirtyIds.size === 0) return editor;
+    if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -59,7 +57,7 @@ export function handleDeleteForward(
     if (next.offset === pos.offset) return editor;
     const span = createSpan(pos, next);
     const result = deleteRange(editor.state, span);
-    if (result.dirtyIds.size === 0) return editor;
+    if (result.state === editor.state) return editor;
     const newCursor = createPosition(pos.blockId, pos.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -94,7 +92,7 @@ export function handleDeleteForward(
     currentBlock.id,
     nextBlock.id,
   );
-  if (result.dirtyIds.size === 0) return editor;
+  if (result.state === editor.state) return editor;
   // After merge, cursor stays at the same spot in the (now-merged) current block.
   const newCursor = createPosition(currentBlock.id, currentLen);
   const newSelection = createSpan(newCursor, newCursor);
