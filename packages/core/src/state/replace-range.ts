@@ -1,10 +1,14 @@
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
 import { normalizeSpan } from "./span-iteration";
-import { deleteRangeInTx, planDeleteRange } from "./delete-range";
+import {
+  assertDeleteRangeEndpoints,
+  deleteRangeInTx,
+  planDeleteRange,
+} from "./delete-range";
 import { insertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
 import { STATE_INTERNAL } from "./state-internal";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -111,43 +115,13 @@ export function replaceRange(
 
   // Non-collapsed span.
   //
-  // Pre-normalize existence + leaf guards. These mirror `planDeleteRange`'s
-  // own pre-normalize guards (anchor existence, anchor leaf-ness, focus
-  // existence, focus leaf-ness) and emit the same prefixed error
-  // messages. They have to live here too — normalizeSpan invokes
-  // compareBlocksInDocOrder, whose generic "block ... not found"
-  // message would otherwise leak through to the caller and shadow the
-  // operation's stated error contract. Same architectural pattern
-  // deleteRange itself uses for the same reason.
-  const sameBlock = span.anchor.blockId === span.focus.blockId;
-
-  const rawAnchor = getBlock(state, span.anchor.blockId);
-  if (!rawAnchor) {
-    throw new Error(
-      sameBlock
-        ? `deleteRange: block "${span.anchor.blockId}" not found`
-        : `deleteRange: anchor block "${span.anchor.blockId}" not found`,
-    );
-  }
-  if (!rawAnchor.inlineContent || rawAnchor.firstChildId !== null) {
-    throw new Error(
-      sameBlock
-        ? `deleteRange: block "${span.anchor.blockId}" is a container, not a leaf`
-        : `deleteRange: anchor block "${span.anchor.blockId}" is a container, not a leaf`,
-    );
-  }
-
-  if (!sameBlock) {
-    const rawFocus = getBlock(state, span.focus.blockId);
-    if (!rawFocus) {
-      throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
-    }
-    if (!rawFocus.inlineContent || rawFocus.firstChildId !== null) {
-      throw new Error(
-        `deleteRange: focus block "${span.focus.blockId}" is a container, not a leaf`,
-      );
-    }
-  }
+  // Pre-normalize existence + leaf guards. Shared with `planDeleteRange`
+  // via `assertDeleteRangeEndpoints` — they emit the same "deleteRange:"-
+  // prefixed messages. They have to run here too because normalizeSpan
+  // invokes compareBlocksInDocOrder, whose generic "block ... not found"
+  // message would otherwise leak through to the caller and shadow this
+  // operation's stated error contract.
+  assertDeleteRangeEndpoints(state, span);
 
   // Normalize FIRST so the read happens against the pre-delete state
   // where the focus block still exists in the Y.Doc. The normalized

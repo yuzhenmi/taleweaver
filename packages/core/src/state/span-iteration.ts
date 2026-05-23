@@ -6,6 +6,8 @@ import { comparePositions, selectionContextOf } from "./block-compare";
 import type { Block } from "./block";
 import { inlineContentLength } from "./inline-content";
 import { nextBlockInDocOrder } from "./block-traversal";
+import { getBlocksMap } from "./yjs-doc";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Normalize a span so anchor comes before focus in document order.
@@ -96,8 +98,24 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   };
 
   // Walk intervening blocks via nextBlockInDocOrder, yielding leaves fully.
+  //
+  // Outer cycle/step guard: while nextBlockInDocOrder has its own per-call
+  // cycle bound (catches a parent-chain cycle inside a single call), it
+  // cannot see a sibling-level cycle that spans multiple calls (e.g.,
+  // p1.nextSiblingId === p2 and p2.nextSiblingId === p1). The outer
+  // counter here catches that cross-call case and surfaces a contextual
+  // error that names the anchor + focus block IDs — useful for debugging
+  // corrupt block trees. Bound source: getBlocksMap().size, same as the
+  // inner guards in block-traversal.ts.
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+  let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
+    if (++steps > maxSteps) {
+      throw new Error(
+        `iterateSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
+      );
+    }
     const current = getBlock(state, currentId);
     if (current !== null && current.inlineContent) {
       yield {
@@ -161,8 +179,18 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
 
   if (normalized.anchor.blockId === normalized.focus.blockId) return;
 
+  // Outer cycle/step guard: see iterateSpan above for rationale.
+  // Catches sibling-level cycles that span multiple nextBlockInDocOrder
+  // calls (which the per-call inner guard cannot see).
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+  let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId) {
+    if (++steps > maxSteps) {
+      throw new Error(
+        `iterateBlocksInSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
+      );
+    }
     const current = getBlock(state, currentId);
     if (current !== null) yield current;
     if (currentId === normalized.focus.blockId) return;

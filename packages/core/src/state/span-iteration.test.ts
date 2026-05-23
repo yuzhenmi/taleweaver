@@ -262,3 +262,116 @@ describe("iterateBlocksInSpan", () => {
     expect(() => [...iterateBlocksInSpan(state, cross)]).toThrow(/different selection contexts/);
   });
 });
+
+// Cross-call sibling-cycle fixture: m1 ↔ m2 form a nextSiblingId cycle.
+// Anchor (a) is doc's first child; focus (f) is doc's last child but is
+// unreachable through the cyclic sibling chain. `nextBlockInDocOrder`'s
+// own per-call cycle guard cannot see this — it fires only on a cycle
+// within ONE call, but here each call follows a single nextSiblingId
+// pointer and returns. The outer iterateSpan / iterateBlocksInSpan
+// loop is what spins. The outer step-count guard catches it.
+//
+// This corrupt structure is built deliberately to exercise the guard;
+// it cannot arise from production op paths, which uphold the
+// sibling-chain invariants.
+function buildSiblingCycleFixture(): ReturnType<typeof buildState> {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "f" }),
+      buildBlock({
+        id: "a",
+        type: "paragraph",
+        parentId: "doc",
+        nextSiblingId: "m1",
+        inlineContent: inlineContent([text("A")]),
+      }),
+      // m1 and m2 cycle: m1.next = m2, m2.next = m1.
+      buildBlock({
+        id: "m1",
+        type: "paragraph",
+        parentId: "doc",
+        prevSiblingId: "a",
+        nextSiblingId: "m2",
+        inlineContent: inlineContent([text("m1")]),
+      }),
+      buildBlock({
+        id: "m2",
+        type: "paragraph",
+        parentId: "doc",
+        prevSiblingId: "m1",
+        nextSiblingId: "m1",
+        inlineContent: inlineContent([text("m2")]),
+      }),
+      buildBlock({
+        id: "f",
+        type: "paragraph",
+        parentId: "doc",
+        prevSiblingId: "m2",
+        inlineContent: inlineContent([text("F")]),
+      }),
+    ],
+  });
+}
+
+describe("iterateSpan cycle guard", () => {
+  it("throws a contextual error when the sibling chain forms a cycle that never reaches focus", () => {
+    const state = buildSiblingCycleFixture();
+    const span = createSpan(
+      createPosition("a" as BlockId, 0),
+      createPosition("f" as BlockId, 1),
+    );
+    expect(() => [...iterateSpan(state, span)]).toThrow(
+      /iterateSpan: step bound exceeded walking from anchor "a" to focus "f"/,
+    );
+  });
+
+  it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
+    // doc > [p1, p2, p3, p4, p5] — 5 leaves, span spans all of them.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("b")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", nextSiblingId: "p4", inlineContent: inlineContent([text("c")]) }),
+        buildBlock({ id: "p4", type: "paragraph", parentId: "doc", prevSiblingId: "p3", nextSiblingId: "p5", inlineContent: inlineContent([text("d")]) }),
+        buildBlock({ id: "p5", type: "paragraph", parentId: "doc", prevSiblingId: "p4", inlineContent: inlineContent([text("e")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p5" as BlockId, 1));
+    const ranges = [...iterateSpan(state, span)];
+    expect(ranges.map((r) => r.block.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+  });
+});
+
+describe("iterateBlocksInSpan cycle guard", () => {
+  it("throws a contextual error when the sibling chain forms a cycle that never reaches focus", () => {
+    const state = buildSiblingCycleFixture();
+    const span = createSpan(
+      createPosition("a" as BlockId, 0),
+      createPosition("f" as BlockId, 1),
+    );
+    expect(() => [...iterateBlocksInSpan(state, span)]).toThrow(
+      /iterateBlocksInSpan: step bound exceeded walking from anchor "a" to focus "f"/,
+    );
+  });
+
+  it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
+    // doc > [p1..p5] healthy sibling chain.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("b")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", nextSiblingId: "p4", inlineContent: inlineContent([text("c")]) }),
+        buildBlock({ id: "p4", type: "paragraph", parentId: "doc", prevSiblingId: "p3", nextSiblingId: "p5", inlineContent: inlineContent([text("d")]) }),
+        buildBlock({ id: "p5", type: "paragraph", parentId: "doc", prevSiblingId: "p4", inlineContent: inlineContent([text("e")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p5" as BlockId, 1));
+    const blocks = [...iterateBlocksInSpan(state, span)];
+    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+  });
+});

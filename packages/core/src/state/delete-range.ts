@@ -198,6 +198,53 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
 }
 
 /**
+ * Pre-normalize existence + leaf guards for delete/replace ops.
+ *
+ * Runs the anchor/focus block-exists + is-leaf checks BEFORE
+ * `normalizeSpan` is called. This preserves the "deleteRange:" prefixed
+ * error contract — without these guards, `normalizeSpan` →
+ * `compareBlocksInDocOrder`'s generic "block ... not found" message
+ * would leak through and shadow the operation's stated errors.
+ *
+ * Shared by `planDeleteRange` (delete-range.ts) and `replaceRange`
+ * (replace-range.ts), which need identical pre-normalize semantics.
+ * Both operations report errors with the "deleteRange:" prefix
+ * regardless of the public op name — they share the same error
+ * contract because replaceRange composes delete + insert.
+ *
+ * Throws on missing block or container endpoint; returns void on success.
+ */
+export function assertDeleteRangeEndpoints(state: State, span: Span): void {
+  const sameBlock = span.anchor.blockId === span.focus.blockId;
+  const rawAnchor = getBlock(state, span.anchor.blockId);
+  if (!rawAnchor) {
+    throw new Error(
+      sameBlock
+        ? `deleteRange: block "${span.anchor.blockId}" not found`
+        : `deleteRange: anchor block "${span.anchor.blockId}" not found`,
+    );
+  }
+  if (!rawAnchor.inlineContent || rawAnchor.firstChildId !== null) {
+    throw new Error(
+      sameBlock
+        ? `deleteRange: block "${span.anchor.blockId}" is a container, not a leaf`
+        : `deleteRange: anchor block "${span.anchor.blockId}" is a container, not a leaf`,
+    );
+  }
+  if (!sameBlock) {
+    const rawFocus = getBlock(state, span.focus.blockId);
+    if (!rawFocus) {
+      throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
+    }
+    if (!rawFocus.inlineContent || rawFocus.firstChildId !== null) {
+      throw new Error(
+        `deleteRange: focus block "${span.focus.blockId}" is a container, not a leaf`,
+      );
+    }
+  }
+}
+
+/**
  * Validate `span` against `state` and produce a `DeleteRangePlan`
  * describing the Y.Doc mutations needed. Returns `null` for the
  * post-normalization re-collapsed case (caller treats as no-op).
@@ -224,35 +271,7 @@ export function planDeleteRange(
   // generic "block ... not found" message that would otherwise leak through
   // the normalizeSpan → comparePositions path. Same architectural pattern
   // applyAttrsToRange uses for the same reason.
-  const sameBlock = span.anchor.blockId === span.focus.blockId;
-
-  const rawAnchor = getBlock(state, span.anchor.blockId);
-  if (!rawAnchor) {
-    throw new Error(
-      sameBlock
-        ? `deleteRange: block "${span.anchor.blockId}" not found`
-        : `deleteRange: anchor block "${span.anchor.blockId}" not found`,
-    );
-  }
-  if (!rawAnchor.inlineContent || rawAnchor.firstChildId !== null) {
-    throw new Error(
-      sameBlock
-        ? `deleteRange: block "${span.anchor.blockId}" is a container, not a leaf`
-        : `deleteRange: anchor block "${span.anchor.blockId}" is a container, not a leaf`,
-    );
-  }
-
-  if (!sameBlock) {
-    const rawFocus = getBlock(state, span.focus.blockId);
-    if (!rawFocus) {
-      throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
-    }
-    if (!rawFocus.inlineContent || rawFocus.firstChildId !== null) {
-      throw new Error(
-        `deleteRange: focus block "${span.focus.blockId}" is a container, not a leaf`,
-      );
-    }
-  }
+  assertDeleteRangeEndpoints(state, span);
 
   // Now normalize. comparePositions can only throw on cross-context (no
   // common ancestor) since both endpoints have been verified to exist.
