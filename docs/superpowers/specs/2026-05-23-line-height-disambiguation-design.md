@@ -281,6 +281,56 @@ lineHeight:
   inherits → child used 48.
 - Initial: `lineHeight: ?` (initial 1.2), `fontSize: 16` → used 19.2.
 
-## Decisions
+## Decisions (recorded 2026-05-23)
 
-Per user input only.
+Decided by controller per first principles. Reversible by user
+direction.
+
+- **Q1 → C: restrict input vocabulary.** Per the engine's
+  reference points (Google Docs / Pages / Word don't surface px
+  line-height) and per the smallest-blast-radius principle. Option
+  A is more principled but is a major refactor that should be its
+  own plan. Forward-compatible: Option B's tagged union can be
+  added later if px line-height becomes a real need.
+- **Q2 → C.3: em becomes unitless ratio at cascade.** Per CSS spec,
+  em line-height semantically IS "multiply by own fontSize" — the
+  same as a unitless ratio of the same value. Treating `1.5em` as
+  `1.5` is spec-faithful, not a divergence.
+- **Q3 → fix percent to own fontSize.** Current
+  `resolveUsedLength(cs.lineHeight, containingInlineSize, 0)` is
+  wrong per CSS spec — line-height percent is against own
+  fontSize, not containing-block.
+
+## Implementation
+
+Gated on the decisions above. Per-file change list:
+
+### `packages/core/src/cascade/flatten-lengths.ts`
+
+`flattenLineHeight` rewritten per the "Implementation sketch" section
+above, minus the px branch (under Q1=C, px line-height is not
+supported; in dev mode, warn and fall back to `INITIAL_COMPUTED_STYLE.lineHeight`;
+in production, silently fall back).
+
+### `packages/core/src/layout/used-style.ts`
+
+The `lineHeight:` line in `computeUsedStyle` rewritten to:
+
+```ts
+lineHeight:
+  typeof cs.lineHeight === "number"
+    ? cs.lineHeight * cs.fontSize                  // Q1=C: unitless ratio
+    : cs.lineHeight.unit === "percent"
+      ? (cs.lineHeight.value / 100) * cs.fontSize  // Q3 fix: percent of own fontSize
+      : cs.lineHeight.value,                       // safety: bare px (won't normally hit under C)
+```
+
+### Tests
+
+- `flatten-lengths.test.ts`: unitless passes through; em converts to
+  unitless ratio of same value; percent passes through; (dev-mode
+  px warning is a behavior test if reachable; otherwise skip).
+- `used-style.test.ts`: unitless × fontSize → used px; percent of own
+  fontSize; explicit fontSize change between cascade and used-style
+  causes the ratio to multiply against the new fontSize (inheritance
+  test).
