@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE, type ComputedStyle } from "../styles";
+import type { BlockId } from "../state/block-id";
 import { computeUsedStyle } from "./used-style";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
@@ -25,7 +26,7 @@ describe("BlockBox", () => {
 describe("LineBox", () => {
   it("constructs with text-run children", () => {
     const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hello", 50);
-    const line = createLineBox("l", 0, 0, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 16, 100);
+    const line = createLineBox("l", 0, 0, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 16, 100, "owner" as BlockId, 0, 5, true);
     expect(line.type).toBe("line");
     expect(line.children).toHaveLength(1);
   });
@@ -35,7 +36,7 @@ describe("LayoutBox union narrowing", () => {
   it("narrows by type", () => {
     const items: LayoutBox[] = [
       createBlockBox("a", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, [], 10),
-      createLineBox("b", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, [], 10, 10),
+      createLineBox("b", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, [], 10, 10, "owner" as BlockId, 0, 0, true),
       createTextRunBox("c", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, "x", 10),
     ];
     expect(items.filter((b): b is BlockBox => b.type === "block")).toHaveLength(1);
@@ -197,7 +198,7 @@ describe("withBlockOffset", () => {
 
   it("preserves type-specific fields (inline-block children, table columnPxWidths, line baseline)", () => {
     const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
-    const line = createLineBox("l", 5, 5, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 12, 100);
+    const line = createLineBox("l", 5, 5, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 12, 100, "owner" as BlockId, 0, 1, false);
     const movedLine = withBlockOffset(line, 40, 100);
     if (movedLine.type !== "line") throw new Error("?");
     expect(movedLine.baseline).toBe(12);

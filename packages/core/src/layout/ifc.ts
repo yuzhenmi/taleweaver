@@ -2,6 +2,7 @@ import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
+import type { BlockId } from "../state/block-id";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box-v2";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
@@ -451,6 +452,15 @@ export function layoutInlineContent(
   // Track the first and last token index for the units accumulated on the current line.
   let currentLineStartTokenIdx = -1;
   let currentLineEndTokenIdx = -1;
+  // E-E.1: state-model offset accumulator for stamping
+  // `inlineOffsetStart` / `inlineOffsetEnd` on each emitted LineBox.
+  // Advances per unit consumed via `pushUnit`. Each token contributes
+  // 1 for inline-block (state-model embed) tokens or `text.length` for
+  // text / space / line-break tokens (matches the state-model rule:
+  // each embed counts as one cursor position; text chars are UTF-16
+  // code units).
+  let cursorOffset = 0;
+  let currentLineStartOffset = -1;
 
   /**
    * Try to split `unit` at a hyphen break opportunity so that the prefix
@@ -574,10 +584,17 @@ export function layoutInlineContent(
     lineInlineSize: number,
     hyphen: HyphenBreak | null,
   ): LineBox {
+    // Empty flush (no units pushed): anchor line offsets at the
+    // current cursor. Both start and end are the same offset — the
+    // line covers zero characters.
+    const startOff = currentLineStartOffset >= 0 ? currentLineStartOffset : cursorOffset;
     const line = buildLineWithFragments(
       parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
       currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
       hyphen, shaper,
+      parent.key as BlockId, // ownerBlockId (see strut-line comment above)
+      startOff,              // inlineOffsetStart
+      cursorOffset,          // inlineOffsetEnd
     );
     if (currentLineStartTokenIdx >= 0) {
       lineMeta.set(line, {
@@ -592,15 +609,34 @@ export function layoutInlineContent(
     pendingHyphen = null;
     currentLineStartTokenIdx = -1;
     currentLineEndTokenIdx = -1;
+    currentLineStartOffset = -1;
     return line;
   }
 
   /**
-   * Push a unit onto the current line, updating token-range tracking.
+   * Compute a wrap-unit's state-model offset contribution. Text /
+   * space / line-break tokens contribute `text.length`; inline-block
+   * tokens (representing state-model embed items) contribute exactly
+   * 1. Used by the wrap pass's per-block offset accumulator to stamp
+   * `inlineOffsetStart` / `inlineOffsetEnd` on emitted LineBoxes.
+   */
+  function unitOffsetContribution(unit: WrapUnit): number {
+    let total = 0;
+    for (const t of unit.tokens) {
+      total += t.inlineBlock !== undefined ? 1 : t.text.length;
+    }
+    return total;
+  }
+
+  /**
+   * Push a unit onto the current line, updating token-range tracking
+   * and the state-model offset cursor.
    */
   function pushUnit(unit: WrapUnit): void {
     if (currentLineStartTokenIdx < 0) currentLineStartTokenIdx = unit.tokenStartIdx;
     currentLineEndTokenIdx = unit.tokenEndIdx;
+    if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
+    cursorOffset += unitOffsetContribution(unit);
     currentUnits.push(unit);
     currentWidth += unit.totalWidth;
   }
@@ -630,6 +666,14 @@ export function layoutInlineContent(
       [],
       /* baseline */ strutBlockSize,
       /* containingInlineSize */ availableInlineSize,
+      // IFC is always dispatched for a block whose RenderNode key is
+      // its BlockId (per BFC's invocation site — `node.key` for an
+      // inline-bearing leaf block is the source block's id). The cast
+      // is safe at all callers of layoutInlineContent.
+      /* ownerBlockId */ parent.key as BlockId,
+      /* inlineOffsetStart */ 0,
+      /* inlineOffsetEnd */ 0,
+      /* isBlockBoundaryLine */ true,
     );
     lines.push(strutLine);
     lineBlockOffset += strutBlockSize;
@@ -644,9 +688,19 @@ export function layoutInlineContent(
   while (uqi < unitQueue.length) {
     const unit = unitQueue[uqi++];
 
-    // Hard break on LINE_BREAK — flush current line and start a new one
+    // Hard break on LINE_BREAK — advance the offset cursor by the
+    // sentinel's contribution (1 char, matching the source `\n` in
+    // the state model), then flush. The text tokenizer strips `\n`
+    // from surrounding text tokens and emits a separate LINE_BREAK
+    // sentinel, so neither neighbor counts the character; the offset
+    // advance must come from the line-break unit itself. The current
+    // line OWNS the `\n` offset (its `inlineOffsetEnd` is the
+    // position past the `\n`); the next line starts at the same
+    // offset, preserving `nextLine.start === currentLine.end`.
     if (unit.isLineBreak) {
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+      if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
+      cursorOffset += unitOffsetContribution(unit);
       flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
       continue;
     }
@@ -727,6 +781,14 @@ export function layoutInlineContent(
   // lineMeta from the original LineBox objects to the post-correction ones so
   // that incremental-wrap convergence detection can find metadata on the
   // cached lines.
+  //
+  // E-E.1: the `Object.freeze({ ...line, children: ... })` spread inside
+  // assignFragmentEdges naturally propagates the new LineBox-canonical
+  // fields (`ownerBlockId`, `inlineOffsetStart/End`, `isBlockBoundaryLine`)
+  // because they are enumerable own-properties on the source LineBox.
+  // If a future change routes this through `createLineBox` instead, those
+  // fields must be passed explicitly via the factory's new positional
+  // arguments.
   const resultLines: LineBox[] = [];
   for (let ri = 0; ri < result.length; ri++) {
     const box = result[ri];
@@ -737,6 +799,28 @@ export function layoutInlineContent(
       if (meta !== undefined) lineMeta.set(box, meta);
     }
     resultLines.push(box);
+  }
+
+  // E-E.1: stamp `isBlockBoundaryLine = true` on the absolutely-last
+  // line of the block. Strut lines (empty paragraph) were already
+  // stamped at creation, so the no-op fast path covers them. For
+  // wrapped blocks, every line was emitted with `false`; the last
+  // one is patched here. Fragmentation slices resultLines later, but
+  // only the truly-last line carries the flag — partial fragments
+  // whose suffix doesn't include the last line correctly report
+  // `isBlockBoundaryLine === false` on their tail.
+  if (resultLines.length > 0) {
+    const lastIdx = resultLines.length - 1;
+    const lastLine = resultLines[lastIdx];
+    if (!lastLine.isBlockBoundaryLine) {
+      const patched = Object.freeze({
+        ...lastLine,
+        isBlockBoundaryLine: true,
+      }) as LineBox;
+      const meta = lineMeta.get(lastLine);
+      if (meta !== undefined) lineMeta.set(patched, meta);
+      resultLines[lastIdx] = patched;
+    }
   }
 
   // Save wrap state to cache for subsequent incremental re-wraps.
@@ -844,6 +928,10 @@ export function layoutInlineContent(
         line.children,
         line.baseline,
         availableInlineSize,
+        line.ownerBlockId,
+        line.inlineOffsetStart,
+        line.inlineOffsetEnd,
+        line.isBlockBoundaryLine,
         line.endsWithHyphenContinuation,
       );
     }
@@ -897,9 +985,15 @@ export function layoutInlineContent(
     return { box: allSuffixBox, breakToken: null };
   }
 
-  const totalBlockSize = result.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
+  // E-E.1: use `resultLines` (which has the isBlockBoundaryLine patch
+  // applied to the last line) rather than `result` (pre-patch), so the
+  // BlockBox's children agree with the cache. Otherwise a cache hit on
+  // a subsequent layout pass returns the patched lines while the
+  // BlockBox would have the pre-patch lines on a fresh build, breaking
+  // ref-equality contracts.
+  const totalBlockSize = resultLines.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
   const parentUsedStyleForBox = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
-  const box = createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, totalBlockSize, writingMode, direction, parentCs, parentUsedStyleForBox, result, availableInlineSize);
+  const box = createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, totalBlockSize, writingMode, direction, parentCs, parentUsedStyleForBox, resultLines, availableInlineSize);
   return { box, breakToken: null };
   } finally {
     markEnd("ifc.layout", tLayout);
@@ -966,6 +1060,9 @@ function buildLineWithFragments(
   containingInlineSize: number,
   hyphenBreak: HyphenBreak | null,
   shaper: TextShaper,
+  ownerBlockId: BlockId,
+  inlineOffsetStart: number,
+  inlineOffsetEnd: number,
 ): LineBox {
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
@@ -1000,6 +1097,10 @@ function buildLineWithFragments(
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
     /* containingInlineSize */ containingInlineSize,
+    /* ownerBlockId */ ownerBlockId,
+    /* inlineOffsetStart */ inlineOffsetStart,
+    /* inlineOffsetEnd */ inlineOffsetEnd,
+    /* isBlockBoundaryLine — stamped later if this line ends the block */ false,
     /* endsWithHyphenContinuation */ hyphenBreak !== null ? true : undefined,
   );
 }
@@ -1138,6 +1239,13 @@ function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
   // through a `with*` helper instead — and add an `assertLayoutBoxConsistent`
   // check, as in `bfc.ts`'s float-placement site and `ifc.ts`'s
   // `applyVerticalAlign`.
+  //
+  // E-E.1: the spread also propagates the LineBox-canonical fields
+  // (`ownerBlockId`, `inlineOffsetStart/End`, `isBlockBoundaryLine`)
+  // because they are enumerable own-properties on the source LineBox.
+  // If a future change routes this through `createLineBox` instead,
+  // those four fields must be passed explicitly via the factory's
+  // new positional arguments — or they will be silently dropped.
   return lines.map((line, idx) => {
     if (line.type !== "line") return line;
     const newChildren = line.children.map((c) => correctFragmentEdge(c, idx, lineIndicesByAncestor));

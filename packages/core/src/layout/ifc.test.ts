@@ -878,3 +878,191 @@ describe("Token IDs — stability", () => {
     expect(lbToken?.id).toBe("t:lb");
   });
 });
+
+describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
+  it("single-line block: ownerBlockId, offset range [0, text.length], isBlockBoundaryLine=true", () => {
+    const lines = ifcOf("hello world", 200);
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.ownerBlockId).toBe("p");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe("hello world".length);
+    expect(line.isBlockBoundaryLine).toBe(true);
+  });
+
+  it("multi-line wrapped: lines connect (nextLine.start === currentLine.end), only last has isBlockBoundaryLine", () => {
+    const lines = ifcOf("a b c d e f g h i j", 30);
+    expect(lines.length).toBeGreaterThan(1);
+    for (let i = 0; i + 1 < lines.length; i++) {
+      const cur = lines[i];
+      const next = lines[i + 1];
+      if (cur.type !== "line" || next.type !== "line") throw new Error("expected lines");
+      expect(next.inlineOffsetStart).toBe(cur.inlineOffsetEnd);
+      // All except the last are NOT block-boundary.
+      expect(cur.isBlockBoundaryLine).toBe(false);
+    }
+    const last = lines[lines.length - 1];
+    if (last.type !== "line") throw new Error("expected last line");
+    expect(last.isBlockBoundaryLine).toBe(true);
+  });
+
+  it("multi-line wrapped: ownerBlockId is the block's key on every line", () => {
+    const lines = ifcOf("a b c d e f g h i j", 30);
+    for (const line of lines) {
+      if (line.type !== "line") continue;
+      expect(line.ownerBlockId).toBe("p");
+    }
+  });
+
+  it("multi-line wrapped: final inlineOffsetEnd equals state-model character count", () => {
+    const text = "a b c d e f g h i j";
+    const lines = ifcOf(text, 30);
+    const last = lines[lines.length - 1];
+    if (last.type !== "line") throw new Error("expected last line");
+    expect(last.inlineOffsetEnd).toBe(text.length);
+  });
+
+  it("empty paragraph: strut line has offsets [0, 0] and isBlockBoundaryLine=true", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, ""),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.ownerBlockId).toBe("p");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(0);
+    expect(line.isBlockBoundaryLine).toBe(true);
+  });
+
+  it("IFC cache-hit returns lines with same LineBox-canonical field values as cache-miss", () => {
+    // Run layoutInlineContent twice on the same tree with the same ctx so
+    // the second call hits the cache.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "hello world"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (r1.box === null || r2.box === null) throw new Error("?");
+    const l1 = r1.box.children[0];
+    const l2 = r2.box.children[0];
+    if (l1.type !== "line" || l2.type !== "line") throw new Error("expected lines");
+    expect(l2.ownerBlockId).toBe(l1.ownerBlockId);
+    expect(l2.inlineOffsetStart).toBe(l1.inlineOffsetStart);
+    expect(l2.inlineOffsetEnd).toBe(l1.inlineOffsetEnd);
+    expect(l2.isBlockBoundaryLine).toBe(l1.isBlockBoundaryLine);
+    // Cache hit also gives reference equality on the cached LineBox.
+    expect(l2).toBe(l1);
+  });
+
+  it("block with embed (inline-block) items: each embed contributes 1 to inlineOffsetEnd (matches state-model embed=1)", () => {
+    // Paragraph with text + inline-block + text. The inline-block is
+    // a state-model embed item and must count as 1 offset unit, not
+    // by its rendered width or by 0.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", { display: "inline" }, "hi"),
+        createElementBox("ib", { display: "inline-block", inlineSize: 20, blockSize: 16 }, []),
+        createTextBox("t2", { display: "inline" }, "bye"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetStart).toBe(0);
+    // "hi" (2 chars) + embed (1) + "bye" (3 chars) = 6
+    expect(line.inlineOffsetEnd).toBe(6);
+    expect(line.isBlockBoundaryLine).toBe(true);
+  });
+
+  it("RTL block: rebuildBoxWithOffsets via reorderLineForBidi preserves the new fields", () => {
+    // RTL text triggers reorderLineForBidi → rebuildBoxWithOffsets,
+    // which must thread the new fields. If rebuildBoxWithOffsets
+    // drops them, the line emerges with `undefined` field values.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t", { display: "inline" }, "right to left text"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.ownerBlockId).toBe("p");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe("right to left text".length);
+    expect(line.isBlockBoundaryLine).toBe(true);
+  });
+
+  it("fragmented across pages: rebaseLine threads the new fields + offset continuity across fragments", () => {
+    // Wrap a paragraph onto many lines, then call layoutInlineContent
+    // with a fragmentation context that fits only some of them. The
+    // suffix fragment (resumed via resumeFrom) goes through rebaseLine.
+    // The placed fragment's lines and the resumed fragment's lines
+    // together must cover [0, full text length] with no gaps.
+    const text = "a b c d e f g h i j k l m n o p q r s t";
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", { display: "inline" }, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
+
+    // First fragment: limit block size to fit ~2 lines (line height 16
+    // → 32 px fits exactly 2 lines).
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, {
+      availableBlockSize: 32,
+      resumeFrom: null,
+      pageIndex: 0,
+    });
+    if (r1.box === null) throw new Error("expected partial fragment");
+    if (r1.breakToken === null) throw new Error("expected break token");
+    const lines1 = r1.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    expect(lines1.length).toBeGreaterThan(0);
+
+    // Resume from the break token. Big availableBlockSize so it
+    // finishes.
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, {
+      availableBlockSize: 10_000,
+      resumeFrom: r1.breakToken,
+      pageIndex: 1,
+    });
+    if (r2.box === null) throw new Error("expected resumed fragment box");
+    const lines2 = r2.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    expect(lines2.length).toBeGreaterThan(0);
+
+    // ownerBlockId propagates to every line, including resumed.
+    for (const line of [...lines1, ...lines2]) {
+      expect(line.ownerBlockId).toBe("p");
+    }
+    // Offset continuity: lines1 final inlineOffsetEnd === lines2 first inlineOffsetStart.
+    expect(lines2[0].inlineOffsetStart).toBe(lines1[lines1.length - 1].inlineOffsetEnd);
+    // Cumulative coverage: lines2 final inlineOffsetEnd === text length.
+    expect(lines2[lines2.length - 1].inlineOffsetEnd).toBe(text.length);
+    // isBlockBoundaryLine: only the absolutely-last line carries true.
+    expect(lines2[lines2.length - 1].isBlockBoundaryLine).toBe(true);
+    // Any line before the last on either fragment is NOT a boundary.
+    for (let i = 0; i < lines1.length; i++) {
+      expect(lines1[i].isBlockBoundaryLine).toBe(false);
+    }
+    for (let i = 0; i < lines2.length - 1; i++) {
+      expect(lines2[i].isBlockBoundaryLine).toBe(false);
+    }
+  });
+});

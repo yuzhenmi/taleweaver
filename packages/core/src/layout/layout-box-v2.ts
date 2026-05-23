@@ -1,6 +1,7 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
+import type { BlockId } from "../state/block-id";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 export type { PageBox } from "./page-box";
@@ -57,6 +58,45 @@ export interface LineBox extends LayoutBoxBase {
    * Defaults to false when not set.
    */
   readonly endsWithHyphenContinuation?: boolean;
+
+  /**
+   * The block whose IFC produced this line. Stamped by the IFC at
+   * line-emit time. Used by geometry queries to map (line, char-offset)
+   * back to a Position without parsing text-run keys.
+   *
+   * Typed as the branded `BlockId` (re-export from `state/block-id`)
+   * so downstream consumers (hit-test, cursor-position) can pass it
+   * directly to state APIs without a cast.
+   */
+  readonly ownerBlockId: BlockId;
+
+  /**
+   * Inline-content offset (state-model character count: UTF-16 code
+   * units across text items + 1 per embed item) of the FIRST character
+   * on this line. For an empty line, equal to `inlineOffsetEnd`.
+   *
+   * Invariant: `nextLine.inlineOffsetStart === currentLine.inlineOffsetEnd`
+   * for two adjacent lines within the same block.
+   */
+  readonly inlineOffsetStart: number;
+
+  /**
+   * Inline-content offset just past the LAST character on this line.
+   * For the final line of a block, equals
+   * `inlineContentLength(block.inlineContent)`.
+   */
+  readonly inlineOffsetEnd: number;
+
+  /**
+   * True iff this is the LAST line of its `ownerBlockId`'s IFC.
+   * Used by selection-rect emission to draw the paragraph-break
+   * indicator after the line; replaces the
+   * `collectBlockBoundaryLines` traversal.
+   *
+   * A symmetric `isFirstLineOfBlock` is NOT carried — derive it as
+   * `inlineOffsetStart === 0` when needed.
+   */
+  readonly isBlockBoundaryLine: boolean;
 }
 
 export interface TextRunBox extends LayoutBoxBase {
@@ -199,6 +239,10 @@ export function createLineBox(
   children: readonly LayoutBox[],
   baseline: number = blockSize,
   containingInlineSize: number,
+  ownerBlockId: BlockId,
+  inlineOffsetStart: number,
+  inlineOffsetEnd: number,
+  isBlockBoundaryLine: boolean,
   endsWithHyphenContinuation?: boolean,
 ): LineBox {
   const base = createBoxBase({
@@ -210,6 +254,10 @@ export function createLineBox(
     ...base,
     children: Object.freeze([...children]),
     baseline,
+    ownerBlockId,
+    inlineOffsetStart,
+    inlineOffsetEnd,
+    isBlockBoundaryLine,
     ...(endsWithHyphenContinuation === true ? { endsWithHyphenContinuation: true } : {}),
   });
 }
@@ -450,7 +498,10 @@ function rebuildBoxWithOffsets(
       return createLineBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.baseline, containingInlineSize, box.endsWithHyphenContinuation,
+        box.children, box.baseline, containingInlineSize,
+        box.ownerBlockId, box.inlineOffsetStart, box.inlineOffsetEnd,
+        box.isBlockBoundaryLine,
+        box.endsWithHyphenContinuation,
       );
     case "text-run":
       return createTextRunBox(
