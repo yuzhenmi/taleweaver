@@ -7,6 +7,7 @@ import {
   selectWord,
   getBlock,
   inlineContentLength,
+  findItemAtOffset,
   resolvePixelPosition,
   resolvePositionFromPixel,
   computeSelectionRects,
@@ -27,6 +28,23 @@ import { ImageCache } from "./image-cache";
 
 const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
+
+/**
+ * Get the link URL at a Position, or null if the position isn't on
+ * a hyperlink. Used by Cmd+Click handling.
+ */
+function linkUrlAtPosition(
+  state: import("@taleweaver/core").State,
+  pos: Position,
+): string | null {
+  const block = getBlock(state, pos.blockId);
+  if (block === null || block.inlineContent === null) return null;
+  const { itemIndex } = findItemAtOffset(block.inlineContent, pos.offset);
+  const item = block.inlineContent.items[itemIndex];
+  if (item === undefined || item.kind !== "text") return null;
+  const link = item.attrs.link;
+  return typeof link === "string" && link.length > 0 ? link : null;
+}
 
 export interface EditorControllerOptions {
   measurer: TextShaper | TextMeasurer;
@@ -576,6 +594,21 @@ export function createEditorController(
     if (!pos) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
       return;
+    }
+
+    // HL.3: Cmd/Ctrl+Click on a hyperlink opens the URL in a new
+    // tab instead of placing the cursor. Plain click still positions
+    // the cursor — needed so users can edit link text.
+    if (e.metaKey || e.ctrlKey) {
+      const url = linkUrlAtPosition(state.state, pos);
+      if (url !== null) {
+        // Allowlist safe schemes (per hyperlinks spec risk table:
+        // reject javascript: / data: URLs).
+        if (/^(https?:|mailto:|tel:)/i.test(url)) {
+          window.open(url, "_blank", "noopener,noreferrer");
+        }
+        return;
+      }
     }
 
     // Triple-click: select paragraph (the entire leaf block).
