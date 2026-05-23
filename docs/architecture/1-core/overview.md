@@ -24,9 +24,10 @@ directory is one module.
   document primitives (charts, equations, embeds) without forking core.
 
 - **`render/`** — the render tree. Walks the state's block tree
-  top-down (driven by `dirtyIds` for incremental work) and dispatches
-  each block through the component registry to produce a `RenderNode`
-  tree of layout-relevant elements with declared styles.
+  top-down and dispatches each block through the component registry to
+  produce a `RenderNode` tree of layout-relevant elements. Incremental
+  rebuild driven by `dirtyIds` is the target contract but not yet
+  implemented (see `1.2-render.md`).
 
 - **`cascade/`** — the value-resolution pass. Walks the render tree
   top-down applying inheritance, initial values, and length flattening
