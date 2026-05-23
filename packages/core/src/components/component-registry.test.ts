@@ -18,6 +18,7 @@ describe("component-registry (new)", () => {
     const def: ComponentDefinition = {
       type: "paragraph",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (_v, _c, children) =>
         ({ type: "element", key: "p", style: {}, children } as RenderNode),
     };
@@ -31,11 +32,13 @@ describe("component-registry (new)", () => {
     const a: ComponentDefinition = {
       type: "p",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (_v, _c, c) => ({ type: "element", key: "a", style: {}, children: c } as RenderNode),
     };
     const b: ComponentDefinition = {
       type: "p",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (_v, _c, c) => ({ type: "element", key: "b", style: {}, children: c } as RenderNode),
     };
     reg.register(a);
@@ -77,5 +80,62 @@ describe("component-registry (new)", () => {
     expect(reg.get("list-item")?.kind).toBe("leaf");
     expect(reg.get("image")?.kind).toBe("leaf");
     expect(reg.get("horizontal-line")?.kind).toBe("leaf");
+  });
+});
+
+describe("component-registry — BlockKindResolver (getBlockKind)", () => {
+  it("returns null for unregistered types", () => {
+    const reg = createComponentRegistry();
+    expect(reg.getBlockKind("paragraph")).toBeNull();
+    expect(reg.getBlockKind("nope")).toBeNull();
+  });
+
+  it("returns 'container' for container components", () => {
+    const reg = createDefaultComponentRegistry();
+    expect(reg.getBlockKind("document")).toBe("container");
+    expect(reg.getBlockKind("list")).toBe("container");
+    expect(reg.getBlockKind("table")).toBe("container");
+    expect(reg.getBlockKind("table-row")).toBe("container");
+    expect(reg.getBlockKind("table-cell")).toBe("container");
+  });
+
+  it("returns 'inline-bearing-leaf' for inline-bearing leaf components", () => {
+    const reg = createDefaultComponentRegistry();
+    expect(reg.getBlockKind("paragraph")).toBe("inline-bearing-leaf");
+    expect(reg.getBlockKind("heading")).toBe("inline-bearing-leaf");
+    expect(reg.getBlockKind("list-item")).toBe("inline-bearing-leaf");
+  });
+
+  it("returns 'atomic-leaf' for atomic leaf components", () => {
+    const reg = createDefaultComponentRegistry();
+    expect(reg.getBlockKind("image")).toBe("atomic-leaf");
+    expect(reg.getBlockKind("horizontal-line")).toBe("atomic-leaf");
+  });
+
+  it("derives the kind from a newly-registered third-party component", () => {
+    const reg = createComponentRegistry();
+    reg.register({
+      type: "callout",
+      kind: "leaf",
+      leafShape: "inline-bearing",
+      render: (_v, _c, c) =>
+        ({ type: "element", key: "callout", style: {}, children: c } as RenderNode),
+    });
+    reg.register({
+      type: "divider",
+      kind: "leaf",
+      leafShape: "atomic",
+      render: (_v, _c, c) =>
+        ({ type: "element", key: "divider", style: {}, children: c } as RenderNode),
+    });
+    reg.register({
+      type: "section",
+      kind: "container",
+      render: (_v, _c, c) =>
+        ({ type: "element", key: "section", style: {}, children: c } as RenderNode),
+    });
+    expect(reg.getBlockKind("callout")).toBe("inline-bearing-leaf");
+    expect(reg.getBlockKind("divider")).toBe("atomic-leaf");
+    expect(reg.getBlockKind("section")).toBe("container");
   });
 });

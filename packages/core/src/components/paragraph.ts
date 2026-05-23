@@ -15,6 +15,7 @@ import { createElementBox } from "../render/render-node";
 export const paragraphComponent: LeafComponentDefinition = {
   type: "paragraph",
   kind: "leaf",
+  leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) =>
     createElementBox(view.id, {
       display: "block",

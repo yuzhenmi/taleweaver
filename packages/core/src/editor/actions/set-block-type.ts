@@ -32,7 +32,7 @@ export function handleSetBlockType(
   const newType = target.type === blockType ? "paragraph" : blockType;
   const newAttrs = target.type === blockType ? {} : properties;
 
-  const typeResult = setBlockType(editor.state, targetId, newType);
+  const typeResult = setBlockType(editor.state, targetId, newType, config.componentRegistry);
   const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
 
   // Union dirtyIds across the chained ops so the renderer sees one

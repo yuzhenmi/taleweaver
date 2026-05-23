@@ -71,8 +71,8 @@ Each task ends with the standing review-until-clean discipline (per `feedback_re
 |------|--------|-----------|-------|
 | T-A: Architecture doc rewrite | ✅ done | `bafbef3` | 1.1-state.md rewrite + 1-core/overview.md + overview.md coherence pass; added `WritingMode` to root barrel (was missing). Three reviewer passes, all clean. |
 | T-B: Privatize State.doc | ✅ done | (this commit) | STATE_INTERNAL symbol introduced; render.ts uses new `getEmbedContentIds` accessor; test-utils delegates to new state-module-internal `buildStateFromBlocks`; encapsulation breach closed and asserted by compile-time test. |
-| T-C: AttrRegistry into attrsEqual + merges | not started | — | New test for plugin-equality scenario |
-| T-D: blockKindOf → component registry | not started | — | Need to design kind-registration interface |
+| T-C: AttrRegistry into attrsEqual + merges | ✅ done | `acb9dd7` | Optional registry on attrsEqual + both mergers + 5 Layer 3 ops; merge-block-attrs intentionally not threaded (idempotency guard, not run-merge). +11 tests. Two reviewer passes, all clean. |
+| T-D: blockKindOf → component registry | ✅ done | (this commit) | Added `leafShape` field on LeafComponentDefinition; ComponentRegistry extends new `BlockKindResolver` interface; state's hardcoded type-string Sets deleted; setBlockType + insert-node + toggle-list now thread the resolver. +8 tests. Two reviewer passes; second-pass action item was state test importing component registry — closed by hand-rolled resolver literal. |
 | T-E: Extract shared delete-range guard | not started | — | Pure refactor |
 | T-F: iterateSpan cycle guard | not started | — | Instrumentation only |
 

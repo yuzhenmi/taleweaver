@@ -33,10 +33,23 @@ export interface ContainerComponentDefinition {
  * Per master spec § "Components" — `text` and `span` are NOT registered.
  * The renderer expands `view.inlineContent.items` directly into
  * `inlineRenderNodes`; leaf components receive them already built.
+ *
+ * `leafShape` declares the data-model shape this leaf takes — see
+ * `state/block-kinds.ts` for the taxonomy. The component registry exposes
+ * this via its `BlockKindResolver` implementation so state ops (e.g.,
+ * `setBlockType`) can judge shape-compatibility without hardcoding
+ * type-string sets:
+ *   - "inline-bearing": carries `inlineContent.items` (paragraph, heading,
+ *     list-item). Maps to BlockKind "inline-bearing-leaf".
+ *   - "atomic": no inlineContent, no children (image, horizontal-line).
+ *     Maps to BlockKind "atomic-leaf".
+ * (Container components do not declare a `leafShape`; their kind is
+ * derived directly from `kind: "container"`.)
  */
 export interface LeafComponentDefinition {
   readonly type: string;
   readonly kind: "leaf";
+  readonly leafShape: "inline-bearing" | "atomic";
   render(
     view: LeafBlockView,
     context: RenderContext,

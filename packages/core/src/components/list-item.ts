@@ -14,6 +14,7 @@ import { createElementBox } from "../render/render-node";
 export const listItemComponent: LeafComponentDefinition = {
   type: "list-item",
   kind: "leaf",
+  leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) =>
     createElementBox(view.id, { display: "list-item" }, inlineRenderNodes),
 };

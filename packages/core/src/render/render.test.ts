@@ -20,6 +20,7 @@ const documentComponent: ContainerComponentDefinition = {
 const paragraphComponent: LeafComponentDefinition = {
   type: "paragraph",
   kind: "leaf",
+  leafShape: "inline-bearing",
   render: (view, _ctx, inlineChildren) =>
     ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
 };
@@ -115,6 +116,7 @@ describe("render (new)", () => {
     const paragraphCapture: LeafComponentDefinition = {
       type: "paragraph",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (view, _ctx, _children) => {
         observedFontWeight = view.computedStyle.fontWeight;
         observedSet = true;
@@ -149,6 +151,7 @@ describe("render — embed-content zones", () => {
   const fnBodyComponent: LeafComponentDefinition = {
     type: "fn-body",
     kind: "leaf",
+    leafShape: "inline-bearing",
     render: (view, _ctx, inlineChildren) =>
       ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
   };

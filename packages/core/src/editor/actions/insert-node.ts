@@ -7,6 +7,7 @@ import { productionAllocator } from "../../state/block-id";
 import { getBlock } from "../../state/state";
 import { insertBlock } from "../../state/insert-block";
 import type { InlineContent } from "../../state/inline-content";
+import type { BlockKindResolver } from "../../state/block-kinds";
 import { blockKindOf } from "../../state/block-kinds";
 import { rebuildTrees } from "./helpers";
 
@@ -33,9 +34,13 @@ function insertBlockInitAt(
   init: BlockInit,
   parentId: BlockId,
   allocator: IdAllocator,
+  resolver: BlockKindResolver,
   accumulatedDirtyIds: Set<BlockId>,
 ): InsertNodeFold {
-  const kind = blockKindOf(init.type);
+  const kind = blockKindOf(init.type, resolver);
+  if (kind === null) {
+    throw new Error(`INSERT_NODE: type "${init.type}" is not registered`);
+  }
 
   const inlineProvided =
     init.inlineContent !== undefined
@@ -100,6 +105,7 @@ function insertBlockInitAt(
         child,
         newId,
         allocator,
+        resolver,
         accumulatedDirtyIds,
       );
       cur = sub.state;
@@ -119,6 +125,7 @@ export function handleInsertNode(
     init,
     editor.state.rootId,
     productionAllocator,
+    config.componentRegistry,
     new Set<BlockId>(),
   );
   if (fold.dirtyIds.size === 0) return editor;

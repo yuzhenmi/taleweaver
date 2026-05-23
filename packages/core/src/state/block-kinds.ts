@@ -1,8 +1,5 @@
 /**
- * Block-shape classification. Used by:
- *   - setBlockType to enforce shape-consistent type changes (T11).
- *   - editor/actions/insert-node.ts to dispatch `BlockInit` shape
- *     validation per kind (inline-bearing-leaf vs atomic-leaf vs container).
+ * Block-shape taxonomy.
  *
  * Three kinds:
  *   - inline-bearing-leaf: has inlineContent items, no children
@@ -12,36 +9,54 @@
  *   - container: has children, no inlineContent
  *     (document, list, table, table-row, table-cell, etc.)
  *
- * Note on list-item: classified as an inline-bearing leaf because the
- * data model treats it that way — every fixture across state tests
- * (`merge-blocks`, `delete-range`, `split-block`, `clone-pasted-subtree`)
- * builds list-items with `inlineContent`, never with `firstChildId`; the
- * `Block` JSDoc lists list-item alongside paragraph as leaf-shaped; and
- * the toggle-list / set-block-type editor handlers convert paragraphs to
- * list-items in place (preserving the inlineContent slot). Layout-side,
- * the BFC marker generator keys off `display: list-item` on the rendered
- * ElementBox and does not require a containing `list` block. Nesting list
- * inside list (sub-lists) is achieved by a `list` container wrapping
- * further list-items, not by list-item itself owning children. P10
- * ("Lists with proper markers") wires this up end-to-end with counters;
- * the leaf classification is the underlying data-model shape it lands on.
+ * The state module does NOT hardcode type-string sets. Taxonomy is owned
+ * by component definitions in the component module — leaf components
+ * declare `leafShape: "inline-bearing" | "atomic"` and container
+ * components carry `kind: "container"`. State ops that need to judge
+ * shape (e.g., `setBlockType` for cross-kind refusal, `INSERT_NODE`'s
+ * shape validation) accept a `BlockKindResolver` parameter and consult
+ * it. The component registry implements `BlockKindResolver`. This keeps
+ * the state module free of component-type knowledge — third-party
+ * components plug in via the registry without state changes.
+ *
+ * Note on list-item: declared inline-bearing by its component definition
+ * because the data model treats it that way — every fixture across state
+ * tests (`merge-blocks`, `delete-range`, `split-block`,
+ * `clone-pasted-subtree`) builds list-items with `inlineContent`, never
+ * with `firstChildId`; the `Block` JSDoc lists list-item alongside
+ * paragraph as leaf-shaped; and the toggle-list / set-block-type editor
+ * handlers convert paragraphs to list-items in place (preserving the
+ * inlineContent slot). Layout-side, the BFC marker generator keys off
+ * `display: list-item` on the rendered ElementBox and does not require a
+ * containing `list` block. Nesting list inside list (sub-lists) is
+ * achieved by a `list` container wrapping further list-items, not by
+ * list-item itself owning children. P10 ("Lists with proper markers")
+ * wires this up end-to-end with counters; the leaf classification is the
+ * underlying data-model shape it lands on.
  */
 
 export type BlockKind = "inline-bearing-leaf" | "atomic-leaf" | "container";
 
-export const INLINE_BEARING_LEAF_TYPES: ReadonlySet<string> = new Set([
-  "paragraph",
-  "heading",
-  "list-item",
-]);
+/**
+ * Resolver interface for "what kind is this block type?" The component
+ * module's `ComponentRegistry` implements this. State ops that need to
+ * judge shape (e.g., `setBlockType`'s cross-kind refusal) accept a
+ * resolver rather than hardcoding type-string sets. This keeps the
+ * state module free of component-type knowledge.
+ */
+export interface BlockKindResolver {
+  getBlockKind(type: string): BlockKind | null;
+}
 
-export const ATOMIC_LEAF_TYPES: ReadonlySet<string> = new Set([
-  "image",
-  "horizontal-line",
-]);
-
-export function blockKindOf(type: string): BlockKind {
-  if (INLINE_BEARING_LEAF_TYPES.has(type)) return "inline-bearing-leaf";
-  if (ATOMIC_LEAF_TYPES.has(type)) return "atomic-leaf";
-  return "container";
+/**
+ * Look up a block type's kind via the resolver. Returns null for
+ * unregistered types; callers MUST decide how to handle that case
+ * (typically by throwing with a helpful "type 'X' is not registered"
+ * message at the action-handler boundary).
+ */
+export function blockKindOf(
+  type: string,
+  resolver: BlockKindResolver,
+): BlockKind | null {
+  return resolver.getBlockKind(type);
 }

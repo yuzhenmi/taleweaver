@@ -11,8 +11,9 @@ import type { EditorAction, EditorState } from "@taleweaver/dom";
 import type { BlockInit } from "@taleweaver/core";
 
 // Minimal paragraph factory. Builds a BlockInit for a paragraph block with
-// no inlineContent (empty paragraph). `INSERT_NODE` validates the shape
-// against `blockKindOf("paragraph") === "inline-bearing-leaf"`.
+// no inlineContent (empty paragraph). `INSERT_NODE` validates the shape via
+// the component registry (paragraph's `leafShape: "inline-bearing"` maps to
+// `BlockKind "inline-bearing-leaf"`).
 function createParagraph(): BlockInit {
   return { type: "paragraph", attrs: {}, inlineContent: { items: [] } };
 }

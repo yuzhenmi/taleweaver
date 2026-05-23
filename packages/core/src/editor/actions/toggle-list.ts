@@ -43,6 +43,7 @@ export function handleToggleList(
     editor.state,
     targetId,
     isListItem ? "paragraph" : "list-item",
+    config.componentRegistry,
   );
   const attrsResult = setBlockAttrs(
     typeResult.state,

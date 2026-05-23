@@ -1,4 +1,5 @@
 import type { ComponentDefinition } from "./component-definition";
+import type { BlockKind, BlockKindResolver } from "../state/block-kinds";
 import { documentComponent } from "./document";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
@@ -15,6 +16,13 @@ import { horizontalLineComponent } from "./horizontal-line";
  * per Decision F. Mutable via `register`; consumed by the new renderer
  * via `get` / `has`.
  *
+ * Also implements `BlockKindResolver` from the state module: `getBlockKind`
+ * maps a type string to its `BlockKind` by reading the registered
+ * definition's `kind` (container) or `leafShape` (inline-bearing vs
+ * atomic). State ops that need to judge shape (e.g., `setBlockType`'s
+ * cross-kind refusal) accept the resolver — the state module stays free
+ * of component-type knowledge.
+ *
  * Two factory functions:
  *   - createComponentRegistry(): empty registry; tests use it to isolate
  *     behavior (register only the components under test).
@@ -22,10 +30,12 @@ import { horizontalLineComponent } from "./horizontal-line";
  *     every migrated built-in component via explicit register() calls.
  *     No side-effect imports.
  */
-export interface ComponentRegistry {
+export interface ComponentRegistry extends BlockKindResolver {
   register(def: ComponentDefinition): void;
   get(type: string): ComponentDefinition | undefined;
   has(type: string): boolean;
+  /** Map a type string to its BlockKind. Returns null if unregistered. */
+  getBlockKind(type: string): BlockKind | null;
 }
 
 class ComponentRegistryImpl implements ComponentRegistry {
@@ -39,6 +49,12 @@ class ComponentRegistryImpl implements ComponentRegistry {
   }
   has(type: string): boolean {
     return this.defs.has(type);
+  }
+  getBlockKind(type: string): BlockKind | null {
+    const def = this.defs.get(type);
+    if (def === undefined) return null;
+    if (def.kind === "container") return "container";
+    return def.leafShape === "inline-bearing" ? "inline-bearing-leaf" : "atomic-leaf";
   }
 }
 

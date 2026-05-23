@@ -22,11 +22,24 @@ describe("component-definition (new union)", () => {
     const def: LeafComponentDefinition = {
       type: "paragraph",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (_view, _ctx, inlineChildren) =>
         ({ type: "element", key: "p", style: {}, children: inlineChildren } as RenderNode),
     };
     expect(def.type).toBe("paragraph");
     expect(def.kind).toBe("leaf");
+    expect(def.leafShape).toBe("inline-bearing");
+  });
+
+  it("LeafComponentDefinition supports atomic leafShape", () => {
+    const def: LeafComponentDefinition = {
+      type: "image",
+      kind: "leaf",
+      leafShape: "atomic",
+      render: (_view, _ctx, inlineChildren) =>
+        ({ type: "element", key: "img", style: {}, children: inlineChildren } as RenderNode),
+    };
+    expect(def.leafShape).toBe("atomic");
   });
 
   it("ComponentDefinition is a discriminated union", () => {
@@ -39,6 +52,7 @@ describe("component-definition (new union)", () => {
     defs.push({
       type: "paragraph",
       kind: "leaf",
+      leafShape: "inline-bearing",
       render: (_v, _c, children) => ({ type: "element", key: "x", style: {}, children } as RenderNode),
     });
     expect(defs).toHaveLength(2);

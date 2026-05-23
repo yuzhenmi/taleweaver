@@ -24,6 +24,7 @@ function levelFromAttrs(level: unknown): 1 | 2 | 3 | 4 | 5 | 6 {
 export const headingComponent: LeafComponentDefinition = {
   type: "heading",
   kind: "leaf",
+  leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
     return createElementBox(view.id, {

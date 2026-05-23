@@ -16,6 +16,7 @@ function strAttr(value: unknown, fallback: string): string {
 export const imageComponent: LeafComponentDefinition = {
   type: "image",
   kind: "leaf",
+  leafShape: "atomic",
   render: (view, _ctx, _inlineRenderNodes) => {
     const src = strAttr(view.attrs.src, "");
     const width = numAttr(view.attrs.width, 0);

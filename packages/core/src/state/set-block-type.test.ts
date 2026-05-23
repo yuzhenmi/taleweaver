@@ -1,8 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { setBlockType } from "./set-block-type";
 import { getBlock } from "./state";
+import type { BlockKind, BlockKindResolver } from "./block-kinds";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+
+// Hand-rolled BlockKindResolver covering the built-in taxonomy. State
+// tests deliberately avoid importing the component module — state ops
+// depend only on the narrow `BlockKindResolver` shape, and that's all
+// the test contract needs to exercise.
+const TYPE_KINDS: Record<string, BlockKind> = {
+  document: "container",
+  list: "container",
+  table: "container",
+  "table-row": "container",
+  "table-cell": "container",
+  paragraph: "inline-bearing-leaf",
+  heading: "inline-bearing-leaf",
+  "list-item": "inline-bearing-leaf",
+  image: "atomic-leaf",
+  "horizontal-line": "atomic-leaf",
+};
+const resolver: BlockKindResolver = {
+  getBlockKind: (t) => TYPE_KINDS[t] ?? null,
+};
 
 describe("setBlockType", () => {
   const fixture = () =>
@@ -16,7 +37,7 @@ describe("setBlockType", () => {
 
   it("replaces the block's type and preserves all other fields", () => {
     const state = fixture();
-    const result = setBlockType(state, "p" as BlockId, "heading");
+    const result = setBlockType(state, "p" as BlockId, "heading", resolver);
     const updated = getBlock(result.state, "p" as BlockId);
     expect(updated?.type).toBe("heading");
     expect(updated?.id).toBe("p");
@@ -26,26 +47,46 @@ describe("setBlockType", () => {
 
   it("returns dirtyIds containing only the modified block", () => {
     const state = fixture();
-    const result = setBlockType(state, "p" as BlockId, "heading");
+    const result = setBlockType(state, "p" as BlockId, "heading", resolver);
     expect([...result.dirtyIds]).toEqual(["p"]);
   });
 
   it("throws when the block does not exist", () => {
     const state = fixture();
-    expect(() => setBlockType(state, "missing" as BlockId, "heading")).toThrow(/not found/);
+    expect(() => setBlockType(state, "missing" as BlockId, "heading", resolver)).toThrow(/not found/);
+  });
+
+  it("throws when the new type is not registered with the resolver", () => {
+    const state = fixture();
+    expect(() => setBlockType(state, "p" as BlockId, "unregistered-type", resolver)).toThrow(
+      /new type "unregistered-type" is not registered/,
+    );
+  });
+
+  it("throws when the existing block's type is not registered with the resolver", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),
+        buildBlock({ id: "x", type: "no-such-type", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    expect(() => setBlockType(state, "x" as BlockId, "paragraph", resolver)).toThrow(
+      /existing block's type "no-such-type" is not registered/,
+    );
   });
 
   // --- Shape-invariance (T11) ---
 
   it("allows same-kind change: paragraph -> heading (both inline-bearing-leaf)", () => {
     const state = fixture();
-    const result = setBlockType(state, "p" as BlockId, "heading");
+    const result = setBlockType(state, "p" as BlockId, "heading", resolver);
     expect(getBlock(result.state, "p" as BlockId)?.type).toBe("heading");
   });
 
   it("allows same-kind change: paragraph -> list-item (both inline-bearing-leaf)", () => {
     const state = fixture();
-    const result = setBlockType(state, "p" as BlockId, "list-item");
+    const result = setBlockType(state, "p" as BlockId, "list-item", resolver);
     expect(getBlock(result.state, "p" as BlockId)?.type).toBe("list-item");
   });
 
@@ -57,7 +98,7 @@ describe("setBlockType", () => {
         buildBlock({ id: "li", type: "list-item", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    const result = setBlockType(state, "li" as BlockId, "paragraph");
+    const result = setBlockType(state, "li" as BlockId, "paragraph", resolver);
     expect(getBlock(result.state, "li" as BlockId)?.type).toBe("paragraph");
   });
 
@@ -69,7 +110,7 @@ describe("setBlockType", () => {
         buildBlock({ id: "list", type: "list", parentId: "doc" }),
       ],
     });
-    const result = setBlockType(state, "list" as BlockId, "table");
+    const result = setBlockType(state, "list" as BlockId, "table", resolver);
     expect(getBlock(result.state, "list" as BlockId)?.type).toBe("table");
   });
 
@@ -81,13 +122,13 @@ describe("setBlockType", () => {
         buildBlock({ id: "img", type: "image", parentId: "doc" }),
       ],
     });
-    const result = setBlockType(state, "img" as BlockId, "horizontal-line");
+    const result = setBlockType(state, "img" as BlockId, "horizontal-line", resolver);
     expect(getBlock(result.state, "img" as BlockId)?.type).toBe("horizontal-line");
   });
 
   it("refuses cross-kind change: paragraph -> list (inline-bearing-leaf -> container)", () => {
     const state = fixture();
-    expect(() => setBlockType(state, "p" as BlockId, "list")).toThrow(
+    expect(() => setBlockType(state, "p" as BlockId, "list", resolver)).toThrow(
       /cross-kind change refused.*inline-bearing-leaf.*container/,
     );
   });
@@ -100,7 +141,7 @@ describe("setBlockType", () => {
         buildBlock({ id: "img", type: "image", parentId: "doc" }),
       ],
     });
-    expect(() => setBlockType(state, "img" as BlockId, "list")).toThrow(
+    expect(() => setBlockType(state, "img" as BlockId, "list", resolver)).toThrow(
       /cross-kind change refused.*atomic-leaf.*container/,
     );
   });
@@ -113,8 +154,35 @@ describe("setBlockType", () => {
         buildBlock({ id: "list", type: "list", parentId: "doc" }),
       ],
     });
-    expect(() => setBlockType(state, "list" as BlockId, "paragraph")).toThrow(
+    expect(() => setBlockType(state, "list" as BlockId, "paragraph", resolver)).toThrow(
       /cross-kind change refused.*container.*inline-bearing-leaf/,
     );
+  });
+});
+
+describe("setBlockType — BlockKindResolver interface", () => {
+  it("accepts a minimal in-test resolver implementing BlockKindResolver", () => {
+    // A test-only resolver: maps type strings to kinds via a Map. State
+    // ops only need the BlockKindResolver shape — they don't depend on
+    // the full ComponentRegistry.
+    const testResolver = {
+      getBlockKind: (t: string) => {
+        if (t === "paragraph" || t === "heading") return "inline-bearing-leaf" as const;
+        return null;
+      },
+    };
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    // "document" isn't in the test resolver — but since we're operating
+    // on the "p" block (type "paragraph"), the document type is never
+    // consulted. The cross-kind check needs only the existing block's
+    // type and the new type.
+    const result = setBlockType(state, "p" as BlockId, "heading", testResolver);
+    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("heading");
   });
 });
