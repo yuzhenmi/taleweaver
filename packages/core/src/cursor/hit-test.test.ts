@@ -391,4 +391,45 @@ describe("resolvePositionFromPixel (new)", () => {
     if (onB === null) return;
     expect(onB.blockId).toBe("pB");
   });
+
+  it("returns offset 0 of the empty last paragraph for a click below all text", () => {
+    // The default-to-last-line path (no real boxes on lineYs below the click)
+    // must still resolve correctly when the LAST line is a synthetic-only
+    // empty paragraph. Reviewer-flagged coverage gap; the code handles it via
+    // the synthetic-fallback at resolvePositionFromPixel, but no test
+    // exercised it before. See #173 review.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "pA",
+          lastChildId: "pEmpty",
+        }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pEmpty",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+        buildBlock({
+          id: "pEmpty",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state);
+    // Click well below all rendered text — should snap to the last line,
+    // which is the empty paragraph's strut. Result must be pEmpty:0.
+    const result = resolvePositionFromPixel(state, layout, shaper, 0, 1000);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("pEmpty");
+    expect(result.offset).toBe(0);
+  });
 });
