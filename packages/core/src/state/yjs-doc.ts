@@ -97,6 +97,15 @@ type AnyYType = Y.AbstractType<Y.YEvent<any>>;
  * Implementation: attach an `afterTransaction` listener for the duration
  * of this call.
  *
+ * **Cost.** O(unique_cursors_visited) per transaction, where
+ * unique_cursors_visited is the total number of distinct Y types found
+ * on the union of parent chains from each changed Y type up to the
+ * blocks/embedContents map boundary. A per-transaction memo
+ * (`findOwningBlockIdMemoized` below) ensures each cursor is walked at
+ * most once even when many changed Y types share intermediate ancestors
+ * — a common pattern in wide-selection format ops where every item's
+ * text + attrs both contribute to `changedParentTypes`.
+ *
  * **Not reentrant.** A nested call inside another `runTransaction`'s `fn`
  * returns an empty `dirtyIds` set: Yjs merges the inner `doc.transact` into
  * the outer transaction, so `afterTransaction` only fires once at the
@@ -129,11 +138,16 @@ export function runTransaction(
         if (key !== null) dirtyIds.add(key as BlockId);
       }
     }
+    // Memo lifetime is exactly this captureDirty call. Sharing across
+    // transactions is unsafe because Yjs may garbage-collect / re-layout
+    // internal items between transactions.
+    const memo = new Map<AnyYType, BlockId | null>();
     for (const [type] of tx.changedParentTypes) {
-      const owningBlockId = findOwningBlockId(
+      const owningBlockId = findOwningBlockIdMemoized(
         type,
         blocksMapAsAny,
         embedContentsMapAsAny,
+        memo,
       );
       if (owningBlockId !== null) {
         dirtyIds.add(owningBlockId);
@@ -151,6 +165,11 @@ export function runTransaction(
 }
 
 /**
+ * Non-memoized parent-chain walk. Called only by `findOwningBlockIdForTest`
+ * — production path inside `runTransaction` uses `findOwningBlockIdMemoized`,
+ * which amortizes shared ancestors across one transaction's
+ * `changedParentTypes` iteration.
+ *
  * Walks up the Y type parent chain to find the BlockId that owns `type`,
  * i.e. the key under blocksMap or embedContentsMap whose value is an
  * ancestor of `type`. Returns null if `type` is not nested under either.
@@ -201,4 +220,67 @@ export function findOwningBlockIdForTest(
   type: AnyYType,
 ): BlockId | null {
   return findOwningBlockId(type, blocksMapAsAny, embedContentsMapAsAny);
+}
+
+/**
+ * Amortized variant used by `runTransaction`. Walks up the parent chain
+ * exactly as `findOwningBlockId` does, but records every cursor it visits
+ * in `memo` so subsequent calls within the same transaction short-circuit
+ * the moment they land on a known cursor.
+ *
+ * Per-transaction lifetime is enforced by `runTransaction` allocating
+ * a fresh `memo` map for each `captureDirty` invocation.
+ */
+function findOwningBlockIdMemoized(
+  type: AnyYType,
+  blocksMapAsAny: AnyYType,
+  embedContentsMapAsAny: AnyYType,
+  memo: Map<AnyYType, BlockId | null>,
+): BlockId | null {
+  const direct = memo.get(type);
+  if (direct !== undefined) return direct;
+
+  const path: AnyYType[] = [];
+  let cursor: AnyYType | null = type;
+  let resolved: BlockId | null = null;
+  while (cursor !== null) {
+    const cached = memo.get(cursor);
+    if (cached !== undefined) {
+      resolved = cached;
+      break;
+    }
+    path.push(cursor);
+    _walkStepCounter++;
+    const parent = cursor.parent as AnyYType | null;
+    if (parent === blocksMapAsAny || parent === embedContentsMapAsAny) {
+      const item = (cursor as unknown as { _item?: { parentSub?: string } })
+        ._item;
+      resolved =
+        item === undefined || item.parentSub === undefined
+          ? null
+          : (item.parentSub as BlockId);
+      break;
+    }
+    cursor = parent;
+  }
+  for (const c of path) memo.set(c, resolved);
+  return resolved;
+}
+
+/**
+ * Test-only walk-step counter for the memoized walk used by
+ * `runTransaction`. Increments once per `cursor` visited inside
+ * `findOwningBlockIdMemoized`. Lets tests assert that wide-selection
+ * format ops amortize the parent-chain walk rather than re-walking per
+ * changed Y type. Production code only pays the increment; tests reset
+ * and read it via the exports below.
+ */
+let _walkStepCounter = 0;
+
+export function __resetWalkStepsForTest(): void {
+  _walkStepCounter = 0;
+}
+
+export function __getWalkStepsForTest(): number {
+  return _walkStepCounter;
 }
