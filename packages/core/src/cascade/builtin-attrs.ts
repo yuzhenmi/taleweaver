@@ -112,6 +112,28 @@ export const underlineInterpreter: AttrInterpreter = {
   toStyle: (value) => (value ? { textDecoration: "underline" } : {}),
 };
 
+/**
+ * Hyperlink. The `link` attr value is the target URL (string). When set,
+ * the inline run renders as Google-Docs link text — blue (#1a73e8) with
+ * an underline. Setting the value to anything non-string (or absent) is a
+ * no-op (no link styling).
+ *
+ * Underline color matches text color (a single string in `TextDecoration`
+ * today). Google-Docs-exact rendering with a separately-colored
+ * underline would require widening `TextDecoration` to a structured
+ * shape — deferred per the spec.
+ *
+ * Click handling (Cmd/Ctrl-click to open URL, hover tooltip, etc.) is
+ * the DOM editor controller's responsibility, not the cascade's.
+ */
+export const linkInterpreter: AttrInterpreter = {
+  attrKey: "link",
+  toStyle: (value) =>
+    typeof value === "string"
+      ? { color: "#1a73e8", textDecoration: "underline" }
+      : {},
+};
+
 export const fontFamilyInterpreter: AttrInterpreter = {
   attrKey: "fontFamily",
   toStyle: (value) => (typeof value === "string" ? { fontFamily: value } : {}),
@@ -228,6 +250,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(boldInterpreter);
   registry.register(italicInterpreter);
   registry.register(underlineInterpreter);
+  registry.register(linkInterpreter);
   registry.register(fontFamilyInterpreter);
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { boldInterpreter, italicInterpreter, underlineInterpreter } from "./builtin-attrs";
+import { boldInterpreter, italicInterpreter, underlineInterpreter, linkInterpreter } from "./builtin-attrs";
 
 describe("boldInterpreter", () => {
   it("contributes fontWeight: bold for truthy values", () => {
@@ -33,6 +33,34 @@ describe("underlineInterpreter", () => {
 
   it("contributes nothing for falsy values", () => {
     expect(underlineInterpreter.toStyle(false)).toEqual({});
+  });
+});
+
+describe("linkInterpreter", () => {
+  it("contributes color + textDecoration for string URL values", () => {
+    expect(linkInterpreter.attrKey).toBe("link");
+    expect(linkInterpreter.toStyle("https://example.com")).toEqual({
+      color: "#1a73e8",
+      textDecoration: "underline",
+    });
+  });
+
+  it("contributes nothing for non-string values (link removed / never set)", () => {
+    expect(linkInterpreter.toStyle(undefined)).toEqual({});
+    expect(linkInterpreter.toStyle(null)).toEqual({});
+    expect(linkInterpreter.toStyle(true)).toEqual({});
+    expect(linkInterpreter.toStyle(123)).toEqual({});
+  });
+
+  it("contributes link styling for the empty string (validation deferred to HL.2 SET_LINK handler)", () => {
+    // Empty string is technically a string, so the interpreter applies
+    // styling. The interpreter is structural; rejecting empty-string-
+    // as-link is a UX decision that lives in the SET_LINK handler
+    // (HL.2), not the cascade.
+    expect(linkInterpreter.toStyle("")).toEqual({
+      color: "#1a73e8",
+      textDecoration: "underline",
+    });
   });
 });
 
@@ -268,6 +296,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("bold")).toBe(true);
     expect(r.has("italic")).toBe(true);
     expect(r.has("underline")).toBe(true);
+    expect(r.has("link")).toBe(true);
     expect(r.has("fontFamily")).toBe(true);
     expect(r.has("fontSize")).toBe(true);
     expect(r.has("color")).toBe(true);
