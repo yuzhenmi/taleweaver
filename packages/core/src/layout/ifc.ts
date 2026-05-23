@@ -12,7 +12,7 @@ import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
-import { makeRootContext } from "./layout-context";
+import { makeRootContext, makeChildContext } from "./layout-context";
 import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
@@ -111,6 +111,14 @@ function collectInlineTokens(
   direction: Direction,
   out: Token[],
   intrinsicCache: IntrinsicSizesCache,
+  // L-D (A6): parent layout context for inline-block sub-layout. When
+  // present, inline-block descendants use makeChildContext so they
+  // inherit the parent's prevLayoutCache / ifcStateCache — enabling
+  // incremental reuse for unchanged inline-blocks. When absent (the
+  // exported collectTokens test path and rewrap-incremental path), the
+  // inline-block sub-layout falls back to makeRootContext (no
+  // incremental reuse — matches pre-L-D behavior for those callers).
+  parentCtx: LayoutContext | null,
 ): void {
   for (const child of children) {
     if (!child.computedStyle) throw new Error("cascade required");
@@ -202,7 +210,7 @@ function collectInlineTokens(
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, intrinsicCache);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       let inlineSizePx: number;
@@ -214,8 +222,17 @@ function collectInlineTokens(
         inlineSizePx = intrinsic.maxContent;
       }
 
-      // Lay out at resolved inlineSize
-      const ibCtx = makeRootContext(cs, inlineSizePx > 0 ? inlineSizePx : 100);
+      // Lay out at resolved inlineSize. When a parent context is in scope
+      // (the production layoutInlineContent path), use makeChildContext so
+      // the inline-block sub-layout inherits the parent's prevLayoutCache
+      // and ifcStateCache — unchanged inline-blocks can then be reused
+      // incrementally rather than re-laid out every keystroke (L-D / A6).
+      // External callers (collectTokens / rewrap-incremental) pass null
+      // and get the pre-L-D fresh-root behavior.
+      const ibResolvedInlineSize = inlineSizePx > 0 ? inlineSizePx : 100;
+      const ibCtx = parentCtx !== null
+        ? makeChildContext(parentCtx, cs, ibResolvedInlineSize, "indefinite")
+        : makeRootContext(cs, ibResolvedInlineSize);
       const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper);
       if (bfcResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
@@ -268,7 +285,10 @@ export function collectTokens(
 ): Token[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, intrinsicCache);
+  // External path (rewrap-incremental + tests): no parent context
+  // available. Inline-block sub-layout falls back to makeRootContext —
+  // the production path uses makeChildContext (see layoutInlineContent).
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, intrinsicCache, null);
   return tokens;
 }
 
@@ -315,7 +335,7 @@ export function layoutInlineContent(
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, ctx.intrinsicCache);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, ctx.intrinsicCache, ctx);
 
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
   // changed since the last layout, reuse the cached lines (no re-wrap needed).
