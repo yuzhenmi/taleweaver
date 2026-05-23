@@ -77,6 +77,18 @@ export interface InlineBox extends LayoutBoxBase {
   readonly type: "inline";
   readonly children: readonly LayoutBox[];
   readonly fragmentEdge: InlineFragmentEdge;
+  /**
+   * The InlineBox's underlying inline-ancestor render-node key — used to
+   * group fragments of the same inline element across lines for
+   * fragmentEdge resolution ("first" / "middle" / "last" / "only").
+   *
+   * Previously derived by `extractAncestorKey` from `box.key` via
+   * `lastIndexOf("-")`, but inline-ancestor render-node keys themselves
+   * commonly contain dashes (compound block IDs), so the string-derived
+   * extraction was wrong for any non-trivial document. L-C: store it
+   * explicitly to make grouping unambiguous.
+   */
+  readonly ancestorKey: string;
 }
 
 export interface InlineBlockBox extends LayoutBoxBase {
@@ -230,6 +242,7 @@ export function createInlineBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   fragmentEdge: InlineFragmentEdge,
+  ancestorKey: string,
   containingInlineSize: number,
 ): InlineBox {
   const base = createBoxBase({
@@ -241,6 +254,7 @@ export function createInlineBox(
     ...base,
     children: Object.freeze([...children]),
     fragmentEdge,
+    ancestorKey,
   });
 }
 
@@ -448,7 +462,7 @@ function rebuildBoxWithOffsets(
       return createInlineBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.fragmentEdge, containingInlineSize,
+        box.children, box.fragmentEdge, box.ancestorKey, containingInlineSize,
       );
     case "inline-block":
       return createInlineBlockBox(

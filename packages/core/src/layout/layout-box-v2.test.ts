@@ -47,7 +47,7 @@ describe("LayoutBox union narrowing", () => {
 describe("InlineBox", () => {
   it("constructs with children, fragmentEdge for first/last fragment", () => {
     const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
-    const inline = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", 50);
+    const inline = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", "ancestor-key", 50);
     expect(inline.type).toBe("inline");
     expect(inline.fragmentEdge).toBe("first");
     expect(inline.children).toHaveLength(1);
@@ -55,10 +55,10 @@ describe("InlineBox", () => {
 
   it("supports four fragmentEdge values", () => {
     const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
-    const first   = createInlineBox("a", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", 50);
-    const middle  = createInlineBox("b", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", 50);
-    const last    = createInlineBox("c", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "last", 50);
-    const only    = createInlineBox("d", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "only", 50);
+    const first   = createInlineBox("a", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", "anc", 50);
+    const middle  = createInlineBox("b", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", "anc", 50);
+    const last    = createInlineBox("c", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "last", "anc", 50);
+    const only    = createInlineBox("d", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "only", "anc", 50);
     expect([first, middle, last, only].map(b => b.fragmentEdge)).toEqual(["first", "middle", "last", "only"]);
   });
 });
@@ -213,10 +213,11 @@ describe("withBlockOffset", () => {
     if (movedTb.type !== "table") throw new Error("?");
     expect(movedTb.columnPxWidths).toEqual([200, 300]);
 
-    const inl = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", 50);
+    const inl = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", "anc-key", 50);
     const movedInl = withBlockOffset(inl, 3, 50);
     if (movedInl.type !== "inline") throw new Error("?");
     expect(movedInl.fragmentEdge).toBe("middle");
+    expect(movedInl.ancestorKey).toBe("anc-key");
   });
 });
 

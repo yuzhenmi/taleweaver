@@ -359,6 +359,53 @@ describe("IFC — fragmentEdge across lines", () => {
     if (inlineBox?.type !== "inline") throw new Error("?");
     expect(inlineBox.fragmentEdge).toBe("only");
   });
+
+  // L-C / A3 regression: pre-fix `extractAncestorKey` used
+  // `lastIndexOf("-")` on a key like
+  // `<parent>-l<i>-i<idx>-<ancestorKey>`. When `ancestorKey` itself
+  // contained dashes (compound block / render-node IDs are common —
+  // think UUIDs, hyphenated component-type-instance IDs, etc.), the
+  // string-derived extraction returned only the trailing segment of
+  // `ancestorKey`. Different fragments of the same inline element
+  // were assigned different ancestor identifiers and consequently
+  // each received `fragmentEdge: "only"` instead of "first"/"last".
+  //
+  // Post-fix: `InlineBox.ancestorKey` is stored explicitly at
+  // construction time, so dashed keys are now handled losslessly.
+  it("L-C: dashed ancestor keys group fragments correctly across lines", () => {
+    // The span's key contains MULTIPLE dashes — pre-fix the ancestor
+    // resolved to "id" (the trailing segment), so two line-fragments
+    // wouldn't be recognized as siblings; each would be "only".
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("span-with-many-dashes-in-id", { display: "inline" }, [
+          createTextBox("t", {}, "long content that wraps across at least three lines"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    // First line's inline fragment must be "first" (not "only").
+    if (lines[0].type !== "line") throw new Error("?");
+    const firstInline = lines[0].children.find(c => c.type === "inline");
+    if (firstInline?.type !== "inline") throw new Error("?");
+    expect(firstInline.fragmentEdge).toBe("first");
+    expect(firstInline.ancestorKey).toBe("span-with-many-dashes-in-id");
+
+    // Last line's inline fragment must be "last" (not "only").
+    const lastLine = lines[lines.length - 1];
+    if (lastLine.type !== "line") throw new Error("?");
+    const lastInline = lastLine.children.find(c => c.type === "inline");
+    if (lastInline?.type !== "inline") throw new Error("?");
+    expect(lastInline.fragmentEdge).toBe("last");
+    expect(lastInline.ancestorKey).toBe("span-with-many-dashes-in-id");
+  });
 });
 
 describe("IFC — verticalAlign", () => {

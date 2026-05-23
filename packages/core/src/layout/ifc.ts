@@ -1046,6 +1046,7 @@ function buildLineChildrenForAncestorLevel(
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
       cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, ancestorUsedStyle, innerChildren, "only",
+      ancestorKey, // L-C: store explicitly; do not derive from box.key
       /* containingInlineSize */ lineInlineSize,
     ));
     cursorInlineOffset += boxInlineSize;
@@ -1067,7 +1068,7 @@ function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
   lines.forEach((line, idx) => {
     if (line.type !== "line") return;
     visitInlineBoxes(line.children, (inline) => {
-      const ancestor = extractAncestorKey(inline.key);
+      const ancestor = inline.ancestorKey;
       const arr = lineIndicesByAncestor.get(ancestor) ?? [];
       if (!arr.includes(idx)) arr.push(idx);
       lineIndicesByAncestor.set(ancestor, arr);
@@ -1101,12 +1102,6 @@ function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) 
       visitInlineBoxes(c.children, visit);
     }
   }
-}
-
-/** Extract the ancestor key from an InlineBox key like "<parent>-l<i>-i<idx>-<ancestor>". */
-function extractAncestorKey(inlineBoxKey: string): string {
-  const lastDash = inlineBoxKey.lastIndexOf("-");
-  return lastDash >= 0 ? inlineBoxKey.slice(lastDash + 1) : inlineBoxKey;
 }
 
 /**
@@ -1151,7 +1146,7 @@ function correctFragmentEdge(
   lineIndicesByAncestor: Map<string, number[]>,
 ): LayoutBox {
   if (box.type !== "inline") return box;
-  const ancestor = extractAncestorKey(box.key);
+  const ancestor = box.ancestorKey;
   const indices = lineIndicesByAncestor.get(ancestor) ?? [lineIdx];
   let edge: "first" | "middle" | "last" | "only";
   if (indices.length === 1) edge = "only";
