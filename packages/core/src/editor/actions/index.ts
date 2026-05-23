@@ -21,6 +21,7 @@ export { handleSetContainerWidth } from "./set-container-width";
 export { handleSetBlockType } from "./set-block-type";
 export { handleToggleList } from "./toggle-list";
 export { handleToggleStyle } from "./toggle-style";
+export { handleSetLink } from "./set-link";
 export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";

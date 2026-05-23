@@ -40,6 +40,7 @@ import {
   handleSetBlockType,
   handleToggleList,
   handleToggleStyle,
+  handleSetLink,
   handleUndo,
   handleRedo,
   handlePaste,
@@ -182,6 +183,9 @@ export function reduceEditor(
       break;
     case "TOGGLE_STYLE":
       result = handleToggleStyle(editor, action.style, config);
+      break;
+    case "SET_LINK":
+      result = handleSetLink(editor, action.url, config);
       break;
     case "PASTE":
       result = handlePaste(editor, action.text, config);

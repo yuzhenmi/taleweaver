@@ -141,9 +141,15 @@ export function handleSetLink(
   const { selection } = editor;
   if (isCollapsed(selection)) return editor;
 
-  const result = applyAttrsToRange(editor.state, selection, {
-    link: url ?? undefined,
-  });
+  // Normalize empty string to a removal — UX rule: an empty URL
+  // isn't a meaningful link. (The HL.1 cascade interpreter does
+  // apply link styling for an empty string because it's
+  // structurally a string; rejecting empty-as-link is this
+  // handler's responsibility.)
+  const incoming = url !== null && url.length > 0
+    ? { link: url }
+    : { link: undefined };
+  const result = applyAttrsToRange(editor.state, selection, incoming);
   if (result.state === editor.state) return editor;
 
   // Selection is invariant under attribute changes; preserve the
