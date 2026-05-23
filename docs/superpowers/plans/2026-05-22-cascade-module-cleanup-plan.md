@@ -75,9 +75,9 @@ Each task ends with implementer → reviewer → commit per the standing review-
 
 | Task | Status | Commit(s) | Notes |
 |------|--------|-----------|-------|
-| C-A: Bundle small fixes (A1, A2, A4, A5, doc drift) | not started | — | All sub-10-line. TDD per fix. |
-| C-B: Unitless line-height resolution (closes #166) | not started | — | Decide: cascade-side flatten vs layout-side UsedStyle resolution. |
-| C-C: Add missing builtin interpreters (A3) | not started | — | Per attr: needs component-side audit before adding |
+| C-A: Bundle small fixes (A1, A2, A4, A5, doc drift) | ✅ done | `c97e8fb` | All five fixes landed. flatten-lengths now resolves letterSpacing/wordSpacing/textIndent (silent miscompute closed); COMPUTED_STYLE_KEYS derived from PROPERTY_META (drift hazard closed); composeComputed type-truth fix; textDecoration:inherits:false per CSS L3 (underline-removal now works); doc drift fixed. +9 tests. Reviewer approved on first pass — all 20 checklist items PASS. |
+| C-B: Unitless line-height resolution (closes #166) | ✅ done | `bd26dc1` | Spec at `2026-05-23-line-height-disambiguation-design.md`. Decisions Q1=C/Q2=C.3/Q3=fix recorded. Cascade restricts input vocabulary (unitless + em-as-ratio + percent; px unsupported); layout resolves at used-style time (unitless × fontSize; percent against own fontSize). +8 tests. Reviewer approved first pass. Closes #166. |
+| C-C: Add missing builtin interpreters (A3) | ✅ done | `8f3dba4` | 5 of 7 audit-flagged interpreters added (textAlign, lineHeight, textIndent, letterSpacing, wordSpacing). 2 (listStyleType, headingLevel) confirmed as component-set per convention; documented in builtin-attrs.ts JSDoc + 1.3-cascade.md so future audits don't re-flag them. +22 tests. Reviewer approved first pass. |
 | C-D: Cross-cutting parent-style coherence (C1) | deferred | — | No current consumer; revisit when context-sensitive interpreter lands |
 
 ## References
