@@ -697,4 +697,25 @@ describe("BFC — float rises to nearest BFC", () => {
     // The flow-root container should be at least 50px tall (encloses the float).
     expect(out.blockSize).toBeGreaterThanOrEqual(50);
   });
+
+  // L-F / A7 regression: explicit `inlineSize: 0` MUST produce a
+  // zero-width box, not fall back to containing inline size. Pre-fix,
+  // `resolveBoxInlineSize`'s `resolved > 0 ? resolved : containingInlineSize`
+  // turned 0 into the container's full width (effectively `auto`).
+  it("A7: explicit inlineSize: 0 produces a zero-width box", () => {
+    const block = createElementBox("zero", { display: "block", inlineSize: 0 }, []);
+    const para = createElementBox("p", { display: "block" }, [block]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    const inner = out.children.find((c) => c.type === "block" && c.key === "zero");
+    expect(inner).toBeDefined();
+    if (inner?.type === "block") {
+      // Pre-fix: this would be 500 (container width). Post-fix: 0.
+      expect(inner.width).toBe(0);
+    }
+  });
 });

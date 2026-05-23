@@ -117,4 +117,64 @@ describe("computeIntrinsicSizes", () => {
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
     expect(result).toEqual({ minContent: 0, maxContent: 0 });
   });
+
+  // L-F / C3 regression: mixed block + inline children are NOT all
+  // summed inline-style. Anonymous-block wrapping groups consecutive
+  // inline children into runs, and the container's max-content is the
+  // MAX over (real block children) AND (anonymous-block runs), not the
+  // sum across all of them.
+  it("C3: mixed block + inline children uses anonymous-block runs (max, not sum)", () => {
+    // Layout:
+    //   block (doc) {
+    //     inline "abc" (max=30)       ← inline run #1 (one item)
+    //     block "abcdefghij" (max=100)
+    //     inline "de" (max=20)        ← inline run #2 (one item)
+    //   }
+    // Pre-fix (some + sum-across-all): max = 30 + 100 + 20 = 150 (WRONG).
+    // Post-fix (anonymous-block runs):
+    //   - run #1 max = 30
+    //   - real block max = 100
+    //   - run #2 max = 20
+    //   container max = max(30, 100, 20) = 100 (CORRECT).
+    const inline1 = createTextBox("t1", { display: "inline" }, "abc");
+    const blockChild = createElementBox(
+      "b",
+      { display: "block" },
+      [createTextBox("tb", { display: "inline" }, "abcdefghij")],
+    );
+    const inline2 = createTextBox("t2", { display: "inline" }, "de");
+    const doc = createElementBox(
+      "doc",
+      { display: "block" },
+      [inline1, blockChild, inline2],
+    );
+    const cascaded = cascadePass(doc);
+    const cache = createIntrinsicSizesCache();
+    const result = computeIntrinsicSizes(cascaded, shaper, cache);
+    expect(result.maxContent).toBe(100);
+    expect(result.minContent).toBe(10);
+  });
+
+  it("C3: consecutive inline siblings within one anonymous-block run sum (no wrap at max-content)", () => {
+    // Two inline children in a row form one anonymous-block run; their
+    // max-content sums (no wrap at max-content).
+    const t1 = createTextBox("t1", { display: "inline" }, "abc"); // max=30
+    const t2 = createTextBox("t2", { display: "inline" }, "de");  // max=20
+    const blockChild = createElementBox(
+      "b",
+      { display: "block" },
+      [createTextBox("tb", { display: "inline" }, "x")],
+    ); // max=10
+    const doc = createElementBox(
+      "doc",
+      { display: "block" },
+      [t1, t2, blockChild], // [run(t1+t2), block]
+    );
+    const cascaded = cascadePass(doc);
+    const cache = createIntrinsicSizesCache();
+    const result = computeIntrinsicSizes(cascaded, shaper, cache);
+    // Run #1 max = 30 + 20 = 50; block max = 10. Container max = 50.
+    expect(result.maxContent).toBe(50);
+    expect(result.minContent).toBe(10);
+  });
 });

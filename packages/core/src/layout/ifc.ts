@@ -165,8 +165,38 @@ function collectInlineTokens(
         }
 
         // Find part in fullText starting at cursor (handles collapsed whitespace).
+        //
+        // L-F / A4: if `indexOf` fails (the tokenizer collapsed whitespace
+        // in a way that no source substring matches `part` from `cursor`),
+        // we fall back to `cursor` as a best-effort source position. The
+        // resulting `matchStart` / `matchEnd` advance by token length,
+        // which under collapsing whitespace can diverge from the true
+        // source advance — making downstream `widthOfRange` / cluster-
+        // width lookups reference the wrong source positions. The bug is
+        // dormant for default `white-space: normal` (one collapsed space
+        // is a one-char part, position-stable) but activates on `pre-wrap`
+        // where multiple consecutive whitespace chars survive as multi-
+        // char source ranges that don't equal the token's collapsed form.
+        //
+        // For now: surface a dev-mode warning so the bug becomes visible
+        // if it ever fires in production. A proper fix requires teaching
+        // the tokenizer to preserve source positions (or threading them
+        // through), which is out of scope for this fix bundle.
         let matchStart = fullText.indexOf(part, cursor);
-        if (matchStart === -1) matchStart = cursor;
+        if (matchStart === -1) {
+          const g = globalThis as {
+            process?: { env?: { NODE_ENV?: string } };
+            console?: { warn(...args: unknown[]): void };
+          };
+          if (g.process?.env?.NODE_ENV !== "production" && g.console !== undefined) {
+            g.console.warn(
+              `[layout/ifc] collectTokens: indexOf("${part}", ${cursor}) failed in fullText="${fullText.slice(0, 64)}..."; ` +
+                `falling back to cursor — widthOfRange may be inaccurate. ` +
+                `If white-space: pre-wrap is active, this indicates a tokenizer/source-position drift bug.`,
+            );
+          }
+          matchStart = cursor;
+        }
         const matchEnd = matchStart + part.length;
 
         const width = widthOfRange(matchStart, matchEnd);

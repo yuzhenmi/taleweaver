@@ -74,38 +74,59 @@ function computeBlockIntrinsicSizes(
   shaper: TextShaper,
   cache: IntrinsicSizesCache,
 ): IntrinsicSizes {
-  // Determine whether children are inline (text, inline, inline-block) or block.
-  const hasInlineChildren = node.children.some(
-    (c) =>
-      c.type === "text" ||
-      (c.type === "element" &&
-        (c.computedStyle?.display === "inline" ||
-          c.computedStyle?.display === "inline-block")),
-  );
+  // L-F / C3: per CSS Sizing 3 §5.2 (max-content of a block container),
+  // a block container with mixed block + inline children performs
+  // anonymous-block wrapping: each consecutive run of inline children
+  // becomes one anonymous block. Container's max-content is then the
+  // max over (real block children's max-content) AND (each
+  // anonymous-block run's max-content). Within a run, max-content =
+  // sum of inline children's max-content (one line, no wrap).
+  //
+  // The previous heuristic used `.some()` to detect any inline child,
+  // then iterated ALL children with inline accumulation — summing
+  // block children's max-content into the run. For a doc element
+  // with one inline child and ten block children, the inflated
+  // max-content was max(over all 11) plus the sum-as-if-inline, which
+  // can be much larger than the correct value.
+  let containerMin = 0;
+  let containerMax = 0;
+  let runMin = 0;
+  let runMax = 0;
+  let runActive = false;
 
-  if (hasInlineChildren) {
-    // Inline aggregation across all inline children:
-    // minContent = max over children of child.min
-    // maxContent = sum of child.max (no wrapping at max-content)
-    let min = 0;
-    let sum = 0;
-    for (const child of node.children) {
-      const c = computeIntrinsicSizes(child, shaper, cache);
-      if (c.minContent > min) min = c.minContent;
-      sum += c.maxContent;
-    }
-    return { minContent: min, maxContent: sum };
-  }
+  const flushRun = (): void => {
+    if (!runActive) return;
+    if (runMin > containerMin) containerMin = runMin;
+    if (runMax > containerMax) containerMax = runMax;
+    runActive = false;
+    runMin = 0;
+    runMax = 0;
+  };
 
-  // Pure block aggregation: max-over-children for both min and max.
-  let min = 0;
-  let max = 0;
   for (const child of node.children) {
+    const isInline =
+      child.type === "text" ||
+      (child.type === "element" &&
+        (child.computedStyle?.display === "inline" ||
+          child.computedStyle?.display === "inline-block"));
     const c = computeIntrinsicSizes(child, shaper, cache);
-    if (c.minContent > min) min = c.minContent;
-    if (c.maxContent > max) max = c.maxContent;
+    if (isInline) {
+      if (!runActive) {
+        runActive = true;
+        runMin = 0;
+        runMax = 0;
+      }
+      if (c.minContent > runMin) runMin = c.minContent;
+      runMax += c.maxContent; // sum within a run (no wrap at max-content)
+    } else {
+      flushRun();
+      if (c.minContent > containerMin) containerMin = c.minContent;
+      if (c.maxContent > containerMax) containerMax = c.maxContent;
+    }
   }
-  return { minContent: min, maxContent: max };
+  flushRun();
+
+  return { minContent: containerMin, maxContent: containerMax };
 }
 
 function computeInlineIntrinsicSizes(

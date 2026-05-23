@@ -553,9 +553,16 @@ export function layoutBlock(
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
       childBlockOffset = preAdvanceBlockOffset;
       prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
-      // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed)
+      // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed).
+      //
+      // L-F / A7 followup: use placedChild.inlineSize (the resolved
+      // inline size, including explicit 0) instead of contentInlineSize
+      // (the parent's content width). Pre-fix, this branch silently
+      // re-widened an explicit inlineSize: 0 to the parent's full
+      // content width, defeating the same intentional-zero authoring
+      // that the resolveBoxInlineSize fix protects.
       layoutChildren.push(
-        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, contentInlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
+        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
         ),
@@ -648,8 +655,15 @@ function resolveBoxInlineSize(
     return containingInlineSize; // fill
   }
   // ComputedLength (number or percent)
+  //
+  // L-F / A7: only NEGATIVE resolved values fall back to containing
+  // inline size. Zero is a valid CSS value — e.g., a collapsed column
+  // header, a zero-width spacer, or an explicitly hidden inline box.
+  // The previous `resolved > 0` check silently turned `inlineSize: 0`
+  // into `inlineSize: auto` (full-width), defeating intentional zero-
+  // size authoring.
   const resolved = resolveUsedLength(v, containingInlineSize, containingInlineSize);
-  return resolved > 0 ? resolved : containingInlineSize;
+  return resolved < 0 ? containingInlineSize : resolved;
 }
 
 /**
