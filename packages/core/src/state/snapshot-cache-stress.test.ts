@@ -4,6 +4,7 @@ import { getBlocksMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
 import { setBlockAttrs } from "./set-block-attrs";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("snapshot cache (stress)", () => {
   it("reuses cached snapshots for unchanged blocks after a single-block mutation", () => {
@@ -11,7 +12,7 @@ describe("snapshot cache (stress)", () => {
     // Seed 100 sibling blocks under root.
     let prevId: BlockId | null = null;
     applyOperation(state, () => {
-      const yBlocks = getBlocksMap(state.doc);
+      const yBlocks = getBlocksMap(state[STATE_INTERNAL].doc);
       yBlocks.set(
         "root",
         buildYBlock({

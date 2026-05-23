@@ -2,9 +2,8 @@ import type { TextItem, EmbedItem, InlineContent } from "../state/inline-content
 import type { ReadonlyAttrs } from "../state/attrs";
 import type { BlockId } from "../state/block-id";
 import type { Block } from "../state/block";
-import { createState, type State } from "../state/state";
-import { runTransaction, getBlocksMap, getEmbedContentsMap } from "../state/yjs-doc";
-import { buildYBlock } from "../state/y-block";
+import type { State } from "../state/state";
+import { buildStateFromBlocks } from "../state/build-state-from-blocks";
 
 const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
 
@@ -72,48 +71,18 @@ export function buildBlock(args: {
  * main-tree blocks so the "only root has null parentId" invariant
  * holds for state.blocks. Embed-content blocks typically have parentId
  * === null (no parent — they're referenced via EmbedItem.properties.contentBlockId).
+ *
+ * Delegates to `buildStateFromBlocks` (state-module-internal); the
+ * indirection is what keeps the Y.Doc-direct writes inside `state/`.
  */
 export function buildState(args: {
   rootId: string;
   blocks: ReadonlyArray<Block>;
   embedContents?: ReadonlyArray<Block>;
 }): State {
-  const state = createState({ rootId: args.rootId as BlockId });
-  runTransaction(state.doc, () => {
-    const yBlocks = getBlocksMap(state.doc);
-    for (const block of args.blocks) {
-      yBlocks.set(
-        block.id,
-        buildYBlock({
-          type: block.type,
-          attrs: block.attrs,
-          parentId: block.parentId,
-          prevSiblingId: block.prevSiblingId,
-          nextSiblingId: block.nextSiblingId,
-          firstChildId: block.firstChildId,
-          lastChildId: block.lastChildId,
-          inlineContent: block.inlineContent,
-        }),
-      );
-    }
-    if (args.embedContents !== undefined) {
-      const yEmbeds = getEmbedContentsMap(state.doc);
-      for (const block of args.embedContents) {
-        yEmbeds.set(
-          block.id,
-          buildYBlock({
-            type: block.type,
-            attrs: block.attrs,
-            parentId: block.parentId,
-            prevSiblingId: block.prevSiblingId,
-            nextSiblingId: block.nextSiblingId,
-            firstChildId: block.firstChildId,
-            lastChildId: block.lastChildId,
-            inlineContent: block.inlineContent,
-          }),
-        );
-      }
-    }
+  return buildStateFromBlocks({
+    rootId: args.rootId as BlockId,
+    blocks: args.blocks,
+    embedContents: args.embedContents,
   });
-  return state;
 }

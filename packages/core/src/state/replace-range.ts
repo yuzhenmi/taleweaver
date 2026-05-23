@@ -6,6 +6,7 @@ import type { ReadonlyAttrs } from "./attrs";
 import { normalizeSpan } from "./span-iteration";
 import { deleteRangeInTx, planDeleteRange } from "./delete-range";
 import { insertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Replace the inline content within a Span with the given text + attrs.
@@ -157,7 +158,7 @@ export function replaceRange(
       return { state, dirtyIds: new Set<BlockId>() };
     }
     return applyOperation(state, () => {
-      deleteRangeInTx(state.doc, deletePlan);
+      deleteRangeInTx(state[STATE_INTERNAL].doc, deletePlan);
     });
   }
 
@@ -195,7 +196,8 @@ export function replaceRange(
   );
 
   return applyOperation(state, () => {
-    deleteRangeInTx(state.doc, deletePlan);
-    insertTextInTx(state.doc, insertPlan);
+    const doc = state[STATE_INTERNAL].doc;
+    deleteRangeInTx(doc, deletePlan);
+    insertTextInTx(doc, insertPlan);
   });
 }

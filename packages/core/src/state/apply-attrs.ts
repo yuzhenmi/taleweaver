@@ -9,6 +9,7 @@ import { iterateSpan } from "./span-iteration";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "./y-block";
 import { yMapAsObject, mergeAdjacentSameAttrsTextItems } from "./y-utils";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -79,7 +80,7 @@ export function applyAttrsToRange(
   return applyOperation(state, () => {
     for (const seg of segments) {
       if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-      const yBlock = getYBlock(state.doc, seg.block.id, "applyAttrsToRange");
+      const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange");
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves
       applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);

@@ -4,12 +4,13 @@ import { getBlocksMap, runTransaction } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import { setBlockAttrs } from "./set-block-attrs";
 import type { BlockId } from "./block-id";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("perf benchmark (smoke)", () => {
   it("setBlockAttrs on a 10k-block document completes under 50ms", () => {
     const state = createState({ rootId: "root" as BlockId });
-    runTransaction(state.doc, () => {
-      const yBlocks = getBlocksMap(state.doc);
+    runTransaction(state[STATE_INTERNAL].doc, () => {
+      const yBlocks = getBlocksMap(state[STATE_INTERNAL].doc);
       yBlocks.set(
         "root",
         buildYBlock({
@@ -50,8 +51,8 @@ describe("perf benchmark (smoke)", () => {
 
   it("getBlock on cached snapshot is sub-millisecond", () => {
     const state = createState({ rootId: "root" as BlockId });
-    runTransaction(state.doc, () => {
-      getBlocksMap(state.doc).set(
+    runTransaction(state[STATE_INTERNAL].doc, () => {
+      getBlocksMap(state[STATE_INTERNAL].doc).set(
         "root",
         buildYBlock({
           type: "document",

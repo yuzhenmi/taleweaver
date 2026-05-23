@@ -3,11 +3,12 @@ import * as Y from "yjs";
 import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { createState, getBlock } from "./state";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("yjs-encoding", () => {
   it("round-trips a single-paragraph document via update bytes", () => {
     const original = createEmptyDocument();
-    const update = Y.encodeStateAsUpdate(original.doc);
+    const update = Y.encodeStateAsUpdate(original[STATE_INTERNAL].doc);
 
     const restoredDoc = new Y.Doc();
     Y.applyUpdate(restoredDoc, update);
@@ -24,7 +25,7 @@ describe("yjs-encoding", () => {
     const child = getBlock(state, getBlock(state, state.rootId)!.firstChildId!)!;
     state = setBlockAttrs(state, child.id, { bold: true }).state;
 
-    const update = Y.encodeStateAsUpdate(state.doc);
+    const update = Y.encodeStateAsUpdate(state[STATE_INTERNAL].doc);
     const restoredDoc = new Y.Doc();
     Y.applyUpdate(restoredDoc, update);
     const restored = createState({ rootId: state.rootId, doc: restoredDoc });

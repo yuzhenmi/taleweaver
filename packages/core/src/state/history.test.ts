@@ -8,6 +8,7 @@ import { getBlock } from "./state";
 import { getMetaMap } from "./yjs-doc";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -252,14 +253,14 @@ describe("history (Y.UndoManager wrapper)", () => {
 
     // Directly write to the meta map — intentionally NOT tracked by the
     // UndoManager (see History docstring + getMetaMap docstring).
-    getMetaMap(state0.doc).set("foo", "bar");
-    expect(getMetaMap(state0.doc).get("foo")).toBe("bar");
+    getMetaMap(state0[STATE_INTERNAL].doc).set("foo", "bar");
+    expect(getMetaMap(state0[STATE_INTERNAL].doc).get("foo")).toBe("bar");
 
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
     expect(getBlock(undone.state, child.id)?.attrs.bold).toBeUndefined();
-    expect(getMetaMap(state0.doc).get("foo")).toBe("bar");
+    expect(getMetaMap(state0[STATE_INTERNAL].doc).get("foo")).toBe("bar");
   });
 
   it("a new commit after undo clears the redo stack", () => {

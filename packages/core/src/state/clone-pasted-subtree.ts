@@ -4,6 +4,7 @@ import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoIdCollision } from "./id-collision-check";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained
@@ -90,12 +91,12 @@ export function clonePastedSubtree(
   const idMap = new Map<BlockId, BlockId>();
   for (const oldId of treeIds) {
     const newId = allocator.allocate();
-    assertNoIdCollision(sourceState.doc, newId, "clonePastedSubtree");
+    assertNoIdCollision(sourceState[STATE_INTERNAL].doc, newId, "clonePastedSubtree");
     idMap.set(oldId, newId);
   }
   for (const oldId of embedContentIds) {
     const newId = allocator.allocate();
-    assertNoIdCollision(sourceState.doc, newId, "clonePastedSubtree");
+    assertNoIdCollision(sourceState[STATE_INTERNAL].doc, newId, "clonePastedSubtree");
     idMap.set(oldId, newId);
   }
 

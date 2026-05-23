@@ -4,6 +4,7 @@ import { getBlock, getEmbedContent } from "./state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("replaceRange — basic single-block replacement", () => {
   // doc > [p("hello world")]
@@ -231,7 +232,7 @@ describe("replaceRange — cross-block coverage", () => {
     // This simulates the absence of deleteRange's incidental cache
     // population for the focus, isolating replaceRange's own ordering
     // requirement.
-    const blocksMap = state.snapshotCache.blocks;
+    const blocksMap = state[STATE_INTERNAL].snapshotCache.blocks;
     blocksMap.delete(focusBlockId);
     const originalSet = blocksMap.set.bind(blocksMap);
     blocksMap.set = function (id, snap) {
@@ -527,12 +528,12 @@ describe("replaceRange — atomicity (T12)", () => {
     const listener = () => {
       transactionCount += 1;
     };
-    state.doc.on("afterTransaction", listener);
+    state[STATE_INTERNAL].doc.on("afterTransaction", listener);
     try {
       const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
       replaceRange(state, span, "FOO", {});
     } finally {
-      state.doc.off("afterTransaction", listener);
+      state[STATE_INTERNAL].doc.off("afterTransaction", listener);
     }
 
     expect(transactionCount).toBe(1);
@@ -556,12 +557,12 @@ describe("replaceRange — atomicity (T12)", () => {
     const listener = () => {
       transactionCount += 1;
     };
-    state.doc.on("afterTransaction", listener);
+    state[STATE_INTERNAL].doc.on("afterTransaction", listener);
     try {
       const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
       replaceRange(state, span, "FOO", {});
     } finally {
-      state.doc.off("afterTransaction", listener);
+      state[STATE_INTERNAL].doc.off("afterTransaction", listener);
     }
 
     expect(transactionCount).toBe(1);

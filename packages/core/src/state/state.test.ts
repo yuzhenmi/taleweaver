@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { createState, getBlock, applyOperation, freshState, getBlockFromEither } from "./state";
+import {
+  createState,
+  getBlock,
+  applyOperation,
+  freshState,
+  getBlockFromEither,
+  getEmbedContentIds,
+} from "./state";
+import { createEmptyDocument } from "./initial-state";
 import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
@@ -9,6 +17,7 @@ import { applyAttrsToRange } from "./apply-attrs";
 import { deleteRange } from "./delete-range";
 import { replaceRange } from "./replace-range";
 import { createPosition, createSpan } from "./block-position";
+import { STATE_INTERNAL } from "./state-internal";
 
 describe("state", () => {
   it("createState produces a State with a Y.Doc-backed root", () => {
@@ -23,8 +32,8 @@ describe("state", () => {
 
   it("getBlock returns a frozen Block snapshot for known ids", () => {
     const state = createState({ rootId: "root" as BlockId });
-    runTransaction(state.doc, () => {
-      const blocks = getBlocksMap(state.doc);
+    runTransaction(state[STATE_INTERNAL].doc, () => {
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
       blocks.set("root", buildYBlock({
         type: "document",
         attrs: {},
@@ -44,7 +53,7 @@ describe("state", () => {
 
   it("rootId is read from meta map", () => {
     const state = createState({ rootId: "root-99" as BlockId });
-    expect(getMetaMap(state.doc).get("rootId")).toBe("root-99");
+    expect(getMetaMap(state[STATE_INTERNAL].doc).get("rootId")).toBe("root-99");
   });
 });
 
@@ -52,7 +61,7 @@ describe("applyOperation", () => {
   it("runs fn in a transaction and returns OperationResult with dirtyIds", () => {
     const state = createState({ rootId: "root" as BlockId });
     const result = applyOperation(state, () => {
-      const blocks = getBlocksMap(state.doc);
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
       blocks.set("p1", buildYBlock({
         type: "paragraph",
         attrs: {},
@@ -71,7 +80,7 @@ describe("applyOperation", () => {
   it("produces a State with a fresh SnapshotCache (snapshots reflect post-mutation state)", () => {
     const state = createState({ rootId: "root" as BlockId });
     applyOperation(state, () => {
-      const blocks = getBlocksMap(state.doc);
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
       blocks.set("p1", buildYBlock({
         type: "paragraph",
         attrs: {},
@@ -84,7 +93,7 @@ describe("applyOperation", () => {
       }));
     });
     const result = applyOperation(state, () => {
-      const blocks = getBlocksMap(state.doc);
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
       const yBlock = blocks.get("p1")!;
       yBlock.set("type", "heading");
     });
@@ -94,9 +103,9 @@ describe("applyOperation", () => {
   it("freshState returns a State referencing the same Y.Doc with a clean cache", () => {
     const state = createState({ rootId: "root" as BlockId });
     const next = freshState(state);
-    expect(next.doc).toBe(state.doc);
+    expect(next[STATE_INTERNAL].doc).toBe(state[STATE_INTERNAL].doc);
     expect(next.rootId).toBe(state.rootId);
-    expect(next.snapshotCache).not.toBe(state.snapshotCache);
+    expect(next[STATE_INTERNAL].snapshotCache).not.toBe(state[STATE_INTERNAL].snapshotCache);
   });
 
   it("returns the input state reference unchanged when the transaction is a no-op", () => {
@@ -115,7 +124,7 @@ describe("applyOperation", () => {
   it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
     const state = createState({ rootId: "root" as BlockId });
     applyOperation(state, () => {
-      const blocks = getBlocksMap(state.doc);
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
       blocks.set("root", buildYBlock({
         type: "document",
         attrs: {},
@@ -142,7 +151,7 @@ describe("applyOperation", () => {
     const p1Before = getBlock(state, "p1" as BlockId);
     // Run an op that only touches p1.
     const result = applyOperation(state, () => {
-      const yP1 = getBlocksMap(state.doc).get("p1")!;
+      const yP1 = getBlocksMap(state[STATE_INTERNAL].doc).get("p1")!;
       yP1.set("type", "heading");
     });
     // root is unchanged → identity preserved.
@@ -268,5 +277,34 @@ describe("getBlockFromEither", () => {
     });
     const block = getBlockFromEither(state, "dup-id" as BlockId);
     expect(block?.type).toBe("paragraph");
+  });
+});
+
+describe("getEmbedContentIds", () => {
+  it("yields all embed-content block ids", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      embedContents: [
+        buildBlock({
+          id: "fn-1",
+          type: "paragraph",
+          inlineContent: inlineContent([text("first")]),
+        }),
+        buildBlock({
+          id: "fn-2",
+          type: "paragraph",
+          inlineContent: inlineContent([text("second")]),
+        }),
+      ],
+    });
+    const ids = Array.from(getEmbedContentIds(state));
+    // Order matches Y.Map insertion order; both ids must be present.
+    expect(ids.sort()).toEqual(["fn-1", "fn-2"]);
+  });
+
+  it("yields nothing when no embed contents exist", () => {
+    const state = createEmptyDocument();
+    expect(Array.from(getEmbedContentIds(state))).toEqual([]);
   });
 });

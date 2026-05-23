@@ -3,6 +3,7 @@ import { getBlock, type State } from "./state";
 import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 import { getBlocksMap } from "./yjs-doc";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Compare two blocks in document order.
@@ -128,7 +129,7 @@ export function selectionContextOf(state: State, blockId: BlockId): BlockId | nu
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts
   // for the rationale on why this uses main-tree size only (not embedContents).
-  const maxSteps = getBlocksMap(state.doc).size + 1;
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (cursor.parentId) {
     if (++steps > maxSteps) {

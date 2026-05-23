@@ -1,8 +1,7 @@
 import type { Block } from "../state/block";
 import type { BlockId } from "../state/block-id";
 import type { State } from "../state/state";
-import { getBlock, getEmbedContent } from "../state/state";
-import { getEmbedContentsMap } from "../state/yjs-doc";
+import { getBlock, getEmbedContent, getEmbedContentIds } from "../state/state";
 import type { ReadonlyAttrs } from "../state/attrs";
 import type { InlineContent } from "../state/inline-content";
 import type { Style, ComputedStyle } from "../styles";
@@ -69,9 +68,8 @@ export function render(
   }
   const root = renderBlock(rootBlock, null, state, componentRegistry, attrRegistry, context, visited);
   const embedContents = new Map<BlockId, RenderNode>();
-  const yEmbeds = getEmbedContentsMap(state.doc);
-  for (const id of yEmbeds.keys()) {
-    const block = getEmbedContent(state, id as BlockId);
+  for (const id of getEmbedContentIds(state)) {
+    const block = getEmbedContent(state, id);
     if (block === null) continue; // shouldn't happen since we just enumerated the map
     // Each embed-content block renders as a fresh subtree with no parent
     // computed style (uses initial). Independent cascade context.
@@ -83,7 +81,7 @@ export function render(
     // imply cycles when the two trees are independent).
     const visitedEmbed = new Set<BlockId>();
     embedContents.set(
-      id as BlockId,
+      id,
       renderBlock(block, null, state, componentRegistry, attrRegistry, context, visitedEmbed),
     );
   }

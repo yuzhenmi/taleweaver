@@ -69,8 +69,8 @@ Each task ends with the standing review-until-clean discipline (per `feedback_re
 
 | Task | Status | Commit(s) | Notes |
 |------|--------|-----------|-------|
-| T-A: Architecture doc rewrite | not started | — | Zero code; just docs/architecture/1-core/1.1-state.md |
-| T-B: Privatize State.doc | not started | — | Cross-module impact: render.ts, test-utils/state-builders.ts |
+| T-A: Architecture doc rewrite | ✅ done | `bafbef3` | 1.1-state.md rewrite + 1-core/overview.md + overview.md coherence pass; added `WritingMode` to root barrel (was missing). Three reviewer passes, all clean. |
+| T-B: Privatize State.doc | ✅ done | (this commit) | STATE_INTERNAL symbol introduced; render.ts uses new `getEmbedContentIds` accessor; test-utils delegates to new state-module-internal `buildStateFromBlocks`; encapsulation breach closed and asserted by compile-time test. |
 | T-C: AttrRegistry into attrsEqual + merges | not started | — | New test for plugin-equality scenario |
 | T-D: blockKindOf → component registry | not started | — | Need to design kind-registration interface |
 | T-E: Extract shared delete-range guard | not started | — | Pure refactor |

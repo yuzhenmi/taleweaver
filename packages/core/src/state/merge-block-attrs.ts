@@ -5,6 +5,7 @@ import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual, mergeAttrs } from "./attrs";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs } from "./y-block";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Merge attrs into a block's existing attrs.
@@ -38,7 +39,7 @@ export function mergeBlockAttrs(
     if (attrsEqual(block.attrs, merged)) {
       return;
     }
-    const yBlock = getYBlock(state.doc, blockId, "mergeBlockAttrs");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "mergeBlockAttrs");
     yBlock.set("attrs", buildYAttrs(merged));
   });
 }

@@ -3,6 +3,7 @@ import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Remove a block (and its entire subtree) from the document tree.
@@ -68,7 +69,8 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
   }
 
   return applyOperation(state, () => {
-    const yBlocks = getBlocksMap(state.doc);
+    const doc = state[STATE_INTERNAL].doc;
+    const yBlocks = getBlocksMap(doc);
 
     // Collect every id in the subtree (the block + all descendants).
     // Cycle-defended via the visited set itself.
@@ -88,14 +90,14 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
         embedContentIdsToDelete,
       );
     }
-    const yEmbeds = getEmbedContentsMap(state.doc);
+    const yEmbeds = getEmbedContentsMap(doc);
     for (const id of embedContentIdsToDelete) {
       yEmbeds.delete(id);
     }
 
     // Relink prev sibling's nextSiblingId → block's nextSiblingId.
     if (block.prevSiblingId !== null) {
-      getYBlock(state.doc, block.prevSiblingId, "removeBlock").set(
+      getYBlock(doc, block.prevSiblingId, "removeBlock").set(
         "nextSiblingId",
         block.nextSiblingId,
       );
@@ -103,7 +105,7 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
 
     // Relink next sibling's prevSiblingId → block's prevSiblingId.
     if (block.nextSiblingId !== null) {
-      getYBlock(state.doc, block.nextSiblingId, "removeBlock").set(
+      getYBlock(doc, block.nextSiblingId, "removeBlock").set(
         "prevSiblingId",
         block.prevSiblingId,
       );
@@ -114,7 +116,7 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     // middle-child removal test). Yjs's same-value `.set` happens to
     // fire change events too, but we don't want the contract coupled
     // to that internal Yjs detail.
-    const yParent = getYBlock(state.doc, parentId, "removeBlock");
+    const yParent = getYBlock(doc, parentId, "removeBlock");
     const newFirstChildId =
       yParent.get("firstChildId") === blockId ? block.nextSiblingId : yParent.get("firstChildId");
     const newLastChildId =

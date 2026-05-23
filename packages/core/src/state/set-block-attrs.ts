@@ -4,6 +4,7 @@ import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs } from "./y-block";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Replace a block's attrs with the given bag. Returns the new state and
@@ -21,7 +22,7 @@ export function setBlockAttrs(
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
   return applyOperation(state, () => {
-    const yBlock = getYBlock(state.doc, blockId, "setBlockAttrs");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs");
     yBlock.set("attrs", buildYAttrs(attrs));
   });
 }

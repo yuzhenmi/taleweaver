@@ -466,7 +466,7 @@ describe("splitBlockAtPosition — block-level invariants", () => {
     expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
     expect(beforeP?.nextSiblingId).toBeNull();
     // Reading via the pre-op state handle still sees the pre-op snapshots
-    // (cached on state.snapshotCache, untouched by applyOperation).
+    // (cached on the input state's snapshot cache, untouched by applyOperation).
     expect(getBlock(state, "p" as BlockId)).toBe(beforeP);
     expect(getBlock(state, "doc" as BlockId)).toBe(beforeDoc);
     // The post-op state sees the new block.

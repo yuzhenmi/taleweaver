@@ -6,6 +6,7 @@ import type { InlineContent } from "./inline-content";
 import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import { assertNoIdCollision } from "./id-collision-check";
+import { STATE_INTERNAL } from "./state-internal";
 
 export interface InsertBlockArgs {
   type: string;
@@ -68,14 +69,15 @@ export function insertBlock(
   const newId = allocator.allocate();
 
   return applyOperation(state, () => {
+    const doc = state[STATE_INTERNAL].doc;
     // Dev-mode defense against allocator id collision (test allocators with
     // counter-based ids can collide with seeded state; production
     // crypto.randomUUID effectively cannot). Without this, Y.Map.set below
     // would silently overwrite the existing block of the same id.
-    assertNoIdCollision(state.doc, newId, "insertBlock");
+    assertNoIdCollision(doc, newId, "insertBlock");
 
     // Add the new block to the blocks map with full linkage.
-    getBlocksMap(state.doc).set(
+    getBlocksMap(doc).set(
       newId,
       buildYBlock({
         type: args.type,
@@ -91,13 +93,13 @@ export function insertBlock(
 
     // Update prev sibling's nextSiblingId (if any) to point at the new block.
     if (prevSiblingId !== null) {
-      const yPrev = getYBlock(state.doc, prevSiblingId, "insertBlock");
+      const yPrev = getYBlock(doc, prevSiblingId, "insertBlock");
       yPrev.set("nextSiblingId", newId);
     }
 
     // Update next sibling's prevSiblingId (if any) to point at the new block.
     if (nextSiblingId !== null) {
-      const yNext = getYBlock(state.doc, nextSiblingId, "insertBlock");
+      const yNext = getYBlock(doc, nextSiblingId, "insertBlock");
       yNext.set("prevSiblingId", newId);
     }
 
@@ -105,7 +107,7 @@ export function insertBlock(
     // boundary. Writing same-value to a Y.Map still fires a change event, which would
     // cause the parent to land in dirtyIds and trigger an unnecessary re-paint.
     if (prevSiblingId === null || nextSiblingId === null) {
-      const yParent = getYBlock(state.doc, parentId, "insertBlock");
+      const yParent = getYBlock(doc, parentId, "insertBlock");
       if (prevSiblingId === null) {
         yParent.set("firstChildId", newId);
       }

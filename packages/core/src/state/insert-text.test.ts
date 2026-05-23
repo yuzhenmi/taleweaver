@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { insertText } from "./insert-text";
 import { getBlock } from "./state";
 import { getYBlock } from "./yjs-doc";
+import { STATE_INTERNAL } from "./state-internal";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition } from "./block-position";
 import type { BlockId } from "./block-id";
@@ -347,7 +348,7 @@ describe("insertText — Y.Text identity preservation (in-place mutation)", () =
   // via yText.insert(...). This preserves per-character CRDT identity across
   // edits — what Yjs is for.
   const getYTextAt = (state: ReturnType<typeof buildState>, blockId: BlockId, itemIndex: number): Y.Text => {
-    const yBlock = getYBlock(state.doc, blockId, "test");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "test");
     const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
     const yItem = yItems.get(itemIndex);
     return yItem.get("text") as Y.Text;

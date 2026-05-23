@@ -1,13 +1,19 @@
 import * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import { createYDoc, getMetaMap, runTransaction } from "./yjs-doc";
+import {
+  createYDoc,
+  getMetaMap,
+  runTransaction,
+  getEmbedContentsMap,
+} from "./yjs-doc";
 import {
   createSnapshotCache,
   getBlockSnapshot,
   getEmbedContentSnapshot,
   type SnapshotCache,
 } from "./snapshot";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Opaque document-state container. Internally a Y.Doc; consumers read
@@ -16,11 +22,21 @@ import {
  *
  * Snapshots are cached per State instance; ops that produce a new State
  * inherit the underlying Y.Doc but get a fresh snapshot cache.
+ *
+ * **Encapsulation contract.** The underlying `Y.Doc` and the per-State
+ * `SnapshotCache` live behind the non-exported `STATE_INTERNAL` symbol
+ * (see `state-internal.ts`). Modules outside `state/` cannot import the
+ * symbol, so `state[STATE_INTERNAL]` is unreachable from outside — the
+ * only public field is `rootId`. State-module-internal code reaches the
+ * Y.Doc / cache via `state[STATE_INTERNAL].doc` /
+ * `state[STATE_INTERNAL].snapshotCache`.
  */
 export interface State {
   readonly rootId: BlockId;
-  readonly doc: Y.Doc;
-  readonly snapshotCache: SnapshotCache;
+  readonly [STATE_INTERNAL]: {
+    readonly doc: Y.Doc;
+    readonly snapshotCache: SnapshotCache;
+  };
 }
 
 export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
@@ -32,9 +48,11 @@ export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
   }
   return Object.freeze({
     rootId: args.rootId,
-    doc,
-    snapshotCache: createSnapshotCache(),
-  });
+    [STATE_INTERNAL]: Object.freeze({
+      doc,
+      snapshotCache: createSnapshotCache(),
+    }),
+  }) as State;
 }
 
 /**
@@ -43,7 +61,8 @@ export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
  * the same reference (cache hit).
  */
 export function getBlock(state: State, id: BlockId): Block | null {
-  return getBlockSnapshot(state.doc, id, state.snapshotCache);
+  const internal = state[STATE_INTERNAL];
+  return getBlockSnapshot(internal.doc, id, internal.snapshotCache);
 }
 
 /**
@@ -52,7 +71,8 @@ export function getBlock(state: State, id: BlockId): Block | null {
  * empty; embed operations populate it as embed nodes are created.
  */
 export function getEmbedContent(state: State, id: BlockId): Block | null {
-  return getEmbedContentSnapshot(state.doc, id, state.snapshotCache);
+  const internal = state[STATE_INTERNAL];
+  return getEmbedContentSnapshot(internal.doc, id, internal.snapshotCache);
 }
 
 /**
@@ -67,6 +87,20 @@ export function getEmbedContent(state: State, id: BlockId): Block | null {
  */
 export function getBlockFromEither(state: State, id: BlockId): Block | null {
   return getBlock(state, id) ?? getEmbedContent(state, id);
+}
+
+/**
+ * Yield every BlockId currently present in the embed-contents tree
+ * (footnote bodies, etc.). Narrow accessor exposed for the render module
+ * so it can iterate embed subtrees without reaching into Y.Doc directly.
+ *
+ * Order is the underlying Y.Map iteration order; callers must not rely
+ * on a particular sort.
+ */
+export function getEmbedContentIds(state: State): IterableIterator<BlockId> {
+  return getEmbedContentsMap(
+    state[STATE_INTERNAL].doc,
+  ).keys() as IterableIterator<BlockId>;
 }
 
 /**
@@ -91,11 +125,14 @@ export interface OperationResult {
  * of `applyOperation` (e.g., Y.UndoManager.undo / .redo).
  */
 export function freshState(state: State): State {
+  const { doc } = state[STATE_INTERNAL];
   return Object.freeze({
     rootId: state.rootId,
-    doc: state.doc,
-    snapshotCache: createSnapshotCache(),
-  });
+    [STATE_INTERNAL]: Object.freeze({
+      doc,
+      snapshotCache: createSnapshotCache(),
+    }),
+  }) as State;
 }
 
 /**
@@ -122,7 +159,8 @@ export function freshState(state: State): State {
  * runs on the non-no-op branch.
  */
 export function applyOperation(state: State, fn: () => void): OperationResult {
-  const { dirtyIds } = runTransaction(state.doc, fn);
+  const internal = state[STATE_INTERNAL];
+  const { dirtyIds } = runTransaction(internal.doc, fn);
   if (dirtyIds.size === 0) {
     // No-op transaction: return the input state reference unchanged.
     // Preserves identity so callers can short-circuit on
@@ -130,18 +168,20 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
     return { state, dirtyIds };
   }
   const newCache = createSnapshotCache();
-  for (const [id, snap] of state.snapshotCache.blocks) {
+  for (const [id, snap] of internal.snapshotCache.blocks) {
     if (!dirtyIds.has(id)) newCache.blocks.set(id, snap);
   }
-  for (const [id, snap] of state.snapshotCache.embedContents) {
+  for (const [id, snap] of internal.snapshotCache.embedContents) {
     if (!dirtyIds.has(id)) newCache.embedContents.set(id, snap);
   }
   return {
     state: Object.freeze({
       rootId: state.rootId,
-      doc: state.doc,
-      snapshotCache: newCache,
-    }),
+      [STATE_INTERNAL]: Object.freeze({
+        doc: internal.doc,
+        snapshotCache: newCache,
+      }),
+    }) as State,
     dirtyIds,
   };
 }

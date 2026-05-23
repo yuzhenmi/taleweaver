@@ -3,6 +3,7 @@ import type { Selection } from "./block-position";
 import type { OperationResult, State } from "./state";
 import { freshState } from "./state";
 import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * True iff we should run dev-mode invariant checks. Reads `process.env`
@@ -109,7 +110,7 @@ export class History {
   constructor(state: State) {
     this.currentState = state;
     this.undoManager = new Y.UndoManager(
-      [getBlocksMap(state.doc), getEmbedContentsMap(state.doc)],
+      [getBlocksMap(state[STATE_INTERNAL].doc), getEmbedContentsMap(state[STATE_INTERNAL].doc)],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close
         // groups based on wall-clock time"; we control grouping entirely

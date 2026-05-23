@@ -1,6 +1,7 @@
 import type { BlockId } from "./block-id";
 import { getBlock, type State } from "./state";
 import { getBlocksMap } from "./yjs-doc";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Walk to the next block in document order:
@@ -24,7 +25,7 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   // this traversal handle anything new — wrong direction. If a future
   // schema makes embed-content blocks reachable via main-tree traversal,
   // this bound must be widened then.
-  const maxSteps = getBlocksMap(state.doc).size + 1;
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (true) {
     if (++steps > maxSteps) {
@@ -57,7 +58,7 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     if (cursor === null) return null;
     // Cycle-detection bound: see nextBlockInDocOrder for the rationale
     // on why this uses main-tree size only (not embedContents).
-    const maxSteps = getBlocksMap(state.doc).size + 1;
+    const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
     let steps = 0;
     while (cursor.lastChildId) {
       if (++steps > maxSteps) {
@@ -85,7 +86,7 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   let current: BlockId | null = blockId;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses main-tree size only (not embedContents).
-  const maxSteps = getBlocksMap(state.doc).size + 1;
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (current) {
     if (++steps > maxSteps) {
@@ -114,7 +115,7 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses main-tree size only (not embedContents).
-  const maxSteps = getBlocksMap(state.doc).size + 1;
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (cursor.firstChildId) {
     if (++steps > maxSteps) {
@@ -137,7 +138,7 @@ export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses main-tree size only (not embedContents).
-  const maxSteps = getBlocksMap(state.doc).size + 1;
+  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (cursor.lastChildId) {
     if (++steps > maxSteps) {

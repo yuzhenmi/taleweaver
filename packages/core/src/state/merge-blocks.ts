@@ -4,6 +4,7 @@ import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Merge two adjacent leaf siblings into one block.
@@ -91,9 +92,10 @@ export function mergeAdjacentBlocks(
   }
 
   return applyOperation(state, () => {
-    const yBlocks = getBlocksMap(state.doc);
-    const yLeft = getYBlock(state.doc, leftId, "mergeAdjacentBlocks");
-    const yRight = getYBlock(state.doc, rightId, "mergeAdjacentBlocks");
+    const doc = state[STATE_INTERNAL].doc;
+    const yBlocks = getBlocksMap(doc);
+    const yLeft = getYBlock(doc, leftId, "mergeAdjacentBlocks");
+    const yRight = getYBlock(doc, rightId, "mergeAdjacentBlocks");
     const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
     const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
 
@@ -115,7 +117,7 @@ export function mergeAdjacentBlocks(
     const rightNextId = (yRight.get("nextSiblingId") as BlockId | null) ?? null;
     yLeft.set("nextSiblingId", rightNextId);
     if (rightNextId !== null) {
-      getYBlock(state.doc, rightNextId, "mergeAdjacentBlocks").set(
+      getYBlock(doc, rightNextId, "mergeAdjacentBlocks").set(
         "prevSiblingId",
         leftId,
       );
@@ -125,7 +127,7 @@ export function mergeAdjacentBlocks(
       // + adjacent-sibling + right.nextSibling===null). Unconditional
       // rewire matches the documented contract; an upstream invariant
       // violation would surface as a getYBlock throw.
-      const yParent = getYBlock(state.doc, parentId, "mergeAdjacentBlocks");
+      const yParent = getYBlock(doc, parentId, "mergeAdjacentBlocks");
       yParent.set("lastChildId", leftId);
     }
 

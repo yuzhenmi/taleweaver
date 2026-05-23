@@ -8,6 +8,7 @@ import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock, buildYInlineItem } from "./y-block";
 import { yMapAsObject, cloneInlineItem } from "./y-utils";
 import { assertNoIdCollision } from "./id-collision-check";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Split a leaf block at `position` into two adjacent siblings under the
@@ -76,14 +77,15 @@ export function splitBlockAtPosition(
   const parentId = block.parentId;
 
   return applyOperation(state, () => {
+    const doc = state[STATE_INTERNAL].doc;
     // Dev-mode defense against allocator id collision (test allocators with
     // counter-based ids can collide with seeded state; production
     // crypto.randomUUID effectively cannot). Without this, the yBlocks.set
     // below would silently overwrite the existing block of the same id.
-    assertNoIdCollision(state.doc, newBlockId, "splitBlockAtPosition");
+    assertNoIdCollision(doc, newBlockId, "splitBlockAtPosition");
 
-    const yBlocks = getBlocksMap(state.doc);
-    const yOriginal = getYBlock(state.doc, position.blockId, "splitBlockAtPosition");
+    const yBlocks = getBlocksMap(doc);
+    const yOriginal = getYBlock(doc, position.blockId, "splitBlockAtPosition");
 
     // Split yOriginal's inlineContent: items in [0, offset) stay; items in
     // [offset, end) move to a new block. Straddling text items split.
@@ -108,7 +110,7 @@ export function splitBlockAtPosition(
 
     // Re-wire sibling pointers around the insertion.
     if (originalNextId !== null) {
-      getYBlock(state.doc, originalNextId, "splitBlockAtPosition").set(
+      getYBlock(doc, originalNextId, "splitBlockAtPosition").set(
         "prevSiblingId",
         newBlockId,
       );
@@ -116,7 +118,7 @@ export function splitBlockAtPosition(
     yOriginal.set("nextSiblingId", newBlockId);
 
     // Re-wire parent's lastChildId if original was the last child.
-    const yParent = getYBlock(state.doc, parentId, "splitBlockAtPosition");
+    const yParent = getYBlock(doc, parentId, "splitBlockAtPosition");
     if (yParent.get("lastChildId") === position.blockId) {
       yParent.set("lastChildId", newBlockId);
     }

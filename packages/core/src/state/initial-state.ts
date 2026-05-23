@@ -9,6 +9,7 @@ import { productionAllocator } from "./block-id";
 import { createState, type State } from "./state";
 import { runTransaction, getBlocksMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
+import { STATE_INTERNAL } from "./state-internal";
 
 export interface CreateEmptyDocumentArgs {
   allocator?: IdAllocator;
@@ -25,8 +26,9 @@ export function createEmptyDocument(args: CreateEmptyDocumentArgs = {}): State {
   const paragraphId = allocator.allocate();
 
   const state = createState({ rootId });
-  runTransaction(state.doc, () => {
-    const yBlocks = getBlocksMap(state.doc);
+  const doc = state[STATE_INTERNAL].doc;
+  runTransaction(doc, () => {
+    const yBlocks = getBlocksMap(doc);
     yBlocks.set(
       rootId,
       buildYBlock({

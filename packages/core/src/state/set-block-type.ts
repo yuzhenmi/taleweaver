@@ -3,6 +3,7 @@ import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getYBlock } from "./yjs-doc";
 import { blockKindOf } from "./block-kinds";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Change a block's type. Returns the new state and a dirtyIds set
@@ -44,7 +45,7 @@ export function setBlockType(
     );
   }
   return applyOperation(state, () => {
-    const yBlock = getYBlock(state.doc, blockId, "setBlockType");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockType");
     yBlock.set("type", type);
   });
 }
