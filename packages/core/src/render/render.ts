@@ -292,8 +292,35 @@ function expandInlineItems(
       out.push(createTextBox(key, itemStyle, item.text));
     } else {
       // InlineItem narrows to EmbedItem here.
+      //
+      // Embeds are emitted as `display: inline-block` so the IFC's
+      // token stream represents the state-model 1-unit cursor
+      // contribution (per `state/block-position.ts`). With default
+      // `display: inline`, an embed with no children produces no
+      // tokens and the IFC's per-line offset accumulator drifts from
+      // the state-model offset by 1 per embed. As `inline-block`
+      // (width = intrinsic content size, typically 0 for atomic
+      // embeds), the IFC emits exactly one atomic token contributing
+      // 1 to the offset cursor and an `InlineBlockBox` of width 0
+      // in the line — invisible visually, correct for cursor /
+      // hit-test offset math.
+      // Defaults FIRST so attr-interpreter-supplied values in
+      // `itemStyle` (a visible embed with its own `inlineSize` /
+      // alternative `display`) override the atomic-anchor fallbacks.
+      const embedStyle: Partial<Style> = {
+        display: "inline-block",
+        // Default inline-block intrinsic sizing applies a 100px
+        // fallback for empty content (per ifc.ts `inlineSizePx > 0 ?
+        // inlineSizePx : 100`). Atomic embed anchors have no content
+        // to size against, so default width to 0 — the embed is an
+        // invisible cursor-position marker, not a visual element.
+        // A visible embed component overrides this via its attr
+        // interpreter.
+        inlineSize: 0,
+        ...itemStyle,
+      };
       out.push(
-        createElementBox(key, itemStyle, [], {
+        createElementBox(key, embedStyle, [], {
           embedType: item.embedType,
           ...item.properties,
         }),

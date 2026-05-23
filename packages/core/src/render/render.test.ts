@@ -308,6 +308,16 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
     const embedNode = p.children[0];
     expect(embedNode.type).toBe("element");
     expect(embedNode.computedStyle).toBeUndefined();
+    // E-E.1 follow-up: embed elements render as `display: inline-block`
+    // with explicit `inlineSize: 0` so the IFC emits exactly one atomic
+    // token contributing 1 to the per-line state-model offset cursor
+    // (matching the state-model rule that each embed counts as one
+    // cursor position). Without this, an empty embed produces no IFC
+    // tokens and the offset accumulator drifts from state by 1 per
+    // embed.
+    if (embedNode.type !== "element") throw new Error("expected element");
+    expect(embedNode.style.display).toBe("inline-block");
+    expect(embedNode.style.inlineSize).toBe(0);
   });
 
   it("strut sentinel TextBox for empty inline content has computedStyle === undefined", () => {
