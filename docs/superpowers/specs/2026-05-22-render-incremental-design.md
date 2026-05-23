@@ -272,7 +272,29 @@ each smaller than R-D; they'll surface issues we need to know about
 before R-D's cross-cutting commits). R-D becomes the capstone after
 each piece is solid.
 
-## Decision needed
+## Decisions (recorded 2026-05-22)
 
-Please weigh in on Q1–Q4. Once decided, I'll write the implementation
-plan (subdivide R-D into ordered tasks, each with TDD) and execute.
+Decided by controller per first principles; user notified in chat.
+Reversible by user direction.
+
+- **Q1 → A: stateless.** Mirrors state and layout. No hidden state.
+- **Q2 → B: pull pipeline stages up to the editor reducer.** Each
+  pipeline stage's incrementality becomes a top-level reducer
+  decision, not a side-effect of the next stage. Restores legibility
+  to the render/cascade/layout boundary — the same boundary that got
+  obscured pre-R-A.
+- **Q3 → A: pre-compute `dirtyAncestors`.** At target scale (depth
+  3–5), the cost is trivial; the control-flow simplification is
+  worth it.
+- **Q4 → audit cascade and layout layers first, defer R-D.**
+  Foundations-first ordering: R-D touches render + cascade + layout
+  simultaneously. Auditing the lower layers BEFORE R-D means R-D
+  integrates against clean code. This spec's content is on disk
+  (durability rule), so reviving the R-D design later is cheap.
+
+## Implementation plan
+
+Gated on the cascade and layout audit + cleanup work. R-D becomes
+the capstone, scheduled after both audits' findings are addressed.
+At that point, this spec is reviewed for currency and a per-task
+plan is written under `docs/superpowers/plans/`.
