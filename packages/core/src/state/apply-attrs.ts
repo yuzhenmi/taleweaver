@@ -10,6 +10,8 @@ import { getYBlock } from "./yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "./y-block";
 import { yMapAsObject, mergeAdjacentSameAttrsTextItems } from "./y-utils";
 import { STATE_INTERNAL } from "./state-internal";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -48,11 +50,18 @@ import { STATE_INTERNAL } from "./state-internal";
  * invariant (per `inline-content.ts` mergeAdjacentTextItems contract).
  * The merge only deletes items when neighbors converge to value-equal
  * attrs — items that stay distinct keep their Y.Text identity intact.
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to the run-merge
+ * normalizer (`mergeAdjacentSameAttrsTextItems`) so interpreters with a
+ * custom per-key `equals` (e.g. a `comment` interpreter that ignores
+ * `timestamp`) opt into custom adjacent-item compare semantics during
+ * the post-apply merge pass. Omitted → deep-value compare.
  */
 export function applyAttrsToRange(
   state: State,
   span: Span,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): OperationResult {
   // Empty incoming attrs = no-op. Mirrors insertText's empty-text guard
   // and avoids re-allocating items / dirtying blocks unnecessarily.
@@ -84,7 +93,7 @@ export function applyAttrsToRange(
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves
       applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);
-      mergeAdjacentSameAttrsTextItems(yItems);
+      mergeAdjacentSameAttrsTextItems(yItems, registry);
     }
   });
 }

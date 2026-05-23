@@ -7,6 +7,8 @@ import { normalizeSpan } from "./span-iteration";
 import { deleteRangeInTx, planDeleteRange } from "./delete-range";
 import { insertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
 import { STATE_INTERNAL } from "./state-internal";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Replace the inline content within a Span with the given text + attrs.
@@ -76,12 +78,19 @@ import { STATE_INTERNAL } from "./state-internal";
  * function (existence / leaf) and `planDeleteRange`'s own checks
  * (everything else), but the externally observable contract from
  * `replaceRange`'s caller is unchanged.
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to `deleteRange`'s
+ * seam-merge and `insertText`'s run-merge so interpreters with a custom
+ * per-key `equals` (e.g. a `comment` interpreter that ignores
+ * `timestamp`) opt into custom adjacent-item compare semantics across
+ * both phases of the composite. Omitted → deep-value compare.
  */
 export function replaceRange(
   state: State,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): OperationResult {
   const isCollapsed =
     span.anchor.blockId === span.focus.blockId &&
@@ -97,7 +106,7 @@ export function replaceRange(
     // needed for a collapsed span. Delegating to the public `insertText`
     // runs the entire op in its own (single) transaction — atomicity is
     // trivially satisfied since there is no delete step.
-    return insertText(state, span.anchor, text, attrs);
+    return insertText(state, span.anchor, text, attrs, registry);
   }
 
   // Non-collapsed span.
@@ -150,7 +159,7 @@ export function replaceRange(
   // offset / sibling-reachability checks that the legacy public
   // `deleteRange` ran. A `null` return means the span re-collapsed
   // after normalization — treat as no-op (no delete, no insert).
-  const deletePlan = planDeleteRange(state, span);
+  const deletePlan = planDeleteRange(state, span, registry);
 
   // Delete-only path (insert is a no-op because text === "").
   if (text === "") {
@@ -181,7 +190,7 @@ export function replaceRange(
   // cursor position. Fall back to the public `insertText` which runs
   // its own single transaction.
   if (deletePlan === null) {
-    return insertText(state, normalized.anchor, text, attrs);
+    return insertText(state, normalized.anchor, text, attrs, registry);
   }
 
   const cursorOffset = normalized.anchor.offset;
@@ -193,6 +202,7 @@ export function replaceRange(
     cursorOffset,
     text,
     attrs,
+    registry,
   );
 
   return applyOperation(state, () => {

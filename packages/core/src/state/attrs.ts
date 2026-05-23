@@ -1,3 +1,9 @@
+// Type-only import: the runtime cycle between `state/attrs.ts` and
+// `cascade/attr-registry.ts` is broken by `import type` (erased at runtime).
+// cascade already imports `ReadonlyAttrs` (type-only) from this file; this
+// keeps the back-edge type-only as well so there is no runtime cycle.
+import type { AttrRegistry } from "../cascade/attr-registry";
+
 /**
  * Open-schema attribute bag. Used at every level of the state tree:
  * - Block.attrs (block-level attributes)
@@ -45,17 +51,27 @@ export function deepValueEqual(a: unknown, b: unknown): boolean {
 
 /**
  * Compare two attribute bags for equality. Defaults to deep value equality
- * for each attribute. Phase 2 will extend this to consult an interpreter
- * registry for opt-in custom equality per attribute key (rare; for cases like
- * a `comment` attribute whose `timestamp` field shouldn't affect compare).
+ * for each attribute. When `registry` is passed, consults each key's
+ * registered `AttrInterpreter.equals` (if any) for custom per-key equality —
+ * intended for rare cases like a `comment` attribute whose `timestamp`
+ * field shouldn't affect run-merge decisions (two adjacent runs with the
+ * same comment id but differing timestamps still merge into one).
+ *
+ * Keys with no registered interpreter, and interpreters without an `equals`
+ * function, fall back to `deepValueEqual`.
  */
-export function attrsEqual(a: ReadonlyAttrs, b: ReadonlyAttrs): boolean {
+export function attrsEqual(
+  a: ReadonlyAttrs,
+  b: ReadonlyAttrs,
+  registry?: AttrRegistry,
+): boolean {
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
   for (const k of aKeys) {
     if (!(k in b)) return false;
-    if (!deepValueEqual(a[k], b[k])) return false;
+    const eq = registry?.get(k)?.equals ?? deepValueEqual;
+    if (!eq(a[k], b[k])) return false;
   }
   return true;
 }

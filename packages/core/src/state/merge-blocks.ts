@@ -5,6 +5,8 @@ import type { BlockId } from "./block-id";
 import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
 import { STATE_INTERNAL } from "./state-internal";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Merge two adjacent leaf siblings into one block.
@@ -38,11 +40,18 @@ import { STATE_INTERNAL } from "./state-internal";
  * first-of-right have value-equal attrs): the same-attrs merge pass replaces
  * both seam items with a single fresh Y.Text holding the concatenated
  * content. Items away from the seam are never touched.
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to the seam-merge
+ * normalizer (`mergeAdjacentSameAttrsTextItems`) so interpreters with a
+ * custom per-key `equals` (e.g. a `comment` interpreter that ignores
+ * `timestamp`) opt into custom adjacent-item compare semantics across
+ * the block seam. Omitted → deep-value compare.
  */
 export function mergeAdjacentBlocks(
   state: State,
   leftId: BlockId,
   rightId: BlockId,
+  registry?: AttrRegistry,
 ): OperationResult {
   if (leftId === rightId) {
     throw new Error(`mergeAdjacentBlocks: left and right are the same block "${leftId}"`);
@@ -110,7 +119,7 @@ export function mergeAdjacentBlocks(
       yLeftItems.push(cloned);
       // Same-attrs merge pass to uphold the normalized inline-content invariant.
       // Only needed when we actually appended items.
-      mergeAdjacentSameAttrsTextItems(yLeftItems);
+      mergeAdjacentSameAttrsTextItems(yLeftItems, registry);
     }
 
     // Rewire siblings around right (right.next becomes left.next).

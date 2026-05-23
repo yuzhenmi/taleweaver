@@ -28,6 +28,7 @@ import * as Y from "yjs";
 import { mergeAdjacentTextItems, type InlineItem } from "./inline-content";
 import { mergeAdjacentSameAttrsTextItems, yMapAsObject } from "./y-utils";
 import { buildYInlineItem } from "./y-block";
+import { AttrRegistry } from "../cascade/attr-registry";
 
 // Deterministic seeded PRNG (mulberry32). Same seed → same sequence → no
 // flaky CI. Avoids a `fast-check` dependency for one test.
@@ -135,95 +136,195 @@ function shapeOf(item: InlineItem): Record<string, unknown> {
   };
 }
 
-describe("normalization drift (T19)", () => {
-  it("JS and Y normalizers produce equivalent shapes for randomized inputs", () => {
-    // Deterministic seed — keeps CI green and bug-reproducible.
-    const rng = mulberry32(0xcafebabe);
-    const ITERATIONS = 100;
-    // Track a few invariants across the whole run to assert the input
-    // generator actually exercises the merge paths (otherwise the test
-    // would silently devolve into "all-distinct attrs, never merges").
-    let sawEmptyTextInput = false;
-    let sawAdjacentSameAttrsRun = false;
-    let sawMergeOccurred = false;
+/**
+ * Drive both normalizers over the same randomized input, optionally
+ * threading an `AttrRegistry`. Asserts the two normalizers produce
+ * equivalent shapes after running, and that the two normalization
+ * invariants (no empty text items; no adjacent same-attrs text under the
+ * SAME equality function the normalizer was given) hold on the result.
+ *
+ * Hoisted so both the no-registry and registry-passed tests use the
+ * exact same logic — guarantees we are testing the same surface twice
+ * with the only difference being the equality function.
+ */
+function runDriftIterations(opts: {
+  registry?: AttrRegistry;
+  seed: number;
+  iterations: number;
+  generate: (rng: () => number, length: number) => InlineItem[];
+  attrsEqualForCoverage: (a: ReadonlyAttrsRecord, b: ReadonlyAttrsRecord) => boolean;
+}): { sawEmptyTextInput: boolean; sawAdjacentSameAttrsRun: boolean; sawMergeOccurred: boolean } {
+  const rng = mulberry32(opts.seed);
+  let sawEmptyTextInput = false;
+  let sawAdjacentSameAttrsRun = false;
+  let sawMergeOccurred = false;
 
-    for (let iter = 0; iter < ITERATIONS; iter++) {
-      const length = Math.floor(rng() * 9) + 2; // 2..10 items (≥2 so pairs can form)
-      const input = generateInput(rng, length);
+  for (let iter = 0; iter < opts.iterations; iter++) {
+    const length = Math.floor(rng() * 9) + 2;
+    const input = opts.generate(rng, length);
 
-      // Coverage observations on the generated input.
-      for (let i = 0; i < input.length; i++) {
-        const a = input[i];
-        if (a.kind === "text" && a.text.length === 0) sawEmptyTextInput = true;
-        if (i + 1 < input.length) {
-          const b = input[i + 1];
-          if (
-            a.kind === "text" &&
-            b.kind === "text" &&
-            JSON.stringify(a.attrs) === JSON.stringify(b.attrs)
-          ) {
-            sawAdjacentSameAttrsRun = true;
-          }
-        }
-      }
-
-      // JS side: returns a fresh array.
-      const jsResult = mergeAdjacentTextItems(input);
-
-      // Y side: build a Y.Array from the input, then mutate in place.
-      const doc = new Y.Doc();
-      const yArr = doc.getArray<Y.Map<unknown>>("test");
-      doc.transact(() => {
-        for (const item of input) {
-          yArr.push([buildYInlineItem(item)]);
-        }
-      });
-      doc.transact(() => {
-        mergeAdjacentSameAttrsTextItems(yArr);
-      });
-      const yResult = yArrayToJS(yArr);
-
-      if (jsResult.length < input.length) sawMergeOccurred = true;
-
-      // Final-shape comparison: same length, same items in same order,
-      // same attrs / text / embed properties.
-      const jsShapes = jsResult.map(shapeOf);
-      const yShapes = yResult.map(shapeOf);
-
-      // Per-iteration assertion. If any iteration drifts, the failure
-      // message shows the input and both outputs, which is exactly what
-      // a debugger needs.
-      expect(yShapes, `iteration ${iter}: input=${JSON.stringify(input)}`).toEqual(
-        jsShapes,
-      );
-
-      // Invariant cross-checks: post-normalization, neither side should
-      // have empty text items or adjacent same-attrs text pairs.
-      for (let i = 0; i < jsResult.length; i++) {
-        const cur = jsResult[i];
-        if (cur.kind === "text") {
-          expect(cur.text.length, `iteration ${iter}: empty text survived JS-side`).toBeGreaterThan(0);
-        }
-        if (i + 1 < jsResult.length) {
-          const next = jsResult[i + 1];
-          if (cur.kind === "text" && next.kind === "text") {
-            expect(
-              JSON.stringify(cur.attrs) === JSON.stringify(next.attrs),
-              `iteration ${iter}: adjacent same-attrs text survived JS-side`,
-            ).toBe(false);
-          }
+    for (let i = 0; i < input.length; i++) {
+      const a = input[i];
+      if (a.kind === "text" && a.text.length === 0) sawEmptyTextInput = true;
+      if (i + 1 < input.length) {
+        const b = input[i + 1];
+        if (a.kind === "text" && b.kind === "text" && opts.attrsEqualForCoverage(a.attrs, b.attrs)) {
+          sawAdjacentSameAttrsRun = true;
         }
       }
     }
 
-    // Generator-coverage assertions: if these ever fail, the random
-    // sampling has become too narrow and the test would no longer
-    // exercise the drift surfaces it's supposed to.
+    const jsResult = mergeAdjacentTextItems(input, opts.registry);
+
+    const doc = new Y.Doc();
+    const yArr = doc.getArray<Y.Map<unknown>>("test");
+    doc.transact(() => {
+      for (const item of input) yArr.push([buildYInlineItem(item)]);
+    });
+    doc.transact(() => {
+      mergeAdjacentSameAttrsTextItems(yArr, opts.registry);
+    });
+    const yResult = yArrayToJS(yArr);
+
+    if (jsResult.length < input.length) sawMergeOccurred = true;
+
+    const jsShapes = jsResult.map(shapeOf);
+    const yShapes = yResult.map(shapeOf);
+
+    expect(yShapes, `iteration ${iter}: input=${JSON.stringify(input)}`).toEqual(jsShapes);
+
+    // Invariant cross-checks per the equality function actually used.
+    for (let i = 0; i < jsResult.length; i++) {
+      const cur = jsResult[i];
+      if (cur.kind === "text") {
+        expect(cur.text.length, `iteration ${iter}: empty text survived JS-side`).toBeGreaterThan(0);
+      }
+      if (i + 1 < jsResult.length) {
+        const next = jsResult[i + 1];
+        if (cur.kind === "text" && next.kind === "text") {
+          expect(
+            opts.attrsEqualForCoverage(cur.attrs, next.attrs),
+            `iteration ${iter}: adjacent same-attrs text survived JS-side`,
+          ).toBe(false);
+        }
+      }
+    }
+  }
+
+  return { sawEmptyTextInput, sawAdjacentSameAttrsRun, sawMergeOccurred };
+}
+
+type ReadonlyAttrsRecord = Readonly<Record<string, unknown>>;
+
+describe("normalization drift (T19)", () => {
+  it("JS and Y normalizers produce equivalent shapes for randomized inputs", () => {
+    const { sawEmptyTextInput, sawAdjacentSameAttrsRun, sawMergeOccurred } = runDriftIterations({
+      seed: 0xcafebabe,
+      iterations: 100,
+      generate: generateInput,
+      // Without a registry, both normalizers use deep-value equality.
+      // JSON.stringify is a safe proxy for the small attr bags used here.
+      attrsEqualForCoverage: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+    });
+
     expect(sawEmptyTextInput, "generator never produced an empty text item").toBe(true);
+    expect(sawAdjacentSameAttrsRun, "generator never produced an adjacent same-attrs text pair").toBe(true);
+    expect(sawMergeOccurred, "no iteration ever triggered a merge").toBe(true);
+  });
+
+  // T-C: drift insurance under registry-supplied custom equals. The same
+  // randomized property test must hold when both normalizers are given a
+  // registry whose interpreter says two `comment` attrs with the same id
+  // are equal regardless of timestamp. If JS-side and Y-side diverge on
+  // how they consult the registry, this test fires.
+  it("JS and Y normalizers stay equivalent under registry-supplied custom equals", () => {
+    interface CommentAttr {
+      readonly id: string;
+      readonly timestamp: number;
+    }
+    function isCommentAttr(v: unknown): v is CommentAttr {
+      return (
+        typeof v === "object" &&
+        v !== null &&
+        typeof (v as { id?: unknown }).id === "string" &&
+        typeof (v as { timestamp?: unknown }).timestamp === "number"
+      );
+    }
+
+    const registry = new AttrRegistry();
+    registry.register({
+      attrKey: "comment",
+      toStyle: () => ({}),
+      equals: (a, b) => {
+        if (!isCommentAttr(a) || !isCommentAttr(b)) return false;
+        return a.id === b.id;
+      },
+    });
+
+    // Generator: text items whose attrs include a `comment` whose `id`
+    // is drawn from a small pool but whose `timestamp` is unique per
+    // item. Without the registry, deep-equal sees timestamps differ →
+    // never merges. With the registry, runs with the same comment id
+    // merge — which is exactly what custom-equals interpreters are for.
+    const COMMENT_IDS: ReadonlyArray<string> = ["c1", "c2", "c3"];
+    let timestampCounter = 0;
+    function generateCommentInput(rng: () => number, length: number): InlineItem[] {
+      return Array.from({ length }, () => {
+        const isText = rng() < 0.7;
+        if (isText) {
+          const text = TEXT_POOL[Math.floor(rng() * TEXT_POOL.length)];
+          const commentId = COMMENT_IDS[Math.floor(rng() * COMMENT_IDS.length)];
+          const attrs: ReadonlyAttrsRecord = {
+            comment: { id: commentId, timestamp: timestampCounter++ },
+          };
+          return { kind: "text", text, attrs };
+        }
+        return {
+          kind: "embed",
+          embedType: EMBED_POOL[Math.floor(rng() * EMBED_POOL.length)],
+          attrs: {},
+          properties: {},
+        };
+      });
+    }
+
+    // Coverage equality function matches the registry's interpreter.
+    function commentIdEqual(a: ReadonlyAttrsRecord, b: ReadonlyAttrsRecord): boolean {
+      const ka = Object.keys(a);
+      const kb = Object.keys(b);
+      if (ka.length !== kb.length) return false;
+      for (const k of ka) {
+        if (!(k in b)) return false;
+        if (k === "comment") {
+          const av = a[k];
+          const bv = b[k];
+          if (!isCommentAttr(av) || !isCommentAttr(bv)) return false;
+          if (av.id !== bv.id) return false;
+        } else {
+          if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+        }
+      }
+      return true;
+    }
+
+    const { sawAdjacentSameAttrsRun, sawMergeOccurred } = runDriftIterations({
+      registry,
+      seed: 0xdeadbeef,
+      iterations: 100,
+      generate: generateCommentInput,
+      attrsEqualForCoverage: commentIdEqual,
+    });
+
+    // Custom-equals exercise: must see same-id adjacent pairs AND merges.
+    // (Empty-text coverage is not relevant here — this generator only
+    // emits non-empty text items.)
     expect(
       sawAdjacentSameAttrsRun,
-      "generator never produced an adjacent same-attrs text pair",
+      "generator never produced adjacent text items with the same comment id (registry-equality view)",
     ).toBe(true);
-    expect(sawMergeOccurred, "no iteration ever triggered a merge").toBe(true);
+    expect(
+      sawMergeOccurred,
+      "no iteration ever triggered a merge under custom-equals — equality function may be too strict",
+    ).toBe(true);
   });
 });

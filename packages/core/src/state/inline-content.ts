@@ -1,5 +1,7 @@
 import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual } from "./attrs";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Inline content of a leaf block: an ordered sequence of styled text runs
@@ -95,6 +97,11 @@ export function findItemAtOffset(
  *   [text("a", {bold}), text("", {}), text("b", {bold})]
  *     → [text("ab", {bold})]
  *
+ * `registry` (optional) is threaded through to `attrsEqual` so interpreters
+ * with a custom per-key `equals` (e.g. a `comment` interpreter that ignores
+ * `timestamp`) can opt into custom run-merge equality. Omitted → pure
+ * deep-value compare.
+ *
  * Used by every Layer 3 operation that produces inline content (insertText,
  * applyAttrsToRange, splitBlockAtPosition, mergeAdjacentBlocks, etc.) to
  * uphold two normalization invariants on a block's items[]:
@@ -103,7 +110,10 @@ export function findItemAtOffset(
  *
  * Returns a fresh array; never mutates the input.
  */
-export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): InlineItem[] {
+export function mergeAdjacentTextItems(
+  items: ReadonlyArray<InlineItem>,
+  registry?: AttrRegistry,
+): InlineItem[] {
   const out: InlineItem[] = [];
   let pending: TextItem | null = null;
 
@@ -113,7 +123,7 @@ export function mergeAdjacentTextItems(items: ReadonlyArray<InlineItem>): Inline
       // — pending stays pending, so two same-attrs neighbors separated only
       // by empty items still merge.
       if (item.text.length === 0) continue;
-      if (pending && attrsEqual(pending.attrs, item.attrs)) {
+      if (pending && attrsEqual(pending.attrs, item.attrs, registry)) {
         pending = Object.freeze({
           kind: "text" as const,
           text: pending.text + item.text,

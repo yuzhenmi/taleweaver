@@ -15,6 +15,8 @@ import {
 } from "./inline-content";
 import { getYBlock } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Pre-computed mutation plan for `insertTextInTx`. Discriminated by
@@ -75,18 +77,25 @@ export type InsertTextPlan = {
  * Composition: see `insertTextInTx` for the in-transaction primitive
  * used by `replaceRange` to compose delete + insert in a single Y.Doc
  * transaction (T12 atomicity).
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to the run-merge
+ * normalizer (`mergeAdjacentTextItems`) and the in-place merge-decision
+ * helpers, so interpreters with a custom per-key `equals` (e.g. a
+ * `comment` interpreter that ignores `timestamp`) opt into custom
+ * adjacent-item compare semantics. Omitted → deep-value compare.
  */
 export function insertText(
   state: State,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): OperationResult {
   if (text === "") {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planInsertText(state, position, text, attrs);
+  const plan = planInsertText(state, position, text, attrs, registry);
   return applyOperation(state, () => {
     insertTextInTx(state[STATE_INTERNAL].doc, plan);
   });
@@ -140,6 +149,7 @@ export function planInsertText(
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): InsertTextPlan {
   const block = getBlock(state, position.blockId);
   if (block === null) {
@@ -156,7 +166,7 @@ export function planInsertText(
     );
   }
 
-  return planInsertTextOnItems(position.blockId, block.inlineContent.items, position.offset, text, attrs);
+  return planInsertTextOnItems(position.blockId, block.inlineContent.items, position.offset, text, attrs, registry);
 }
 
 /**
@@ -184,6 +194,7 @@ function planInsertTextOnItems(
   offset: number,
   text: string,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): InsertTextPlan {
   // Identify the in-place target text item (if any). Two cases:
   //   (a) offset lies strictly inside a text item (withinItem > 0) with matching attrs.
@@ -195,7 +206,7 @@ function planInsertTextOnItems(
   //       and no eligible prev (e.g., at offset 0 or after an embed).
   //   (d) offset is at end of content AND the last item is text with
   //       matching attrs — mutate the last item.
-  const inPlace = findInPlaceTarget(items, offset, attrs);
+  const inPlace = findInPlaceTarget(items, offset, attrs, registry);
 
   if (inPlace !== null) {
     return {
@@ -213,7 +224,7 @@ function planInsertTextOnItems(
   // (different attrs split, embed-adjacent, empty block, etc.).
   const [left, right] = splitInlineContentAtOffset({ items }, offset);
   const newRun: InlineItem = { kind: "text", text, attrs };
-  const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
+  const merged = mergeAdjacentTextItems([...left, newRun, ...right], registry);
 
   return {
     blockId,
@@ -240,10 +251,11 @@ export function planInsertTextFullReplace(
   offset: number,
   text: string,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): InsertTextPlan {
   const [left, right] = splitInlineContentAtOffset({ items }, offset);
   const newRun: InlineItem = { kind: "text", text, attrs };
-  const merged = mergeAdjacentTextItems([...left, newRun, ...right]);
+  const merged = mergeAdjacentTextItems([...left, newRun, ...right], registry);
 
   return {
     blockId,
@@ -269,16 +281,20 @@ function findInPlaceTarget(
   items: ReadonlyArray<InlineItem>,
   offset: number,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): { itemIndex: number; within: number } | null {
-  if (hasAdjacentSameAttrsTextPair(items)) return null;
-  return pickCandidate(items, offset, attrs);
+  if (hasAdjacentSameAttrsTextPair(items, registry)) return null;
+  return pickCandidate(items, offset, attrs, registry);
 }
 
-function hasAdjacentSameAttrsTextPair(items: ReadonlyArray<InlineItem>): boolean {
+function hasAdjacentSameAttrsTextPair(
+  items: ReadonlyArray<InlineItem>,
+  registry?: AttrRegistry,
+): boolean {
   for (let i = 1; i < items.length; i++) {
     const prev = items[i - 1];
     const curr = items[i];
-    if (prev.kind === "text" && curr.kind === "text" && attrsEqual(prev.attrs, curr.attrs)) {
+    if (prev.kind === "text" && curr.kind === "text" && attrsEqual(prev.attrs, curr.attrs, registry)) {
       return true;
     }
   }
@@ -289,6 +305,7 @@ function pickCandidate(
   items: ReadonlyArray<InlineItem>,
   offset: number,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): { itemIndex: number; within: number } | null {
   const { itemIndex, withinItem } = findItemAtOffset({ items }, offset);
 
@@ -298,7 +315,7 @@ function pickCandidate(
     const last = items.length - 1;
     if (last >= 0) {
       const lastItem = items[last];
-      if (lastItem.kind === "text" && attrsEqual(lastItem.attrs, attrs)) {
+      if (lastItem.kind === "text" && attrsEqual(lastItem.attrs, attrs, registry)) {
         return { itemIndex: last, within: lastItem.text.length };
       }
     }
@@ -309,7 +326,7 @@ function pickCandidate(
 
   // Case: offset strictly inside a text item.
   if (withinItem > 0) {
-    if (here.kind === "text" && attrsEqual(here.attrs, attrs)) {
+    if (here.kind === "text" && attrsEqual(here.attrs, attrs, registry)) {
       return { itemIndex, within: withinItem };
     }
     return null;
@@ -320,13 +337,13 @@ function pickCandidate(
   // text item (trailing-edge preference).
   if (itemIndex > 0) {
     const prev = items[itemIndex - 1];
-    if (prev.kind === "text" && attrsEqual(prev.attrs, attrs)) {
+    if (prev.kind === "text" && attrsEqual(prev.attrs, attrs, registry)) {
       return { itemIndex: itemIndex - 1, within: prev.text.length };
     }
   }
 
   // No matching prev — try the leading edge of items[itemIndex].
-  if (here.kind === "text" && attrsEqual(here.attrs, attrs)) {
+  if (here.kind === "text" && attrsEqual(here.attrs, attrs, registry)) {
     return { itemIndex, within: 0 };
   }
 

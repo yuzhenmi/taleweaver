@@ -6,6 +6,7 @@ import {
   splitInlineContentAtOffset,
 } from "./inline-content";
 import { text, embed, inlineContent } from "../test-utils/state-builders";
+import { AttrRegistry } from "../cascade/attr-registry";
 
 describe("inlineContentLength", () => {
   it("returns 0 for empty content", () => {
@@ -205,6 +206,75 @@ describe("mergeAdjacentTextItems", () => {
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ kind: "embed", embedType: "img1" });
     expect(result[1]).toMatchObject({ kind: "embed", embedType: "img2" });
+  });
+
+  // T-C: registry threading. Custom-equals interpreters opt into per-key
+  // equality semantics; mergeAdjacentTextItems must consult the registry so
+  // adjacent text runs that the interpreter considers equal merge into one.
+  describe("AttrRegistry opt-in equality (T-C)", () => {
+    interface CommentAttr {
+      readonly id: string;
+      readonly timestamp: number;
+    }
+
+    function isCommentAttr(value: unknown): value is CommentAttr {
+      return (
+        typeof value === "object" &&
+        value !== null &&
+        typeof (value as { id?: unknown }).id === "string" &&
+        typeof (value as { timestamp?: unknown }).timestamp === "number"
+      );
+    }
+
+    function commentRegistry(): AttrRegistry {
+      const r = new AttrRegistry();
+      r.register({
+        attrKey: "comment",
+        toStyle: () => ({}),
+        equals: (a, b) => {
+          if (!isCommentAttr(a) || !isCommentAttr(b)) return false;
+          return a.id === b.id;
+        },
+      });
+      return r;
+    }
+
+    it("does NOT merge two text items with comment-id-equal-but-timestamp-different attrs WITHOUT a registry", () => {
+      const items = [
+        text("hel", { comment: { id: "c1", timestamp: 100 } }),
+        text("lo", { comment: { id: "c1", timestamp: 200 } }),
+      ];
+      const result = mergeAdjacentTextItems(items);
+      // Without registry → deep-equal sees timestamps differ → no merge.
+      expect(result).toHaveLength(2);
+    });
+
+    it("MERGES two text items with comment-id-equal-but-timestamp-different attrs WHEN registry has custom equals", () => {
+      const items = [
+        text("hel", { comment: { id: "c1", timestamp: 100 } }),
+        text("lo", { comment: { id: "c1", timestamp: 200 } }),
+      ];
+      const result = mergeAdjacentTextItems(items, commentRegistry());
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ kind: "text", text: "hello" });
+      // Merged result keeps the FIRST run's attrs (the pending item) —
+      // that's the existing mergeAdjacentTextItems contract.
+      const merged = result[0];
+      if (merged.kind !== "text") throw new Error("expected text item");
+      const attrs = merged.attrs.comment;
+      if (!isCommentAttr(attrs)) throw new Error("expected comment attr");
+      expect(attrs.id).toBe("c1");
+      expect(attrs.timestamp).toBe(100);
+    });
+
+    it("still does NOT merge two text items with different comment ids", () => {
+      const items = [
+        text("hel", { comment: { id: "c1", timestamp: 100 } }),
+        text("lo", { comment: { id: "c2", timestamp: 100 } }),
+      ];
+      const result = mergeAdjacentTextItems(items, commentRegistry());
+      expect(result).toHaveLength(2);
+    });
   });
 });
 

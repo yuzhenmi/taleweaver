@@ -2,6 +2,8 @@ import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual } from "./attrs";
 import { buildYInlineItem } from "./y-block";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Assert that `value` and its nested children contain no live Yjs shared
@@ -90,12 +92,18 @@ export function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
  * empty item is removed, we step back so the now-adjacent pair is
  * re-evaluated for a same-attrs merge.
  *
+ * `registry` (optional) is threaded through to `attrsEqual` so interpreters
+ * with a custom per-key `equals` opt into custom run-merge equality. The
+ * Y-side normalizer must mirror the JS-side one (`mergeAdjacentTextItems`)
+ * to uphold the T19 drift invariant.
+ *
  * Upholds two normalization invariants mirroring `mergeAdjacentTextItems`:
  *   (a) no two adjacent text items with equal attrs;
  *   (b) no zero-length text items.
  */
 export function mergeAdjacentSameAttrsTextItems(
   yItems: Y.Array<Y.Map<unknown>>,
+  registry?: AttrRegistry,
 ): void {
   let i = 0;
   while (i + 1 < yItems.length) {
@@ -121,7 +129,7 @@ export function mergeAdjacentSameAttrsTextItems(
     }
     const aAttrs = yMapAsObject(a.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
     const bAttrs = yMapAsObject(b.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
-    if (!attrsEqual(aAttrs, bAttrs)) {
+    if (!attrsEqual(aAttrs, bAttrs, registry)) {
       i++;
       continue;
     }

@@ -33,6 +33,7 @@ describe("deepValueEqual", () => {
 });
 
 import { attrsEqual, mergeAttrs, type ReadonlyAttrs } from "./attrs";
+import { AttrRegistry } from "../cascade/attr-registry";
 
 describe("attrsEqual", () => {
   it("returns true for identical attribute bags", () => {
@@ -56,6 +57,92 @@ describe("attrsEqual", () => {
   it("compares object-valued attributes recursively", () => {
     expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c1" } })).toBe(true);
     expect(attrsEqual({ comment: { id: "c1" } }, { comment: { id: "c2" } })).toBe(false);
+  });
+
+  // T-C: custom-equals opt-in via the AttrRegistry. Interpreters can opt into
+  // a per-key `equals` to override the default deep-value compare. The
+  // motivating example is a `comment` attribute whose `timestamp` field
+  // shouldn't affect run-merge decisions (two adjacent runs with the same
+  // comment id but differing timestamps should still merge).
+  describe("AttrRegistry opt-in equality (T-C)", () => {
+    interface CommentAttr {
+      readonly id: string;
+      readonly timestamp: number;
+    }
+
+    function isCommentAttr(value: unknown): value is CommentAttr {
+      return (
+        typeof value === "object" &&
+        value !== null &&
+        typeof (value as { id?: unknown }).id === "string" &&
+        typeof (value as { timestamp?: unknown }).timestamp === "number"
+      );
+    }
+
+    it("falls back to deep value equality when no registry is passed", () => {
+      const a: ReadonlyAttrs = { comment: { id: "c1", timestamp: 100 } };
+      const b: ReadonlyAttrs = { comment: { id: "c1", timestamp: 200 } };
+      // Without a registry, timestamps differ → deep-equal returns false.
+      expect(attrsEqual(a, b)).toBe(false);
+    });
+
+    it("uses the interpreter's custom equals when registry is passed", () => {
+      const registry = new AttrRegistry();
+      registry.register({
+        attrKey: "comment",
+        toStyle: () => ({}),
+        equals: (x, y) => {
+          if (!isCommentAttr(x) || !isCommentAttr(y)) return false;
+          return x.id === y.id;
+        },
+      });
+
+      const a: ReadonlyAttrs = { comment: { id: "c1", timestamp: 100 } };
+      const b: ReadonlyAttrs = { comment: { id: "c1", timestamp: 200 } };
+      expect(attrsEqual(a, b, registry)).toBe(true);
+
+      // Different ids → still unequal.
+      const c: ReadonlyAttrs = { comment: { id: "c1", timestamp: 100 } };
+      const d: ReadonlyAttrs = { comment: { id: "c2", timestamp: 100 } };
+      expect(attrsEqual(c, d, registry)).toBe(false);
+    });
+
+    it("falls back to deep value equality for keys with no registered equals", () => {
+      const registry = new AttrRegistry();
+      // No `equals` on the interpreter — only toStyle.
+      registry.register({
+        attrKey: "bold",
+        toStyle: () => ({}),
+      });
+
+      // Bold attr: deep equality applies (true === true).
+      expect(attrsEqual({ bold: true }, { bold: true }, registry)).toBe(true);
+      expect(attrsEqual({ bold: true }, { bold: false }, registry)).toBe(false);
+    });
+
+    it("falls back to deep value equality for keys not registered at all", () => {
+      const registry = new AttrRegistry();
+      // Registry is empty — fontSize has no interpreter.
+      expect(attrsEqual({ fontSize: 12 }, { fontSize: 12 }, registry)).toBe(true);
+      expect(attrsEqual({ fontSize: 12 }, { fontSize: 14 }, registry)).toBe(false);
+    });
+
+    it("returns false when key sets differ, regardless of custom equals", () => {
+      const registry = new AttrRegistry();
+      registry.register({
+        attrKey: "comment",
+        toStyle: () => ({}),
+        equals: () => true, // "always equal" — but key-set check happens first.
+      });
+      expect(attrsEqual({ comment: { id: "c1", timestamp: 1 } }, {}, registry)).toBe(false);
+      expect(
+        attrsEqual(
+          { comment: { id: "c1", timestamp: 1 } },
+          { comment: { id: "c1", timestamp: 1 }, bold: true },
+          registry,
+        ),
+      ).toBe(false);
+    });
   });
 });
 

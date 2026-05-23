@@ -14,6 +14,8 @@ import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Pre-computed mutation plan for `deleteRangeInTx`. Discriminated by
@@ -90,8 +92,18 @@ export type DeleteRangePlan =
  * Composition: see `deleteRangeInTx` for the in-transaction primitive
  * used by `replaceRange` to compose delete + insert in a single Y.Doc
  * transaction (T12 atomicity).
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to the seam-merge
+ * normalizer (`mergeAdjacentTextItems`) so interpreters with a custom
+ * per-key `equals` (e.g. a `comment` interpreter that ignores
+ * `timestamp`) opt into custom adjacent-item compare semantics across
+ * the post-delete seam. Omitted → deep-value compare.
  */
-export function deleteRange(state: State, span: Span): OperationResult {
+export function deleteRange(
+  state: State,
+  span: Span,
+  registry?: AttrRegistry,
+): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
   if (
     span.anchor.blockId === span.focus.blockId &&
@@ -100,7 +112,7 @@ export function deleteRange(state: State, span: Span): OperationResult {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planDeleteRange(state, span);
+  const plan = planDeleteRange(state, span, registry);
   if (plan === null) {
     // Re-collapsed after normalization (e.g., reverse-order positions in
     // the same block at the same offset).
@@ -201,7 +213,11 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
  * plan + an insert plan into a single transaction). See `deleteRangeInTx`
  * for the dual primitive.
  */
-export function planDeleteRange(state: State, span: Span): DeleteRangePlan | null {
+export function planDeleteRange(
+  state: State,
+  span: Span,
+  registry?: AttrRegistry,
+): DeleteRangePlan | null {
   // Pre-normalize existence + leaf guards. These run before normalizeSpan
   // so the operation's stated error contract ("anchor/focus block ... not
   // found", "... is a container") wins over compareBlocksInDocOrder's
@@ -279,7 +295,7 @@ export function planDeleteRange(state: State, span: Span): DeleteRangePlan | nul
       normalized.anchor.offset,
     );
     const [, suffix] = splitInlineContentAtOffset(block.inlineContent, normalized.focus.offset);
-    const merged = mergeAdjacentTextItems([...prefix, ...suffix]);
+    const merged = mergeAdjacentTextItems([...prefix, ...suffix], registry);
 
     // Collect embed-content ids referenced by the DELETED inline portion
     // (items[anchor.offset .. focus.offset)). Splitting afterPrefix at
@@ -408,7 +424,7 @@ export function planDeleteRange(state: State, span: Span): DeleteRangePlan | nul
     focusBlock.inlineContent,
     normalized.focus.offset,
   );
-  const mergedItems = mergeAdjacentTextItems([...anchorPrefix, ...focusSuffix]);
+  const mergedItems = mergeAdjacentTextItems([...anchorPrefix, ...focusSuffix], registry);
 
   // Collect embed-content ids referenced by the DELETED inline portion of
   // the cross-block range. The deleted portion is:
