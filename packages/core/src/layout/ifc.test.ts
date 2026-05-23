@@ -422,6 +422,57 @@ describe("IFC — verticalAlign", () => {
     if (ib?.type !== "inline-block") throw new Error("?");
     expect(ib.y).toBe((line.height - ib.height) / 2);
   });
+
+  it("L-A: verticalAlign bottom updates BOTH blockOffset and y consistently (no frozen-box invariant violation)", () => {
+    // Regression test for the A2 bug: ifc.ts applyVerticalAlign spread-patched
+    // `y` while leaving `blockOffset` stale at 0. Cursor / hit-test code that
+    // read `blockOffset` saw 0, while painter that read `y` saw the aligned
+    // value — different positions for the same box. Both must agree now.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", {
+          display: "inline-block", inlineSize: 20, blockSize: 30, verticalAlign: "bottom",
+        }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("?");
+    // Expected aligned position: line.height - ib.height. blockOffset is the
+    // logical field; under horizontal-tb LTR it equals y.
+    const expectedOffset = line.blockSize - ib.blockSize;
+    expect(ib.blockOffset).toBe(expectedOffset);
+    expect(ib.y).toBe(expectedOffset);
+    expect(ib.blockOffset).toBe(ib.y);
+  });
+
+  it("L-A: verticalAlign middle updates BOTH blockOffset and y consistently", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", {
+          display: "inline-block", inlineSize: 20, blockSize: 30, verticalAlign: "middle",
+        }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("?");
+    const expectedOffset = (line.blockSize - ib.blockSize) / 2;
+    expect(ib.blockOffset).toBe(expectedOffset);
+    expect(ib.y).toBe(expectedOffset);
+  });
 });
 
 describe("IFC — text wraps around floats", () => {

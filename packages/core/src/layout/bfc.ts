@@ -1,6 +1,6 @@
 import type { ElementBox } from "../render/render-node";
 import type { LayoutBox, BlockBox } from "./layout-box-v2";
-import { createBlockBox, createMarkerBox } from "./layout-box-v2";
+import { createBlockBox, createMarkerBox, withOffsets, assertLayoutBoxConsistent } from "./layout-box-v2";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
@@ -295,11 +295,17 @@ export function layoutBlock(
       const placedInlineOffset = result.inlineOffset;
       const placedBlockOffset = result.blockOffset;
 
-      const positioned: LayoutBox = Object.freeze({
-        ...floatLayout,
-        x: paddingInlineStart + placedInlineOffset,
-        y: placedBlockOffset,
-      } as LayoutBox);
+      // Reposition the float at the place returned by floatEnv. Use the
+      // `withOffsets` factory helper rather than spread-and-cast — the latter
+      // would patch physical `x` / `y` while leaving `inlineOffset` /
+      // `blockOffset` stale, breaking the logical↔physical invariant.
+      const positioned = withOffsets(
+        floatLayout,
+        paddingInlineStart + placedInlineOffset,
+        placedBlockOffset,
+        contentInlineSize,
+      );
+      assertLayoutBoxConsistent(positioned, contentInlineSize);
       layoutChildren.push(positioned);
       // Float is out of normal flow — do NOT advance childBlockOffset or update prevMarginBlockEnd.
       continue;

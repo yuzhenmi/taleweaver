@@ -2,7 +2,7 @@ import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
-import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, createBlockBox } from "./layout-box-v2";
+import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box-v2";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
@@ -856,29 +856,49 @@ export function layoutInlineContent(
   }
 }
 
-function applyVerticalAlign(children: readonly LayoutBox[], lineBlockSize: number): LayoutBox[] {
+/**
+ * Reposition inline children inside a line according to their `verticalAlign`.
+ *
+ * The computed block-axis position is a LOGICAL offset relative to the
+ * line's content-box origin (block-axis = vertical under `horizontal-tb`).
+ * We update `blockOffset` and let the factory derive `y`; spread-patching
+ * physical `y` while leaving `blockOffset` stale would break the
+ * logical↔physical invariant.
+ *
+ * @param containingInlineSize the line's inline-size — i.e. the children's
+ *   containing-block inline-size. Required for the factory's physical-x
+ *   derivation under RTL.
+ */
+function applyVerticalAlign(
+  children: readonly LayoutBox[],
+  lineBlockSize: number,
+  containingInlineSize: number,
+): LayoutBox[] {
   return children.map((c) => {
     const va = c.computedStyle.verticalAlign;
-    let y: number;
+    let newBlockOffset: number;
     switch (va) {
       case "top":
-        y = 0;
+        newBlockOffset = 0;
         break;
       case "middle":
-        y = (lineBlockSize - c.height) / 2;
+        newBlockOffset = (lineBlockSize - c.blockSize) / 2;
         break;
       case "bottom":
-        y = lineBlockSize - c.height;
+        newBlockOffset = lineBlockSize - c.blockSize;
         break;
       case "baseline":
       default:
-        // Approximation: parent baseline at lineBlockSize * 0.8; child baseline at child.height * 0.8.
-        // Position child so its baseline lines up with the line's baseline.
-        y = lineBlockSize * 0.8 - c.height * 0.8;
+        // Approximation: parent baseline at lineBlockSize * 0.8; child baseline
+        // at child.blockSize * 0.8. Position child so its baseline lines up
+        // with the line's baseline.
+        newBlockOffset = lineBlockSize * 0.8 - c.blockSize * 0.8;
         break;
     }
-    if (c.y === y) return c;
-    return Object.freeze({ ...c, y }) as LayoutBox;
+    if (c.blockOffset === newBlockOffset) return c;
+    const repositioned = withBlockOffset(c, newBlockOffset, containingInlineSize);
+    assertLayoutBoxConsistent(repositioned, containingInlineSize);
+    return repositioned;
   });
 }
 
@@ -925,7 +945,7 @@ function buildLineWithFragments(
   }
 
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
-  const aligned = applyVerticalAlign(children, lineBlockSize);
+  const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize);
   const reordered = reorderLineForBidi(aligned, lineInlineSize);
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
@@ -1055,6 +1075,18 @@ function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
   });
 
   // Phase 2: rebuild each line with corrected fragmentEdges.
+  //
+  // The spread-and-cast below is INTENTIONALLY NOT routed through
+  // `withInlineOffset`/`withBlockOffset`/`createLineBox`. It mutates ONLY
+  // `children` — not `inlineOffset`, `blockOffset`, `inlineSize`, or
+  // `blockSize`. The logical↔physical position invariant (the one L-A
+  // introduced `assertLayoutBoxConsistent` to protect) is untouched here,
+  // so this pattern is safe.
+  //
+  // If a future change to this site mutates a position field, route it
+  // through a `with*` helper instead — and add an `assertLayoutBoxConsistent`
+  // check, as in `bfc.ts`'s float-placement site and `ifc.ts`'s
+  // `applyVerticalAlign`.
   return lines.map((line, idx) => {
     if (line.type !== "line") return line;
     const newChildren = line.children.map((c) => correctFragmentEdge(c, idx, lineIndicesByAncestor));
@@ -1128,5 +1160,10 @@ function correctFragmentEdge(
   else edge = "middle";
 
   const newChildren = box.children.map((c) => correctFragmentEdge(c, lineIdx, lineIndicesByAncestor));
+  // Spread-and-cast safe here: this mutates only `children` and
+  // `fragmentEdge`, neither of which is part of the logical↔physical
+  // position invariant L-A protects. If a future change mutates a
+  // position field, switch to `withBlockOffset` / `withOffsets` and add
+  // an `assertLayoutBoxConsistent` check.
   return Object.freeze({ ...box, children: Object.freeze(newChildren), fragmentEdge: edge }) as LayoutBox;
 }

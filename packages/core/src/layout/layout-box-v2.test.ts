@@ -5,6 +5,8 @@ import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox,
+  withInlineOffset, withBlockOffset, withOffsets,
+  assertLayoutBoxConsistent,
 } from "./layout-box-v2";
 
 const cs = INITIAL_COMPUTED_STYLE;
@@ -140,5 +142,144 @@ it("LTR horizontal-tb is unaffected by containingInlineSize", () => {
     /* metadata */ undefined,
   );
   expect(b.x).toBe(30);
+});
+
+describe("withInlineOffset", () => {
+  it("updates inlineOffset and re-derives physical x; preserves blockOffset/y and all other fields", () => {
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [tr], 200);
+    const moved = withInlineOffset(orig, 75, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("block");
+    expect(moved.inlineOffset).toBe(75);
+    expect(moved.blockOffset).toBe(20);
+    expect(moved.x).toBe(75);
+    expect(moved.y).toBe(20);
+    expect(moved.inlineSize).toBe(100);
+    expect(moved.blockSize).toBe(50);
+    if (moved.type !== "block") throw new Error("?");
+    expect(moved.children).toHaveLength(1);
+    expect(moved.children[0]).toBe(tr); // children preserved by reference
+    expect(moved.computedStyle).toEqual(orig.computedStyle);
+    expect(moved.usedStyle).toEqual(orig.usedStyle);
+    expect(Object.isFrozen(moved)).toBe(true);
+  });
+
+  it("RTL re-derives physical x from the new inlineOffset and containingInlineSize", () => {
+    const orig = createBlockBox("k", 30, 0, 100, 50, "horizontal-tb", "rtl", cs, us, [], 500);
+    // 500 - 30 - 100 = 370
+    expect(orig.x).toBe(370);
+    const moved = withInlineOffset(orig, 50, 500);
+    // 500 - 50 - 100 = 350
+    expect(moved.inlineOffset).toBe(50);
+    expect(moved.x).toBe(350);
+  });
+});
+
+describe("withBlockOffset", () => {
+  it("updates blockOffset and re-derives physical y; preserves inlineOffset/x and all other fields", () => {
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [tr], 200);
+    const moved = withBlockOffset(orig, 99, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("block");
+    expect(moved.inlineOffset).toBe(10);
+    expect(moved.blockOffset).toBe(99);
+    expect(moved.x).toBe(10);
+    expect(moved.y).toBe(99);
+    expect(moved.inlineSize).toBe(100);
+    expect(moved.blockSize).toBe(50);
+    if (moved.type !== "block") throw new Error("?");
+    expect(moved.children).toHaveLength(1);
+    expect(moved.children[0]).toBe(tr);
+    expect(moved.computedStyle).toEqual(orig.computedStyle);
+    expect(moved.usedStyle).toEqual(orig.usedStyle);
+    expect(Object.isFrozen(moved)).toBe(true);
+  });
+
+  it("preserves type-specific fields (inline-block children, table columnPxWidths, line baseline)", () => {
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const line = createLineBox("l", 5, 5, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 12, 100);
+    const movedLine = withBlockOffset(line, 40, 100);
+    if (movedLine.type !== "line") throw new Error("?");
+    expect(movedLine.baseline).toBe(12);
+
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], 50);
+    const movedIb = withBlockOffset(ib, 7, 50);
+    if (movedIb.type !== "inline-block") throw new Error("?");
+    expect(movedIb.blockOffset).toBe(7);
+    expect(movedIb.children).toHaveLength(1);
+
+    const tb = createTableBox("tb", 0, 0, 500, 200, "horizontal-tb", "ltr", cs, us, [], [200, 300], 500);
+    const movedTb = withBlockOffset(tb, 11, 500);
+    if (movedTb.type !== "table") throw new Error("?");
+    expect(movedTb.columnPxWidths).toEqual([200, 300]);
+
+    const inl = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", 50);
+    const movedInl = withBlockOffset(inl, 3, 50);
+    if (movedInl.type !== "inline") throw new Error("?");
+    expect(movedInl.fragmentEdge).toBe("middle");
+  });
+});
+
+describe("withOffsets", () => {
+  it("updates both logical offsets and re-derives physical fields", () => {
+    const orig = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 500);
+    const moved = withOffsets(orig, 12, 34, 500);
+    expect(moved.inlineOffset).toBe(12);
+    expect(moved.blockOffset).toBe(34);
+    expect(moved.x).toBe(12);
+    expect(moved.y).toBe(34);
+  });
+
+  it("RTL: re-derives x from new inlineOffset, y from new blockOffset", () => {
+    const orig = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "rtl", cs, us, [], 500);
+    const moved = withOffsets(orig, 30, 22, 500);
+    // 500 - 30 - 100 = 370
+    expect(moved.inlineOffset).toBe(30);
+    expect(moved.blockOffset).toBe(22);
+    expect(moved.x).toBe(370);
+    expect(moved.y).toBe(22);
+  });
+});
+
+describe("assertLayoutBoxConsistent (C1 prevention)", () => {
+  it("accepts a factory-built box", () => {
+    const b = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    expect(() => assertLayoutBoxConsistent(b, 200)).not.toThrow();
+  });
+
+  it("accepts a box produced by withInlineOffset / withBlockOffset / withOffsets", () => {
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    expect(() => assertLayoutBoxConsistent(withInlineOffset(orig, 5, 200), 200)).not.toThrow();
+    expect(() => assertLayoutBoxConsistent(withBlockOffset(orig, 5, 200), 200)).not.toThrow();
+    expect(() => assertLayoutBoxConsistent(withOffsets(orig, 5, 7, 200), 200)).not.toThrow();
+  });
+
+  it("throws when y was spread-patched but blockOffset is stale (A2 anti-pattern)", () => {
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    // Mimic the broken `Object.freeze({ ...c, y: 9999 })` pattern.
+    const corrupt = Object.freeze({ ...orig, y: 9999 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(corrupt, 200)).toThrow(/LayoutBox invariant violated/);
+  });
+
+  it("throws when x was spread-patched but inlineOffset is stale (A1 anti-pattern)", () => {
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    const corrupt = Object.freeze({ ...orig, x: 9999 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(corrupt, 200)).toThrow(/LayoutBox invariant violated/);
+  });
+
+  it("throws when both x and y are spread-patched together (A1 combo)", () => {
+    const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    const corrupt = Object.freeze({ ...orig, x: 9999, y: 8888 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(corrupt, 200)).toThrow(/LayoutBox invariant violated/);
+  });
+
+  it("detects RTL inconsistency (spread-patched x must respect containingInlineSize)", () => {
+    const orig = createBlockBox("k", 30, 0, 100, 50, "horizontal-tb", "rtl", cs, us, [], 500);
+    // Factory derives x = 500 - 30 - 100 = 370.
+    expect(orig.x).toBe(370);
+    // Spread-patch x to a stale value.
+    const corrupt = Object.freeze({ ...orig, x: 30 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(corrupt, 500)).toThrow(/LayoutBox invariant violated/);
+  });
 });
 

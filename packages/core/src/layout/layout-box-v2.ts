@@ -351,8 +351,16 @@ export function createTableCellBox(
  * reordering and similar passes that need to reposition a box without
  * re-running its children's layout.
  *
+ * Updates ONLY the inline offset; the block offset is preserved. The
+ * physical `x` / `y` are re-derived by the underlying factory, so the
+ * logical↔physical invariant is preserved.
+ *
+ * Prefer this helper over `Object.freeze({ ...box, x })` — spread-and-cast
+ * leaves `inlineOffset` stale, so consumers reading the logical field see
+ * a different position than consumers reading the physical field.
+ *
  * @param containingInlineSize the box's containing-block inline-size
- *   (used for RTL physical-x derivation; same value passed to original
+ *   (used for RTL physical-x derivation; same value passed to the original
  *   factory).
  */
 export function withInlineOffset(
@@ -360,67 +368,186 @@ export function withInlineOffset(
   newInlineOffset: number,
   containingInlineSize: number,
 ): LayoutBox {
+  return rebuildBoxWithOffsets(box, newInlineOffset, box.blockOffset, containingInlineSize);
+}
+
+/**
+ * Recreate a layout box with a new block-offset. Used by IFC vertical-align
+ * and similar passes that reposition a box on the block axis without
+ * re-running its children's layout.
+ *
+ * Updates ONLY the block offset; the inline offset is preserved. The
+ * physical `x` / `y` are re-derived by the underlying factory, so the
+ * logical↔physical invariant is preserved.
+ *
+ * Prefer this helper over `Object.freeze({ ...box, y })` — spread-and-cast
+ * leaves `blockOffset` stale, so consumers reading the logical field see
+ * a different position than consumers reading the physical field.
+ *
+ * @param containingInlineSize the box's containing-block inline-size
+ *   (used for RTL physical-x derivation; same value passed to the original
+ *   factory).
+ */
+export function withBlockOffset(
+  box: LayoutBox,
+  newBlockOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
+  return rebuildBoxWithOffsets(box, box.inlineOffset, newBlockOffset, containingInlineSize);
+}
+
+/**
+ * Recreate a layout box with new inline AND block offsets at once. Used by
+ * BFC float placement, which positions a float on both axes simultaneously.
+ *
+ * Updates both logical offsets; the physical `x` / `y` are re-derived by
+ * the underlying factory, so the logical↔physical invariant is preserved.
+ *
+ * Prefer this helper over `Object.freeze({ ...box, x, y })` — spread-and-cast
+ * leaves the matching logical fields stale.
+ *
+ * @param containingInlineSize the box's containing-block inline-size
+ *   (used for RTL physical-x derivation; same value passed to the original
+ *   factory).
+ */
+export function withOffsets(
+  box: LayoutBox,
+  newInlineOffset: number,
+  newBlockOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
+  return rebuildBoxWithOffsets(box, newInlineOffset, newBlockOffset, containingInlineSize);
+}
+
+function rebuildBoxWithOffsets(
+  box: LayoutBox,
+  newInlineOffset: number,
+  newBlockOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
   switch (box.type) {
     case "block":
       return createBlockBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.metadata,
       );
     case "line":
       return createLineBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.baseline, containingInlineSize, box.endsWithHyphenContinuation,
       );
     case "text-run":
       return createTextRunBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.text, containingInlineSize,
       );
     case "inline":
       return createInlineBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.fragmentEdge, containingInlineSize,
       );
     case "inline-block":
       return createInlineBlockBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize,
       );
     case "marker":
       return createMarkerBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.text, containingInlineSize,
       );
     case "table":
       return createTableBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.columnPxWidths, containingInlineSize,
       );
     case "table-row":
       return createTableRowBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize,
       );
     case "table-cell":
       return createTableCellBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize,
       );
     case "page":
       return createPageBox(
-        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.pageIndex, containingInlineSize,
       );
   }
+}
+
+/**
+ * Dev-mode invariant check: verify a layout box's physical fields match the
+ * factory-derived `physicalFromLogical(...)` for its logical fields.
+ *
+ * This catches the spread-and-cast anti-pattern (e.g.
+ * `Object.freeze({ ...box, y: 9999 })`) which leaves the matching logical
+ * field stale — consumers reading logical vs physical positions then see
+ * different geometry, causing silent rendering and hit-test bugs.
+ *
+ * The factories themselves construct boxes consistently. This helper is the
+ * trap for code that bypasses the factories.
+ *
+ * Behavior:
+ * - In dev mode (NODE_ENV !== "production"): throws a descriptive Error if
+ *   the box is inconsistent.
+ * - In production: no-op (the helper still runs but the assertion is gated).
+ *
+ * @param box the layout box to check.
+ * @param containingInlineSize the inline-size of the box's containing
+ *   block. Required to re-derive physical fields under RTL.
+ */
+export function assertLayoutBoxConsistent(
+  box: LayoutBox,
+  containingInlineSize: number,
+): void {
+  if (!isDevModeForBox()) return;
+  const expected = logicalToPhysical(
+    {
+      inlineOffset: box.inlineOffset,
+      blockOffset:  box.blockOffset,
+      inlineSize:   box.inlineSize,
+      blockSize:    box.blockSize,
+    },
+    box.writingMode, box.direction, containingInlineSize,
+  );
+  if (
+    expected.x !== box.x ||
+    expected.y !== box.y ||
+    expected.width !== box.width ||
+    expected.height !== box.height
+  ) {
+    throw new Error(
+      `LayoutBox invariant violated for key="${box.key}" (type=${box.type}): ` +
+      `physical fields {x:${box.x}, y:${box.y}, width:${box.width}, height:${box.height}} ` +
+      `do not match logicalToPhysical {x:${expected.x}, y:${expected.y}, width:${expected.width}, height:${expected.height}}. ` +
+      `This usually means the box was constructed via Object.freeze({ ...box, x/y }) ` +
+      `instead of the factory or withInlineOffset / withBlockOffset / withOffsets helpers.`,
+    );
+  }
+}
+
+/**
+ * Local copy of the dev-mode flag. Imported lazily to avoid pulling the
+ * state module into the layout-box module's dependency graph at module
+ * eval — the check is read once per assertion call and is cheap.
+ */
+function isDevModeForBox(): boolean {
+  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
+    .process;
+  return proc?.env?.NODE_ENV !== "production";
 }
 

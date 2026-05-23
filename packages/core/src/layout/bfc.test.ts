@@ -493,6 +493,83 @@ describe("BFC — floats", () => {
       expect(float.x).toBe(400);
     }
   });
+
+  it("L-A: float box has consistent logical AND physical position (no frozen-box invariant violation)", () => {
+    // Regression test for the A1 bug: bfc.ts:298 spread-patched x/y onto the
+    // float layout without updating inlineOffset/blockOffset, so consumers
+    // reading logical fields saw a stale (0, 0) while physical saw the placed
+    // coords. We now use withOffsets, so the logical/physical pair must agree.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("f", { display: "block", float: "inline-start", inlineSize: 80, blockSize: 40 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const float = out.children.find((c) => c.type === "block" && c.key === "f");
+    if (float?.type !== "block") throw new Error("float not found");
+    // First inline-start float at block-start: physical x=0, y=0 (after
+    // padding, here zero). Logical offsets must match physical.
+    expect(float.inlineOffset).toBe(0);
+    expect(float.blockOffset).toBe(0);
+    expect(float.x).toBe(0);
+    expect(float.y).toBe(0);
+    expect(float.inlineSize).toBe(80);
+    // The logical/physical invariant — what this test exists to assert —
+    // holds regardless of how blockSize was computed.
+    expect(float.x).toBe(float.inlineOffset);
+    expect(float.y).toBe(float.blockOffset);
+  });
+
+  it("L-A: right-float has consistent logical AND physical position", () => {
+    // A right-floated 100-wide box in a 500-wide container: physical x = 400.
+    // Under LTR horizontal-tb, inlineOffset === x must hold.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("img", { display: "block", float: "inline-end", inlineSize: 100, blockSize: 50 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const float = out.children.find((c) => c.type === "block" && c.key === "img");
+    if (float?.type !== "block") throw new Error("float not found");
+    expect(float.x).toBe(400);
+    expect(float.inlineOffset).toBe(float.x);
+    expect(float.y).toBe(float.blockOffset);
+  });
+
+  it("L-A: stacked floats — second float's logical/physical position matches", () => {
+    // Place a left float, then a second left float in a constrained width so
+    // it must stack below. Each must have logical/physical agreement.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("f1", { display: "block", float: "inline-start", inlineSize: 80, blockSize: 30 }, []),
+        createElementBox("f2", { display: "block", float: "inline-start", inlineSize: 80, blockSize: 30 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    // Container narrower than 2*80 — second float must stack below.
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 100), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const f1 = out.children.find((c) => c.type === "block" && c.key === "f1");
+    const f2 = out.children.find((c) => c.type === "block" && c.key === "f2");
+    if (f1?.type !== "block") throw new Error("f1 not found");
+    if (f2?.type !== "block") throw new Error("f2 not found");
+    expect(f1.inlineOffset).toBe(f1.x);
+    expect(f1.blockOffset).toBe(f1.y);
+    expect(f2.inlineOffset).toBe(f2.x);
+    expect(f2.blockOffset).toBe(f2.y);
+    // f2 must be placed below f1 (stacked), so its blockOffset must be > 0.
+    expect(f2.blockOffset).toBeGreaterThan(0);
+  });
 });
 
 describe("BFC — clearance + margin-collapse interaction (CSS 8.3.1)", () => {
