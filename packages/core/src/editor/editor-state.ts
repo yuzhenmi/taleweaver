@@ -6,7 +6,8 @@ import {
   createSpan,
   type Selection,
 } from "../state/block-position";
-import { render } from "../render/render";
+import { render, type RenderOutput } from "../render/render";
+import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -54,7 +55,26 @@ export interface EditorState {
   readonly state: State;
   readonly selection: Selection;
   readonly history: History;
+  /**
+   * Convenience alias for `renderOutput.root`. Pre-R-D field; many
+   * downstream consumers (paint, react integration) read `renderTree`
+   * directly. New code should prefer `renderOutput` for full access
+   * including `embedContents`.
+   */
   readonly renderTree: RenderNode;
+  /**
+   * Full render output (root + embedContents) — needed as the `prev`
+   * input to the next `renderIncremental` call so unchanged
+   * RenderNodes flow through by reference.
+   */
+  readonly renderOutput: RenderOutput;
+  /**
+   * Post-cascade render tree (every node has `computedStyle`). Stored
+   * to feed `cascadePassIncremental` on the next reducer cycle —
+   * reusing it preserves the ref-equality chain that the incremental
+   * render set up.
+   */
+  readonly cascadedRoot: RenderNode;
   readonly layoutTree: LayoutBox;
   readonly containerWidth: number;
   readonly targetX: number | null;
@@ -84,8 +104,11 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   const selection = createSpan(cursor, cursor);
 
   const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  // Cascade explicitly so we can store the cascaded tree on
+  // EditorState for the next cycle's `cascadePassIncremental`.
+  const cascadedRoot = cascadePass(rendered.root);
   const layout = layoutTree(
-    rendered.root,
+    cascadedRoot,
     config.containerWidth,
     config.measurer,
     config.pageConfig,
@@ -96,6 +119,8 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     selection,
     history: createHistory(state),
     renderTree: rendered.root,
+    renderOutput: rendered,
+    cascadedRoot,
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,

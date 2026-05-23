@@ -3,7 +3,8 @@ import { getBlock } from "../../state/state";
 import type { BlockId } from "../../state/block-id";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render } from "../../render/render";
-import { layoutTree } from "../../layout/dispatch";
+import { cascadePass, cascadePassIncremental } from "../../cascade";
+import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import {
   firstLeafBlock,
   lastLeafBlock,
@@ -12,35 +13,63 @@ import {
 } from "../../state/block-traversal";
 
 /**
- * Re-run the render + layout pipeline for the editor's current state.
- * Used by every state-mutating handler after producing newState +
- * newSelection. Returns a new EditorState with refreshed renderTree
- * + layoutTree (other fields untouched on the input newEditor).
+ * Re-run the render + cascade + layout pipeline for the editor's
+ * current state. Used by every state-mutating handler after producing
+ * newState + newSelection.
  *
- * The `oldEditor` parameter is currently unused — kept for signature
- * stability since the legacy incremental pipeline used it, and so that
- * a future optimization layer can re-introduce reference-equality
- * memoization without touching every handler.
+ * **Incremental path (R-D).** When `dirtyIds` is provided AND
+ * `oldEditor` carries a prior `renderOutput` / `cascadedRoot`, each
+ * pipeline stage runs incrementally:
+ *  1. `render` reuses unchanged RenderNode subtrees by reference
+ *     (only invalidated blocks rebuild — see `renderIncremental`).
+ *  2. `cascadePassIncremental` preserves the ref-equality chain by
+ *     reusing cascaded subtrees whose RenderNode + parent computed
+ *     style are reference-equal.
+ *  3. `layoutTreeIncremental` consumes the pre-cascaded tree (skipping
+ *     its internal auto-cascade) and reuses unchanged layout subtrees.
+ *
+ * **Full-rebuild fallback.** When `dirtyIds` is absent, each stage
+ * does a full rebuild (current behavior pre-R-D). Handlers can adopt
+ * the incremental path incrementally — passing `dirtyIds` only when
+ * they have it.
  */
 export function rebuildTrees(
   newEditor: EditorState,
-  _oldEditor: EditorState,
+  oldEditor: EditorState,
   config: EditorConfig,
+  dirtyIds?: ReadonlySet<BlockId>,
 ): EditorState {
-  const rendered = render(
-    newEditor.state,
-    config.componentRegistry,
-    config.attrRegistry,
-  );
-  const layout = layoutTree(
-    rendered.root,
+  const prevRenderOutput = oldEditor.renderOutput;
+  const prevState = oldEditor.state;
+  const prevCascaded = oldEditor.cascadedRoot;
+  const prevLayout = oldEditor.layoutTree;
+
+  const rendered = dirtyIds !== undefined
+    ? render(newEditor.state, config.componentRegistry, config.attrRegistry, {
+        prev: prevRenderOutput,
+        prevState,
+        dirtyIds,
+      })
+    : render(newEditor.state, config.componentRegistry, config.attrRegistry);
+
+  const cascadedRoot = dirtyIds !== undefined
+    ? cascadePassIncremental(rendered.root, prevRenderOutput.root, prevCascaded)
+    : cascadePass(rendered.root);
+
+  const layout = layoutTreeIncremental(
+    cascadedRoot,
+    dirtyIds !== undefined ? prevCascaded : null,
+    dirtyIds !== undefined ? prevLayout : null,
     newEditor.containerWidth,
     config.measurer,
     config.pageConfig,
   );
+
   return {
     ...newEditor,
     renderTree: rendered.root,
+    renderOutput: rendered,
+    cascadedRoot,
     layoutTree: layout,
   };
 }

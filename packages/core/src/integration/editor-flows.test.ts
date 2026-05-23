@@ -365,3 +365,44 @@ describe("editor flow: EXPAND_WORD selects the surrounding word", () => {
     expect(editor.selection.focus).toEqual(createPosition(blockId, 5));
   });
 });
+
+describe("R-D incremental pipeline (end-to-end)", () => {
+  it("INSERT_TEXT on a leaf: prev unchanged paragraphs ref-equal in renderOutput across reducer calls", () => {
+    // Seed two paragraphs by pressing Enter inside the first one.
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const firstId = firstParagraph(editor).id;
+
+    // Move cursor to end of paragraph 0 and split.
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
+      config,
+    );
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+
+    // Now editor has two paragraphs. Capture the first paragraph's
+    // RenderNode reference, then insert text in the SECOND paragraph
+    // and verify the first paragraph's RenderNode is ref-equal across
+    // the keystroke.
+    const beforeRoot = editor.renderOutput.root;
+    if (beforeRoot.type !== "element") throw new Error("expected element root");
+    // Take a snapshot of the first leaf child of the document root.
+    const firstChild0 = beforeRoot.children[0];
+
+    // Type "X" — INSERT_TEXT goes to the current cursor block (which
+    // is the SECOND paragraph after SPLIT_NODE).
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
+
+    const afterRoot = editor.renderOutput.root;
+    if (afterRoot.type !== "element") throw new Error("expected element root");
+    const firstChild1 = afterRoot.children[0];
+
+    // First paragraph's RenderNode is ref-equal across the
+    // INSERT_TEXT keystroke (which only dirtied the second
+    // paragraph). The root itself differs (children array changed
+    // because the second child was rebuilt).
+    expect(firstChild1).toBe(firstChild0);
+    expect(afterRoot).not.toBe(beforeRoot);
+  });
+});

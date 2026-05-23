@@ -22,6 +22,7 @@ import type { BlockId } from "../../state/block-id";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { createHistory } from "../../state/history";
 import { render } from "../../render/render";
+import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
 
 describe("handleSetBlockType — same-kind transitions succeed (regression #155)", () => {
@@ -76,8 +77,9 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     // EditorState's renderTree / layoutTree are properly typed and
     // populated — no `null as never` escape hatch.
     const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
+    const cascadedRoot = cascadePass(rendered.root);
     const layout = layoutTree(
-      rendered.root,
+      cascadedRoot,
       config.containerWidth,
       config.measurer,
       config.pageConfig,
@@ -87,6 +89,8 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
       selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
       history: createHistory(initialState),
       renderTree: rendered.root,
+      renderOutput: rendered,
+      cascadedRoot,
       layoutTree: layout,
       containerWidth: config.containerWidth,
       targetX: null,

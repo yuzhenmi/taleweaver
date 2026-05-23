@@ -47,5 +47,6 @@ export function handleInsertText(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }
