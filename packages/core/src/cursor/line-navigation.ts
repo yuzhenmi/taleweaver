@@ -1,6 +1,5 @@
 import type { State } from "../state/state";
 import { getBlock } from "../state/state";
-import type { BlockId } from "../state/block-id";
 import type { Position } from "../state/block-position";
 import { createPosition } from "../state/block-position";
 import type { LayoutBox } from "../layout/layout-node";
@@ -8,39 +7,46 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { firstLeafBlock, lastLeafBlock } from "../state/block-traversal";
-import { inlineContentLength, findItemAtOffset } from "../state/inline-content";
-import { prevGraphemeBoundary } from "./grapheme-utils";
+import { inlineContentLength } from "../state/inline-content";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import {
-  collectAllTextBoxes,
-  type AbsoluteTextBox,
-} from "../editor/layout-utils";
+  collectLineBoxes,
+  findLineForPosition,
+  type AbsoluteLineBox,
+} from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
-
-interface PageLine {
-  y: number;
-  pageIndex: number;
-}
 
 /**
  * Move cursor to the line above or below `position`, preserving the
  * horizontal x-coordinate (caret-affinity).
  *
- * Returns `{ position, targetX }` for the new caret location. `targetX`
- * is the value to thread into the next vertical move (pass it back as
- * the `targetX` arg) so the caret remembers its column across multiple
- * up/down keystrokes.
+ * Returns `{ position, targetX }` for the new caret location.
+ * `targetX` is the value to thread into the next vertical move (pass
+ * it back as the `targetX` arg) so the caret remembers its column
+ * across multiple up/down keystrokes.
  *
- * Edge cases (matching legacy):
+ * Edge cases:
  *   - At the topmost line moving up: return start-of-document
  *     (offset 0 of the first leaf block).
  *   - At the bottommost line moving down: return end-of-document
  *     (offset = inline-content length of the last leaf block).
  *   - Empty document or unresolvable position: return null.
  *
- * Composes T2's `resolvePixelPosition` and T3's `resolvePositionFromPixel`;
- * does not introduce any new spatial walks beyond `collectPageLines`.
+ * Algorithm (LineBox-canonical):
+ *   1. Resolve current position to a PixelPosition for the initial X.
+ *   2. Collect all `AbsoluteLineBox`es and find the current one via
+ *      `findLineForPosition`.
+ *   3. Pick the previous / next entry in the flat list.
+ *   4. Resolve the target X on the adjacent line's Y via
+ *      `resolvePositionFromPixel`.
+ *
+ * Note on inline-block interleaving: `collectLineBoxes` interleaves
+ * inline-block-internal lines into the flat array. Moving up/down
+ * from an outer-paragraph line currently treats those as adjacent
+ * (the up/down arrow can navigate into an inline-block's contents).
+ * For a typical document without inline-blocks this is identical to
+ * the prior behavior.
  */
 export function moveToLine(
   state: State,
@@ -56,51 +62,36 @@ export function moveToLine(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    const currentPixel = resolvePixelPosition(
-      state,
-      position,
-      layoutTree,
-      measurer,
-    );
+    const currentPixel = resolvePixelPosition(state, position, layoutTree, measurer);
     if (currentPixel === null) return null;
 
     const x = targetX ?? currentPixel.x;
 
-    const lines = collectPageLines(layoutTree);
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(layoutTree, 0, 0, lines);
     if (lines.length === 0) return null;
 
-    const currentLineIdx = findCurrentLine(
-      lines,
-      currentPixel.lineY,
-      currentPixel.pageIndex,
-    );
+    const currentLineIdx = findLineForPosition(lines, position);
+    if (currentLineIdx < 0) return null;
 
     if (direction === "up") {
-      if (currentLineIdx <= 0) {
-        // At the first line — return start-of-document.
+      if (currentLineIdx === 0) {
+        // At first line — return start-of-document.
         const firstLeaf = firstLeafBlock(state, state.rootId);
         if (firstLeaf === null) return null;
-        return {
-          position: createPosition(firstLeaf, 0),
-          targetX: x,
-        };
+        return { position: createPosition(firstLeaf, 0), targetX: x };
       }
       const target = lines[currentLineIdx - 1];
       const pos = resolvePositionFromPixel(
-        state,
-        layoutTree,
-        measurer,
-        x,
-        target.y,
-        target.pageIndex,
+        state, layoutTree, measurer, x, target.absoluteY, target.pageIndex,
       );
       if (pos === null) return null;
       return { position: pos, targetX: x };
     }
 
     // direction === "down"
-    if (currentLineIdx >= lines.length - 1) {
-      // At the last line — return end-of-document.
+    if (currentLineIdx === lines.length - 1) {
+      // At last line — return end-of-document.
       const lastLeaf = lastLeafBlock(state, state.rootId);
       if (lastLeaf === null) return null;
       const lastBlock = getBlock(state, lastLeaf);
@@ -109,19 +100,11 @@ export function moveToLine(
         lastBlock.inlineContent === null
           ? 0
           : inlineContentLength(lastBlock.inlineContent);
-      return {
-        position: createPosition(lastLeaf, endOffset),
-        targetX: x,
-      };
+      return { position: createPosition(lastLeaf, endOffset), targetX: x };
     }
     const target = lines[currentLineIdx + 1];
     const pos = resolvePositionFromPixel(
-      state,
-      layoutTree,
-      measurer,
-      x,
-      target.y,
-      target.pageIndex,
+      state, layoutTree, measurer, x, target.absoluteY, target.pageIndex,
     );
     if (pos === null) return null;
     return { position: pos, targetX: x };
@@ -131,156 +114,43 @@ export function moveToLine(
 }
 
 /**
- * Move cursor to the start or end of the current visual line (Home / End).
+ * Move cursor to the start or end of the current visual line
+ * (Home / End).
  *
- * Implementation: resolve current pixel position to find its line, then
- * use `resolvePositionFromPixel` with x = 0 (start) or Infinity (end).
+ * Algorithm (LineBox-canonical):
+ *   1. Collect AbsoluteLineBoxes; find the line containing `position`
+ *      via `findLineForPosition`.
+ *   2. Return `(ownerBlockId, inlineOffsetStart)` for "start" or
+ *      `(ownerBlockId, inlineOffsetEnd)` for "end".
  *
- * End-of-line wrap-edge case (matching legacy): when "end" lands on a
- * soft-wrap boundary that resolvePositionFromPixel snaps to the *next*
- * line, back up one offset so the caret stays at the visual end of the
- * source line.
+ * The prior implementation went `Position → PixelPosition →
+ * resolvePositionFromPixel(x=∞)` and then needed a "step-back one
+ * grapheme cluster" defense when the hit-test snapped to the next
+ * line at a soft-wrap edge. By going directly through the LineBox's
+ * offset range, we stay inside one LineBox by construction; the
+ * step-back machinery dissolves. The E-A15 cross-block defense gap
+ * is resolved structurally.
  */
 export function moveToLineBoundary(
-  state: State,
+  _state: State,
   position: Position,
   layoutTree: LayoutBox,
-  shaperOrMeasurer: TextShaper | TextMeasurer,
+  _shaperOrMeasurer: TextShaper | TextMeasurer,
   boundary: "start" | "end",
 ): Position | null {
   const t = markStart("cursor.line-navigation.moveToLineBoundary");
   try {
-    const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
-      ? adaptShaperToMeasurer(shaperOrMeasurer)
-      : shaperOrMeasurer;
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(layoutTree, 0, 0, lines);
+    if (lines.length === 0) return null;
 
-    const currentPixel = resolvePixelPosition(
-      state,
-      position,
-      layoutTree,
-      measurer,
-    );
-    if (currentPixel === null) return null;
+    const currentLineIdx = findLineForPosition(lines, position);
+    if (currentLineIdx < 0) return null;
 
-    const x = boundary === "start" ? 0 : Number.POSITIVE_INFINITY;
-    const result = resolvePositionFromPixel(
-      state,
-      layoutTree,
-      measurer,
-      x,
-      currentPixel.lineY,
-      currentPixel.pageIndex,
-    );
-    if (result === null || boundary === "start") return result;
-
-    // End: if the resolved position's pixel coords are on a different
-    // line, back up one offset (soft-wrap boundary).
-    const resultPixel = resolvePixelPosition(
-      state,
-      result,
-      layoutTree,
-      measurer,
-    );
-    if (resultPixel === null) return result;
-    if (
-      resultPixel.lineY !== currentPixel.lineY ||
-      resultPixel.pageIndex !== currentPixel.pageIndex
-    ) {
-      // Soft-wrap edge: back up by one grapheme cluster (UAX #29), not one
-      // raw UTF-16 code unit. A raw `-1` step can land mid-surrogate-pair
-      // for emojis / astral codepoints, producing an invalid Position. The
-      // grapheme-aware step mirrors `cursor-ops.ts`'s within-block backward
-      // step.
-      return createPosition(
-        result.blockId,
-        stepBackWithinBlock(state, result.blockId, result.offset),
-      );
-    }
-    return result;
+    const line = lines[currentLineIdx].line;
+    const offset = boundary === "start" ? line.inlineOffsetStart : line.inlineOffsetEnd;
+    return createPosition(line.ownerBlockId, offset);
   } finally {
     markEnd("cursor.line-navigation.moveToLineBoundary", t);
   }
-}
-
-/**
- * Step back by one grapheme cluster within a block's inline content, using
- * the same logic as `cursor-ops.ts`'s `advanceBackward`. Used by
- * `moveToLineBoundary` to ensure the soft-wrap back-up never lands inside a
- * surrogate pair or other multi-code-unit grapheme.
- *
- * Defensive fallback: if the block or its inline content is missing (which
- * shouldn't happen for a position the hit-test successfully produced), step
- * back by one raw UTF-16 unit (`max(0, offset - 1)`).
- */
-function stepBackWithinBlock(
-  state: State,
-  blockId: BlockId,
-  offset: number,
-): number {
-  if (offset <= 0) return 0;
-  const block = getBlock(state, blockId);
-  if (block === null || block.inlineContent === null) {
-    return Math.max(0, offset - 1);
-  }
-  const content = block.inlineContent;
-  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
-  if (withinItem > 0) {
-    const item = content.items[itemIndex];
-    if (item !== undefined && item.kind === "text") {
-      const prevBoundary = prevGraphemeBoundary(item.text, withinItem);
-      return offset - (withinItem - prevBoundary);
-    }
-    return Math.max(0, offset - 1);
-  }
-  // At an item boundary (start of items[itemIndex]). Step into the previous item.
-  const prev = content.items[itemIndex - 1];
-  if (prev === undefined) return Math.max(0, offset - 1);
-  if (prev.kind !== "text") return offset - 1;
-  const prevBoundary = prevGraphemeBoundary(prev.text, prev.text.length);
-  return offset - (prev.text.length - prevBoundary);
-}
-
-/** Collect unique (pageIndex, Y) pairs for all lines, sorted by page then Y. */
-function collectPageLines(layoutTree: LayoutBox): PageLine[] {
-  const boxes: AbsoluteTextBox[] = [];
-  collectAllTextBoxes(layoutTree, 0, 0, boxes);
-
-  const seen = new Set<string>();
-  const lines: PageLine[] = [];
-  for (const b of boxes) {
-    const key = `${b.pageIndex}:${b.absoluteY}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      lines.push({ y: b.absoluteY, pageIndex: b.pageIndex });
-    }
-  }
-  lines.sort((a, b) =>
-    a.pageIndex !== b.pageIndex ? a.pageIndex - b.pageIndex : a.y - b.y,
-  );
-  return lines;
-}
-
-/** Find the line index matching (pageIndex, y); closest-match fallback. */
-function findCurrentLine(
-  lines: readonly PageLine[],
-  y: number,
-  pageIndex: number,
-): number {
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].pageIndex === pageIndex && Math.abs(lines[i].y - y) < 1) {
-      return i;
-    }
-  }
-  let best = 0;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < lines.length; i++) {
-    const pageDist = Math.abs(lines[i].pageIndex - pageIndex) * 1e6;
-    const yDist = Math.abs(lines[i].y - y);
-    const dist = pageDist + yDist;
-    if (dist < bestDist) {
-      best = i;
-      bestDist = dist;
-    }
-  }
-  return best;
 }

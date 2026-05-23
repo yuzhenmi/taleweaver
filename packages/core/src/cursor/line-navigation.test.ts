@@ -345,21 +345,28 @@ describe("moveToLineBoundary (new)", () => {
     expect(result.offset).toBe(5);
   });
 
-  it("'end' uses grapheme boundary (not raw UTF-16 unit) at soft-wrap", () => {
+  it("'end' returns the line's `inlineOffsetEnd` (a valid state-model boundary, never mid-surrogate)", () => {
     // Build a paragraph where the inline-item boundary lands right after a
     // surrogate-pair grapheme. With charWidth=8 and container=8 the wrap
-    // forces item 2 to line 1; resolvePositionFromPixel returns the start of
-    // item 2 (offset 2), whose pixel lives on line 1. The pre-fix code then
-    // backs up by 1 raw UTF-16 unit → offset 1 (the LOW surrogate of "🌟"),
-    // an invalid Position mid-grapheme. The fix must use a grapheme step
-    // and land on offset 0 (the grapheme boundary before "🌟").
+    // forces item 2 to line 1.
     //
     // Inline items: [text("🌟"), text("b")]
     //   UTF-16 offsets:   hi(0) lo(1) | b(2)
     //   Graphemes:        🌟          | b
     //
-    // With containerInlineSize=8 (1 ASCII char) the emoji's unbreakable run
-    // overflows on line 0 alone; the next item ("b") wraps to line 1.
+    // Historical: an earlier implementation went pixel → resolvePositionFromPixel
+    // (which snapped to line 1's start = offset 2) → stepBack(1 raw UTF-16
+    // unit) → offset 1 (the LOW surrogate of "🌟"), an invalid Position
+    // mid-grapheme. That bug required a grapheme-aware step-back.
+    //
+    // After E-E.6: moveToLineBoundary returns `line.inlineOffsetEnd`
+    // directly. The IFC stamps inlineOffsetEnd at state-model item
+    // boundaries (per E-E.1 — each text-item contributes text.length,
+    // each embed contributes 1), so the returned offset is always a
+    // valid state-model cursor position by construction. No grapheme
+    // step needed: item boundaries are coarser than grapheme boundaries
+    // and never split a surrogate pair (because surrogate pairs live
+    // within a single text-item's text).
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -383,9 +390,10 @@ describe("moveToLineBoundary (new)", () => {
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.blockId).toBe("p");
-    // Pre-fix: returned offset 1 (LOW surrogate — INVALID). Post-fix: must
-    // land on a grapheme boundary. For this inline-content the boundaries
-    // are {0, 2, 3}; offset 1 is mid-surrogate.
+    // Pre-fix code returned offset 1 (LOW surrogate — INVALID).
+    // Post-E-E.6: returns `line.inlineOffsetEnd`, an item-seam
+    // boundary; valid state-model offsets are {0, 2, 3}; offset 1 is
+    // mid-surrogate and unreachable.
     expect(result.offset).not.toBe(1);
     expect(new Set([0, 2, 3]).has(result.offset)).toBe(true);
   });
