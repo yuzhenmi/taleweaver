@@ -44,12 +44,16 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
     return { type: "MOVE_LINE", direction };
   }
 
-  // Home / End
+  // Home / End — `mod` (Ctrl OR Cmd) maps to document-boundary so both
+  // Windows (Ctrl+Home) and Mac (Cmd+Home) reach the same action. Using
+  // only ctrlKey here would silently fall through to MOVE_LINE_BOUNDARY
+  // on macOS, landing at the start/end of whatever line the focus is on
+  // — confusing when a multi-block selection is active.
   if (key === "Home" || key === "End") {
     const boundary = key === "Home" ? "start" : "end";
-    if (shiftKey && ctrlKey)
+    if (shiftKey && mod)
       return { type: "EXPAND_DOCUMENT_BOUNDARY", boundary };
-    if (ctrlKey) return { type: "MOVE_DOCUMENT_BOUNDARY", boundary };
+    if (mod) return { type: "MOVE_DOCUMENT_BOUNDARY", boundary };
     if (shiftKey) return { type: "EXPAND_LINE_BOUNDARY", boundary };
     return { type: "MOVE_LINE_BOUNDARY", boundary };
   }

@@ -278,6 +278,36 @@ describe("mapKeyEvent", () => {
     });
   });
 
+  // --- Cmd+Home / Cmd+End (Mac convention — should match Ctrl behavior) ---
+
+  it("maps Cmd+Home to MOVE_DOCUMENT_BOUNDARY start (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "Home", metaKey: true }))).toEqual({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
+  });
+
+  it("maps Cmd+End to MOVE_DOCUMENT_BOUNDARY end (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "End", metaKey: true }))).toEqual({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "end",
+    });
+  });
+
+  it("maps Shift+Cmd+Home to EXPAND_DOCUMENT_BOUNDARY start (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "Home", shiftKey: true, metaKey: true }))).toEqual({
+      type: "EXPAND_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
+  });
+
+  it("maps Shift+Cmd+End to EXPAND_DOCUMENT_BOUNDARY end (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "End", shiftKey: true, metaKey: true }))).toEqual({
+      type: "EXPAND_DOCUMENT_BOUNDARY",
+      boundary: "end",
+    });
+  });
+
   // --- Cmd+Arrow (Mac line/document boundary) ---
 
   it("maps Cmd+ArrowLeft to MOVE_LINE_BOUNDARY start (Mac)", () => {
