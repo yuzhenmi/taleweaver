@@ -215,7 +215,18 @@ function addTextLineKeys(
   }
   const absX = parentX + box.x;
   const absY = parentY + box.y;
+  const startSize = out.size;
   for (const child of box.children) {
     addTextLineKeys(child, absX, absY, out, pageIndex);
+  }
+  // Empty-strut line: the LineBox has no text-run descendants but
+  // still carries vertical space (an empty paragraph's strut line per
+  // CSS line-box semantics). Add the line's own key so it counts as a
+  // paragraph-boundary line in selection-rect emission — otherwise an
+  // empty paragraph caught in a multi-line selection produces no
+  // visible highlight (or worse, the full-line highlight that the
+  // synthetic strut box's width would imply).
+  if (box.type === "line" && out.size === startSize && box.blockSize > 0) {
+    out.add(`${pageIndex}:${absY}`);
   }
 }

@@ -382,6 +382,42 @@ describe("computeSelectionRects (new)", () => {
     }
   });
 
+  // Regression: empty paragraphs caught in a multi-line selection should
+  // emit a NARROW paragraph-break indicator (Google Docs / Word style),
+  // NOT a full-line highlight. Pre-fix, the synthetic strut entry (which
+  // spans the full line for hit-test purposes) made buildLineEdgeMaps
+  // think the empty line had real content from x=0 to x=lineInlineSize —
+  // producing a full-line rect. Post-fix, synthetic entries skip the
+  // lineEnd update so the existing narrow-indicator fallback fires.
+  it("empty paragraph rect is NARROW (paragraph-break indicator only), not full-line", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("aaa")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("zzz")]) }),
+      ],
+    });
+    // Container 800px wide. Mock shaper: 8px/char, 16px line height.
+    // Full empty-line width would be ~800; narrow indicator (`"  "`) = 16px.
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p1" as BlockId, 0),
+      createPosition("p3" as BlockId, 3),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    // Three rects: p1 line, empty p2 strut, p3 line.
+    expect(rects.length).toBe(3);
+    // The middle rect (on the empty paragraph) must be narrow — width
+    // matches the paragraph-break indicator (two spaces, ~16px in the
+    // mock shaper), NOT the full line width (~800px). Pre-fix this
+    // failed: rects[1].width was ~800.
+    expect(rects[1].width).toBeLessThan(50);
+    // And still positive — the line return IS in the selection.
+    expect(rects[1].width).toBeGreaterThan(0);
+  });
+
   it("paints a rect inside a single empty paragraph when selection starts at its end and extends to next block", () => {
     const state = buildState({
       rootId: "doc",

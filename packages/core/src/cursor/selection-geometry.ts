@@ -43,7 +43,31 @@ interface LineEdgeInfo {
   lineMarginBottomMap: Map<string, number>;
 }
 
-/** Build maps from (pageIndex, lineY) → leftmost/rightmost edge, trailing styles, margins. */
+/**
+ * Build maps from (pageIndex, lineY) → leftmost/rightmost edge, trailing
+ * styles, margins.
+ *
+ * For SYNTHETIC strut entries (empty-paragraph stand-ins emitted by
+ * `collectAllTextBoxes`), the underlying TextRunBox spans the line's
+ * full inline-size — that's correct for hit-testing (clicks anywhere on
+ * the empty line resolve to the paragraph's only position) but wrong
+ * for selection-rect emission (we'd produce a full-line highlight on
+ * an empty paragraph in a multi-line selection, instead of the narrow
+ * paragraph-break indicator that word processors and Google Docs use).
+ *
+ * To keep both use cases right with one set of entries, this builder
+ * treats synthetic entries asymmetrically:
+ *   - `lineStartMap` IS populated from the synthetic (the paragraph's
+ *     indent / inline-start). The narrow-indicator rect anchors here.
+ *   - `lineEndMap` is NOT populated from the synthetic. The downstream
+ *     rect-emitter's `lineEnd === undefined` branch then takes over
+ *     and emits a narrow indicator-width rect instead of a full-line
+ *     rect.
+ *   - `lineEndStylesMap` IS populated (carries the line's intended
+ *     paragraph style for the indicator's width measurement).
+ *
+ * Real text-run entries unchanged.
+ */
 function buildLineEdgeMaps(boxes: readonly AbsoluteTextBox[]): LineEdgeInfo {
   const lineStartMap = new Map<string, number>();
   const lineEndMap = new Map<string, number>();
@@ -59,9 +83,18 @@ function buildLineEdgeMaps(boxes: readonly AbsoluteTextBox[]): LineEdgeInfo {
     if (prevStart === undefined || leftEdge < prevStart) {
       lineStartMap.set(key, leftEdge);
     }
-    const prevEnd = lineEndMap.get(key);
-    if (prevEnd === undefined || rightEdge > prevEnd) {
-      lineEndMap.set(key, rightEdge);
+    // Synthetic strut entries: do NOT extend lineEnd. The line is
+    // logically empty; the selection rect should be a narrow indicator,
+    // not the full line.
+    if (!b.synthetic) {
+      const prevEnd = lineEndMap.get(key);
+      if (prevEnd === undefined || rightEdge > prevEnd) {
+        lineEndMap.set(key, rightEdge);
+        lineEndStylesMap.set(key, b.box.computedStyle);
+      }
+    } else if (!lineEndStylesMap.has(key)) {
+      // Still record the trailing style so the narrow indicator can be
+      // measured against the paragraph's font metrics.
       lineEndStylesMap.set(key, b.box.computedStyle);
     }
     if (!lineMarginTopMap.has(key)) {
