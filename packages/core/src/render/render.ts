@@ -30,6 +30,36 @@ export interface RenderOutput {
 }
 
 /**
+ * Optional inputs that opt-in to incremental rendering. When all three
+ * are supplied, render walks the layout tree reusing `prev`'s
+ * RenderNode for any block whose subtree is unchanged (block-level
+ * reference equality), and only rebuilds invalidated subtrees.
+ *
+ * The "invalidated" set is `dirtyIds ∪ ancestors(dirtyIds) ∪
+ * descendants(dirtyIds)`:
+ * - `dirtyIds`: blocks whose own attrs/content changed (state-module's
+ *   per-operation `dirtyIds` contract).
+ * - `ancestors(dirtyIds)`: their children arrays now point at
+ *   recomputed children, so the ancestor's RenderNode identity
+ *   changes; computed style is unchanged but the node must be
+ *   re-created with the updated children array.
+ * - `descendants(dirtyIds)`: their attrs may be unchanged at the
+ *   state level but their cascaded `computedStyle` propagates from
+ *   an ancestor whose declared style changed. Re-composing is the
+ *   safe path; reusing the prev RenderNode would leave stale
+ *   computed style.
+ *
+ * For typical edits (text content of a leaf block), `dirtyIds` is one
+ * leaf block, ancestors are a small chain, descendants is empty —
+ * the common-case cost is O(depth) per edit instead of O(N).
+ */
+export interface RenderOptions {
+  readonly prev?: RenderOutput;
+  readonly prevState?: State;
+  readonly dirtyIds?: ReadonlySet<BlockId>;
+}
+
+/**
  * Render a Y.Doc-backed State to a RenderNode tree.
  *
  * Decision B: push-model walker. For each block:
@@ -58,7 +88,27 @@ export function render(
   state: State,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
+  options?: RenderOptions,
 ): RenderOutput {
+  // Incremental path: all three options must be provided. Otherwise
+  // fall through to the full-rebuild path below (unchanged from
+  // before R-D, so callers that don't opt in keep working).
+  if (
+    options !== undefined &&
+    options.prev !== undefined &&
+    options.prevState !== undefined &&
+    options.dirtyIds !== undefined
+  ) {
+    return renderIncremental(
+      state,
+      componentRegistry,
+      attrRegistry,
+      options.prev,
+      options.prevState,
+      options.dirtyIds,
+    );
+  }
+
   // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
   // through a per-block view cache. Throwing rather than returning
   // undefined surfaces accidental P7 callers immediately.
@@ -345,4 +395,280 @@ function expandInlineItems(
   }
 
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Incremental render path (R-D)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Walk the new state's block tree, reusing prev's RenderNode for any
+ * block not in the invalidation set (and present in prev's index).
+ *
+ * Invalidation = `dirtyIds ∪ ancestors(dirtyIds) ∪ descendants(dirtyIds)`.
+ * See `RenderOptions` JSDoc for why each piece is needed.
+ *
+ * Embeds are re-rendered when their source block is invalidated;
+ * otherwise the prev RenderNode is reused.
+ */
+function renderIncremental(
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+  prev: RenderOutput,
+  prevState: State,
+  dirtyIds: ReadonlySet<BlockId>,
+): RenderOutput {
+  // Empty-dirty short-circuit: nothing changed → return prev as-is.
+  // This preserves reference equality on the top-level RenderOutput so
+  // downstream consumers (cascade, layout, paint) can skip work too.
+  if (dirtyIds.size === 0) return prev;
+
+  const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
+  const prevByKey = indexRenderNodesByKey(prev.root);
+
+  const context: RenderContext = {
+    state,
+    getView: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getView not yet wired — populated in P10");
+    },
+    getEmbedContent: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
+    },
+  };
+
+  const rootBlock = getBlock(state, state.rootId);
+  if (rootBlock === null) {
+    throw new Error(`render: root block "${state.rootId}" not found`);
+  }
+  const visited = new Set<BlockId>();
+  const root = renderBlockIncremental(
+    rootBlock,
+    null,
+    undefined,
+    state,
+    componentRegistry,
+    attrRegistry,
+    context,
+    visited,
+    invalidated,
+    prevByKey,
+  );
+
+  // Embed contents: reuse prev's RenderNode unless the embed's source
+  // block is in the invalidation set, or it's a newly-added embed
+  // (no prev entry).
+  const embedContents = new Map<BlockId, RenderNode>();
+  for (const id of getEmbedContentIds(state)) {
+    const cachedEmbed = prev.embedContents.get(id);
+    if (cachedEmbed !== undefined && !invalidated.has(id)) {
+      embedContents.set(id, cachedEmbed);
+      continue;
+    }
+    const block = getEmbedContent(state, id);
+    if (block === null) continue;
+    const embedVisited = new Set<BlockId>();
+    embedContents.set(
+      id,
+      renderBlockIncremental(
+        block,
+        null,
+        undefined,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        embedVisited,
+        invalidated,
+        prevByKey,
+      ),
+    );
+  }
+
+  return Object.freeze({ root, embedContents });
+}
+
+/**
+ * Same recursion shape as `renderBlock` but consults the invalidation
+ * set + prev-index first: a non-invalidated block whose RenderNode
+ * exists in prev is returned as-is (reference reuse). Otherwise the
+ * block is fully re-rendered, with children recursing through the
+ * same incremental logic.
+ */
+function renderBlockIncremental(
+  block: Block,
+  parentComputed: ComputedStyle | null,
+  parentSpecified: Partial<Style> | undefined,
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+  context: RenderContext,
+  visited: Set<BlockId>,
+  invalidated: ReadonlySet<BlockId>,
+  prevByKey: ReadonlyMap<string, RenderNode>,
+): RenderNode {
+  if (!invalidated.has(block.id)) {
+    const cached = prevByKey.get(block.id);
+    if (cached !== undefined) return cached;
+  }
+  // Note re: spec deviation — the design spec
+  // (`docs/superpowers/specs/2026-05-22-render-incremental-design.md`)
+  // also suggests a `getBlock(state, id) === getBlock(prevState, id)`
+  // belt-and-suspenders check. In practice that comparison is not
+  // useful at runtime: `getBlock` returns a wrapper over the Y.Doc
+  // (per `state/state.ts`); fresh State after an operation produces
+  // different wrapper instances even for blocks whose underlying
+  // content is unchanged. A meaningful "did this block change"
+  // comparison would have to be structural (O(block-size)) and would
+  // defeat the perf gain. The state module's `dirtyIds` contract (T7)
+  // is the authoritative signal; the spec assumes it, and we trust
+  // it here. If a future state op leaves `dirtyIds` incomplete, the
+  // bug surfaces as stale rendered content — caught by integration
+  // tests, not by a runtime structural compare here.
+
+  if (visited.has(block.id)) {
+    throw new Error(`render: cycle detected at block "${block.id}"`);
+  }
+  visited.add(block.id);
+  try {
+    const { specified, computed } = composeBlockStyle(
+      block.attrs,
+      parentComputed,
+      parentSpecified,
+      attrRegistry,
+    );
+    const def = componentRegistry.get(block.type);
+    if (def === undefined) {
+      throw new Error(`render: no component registered for block type "${block.type}"`);
+    }
+
+    if (def.kind === "container") {
+      const view: ContainerBlockView = Object.freeze({
+        id: block.id,
+        type: block.type,
+        attrs: block.attrs,
+        computedStyle: computed,
+        kind: "container" as const,
+      });
+      const childRenderNodes: RenderNode[] = [];
+      let childId = block.firstChildId;
+      while (childId !== null) {
+        const child = getBlock(state, childId);
+        if (child === null) {
+          throw new Error(`render: child "${childId}" of "${block.id}" not found`);
+        }
+        childRenderNodes.push(
+          renderBlockIncremental(
+            child,
+            computed,
+            specified,
+            state,
+            componentRegistry,
+            attrRegistry,
+            context,
+            visited,
+            invalidated,
+            prevByKey,
+          ),
+        );
+        childId = child.nextSiblingId;
+      }
+      return def.render(view, context, childRenderNodes);
+    }
+
+    const inline: InlineContent = block.inlineContent ?? { items: [] };
+    const view: LeafBlockView = Object.freeze({
+      id: block.id,
+      type: block.type,
+      attrs: block.attrs,
+      computedStyle: computed,
+      kind: "leaf" as const,
+      inlineContent: inline,
+    });
+    const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
+      ? []
+      : expandInlineItems(block.id, inline, specified, attrRegistry);
+    return def.render(view, context, inlineRenderNodes);
+  } finally {
+    visited.delete(block.id);
+  }
+}
+
+/**
+ * Compute the invalidation set: every block whose RenderNode must be
+ * rebuilt (cannot be reused from prev). Includes:
+ *   - dirty blocks themselves (attrs / content changed).
+ *   - their ancestors (children arrays now point at recomputed
+ *     children — RenderNode identity changes even though computed
+ *     style is unchanged).
+ *   - their descendants (cascaded style propagates down from a
+ *     declared-style change; descendants' Block-level attrs may be
+ *     unchanged but their computedStyle would be stale if reused).
+ *
+ * Ancestor walk falls back to OLD state for removed blocks (so a
+ * deleted block's parent is still invalidated). Descendants walk
+ * uses NEW state (deleted blocks have no descendants).
+ */
+function computeInvalidatedBlocks(
+  state: State,
+  prevState: State,
+  dirtyIds: ReadonlySet<BlockId>,
+): Set<BlockId> {
+  const invalidated = new Set<BlockId>();
+  for (const id of dirtyIds) {
+    invalidated.add(id);
+    // Ancestors via parentId chain.
+    let cursor: BlockId = id;
+    while (true) {
+      const block =
+        getBlock(state, cursor) ?? getBlock(prevState, cursor);
+      if (block === null || block.parentId === null) break;
+      const parentId = block.parentId;
+      if (invalidated.has(parentId)) break;
+      invalidated.add(parentId);
+      cursor = parentId;
+    }
+    // Descendants in new state.
+    addDescendantsToInvalidated(state, id, invalidated);
+  }
+  return invalidated;
+}
+
+function addDescendantsToInvalidated(
+  state: State,
+  id: BlockId,
+  out: Set<BlockId>,
+): void {
+  const block = getBlock(state, id);
+  if (block === null) return;
+  let childId = block.firstChildId;
+  while (childId !== null) {
+    if (!out.has(childId)) {
+      out.add(childId);
+      addDescendantsToInvalidated(state, childId, out);
+    }
+    const child = getBlock(state, childId);
+    if (child === null) break;
+    childId = child.nextSiblingId;
+  }
+}
+
+/**
+ * Build a map from RenderNode `key` to RenderNode. Block-level
+ * RenderNodes' keys are the block id (per the component-dispatch
+ * contract); inline RenderNodes' keys are `${blockId}/inline/${i}`.
+ * The incremental renderer only looks up by block id, but indexing
+ * everything keeps the helper simple and lets future consumers reuse
+ * inline-level nodes too.
+ */
+function indexRenderNodesByKey(root: RenderNode): Map<string, RenderNode> {
+  const out = new Map<string, RenderNode>();
+  walk(root);
+  return out;
+  function walk(node: RenderNode): void {
+    out.set(node.key, node);
+    if (node.type === "element") {
+      for (const child of node.children) walk(child);
+    }
+  }
 }

@@ -9,6 +9,7 @@ import type {
 } from "../components/component-definition";
 import type { RenderNode, ElementBox } from "./render-node";
 import { createElementBox } from "./render-node";
+import type { BlockId } from "../state/block-id";
 import { createEmptyDocument } from "../state/initial-state";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
@@ -146,8 +147,6 @@ describe("render (new)", () => {
     expect(observedFontWeight).toBe("bold");
   });
 });
-
-import type { BlockId } from "../state/block-id";
 
 describe("render — embed-content zones", () => {
   const fnBodyComponent: LeafComponentDefinition = {
@@ -570,5 +569,122 @@ describe("render — A5: atomic-leaf strut sentinel suppression", () => {
     render(state, reg, createDefaultAttrRegistry());
     expect(observedCount).toBe(1);
     expect(observedFirstText).toBe("");
+  });
+});
+
+describe("render (incremental — R-D)", () => {
+  function threeParagraphState() {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("first")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("second")]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("third")]) }),
+      ],
+    });
+  }
+
+  it("empty dirtyIds returns prev as-is (top-level reference equality)", () => {
+    const state = threeParagraphState();
+    const reg = basicRegistry();
+    const attrs = createDefaultAttrRegistry();
+    const prev = render(state, reg, attrs);
+    const out = render(state, reg, attrs, {
+      prev,
+      prevState: state,
+      dirtyIds: new Set(),
+    });
+    expect(out).toBe(prev);
+  });
+
+  it("incremental render: unchanged sibling subtrees keep reference equality", async () => {
+    const reg = basicRegistry();
+    const attrs = createDefaultAttrRegistry();
+    const state1 = threeParagraphState();
+    const prev = render(state1, reg, attrs);
+
+    // Mutate only p2 via a state-module operation. Use insertText
+    // (Layer 3) so we get a real dirtyIds set.
+    const { insertText } = await import("../state/insert-text");
+    const { createPosition } = await import("../state/block-position");
+    const { productionAllocator: _alloc } = await import("../state/block-id");
+    const r = insertText(state1, createPosition("p2" as BlockId, 0), "X", {});
+
+    const out = render(r.state, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: r.dirtyIds,
+    });
+
+    // Find p1, p2, p3 in both outputs.
+    function findChild(root: RenderNode, key: string): RenderNode | undefined {
+      if (root.type !== "element") return undefined;
+      for (const c of (root as ElementBox).children) {
+        if (c.key === key) return c;
+        if (c.type === "element") {
+          const found = findChild(c, key);
+          if (found !== undefined) return found;
+        }
+      }
+      return undefined;
+    }
+    const prevP1 = findChild(prev.root, "p1");
+    const outP1 = findChild(out.root, "p1");
+    const prevP3 = findChild(prev.root, "p3");
+    const outP3 = findChild(out.root, "p3");
+    const prevP2 = findChild(prev.root, "p2");
+    const outP2 = findChild(out.root, "p2");
+
+    // p1 and p3 unchanged — reference-equal in both outputs.
+    expect(outP1).toBe(prevP1);
+    expect(outP3).toBe(prevP3);
+    // p2 was mutated — NEW RenderNode (different reference).
+    expect(outP2).not.toBe(prevP2);
+    // Root is an ancestor of a dirty child — also new RenderNode.
+    expect(out.root).not.toBe(prev.root);
+  });
+
+  it("incremental render drift: incremental output equals full rebuild structurally", async () => {
+    const reg = basicRegistry();
+    const attrs = createDefaultAttrRegistry();
+    const state1 = threeParagraphState();
+    const prev = render(state1, reg, attrs);
+
+    const { insertText } = await import("../state/insert-text");
+    const { createPosition } = await import("../state/block-position");
+    const r = insertText(state1, createPosition("p2" as BlockId, 0), "X", {});
+
+    const incremental = render(r.state, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: r.dirtyIds,
+    });
+    const fullRebuild = render(r.state, reg, attrs);
+
+    // Structural equality of the trees (key + type + children counts +
+    // text contents). Reference identities will differ because
+    // fullRebuild creates everything fresh.
+    function shape(n: RenderNode): unknown {
+      if (n.type === "text") return { type: "text", key: n.key, text: n.text };
+      return {
+        type: "element",
+        key: n.key,
+        children: (n as ElementBox).children.map(shape),
+      };
+    }
+    expect(shape(incremental.root)).toEqual(shape(fullRebuild.root));
+  });
+
+  it("incremental render without options falls through to full rebuild (existing callers unaffected)", () => {
+    const state = threeParagraphState();
+    const reg = basicRegistry();
+    const attrs = createDefaultAttrRegistry();
+    const out1 = render(state, reg, attrs);
+    const out2 = render(state, reg, attrs);
+    // No prev/prevState/dirtyIds → both calls do full rebuild → trees
+    // are structurally equal but NOT reference-equal at the root.
+    expect(out2).not.toBe(out1);
+    expect(out2.root).not.toBe(out1.root);
   });
 });
