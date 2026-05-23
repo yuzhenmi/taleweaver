@@ -95,5 +95,6 @@ export function handlePaste(
     { ...editor, state, selection: newSelection },
     editor,
     config,
+    accumulatedDirtyIds,
   );
 }

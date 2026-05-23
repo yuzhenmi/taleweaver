@@ -40,6 +40,7 @@ export function handleDeleteBackward(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -63,6 +64,7 @@ export function handleDeleteBackward(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -108,5 +110,6 @@ export function handleDeleteBackward(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

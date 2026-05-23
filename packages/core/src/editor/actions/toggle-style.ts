@@ -96,5 +96,6 @@ export function handleToggleStyle(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

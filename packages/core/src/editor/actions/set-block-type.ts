@@ -39,7 +39,10 @@ export function handleSetBlockType(
     ...typeResult.dirtyIds,
     ...attrsResult.dirtyIds,
   ]);
-  if (mergedDirtyIds.size === 0) return editor;
+  // No-op short-circuit: match the codebase pattern (T7 identity
+  // contract — state-equality is the authoritative signal, not
+  // dirtyIds.size).
+  if (attrsResult.state === editor.state) return editor;
 
   editor.history.commit(
     { state: attrsResult.state, dirtyIds: mergedDirtyIds },
@@ -49,5 +52,6 @@ export function handleSetBlockType(
     { ...editor, state: attrsResult.state },
     editor,
     config,
+    mergedDirtyIds,
   );
 }

@@ -87,5 +87,6 @@ export function handleSplitNode(
     { ...current, state: splitResult.state, selection: newSelection },
     editor,
     config,
+    accumulatedDirtyIds,
   );
 }

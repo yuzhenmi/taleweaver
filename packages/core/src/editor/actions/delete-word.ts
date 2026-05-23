@@ -37,6 +37,7 @@ export function handleDeleteWord(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -65,5 +66,6 @@ export function handleDeleteWord(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

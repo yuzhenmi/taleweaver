@@ -142,5 +142,6 @@ export function handleInsertNode(
     { ...editor, state: fold.state },
     editor,
     config,
+    fold.dirtyIds,
   );
 }

@@ -39,6 +39,7 @@ export function handleDeleteForward(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -68,6 +69,7 @@ export function handleDeleteForward(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -104,5 +106,6 @@ export function handleDeleteForward(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

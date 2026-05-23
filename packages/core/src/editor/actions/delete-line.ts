@@ -36,6 +36,7 @@ export function handleDeleteLine(
       { ...editor, state: result.state, selection: newSelection },
       editor,
       config,
+      result.dirtyIds,
     );
   }
 
@@ -68,5 +69,6 @@ export function handleDeleteLine(
     { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }
