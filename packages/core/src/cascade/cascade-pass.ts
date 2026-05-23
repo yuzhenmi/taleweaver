@@ -1,5 +1,6 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
+import { PROPERTY_META } from "../styles";
 import { composeComputed } from "./compose";
 import { flattenLengths } from "./flatten-lengths";
 import { markStart, markEnd } from "../perf/perf-trace";
@@ -127,26 +128,15 @@ function cascadeNodeIncremental(
   });
 }
 
-const COMPUTED_STYLE_KEYS: readonly (keyof ComputedStyle)[] = [
-  "display",
-  "writingMode", "direction",
-  "inlineSize", "blockSize", "minInlineSize", "minBlockSize", "maxInlineSize", "maxBlockSize",
-  "boxSizing",
-  "marginBlockStart", "marginBlockEnd", "marginInlineStart", "marginInlineEnd",
-  "paddingBlockStart", "paddingBlockEnd", "paddingInlineStart", "paddingInlineEnd",
-  "borderBlockStartWidth", "borderBlockEndWidth", "borderInlineStartWidth", "borderInlineEndWidth",
-  "borderBlockStartStyle", "borderBlockEndStyle", "borderInlineStartStyle", "borderInlineEndStyle",
-  "borderBlockStartColor", "borderBlockEndColor", "borderInlineStartColor", "borderInlineEndColor",
-  "backgroundColor",
-  "fontFamily", "fontSize", "fontWeight", "fontStyle", "textDecoration", "lineHeight", "color",
-  "whiteSpace", "verticalAlign",
-  "float", "clear",
-  "breakBefore", "breakAfter", "breakInside",
-  "listStyleType", "listStylePosition",
-  "textAlign", "textIndent", "textWrap", "hyphens",
-  "letterSpacing", "wordSpacing", "textTransform", "fontFeatureSettings", "tabSize",
-  "widows", "orphans",
-];
+/**
+ * Derived from `PROPERTY_META` so a new ComputedStyle property added to
+ * `property-meta.ts` is automatically picked up by `computedStylesEqual`.
+ * Hand-maintained lists drift; a missing key here would let
+ * `computedStylesEqual` silently return `true` for unequal styles, causing
+ * incremental layout's reuse cache to serve stale boxes after a style change.
+ */
+export const COMPUTED_STYLE_KEYS: readonly (keyof ComputedStyle)[] =
+  Object.keys(PROPERTY_META) as (keyof ComputedStyle)[];
 
 /** Shallow structural equality for ComputedStyle (all values are primitives or simple objects). */
 export function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {

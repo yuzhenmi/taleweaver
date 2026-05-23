@@ -44,7 +44,13 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   fontSize:       { inherits: true },
   fontWeight:     { inherits: true },
   fontStyle:      { inherits: true },
-  textDecoration: { inherits: true },
+  // Per CSS Text Decoration Module Level 3, `text-decoration` does NOT
+  // inherit. The "decoration spans descendants visually" behavior is a
+  // paint-time concern (ancestor box paints the decoration across its
+  // line area, visually covering descendants), not a cascade concern.
+  // Inheriting at cascade would make `{ underline: false }` on a child
+  // span ineffective — the parent's underline would inherit back.
+  textDecoration: { inherits: false },
   lineHeight:     { inherits: true },
   color:          { inherits: true },
 

@@ -5,9 +5,14 @@ import { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "../styles";
  * Compose a computed style for one node from its specified style and
  * its parent's computed style. Inheritance for inheritable properties;
  * initial values for non-inheritable, unspecified properties.
+ *
+ * `specified` is `Partial<Style>` — `Style` itself is all-optional, but
+ * this signature documents that callers pass a partial map. The
+ * implementation walks `PROPERTY_META` and checks each key for
+ * `undefined`, so omitted properties fall through to inherit/initial.
  */
 export function composeComputed(
-  specified: Readonly<Style>,
+  specified: Partial<Style>,
   parent: Readonly<ComputedStyle> | null,
 ): ComputedStyle {
   const out: Partial<ComputedStyle> = {};

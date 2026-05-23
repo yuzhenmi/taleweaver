@@ -33,4 +33,14 @@ describe("composeComputed", () => {
     expect(result.fontSize).toBe(16);          // initial
     expect(result.marginBlockStart).toBe(0);
   });
+
+  it("does NOT inherit textDecoration from parent (CSS spec)", () => {
+    // Per CSS Text Decoration Module Level 3, `text-decoration` does not
+    // inherit. Otherwise a child span with no specified textDecoration
+    // would silently pick up the parent's underline — and the user could
+    // never remove underline from a sub-run by leaving the attr off.
+    const parent = { ...INITIAL_COMPUTED_STYLE, textDecoration: "underline" as const };
+    const result = composeComputed({}, parent);
+    expect(result.textDecoration).toBe("none");  // initial, NOT "underline"
+  });
 });

@@ -38,6 +38,10 @@ export function flattenLengths(cs: ComputedStyle): ComputedStyle {
     paddingInlineEnd:   flattenLength(cs.paddingInlineEnd, fontSize),
 
     lineHeight: flattenLineHeight(cs.lineHeight, fontSize),
+
+    letterSpacing: flattenLengthOrNormal(cs.letterSpacing, fontSize),
+    wordSpacing:   flattenLengthOrNormal(cs.wordSpacing, fontSize),
+    textIndent:    flattenLength(cs.textIndent, fontSize),
   };
 }
 
@@ -55,6 +59,15 @@ function flattenLength(v: ComputedLength | Length, fontSize: number): ComputedLe
 
 function flattenLengthOrAuto(v: ComputedLengthOrAuto | Length | "auto", fontSize: number): ComputedLengthOrAuto {
   if (v === "auto") return "auto";
+  return flattenLength(v, fontSize);
+}
+
+/** Pass through the "normal" keyword (letter-spacing, word-spacing); otherwise flatten as Length. */
+function flattenLengthOrNormal(
+  v: ComputedLength | Length | "normal",
+  fontSize: number,
+): ComputedLength | "normal" {
+  if (v === "normal") return "normal";
   return flattenLength(v, fontSize);
 }
 

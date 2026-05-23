@@ -51,4 +51,49 @@ describe("flattenLengths", () => {
     const out = flattenLengths(cs);
     expect(out.inlineSize).toBe("max-content");
   });
+
+  it("flattens em letterSpacing against own fontSize", () => {
+    const cs = csWith("letterSpacing", { unit: "em", value: 0.05 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
+    expect(out.letterSpacing).toBe(0.8);  // 16 * 0.05
+  });
+
+  it("flattens em wordSpacing against own fontSize", () => {
+    const cs = csWith("wordSpacing", { unit: "em", value: 0.25 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
+    expect(out.wordSpacing).toBe(4);  // 16 * 0.25
+  });
+
+  it("flattens em textIndent against own fontSize", () => {
+    const cs = csWith("textIndent", { unit: "em", value: 2 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
+    expect(out.textIndent).toBe(32);  // 16 * 2
+  });
+
+  it("passes through 'normal' letterSpacing unchanged", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, letterSpacing: "normal" };
+    const out = flattenLengths(cs);
+    expect(out.letterSpacing).toBe("normal");
+  });
+
+  it("passes through 'normal' wordSpacing unchanged", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, wordSpacing: "normal" };
+    const out = flattenLengths(cs);
+    expect(out.wordSpacing).toBe("normal");
+  });
+
+  it("preserves percent textIndent unresolved (cascade can't resolve %)", () => {
+    const cs: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      textIndent: { unit: "percent", value: 10 },
+    };
+    const out = flattenLengths(cs);
+    expect(out.textIndent).toEqual({ unit: "percent", value: 10 });
+  });
+
+  it("passes through px letterSpacing unchanged", () => {
+    const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, letterSpacing: 2 };
+    const out = flattenLengths(cs);
+    expect(out.letterSpacing).toBe(2);
+  });
 });

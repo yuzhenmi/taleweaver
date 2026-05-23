@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
-import { cascadePass, cascadePassIncremental } from "./cascade-pass";
+import { PROPERTY_META } from "../styles";
+import { cascadePass, cascadePassIncremental, COMPUTED_STYLE_KEYS } from "./cascade-pass";
 
 describe("cascadePass", () => {
   it("produces a tree where every node carries computedStyle", () => {
@@ -97,5 +98,19 @@ describe("cascadePassIncremental", () => {
     if (cascadedA.children[0].type !== "element" || cascadedB.children[0].type !== "element") throw new Error("?");
     expect(cascadedA.children[0].computedStyle?.color).toBe("red");
     expect(cascadedB.children[0].computedStyle?.color).toBe("blue");
+  });
+});
+
+describe("COMPUTED_STYLE_KEYS", () => {
+  it("matches the PROPERTY_META key set (drift insurance)", () => {
+    // If a new Style/ComputedStyle property is added to PROPERTY_META but
+    // COMPUTED_STYLE_KEYS isn't derived from it, computedStylesEqual will
+    // silently skip the new key — which would let incremental layout reuse
+    // stale boxes after a style change. Derive-from-source guarantees parity.
+    expect(COMPUTED_STYLE_KEYS.length).toBe(Object.keys(PROPERTY_META).length);
+    const set = new Set(COMPUTED_STYLE_KEYS);
+    for (const k of Object.keys(PROPERTY_META)) {
+      expect(set.has(k as keyof typeof PROPERTY_META)).toBe(true);
+    }
   });
 });
