@@ -13,13 +13,42 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
     case "normal":
     case "nowrap": {
       const trimmed = text.trim();
-      if (trimmed === "") return [];
+      if (trimmed === "") {
+        // All-whitespace input: emit one space token per character so
+        // the state-model offset (text.length) advances over the input.
+        // Without this, cursor positions past the whitespace fall past
+        // the line and get clamped to the line start.
+        return text.length === 0 ? [] : Array(text.length).fill(" ");
+      }
       const out: string[] = [];
       const parts = trimmed.split(/\s+/);
       for (let i = 0; i < parts.length; i++) {
         out.push(parts[i]);
         if (i < parts.length - 1) out.push(" ");
       }
+      // Preserve one trailing-whitespace token PER trailing-whitespace
+      // character. Without this, text "abc " would tokenize to ["abc"]
+      // only — the trailing space's character offset would never
+      // advance the IFC's per-line offset cursor, and
+      // `line.inlineOffsetEnd` would stop at 3 instead of 4. Cursor
+      // at offset 4 (after the typed space) would then fall past the
+      // line and render at x=24 (after "c") rather than x=32 (after
+      // "abc " including the space). User-perceived symptom: cursor
+      // "stuck" after pressing space.
+      //
+      // We emit ONE token per trailing-whitespace character (not a
+      // single collapsed " " token) so that N consecutive trailing
+      // spaces produce N offset units. Otherwise typing space twice
+      // hits the same clamp at offset 5.
+      //
+      // Visual collapse of trailing whitespace at line-end is a
+      // separate concern handled by the IFC wrap pass; preserving
+      // these tokens here only fixes the OFFSET alignment.
+      let trailingCount = 0;
+      for (let i = text.length - 1; i >= 0 && /\s/.test(text[i]); i--) {
+        trailingCount++;
+      }
+      for (let i = 0; i < trailingCount; i++) out.push(" ");
       return out;
     }
     case "pre": {

@@ -438,17 +438,23 @@ export function layoutInlineContent(
       i++;
       continue;
     }
-    // Non-space: collect it + optional trailing space from same source
+    // Non-space: collect it + all trailing space tokens from the same
+    // source. Slurping ALL trailing spaces (not just one) keeps every
+    // typed trailing-whitespace character inside this unit — otherwise
+    // the extras drop into the "orphan leading space" skip on the next
+    // iteration, losing their offset contribution and stranding the
+    // cursor at the position past only the first trailing space (the
+    // user-perceived "cursor stuck after typing a second space" bug).
     const unit: Token[] = [tok];
     let w = tok.width;
     const unitStartIdx = i;
-    if (i + 1 < tokens.length && tokens[i + 1].isSpace && tokens[i + 1].sourceKey === tok.sourceKey) {
-      unit.push(tokens[i + 1]);
-      w += tokens[i + 1].width;
-      i += 2;
-    } else {
-      i++;
+    let j = i + 1;
+    while (j < tokens.length && tokens[j].isSpace && tokens[j].sourceKey === tok.sourceKey) {
+      unit.push(tokens[j]);
+      w += tokens[j].width;
+      j++;
     }
+    i = j;
     units.push({
       tokens: unit,
       totalWidth: w,

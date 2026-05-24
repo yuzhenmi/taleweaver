@@ -82,6 +82,34 @@ describe("resolvePixelPosition (new)", () => {
     expect(result.height).toBe(16);
   });
 
+  it("places cursor past trailing space (user-reported: cursor 'stuck' after space)", () => {
+    // After typing "abc" + " ", offset is 4. The cursor must render at the
+    // x position AFTER the trailing space (32px for "abc "), not at the
+    // position of the "c" (24px). Bug symptom: user types space, cursor
+    // doesn't visually move until they type another character.
+    const state = singleParagraph("abc ");
+    const { layout, shaper } = pipeline(state, 800);
+    const pos = createPosition("p" as BlockId, 4); // after the space
+    const result = resolvePixelPosition(state, pos, layout, shaper);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.x).toBe(32); // 4 chars × 8px — cursor sits past the trailing space
+  });
+
+  it("places cursor past N trailing spaces (regression for multi-space tokenization)", () => {
+    // Pressing space twice must advance the cursor by 2 char widths.
+    // Reviewer flagged: the single-space fix originally emitted one
+    // trailing-space token regardless of N, so offset 5 of "abc  "
+    // clamped to x=32 instead of x=40.
+    const state = singleParagraph("abc  ");
+    const { layout, shaper } = pipeline(state, 800);
+    const pos = createPosition("p" as BlockId, 5); // after both spaces
+    const result = resolvePixelPosition(state, pos, layout, shaper);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.x).toBe(40); // 5 chars × 8px
+  });
+
   it("wraps to line 2 when offset falls past line 1's break", () => {
     // 200 chars at 8px/char in a 800px container → ~100 chars/line.
     // Use spaces every 10 chars so the mock shaper can soft-break.

@@ -18,8 +18,38 @@ describe("tokenize (whiteSpace: normal)", () => {
     expect(tokenize("", "normal")).toEqual([]);
   });
 
-  it("strips leading/trailing whitespace", () => {
-    expect(tokenize("  hi  ", "normal")).toEqual(["hi"]);
+  it("strips leading whitespace but preserves one trailing-whitespace token per char", () => {
+    // The trailing tokens are needed so the IFC's per-line offset cursor
+    // covers the user-typed trailing spaces — cursors positioned past
+    // them (the common "type a space and the cursor should advance"
+    // case) need a non-collapsed offset to anchor on.
+    expect(tokenize("  hi  ", "normal")).toEqual(["hi", " ", " "]);
+  });
+
+  it("preserves trailing-whitespace token even when there's no inter-word space", () => {
+    expect(tokenize("abc ", "normal")).toEqual(["abc", " "]);
+  });
+
+  it("preserves ONE trailing-whitespace token per trailing-space character", () => {
+    // Multi-trailing-space regression: typing space twice must advance
+    // the offset cursor by 2 (not stop at 1). Same fix as the single
+    // trailing-space case — the cursor at offset 5 of "abc  " must
+    // map to x=40, not get clamped to x=32 by line.inlineOffsetEnd=4.
+    expect(tokenize("abc  ", "normal")).toEqual(["abc", " ", " "]);
+    expect(tokenize("abc   ", "normal")).toEqual(["abc", " ", " ", " "]);
+  });
+
+  it("preserves a trailing-whitespace token under nowrap (same branch as normal)", () => {
+    // Guards against future branch divergence between "normal" and
+    // "nowrap" — both share the same trailing-space preservation.
+    expect(tokenize("abc ", "nowrap")).toEqual(["abc", " "]);
+  });
+
+  it("emits one space token per char for all-whitespace input (preserves offset)", () => {
+    // Defensive: all-whitespace state isn't normally produced by the
+    // editor, but the tokenizer must still advance the offset cursor
+    // over those characters or downstream consumers see a mismatch.
+    expect(tokenize("   ", "normal")).toEqual([" ", " ", " "]);
   });
 });
 
