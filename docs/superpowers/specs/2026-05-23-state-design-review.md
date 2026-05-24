@@ -90,12 +90,12 @@ items, prioritized below.
 
 Each item gets a tracked task (S-A* / S-B* / S-C* / S-D*).
 
-**Bundle S-A — perf-critical (blocks 192-page editing feel)**
-| # | Task | File | Cost-on-skip |
-|---|------|------|--------------|
-| S-A1 | Dedupe `changedParentTypes` walk | yjs-doc.ts:132 | O(items × depth) per wide-format op |
-| S-A2 | Lazy overlay snapshot cache | state.ts:170 | O(N_cached) per keystroke |
-| S-A3 | `dirtyIds` on undo/redo | history.ts | Full re-render on every undo |
+**Bundle S-A — perf-critical (blocks 192-page editing feel)** — **LANDED 2026-05-23**
+| # | Task | File | Cost-on-skip | Commit |
+|---|------|------|--------------|--------|
+| S-A1 | Dedupe `changedParentTypes` walk | yjs-doc.ts | O(items × depth) per wide-format op | 28f2a17 |
+| S-A2 | Lazy overlay snapshot cache | state.ts, snapshot.ts | O(N_cached) per keystroke | 6224c95 |
+| S-A3 | `dirtyIds` on undo/redo | history.ts, editor/actions/undo.ts, redo.ts | Full re-render on every undo | 2414786 |
 
 **Bundle S-B — correctness gaps**
 | # | Task | File |
