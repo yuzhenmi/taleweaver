@@ -172,6 +172,23 @@ subsystems.
   `feature/dom-architecture-redesign`. Spec at
   `docs/superpowers/specs/2026-05-02-state-model-block-tree-of-ropes-design.md`.
 
+- **Virtualized layout (2026-05-24).** The paginated layout pass splits into
+  a cheap measure/paginate pass (runs every keystroke in the reducer; computes
+  page boundaries via a pure fit-core over cached per-block fragmentation
+  metadata — allocation-free) and an on-demand `getPage(i)` position pass
+  (materializes a positioned `PageBox` only for viewport + cursor pages).
+  `editorState.layoutTree` becomes `LayoutBox | VirtualLayoutTree`
+  (discriminated by `type: "virtual-root"`). Fixes Enter-at-top being
+  O(N_blocks) (175ms at 110pp): every block after a top-edit was re-positioned
+  every keystroke. Floats/`clear` docs fall back to the legacy full path in v1.
+  Spec (reviewer-approved): `docs/superpowers/specs/2026-05-24-virtualized-layout-design.md`;
+  root-cause: `docs/superpowers/specs/2026-05-24-l-perf-f-shift-tolerant-page-reuse-design.md`.
+  Phased: (1) fit-core extraction + measure pass behind current output;
+  (2) VirtualLayoutTree + getPage + `materializeAll()` bridge; (3) DOM
+  controller migration (perf win lands); (4) cursor/hit-test/selection/line-nav
+  to per-page LineIndex + plan resolver; (5) remove bridge; (6) optional
+  Fenwick incremental measure.
+
 ## Architecture documentation
 
 **Hierarchical living docs at `docs/architecture/`.** Each file describes the **target state** of one slice of the engine — what it should be when complete. Status flags (`[implemented]`, `[partial]`, `[missing]`) annotate items where current state diverges; `state-of-branch.md` is the consolidated audit of implementation vs target.
