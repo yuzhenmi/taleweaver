@@ -99,6 +99,33 @@ docs are out of scope (Task 7 routes them to the legacy path).
   up to remaining; emit resumeAtRow). No header logic.
 - [ ] **Step 3:** Green. **Step 4:** Reviewer gate.
 
+> **Refinement (2026-05-24, after reading bfc.ts 240–739):** Two changes to how
+> Task 4 is built, learned from the code:
+> 1. **Oracle-driven, not hand-computed expectations.** `fitOnePage` reimplements
+>    ~470 lines of interacting bfc decisions; manually computing expected
+>    `childrenCount`/`resumeOut` per fixture is error-prone. Instead build the
+>    **Task-8 equivalence harness FIRST** (run real `paginateRoot`, extract page
+>    boundaries) and use REAL bfc output as the oracle that drives `fitOnePage`'s
+>    TDD across 4a→4b→4c. Real layout is the ground truth; the harness is the
+>    failing test. (Task 8 then becomes the comprehensive fixture sweep, not the
+>    first proof.) The Task-5 pre-refactor paginated snapshot remains the anchor
+>    that guards against bfc itself changing.
+> 2. **list-counter is pass-through, not a boundary input.** Ordered-list
+>    numbering affects only rendered marker TEXT, never where pages break. So
+>    `fitOnePage` does not need it to decide boundaries; `measurePass` computes
+>    `listCounterAtStart` per page separately (a simple running count of
+>    `display:list-item` blocks consumed) for `getPage` to seed. Keep
+>    `listCounterAtStart` in `PagePlanEntry`; drop it from `fitOnePage`'s
+>    decision logic.
+> 3. **Task 5 scope (confirmed leaf-only for v1).** Routing bfc's BLOCK-level
+>    packing through `fitOnePage` would require inverting bfc into
+>    measure-then-position (large, risky). Phase 1 routes only the LEAF decisions
+>    (ifc → `fitLinesInIFC`, table → `fitRowsInTable`) through the shared core;
+>    the block-level packing is reproduced in `fitOnePage` and kept consistent
+>    with bfc via the equivalence harness + snapshot anchor (the co-drift posture
+>    the plan review already accepted under I2/I3). Full unification of
+>    block-level packing is a later refactor, once the measure pass is proven.
+
 ### Task 4a: `fitOnePage` — block packing (margins, collapse, §5.4, list-counter)
 
 **Files:** as Task 2.
