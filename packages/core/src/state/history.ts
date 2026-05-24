@@ -1,8 +1,9 @@
 import * as Y from "yjs";
 import type { Selection } from "./block-position";
+import type { BlockId } from "./block-id";
 import type { OperationResult, State } from "./state";
 import { freshState } from "./state";
-import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+import { captureDirtyIds, getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -33,6 +34,15 @@ export interface SelectionEntry {
 export interface UndoRedoResult {
   readonly state: State;
   readonly selection: Selection | null;
+  /**
+   * BlockIds whose subtrees were mutated by the undo/redo's reversal.
+   * Captured via the same `afterTransaction` mechanism `runTransaction`
+   * uses (Y.UndoManager.undo / .redo each wrap their Y.Doc surgery in
+   * an internal transaction). Lets the editor's incremental render
+   * pipeline rebuild only the affected RenderNodes — without this set
+   * an undo on a 100-page doc would force a full re-render.
+   */
+  readonly dirtyIds: ReadonlySet<BlockId>;
 }
 
 /**
@@ -203,14 +213,21 @@ export class History {
     const entry = this.undoSelectionStack[this.undoSelectionStack.length - 1];
     if (entry === undefined) return null;
     try {
-      this.undoManager.undo();
-      // Construct the new state BEFORE mutating stacks. If freshState throws
-      // (theoretical OOM), stacks remain untouched and a retry is sound.
-      const newState = freshState(this.currentState);
+      const doc = this.currentState[STATE_INTERNAL].doc;
+      // Capture dirty ids from the UndoManager's internal transaction
+      // so the editor's incremental render pipeline can rebuild only the
+      // reversed blocks (S-A3).
+      const dirtyIds = captureDirtyIds(doc, () => this.undoManager.undo());
+      // Construct the new state BEFORE mutating stacks. Passing dirtyIds
+      // builds the new state's cache as an overlay on the prior cache —
+      // unchanged blocks stay warm via fall-through (S-A2 + S-A3).
+      // If freshState throws (theoretical OOM), stacks remain untouched
+      // and a retry is sound.
+      const newState = freshState(this.currentState, dirtyIds);
       this.undoSelectionStack.pop();
       this.redoSelectionStack.push(entry);
       this.currentState = newState;
-      return { state: newState, selection: entry.before };
+      return { state: newState, selection: entry.before, dirtyIds };
     } catch (err) {
       // Any throw above leaves the Y.Doc possibly mutated (if undoManager.undo
       // ran) but the selection stacks untouched. Surface a wrapped error.
@@ -245,13 +262,14 @@ export class History {
     const entry = this.redoSelectionStack[this.redoSelectionStack.length - 1];
     if (entry === undefined) return null;
     try {
-      this.undoManager.redo();
+      const doc = this.currentState[STATE_INTERNAL].doc;
+      const dirtyIds = captureDirtyIds(doc, () => this.undoManager.redo());
       // Construct the new state BEFORE mutating stacks (mirrors undo()).
-      const newState = freshState(this.currentState);
+      const newState = freshState(this.currentState, dirtyIds);
       this.redoSelectionStack.pop();
       this.undoSelectionStack.push(entry);
       this.currentState = newState;
-      return { state: newState, selection: entry.after };
+      return { state: newState, selection: entry.after, dirtyIds };
     } catch (err) {
       throw new Error(
         `History.redo: failed mid-operation, history may be inconsistent: ${err}`,

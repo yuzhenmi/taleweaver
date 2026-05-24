@@ -405,4 +405,38 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     expect(firstChild1).toBe(firstChild0);
     expect(afterRoot).not.toBe(beforeRoot);
   });
+
+  it("UNDO engages the incremental pipeline: unchanged paragraphs ref-equal in renderOutput (S-A3)", () => {
+    // S-A3 surfaces dirtyIds from undo/redo so the editor's
+    // incremental render path runs instead of the full-rebuild
+    // fallback. Proof: a paragraph that was NOT touched by the action
+    // being undone retains its RenderNode reference across the UNDO.
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const firstId = firstParagraph(editor).id;
+
+    // Seed two paragraphs.
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
+      config,
+    );
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    // Type "X" in the SECOND paragraph.
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
+
+    const beforeRoot = editor.renderOutput.root;
+    if (beforeRoot.type !== "element") throw new Error("expected element root");
+    const firstChildBefore = beforeRoot.children[0];
+
+    // Undo the INSERT_TEXT. Only the second paragraph reverts; the
+    // first paragraph's RenderNode must be ref-equal because the
+    // incremental path skipped re-rendering it.
+    editor = reduceEditor(editor, { type: "UNDO" }, config);
+
+    const afterRoot = editor.renderOutput.root;
+    if (afterRoot.type !== "element") throw new Error("expected element root");
+    const firstChildAfter = afterRoot.children[0];
+    expect(firstChildAfter).toBe(firstChildBefore);
+  });
 });

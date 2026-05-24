@@ -119,6 +119,27 @@ export function runTransaction(
   doc: Y.Doc,
   fn: () => void,
 ): TransactionResult {
+  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn));
+  return { dirtyIds };
+}
+
+/**
+ * Run `fn` and capture every BlockId whose subtree was mutated during
+ * its execution. Used by `runTransaction` (which wraps `doc.transact`)
+ * and by `History.undo` / `.redo` (which call `Y.UndoManager.undo` /
+ * `.redo` — each opens its own internal `doc.transact`). Both paths
+ * need identical dirty-id semantics so downstream incremental render
+ * can treat them uniformly.
+ *
+ * The capture relies on Y.Doc's `afterTransaction` event, which fires
+ * once per outer transaction (per the non-reentrancy note on
+ * `runTransaction`). The same `findOwningBlockIdMemoized` memo applies
+ * — it lives only for the duration of this call.
+ */
+export function captureDirtyIds(
+  doc: Y.Doc,
+  fn: () => void,
+): ReadonlySet<BlockId> {
   const dirtyIds = new Set<BlockId>();
   const blocksMap = getBlocksMap(doc);
   const embedContentsMap = getEmbedContentsMap(doc);
@@ -157,11 +178,11 @@ export function runTransaction(
 
   doc.on("afterTransaction", captureDirty);
   try {
-    doc.transact(fn);
+    fn();
   } finally {
     doc.off("afterTransaction", captureDirty);
   }
-  return { dirtyIds };
+  return dirtyIds;
 }
 
 /**

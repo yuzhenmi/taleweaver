@@ -8,9 +8,12 @@ export function handleRedo(
   const result = editor.history.redo();
   if (result === null) return editor;
   const selection = result.selection ?? editor.selection;
+  // See handleUndo for why result.dirtyIds is always non-empty on a
+  // successful redo.
   return rebuildTrees(
     { ...editor, state: result.state, selection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

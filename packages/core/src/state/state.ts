@@ -121,17 +121,34 @@ export interface OperationResult {
 }
 
 /**
- * Mint a fresh State referencing the same Y.Doc but with an empty
- * SnapshotCache. Used after operations that mutated the Y.Doc outside
- * of `applyOperation` (e.g., Y.UndoManager.undo / .redo).
+ * Mint a State referencing the same Y.Doc as `state` but with a
+ * different snapshot cache, after Y.Doc was mutated outside of
+ * `applyOperation` (e.g., `Y.UndoManager.undo` / `.redo`).
+ *
+ * When `dirtyIds` is provided, the new State's cache is an overlay on
+ * top of `state`'s cache with `dirtyIds` invalidated. Sibling snapshots
+ * (and any other unchanged block) stay warm via fall-through, so a
+ * single-block undo on a hundred-page document doesn't force the
+ * renderer to re-snapshot every block.
+ *
+ * When `dirtyIds` is omitted, the new State gets a fully empty root
+ * cache — appropriate when no dirty set is available (test fixtures,
+ * external Y.Doc surgery whose effects aren't tracked).
  */
-export function freshState(state: State): State {
-  const { doc } = state[STATE_INTERNAL];
+export function freshState(
+  state: State,
+  dirtyIds?: ReadonlySet<BlockId>,
+): State {
+  const { doc, snapshotCache } = state[STATE_INTERNAL];
+  const newCache =
+    dirtyIds !== undefined
+      ? createOverlayCache(snapshotCache, dirtyIds)
+      : createSnapshotCache();
   return Object.freeze({
     rootId: state.rootId,
     [STATE_INTERNAL]: Object.freeze({
       doc,
-      snapshotCache: createSnapshotCache(),
+      snapshotCache: newCache,
     }),
   }) as State;
 }

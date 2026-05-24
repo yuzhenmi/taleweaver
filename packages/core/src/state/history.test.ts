@@ -106,6 +106,66 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(redone.selection).toEqual(after);
   });
 
+  it("undo returns dirtyIds matching the blocks reversed by the undo (S-A3)", () => {
+    // Before S-A3 the editor's render pipeline had no dirtyIds to use
+    // on undo, so it fell back to a full re-render. Y.UndoManager.undo
+    // mutates the Y.Doc inside its own transaction, which fires
+    // afterTransaction with a non-trivial change set; capturing it the
+    // same way runTransaction does lets undo participate in incremental
+    // render.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    history.commit(opResult, { before, after });
+
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    if (undone === null) throw new Error("expected undo to succeed");
+    expect(undone.dirtyIds.has(child.id)).toBe(true);
+  });
+
+  it("redo returns dirtyIds matching the blocks re-applied (S-A3)", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    history.commit(opResult, { before, after });
+
+    history.undo();
+    const redone = history.redo();
+    expect(redone).not.toBeNull();
+    if (redone === null) throw new Error("expected redo to succeed");
+    expect(redone.dirtyIds.has(child.id)).toBe(true);
+  });
+
+  it("undo after an unchanged-block read returns dirtyIds covering only the reversed block — warm cache for siblings is preserved", () => {
+    // S-A2 + S-A3 together let undo/redo reuse the warm cache for
+    // unchanged blocks. Specifically, the new State produced by undo
+    // overlays the prior state's cache with `dirtyIds` invalidated;
+    // sibling reads still hit the warm entry by reference.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+    // Warm a sibling read on the pre-commit state by reading the root.
+    const rootBefore = getBlock(state0, state0.rootId);
+    expect(rootBefore).not.toBeNull();
+    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    history.commit(opResult, { before: sel, after: sel });
+
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    if (undone === null) throw new Error("expected undo");
+    // The undo's dirty set covers child.id only (root is unchanged).
+    expect(undone.dirtyIds.has(child.id)).toBe(true);
+    expect(undone.dirtyIds.has(state0.rootId)).toBe(false);
+  });
+
   it("multiple commits, undos and redos in sequence", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
@@ -311,11 +371,13 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("undo() error-recovery: if undoManager.undo throws, stacks are not mutated (T33)", () => {
-    // Monkey-patch undoManager.undo to throw. The whole undo() body is
-    // wrapped in try/catch (per plan §T33 step 33.2); on any throw the
-    // selection stacks MUST remain untouched so a subsequent retry has
-    // correct alignment. The wrapped error message is surfaced so
-    // callers can identify history corruption.
+    // Monkey-patch undoManager.undo to throw. Cleanup happens in two
+    // layers: captureDirtyIds (which wraps undoManager.undo) detaches
+    // its afterTransaction listener in its own `finally`; the outer
+    // History.undo() body's try/catch (per plan §T33 step 33.2) catches
+    // the rethrown error and surfaces a wrapped message. On any throw
+    // the selection stacks MUST remain untouched so a subsequent retry
+    // has correct alignment.
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
