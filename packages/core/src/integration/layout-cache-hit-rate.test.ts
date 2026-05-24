@@ -174,6 +174,31 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     expect(stats.fullLayoutInvocations).toBeLessThan(15);
   }, 30_000);
 
+  it("bulk PASTE of 200 lines completes in linear time (L-PERF-E chain compaction)", () => {
+    // Regression guard: pre-L-PERF-E, the snapshot cache chain grew
+    // by 1 per applyOperation. Paste chains ~2 ops per line (insertText
+    // + splitBlock), so 200 lines built a 400-deep chain. Each
+    // subsequent getBlock walked O(depth) layers → bulk ops were
+    // effectively O(N²). L-PERF-E compacts when depth ≥ 64, keeping
+    // per-read amortized cost bounded. This test runs a 200-line paste
+    // and asserts the wall-clock stays in a linear-scaling regime —
+    // a regression to O(N²) would blow the threshold.
+    const config = makeConfig();
+
+    for (const N of [200, 1000, 4000]) {
+      let testEditor = createInitialEditorState(config);
+      const lines = Array(N).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
+      const t0 = performance.now();
+      testEditor = reduceEditor(testEditor, { type: "PASTE", text: lines }, config);
+      const pasteMs = performance.now() - t0;
+      (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
+        `[L-PERF-E ${N}-line PASTE] ${pasteMs.toFixed(2)}ms (${(pasteMs / N).toFixed(3)}ms/line)`,
+      );
+      // Cap is generous (linear regime). O(N²) regression would blow it.
+      expect(pasteMs).toBeLessThan(N * 5);
+    }
+  }, 60_000);
+
   it("single keystroke on a 500-paragraph doc: hit ratio + scaling diagnostic", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);

@@ -10,10 +10,24 @@ import {
 import {
   createSnapshotCache,
   createOverlayCache,
+  compactCache,
+  chainDepth,
   getBlockSnapshot,
   getEmbedContentSnapshot,
   type SnapshotCache,
 } from "./snapshot";
+
+/**
+ * Maximum chain depth before `applyOperation` compacts. Each
+ * additional layer adds one Map.get + one Set.has to every fall-
+ * through read, so a deep chain (e.g., a bulk paste of 4000 lines
+ * chaining ~8000 applyOperation calls) makes per-read cost O(depth).
+ * Compacting periodically keeps per-read cost bounded; the trigger
+ * threshold balances "more frequent compaction work" against "deeper
+ * chains between compactions". 64 layers ≈ 64 hops per cold read =
+ * ~3μs, an acceptable per-read floor for the bulk-op case.
+ */
+const _CHAIN_DEPTH_COMPACT_THRESHOLD = 64;
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -196,12 +210,22 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
     // `result.state === input.state`.
     return { state, dirtyIds };
   }
+  // L-PERF-E: compact the chain when it grows too deep, so a bulk
+  // handler (paste, multi-keystroke macro, programmatic replay) doesn't
+  // create an arbitrarily deep overlay chain that costs O(depth) per
+  // subsequent read. The result is structurally equivalent — same
+  // live entries, dirtyIds invalidated — just collapsed into a single
+  // root layer instead of N layers.
+  const newCache =
+    chainDepth(internal.snapshotCache) >= _CHAIN_DEPTH_COMPACT_THRESHOLD
+      ? compactCache(internal.snapshotCache, dirtyIds)
+      : createOverlayCache(internal.snapshotCache, dirtyIds);
   return {
     state: Object.freeze({
       rootId: state.rootId,
       [STATE_INTERNAL]: Object.freeze({
         doc: internal.doc,
-        snapshotCache: createOverlayCache(internal.snapshotCache, dirtyIds),
+        snapshotCache: newCache,
       }),
     }) as State,
     dirtyIds,

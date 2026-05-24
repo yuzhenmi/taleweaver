@@ -98,6 +98,73 @@ export function createOverlayCache(
 }
 
 /**
+ * Count the depth of the layer chain rooted at `cache`. Used by
+ * `applyOperation` to decide when to compact (L-PERF-E). O(depth) but
+ * called once per applyOperation, never inside a tight loop.
+ */
+export function chainDepth(cache: SnapshotCache): number {
+  let n = 0;
+  let layer: SnapshotCache | null = cache;
+  while (layer !== null) {
+    n++;
+    layer = layer.base;
+  }
+  return n;
+}
+
+/**
+ * Flatten the chain rooted at `prev` into a single root-level
+ * `SnapshotCache`, plus invalidate `dirtyIds` (the ids touched by the
+ * applyOperation that's triggering compaction). Subsequent reads on
+ * the returned cache are O(1) — no chain to walk.
+ *
+ * Algorithm (top-down walk, newest entries win):
+ *   1. Seed `invalidatedAbove` with `dirtyIds` (this op invalidates
+ *      every cached entry at every layer for those ids).
+ *   2. For each layer (top to bottom):
+ *      a. For each blocks/embeds entry: skip if already collected OR
+ *         in `invalidatedAbove`. Else collect.
+ *      b. Add this layer's invalidations to `invalidatedAbove` BEFORE
+ *         moving down (its invalidations apply to all lower layers).
+ *   3. Return a fresh SnapshotCache with the collected entries,
+ *      empty invalidation sets, `base = null`.
+ *
+ * Used by L-PERF-E (chain compaction). Without it, a paste handler
+ * that chains ~8000 applyOperation calls leaves the chain 8000-deep;
+ * subsequent reads pay O(depth) per call, making bulk ops O(N²).
+ */
+export function compactCache(
+  prev: SnapshotCache,
+  dirtyIds: ReadonlySet<BlockId>,
+): SnapshotCache {
+  const blocks = new Map<BlockId, Block>();
+  const embedContents = new Map<BlockId, Block>();
+  const invalidatedAbove = new Set<BlockId>(dirtyIds);
+  const invalidatedAboveEmbeds = new Set<BlockId>(dirtyIds);
+  let layer: SnapshotCache | null = prev;
+  while (layer !== null) {
+    for (const [id, snap] of layer.blocks) {
+      if (blocks.has(id) || invalidatedAbove.has(id)) continue;
+      blocks.set(id, snap);
+    }
+    for (const [id, snap] of layer.embedContents) {
+      if (embedContents.has(id) || invalidatedAboveEmbeds.has(id)) continue;
+      embedContents.set(id, snap);
+    }
+    for (const id of layer.invalidatedBlocks) invalidatedAbove.add(id);
+    for (const id of layer.invalidatedEmbeds) invalidatedAboveEmbeds.add(id);
+    layer = layer.base;
+  }
+  return {
+    blocks,
+    embedContents,
+    invalidatedBlocks: new Set(),
+    invalidatedEmbeds: new Set(),
+    base: null,
+  };
+}
+
+/**
  * Evict the snapshot for `id` from both the blocks and embedContents
  * sub-caches at this layer AND mark it invalidated so any base
  * fall-through cannot resurrect a stale entry. BlockIds are globally
