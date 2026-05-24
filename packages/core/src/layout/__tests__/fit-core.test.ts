@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fitLinesInIFC } from "../fit-core";
+import { fitLinesInIFC, fitRowsInTable } from "../fit-core";
 
 // Port of ifc.ts D.1–D.5 decision logic (ifc.ts:868–1013) as direct assertions
 // on the pure `fitLinesInIFC`. `placedLineCount` is the number of suffix lines
@@ -87,6 +87,48 @@ describe("fitLinesInIFC (fit-core, IFC D.1–D.5)", () => {
     expect(fitLinesInIFC([20, 20, 20], none, 2, 2, 40, 0)).toEqual({
       placedLineCount: 0,
       resumeAtLine: 0,
+    });
+  });
+});
+
+// Pure port of table-fc.ts E.1 row fit-check (table-fc.ts:374–408). `rowBlockSizes`
+// is the full body-row height list; `startRow` is the resume index; the suffix
+// considered is rows[startRow..]. No orphans/widows/header — a plain greedy pack.
+describe("fitRowsInTable (fit-core, table E.1)", () => {
+  it("all rows fit → placedRowCount = all, resumeAtRow = null", () => {
+    expect(fitRowsInTable([30, 30, 30], 100, 0)).toEqual({
+      placedRowCount: 3,
+      resumeAtRow: null,
+    });
+  });
+
+  it("partial fit → resume at first unplaced row", () => {
+    // remaining=70: rows 0,1 fit (60); row 2 would be 90>70.
+    expect(fitRowsInTable([30, 30, 30], 70, 0)).toEqual({
+      placedRowCount: 2,
+      resumeAtRow: 2,
+    });
+  });
+
+  it("first row does not fit → push whole (placed 0, resume at startRow)", () => {
+    expect(fitRowsInTable([80], 50, 0)).toEqual({
+      placedRowCount: 0,
+      resumeAtRow: 0,
+    });
+  });
+
+  it("resume from startRow considers only the suffix (all fit)", () => {
+    expect(fitRowsInTable([30, 30, 30, 30], 100, 2)).toEqual({
+      placedRowCount: 2,
+      resumeAtRow: null,
+    });
+  });
+
+  it("resume from startRow with a partial fit", () => {
+    // startRow=1 → suffix [30,30,30]; remaining=40 fits 1 (30; next 60>40).
+    expect(fitRowsInTable([30, 30, 30, 30], 40, 1)).toEqual({
+      placedRowCount: 1,
+      resumeAtRow: 2,
     });
   });
 });

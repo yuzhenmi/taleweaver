@@ -173,11 +173,31 @@ export function fitLinesInIFC(
  * port of table-fc's row fit loop. No header-repeat (the engine has none).
  */
 export function fitRowsInTable(
-  _rowBlockSizes: readonly number[],
-  _remainingBlockSize: number,
-  _startRow: number,
+  rowBlockSizes: readonly number[],
+  remainingBlockSize: number,
+  startRow: number,
 ): FitRowsResult {
-  throw new Error("fit-core.fitRowsInTable: not implemented (Task 3)");
+  // Faithful port of table-fc.ts:374–408 E.1 row fit-check, on the suffix
+  // rows[startRow..]. No orphans/widows/header. "Nothing fits" ⇒
+  // { placedRowCount: 0, resumeAtRow: startRow }.
+  const suffixLength = Math.max(0, rowBlockSizes.length - startRow);
+
+  let used = 0;
+  let placedRowCount = 0;
+  for (let ri = 0; ri < suffixLength; ri++) {
+    const rowHeight = rowBlockSizes[startRow + ri];
+    if (used + rowHeight > remainingBlockSize) break;
+    used += rowHeight;
+    placedRowCount++;
+  }
+
+  if (placedRowCount === 0) return { placedRowCount: 0, resumeAtRow: startRow };
+
+  return {
+    placedRowCount,
+    resumeAtRow:
+      placedRowCount < suffixLength ? startRow + placedRowCount : null,
+  };
 }
 
 /**
