@@ -52,6 +52,39 @@ function isResumeFromDegenerate(rf: BreakToken | null): boolean {
   return false;
 }
 
+/**
+ * Diagnostic counters for the paginated cache reuse path. Tests +
+ * the example app's `__twPerf` hook expose these so we can verify
+ * that a single-block edit on a large doc cache-hits ~N-1 of N
+ * paragraph-level layoutBlock calls (instead of cache-missing all N).
+ * Production code only pays the integer increments.
+ */
+const _layoutCacheStats = {
+  hits: 0,
+  missesNoEntry: 0,
+  missesRenderInequiv: 0,
+  missesPosition: 0,
+  missesSize: 0,
+  missesResumeFrom: 0,
+  missesReusableGate: 0,
+  fullLayoutInvocations: 0,
+};
+
+export function __getLayoutCacheStatsForTest(): typeof _layoutCacheStats {
+  return { ..._layoutCacheStats };
+}
+
+export function __resetLayoutCacheStatsForTest(): void {
+  _layoutCacheStats.hits = 0;
+  _layoutCacheStats.missesNoEntry = 0;
+  _layoutCacheStats.missesRenderInequiv = 0;
+  _layoutCacheStats.missesPosition = 0;
+  _layoutCacheStats.missesSize = 0;
+  _layoutCacheStats.missesResumeFrom = 0;
+  _layoutCacheStats.missesReusableGate = 0;
+  _layoutCacheStats.fullLayoutInvocations = 0;
+}
+
 export function layoutBlock(
   node: ElementBox,
   inlineOffset: number,
@@ -102,35 +135,44 @@ export function layoutBlock(
   // wins reuse — only paragraph-level children do.
   if (ctx.prevLayoutCache !== null) {
     const entry = ctx.prevLayoutCache.get(node.key);
-    if (entry !== undefined && entry.box.type === "block") {
-      if (renderNodesLayoutEquivalent(node, entry.renderNode)) {
-        const dirtyOffset = ctx.prevFloatEnv !== null
-          ? ctx.floatEnv.dirtyBlockOffsetSince(ctx.prevFloatEnv)
-          : Number.POSITIVE_INFINITY;
-        // A resumeFrom is "degenerate" (no actual mid-fragmentation
-        // state to honor) when every level of the token chain says
-        // "start from the beginning". The cached entry is a complete
-        // from-scratch layout, so any degenerate resumeFrom can reuse
-        // it; non-degenerate resumeFroms require honoring partial
-        // state the cached box has already collapsed away.
-        const fragmentationOk =
-          fragmentation === undefined ||
-          (isResumeFromDegenerate(fragmentation.resumeFrom) &&
-            entry.box.inlineOffset === inlineOffset &&
-            entry.box.blockOffset === blockOffset &&
-            entry.box.blockSize <= fragmentation.availableBlockSize);
-        if (fragmentationOk && isLayoutBoxReusable(entry.box, {
-          computedStyle: cs,
-          availableInlineSize,
-          writingMode,
-          direction,
-          floatEnvDirtyBlockOffset: dirtyOffset,
-        })) {
-          return { box: entry.box, breakToken: null };
-        }
+    if (entry === undefined || entry.box.type !== "block") {
+      _layoutCacheStats.missesNoEntry++;
+    } else if (!renderNodesLayoutEquivalent(node, entry.renderNode)) {
+      _layoutCacheStats.missesRenderInequiv++;
+    } else {
+      const dirtyOffset = ctx.prevFloatEnv !== null
+        ? ctx.floatEnv.dirtyBlockOffsetSince(ctx.prevFloatEnv)
+        : Number.POSITIVE_INFINITY;
+      // A resumeFrom is "degenerate" (no actual mid-fragmentation
+      // state to honor) when every level of the token chain says
+      // "start from the beginning". The cached entry is a complete
+      // from-scratch layout, so any degenerate resumeFrom can reuse
+      // it; non-degenerate resumeFroms require honoring partial
+      // state the cached box has already collapsed away.
+      if (fragmentation !== undefined && !isResumeFromDegenerate(fragmentation.resumeFrom)) {
+        _layoutCacheStats.missesResumeFrom++;
+      } else if (fragmentation !== undefined &&
+                 (entry.box.inlineOffset !== inlineOffset ||
+                  entry.box.blockOffset !== blockOffset)) {
+        _layoutCacheStats.missesPosition++;
+      } else if (fragmentation !== undefined &&
+                 entry.box.blockSize > fragmentation.availableBlockSize) {
+        _layoutCacheStats.missesSize++;
+      } else if (!isLayoutBoxReusable(entry.box, {
+        computedStyle: cs,
+        availableInlineSize,
+        writingMode,
+        direction,
+        floatEnvDirtyBlockOffset: dirtyOffset,
+      })) {
+        _layoutCacheStats.missesReusableGate++;
+      } else {
+        _layoutCacheStats.hits++;
+        return { box: entry.box, breakToken: null };
       }
     }
   }
+  _layoutCacheStats.fullLayoutInvocations++;
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const paddingBlockStart  = usedStyle.paddingBlockStart;
