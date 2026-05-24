@@ -1,6 +1,7 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "../styles";
 import type { Position } from "../state/block-position";
+import type { BlockId } from "../state/block-id";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -84,6 +85,55 @@ export function collectLineBoxes(
   for (const child of box.children) {
     collectLineBoxes(child, absX, absY, out, pageIndex);
   }
+}
+
+/**
+ * Indexed view of every `AbsoluteLineBox` in a layout tree:
+ *   - `all`: flat list in document order (same shape `collectLineBoxes`
+ *     produces).
+ *   - `byBlock`: lines grouped by their `ownerBlockId`, preserving
+ *     document order within each group.
+ *
+ * Built lazily on first call to `getLineIndex(root)` and memoized via
+ * a module-level `WeakMap<LayoutBox, LineIndex>`. Per-cursor-query
+ * consumers (cursor-position, line-navigation, selection-geometry) all
+ * pull from the same cached instance, so a single `collectLineBoxes`
+ * walk amortizes across all consumers of one layout cycle. cursor-
+ * position's `byBlock.get(blockId)` lookup is O(1); without the index
+ * it had to walk every line in the doc and filter — O(N_lines) per
+ * cursor query, dominant on large docs (L-PERF-D).
+ */
+export interface LineIndex {
+  readonly all: readonly AbsoluteLineBox[];
+  readonly byBlock: ReadonlyMap<BlockId, readonly AbsoluteLineBox[]>;
+}
+
+const _lineIndexCache: WeakMap<LayoutBox, LineIndex> = new WeakMap();
+
+/**
+ * Return the `LineIndex` for a layout-tree root, building it on first
+ * access and caching by reference. The cache is a `WeakMap` keyed on
+ * the root `LayoutBox`, so when a new layout cycle produces a new root
+ * the old index becomes eligible for GC; subsequent calls within the
+ * same cycle (same root) reuse the cached index.
+ */
+export function getLineIndex(root: LayoutBox): LineIndex {
+  const cached = _lineIndexCache.get(root);
+  if (cached !== undefined) return cached;
+  const all: AbsoluteLineBox[] = [];
+  collectLineBoxes(root, 0, 0, all);
+  const byBlock = new Map<BlockId, AbsoluteLineBox[]>();
+  for (const al of all) {
+    let arr = byBlock.get(al.line.ownerBlockId);
+    if (arr === undefined) {
+      arr = [];
+      byBlock.set(al.line.ownerBlockId, arr);
+    }
+    arr.push(al);
+  }
+  const index: LineIndex = { all, byBlock };
+  _lineIndexCache.set(root, index);
+  return index;
 }
 
 /**

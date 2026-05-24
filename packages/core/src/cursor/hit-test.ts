@@ -8,9 +8,8 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
 import {
-  collectLineBoxes,
+  getLineIndex,
   collectLineLeaves,
-  type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
 
@@ -62,9 +61,14 @@ export function resolvePositionFromPixel(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    // 1. Collect every LineBox with absolute coords.
-    const allLines: AbsoluteLineBox[] = [];
-    collectLineBoxes(layoutTree, 0, 0, allLines);
+    // 1. Collect every LineBox with absolute coords. Uses the
+    // WeakMap-cached LineIndex (L-PERF-D) so this walk is shared with
+    // cursor-position / line-navigation / selection-geometry within
+    // the same layout cycle. Critical for up/down keystrokes:
+    // line-navigation's moveToLine calls resolvePositionFromPixel
+    // (this function) after consulting the index itself — without the
+    // shared cache the tree would be walked twice per keystroke.
+    const allLines = getLineIndex(layoutTree).all;
     if (allLines.length === 0) return null;
 
     // 2. Filter to target page when paginated.

@@ -11,9 +11,8 @@ import { inlineContentLength } from "../state/inline-content";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import {
-  collectLineBoxes,
+  getLineIndex,
   findLineForPosition,
-  type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
 
@@ -67,8 +66,11 @@ export function moveToLine(
 
     const x = targetX ?? currentPixel.x;
 
-    const lines: AbsoluteLineBox[] = [];
-    collectLineBoxes(layoutTree, 0, 0, lines);
+    // L-PERF-D: reuse the doc-wide line index (WeakMap-cached on the
+    // layoutTree root). Same instance as the one cursor-position +
+    // selection-geometry consult this cycle, so a single
+    // collectLineBoxes walk serves every consumer.
+    const lines = getLineIndex(layoutTree).all;
     if (lines.length === 0) return null;
 
     const currentLineIdx = findLineForPosition(lines, position);
@@ -140,8 +142,7 @@ export function moveToLineBoundary(
 ): Position | null {
   const t = markStart("cursor.line-navigation.moveToLineBoundary");
   try {
-    const lines: AbsoluteLineBox[] = [];
-    collectLineBoxes(layoutTree, 0, 0, lines);
+    const lines = getLineIndex(layoutTree).all;
     if (lines.length === 0) return null;
 
     const currentLineIdx = findLineForPosition(lines, position);

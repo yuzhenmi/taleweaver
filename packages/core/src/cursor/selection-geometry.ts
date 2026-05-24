@@ -9,9 +9,9 @@ import type { ComputedStyle } from "../styles";
 import { spanStart, spanEnd } from "../state/block-compare";
 import { resolvePixelPosition, type PixelPosition } from "./cursor-position";
 import {
-  collectLineBoxes,
   collectLineLeaves,
   findLineForPosition,
+  getLineIndex,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
@@ -75,8 +75,10 @@ export function computeSelectionRects(
     const endPos = resolvePixelPosition(state, end, layoutTree, measurer);
     if (startPos === null || endPos === null) return [];
 
-    const allLines: AbsoluteLineBox[] = [];
-    collectLineBoxes(layoutTree, 0, 0, allLines);
+    // L-PERF-D: shared with cursor-position + line-navigation via the
+    // WeakMap-cached LineIndex; only the first consumer per layout
+    // cycle pays the collectLineBoxes walk.
+    const allLines = getLineIndex(layoutTree).all;
     if (allLines.length === 0) return [];
 
     const startLineIdx = findLineForPosition(allLines, start);

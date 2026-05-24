@@ -8,7 +8,7 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
-import { collectLineBoxes, findLineForPosition, type AbsoluteLineBox } from "./line-flatten";
+import { collectLineBoxes, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
 
 const shaper = createMockShaper(8, 16);
 
@@ -201,6 +201,114 @@ describe("collectLineBoxes", () => {
     // IFC-runner block (which may be the anonymous wrap).
     expect([...ownerIds].some(id => /^p(\/anon\[\d+\])?$/.test(id))).toBe(true);
     expect([...ownerIds].some(id => /^ib-p(\/anon\[\d+\])?$/.test(id))).toBe(true);
+  });
+});
+
+describe("getLineIndex (L-PERF-D)", () => {
+  function buildLayoutTree(): import("../layout/layout-node").LayoutBox {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p1", { display: "block" }, [createTextBox("t1", {}, "hello")]),
+        createElementBox("p2", { display: "block" }, [createTextBox("t2", {}, "world")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    return r.box;
+  }
+
+  it("byBlock returns the lines owned by the given BlockId", () => {
+    const root = buildLayoutTree();
+    const index = getLineIndex(root);
+    const p1Lines = index.byBlock.get("p1" as BlockId);
+    const p2Lines = index.byBlock.get("p2" as BlockId);
+    expect(p1Lines?.length).toBeGreaterThan(0);
+    expect(p2Lines?.length).toBeGreaterThan(0);
+    expect(p1Lines?.every((al: AbsoluteLineBox) => al.line.ownerBlockId === "p1")).toBe(true);
+    expect(p2Lines?.every((al: AbsoluteLineBox) => al.line.ownerBlockId === "p2")).toBe(true);
+  });
+
+  it("all is the same flat list collectLineBoxes would produce", () => {
+    const root = buildLayoutTree();
+    const indexAll = getLineIndex(root).all;
+    const direct: AbsoluteLineBox[] = [];
+    collectLineBoxes(root, 0, 0, direct);
+    expect(indexAll.length).toBe(direct.length);
+    for (let i = 0; i < direct.length; i++) {
+      // Same LineBox references in the same order.
+      expect(indexAll[i].line).toBe(direct[i].line);
+    }
+  });
+
+  it("returns the SAME index instance for repeated calls on the same root (WeakMap cache)", () => {
+    const root = buildLayoutTree();
+    const a = getLineIndex(root);
+    const b = getLineIndex(root);
+    expect(a).toBe(b);
+    expect(a.all).toBe(b.all);
+    expect(a.byBlock).toBe(b.byBlock);
+  });
+
+  it("byBlock.get for an unknown BlockId returns undefined (caller falls back to [])", () => {
+    const root = buildLayoutTree();
+    const index = getLineIndex(root);
+    expect(index.byBlock.get("nope" as BlockId)).toBeUndefined();
+  });
+
+  it("returns a DIFFERENT index instance for a different root (cache miss across layout cycles)", () => {
+    // Each call to buildLayoutTree allocates a fresh LayoutBox root —
+    // simulating two layout cycles producing different root references.
+    // The WeakMap-keyed cache must miss for the new root so we don't
+    // serve stale geometry after a re-layout.
+    const root1 = buildLayoutTree();
+    const root2 = buildLayoutTree();
+    expect(root1).not.toBe(root2);
+    const a = getLineIndex(root1);
+    const b = getLineIndex(root2);
+    expect(a).not.toBe(b);
+  });
+
+  it("byBlock partitions outer-block and inline-block-internal lines into separate buckets", () => {
+    // When a block contains an inline-block with its own nested
+    // LineBoxes, byBlock must keep those inner lines under the inner
+    // block's ownerBlockId — not leak them into the outer block's
+    // bucket. Guards against an IFC change that loses the
+    // anonymous-wrap stripping.
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p", { display: "block" }, [
+          createTextBox("t1", { display: "inline" }, "outer "),
+          createElementBox(
+            "ib",
+            { display: "inline-block", inlineSize: 60, blockSize: 32 },
+            [
+              createElementBox("ib-p", { display: "block" }, [
+                createTextBox("ib-t", {}, "inner"),
+              ]),
+            ],
+          ),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    const index = getLineIndex(r.box);
+    // Every line in every bucket is owned by that bucket's key.
+    for (const [blockId, lines] of index.byBlock) {
+      for (const al of lines) {
+        expect(al.line.ownerBlockId).toBe(blockId);
+      }
+    }
+    // Both outer and inner blocks have at least one line. (The IFC
+    // wraps inline-bearing blocks in anonymous wrappers keyed
+    // "X/anon[N]"; ownerBlockId is the same as the inline-runner key.)
+    const ownerKeys = [...index.byBlock.keys()];
+    expect(ownerKeys.some(id => /^p(\/anon\[\d+\])?$/.test(id))).toBe(true);
+    expect(ownerKeys.some(id => /^ib-p(\/anon\[\d+\])?$/.test(id))).toBe(true);
   });
 });
 

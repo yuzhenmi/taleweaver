@@ -6,8 +6,8 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import {
-  collectLineBoxes,
   collectLineLeaves,
+  getLineIndex,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
@@ -87,11 +87,10 @@ export function resolvePixelPosition(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    const allLines: AbsoluteLineBox[] = [];
-    collectLineBoxes(layoutTree, 0, 0, allLines);
-
-    // Lines owned by the target block, in document order.
-    const ownLines = allLines.filter(l => l.line.ownerBlockId === position.blockId);
+    // O(1) lookup via the cached BlockId→AbsoluteLineBox[] index.
+    // Previously this filtered the full line list per call (O(N_lines));
+    // at scale that dominated cursor-position cost on a hot doc (L-PERF-D).
+    const ownLines = getLineIndex(layoutTree).byBlock.get(position.blockId) ?? [];
     if (ownLines.length === 0) {
       // Defensive fallback: block has no LineBoxes (no IFC ran for
       // it — e.g., a container block with null inlineContent). Walk
