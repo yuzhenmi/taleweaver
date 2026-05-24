@@ -12,29 +12,173 @@ import { getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
 import { assertNoNestedYTypes } from "./y-utils";
 import { BLOCK_FIELDS } from "./block-schema";
 
+/**
+ * Per-State snapshot cache. Layered so `applyOperation` can produce a
+ * new State whose cache reuses the input cache by reference instead of
+ * copying every non-dirty entry — making per-mutation bookkeeping
+ * O(dirtyIds.size) instead of O(N_cached).
+ *
+ * **Read fall-through (S-A2).** A read first checks this layer's
+ * `blocks` / `embedContents` map. On miss it consults
+ * `invalidatedBlocks` / `invalidatedEmbeds` — ids the most recent
+ * mutation rendered stale on this layer; reads of those skip `base`
+ * and re-snapshot from the Y.Doc. Otherwise (`base !== null` and the id
+ * is not invalidated) the lookup recurses into `base`. Each successful
+ * recursive hit also promotes the entry into this layer's own map so
+ * subsequent reads are O(1).
+ *
+ * **Write fall-through.** Writes only ever touch this layer; `base` is
+ * never mutated. This preserves the per-State view-stability property:
+ * a State holding the older cache continues to see its pre-mutation
+ * snapshots regardless of activity on the newer State.
+ *
+ * **Chain depth.** Each `applyOperation` (when non-no-op) pushes a new
+ * layer with the previous cache as `base`. Depth grows linearly with
+ * the number of mutations, but promote-on-read amortizes hot-block
+ * reads to O(1); cold-block first reads pay O(depth) lookups. There is
+ * no automatic flattening today — long-session memory growth is
+ * bounded by the chain of per-layer `invalidatedBlocks` /
+ * `invalidatedEmbeds` Sets plus the per-layer promoted-block maps.
+ * Adding a flattener is a future task if a measurement reveals it
+ * matters.
+ *
+ * Root caches have `base === null` and empty invalidation sets.
+ */
 export interface SnapshotCache {
+  /** Per-layer block snapshots: either freshly read on this layer, or
+   *  promoted up from `base` by a prior read. Mutable to support
+   *  promote-on-read amortization. */
   readonly blocks: Map<BlockId, Block>;
+  /** Per-layer embed-content block snapshots. Same shape as `blocks`. */
   readonly embedContents: Map<BlockId, Block>;
+  /** Block ids whose `base` entry is stale at this layer (the same id
+   *  may be in either tree; we conservatively invalidate both trees
+   *  because the cache layer cannot cheaply tell at write time). */
+  readonly invalidatedBlocks: Set<BlockId>;
+  readonly invalidatedEmbeds: Set<BlockId>;
+  /** Underlying cache layer for fall-through reads, or null for a root
+   *  cache produced by `createSnapshotCache` / `freshState`. */
+  readonly base: SnapshotCache | null;
 }
 
+/**
+ * Construct a root (base-less) cache. Used by `createState`,
+ * `freshState`, and the post-no-op short-circuit's untouched return.
+ */
 export function createSnapshotCache(): SnapshotCache {
-  return { blocks: new Map(), embedContents: new Map() };
+  return {
+    blocks: new Map(),
+    embedContents: new Map(),
+    invalidatedBlocks: new Set(),
+    invalidatedEmbeds: new Set(),
+    base: null,
+  };
+}
+
+/**
+ * Construct an overlay cache on top of `base`. `dirtyIds` are the
+ * ids touched by the transaction that produced this layer — they are
+ * invalidated on the new layer so future reads do not see the stale
+ * `base` entries. Both invalidation sets share the same ids because
+ * a single BlockId can belong to either tree and the layer can't
+ * cheaply distinguish at construction time; the wasted entry in the
+ * unused set is just one Set.has miss per uninvolved read.
+ */
+export function createOverlayCache(
+  base: SnapshotCache,
+  dirtyIds: ReadonlySet<BlockId>,
+): SnapshotCache {
+  return {
+    blocks: new Map(),
+    embedContents: new Map(),
+    invalidatedBlocks: new Set(dirtyIds),
+    invalidatedEmbeds: new Set(dirtyIds),
+    base,
+  };
 }
 
 /**
  * Evict the snapshot for `id` from both the blocks and embedContents
- * sub-caches. BlockIds are globally unique across the two trees, so the
- * id can live in at most one map; deleting from both is cheap (O(1)
- * miss) and avoids requiring callers to know which tree owns the id.
+ * sub-caches at this layer AND mark it invalidated so any base
+ * fall-through cannot resurrect a stale entry. BlockIds are globally
+ * unique across the two trees, so the id can live in at most one map;
+ * deleting from both is cheap (O(1) miss) and avoids requiring callers
+ * to know which tree owns the id.
  */
 export function invalidateSnapshot(cache: SnapshotCache, id: BlockId): void {
   cache.blocks.delete(id);
   cache.embedContents.delete(id);
+  cache.invalidatedBlocks.add(id);
+  cache.invalidatedEmbeds.add(id);
 }
 
+/**
+ * Clear every entry from this layer's maps and invalidate every key
+ * known to the base chain. After this call, reads on this layer
+ * re-snapshot from the Y.Doc for any id encountered, since both the
+ * layer and (via invalidation) the base are excluded.
+ */
 export function invalidateAll(cache: SnapshotCache): void {
   cache.blocks.clear();
   cache.embedContents.clear();
+  // Walk the base chain to seed invalidation entries for every id the
+  // chain knows about, so fall-through cannot resurrect a base hit.
+  for (let layer: SnapshotCache | null = cache.base; layer !== null; layer = layer.base) {
+    for (const id of layer.blocks.keys()) cache.invalidatedBlocks.add(id);
+    for (const id of layer.embedContents.keys()) cache.invalidatedEmbeds.add(id);
+  }
+}
+
+/**
+ * Iterative chain walk used by the two read functions. Returns the
+ * resolved Block (own-hit or base-hit) and the list of layers visited
+ * during the descent, so the caller can promote the entry into each on
+ * a fresh Y.Doc read or pass through an existing hit. Iteration —
+ * rather than recursion — keeps stack depth O(1) regardless of how
+ * many `applyOperation` calls have built up in a long editing session
+ * (V8's default stack limit is ~10K frames; a recursive walk would
+ * overflow there).
+ */
+type LayerKind = "block" | "embed";
+
+function walkChain(
+  cache: SnapshotCache,
+  id: BlockId,
+  kind: LayerKind,
+): { hit: Block | null; visited: SnapshotCache[] | null } {
+  const ownMapKey = kind === "block" ? "blocks" : "embedContents";
+  const invalidationKey =
+    kind === "block" ? "invalidatedBlocks" : "invalidatedEmbeds";
+  let visited: SnapshotCache[] | null = null;
+  let layer: SnapshotCache | null = cache;
+  while (layer !== null) {
+    const own = layer[ownMapKey].get(id);
+    if (own !== undefined) {
+      return { hit: own, visited };
+    }
+    if (layer[invalidationKey].has(id)) {
+      // Include this layer in the visited list so its post-mutation
+      // view also receives the fresh re-snapshot.
+      if (visited === null) visited = [layer];
+      else visited.push(layer);
+      return { hit: null, visited };
+    }
+    if (visited === null) visited = [layer];
+    else visited.push(layer);
+    layer = layer.base;
+  }
+  return { hit: null, visited };
+}
+
+function promoteInto(
+  visited: SnapshotCache[] | null,
+  id: BlockId,
+  snap: Block,
+  kind: LayerKind,
+): void {
+  if (visited === null) return;
+  const mapKey = kind === "block" ? "blocks" : "embedContents";
+  for (const v of visited) v[mapKey].set(id, snap);
 }
 
 export function getBlockSnapshot(
@@ -42,14 +186,16 @@ export function getBlockSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  const cached = cache.blocks.get(id);
-  if (cached !== undefined) return cached;
-
+  const { hit, visited } = walkChain(cache, id, "block");
+  if (hit !== null) {
+    promoteInto(visited, id, hit, "block");
+    return hit;
+  }
+  // Chain miss or invalidation-stop → fresh read from Y.Doc.
   const yBlock = getBlocksMap(doc).get(id);
   if (yBlock === undefined) return null;
-
   const snap = buildBlockSnapshot(id, yBlock);
-  cache.blocks.set(id, snap);
+  promoteInto(visited, id, snap, "block");
   return snap;
 }
 
@@ -58,14 +204,15 @@ export function getEmbedContentSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  const cached = cache.embedContents.get(id);
-  if (cached !== undefined) return cached;
-
+  const { hit, visited } = walkChain(cache, id, "embed");
+  if (hit !== null) {
+    promoteInto(visited, id, hit, "embed");
+    return hit;
+  }
   const yBlock = getEmbedContentsMap(doc).get(id);
   if (yBlock === undefined) return null;
-
   const snap = buildBlockSnapshot(id, yBlock);
-  cache.embedContents.set(id, snap);
+  promoteInto(visited, id, snap, "embed");
   return snap;
 }
 

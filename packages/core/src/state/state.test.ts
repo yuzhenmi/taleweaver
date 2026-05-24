@@ -121,6 +121,107 @@ describe("applyOperation", () => {
     expect(result.dirtyIds.size).toBe(0);
   });
 
+  it("applyOperation creates an empty overlay layer instead of carrying forward N cached entries (S-A2)", () => {
+    // The carry-forward path before S-A2 copied every non-dirty entry
+    // from the input cache into a fresh map — O(N_cached) per mutation.
+    // With overlay caching, the new cache starts empty and lazily falls
+    // through to the input cache (its base), so this allocation cost is
+    // O(dirtyIds.size) regardless of how many blocks the input cache
+    // had warmed up.
+    const NUM_BLOCKS = 100;
+    const state = createState({ rootId: "root" as BlockId });
+    applyOperation(state, () => {
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+      for (let i = 0; i < NUM_BLOCKS; i++) {
+        blocks.set(`b${i}`, buildYBlock({
+          type: "paragraph",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: { items: [] },
+        }));
+      }
+    });
+    // freshState the cache so all ids are uncached, then warm.
+    const warm = freshState(state);
+    for (let i = 0; i < NUM_BLOCKS; i++) {
+      getBlock(warm, `b${i}` as BlockId);
+    }
+    expect(warm[STATE_INTERNAL].snapshotCache.blocks.size).toBe(NUM_BLOCKS);
+
+    // Mutate a single block.
+    const tiny = applyOperation(warm, () => {
+      const yBlock = getBlocksMap(warm[STATE_INTERNAL].doc).get("b0")!;
+      yBlock.set("type", "heading");
+    });
+    expect(tiny.dirtyIds.size).toBe(1);
+
+    const newCache = tiny.state[STATE_INTERNAL].snapshotCache;
+    // The new overlay starts empty — no entries carried forward.
+    expect(newCache.blocks.size).toBe(0);
+    expect(newCache.embedContents.size).toBe(0);
+    // The dirty block is invalidated on this layer so reads don't fall
+    // through to the stale base entry.
+    expect(newCache.invalidatedBlocks.has("b0" as BlockId)).toBe(true);
+    // Base reference points to the warmed cache.
+    expect(newCache.base).toBe(warm[STATE_INTERNAL].snapshotCache);
+
+    // Reads still resolve correctly.
+    expect(getBlock(tiny.state, "b0" as BlockId)?.type).toBe("heading");
+    expect(getBlock(tiny.state, "b1" as BlockId)?.type).toBe("paragraph");
+  });
+
+  it("survives a 15K-deep cache chain without stack overflow (S-A2 iterative read)", () => {
+    // Each non-no-op applyOperation pushes a new layer onto the cache
+    // chain. A long editing session can produce tens of thousands of
+    // layers; a cold read on a deeply-buried block would blow V8's
+    // ~10K-frame stack if the chain walk were recursive. The walk is
+    // iterative; this test asserts the chain can grow well past the
+    // stack limit without throwing.
+    const DEPTH = 15_000;
+    let state = createState({ rootId: "root" as BlockId });
+    state = applyOperation(state, () => {
+      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+      blocks.set("cold", buildYBlock({
+        type: "paragraph",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: null,
+        lastChildId: null,
+        inlineContent: { items: [] },
+      }));
+    }).state;
+    // Now build the chain: each iteration mutates a DIFFERENT id, so
+    // "cold" stays uncached on every new layer (never promoted, never
+    // invalidated above the root).
+    for (let i = 0; i < DEPTH; i++) {
+      const idx = i;
+      state = applyOperation(state, () => {
+        const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+        blocks.set(`other-${idx}`, buildYBlock({
+          type: "paragraph",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: { items: [] },
+        }));
+      }).state;
+    }
+    // First read of "cold" from the topmost layer must walk past
+    // DEPTH+1 layers without blowing the stack.
+    const snap = getBlock(state, "cold" as BlockId);
+    expect(snap).not.toBeNull();
+    expect(snap?.type).toBe("paragraph");
+  }, 30_000);
+
   it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
     const state = createState({ rootId: "root" as BlockId });
     applyOperation(state, () => {

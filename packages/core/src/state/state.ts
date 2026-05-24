@@ -9,6 +9,7 @@ import {
 } from "./yjs-doc";
 import {
   createSnapshotCache,
+  createOverlayCache,
   getBlockSnapshot,
   getEmbedContentSnapshot,
   type SnapshotCache,
@@ -137,17 +138,28 @@ export function freshState(state: State): State {
 
 /**
  * Run a mutating `fn` inside a Y.Doc transaction and produce an
- * OperationResult. The returned State has a fresh SnapshotCache that
- * carries forward all non-dirty entries from the input state's cache,
- * giving two properties at once:
- *   - structural sharing: snapshots of unchanged blocks remain
- *     reference-equal across `applyOperation` calls (memoized renderers
- *     can `prev === next` to skip unchanged subtrees).
- *   - per-State view stability: the input state's cache is untouched,
- *     so reads via the pre-op State handle continue to see the
- *     pre-mutation snapshot. (Y.Doc is mutable in place, so this is
- *     a cached-view property, not true immutability — it lasts until
+ * OperationResult. The returned State has a fresh SnapshotCache built
+ * as an overlay on top of the input state's cache, giving three
+ * properties at once:
+ *   - **O(dirtyIds.size) per-mutation bookkeeping**: the new cache
+ *     starts empty (just an invalidation set and a base pointer); no
+ *     iteration over the input cache's entries. Replaces the prior
+ *     O(N_cached) per-mutation carry-forward, which dominated
+ *     keystroke cost on warm caches at scale.
+ *   - **Structural sharing**: snapshots of unchanged blocks are still
+ *     returned by reference across `applyOperation` calls. The first
+ *     read on the new layer falls through to base and returns the
+ *     same `Block` instance, then promotes it into the new layer so
+ *     subsequent reads are O(1).
+ *   - **Per-State view stability**: the input state's cache is
+ *     untouched — it becomes the immutable `base` of the new overlay.
+ *     Reads via the pre-op State handle continue to see the
+ *     pre-mutation snapshot. (Y.Doc is mutable in place, so this is a
+ *     cached-view property, not true immutability — it lasts until
  *     the pre-op cache is invalidated or replaced.)
+ *
+ * See `SnapshotCache` in `snapshot.ts` for the layered-read algorithm
+ * and the chain-depth / flattening notes.
  *
  * No-op contract: when the transaction produces no Y.Doc mutations
  * (`dirtyIds.size === 0`), this function returns the LITERAL input
@@ -155,8 +167,8 @@ export function freshState(state: State): State {
  * `result.state === input.state` as an O(1) "did anything change?"
  * guard — e.g., action handlers short-circuit before calling
  * `history.commit`, and the cascade/render pipeline skips a recomputation
- * pass entirely. The carry-forward / fresh-frozen-State allocation only
- * runs on the non-no-op branch.
+ * pass entirely. The overlay allocation only runs on the non-no-op
+ * branch.
  */
 export function applyOperation(state: State, fn: () => void): OperationResult {
   const internal = state[STATE_INTERNAL];
@@ -167,19 +179,12 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
     // `result.state === input.state`.
     return { state, dirtyIds };
   }
-  const newCache = createSnapshotCache();
-  for (const [id, snap] of internal.snapshotCache.blocks) {
-    if (!dirtyIds.has(id)) newCache.blocks.set(id, snap);
-  }
-  for (const [id, snap] of internal.snapshotCache.embedContents) {
-    if (!dirtyIds.has(id)) newCache.embedContents.set(id, snap);
-  }
   return {
     state: Object.freeze({
       rootId: state.rootId,
       [STATE_INTERNAL]: Object.freeze({
         doc: internal.doc,
-        snapshotCache: newCache,
+        snapshotCache: createOverlayCache(internal.snapshotCache, dirtyIds),
       }),
     }) as State,
     dirtyIds,

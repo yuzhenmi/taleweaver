@@ -4,7 +4,9 @@ import { createYDoc, getBlocksMap, runTransaction } from "./yjs-doc";
 import {
   getBlockSnapshot,
   invalidateSnapshot,
+  invalidateAll,
   createSnapshotCache,
+  createOverlayCache,
 } from "./snapshot";
 import type { BlockId } from "./block-id";
 
@@ -236,6 +238,137 @@ describe("snapshot", () => {
       expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
         /missing required "inlineContent" field/,
       );
+    });
+  });
+
+  describe("overlay cache (S-A2)", () => {
+    it("reads fall through from overlay to base", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const base = createSnapshotCache();
+      // Warm the base.
+      const baseSnap = getBlockSnapshot(doc, "p1" as BlockId, base);
+      expect(baseSnap).not.toBeNull();
+      // New overlay on top of base. "p1" is NOT in the overlay's
+      // invalidated set, so reads should fall through to base.
+      const overlay = createOverlayCache(base, new Set());
+      const snap = getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      expect(snap).toBe(baseSnap);
+    });
+
+    it("read on overlay promotes the entry from base into the overlay map", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const base = createSnapshotCache();
+      getBlockSnapshot(doc, "p1" as BlockId, base);
+      const overlay = createOverlayCache(base, new Set());
+      // Overlay starts with no own entries.
+      expect(overlay.blocks.size).toBe(0);
+      getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      // After the read, the overlay holds the promoted entry too.
+      expect(overlay.blocks.size).toBe(1);
+      expect(overlay.blocks.get("p1" as BlockId)).toBe(
+        base.blocks.get("p1" as BlockId),
+      );
+    });
+
+    it("invalidated ids skip the base fall-through and re-snapshot from the doc", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const base = createSnapshotCache();
+      const baseSnap = getBlockSnapshot(doc, "p1" as BlockId, base);
+      // Mutate the Y.Doc under "p1" — base snap is now stale.
+      runTransaction(doc, () => {
+        const yBlock = getBlocksMap(doc).get("p1");
+        if (yBlock === undefined) throw new Error("p1 vanished");
+        yBlock.set("type", "heading");
+      });
+      // Overlay invalidates "p1" so it MUST not return the stale base snap.
+      const overlay = createOverlayCache(
+        base,
+        new Set(["p1" as BlockId]),
+      );
+      const overlaySnap = getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      expect(overlaySnap).not.toBeNull();
+      expect(overlaySnap).not.toBe(baseSnap);
+      expect(overlaySnap?.type).toBe("heading");
+      // The base cache itself is untouched (per-State view stability).
+      expect(base.blocks.get("p1" as BlockId)).toBe(baseSnap);
+    });
+
+    it("base remains untouched when overlay is read and mutated", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      seedParagraphBlock(doc, "p2", "world");
+      const base = createSnapshotCache();
+      const beforeP1 = getBlockSnapshot(doc, "p1" as BlockId, base);
+      const overlay = createOverlayCache(
+        base,
+        new Set(["p2" as BlockId]),
+      );
+      getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      getBlockSnapshot(doc, "p2" as BlockId, overlay);
+      // Base still has the original p1 entry, no p2 entry was added there.
+      expect(base.blocks.get("p1" as BlockId)).toBe(beforeP1);
+      expect(base.blocks.has("p2" as BlockId)).toBe(false);
+    });
+
+    it("depth-3 chain fall-through promotes the entry into every visited layer", () => {
+      // Three-layer chain (root → L1 → L2). The entry lives in root only;
+      // reading it from L2 should walk all the way down, then on the way
+      // back promote the snapshot into L2 AND L1 so subsequent reads at
+      // any layer are O(1).
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const root = createSnapshotCache();
+      const rootSnap = getBlockSnapshot(doc, "p1" as BlockId, root);
+      expect(rootSnap).not.toBeNull();
+      const l1 = createOverlayCache(root, new Set());
+      const l2 = createOverlayCache(l1, new Set());
+      expect(l1.blocks.size).toBe(0);
+      expect(l2.blocks.size).toBe(0);
+      const fromL2 = getBlockSnapshot(doc, "p1" as BlockId, l2);
+      expect(fromL2).toBe(rootSnap);
+      // Both intermediate layers received the promoted entry.
+      expect(l1.blocks.get("p1" as BlockId)).toBe(rootSnap);
+      expect(l2.blocks.get("p1" as BlockId)).toBe(rootSnap);
+    });
+
+    it("invalidateAll causes reads to re-snapshot for previously-cached ids", () => {
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const base = createSnapshotCache();
+      const beforeP1 = getBlockSnapshot(doc, "p1" as BlockId, base);
+      const overlay = createOverlayCache(base, new Set());
+      // Promote p1 into the overlay.
+      getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      // Now mutate underlying Y.Doc and invalidate everything on the
+      // overlay — subsequent reads must come from a fresh Y.Doc snapshot.
+      runTransaction(doc, () => {
+        const yBlock = getBlocksMap(doc).get("p1");
+        if (yBlock === undefined) throw new Error("p1 vanished");
+        yBlock.set("type", "heading");
+      });
+      invalidateAll(overlay);
+      const afterP1 = getBlockSnapshot(doc, "p1" as BlockId, overlay);
+      expect(afterP1).not.toBe(beforeP1);
+      expect(afterP1?.type).toBe("heading");
+      // Base is untouched; reading there still returns the original snap.
+      expect(base.blocks.get("p1" as BlockId)).toBe(beforeP1);
+    });
+
+    it("invalidateAll does not affect ids that were never cached anywhere", () => {
+      // Pre-positioned API correctness: ids known only to Y.Doc (never
+      // materialized in any cache layer) should read correctly after
+      // invalidateAll, since invalidation only blocks fall-through for
+      // ids the chain knows about.
+      const doc = createYDoc();
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createOverlayCache(createSnapshotCache(), new Set());
+      invalidateAll(cache);
+      const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      expect(snap).not.toBeNull();
+      expect(snap?.type).toBe("paragraph");
     });
   });
 });
