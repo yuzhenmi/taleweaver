@@ -74,7 +74,11 @@ export function layoutTreeIncremental(
     if (pageConfig !== undefined && cs.display === "block") {
       // Paginated mode: paginateRoot drives layoutBlock per page.
       // Pass rootCtx so that subtree reuse cache flows through.
-      result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig);
+      // Pass oldLayout so paginate's per-page cache (L-PERF-C) can
+      // short-circuit unchanged pages without invoking layoutBlock at
+      // all — drops per-keystroke layout from O(N_blocks iteration)
+      // to O(N_pages_visible × const + N_dirty_blocks).
+      result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig, oldLayout);
     } else {
       switch (cs.display) {
         case "block": {
