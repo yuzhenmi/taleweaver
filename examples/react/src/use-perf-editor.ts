@@ -29,6 +29,8 @@ interface PerfHandle {
     count: number,
     char?: string,
   ): { totalMs: number; avgMs: number; medianMs: number; maxMs: number; samples: number[] };
+  timePaste(lineCount: number): { totalMs: number; msPerLine: number };
+  timeEnter(): { totalMs: number };
 }
 declare global {
   // eslint-disable-next-line no-var
@@ -156,6 +158,25 @@ export function usePerfEditor(): UsePerfEditorResult {
       },
       get dispatch() {
         return latestDispatch.current;
+      },
+      timePaste(lineCount: number) {
+        // Synchronous PASTE benchmark — feeds the full text through
+        // reduceEditor once. Mirrors what a real Cmd+V keystroke does
+        // (handlePaste splits the text, chains splitBlock + insertText
+        // per line). Run AFTER seeding the doc to whatever state you
+        // want — the latestState ref is consumed read-only here, the
+        // result is discarded.
+        const lines = Array(lineCount).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
+        const t0 = performance.now();
+        reduceEditor(latestState.current, { type: "PASTE", text: lines }, config);
+        const totalMs = performance.now() - t0;
+        return { totalMs, msPerLine: totalMs / lineCount };
+      },
+      timeEnter() {
+        // Synchronous SPLIT_NODE benchmark at the current cursor.
+        const t0 = performance.now();
+        reduceEditor(latestState.current, { type: "SPLIT_NODE" }, config);
+        return { totalMs: performance.now() - t0 };
       },
       timeKeystrokes(count: number, char = "x") {
         // Measure the SYNCHRONOUS reduceEditor cost in isolation.
