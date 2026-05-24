@@ -9,6 +9,31 @@
  * deliberately so that packages/react remains unchanged.
  */
 import { useReducer, useRef, useEffect, useCallback } from "react";
+
+// Dev-only window-level instrumentation hook for perf measurement
+// from Playwright / the browser console. Exposed only when running in
+// the example app; production builds of @taleweaver/react do not touch
+// this. Keep the surface minimal and one-way (read-only state, dispatch
+// proxy) so it doesn't drift into application code.
+//
+// Usage from the browser:
+//   __twPerf.timeKeystrokes(N, "x")
+//     → dispatches N INSERT_TEXT actions, returns
+//       { totalMs, avgMs, medianMs, maxMs, samples }.
+//   __twPerf.state            → the current EditorState.
+//   __twPerf.dispatch(action) → fire any EditorAction.
+interface PerfHandle {
+  state: EditorState;
+  dispatch: React.Dispatch<EditorAction>;
+  timeKeystrokes(
+    count: number,
+    char?: string,
+  ): { totalMs: number; avgMs: number; medianMs: number; maxMs: number; samples: number[] };
+}
+declare global {
+  // eslint-disable-next-line no-var
+  var __twPerf: PerfHandle | undefined;
+}
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
@@ -117,6 +142,57 @@ export function usePerfEditor(): UsePerfEditorResult {
     const textarea = containerRef.current?.querySelector("textarea");
     if (textarea) textarea.focus();
   }, []);
+
+  // Latest state/dispatch refs so the window-level perf hook always
+  // sees up-to-date values without us re-installing it every render.
+  const latestState = useRef(editorState);
+  latestState.current = editorState;
+  const latestDispatch = useRef(dispatch);
+  latestDispatch.current = dispatch;
+  useEffect(() => {
+    (globalThis as { __twPerf?: PerfHandle }).__twPerf = {
+      get state() {
+        return latestState.current;
+      },
+      get dispatch() {
+        return latestDispatch.current;
+      },
+      timeKeystrokes(count: number, char = "x") {
+        // Measure the SYNCHRONOUS reduceEditor cost in isolation.
+        // React's dispatch is async (queues a re-render); measuring it
+        // would capture only the enqueue time, not the actual model +
+        // render + cascade + layout work. We run reduceEditor in a
+        // tight loop over a local editor reference and DO NOT push
+        // the result back through dispatch — this hook is a perf
+        // probe, not an editing surface. The doc visible in the
+        // browser is unchanged; type a real character afterward to
+        // confirm the doc is still healthy.
+        let editor = latestState.current;
+        const samples: number[] = [];
+        for (let i = 0; i < count; i++) {
+          const t0 = performance.now();
+          editor = reduceEditor(
+            editor,
+            { type: "INSERT_TEXT", text: char },
+            config,
+          );
+          samples.push(performance.now() - t0);
+        }
+        const sorted = [...samples].sort((a, b) => a - b);
+        const total = samples.reduce((s, v) => s + v, 0);
+        return {
+          totalMs: total,
+          avgMs: total / count,
+          medianMs: sorted[Math.floor(count / 2)],
+          maxMs: sorted[count - 1],
+          samples: sorted,
+        };
+      },
+    };
+    return () => {
+      delete (globalThis as { __twPerf?: PerfHandle }).__twPerf;
+    };
+  }, [config]);
 
   return {
     editorState,
