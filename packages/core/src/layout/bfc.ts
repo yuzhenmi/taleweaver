@@ -60,10 +60,16 @@ function isResumeFromDegenerate(rf: BreakToken | null): boolean {
  * Production code only pays the integer increments.
  */
 const _layoutCacheStats = {
+  /** Cache hit returning the cached box AS-IS (positions matched). */
   hits: 0,
+  /** Cache hit but the requested outer position differs — L-PERF-G
+   *  clones the cached box at the new position. Counted separately
+   *  because each clone has a small allocation cost; useful to know
+   *  whether the workload is hitting the clone path or the as-is
+   *  path. */
+  hitsRepositioned: 0,
   missesNoEntry: 0,
   missesRenderInequiv: 0,
-  missesPosition: 0,
   missesSize: 0,
   missesResumeFrom: 0,
   missesReusableGate: 0,
@@ -76,9 +82,9 @@ export function __getLayoutCacheStatsForTest(): typeof _layoutCacheStats {
 
 export function __resetLayoutCacheStatsForTest(): void {
   _layoutCacheStats.hits = 0;
+  _layoutCacheStats.hitsRepositioned = 0;
   _layoutCacheStats.missesNoEntry = 0;
   _layoutCacheStats.missesRenderInequiv = 0;
-  _layoutCacheStats.missesPosition = 0;
   _layoutCacheStats.missesSize = 0;
   _layoutCacheStats.missesResumeFrom = 0;
   _layoutCacheStats.missesReusableGate = 0;
@@ -152,10 +158,6 @@ export function layoutBlock(
       if (fragmentation !== undefined && !isResumeFromDegenerate(fragmentation.resumeFrom)) {
         _layoutCacheStats.missesResumeFrom++;
       } else if (fragmentation !== undefined &&
-                 (entry.box.inlineOffset !== inlineOffset ||
-                  entry.box.blockOffset !== blockOffset)) {
-        _layoutCacheStats.missesPosition++;
-      } else if (fragmentation !== undefined &&
                  entry.box.blockSize > fragmentation.availableBlockSize) {
         _layoutCacheStats.missesSize++;
       } else if (!isLayoutBoxReusable(entry.box, {
@@ -168,7 +170,41 @@ export function layoutBlock(
         _layoutCacheStats.missesReusableGate++;
       } else {
         _layoutCacheStats.hits++;
-        return { box: entry.box, breakToken: null };
+        // L-PERF-G: reposition-on-clone. When content matches but the
+        // requested outer position differs (typical after SPLIT/PASTE
+        // at the top of a long doc: every subsequent block shifts y by
+        // delta even though its content is unchanged), clone the
+        // cached box at the new outer (inlineOffset, blockOffset).
+        // Descendants keep their local positions — they're parent-
+        // relative in the layout-box coordinate system, so painter /
+        // hit-test / line-flatten all accumulate correctly through
+        // the cloned outer offset. Skips full IFC tokenization +
+        // measureText for the shifted-but-content-stable child case,
+        // which was the dominant cost on ENTER-at-top of a long doc.
+        const needsReposition =
+          entry.box.inlineOffset !== inlineOffset ||
+          entry.box.blockOffset !== blockOffset;
+        if (!needsReposition) {
+          return { box: entry.box, breakToken: null };
+        }
+        _layoutCacheStats.hitsRepositioned++;
+        return {
+          box: createBlockBox(
+            entry.box.key,
+            inlineOffset,
+            blockOffset,
+            entry.box.inlineSize,
+            entry.box.blockSize,
+            entry.box.writingMode,
+            entry.box.direction,
+            entry.box.computedStyle,
+            entry.box.usedStyle,
+            entry.box.children,
+            /* containingInlineSize */ availableInlineSize,
+            entry.box.metadata,
+          ),
+          breakToken: null,
+        };
       }
     }
   }

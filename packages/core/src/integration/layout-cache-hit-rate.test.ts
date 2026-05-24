@@ -95,14 +95,14 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const stats = __getLayoutCacheStatsForTest();
 
     const total = stats.hits + stats.missesNoEntry + stats.missesRenderInequiv +
-                  stats.missesPosition + stats.missesSize + stats.missesResumeFrom +
+                  stats.hitsRepositioned + stats.missesSize + stats.missesResumeFrom +
                   stats.missesReusableGate + stats.fullLayoutInvocations;
     (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
       `[L-PERF-B diag] total=${total}`,
       `hits=${stats.hits}`,
       `missesNoEntry=${stats.missesNoEntry}`,
       `missesRenderInequiv=${stats.missesRenderInequiv}`,
-      `missesPosition=${stats.missesPosition}`,
+      `hitsRepositioned=${stats.hitsRepositioned}`,
       `missesSize=${stats.missesSize}`,
       `missesResumeFrom=${stats.missesResumeFrom}`,
       `missesReusableGate=${stats.missesReusableGate}`,
@@ -164,7 +164,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
       `[L-PERF-C 500-para] hits=${stats.hits}`,
       `fullLayouts=${stats.fullLayoutInvocations}`,
       `missesRenderInequiv=${stats.missesRenderInequiv}`,
-      `missesPosition=${stats.missesPosition}`,
+      `hitsRepositioned=${stats.hitsRepositioned}`,
     );
     // Page 0 needs ~50 children re-iterated (the dirty para + dependents).
     // Pages 1..N reuse via page-cache → no layoutBlock invocations.
@@ -173,6 +173,45 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     // a handful of root-level invocations for the all-pages outer.
     expect(stats.fullLayoutInvocations).toBeLessThan(15);
   }, 30_000);
+
+  it("DIAGNOSTIC: SPLIT_NODE at top of N-paragraph doc — pure-model cost", () => {
+    // No assertion — just print the model-layer cost of pressing Enter
+    // at the start of a long doc, to determine whether the user's
+    // reported ~150ms is dominated by model work or by React/paint.
+    const config = makeConfig();
+    for (const N of [500]) {
+      let editor = createInitialEditorState(config);
+      const firstId = (() => {
+        const root = getBlock(editor.state, editor.state.rootId);
+        if (root === null || root.firstChildId === null) throw new Error("?");
+        return root.firstChildId;
+      })();
+      editor = reduceEditor(
+        editor,
+        { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
+        config,
+      );
+      for (let i = 0; i < N; i++) {
+        editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` }, config);
+        if (i < N - 1) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      }
+      editor = reduceEditor(
+        editor,
+        { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
+        config,
+      );
+      __resetLayoutCacheStatsForTest();
+      const t0 = performance.now();
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      const ms = performance.now() - t0;
+      const stats = __getLayoutCacheStatsForTest();
+      (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
+        `[ENTER@top N=${N}] ${ms.toFixed(2)}ms`,
+        `hits=${stats.hits} fulls=${stats.fullLayoutInvocations}`,
+        `misses{pos=${stats.hitsRepositioned} renderInequiv=${stats.missesRenderInequiv}}`,
+      );
+    }
+  }, 60_000);
 
   it("bulk PASTE of 200 lines completes in linear time (L-PERF-E chain compaction)", () => {
     // Regression guard: pre-L-PERF-E, the snapshot cache chain grew
@@ -229,7 +268,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const stats = __getLayoutCacheStatsForTest();
 
     const totalInvocations = stats.hits + stats.missesNoEntry + stats.missesRenderInequiv +
-      stats.missesPosition + stats.missesSize + stats.missesResumeFrom + stats.missesReusableGate;
+      stats.hitsRepositioned + stats.missesSize + stats.missesResumeFrom + stats.missesReusableGate;
     const hitRatio = stats.hits / totalInvocations;
     (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
       `[L-PERF-B 500-para] keystrokeMs=${keystrokeMs.toFixed(2)}`,
@@ -239,7 +278,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
       `fullLayouts=${stats.fullLayoutInvocations}`,
       `missesNoEntry=${stats.missesNoEntry}`,
       `missesRenderInequiv=${stats.missesRenderInequiv}`,
-      `missesPosition=${stats.missesPosition}`,
+      `hitsRepositioned=${stats.hitsRepositioned}`,
       `missesSize=${stats.missesSize}`,
       `missesResumeFrom=${stats.missesResumeFrom}`,
       `missesReusableGate=${stats.missesReusableGate}`,
