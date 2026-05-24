@@ -80,8 +80,8 @@ decision logic is:
   lines as fit, honoring `orphans` / `widows` (back-off that can reduce the
   emitting page's line count) and hyphenation back-off, emit
   `IFCBreakToken{resumeAtLine}`.
-- **Within-table fragmentation:** place rows up to the fit, repeat header rows,
-  emit `TableBreakToken{resumeAtRow}`.
+- **Within-table fragmentation:** place body rows up to the fit, emit
+  `TableBreakToken{resumeAtRow}`. (No thead/header-repeat exists in the engine.)
 - **List-counter seeding:** an ordered-list item's number depends on preceding
   list items.
 
@@ -89,6 +89,13 @@ This logic is **extracted into a pure module** (`layout/fit-core.ts`, new) that
 operates over metadata, not boxes:
 
 ```ts
+// RECURSIVE: mirrors the block tree. A container block (list, blockquote,
+// nested BFC) carries `children`; a leaf carries ifc line data OR table row
+// data. This is required because a nested container can itself fragment across
+// a page boundary (e.g. a list crossing a page), producing a recursive
+// `BlockBreakToken.resumeChildToken` — which a flat top-level model cannot
+// reproduce. `fitOnePage` recurses into `children`, mirroring how
+// `bfc.layoutBlock` recurses, so the measure pass reproduces nested breaks.
 interface BlockFitMeta {
   readonly kind: "block" | "ifc" | "table";
   readonly marginBlockStart: number;
@@ -97,7 +104,9 @@ interface BlockFitMeta {
   readonly breakAfter: "auto" | "page" | "avoid";
   readonly breakInsideAvoid: boolean;
   readonly totalBlockSize: number;          // unfragmented height
-  // ifc: per-line block-sizes + fragmentation knobs; absent otherwise
+  // `block` (container): recursive child metas; absent for leaves.
+  readonly children?: readonly BlockFitMeta[];
+  // `ifc` leaf: per-line block-sizes + fragmentation knobs; absent otherwise
   readonly lineBlockSizes?: readonly number[];
   readonly orphans?: number;
   readonly widows?: number;
@@ -105,10 +114,11 @@ interface BlockFitMeta {
   // pair back-off (ifc.ts) can move a break a line earlier; reproducing the
   // boundary requires knowing which line ends a hyphenated pair.
   readonly lineEndsWithHyphen?: readonly boolean[];
-  // table: body row block-sizes + header repeat height; absent otherwise
+  // `table` leaf: body row block-sizes; absent otherwise. (The engine has NO
+  // thead/header-repeat feature today — do not model one.)
   readonly rowBlockSizes?: readonly number[];
-  readonly headerBlockSize?: number;
-  // list-item counter contribution (ordered lists)
+  // list-item counter contribution (ordered lists). `fitOnePage` recurses, so
+  // nested list items are seeded correctly via the recursive walk.
   readonly listItem?: boolean;
 }
 
@@ -120,6 +130,7 @@ function fitOnePage(
   resumeInto: BreakToken | null,
   pageContentBlockSize: number,
   listCounterAtStart: number,
+  rootHasTopBoundary: boolean,  // suppress first-child top margin when false
 ): {
   childrenCount: number;        // whole blocks consumed on this page
   resumeOut: BreakToken | null; // null ⇒ doc end
@@ -147,6 +158,13 @@ test guards against any drift between the two.
 `BlockFitMeta` is produced from a block's cached intrinsic `BlockBox`
 (line block-sizes are the child line boxes' heights; margins/breaks from
 computed style). It is cached per block and refreshed only for `dirtyIds`.
+
+`measurePass` additionally takes a **root top-boundary flag**
+(`rootHasTopBoundary = root.paddingBlockStart + root.borderBlockStartWidth > 0`,
+from the paginated document root's used style). When false, the very first
+child of the whole flow has its top margin suppressed (margin-collapse-through
+the parent's top edge) — the same condition `bfc.ts` applies via `noTopBoundary`
+(bfc.ts:472–484). This is a single measure-pass parameter, not per-block.
 
 ### Out of scope for v1: floats / `clear`
 
@@ -410,7 +428,9 @@ IS re-materialized (its content changed), a new ref → full repaint of that pag
   - exactly-full pages (the cascade case),
   - a paragraph spanning a page boundary with non-default `orphans`/`widows`,
   - hyphenation back-off at a boundary,
-  - a table spanning pages (with header repeat),
+  - a table spanning pages (body-row split),
+  - a **nested container** (list / blockquote) spanning pages (recursive
+    `resumeChildToken`),
   - an **ordered list spanning pages** (list-counter seeding),
   - a forced `break-before` mid-page and a `break-inside: avoid` block that
     overflows.
