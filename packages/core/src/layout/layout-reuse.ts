@@ -48,27 +48,66 @@ export function createLayoutBoxCache(): LayoutBoxCache {
  * @param renderRoot the render-node subtree that produced `root`. Used to
  *   populate per-entry render-node references for identity checking.
  * @param cache optional existing cache to populate (creates a new one if omitted).
+ *
+ * ## Wrapper transparency (L-PERF-A)
+ *
+ * In paginated layouts, the engine wraps real render-node-keyed boxes in
+ * anonymous wrappers: `paginateRoot` produces a root BlockBox whose children
+ * are `PageBox`es; each `PageBox` wraps one per-page `BlockBox` (whose key
+ * collides with the root's key by construction). None of those wrappers
+ * correspond to a render node, so a strict by-key descent stops at the
+ * outermost wrapper layer and leaves the per-paragraph paint trees unindexed.
+ *
+ * The traversal therefore treats any layout-box whose key does NOT match a
+ * render-node sibling as transparent: it recurses into the wrapper's
+ * children with the same `rnByKey` map, so the per-paragraph layout boxes
+ * deeper in the tree still get paired with their render nodes and cached.
+ * Without this descent, per-keystroke layout on a paginated document
+ * re-lays-out every paragraph on every page (the per-page `layoutBlock`
+ * never finds a cache entry to short-circuit on).
+ *
+ * **Spanning-paragraph limitation.** A paragraph that fragments across
+ * multiple pages produces a per-page partial-fragment LayoutBox with the
+ * same `key` in each per-page subtree. The walk visits both — `cache.set`
+ * fires twice for the same key and the last write wins. This does NOT
+ * cause incorrect reuse in practice because L-PERF-A's
+ * `isResumeFromDegenerate` gate in `bfc.layoutBlock` rejects reuse for
+ * any non-fresh-start request: the second-page call requesting the
+ * paragraph's continuation has a non-degenerate `resumeFrom`, so it
+ * never consults the cached first-page fragment. For workloads where
+ * every paragraph fits on one page (the common interactive editing
+ * case), there is no collision. A spanning-paragraph-aware cache that
+ * indexes by `(key, resumeFrom)` is future work if non-degenerate
+ * partial reuse becomes desirable.
  */
 export function buildLayoutBoxCacheFromTree(
   root: LayoutBox,
   renderRoot: RenderNode,
   cache: LayoutBoxCache = createLayoutBoxCache(),
 ): LayoutBoxCache {
-  const visitPair = (box: LayoutBox, rn: RenderNode) => {
-    cache.set(box.key, { box, renderNode: rn });
-    if ("children" in box && rn.type === "element") {
-      // Walk matching children by key.
-      const rnByKey = new Map<string, RenderNode>();
-      for (const child of rn.children) {
-        rnByKey.set(child.key, child);
-      }
-      for (const childBox of box.children) {
-        const childRn = rnByKey.get(childBox.key);
-        if (childRn !== undefined) {
-          visitPair(childBox, childRn);
-        }
+  const walkChildren = (
+    boxes: readonly LayoutBox[],
+    rnByKey: Map<string, RenderNode>,
+  ) => {
+    for (const childBox of boxes) {
+      const childRn = rnByKey.get(childBox.key);
+      if (childRn !== undefined) {
+        visitPair(childBox, childRn);
+      } else if ("children" in childBox) {
+        // Anonymous wrapper (PageBox, per-page BlockBox, etc.) — recurse
+        // with the SAME rnByKey so descendants reach their render nodes.
+        walkChildren(childBox.children, rnByKey);
       }
     }
+  };
+  const visitPair = (box: LayoutBox, rn: RenderNode) => {
+    cache.set(box.key, { box, renderNode: rn });
+    if (!("children" in box) || rn.type !== "element") return;
+    const rnByKey = new Map<string, RenderNode>();
+    for (const child of rn.children) {
+      rnByKey.set(child.key, child);
+    }
+    walkChildren(box.children, rnByKey);
   };
   visitPair(root, renderRoot);
   return cache;

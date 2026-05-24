@@ -15,6 +15,9 @@ import {
 import { createBlockBox } from "./layout-box-v2";
 import type { BlockBox } from "./layout-box-v2";
 import type { LayoutContext } from "./layout-context";
+import { layoutTree } from "./dispatch";
+import { layoutTreeIncremental } from "./layout-incremental";
+import type { LayoutBox } from "./layout-box-v2";
 
 const shaper = createMockShaper(8, 16);
 
@@ -328,6 +331,130 @@ describe("layoutBlock subtree reuse (incremental)", () => {
 
     // The parent box itself is reused: same reference as before.
     expect(out2).toBe(docBox1);
+  });
+});
+
+describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
+  it("descends through PageBox wrappers to index per-page paragraph boxes", () => {
+    // Build a multi-paragraph doc that paginates across two short pages.
+    // Each paragraph is ~16px tall (one line) given the mock shaper's
+    // 8x16 grid; a 40px page-block fits 2 paragraphs.
+    const paragraphs = [];
+    for (let i = 0; i < 4; i++) {
+      const t = createTextBox(`t${i}`, { display: "inline" }, "x");
+      paragraphs.push(createElementBox(`p${i}`, { display: "block" }, [t]));
+    }
+    const doc = createElementBox("doc", { display: "block" }, paragraphs);
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const pageConfig = {
+      pageInlineSize: 500,
+      pageBlockSize: 40,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 0,
+    };
+    const paginatedRoot = layoutTree(cascaded, 500, shaper, pageConfig);
+
+    const cache = buildLayoutBoxCacheFromTree(paginatedRoot, cascaded);
+    // After the fix, every paragraph child of the doc has a cache entry —
+    // even though it's nested under PageBox + per-page BlockBox wrappers.
+    for (let i = 0; i < 4; i++) {
+      const entry = cache.get(`p${i}`);
+      expect(entry).toBeDefined();
+      expect(entry?.box.key).toBe(`p${i}`);
+    }
+  });
+});
+
+describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
+  it("reuses unchanged paragraph boxes across keystrokes in a paginated doc", () => {
+    // Build a 4-paragraph doc, paginate, then synthesize a 1-paragraph edit
+    // and re-paginate. Paragraphs whose render-node reference was preserved
+    // through the edit MUST be reference-equal to their pre-edit layout
+    // boxes in the new paginated output. Without the cache reuse, every
+    // per-page layoutBlock call re-lays-out every paragraph from scratch
+    // → cache hit count is zero and reused === false.
+    const paragraphs = [];
+    for (let i = 0; i < 4; i++) {
+      const t = createTextBox(`t${i}`, { display: "inline" }, "x");
+      paragraphs.push(createElementBox(`p${i}`, { display: "block" }, [t]));
+    }
+    const doc = createElementBox("doc", { display: "block" }, paragraphs);
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const pageConfig = {
+      pageInlineSize: 500,
+      pageBlockSize: 40,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 0,
+    };
+    const out1 = layoutTree(cascaded, 500, shaper, pageConfig);
+
+    // Find each paragraph's layout box from the paginated output.
+    function findParagraphBox(root: BlockBox, key: string): BlockBox | undefined {
+      if (root.key === key && root.type === "block") return root;
+      if (!("children" in root)) return undefined;
+      for (const child of root.children) {
+        if (child.type === "block") {
+          const hit = findParagraphBox(child as BlockBox, key);
+          if (hit !== undefined) return hit;
+        } else if ("children" in child) {
+          // PageBox or other wrapper.
+          for (const grandchild of (child as { children: readonly LayoutBox[] }).children) {
+            if (grandchild.type === "block") {
+              const hit = findParagraphBox(grandchild as BlockBox, key);
+              if (hit !== undefined) return hit;
+            }
+          }
+        }
+      }
+      return undefined;
+    }
+    if (out1.type !== "block") throw new Error("expected BlockBox root");
+    const p1Box1 = findParagraphBox(out1, "p1");
+    const p2Box1 = findParagraphBox(out1, "p2");
+    const p3Box1 = findParagraphBox(out1, "p3");
+    expect(p1Box1).toBeDefined();
+    expect(p2Box1).toBeDefined();
+    expect(p3Box1).toBeDefined();
+
+    // Edit p0 only; p1..p3 preserve their references.
+    const t0Edited = createTextBox("t0", { display: "inline" }, "X");
+    const p0Edited = createElementBox("p0", { display: "block" }, [t0Edited]);
+    const docEdited = createElementBox("doc", { display: "block" }, [
+      p0Edited,
+      paragraphs[1], paragraphs[2], paragraphs[3],
+    ]);
+    const cascadedEdited = cascadePassIncremental(docEdited, doc, cascaded);
+    if (cascadedEdited.type !== "element") throw new Error("?");
+
+    // Build cache from out1 (post-fix this populates per-paragraph entries).
+    const prevCache = buildLayoutBoxCacheFromTree(out1, cascaded);
+    expect(prevCache.get("p1")).toBeDefined();
+
+    // Re-paginate with the cache injected. Use layoutTreeIncremental to
+    // drive the same cache wiring the editor uses.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // Use direct import below — keeping the require pattern out of source.
+    // We import layoutTreeIncremental for this measurement.
+    // (Imported via top-of-file static import added by the controller.)
+    const out2 = layoutTreeIncremental(
+      cascadedEdited,
+      cascaded,
+      out1,
+      500,
+      shaper,
+      pageConfig,
+    );
+    if (out2.type !== "block") throw new Error("expected BlockBox root");
+
+    // p1..p3 layout boxes are unchanged: reference equality.
+    const p1Box2 = findParagraphBox(out2, "p1");
+    const p2Box2 = findParagraphBox(out2, "p2");
+    const p3Box2 = findParagraphBox(out2, "p3");
+    expect(p1Box2).toBe(p1Box1);
+    expect(p2Box2).toBe(p2Box1);
+    expect(p3Box2).toBe(p3Box1);
   });
 });
 

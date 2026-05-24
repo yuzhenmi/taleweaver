@@ -21,6 +21,37 @@ import { markStart, markEnd } from "../perf/perf-trace";
  * Lay out a block-level element in a Block Formatting Context.
  * Plan 1 D.4 scope: stacked block children, padding, adjacent-sibling margin collapse.
  */
+/**
+ * True when a resume-token chain ultimately says "start from the
+ * beginning at every level": the chain is null, or each block-typed
+ * level resumes at child 0 with a degenerate inner token, or the
+ * terminal IFC level resumes at line 0. Used by the paginated-mode
+ * cache reuse check (L-PERF-A) — a cached complete-block layout is
+ * a valid reuse target only when the requested call doesn't have
+ * partial mid-fragmentation state to honor.
+ *
+ * Note: `{block, resumeChildIndex:0, resumeChildToken:{ifc, resumeAtLine:0}}`
+ * is classified as degenerate because the CSS Fragmentation L4 §3.5
+ * overflow rule (C.6 in the BFC implementation) guarantees the first
+ * child always fits on a fragment — if it can't fit, the rule re-
+ * invokes layout without fragmentation and accepts the overflowing
+ * box. A token at child-0/line-0 can therefore only arise from a
+ * full-layout round-trip in practice, not from a genuine mid-
+ * fragmentation state. If C.6 ever changes (or a future FC introduces
+ * a different overflow rule), revisit this case — a non-degenerate
+ * `{idx:0, line:0}` token could silently win cache reuse and emit a
+ * complete-block layout where a partial-fragment was expected.
+ */
+function isResumeFromDegenerate(rf: BreakToken | null): boolean {
+  if (rf === null) return true;
+  if (rf.type === "ifc") return rf.resumeAtLine === 0;
+  if (rf.type === "block") {
+    return rf.resumeChildIndex === 0 && isResumeFromDegenerate(rf.resumeChildToken);
+  }
+  // Other types (table) — be conservative.
+  return false;
+}
+
 export function layoutBlock(
   node: ElementBox,
   inlineOffset: number,
@@ -52,17 +83,43 @@ export function layoutBlock(
   //       Without this gate, every keystroke would force the document root
   //       to iterate all N children — O(N) reuse-cache hits even when 999
   //       are inert.
-  // Subtree reuse cache: skip when fragmentation is active. The cache stores
-  // full all-pages results; re-using one would short-circuit fragmentation
-  // and collapse a multi-page document into one page.
-  if (fragmentation === undefined && ctx.prevLayoutCache !== null) {
+  //
+  // Paginated reuse (L-PERF-A). When `fragmentation` is defined, the cache
+  // is gated more tightly:
+  //   - position match: the cached box's (inlineOffset, blockOffset) MUST
+  //     equal the requested (inlineOffset, blockOffset). The cached box is
+  //     returned as-is — its absolute coordinates are baked in, so a reuse
+  //     at a different position would render content at the wrong place.
+  //   - fits-on-page: cached blockSize ≤ availableBlockSize remaining on
+  //     this fragment. Otherwise the cached box overflows and we'd lose
+  //     the breakToken that the original layout would have emitted.
+  //   - clean start: no resume token to honor (the cached box was laid
+  //     out fresh, not as a continuation; reusing it as a continuation
+  //     would lose the resume context).
+  // The outer all-pages root box (key === root.key, positioned at (0, 0))
+  // doesn't match the per-page layoutBlock's (margins.inlineStart,
+  // margins.blockStart) request, so the root cache entry never accidentally
+  // wins reuse — only paragraph-level children do.
+  if (ctx.prevLayoutCache !== null) {
     const entry = ctx.prevLayoutCache.get(node.key);
     if (entry !== undefined && entry.box.type === "block") {
       if (renderNodesLayoutEquivalent(node, entry.renderNode)) {
         const dirtyOffset = ctx.prevFloatEnv !== null
           ? ctx.floatEnv.dirtyBlockOffsetSince(ctx.prevFloatEnv)
           : Number.POSITIVE_INFINITY;
-        if (isLayoutBoxReusable(entry.box, {
+        // A resumeFrom is "degenerate" (no actual mid-fragmentation
+        // state to honor) when every level of the token chain says
+        // "start from the beginning". The cached entry is a complete
+        // from-scratch layout, so any degenerate resumeFrom can reuse
+        // it; non-degenerate resumeFroms require honoring partial
+        // state the cached box has already collapsed away.
+        const fragmentationOk =
+          fragmentation === undefined ||
+          (isResumeFromDegenerate(fragmentation.resumeFrom) &&
+            entry.box.inlineOffset === inlineOffset &&
+            entry.box.blockOffset === blockOffset &&
+            entry.box.blockSize <= fragmentation.availableBlockSize);
+        if (fragmentationOk && isLayoutBoxReusable(entry.box, {
           computedStyle: cs,
           availableInlineSize,
           writingMode,
