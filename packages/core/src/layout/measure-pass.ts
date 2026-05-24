@@ -44,6 +44,23 @@ export interface PagePlan {
   /** Total document height (page count × page block-size + gaps). */
   readonly totalBlockSize: number;
   readonly pageInlineSize: number;
+  /**
+   * Pixel document-y → page index. Binary search over the entries' half-open
+   * intervals `[entry.blockOffset, nextEntry.blockOffset)`; the FINAL page
+   * extends to `totalBlockSize` (no trailing pageGap on the last page). `y` is
+   * clamped to `[0, last]`, so any out-of-range value resolves to page 0 or the
+   * last page rather than -1.
+   */
+  pageIndexAtBlockOffset(y: number): number;
+  /**
+   * Top-level block key → the page whose `children` slice contains that block;
+   * `-1` if the key is absent (or `rootChildren` was omitted at build time). A
+   * block that SPANS pages appears only in the entry where it makes whole-block
+   * progress (the entry whose slice contains it per `measurePass`'s
+   * `[startIndex, nextStartIndex)` rule), which is not necessarily the page
+   * where the block visually starts.
+   */
+  pageIndexOfBlock(blockKey: string): number;
 }
 
 /**
@@ -72,6 +89,10 @@ export function measurePass(
   }
 
   const entries: PagePlanEntry[] = [];
+  // Block-key → page index, built alongside the plan in the single pass below.
+  // Empty when `rootChildren` is omitted (no keys to map) ⇒ pageIndexOfBlock
+  // returns -1 for everything.
+  const blockToPage = new Map<string, number>();
   let resumeInto: BreakToken | null = null;
   let startIndex = 0;
   let listCounterAtStart = 0;
@@ -131,6 +152,15 @@ export function measurePass(
       listCounterAtStart,
     });
 
+    // Record each top-level child key → this page. A spanning block lands in
+    // the slice of the page where it makes whole-block progress (per the
+    // `[startIndex, sliceEnd)` rule above), so it maps to that single page —
+    // not necessarily the page where it visually begins. `children` is empty
+    // when `rootChildren` was omitted, so the map stays empty in that case.
+    for (const child of children) {
+      blockToPage.set(child.key, pageIndex);
+    }
+
     if (result.resumeOut === null) {
       pageIndex++;
       break;
@@ -150,7 +180,52 @@ export function measurePass(
     entries,
     totalBlockSize,
     pageInlineSize: pageConfig.pageInlineSize,
+    pageIndexAtBlockOffset(y: number): number {
+      return pageIndexAtBlockOffset(entries, totalBlockSize, y);
+    },
+    pageIndexOfBlock(blockKey: string): number {
+      return blockToPage.get(blockKey) ?? -1;
+    },
   };
+}
+
+/**
+ * Binary search the entries' half-open intervals
+ * `[entry.blockOffset, nextEntry.blockOffset)` for the page containing `y`. The
+ * LAST page's interval extends through `totalBlockSize` (the document bottom,
+ * which has NO trailing pageGap — `totalBlockSize` uses `pageCount - 1` gaps).
+ * `y` is clamped to `[0, totalBlockSize]`, so out-of-range values resolve to
+ * the first or last page rather than producing -1.
+ *
+ * Reconstructing each page's bottom as `blockOffset + blockSize + pageGap`
+ * would over-add a gap on the last page; instead we use the NEXT entry's
+ * `blockOffset` as the half-open upper bound (and `totalBlockSize` for the
+ * last), which is gap-correct by construction.
+ */
+function pageIndexAtBlockOffset(
+  entries: readonly PagePlanEntry[],
+  totalBlockSize: number,
+  y: number,
+): number {
+  const last = entries.length - 1;
+  if (last <= 0) return 0;
+  if (y <= entries[0].blockOffset) return 0;
+  if (y >= totalBlockSize) return last;
+
+  // Find the greatest index whose blockOffset is <= y. Each page i owns
+  // [entries[i].blockOffset, upper) where upper is entries[i+1].blockOffset
+  // (or totalBlockSize for the last page).
+  let lo = 0;
+  let hi = last;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (entries[mid].blockOffset <= y) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
 }
 
 /**

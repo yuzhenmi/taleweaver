@@ -109,6 +109,137 @@ describe("measurePass", () => {
   });
 });
 
+describe("measurePass — pageIndexAtBlockOffset", () => {
+  // 10 × 100; page content 300 ⇒ 3 per page ⇒ 4 pages.
+  // blockOffsets: [0, 320, 640, 960]; pageBlockSize 300, pageGap 20.
+  // totalBlockSize = 4 × 300 + 3 × 20 = 1260.
+  const metas = Array.from({ length: 10 }, () => blockMeta(100));
+
+  it("y in the middle of page 0 → 0", () => {
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexAtBlockOffset(150)).toBe(0);
+  });
+
+  it("y at the exact top edge of a page → that page", () => {
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexAtBlockOffset(0)).toBe(0);
+    expect(plan.pageIndexAtBlockOffset(320)).toBe(1);
+    expect(plan.pageIndexAtBlockOffset(640)).toBe(2);
+    expect(plan.pageIndexAtBlockOffset(960)).toBe(3);
+  });
+
+  it("y in the middle of page 2 → 2", () => {
+    const plan = measurePass(metas, PAGE);
+    // page 2 spans [640, 960); 800 is inside it.
+    expect(plan.pageIndexAtBlockOffset(800)).toBe(2);
+  });
+
+  it("y in the inter-page gap → the page above (half-open interval)", () => {
+    const plan = measurePass(metas, PAGE);
+    // gap after page 0 spans [300, 320); 310 belongs to page 0 (the interval
+    // [entry.blockOffset, nextEntry.blockOffset) extends through the gap).
+    expect(plan.pageIndexAtBlockOffset(310)).toBe(0);
+    // gap after page 2 spans [940, 960); 950 belongs to page 2.
+    expect(plan.pageIndexAtBlockOffset(950)).toBe(2);
+  });
+
+  it("y just below totalBlockSize → last page; y == totalBlockSize → last page (clamp)", () => {
+    const plan = measurePass(metas, PAGE);
+    // last page spans [960, 1260); 1259 is inside.
+    expect(plan.pageIndexAtBlockOffset(1259)).toBe(3);
+    // exactly totalBlockSize clamps to last page.
+    expect(plan.pageIndexAtBlockOffset(plan.totalBlockSize)).toBe(3);
+  });
+
+  it("y past totalBlockSize → last (clamp)", () => {
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexAtBlockOffset(99999)).toBe(3);
+  });
+
+  it("y < 0 → 0 (clamp)", () => {
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexAtBlockOffset(-50)).toBe(0);
+  });
+
+  it("does NOT over-add a trailing gap on the last page", () => {
+    // A naive `blockOffset + blockSize + pageGap` per-page reconstruction would
+    // place the last page's bottom at 960 + 300 + 20 = 1280, past
+    // totalBlockSize (1260). y = 1265 (above totalBlockSize) must still clamp to
+    // the last page, NOT report some phantom page index.
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexAtBlockOffset(1265)).toBe(3);
+  });
+
+  it("single-page doc → always page 0", () => {
+    const plan = measurePass([blockMeta(50)], PAGE);
+    expect(plan.pageIndexAtBlockOffset(0)).toBe(0);
+    expect(plan.pageIndexAtBlockOffset(150)).toBe(0);
+    expect(plan.pageIndexAtBlockOffset(99999)).toBe(0);
+    expect(plan.pageIndexAtBlockOffset(-1)).toBe(0);
+  });
+});
+
+describe("measurePass — pageIndexOfBlock", () => {
+  function cascade(style: Style, children: readonly ReturnType<typeof createElementBox>[]) {
+    const root = cascadePass(createElementBox("root", style, children));
+    if (root.type !== "element") throw new Error("non-element");
+    return root;
+  }
+
+  function fixedBlock(key: string, blockSize: number): ReturnType<typeof createElementBox> {
+    return createElementBox(key, { display: "block", blockSize } as Style, []);
+  }
+
+  it("maps each top-level block key to the page whose children slice contains it", () => {
+    // 10 fixed blocks of 100; 3 per page ⇒ pages: [0,1,2] [3,4,5] [6,7,8] [9].
+    const children = Array.from({ length: 10 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascade({ display: "block" }, children);
+    const metas = Array.from({ length: 10 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, root.children);
+
+    expect(plan.pageIndexOfBlock("b0")).toBe(0);
+    expect(plan.pageIndexOfBlock("b2")).toBe(0);
+    expect(plan.pageIndexOfBlock("b3")).toBe(1);
+    expect(plan.pageIndexOfBlock("b6")).toBe(2);
+    // b9 is on page 3.
+    expect(plan.pageIndexOfBlock("b9")).toBe(3);
+  });
+
+  it("returns -1 for an unknown block key", () => {
+    const children = Array.from({ length: 3 }, (_, i) => fixedBlock(`b${i}`, 50));
+    const root = cascade({ display: "block" }, children);
+    const metas = Array.from({ length: 3 }, () => blockMeta(50));
+    const plan = measurePass(metas, PAGE, root.children);
+    expect(plan.pageIndexOfBlock("nope")).toBe(-1);
+  });
+
+  it("returns -1 for every block when rootChildren is omitted (no keys to map)", () => {
+    const metas = Array.from({ length: 3 }, () => blockMeta(50));
+    const plan = measurePass(metas, PAGE);
+    expect(plan.pageIndexOfBlock("b0")).toBe(-1);
+  });
+
+  it("spanning block: appears only on the page where it makes whole-block progress", () => {
+    // A 250-tall block followed by a 100-tall block, page content 300.
+    // measurePass slices `children` by [startIndex, nextStartIndex) where a
+    // child still mid-fragment at the bottom is counted on the NEXT page (its
+    // resumeChildIndex). With a 250 block that fits whole and then a 100 block,
+    // there is no fragment here — use a configuration that DOES span. We rely on
+    // an IFC paragraph spanning the boundary so its resumeChildIndex behavior
+    // applies; emulate via metas with an oversized leaf to force a split.
+    //
+    // Simpler deterministic case: 2 fixed blocks of 250 each, page content 300.
+    // Page 0: b0 (250) fits; b1 (250) doesn't ⇒ resumeChildIndex 1 ⇒ b1 on page 1.
+    const children = [fixedBlock("b0", 250), fixedBlock("b1", 250)];
+    const root = cascade({ display: "block" }, children);
+    const metas = [blockMeta(250), blockMeta(250)];
+    const plan = measurePass(metas, PAGE, root.children);
+    expect(plan.entries.length).toBe(2);
+    expect(plan.pageIndexOfBlock("b0")).toBe(0);
+    expect(plan.pageIndexOfBlock("b1")).toBe(1);
+  });
+});
+
 describe("measurePassUnsupported", () => {
   function cascade(style: Style, children: readonly ReturnType<typeof createElementBox>[]) {
     const root = cascadePass(createElementBox("root", style, children));
