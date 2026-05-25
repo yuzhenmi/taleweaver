@@ -5,18 +5,7 @@ import type { OperationResult, State } from "./state";
 import { freshState } from "./state";
 import { captureDirtyIds, getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
-
-/**
- * True iff we should run dev-mode invariant checks. Reads `process.env`
- * defensively because the engine compiles for browsers (no `process`
- * global) — `globalThis` is the safe vehicle and the typeof guard keeps
- * us from referencing a missing identifier.
- */
-function isDevMode(): boolean {
-  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
-    .process;
-  return proc?.env?.NODE_ENV !== "production";
-}
+import { isDevMode } from "./dev-mode";
 
 /**
  * One entry on the undo / redo selection stacks: the pre-action and
