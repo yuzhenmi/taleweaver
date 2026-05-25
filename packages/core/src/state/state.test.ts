@@ -5,12 +5,17 @@ import {
   applyOperation,
   freshState,
   getBlockFromEither,
+  getEmbedContent,
   getEmbedContentIds,
+  getTemplateContent,
+  getTemplateContentIds,
+  resolveBlock,
 } from "./state";
 import { createEmptyDocument } from "./initial-state";
 import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
+import type { State } from "./state";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { insertText } from "./insert-text";
 import { applyAttrsToRange } from "./apply-attrs";
@@ -407,5 +412,137 @@ describe("getEmbedContentIds", () => {
   it("yields nothing when no embed contents exist", () => {
     const state = createEmptyDocument();
     expect(Array.from(getEmbedContentIds(state))).toEqual([]);
+  });
+});
+
+describe("getTemplateContent", () => {
+  it("returns the body block from the templateContents map", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      templateContents: [
+        buildBlock({
+          id: "hdr-body-1",
+          type: "header-body",
+          inlineContent: inlineContent([text("page header")]),
+        }),
+      ],
+    });
+    const body = getTemplateContent(state, "hdr-body-1" as BlockId);
+    expect(body?.type).toBe("header-body");
+  });
+
+  it("returns null for unknown ids", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+    });
+    expect(getTemplateContent(state, "unknown" as BlockId)).toBeNull();
+  });
+});
+
+describe("getTemplateContentIds", () => {
+  it("yields all template-content block ids", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      templateContents: [
+        buildBlock({
+          id: "tpl-1",
+          type: "paragraph",
+          inlineContent: inlineContent([text("first")]),
+        }),
+        buildBlock({
+          id: "tpl-2",
+          type: "paragraph",
+          inlineContent: inlineContent([text("second")]),
+        }),
+      ],
+    });
+    const ids = Array.from(getTemplateContentIds(state));
+    // Order matches Y.Map insertion order; both ids must be present.
+    expect(ids.sort()).toEqual(["tpl-1", "tpl-2"]);
+  });
+
+  it("yields nothing when no template contents exist", () => {
+    const state = createEmptyDocument();
+    expect(Array.from(getTemplateContentIds(state))).toEqual([]);
+  });
+});
+
+describe("resolveBlock", () => {
+  function threeTreeState(): State {
+    return buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document" }),
+        buildBlock({
+          id: "body-1",
+          type: "paragraph",
+          parentId: "root",
+          inlineContent: inlineContent([text("body")]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "embed-1",
+          type: "fn-body",
+          inlineContent: inlineContent([text("footnote")]),
+        }),
+      ],
+      templateContents: [
+        buildBlock({
+          id: "tpl-1",
+          type: "header-body",
+          inlineContent: inlineContent([text("header")]),
+        }),
+      ],
+    });
+  }
+
+  it("resolves a main-tree block with kind 'block'", () => {
+    const state = threeTreeState();
+    const resolved = resolveBlock(state, "body-1" as BlockId);
+    expect(resolved?.kind).toBe("block");
+    expect(resolved?.block).toBe(getBlock(state, "body-1" as BlockId));
+    expect(resolved?.block.type).toBe("paragraph");
+  });
+
+  it("resolves an embed-content block with kind 'embedContent'", () => {
+    const state = threeTreeState();
+    const resolved = resolveBlock(state, "embed-1" as BlockId);
+    expect(resolved?.kind).toBe("embedContent");
+    expect(resolved?.block).toBe(getEmbedContent(state, "embed-1" as BlockId));
+    expect(resolved?.block.type).toBe("fn-body");
+  });
+
+  it("resolves a template-content block with kind 'templateContent'", () => {
+    const state = threeTreeState();
+    const resolved = resolveBlock(state, "tpl-1" as BlockId);
+    expect(resolved?.kind).toBe("templateContent");
+    expect(resolved?.block).toBe(
+      getTemplateContent(state, "tpl-1" as BlockId),
+    );
+    expect(resolved?.block.type).toBe("header-body");
+  });
+
+  it("returns null when the id is in no tree", () => {
+    const state = threeTreeState();
+    expect(resolveBlock(state, "unknown" as BlockId)).toBeNull();
+  });
+
+  it("prefers the main tree over embed/template on id collision (defensive)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document" }),
+        buildBlock({ id: "dup", type: "paragraph", parentId: "root" }),
+      ],
+      embedContents: [buildBlock({ id: "dup", type: "fn-body" })],
+      templateContents: [buildBlock({ id: "dup", type: "header-body" })],
+    });
+    const resolved = resolveBlock(state, "dup" as BlockId);
+    expect(resolved?.kind).toBe("block");
+    expect(resolved?.block.type).toBe("paragraph");
   });
 });

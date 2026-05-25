@@ -6,6 +6,7 @@ import {
   getMetaMap,
   runTransaction,
   getEmbedContentsMap,
+  getTemplateContentsMap,
 } from "./yjs-doc";
 import {
   createSnapshotCache,
@@ -14,6 +15,7 @@ import {
   chainDepth,
   getBlockSnapshot,
   getEmbedContentSnapshot,
+  getTemplateContentSnapshot,
   type SnapshotCache,
 } from "./snapshot";
 
@@ -32,8 +34,9 @@ import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Opaque document-state container. Internally a Y.Doc; consumers read
- * via the snapshot accessors `getBlock`, `getEmbedContent`. `rootId` is
- * a stable BlockId — the entry point to the main document tree.
+ * via the snapshot accessors `getBlock`, `getEmbedContent`,
+ * `getTemplateContent` (or `resolveBlock` when the owning tree is unknown).
+ * `rootId` is a stable BlockId — the entry point to the main document tree.
  *
  * Snapshots are cached per State instance; ops that produce a new State
  * inherit the underlying Y.Doc but get a fresh snapshot cache.
@@ -91,17 +94,66 @@ export function getEmbedContent(state: State, id: BlockId): Block | null {
 }
 
 /**
+ * Read a frozen Block snapshot from the template-contents tree by id.
+ * Returns null for unknown ids. The template-contents tree holds
+ * header/footer template bodies; it is initially empty and is populated
+ * as template definitions are created.
+ */
+export function getTemplateContent(state: State, id: BlockId): Block | null {
+  const internal = state[STATE_INTERNAL];
+  return getTemplateContentSnapshot(internal.doc, id, internal.snapshotCache);
+}
+
+/**
  * Read a frozen Block snapshot from either the main tree or the
  * embedContents tree. Used by Layer 3 ops that don't know in advance
  * which tree an id belongs to (paste walker, future cross-tree
  * references). Main tree takes precedence in the unlikely event of
  * an id collision.
  *
+ * Does NOT search the templateContents tree — this is the original
+ * two-tree shortcut. When an id may live in ANY of the three trees (or
+ * the tree provenance is needed), use `resolveBlock` instead.
+ *
  * Most ops should call `getBlock` or `getEmbedContent` directly — they
  * know which tree they operate on.
  */
 export function getBlockFromEither(state: State, id: BlockId): Block | null {
   return getBlock(state, id) ?? getEmbedContent(state, id);
+}
+
+/**
+ * Identifies which of the three top-level trees a resolved block came
+ * from. Consumers that need the tree provenance (e.g. so a downstream
+ * write targets the correct Y.Map via `getYBlock`'s `kind` param) read
+ * `kind`; consumers that only need the value can use `getBlockFromEither`.
+ */
+export type ResolvedBlockKind = "block" | "embedContent" | "templateContent";
+
+/** A block plus the tree it was resolved from. See `resolveBlock`. */
+export interface ResolvedBlock {
+  readonly block: Block;
+  readonly kind: ResolvedBlockKind;
+}
+
+/**
+ * Resolve a BlockId across all three trees (main, embedContents,
+ * templateContents) and report which tree it came from. Unlike
+ * `getBlockFromEither` (value-only, two trees), this returns the tree
+ * provenance so a caller can route a follow-up write to the right Y.Map.
+ *
+ * Precedence on id collision is main tree → embedContents →
+ * templateContents, matching `getBlockFromEither`'s order. Returns null
+ * if the id is absent from every tree.
+ */
+export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
+  const b = getBlock(state, id);
+  if (b !== null) return { block: b, kind: "block" };
+  const e = getEmbedContent(state, id);
+  if (e !== null) return { block: e, kind: "embedContent" };
+  const t = getTemplateContent(state, id);
+  if (t !== null) return { block: t, kind: "templateContent" };
+  return null;
 }
 
 /**
@@ -114,6 +166,23 @@ export function getBlockFromEither(state: State, id: BlockId): Block | null {
  */
 export function getEmbedContentIds(state: State): IterableIterator<BlockId> {
   return getEmbedContentsMap(
+    state[STATE_INTERNAL].doc,
+  ).keys() as IterableIterator<BlockId>;
+}
+
+/**
+ * Yield every BlockId currently present in the template-contents tree
+ * (header/footer template bodies). Narrow accessor mirroring
+ * `getEmbedContentIds`; exposed for the render module so it can iterate
+ * template subtrees without reaching into Y.Doc directly.
+ *
+ * Order is the underlying Y.Map iteration order; callers must not rely
+ * on a particular sort.
+ */
+export function getTemplateContentIds(
+  state: State,
+): IterableIterator<BlockId> {
+  return getTemplateContentsMap(
     state[STATE_INTERNAL].doc,
   ).keys() as IterableIterator<BlockId>;
 }

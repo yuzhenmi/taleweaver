@@ -18,14 +18,21 @@ export type {
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
 // State (Y.Doc-backed)
-export type { State, OperationResult } from "./state/state";
+export type {
+  State,
+  OperationResult,
+  ResolvedBlock,
+  ResolvedBlockKind,
+} from "./state/state";
 export {
   createState,
   applyOperation,
   freshState,
   getBlock,
   getEmbedContent,
+  getTemplateContent,
   getBlockFromEither,
+  resolveBlock,
 } from "./state/state";
 export { createEmptyDocument } from "./state/initial-state";
 export type { Block } from "./state/block";
