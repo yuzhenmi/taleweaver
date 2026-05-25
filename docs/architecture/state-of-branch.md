@@ -33,9 +33,23 @@ Schema items genuinely missing:
 
 ### `state/` `[implemented]`
 
-`StateNode`, immutable tree, path-based operations, transformations,
-formatting, normalize, history. Reference-equality preservation across
-edits works correctly.
+Y.Doc-backed block-tree-of-styled-runs (the 2026-05-02 redesign; see
+`1.1-state.md`): a `Map<BlockId, Block>` over a Yjs document, each block
+carrying `inlineContent: InlineItem[]`, with ID-based positions
+(`{ blockId, offset }`). Layered operations (Layer-1 Y-primitives →
+Layer-2 read utilities → Layer-3 mutations: insertText, deleteRange,
+replaceRange, splitBlock, mergeBlocks, set/mergeBlockAttrs, clonePastedSubtree).
+History is a `Y.UndoManager` wrapper with an aligned selection-entry stack.
+Dirty tracking is write-time: `dirtyIds` captured from Yjs's
+`afterTransaction` change event (not tree diffing), consumed by the
+incremental render/cascade/layout passes. `applyOperation` returns the input
+`State` reference unchanged on a no-op, so `result.state === state` is an
+O(1) "did anything change?" guard. The old path-based `StateNode` immutable
+tree is fully removed.
+
+Known follow-ups (low urgency): an unbounded undo stack (no depth cap —
+state-design #234); the parent-dirty-on-child-removal contract relies on
+Yjs firing change events for same-value sets (#227).
 
 ### `components/` `[partial]`
 
