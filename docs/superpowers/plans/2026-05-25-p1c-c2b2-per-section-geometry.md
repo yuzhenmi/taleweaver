@@ -174,8 +174,23 @@ commit.
 - Headers/footers / PageBox slots / templateContents consumption → C.2c.
 - Section attrs beyond page geometry (columns, etc.) → later. Orientation → swapped inline/block sizes.
 
-## Status
-- [ ] T1 — validator + metadata stamping + SectionBoundary.pageConfig.
-- [ ] T2 — measure-pass running-sum + per-page PageConfig + per-entry reuse gate.
-- [ ] T3 — virtual-layout-tree per-entry geometry (issue A + fingerprint call-site migration).
-- [ ] T4 — DOM controller per-page geometry (+ paint-cache invalidation).
+## Status — CORE COMPLETE (browser-verify owed)
+- [x] T1 — validator + metadata stamping + SectionBoundary.pageConfig. Commit `e3e0626`.
+- [x] T2 — measure-pass running-sum + per-page PageConfig + per-entry reuse gate. Commit `2136b9b`.
+- [x] T3 — virtual-layout-tree per-entry geometry (issue A + fingerprint call-site migration). Commit `407cbf3`.
+- [x] T4 — DOM controller per-page geometry (+ paint-cache invalidation). Commit `6b3254c`.
+
+All four reviewer-approved; full core (1628/4skip) + dom (149) green; VL equivalence
+harness byte-identical (uniform docs unchanged). The engine now flows a section's
+page-geometry override end-to-end (attrs → metadata → SectionBoundary.pageConfig →
+measure-pass per-page geometry + running-sum offsets → virtual-tree positioning →
+DOM controller slots/caret/scroll/hit-test/paint-cache).
+
+**Browser-verify owed (blocked on a UI hook):** there is no editor action / toolbar
+control yet to SET a section's page-geometry attrs, so the taller/wider-section
+behavior cannot be exercised in the example app. Verifying "a section with a
+different page size renders taller pages from its boundary; caret/click/scroll land
+across the boundary; no stale paint after a geometry change" needs either a seeded
+demo section with an override or a toolbar control (`setBlockAttrs` on the active
+section). Follow-up `#305`: direct scrollCursorIntoView Y assertion (deferred to
+browser-verify; jsdom rAF/scroll brittle).
