@@ -1,37 +1,53 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import { createYDoc, getBlocksMap, runTransaction } from "./yjs-doc";
+import {
+  createYDoc,
+  getBlocksMap,
+  getTemplateContentsMap,
+  runTransaction,
+} from "./yjs-doc";
 import {
   getBlockSnapshot,
+  getTemplateContentSnapshot,
   invalidateSnapshot,
   invalidateAll,
   createSnapshotCache,
   createOverlayCache,
+  compactCache,
 } from "./snapshot";
 import type { BlockId } from "./block-id";
 
+function buildParagraphYBlock(text: string): Y.Map<unknown> {
+  const yBlock = new Y.Map<unknown>();
+  yBlock.set("type", "paragraph");
+  const attrs = new Y.Map();
+  yBlock.set("attrs", attrs);
+  yBlock.set("parentId", null);
+  yBlock.set("prevSiblingId", null);
+  yBlock.set("nextSiblingId", null);
+  yBlock.set("firstChildId", null);
+  yBlock.set("lastChildId", null);
+  const items = new Y.Array<Y.Map<unknown>>();
+  const textItem = new Y.Map<unknown>();
+  textItem.set("kind", "text");
+  const yText = new Y.Text();
+  yText.insert(0, text);
+  textItem.set("text", yText);
+  textItem.set("attrs", new Y.Map());
+  items.push([textItem]);
+  yBlock.set("inlineContent", items);
+  return yBlock;
+}
+
 function seedParagraphBlock(doc: Y.Doc, id: string, text: string): void {
   runTransaction(doc, () => {
-    const blocks = getBlocksMap(doc);
-    const yBlock = new Y.Map<unknown>();
-    yBlock.set("type", "paragraph");
-    const attrs = new Y.Map();
-    yBlock.set("attrs", attrs);
-    yBlock.set("parentId", null);
-    yBlock.set("prevSiblingId", null);
-    yBlock.set("nextSiblingId", null);
-    yBlock.set("firstChildId", null);
-    yBlock.set("lastChildId", null);
-    const items = new Y.Array<Y.Map<unknown>>();
-    const textItem = new Y.Map<unknown>();
-    textItem.set("kind", "text");
-    const yText = new Y.Text();
-    yText.insert(0, text);
-    textItem.set("text", yText);
-    textItem.set("attrs", new Y.Map());
-    items.push([textItem]);
-    yBlock.set("inlineContent", items);
-    blocks.set(id, yBlock);
+    getBlocksMap(doc).set(id, buildParagraphYBlock(text));
+  });
+}
+
+function seedTemplateBlock(doc: Y.Doc, id: string, text: string): void {
+  runTransaction(doc, () => {
+    getTemplateContentsMap(doc).set(id, buildParagraphYBlock(text));
   });
 }
 
@@ -369,6 +385,117 @@ describe("snapshot", () => {
       const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
       expect(snap).not.toBeNull();
       expect(snap?.type).toBe("paragraph");
+    });
+  });
+
+  // C.2a-T3: the templateContents dimension mirrors embedContents exactly.
+  // Template bodies live in their own top-level Y.Map (getTemplateContentsMap)
+  // and read through the same layered SnapshotCache via
+  // getTemplateContentSnapshot.
+  describe("getTemplateContentSnapshot", () => {
+    it("(a) reuses the same snapshot reference when the underlying Y.Map is unchanged", () => {
+      const doc = createYDoc();
+      seedTemplateBlock(doc, "tmplP", "header");
+      const cache = createSnapshotCache();
+      const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      expect(a).not.toBeNull();
+      expect(a!.id).toBe("tmplP");
+      expect(a).toBe(b);
+    });
+
+    it("returns null for an unknown template id", () => {
+      const doc = createYDoc();
+      const cache = createSnapshotCache();
+      expect(
+        getTemplateContentSnapshot(doc, "missing" as BlockId, cache),
+      ).toBeNull();
+    });
+
+    it("(b) produces a fresh snapshot after invalidation reflecting a Y.Doc mutation", () => {
+      const doc = createYDoc();
+      seedTemplateBlock(doc, "tmplP", "header");
+      const cache = createSnapshotCache();
+      const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      // Mutate the underlying template body Y.Map — `a` is now stale.
+      runTransaction(doc, () => {
+        const yBlock = getTemplateContentsMap(doc).get("tmplP");
+        if (yBlock === undefined) throw new Error("tmplP vanished");
+        yBlock.set("type", "heading");
+      });
+      invalidateSnapshot(cache, "tmplP" as BlockId);
+      const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      expect(b).not.toBe(a);
+      expect(b!.id).toBe("tmplP");
+      expect(b!.type).toBe("heading");
+    });
+
+    it("(c) template snapshot survives compaction when its id is NOT in dirtyIds", () => {
+      const doc = createYDoc();
+      seedTemplateBlock(doc, "tmplP", "header");
+      seedTemplateBlock(doc, "other", "footer");
+      // Build a multi-layer chain so compaction is non-trivial: read on a
+      // chained overlay to populate a pre-compaction layer.
+      const root = createSnapshotCache();
+      const overlay = createOverlayCache(root, new Set());
+      const first = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
+      expect(first).not.toBeNull();
+      // Now compact with an UNRELATED dirty id; "tmplP" must be carried
+      // into the compacted root cache and served WITHOUT touching the Y.Doc.
+      const getSpy = vi.spyOn(getTemplateContentsMap(doc), "get");
+      const compacted = compactCache(overlay, new Set(["other" as BlockId]));
+      const second = getTemplateContentSnapshot(
+        doc,
+        "tmplP" as BlockId,
+        compacted,
+      );
+      // Served from the compacted cache, not re-snapshotted from the Y.Doc.
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(second).toBe(first);
+      getSpy.mockRestore();
+    });
+
+    it("(d) compaction WITH the template id in dirtyIds re-snapshots on next read", () => {
+      const doc = createYDoc();
+      seedTemplateBlock(doc, "tmplP", "header");
+      const root = createSnapshotCache();
+      const overlay = createOverlayCache(root, new Set());
+      const first = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
+      expect(first).not.toBeNull();
+      const getSpy = vi.spyOn(getTemplateContentsMap(doc), "get");
+      const compacted = compactCache(overlay, new Set(["tmplP" as BlockId]));
+      const second = getTemplateContentSnapshot(
+        doc,
+        "tmplP" as BlockId,
+        compacted,
+      );
+      // dirtyId ⊇ {tmplP} → the entry was dropped from the compacted cache,
+      // so the next read re-snapshots from the Y.Doc.
+      expect(getSpy).toHaveBeenCalled();
+      expect(second).not.toBe(first);
+      expect(second!.id).toBe("tmplP");
+      getSpy.mockRestore();
+    });
+
+    it("invalidateAll causes template reads to re-snapshot for previously-cached ids", () => {
+      const doc = createYDoc();
+      seedTemplateBlock(doc, "tmplP", "header");
+      const base = createSnapshotCache();
+      const before = getTemplateContentSnapshot(doc, "tmplP" as BlockId, base);
+      const overlay = createOverlayCache(base, new Set());
+      // Promote tmplP into the overlay.
+      getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
+      runTransaction(doc, () => {
+        const yBlock = getTemplateContentsMap(doc).get("tmplP");
+        if (yBlock === undefined) throw new Error("tmplP vanished");
+        yBlock.set("type", "heading");
+      });
+      invalidateAll(overlay);
+      const after = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
+      expect(after).not.toBe(before);
+      expect(after?.type).toBe("heading");
+      // Base untouched (per-State view stability).
+      expect(base.templateContents.get("tmplP" as BlockId)).toBe(before);
     });
   });
 });
