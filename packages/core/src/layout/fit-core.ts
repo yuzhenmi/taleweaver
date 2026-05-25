@@ -289,6 +289,7 @@ export function fitOnePage(
   resumeInto: BreakToken | null,
   pageContentBlockSize: number,
   listCounterAtStart: number,
+  stopBeforeIndex?: number,
 ): FitPageResult {
   // Mirror of bfc.layoutBlock's fragmentation-aware decision logic
   // (bfc.ts:240–745). Decides one page's content over the top-level block
@@ -297,12 +298,30 @@ export function fitOnePage(
   // bfc reduces it per-child by subtracting `childBlockOffset`, so the IFC /
   // table / recursive container fits use `remaining = pageContentBlockSize −
   // runningOffset`, matching bfc.ts:350 / 540 / 627.
+  //
+  // Section cap (C.2b-1 T2): `stopBeforeIndex` is an EXCLUSIVE upper bound on
+  // the TOP-LEVEL child index this page may place — the page may place
+  // `[startIndex, stopBeforeIndex)`. It forces a page break before the boundary
+  // child exactly as if that child had break-before:page (the section-page-break
+  // mechanism). Normalize here before delegating: the cap is ACTIVE only when it
+  // is present AND strictly greater than `startIndex`; otherwise (omitted / null
+  // / `<= startIndex`) there is NO cap (pass `undefined` down), preserving the
+  // pre-T2 behavior. A `<= startIndex` cap would mean "place nothing", which
+  // must never happen — the measure-pass caller only passes a boundary strictly
+  // greater than startIndex; normalizing to no-cap is the defensive guard.
+  const normalizedStopBeforeIndex =
+    stopBeforeIndex !== undefined &&
+    stopBeforeIndex !== null &&
+    stopBeforeIndex > startIndex
+      ? stopBeforeIndex
+      : undefined;
   return fitOnePageRecursive(
     metas,
     startIndex,
     resumeInto,
     pageContentBlockSize,
     listCounterAtStart,
+    normalizedStopBeforeIndex,
   );
 }
 
@@ -322,6 +341,7 @@ function fitOnePageRecursive(
   resumeInto: BreakToken | null,
   availableBlockSize: number,
   listCounterAtStart: number,
+  stopBeforeIndex?: number,
 ): FitPageResult {
   // --- Resume-token parse (bfc.ts:244–263). ---
   // A "block" token gives the resume child index + that child's inner token.
@@ -366,6 +386,32 @@ function fitOnePageRecursive(
   });
 
   for (let i = effectiveStartIndex; i < metas.length; i++) {
+    // Section cap (C.2b-1 T2): stop before placing the child at stopBeforeIndex,
+    // as if it had break-before:page. Top-level only. Placed BEFORE the
+    // margin-advance / list-counter accumulation / per-child fit so the capped
+    // child has NO side effects and the list counter is NOT rolled back — it
+    // was never counted.
+    //
+    // Gated on `childrenCount > 0` (fragment-has-content), EXACTLY like the
+    // break-before:page path below: a forced break cannot occur before the
+    // first piece of content on a fragment. This makes the cap robust when the
+    // page STARTS at the boundary child (a resume where
+    // `effectiveStartIndex === stopBeforeIndex`): the boundary child is the
+    // first child of the new section's first page and MUST be placed (and its
+    // inner resume token honored), not re-broken — so the cap correctly does
+    // not fire. In the normal case (page started before the boundary) content
+    // is always placed by the time `i` reaches the cap, so the gate is
+    // satisfied. (Reaching the cap also implies every child in
+    // `[startIndex, stopBeforeIndex)` fully fit — a fragmenting one would have
+    // returned earlier, height-wins.)
+    if (stopBeforeIndex !== undefined && i === stopBeforeIndex && childrenCount > 0) {
+      return finish({
+        childrenCount,
+        resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
+        listCounterAtEnd: listCounter,
+      });
+    }
+
     const meta = metas[i];
     const fragmentHasContent = childrenCount > 0;
 

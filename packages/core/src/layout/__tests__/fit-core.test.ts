@@ -393,3 +393,113 @@ describe("fitOnePage (fit-core, block packing)", () => {
     });
   });
 });
+
+// Section-page-break cap (C.2b-1 T2): an optional EXCLUSIVE upper bound on the
+// top-level child index this page may place. Forces a page break before the
+// boundary child — exactly as if it had break-before:page — but driven by a
+// parameter (the section boundary) instead of the child's own meta. The cap is
+// top-level-only and never reduces what a height limit already forces.
+const BIG = 100_000; // big enough that height never forces a break
+describe("fitOnePage stopBeforeIndex (C.2b-1 T2, section cap)", () => {
+  it("(a) caps the page at stopBeforeIndex; resumeOut points there (not null)", () => {
+    const metas = [ifcMeta(1, 16), ifcMeta(1, 16), ifcMeta(1, 16), ifcMeta(1, 16)];
+    const result = fitOnePage(metas, 0, null, BIG, 0, 2);
+    expect(result.childrenCount).toBe(2);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 2,
+      resumeChildToken: null,
+    });
+    expect(result.listCounterAtEnd).toBe(0); // no list items
+  });
+
+  it("(b) height limit wins when the page fills before stopBeforeIndex", () => {
+    // 100px page, three 80px whole-fit blocks: only the first fits (the second
+    // would reach 160 > 100). stopBeforeIndex=3 is past the height-forced break,
+    // so the cap is never reached — resume at the height-forced index 1.
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80)];
+    const result = fitOnePage(metas, 0, null, 100, 0, 3);
+    expect(result.childrenCount).toBe(1);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 1,
+      resumeChildToken: null,
+    });
+  });
+
+  it("(c) omitting stopBeforeIndex is byte-identical to today (no cap)", () => {
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80)];
+    const withArg = fitOnePage(metas, 0, null, BIG, 0, undefined);
+    const without = fitOnePage(metas, 0, null, BIG, 0);
+    expect(withArg).toEqual(without);
+    // All three fit by height ⇒ no cap means everything places.
+    expect(without.childrenCount).toBe(3);
+    expect(without.resumeOut).toBeNull();
+  });
+
+  it("(d) stopBeforeIndex <= startIndex normalizes to no cap (== omitted)", () => {
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80)];
+    // Equal to startIndex (0) → no cap.
+    expect(fitOnePage(metas, 0, null, BIG, 0, 0)).toEqual(
+      fitOnePage(metas, 0, null, BIG, 0),
+    );
+    // Resuming at index 1 with a cap == startIndex (1) → no cap.
+    const resumeInto = { type: "block" as const, resumeChildIndex: 1, resumeChildToken: null };
+    expect(fitOnePage(metas, 1, resumeInto, BIG, 0, 1)).toEqual(
+      fitOnePage(metas, 1, resumeInto, BIG, 0),
+    );
+  });
+
+  it("(e) list counter counts only placed list-items; capped child not counted", () => {
+    // Four list-items; cap at index 2 ⇒ place items 0,1 (counter 2). The capped
+    // child at index 2 must NOT contribute (its list-item is never counted).
+    const metas = [
+      blockMeta(40, { listItem: true }),
+      blockMeta(40, { listItem: true }),
+      blockMeta(40, { listItem: true }),
+      blockMeta(40, { listItem: true }),
+    ];
+    const result = fitOnePage(metas, 0, null, BIG, 0, 2);
+    expect(result.childrenCount).toBe(2);
+    expect(result.listCounterAtEnd).toBe(2);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 2,
+      resumeChildToken: null,
+    });
+  });
+
+  it("(f) cap with a non-null resumeInto: places resumed children up to the cap", () => {
+    // Page 1 placed child 0; this page resumes at child 1 (block token, no inner
+    // resume). cap=3 ⇒ place children 1,2 (both fit by height), stop before 3.
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80), blockMeta(80)];
+    const resumeInto = { type: "block" as const, resumeChildIndex: 1, resumeChildToken: null };
+    const result = fitOnePage(metas, 0, resumeInto, BIG, 0, 3);
+    expect(result.childrenCount).toBe(2);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 3,
+      resumeChildToken: null,
+    });
+  });
+
+  it("(g) cap == effectiveStartIndex (resume INTO the boundary child): cap does NOT fire, child is placed", () => {
+    // The fragment-has-content gate: when the page STARTS at the boundary child
+    // (effectiveStartIndex === stopBeforeIndex), that child is the first child of
+    // the new section's first page and MUST be placed — not re-broken (which
+    // would drop its resume token / place nothing). cap=2 with a resume into
+    // child 2 ⇒ the cap is skipped, children 2 and 3 are placed.
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80), blockMeta(80)];
+    const resumeInto = { type: "block" as const, resumeChildIndex: 2, resumeChildToken: null };
+    const result = fitOnePage(metas, 0, resumeInto, BIG, 0, 2);
+    expect(result.childrenCount).toBe(2); // children 2 and 3
+    expect(result.resumeOut).toBeNull(); // all remaining placed, no token dropped
+  });
+
+  it("(h) cap === metas.length is a no-op (nothing to stop before)", () => {
+    const metas = [blockMeta(80), blockMeta(80), blockMeta(80)];
+    const result = fitOnePage(metas, 0, null, BIG, 0, 3);
+    expect(result.childrenCount).toBe(3);
+    expect(result.resumeOut).toBeNull();
+  });
+});
