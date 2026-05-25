@@ -15,6 +15,7 @@ import {
   markStart,
   markEnd,
   type LayoutBox,
+  type VirtualLayoutTree,
   type Position,
   type TextShaper,
   type TextMeasurer,
@@ -73,12 +74,26 @@ export function createEditorController(
   // ── State ──────────────────────────────────────────────────────────────
 
   let state: EditorState | null = null;
-  // The fully-positioned layout tree for the current `state`. In paginated mode
-  // `state.layoutTree` is a `VirtualLayoutTree`; the controller rides the
-  // `materializeAll()` bridge (Phase 3 Task 1) by resolving it ONCE per
-  // `update()` and reading positioned `PageBox`es here. Tasks 2/3 migrate the
-  // hot paths off this bridge to the plan / `getPage`.
-  let positionedLayout: LayoutBox | null = null;
+  // The current layout tree, straight off `state.layoutTree`. In paginated mode
+  // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
+  // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
+  // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
+  // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
+  // every page (Phase 3 Tasks 2/3).
+  let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
+  // Lazy `materializeAll()` bridge for the consumers NOT yet migrated off it
+  // (Phase 4): `computeSelectionRects` for NON-collapsed selections, and the
+  // mouse hit-test `resolvePositionFromPixel`. Resolved on FIRST access per
+  // `update()` (memoized in `positionedBridge`) — never eagerly at the top of
+  // `update()`, so the collapsed-selection typing/Enter hot path provably never
+  // triggers `materializeAll()`.
+  let positionedBridge: LayoutBox | null = null;
+  function getPositionedTree(): LayoutBox | null {
+    if (positionedBridge !== null) return positionedBridge;
+    if (layoutTree === null) return null;
+    positionedBridge = resolvePositionedTree(layoutTree);
+    return positionedBridge;
+  }
   let focused = true;
   let cursorVisible = true;
   let blinkIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -122,7 +137,43 @@ export function createEditorController(
     pageIndex: 0,
   };
   let selectionRects: SelectionRect[] = [];
-  let pages: LayoutBox[] = [];
+
+  // ── Page model (paginated mode) ──────────────────────────────────────────
+  //
+  // Per-page SLOT geometry, derived without positioning any page:
+  //   - virtual tree → `vtree.plan.entries` (count + `blockSize` per slot);
+  //   - positioned tree → the positioned `PageBox` children's width/height.
+  // `pageSlots`'s length is the page count; an empty array means non-paginated
+  // (single-canvas mode).
+  interface PageSlotGeom {
+    readonly width: number;
+    readonly height: number;
+  }
+  let pageSlotGeoms: PageSlotGeom[] = [];
+  // Positioned-mode only: the materialized `PageBox` children (the legacy
+  // path). Empty in virtual mode — pages are fetched on demand via `getPageBox`.
+  let positionedPages: LayoutBox[] = [];
+  // The current paginated layout tree (the virtual tree, or null when the
+  // positioned path / non-paginated). Set in `syncDom`.
+  let virtualTree: VirtualLayoutTree | null = null;
+
+  /** Number of paginated page slots; 0 ⇒ non-paginated (single-canvas mode). */
+  function pageCount(): number {
+    return pageSlotGeoms.length;
+  }
+
+  /**
+   * The positioned `PageBox` for slot `idx`. In virtual mode this calls
+   * `vtree.getPage(idx)` — positioning ONLY that page (memoized). In positioned
+   * mode it returns the pre-materialized child. Returns null out of range.
+   */
+  function getPageBox(idx: number): LayoutBox | null {
+    if (virtualTree !== null) {
+      if (idx < 0 || idx >= virtualTree.plan.entries.length) return null;
+      return virtualTree.getPage(idx);
+    }
+    return positionedPages[idx] ?? null;
+  }
 
   // ── DOM elements ───────────────────────────────────────────────────────
 
@@ -195,12 +246,15 @@ export function createEditorController(
   function paintSingle() {
     if (!state) return;
     if (!singleCanvas) return;
-    if (!positionedLayout) return;
+    // Non-paginated mode: `layoutTree` is a positioned `LayoutBox` (never a
+    // virtual tree — virtualization only happens in paginated mode), so
+    // `getPositionedTree()` is a no-op identity here, not a materialize.
+    const tree = getPositionedTree();
+    if (!tree) return;
     if (!singleCtx) singleCtx = singleCanvas.getContext("2d");
     const ctx = singleCtx;
     if (!ctx) return;
 
-    const tree = positionedLayout;
     const logicalWidth = tree.width;
     const logicalHeight = tree.height;
 
@@ -249,7 +303,9 @@ export function createEditorController(
     const cs = getCursorState();
 
     for (const [idx, canvas] of activeCanvases) {
-      const page = pages[idx];
+      // Position ONLY this visible page (virtual mode: `getPage(idx)`; memoized
+      // so repeat paints are free). Non-visible pages are never materialized.
+      const page = getPageBox(idx);
       if (!page) continue;
 
       const ctx = canvas.getContext("2d");
@@ -279,7 +335,7 @@ export function createEditorController(
 
   function paint() {
     if (destroyed) return;
-    if (pages.length > 0) {
+    if (pageCount() > 0) {
       paintPages();
     } else {
       paintSingle();
@@ -335,7 +391,7 @@ export function createEditorController(
 
     // Compute visual Y from pageIndex and page-relative cursor Y
     const cursorVisualY =
-      pages.length > 0 && pageHeight
+      pageCount() > 0 && pageHeight
         ? cursorPos.pageIndex * (pageHeight + pageGap) + cursorPos.y
         : cursorPos.y;
     const cursorH = cursorPos.height;
@@ -367,18 +423,40 @@ export function createEditorController(
   // ── DOM sync ───────────────────────────────────────────────────────────
 
   function syncDom() {
-    if (!state || !positionedLayout) return;
+    if (!state || !layoutTree) return;
 
-    const tree = positionedLayout;
-    const newPages: LayoutBox[] = [];
-    if (pageHeight && tree.type === "block") {
-      for (const c of tree.children) {
-        // Plan 2: "page" type boxes — not present in Plan 1
-        if ((c as { type: string }).type === "page") newPages.push(c);
+    const tree = layoutTree;
+
+    // Derive the page-SLOT geometry WITHOUT positioning any page. Virtual mode:
+    // read `plan.entries` (count + per-slot blockSize) — no `materializeAll`.
+    // Positioned mode (unsupported-feature fallback): extract the already-
+    // positioned `PageBox` children. Non-paginated: zero slots → single canvas.
+    const newSlotGeoms: PageSlotGeom[] = [];
+    const newPositionedPages: LayoutBox[] = [];
+    let newVirtualTree: VirtualLayoutTree | null = null;
+
+    if (pageHeight) {
+      if (tree.type === "virtual-root") {
+        newVirtualTree = tree;
+        for (const entry of tree.plan.entries) {
+          newSlotGeoms.push({ width: tree.plan.pageInlineSize, height: entry.blockSize });
+        }
+      } else if (tree.type === "block") {
+        for (const c of tree.children) {
+          // "page"-type children indicate the paginated positioned tree.
+          // `LayoutBox` is a discriminated union including `PageBox`, so the
+          // `type` check narrows `c` to `PageBox` — no cast needed.
+          if (c.type === "page") {
+            newPositionedPages.push(c);
+            newSlotGeoms.push({ width: c.width, height: c.height });
+          }
+        }
       }
     }
-    const isPaginated = newPages.length > 0;
-    pages = newPages;
+    const isPaginated = newSlotGeoms.length > 0;
+    pageSlotGeoms = newSlotGeoms;
+    positionedPages = newPositionedPages;
+    virtualTree = newVirtualTree;
 
     if (isPaginated) {
       // Remove single-canvas DOM
@@ -399,13 +477,16 @@ export function createEditorController(
       // Remove paginated DOM
       cleanupPageCanvases();
 
-      // Ensure single canvas + spacer
+      // Ensure single canvas + spacer. Height comes from the positioned
+      // (non-paginated) tree directly — never a virtual tree here, so this is a
+      // no-op identity, not a materialize.
+      const positioned = getPositionedTree();
       if (!spacerDiv) {
         spacerDiv = document.createElement("div");
         spacerDiv.style.pointerEvents = "none";
         container.insertBefore(spacerDiv, textarea);
       }
-      spacerDiv.style.height = `${tree.height}px`;
+      spacerDiv.style.height = `${positioned ? positioned.height : 0}px`;
 
       if (!singleCanvas) {
         singleCanvas = document.createElement("canvas");
@@ -431,7 +512,7 @@ export function createEditorController(
   function syncPageCanvases() {
     const tTotal = markStart("ctrl.syncPageCanvases");
     const currentCount = pageSlots.length;
-    const targetCount = pages.length;
+    const targetCount = pageSlotGeoms.length;
 
     // Remove excess slots
     for (let i = targetCount; i < currentCount; i++) {
@@ -457,13 +538,14 @@ export function createEditorController(
       pageSlots[i] = slot;
     }
 
-    // Update existing slot attributes, dimensions + margins
+    // Update existing slot attributes, dimensions + margins — from the SLOT
+    // geometry (no page positioned).
     for (let i = 0; i < targetCount; i++) {
       const slot = pageSlots[i];
-      const page = pages[i];
+      const geom = pageSlotGeoms[i];
       slot.dataset.pageIndex = String(i);
-      slot.style.width = `${page.width}px`;
-      slot.style.height = `${page.height}px`;
+      slot.style.width = `${geom.width}px`;
+      slot.style.height = `${geom.height}px`;
       slot.style.marginBottom = i < targetCount - 1 ? `${pageGap}px` : "0";
     }
 
@@ -552,14 +634,15 @@ export function createEditorController(
   // ── Mouse handling ─────────────────────────────────────────────────────
 
   function resolveMouseToLayout(e: MouseEvent): { x: number; y: number; pageIndex: number } | null {
-    if (pages.length > 0 && pageHeight) {
+    const total = pageCount();
+    if (total > 0 && pageHeight) {
       const target = e.target as HTMLElement;
+      const inRange = (idx: number) => idx >= 0 && idx < total;
 
       // Check if clicked on a canvas inside a slot
       if (target instanceof HTMLCanvasElement && target.dataset.pageIndex != null) {
         const idx = Number(target.dataset.pageIndex);
-        const page = pages[idx];
-        if (page) {
+        if (inRange(idx)) {
           const rect = target.getBoundingClientRect();
           return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: idx };
         }
@@ -568,18 +651,27 @@ export function createEditorController(
       // Check if clicked on a slot div directly
       if (target instanceof HTMLDivElement && target.dataset.pageIndex != null) {
         const idx = Number(target.dataset.pageIndex);
-        const page = pages[idx];
-        if (page) {
+        if (inRange(idx)) {
           const rect = target.getBoundingClientRect();
           return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: idx };
         }
       }
 
-      // Click outside any slot — find closest page by visual Y
+      // Click outside any slot — find the page by visual Y. With a virtual
+      // tree the plan maps document-y → page authoritatively
+      // (`pageIndexAtBlockOffset`); the slots are uniform `pageHeight` so the
+      // document-y for a given visual-y is `idx*(pageHeight+pageGap)+local` and
+      // the inverse is the floor arithmetic below. Both agree for uniform
+      // pages; we keep the cheap floor and clamp to the page count.
       const rect = container.getBoundingClientRect();
       const visualY = e.clientY - rect.top;
       const slotHeight = pageHeight + pageGap;
-      const idx = Math.max(0, Math.min(pages.length - 1, Math.floor(visualY / slotHeight)));
+      let idx = Math.max(0, Math.min(total - 1, Math.floor(visualY / slotHeight)));
+      if (virtualTree !== null) {
+        // Authoritative pixel-y → page via the plan (document-y == visual-y for
+        // uniform page heights with the same gap the plan uses).
+        idx = Math.max(0, Math.min(total - 1, virtualTree.plan.pageIndexAtBlockOffset(visualY)));
+      }
       const pageLocalY = visualY - idx * slotHeight;
       return { x: e.clientX - rect.left, y: Math.max(0, Math.min(pageHeight, pageLocalY)), pageIndex: idx };
     }
@@ -588,16 +680,21 @@ export function createEditorController(
   }
 
   function handleMouseDown(e: MouseEvent) {
-    if (destroyed || !state || !positionedLayout) return;
+    if (destroyed || !state || !layoutTree) return;
     e.preventDefault();
     textarea.focus();
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
+    // Mouse hit-test stays on the lazy `materializeAll()` bridge (Phase 4).
+    // Resolving the positioned tree here materializes all pages — acceptable on
+    // a (rare) mouse event, and lazy so the typing/Enter hot path never hits it.
+    const positioned = getPositionedTree();
+    if (!positioned) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      positionedLayout,
+      positioned,
       measurer,
       coords.x,
       coords.y,
@@ -669,14 +766,17 @@ export function createEditorController(
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isDragging || !dragAnchor || !state || !positionedLayout) return;
+    if (!isDragging || !dragAnchor || !state || !layoutTree) return;
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
+    // Drag hit-test on the lazy bridge (see handleMouseDown).
+    const positioned = getPositionedTree();
+    if (!positioned) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      positionedLayout,
+      positioned,
       measurer,
       coords.x,
       coords.y,
@@ -802,22 +902,24 @@ export function createEditorController(
     const tTotal = markStart("ctrl.update");
     state = editorState;
 
-    // Phase 3 Task 1 bridge: in paginated mode `state.layoutTree` is a
-    // `VirtualLayoutTree`; materialize the full positioned tree ONCE per update
-    // and read it everywhere the controller expects a positioned `LayoutBox`
-    // (cursor resolve, selection rects, syncDom, paint, mouse hit-test). This is
-    // behavior-identical to the pre-virtual tree (Phase 2 proved
-    // `materializeAll() ≡ paginateRoot`); Tasks 2/3 move the hot paths off it.
-    positionedLayout = resolvePositionedTree(state.layoutTree);
+    // Phase 3 Tasks 2/3: do NOT materialize all pages here. `layoutTree` is the
+    // raw (possibly virtual) tree; the `materializeAll()` bridge is now LAZY —
+    // `getPositionedTree()` resolves it only when a still-on-bridge consumer
+    // (non-collapsed `computeSelectionRects`; mouse hit-test) actually runs.
+    // Reset the per-update memo so a fresh tree isn't served a stale bridge.
+    layoutTree = state.layoutTree;
+    positionedBridge = null;
 
-    // Compute cursor position and selection rects. resolvePixelPosition
-    // returns null for unknown blockIds; fall back to default coords so
-    // the controller can still paint a placeholder cursor.
+    // Cursor position: resolved directly against the (virtual or positioned)
+    // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
+    // page (+ a neighbor at the cross-page soft-wrap edge), NEVER all pages —
+    // this is what makes the typing/Enter hot path O(1 page). Returns null for
+    // unknown blockIds; fall back to default coords for a placeholder cursor.
     const tResolve = markStart("ctrl.resolveCursor");
     const resolved = resolvePixelPosition(
       state.state,
       state.selection.focus,
-      positionedLayout,
+      layoutTree,
       measurer,
     );
     cursorPos = resolved ?? {
@@ -832,15 +934,19 @@ export function createEditorController(
     };
     markEnd("ctrl.resolveCursor", tResolve);
 
+    // Selection rects: SKIPPED for a collapsed selection (the typing/Enter hot
+    // path) — so no `computeSelectionRects` and no bridge materialization runs.
+    // For a non-collapsed selection it stays on the lazy bridge (Phase 4);
+    // `getPositionedTree()` materializes all pages only then.
     const tSel = markStart("ctrl.selectionRects");
-    selectionRects = isCollapsed(state.selection)
-      ? []
-      : computeSelectionRects(
-          state.state,
-          state.selection,
-          positionedLayout,
-          measurer,
-        );
+    if (isCollapsed(state.selection)) {
+      selectionRects = [];
+    } else {
+      const positioned = getPositionedTree();
+      selectionRects = positioned
+        ? computeSelectionRects(state.state, state.selection, positioned, measurer)
+        : [];
+    }
     markEnd("ctrl.selectionRects", tSel);
 
     const tSync = markStart("ctrl.syncDom");
@@ -864,7 +970,9 @@ export function createEditorController(
 
   function destroy() {
     destroyed = true;
-    positionedLayout = null;
+    layoutTree = null;
+    positionedBridge = null;
+    virtualTree = null;
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);

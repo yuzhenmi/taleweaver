@@ -4,6 +4,35 @@
 > **Browser verification is the user's, at the end** (no Playwright) — the
 > `__twPerf.traceEnter()` instrumentation is already in the controller.
 
+> **BLOCKER found by browser smoke (2026-05-24) — Task T-FIX (incremental
+> measurePass), required before commit.** Loading `?perfFixture=5000` (≈110
+> pages) froze the tab. Root cause (confirmed by a headless scaling probe:
+> 5.6→10.7→25→53 ms/para at N=250/500/1000/2000 — clean O(N²); N=2000 = 105s):
+> `measurePass` recomputes the ENTIRE page plan (O(N_blocks) `fitOnePage` walk)
+> on EVERY call. The perf fixture builds N paragraphs via N synchronous
+> `reduceEditor` appends → O(N²). More fundamentally, this REGRESSED
+> append/typing-at-end from O(1) (the old L-PERF-C page reuse) to O(N) per
+> keystroke. A single Enter-at-top on a *static* large doc is still a win
+> (O(N) cheap arithmetic vs the old 175ms of box allocation), but building /
+> typing into a long doc is now O(N²).
+>
+> **Fix (T-FIX):** make `measurePass` incremental — carry forward unchanged page
+> entries from the prior plan (the L-PERF-C analogue at the plan level). Thread
+> `prevPlan` (from `prevTree.plan`) through `buildVirtualPaginatedTree` →
+> `measurePass`. A prior entry is reusable at the current `(startIndex,
+> resumeInto)` when `startIndex` matches, `resumeInto` is structurally equal,
+> and the current `rootChildren[startIndex..)` are reference-equal to the
+> entry's `children` (cascade preserves refs for unchanged blocks;
+> `BlockFitMeta`s are ref-stable via the Task-0 cache — so ref-equal children ⇒
+> identical fit). Reuse skips `fitOnePage`, recomputes only `blockOffset`/
+> `children` for the current `pageIndex`, and advances `startIndex`/`resumeInto`
+> from the reused boundary. Append-at-end then re-fits only the last page(s) →
+> O(dirty)+O(pages-scan), restoring the pre-virtualization profile. A top-edit
+> in an exact-fill doc still falls through to a full re-fit (inherent; cheap
+> arithmetic). The incremental plan MUST be byte-identical to the from-scratch
+> plan — guard with an `incremental == full` equivalence test + a build-scaling
+> test asserting near-linear (not O(N²)) growth.
+
 **Goal:** Wire `layoutTreeIncremental` to produce a `VirtualLayoutTree` and
 migrate the DOM controller's hot path (paint + caret resolution) to position
 only the visible + cursor pages, so typing and Enter become O(visible) instead

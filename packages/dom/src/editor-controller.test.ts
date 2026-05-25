@@ -143,6 +143,66 @@ function makePaginatedEditorState(): core.EditorState {
   });
 }
 
+/**
+ * A spy-instrumented fake `VirtualLayoutTree`: a real-enough `PagePlan` of
+ * `pageCount` uniform pages plus `getPage` / `materializeAll` vitest spies. Used
+ * to assert the controller hot path (collapsed selection) NEVER calls
+ * `materializeAll` and that `getPage` is invoked only for visible slots.
+ */
+function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number, pageGap: number) {
+  const cs = core.INITIAL_COMPUTED_STYLE;
+  const us = core.computeUsedStyle(cs, width, "indefinite");
+  const entries = Array.from({ length: pageCount }, (_, i) => ({
+    pageIndex: i,
+    blockOffset: i * (pageHeight + pageGap),
+    blockSize: pageHeight,
+    children: [],
+    startIndex: i,
+    resumeInto: null,
+    resumeOut: null,
+    listCounterAtStart: 0,
+  }));
+  const totalBlockSize = pageCount * pageHeight + Math.max(0, pageCount - 1) * pageGap;
+  const plan = {
+    entries,
+    totalBlockSize,
+    pageInlineSize: width,
+    pageIndexAtBlockOffset: (y: number) => {
+      const idx = Math.floor(y / (pageHeight + pageGap));
+      return Math.max(0, Math.min(pageCount - 1, idx));
+    },
+    pageIndexOfBlock: () => -1,
+    pageSpanOfBlock: () => null,
+  } as unknown as core.VirtualLayoutTree["plan"];
+
+  const makePage = (i: number) =>
+    core.createPageBox(`page-${i}`, 0, entries[i].blockOffset, width, pageHeight,
+      cs.writingMode, cs.direction, cs, us, [], i, width);
+
+  const getPage = vi.fn((i: number) => makePage(i));
+  const materializeAll = vi.fn(() => {
+    const pages = entries.map((_, i) => makePage(i));
+    return core.createBlockBox("doc", 0, 0, width, totalBlockSize,
+      cs.writingMode, cs.direction, cs, us, pages, width);
+  });
+
+  const tree = {
+    type: "virtual-root" as const,
+    plan,
+    inlineSize: width,
+    blockSize: totalBlockSize,
+    getPage,
+    getPages: vi.fn((from: number, to: number) => {
+      const out = [];
+      for (let i = from; i <= to; i++) out.push(makePage(i));
+      return out;
+    }),
+    materializeAll,
+  } as unknown as core.VirtualLayoutTree;
+
+  return { tree, getPage, materializeAll };
+}
+
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
 function makeOptions(
@@ -492,6 +552,78 @@ describe("createEditorController", () => {
       expect(paginatedSlots.length).toBe(0);
       const singleCanvas = container.querySelector("canvas");
       expect(singleCanvas).not.toBeNull();
+
+      ctrl.destroy();
+    });
+  });
+
+  describe("painting (virtual tree) — lazy materialize", () => {
+    it("sizes page slots from the plan WITHOUT materializeAll on a collapsed-selection update", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // Slots created from the plan; never materialized the whole tree.
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(3);
+      expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
+      expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("paints visible pages via getPage(idx), never materializeAll, on the collapsed hot path", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      // fakeEditorBase's selection is collapsed (fresh empty doc), so this is
+      // the typing/Enter hot path: no computeSelectionRects, no bridge.
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // The mock IntersectionObserver marks all slots visible → getPage per page.
+      expect(getPage).toHaveBeenCalled();
+      expect(canvasRenderer.paintPage).toHaveBeenCalled();
+      // THE WIN: the whole tree is never materialized on the collapsed path.
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("scroll spacer / total height uses plan.totalBlockSize (no materialize)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(4, 600, 100, 24);
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // Paginated mode uses per-slot divs (no single spacer), but the key
+      // guarantee is no materialize on the collapsed update.
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("materializes (lazy bridge) ONLY when a non-collapsed selection needs selection rects", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      // A non-collapsed selection forces computeSelectionRects → the lazy
+      // bridge fires (Phase 4 consumer). This is the ONE place materializeAll
+      // is allowed in this phase.
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          selection: core.createSpan(anchor, focus),
+        }),
+      );
+
+      expect(materializeAll).toHaveBeenCalled();
 
       ctrl.destroy();
     });

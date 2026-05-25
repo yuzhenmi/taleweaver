@@ -31,6 +31,20 @@ interface PerfHandle {
   ): { totalMs: number; avgMs: number; medianMs: number; maxMs: number; samples: number[] };
   timePaste(lineCount: number): { totalMs: number; msPerLine: number };
   timeEnter(): { totalMs: number };
+  /** Enable perf-trace marker accumulation (markStart/markEnd record samples). */
+  enablePerf(): void;
+  /** Disable perf-trace marker accumulation. */
+  disablePerf(): void;
+  /** Clear accumulated samples. */
+  resetPerf(): void;
+  /** Snapshot the accumulated breakdown, sorted by totalMs desc. */
+  reportPerf(): import("@taleweaver/core").PerfReport;
+  /**
+   * One-shot: reset, enable, dispatch SPLIT_NODE through React (real edit
+   * cycle including update() → paint()), wait one frame, then disable +
+   * report. Returns the breakdown.
+   */
+  traceEnter(): Promise<import("@taleweaver/core").PerfReport>;
 }
 declare global {
   // eslint-disable-next-line no-var
@@ -41,6 +55,9 @@ import {
   createDefaultAttrRegistry,
   createInitialEditorState,
   reduceEditor,
+  setPerfTraceEnabled,
+  resetPerfTrace,
+  report as perfReport,
   type EditorAction,
   type EditorState,
   type EditorConfig,
@@ -177,6 +194,46 @@ export function usePerfEditor(): UsePerfEditorResult {
         const t0 = performance.now();
         reduceEditor(latestState.current, { type: "SPLIT_NODE" }, config);
         return { totalMs: performance.now() - t0 };
+      },
+      enablePerf() {
+        setPerfTraceEnabled(true);
+      },
+      disablePerf() {
+        setPerfTraceEnabled(false);
+      },
+      resetPerf() {
+        resetPerfTrace();
+      },
+      reportPerf() {
+        return perfReport();
+      },
+      traceEnter() {
+        // Full real-edit cycle: state mutation + React re-render +
+        // controller update() + paint(). Captures both model and DOM costs.
+        resetPerfTrace();
+        setPerfTraceEnabled(true);
+        const t0 = performance.now();
+        latestDispatch.current({ type: "SPLIT_NODE" });
+        return new Promise<import("@taleweaver/core").PerfReport>((resolve) => {
+          // Two rAFs: first lets React flush + controller.update() run,
+          // second lets the resulting paint settle so all marks are in.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setPerfTraceEnabled(false);
+              const r = perfReport();
+              const wallMs = performance.now() - t0;
+              // eslint-disable-next-line no-console
+              console.log(
+                `[traceEnter] wall=${wallMs.toFixed(1)}ms breakdown:`,
+                r.entries.map(
+                  (e) =>
+                    `${e.label}: ${e.totalMs.toFixed(1)}ms × ${e.count}`,
+                ),
+              );
+              resolve(r);
+            });
+          });
+        });
       },
       timeKeystrokes(count: number, char = "x") {
         // Measure the SYNCHRONOUS reduceEditor cost in isolation.

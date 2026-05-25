@@ -12,26 +12,26 @@ const SAMPLE_TEXT =
  * Build a synthetic EditorState containing `paragraphCount` paragraphs, each
  * with a single text run of ~`charsPerParagraph` characters.
  *
- * Implementation: starts from an empty editor (one paragraph) and replays
- * INSERT_TEXT / SPLIT_NODE actions to grow the document. This goes through
- * the full Y.Doc + history pipeline, so the perf-fixture state shape is
- * identical to a real edited document. Not the fastest possible builder,
- * but accurate.
+ * Implementation: a SINGLE `PASTE` of the newline-joined paragraphs. `handlePaste`
+ * splits the text and chains splitBlock+insertText per line inside ONE
+ * `reduceEditor` call → ONE render/cascade/layout pass over the whole document
+ * (O(N)). This produces a real multi-paragraph document (identical state shape
+ * to a pasted doc) and loads in O(N).
+ *
+ * NOTE: the prior implementation replayed N separate INSERT_TEXT/SPLIT_NODE
+ * `reduceEditor` calls. Each call re-runs the per-keystroke pipeline over the
+ * growing doc — O(N) per call → O(N²) to build — which froze the browser at
+ * large N (e.g. perfFixture=5000 ≈ 110 pages). A single paste is O(N).
  */
 export function buildPerfFixture(
   config: EditorConfig,
   paragraphCount: number,
   charsPerParagraph = 80,
 ): EditorState {
-  const text = SAMPLE_TEXT.slice(0, charsPerParagraph);
-  let editor = createInitialEditorState(config);
-  for (let i = 0; i < paragraphCount; i++) {
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
-    if (i < paragraphCount - 1) {
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    }
-  }
-  return editor;
+  const para = SAMPLE_TEXT.slice(0, charsPerParagraph);
+  const text = Array.from({ length: paragraphCount }, () => para).join("\n");
+  const editor = createInitialEditorState(config);
+  return reduceEditor(editor, { type: "PASTE", text }, config);
 }
 
 /**

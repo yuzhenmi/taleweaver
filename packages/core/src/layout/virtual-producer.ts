@@ -54,6 +54,12 @@ export function buildVirtualPaginatedTree(
     pageConfig.pageInlineSize - margins.inlineStart - margins.inlineEnd;
 
   const metas = buildBlockFitMetas(cascadedRoot, shaper, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, cascadedRoot.children);
+  // Thread the prior plan into the measure pass for the incremental
+  // carry-forward (reuses unchanged page entries, skipping `fitOnePage`). The
+  // `prevTree` carry-forward of the prior tree itself is already wired by
+  // `layout-incremental.ts` / `dispatch.ts`; we forward its `plan` so the
+  // measure pass restores `paginateRoot`'s old L-PERF-C O(1)-at-end behavior
+  // instead of re-walking every page each keystroke.
+  const plan = measurePass(metas, pageConfig, cascadedRoot.children, prevTree?.plan);
   return makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, pageConfig, prevTree);
 }

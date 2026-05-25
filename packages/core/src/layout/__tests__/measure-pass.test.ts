@@ -240,6 +240,91 @@ describe("measurePass — pageIndexOfBlock", () => {
   });
 });
 
+describe("measurePass — pageSpanOfBlock", () => {
+  function cascade(style: Style, children: readonly ReturnType<typeof createElementBox>[]) {
+    const root = cascadePass(createElementBox("root", style, children));
+    if (root.type !== "element") throw new Error("non-element");
+    return root;
+  }
+
+  function fixedBlock(key: string, blockSize: number): ReturnType<typeof createElementBox> {
+    return createElementBox(key, { display: "block", blockSize } as Style, []);
+  }
+
+  it("single-page blocks have first === last === their page (matching pageIndexOfBlock)", () => {
+    // 10 fixed blocks of 100; 3 per page ⇒ pages: [0,1,2] [3,4,5] [6,7,8] [9].
+    const children = Array.from({ length: 10 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascade({ display: "block" }, children);
+    const metas = Array.from({ length: 10 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, root.children);
+
+    for (const key of ["b0", "b2", "b3", "b6", "b9"]) {
+      const span = plan.pageSpanOfBlock(key);
+      const idx = plan.pageIndexOfBlock(key);
+      expect(span, key).not.toBeNull();
+      if (span === null) continue;
+      expect(span.first, key).toBe(idx);
+      expect(span.last, key).toBe(idx);
+    }
+  });
+
+  it("returns null for an unknown key and when rootChildren is omitted", () => {
+    const children = Array.from({ length: 3 }, (_, i) => fixedBlock(`b${i}`, 50));
+    const root = cascade({ display: "block" }, children);
+    const metas = Array.from({ length: 3 }, () => blockMeta(50));
+    const plan = measurePass(metas, PAGE, root.children);
+    expect(plan.pageSpanOfBlock("nope")).toBeNull();
+
+    const planNoChildren = measurePass(metas, PAGE);
+    expect(planNoChildren.pageSpanOfBlock("b0")).toBeNull();
+  });
+
+  it("spanning block: span covers EVERY page it occupies (first < last), while pageIndexOfBlock returns only the last", () => {
+    // A single top-level IFC block of 5 lines × 100 = 500, page content 300:
+    // page 0 holds 3 lines, page 1 the remaining 2. The block thus OCCUPIES
+    // pages 0 AND 1. `pageIndexOfBlock` returns only the whole-block-progress
+    // (last) page (1); `pageSpanOfBlock` must report {first:0, last:1} so a
+    // backward-walk consumer floors at the block's true first page (0), never
+    // below it. (Here first IS 0; the point is span.last > span.first.)
+    const children = [fixedBlock("b0", 500)];
+    const root = cascade({ display: "block" }, children);
+    const metas: BlockFitMeta[] = [
+      blockMeta(500, { kind: "ifc", lineBlockSizes: [100, 100, 100, 100, 100] }),
+    ];
+    const plan = measurePass(metas, PAGE, root.children);
+    expect(plan.entries.length).toBe(2);
+    // Whole-block-progress page is the LAST page.
+    expect(plan.pageIndexOfBlock("b0")).toBe(1);
+    const span = plan.pageSpanOfBlock("b0");
+    expect(span).not.toBeNull();
+    if (span === null) return;
+    expect(span.first).toBe(0);
+    expect(span.last).toBe(1);
+    // `last` always equals pageIndexOfBlock for a present block.
+    expect(span.last).toBe(plan.pageIndexOfBlock("b0"));
+  });
+
+  it("block whose FIRST page is N>0: span.first is the block's own first page, never below", () => {
+    // b0 fills page 0 (300). b1 is a 5-line IFC (500) starting on page 1,
+    // spanning to page 2. b1's first page is 1 (NOT 0), last is 2.
+    const children = [fixedBlock("b0", 300), fixedBlock("b1", 500)];
+    const root = cascade({ display: "block" }, children);
+    const metas: BlockFitMeta[] = [
+      blockMeta(300),
+      blockMeta(500, { kind: "ifc", lineBlockSizes: [100, 100, 100, 100, 100] }),
+    ];
+    const plan = measurePass(metas, PAGE, root.children);
+    const span = plan.pageSpanOfBlock("b1");
+    expect(span).not.toBeNull();
+    if (span === null) return;
+    expect(span.first).toBe(1);
+    expect(span.last).toBe(2);
+    expect(span.last).toBe(plan.pageIndexOfBlock("b1"));
+    // b0 is single-page on page 0.
+    expect(plan.pageSpanOfBlock("b0")).toEqual({ first: 0, last: 0 });
+  });
+});
+
 describe("measurePassUnsupported", () => {
   function cascade(style: Style, children: readonly ReturnType<typeof createElementBox>[]) {
     const root = cascadePass(createElementBox("root", style, children));

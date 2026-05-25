@@ -359,8 +359,10 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       entries: entriesB,
       totalBlockSize: planA.totalBlockSize,
       pageInlineSize: planA.pageInlineSize,
+      pageContentBlockSize: planA.pageContentBlockSize,
       pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
       pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
+      pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
     };
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);

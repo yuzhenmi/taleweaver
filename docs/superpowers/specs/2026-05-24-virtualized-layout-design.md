@@ -237,10 +237,21 @@ unchanged from the prior tree returns the prior tree's already-materialized
 the fingerprint prevents reusing a stale `PageBox` laid out at an old width
 after a resize. This
 preserves the per-index `PaintCache` and per-page `LineIndex` warmth that
-L-PERF-C/-D provide today. The per-page `prevLayoutCache` (built from the prior
-page's BlockBox via `buildLayoutBoxCacheFromTree`) and `ifcStateCache` are owned
-by the `VirtualLayoutTree` and threaded into `getPage` so block-subtree reuse
-(L-PERF-A/-G) still applies when a page IS re-materialized.
+L-PERF-C/-D provide today.
+
+**Intra-page block reuse was attempted and removed.** An earlier design
+threaded a per-page `prevLayoutCache` (built from the prior page's `PageBox` via
+`buildLayoutBoxCacheFromTree`) into `getPage` so unchanged blocks WITHIN a
+re-materialized page reused their boxes (L-PERF-A/-G). This was **removed**: it
+reused a SHIFTED block at its STALE offset — Enter at the start of a line left
+the text painted on the old line, because the cache returned the text box at its
+pre-edit `blockOffset` instead of repositioning it. Re-materializing one page
+from scratch is O(blocks-per-page) = O(viewport), independent of document size,
+so removing it does NOT affect the O(1)-per-keystroke target; it is only a
+constant-factor cost on an already-bounded operation. A correct intra-page reuse
+(one that repositions shifted blocks) may be reinstated later if profiling shows
+the visible-page re-materialization is a bottleneck. The page-level
+carry-forward memo above is the reuse the virtual model actually relies on.
 
 ## Pipeline changes
 
@@ -376,7 +387,12 @@ IS re-materialized (its content changed), a new ref → full repaint of that pag
 ## Interaction with shipped L-PERF pieces
 
 - **L-PERF-A/-G** (per-block subtree cache + reposition-on-clone): the engine of
-  `getPage`'s positioning and of metadata refresh. Unchanged.
+  the non-virtual `paginateRoot`/`layoutBlock` reuse and of metadata refresh.
+  Unchanged there. NOTE: these are NOT threaded into the virtual `getPage` —
+  the per-page `prevLayoutCache` that would have done so was removed (it reused
+  shifted blocks at stale offsets; see "Memo guarantee" above). `getPage`
+  re-materializes a page from scratch; the page-level carry-forward memo is the
+  virtual model's reuse mechanism.
 - **L-PERF-C** (page reuse via `_paginationCache` WeakMap keyed on the positioned
   root): **removed** — virtual mode produces no such root. Its job (reuse an
   unchanged page) is taken over by the `VirtualLayoutTree` carry-forward memo.

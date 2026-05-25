@@ -366,13 +366,15 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
     }
   });
 
-  it("indexes a SINGLE PageBox passed as root (the getPage per-page reuse path)", () => {
-    // `VirtualLayoutTree.materializePage` calls
-    // `buildLayoutBoxCacheFromTree(prevPage, cascadedRoot)` with a SINGLE
-    // PageBox as the tree root (not the outer all-pages BlockBox). The
-    // transparent-wrapper descent must still reach the per-page paragraph
-    // boxes so intra-page L-PERF-A/G subtree reuse survives. This guards
-    // that exact call shape (the existing test above passes the outer tree).
+  it("indexes a SINGLE PageBox passed as root (transparent-wrapper descent)", () => {
+    // `buildLayoutBoxCacheFromTree` must descend through a PageBox + per-page
+    // BlockBox wrapper to reach the per-page paragraph boxes when a SINGLE
+    // PageBox is passed as the tree root (not the outer all-pages BlockBox).
+    // NOTE: the virtual `getPage` no longer calls this with a PageBox root —
+    // the per-page `prevLayoutCache` that did was removed (it reused shifted
+    // blocks at stale offsets; see "paginated layout reuse across keystrokes"
+    // below). This still guards the descent contract, which the legacy
+    // non-virtual `layoutTreeIncremental` path and callers rely on.
     const paragraphs = [];
     for (let i = 0; i < 4; i++) {
       const t = createTextBox(`t${i}`, { display: "inline" }, "x");
@@ -392,7 +394,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
     const firstPage = paginatedRoot.children[0];
     expect(firstPage.type).toBe("page");
 
-    // Pass the SINGLE PageBox as the root (mirrors materializePage).
+    // Pass the SINGLE PageBox as the root (the transparent-wrapper descent).
     const cache = buildLayoutBoxCacheFromTree(firstPage, cascaded);
     // The first page holds p0 and p1; both must be indexed despite being
     // nested under the PageBox + per-page BlockBox wrappers.
@@ -401,14 +403,21 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
   });
 });
 
-describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
-  it("reuses unchanged paragraph boxes across keystrokes in a paginated doc", () => {
-    // Build a 4-paragraph doc, paginate, then synthesize a 1-paragraph edit
-    // and re-paginate. Paragraphs whose render-node reference was preserved
-    // through the edit MUST be reference-equal to their pre-edit layout
-    // boxes in the new paginated output. Without the cache reuse, every
-    // per-page layoutBlock call re-lays-out every paragraph from scratch
-    // → cache hit count is zero and reused === false.
+describe("paginated layout reuse across keystrokes", () => {
+  it("reuses unchanged PAGES by reference; re-materializes the edited page correctly", () => {
+    // Build a 4-paragraph doc (2 paragraphs per page: 16px lines, 40px pages →
+    // page 0 = p0,p1; page 1 = p2,p3), paginate, then edit p0 and re-paginate.
+    //
+    // The virtual layout reuses WHOLE unchanged pages by reference (the
+    // page-level carry-forward memo). It does NOT reuse individual blocks
+    // WITHIN a re-materialized page: an earlier per-page `prevLayoutCache`
+    // attempted that but reused SHIFTED blocks at their stale offset (the
+    // Enter-at-start paint bug), so it was removed. Editing p0 therefore
+    // re-materializes the whole of page 0 (p0 AND p1 get fresh boxes, but
+    // positioned correctly), while page 1 (p2,p3) is reused by reference.
+    //
+    // The load-bearing guarantee is CORRECTNESS: the incremental output must be
+    // structurally identical to a fresh, non-incremental layout of the edit.
     const paragraphs = [];
     for (let i = 0; i < 4; i++) {
       const t = createTextBox(`t${i}`, { display: "inline" }, "x");
@@ -458,7 +467,7 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
     expect(p2Box1).toBeDefined();
     expect(p3Box1).toBeDefined();
 
-    // Edit p0 only; p1..p3 preserve their references.
+    // Edit p0 only (text "x" → "X"; same width/height, so nothing shifts).
     const t0Edited = createTextBox("t0", { display: "inline" }, "X");
     const p0Edited = createElementBox("p0", { display: "block" }, [t0Edited]);
     const docEdited = createElementBox("doc", { display: "block" }, [
@@ -468,16 +477,8 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
     const cascadedEdited = cascadePassIncremental(docEdited, doc, cascaded);
     if (cascadedEdited.type !== "element") throw new Error("?");
 
-    // Build cache from out1 (post-fix this populates per-paragraph entries).
-    const prevCache = buildLayoutBoxCacheFromTree(out1Positioned, cascaded);
-    expect(prevCache.get("p1")).toBeDefined();
-
-    // Re-paginate with the cache injected. Use layoutTreeIncremental to
-    // drive the same cache wiring the editor uses.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    // Use direct import below — keeping the require pattern out of source.
-    // We import layoutTreeIncremental for this measurement.
-    // (Imported via top-of-file static import added by the controller.)
+    // Re-paginate incrementally (the wiring the editor uses): out1 is the prev
+    // tree, so its materialized pages seed the page-level carry-forward memo.
     const out2 = layoutTreeIncremental(
       cascadedEdited,
       cascaded,
@@ -489,11 +490,24 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
     const out2Positioned = resolvePositionedTree(out2);
     if (out2Positioned.type !== "block") throw new Error("expected BlockBox root");
 
-    // p1..p3 layout boxes are unchanged: reference equality.
+    // CORRECTNESS: the incremental output is structurally identical to a fresh,
+    // non-incremental layout of the edited doc. This is the guarantee the
+    // removed intra-page cache violated (it left shifted blocks at stale y).
+    const fresh = layoutTree(cascadedEdited, 500, shaper, pageConfig);
+    const freshPositioned = resolvePositionedTree(fresh);
+    expect(out2Positioned).toEqual(freshPositioned);
+
     const p1Box2 = findParagraphBox(out2Positioned, "p1");
     const p2Box2 = findParagraphBox(out2Positioned, "p2");
     const p3Box2 = findParagraphBox(out2Positioned, "p3");
-    expect(p1Box2).toBe(p1Box1);
+
+    // Page 0 (p0,p1) was re-materialized because p0's edit changed its
+    // fingerprint: p1 gets a FRESH box, but positioned identically (the edit
+    // did not shift it).
+    expect(p1Box2).not.toBe(p1Box1);
+    expect(p1Box2).toEqual(p1Box1);
+
+    // Page 1 (p2,p3) is unchanged ⇒ reused by reference (page-level memo).
     expect(p2Box2).toBe(p2Box1);
     expect(p3Box2).toBe(p3Box1);
   });
