@@ -47,13 +47,17 @@ doc-root child; if that top-level block is a `section`, it's the active section;
 set-vs-clear from the active section's current attrs + the doc-wide `config`).
 
 **Handler `handleToggleSectionLandscape(editor: EditorState, config: EditorConfig): EditorState`:**
+- **`EditorConfig.pageConfig` is OPTIONAL and NESTED** (`config.pageConfig?: PageConfig`,
+  carrying `pageInlineSize`/`pageBlockSize`). If `config.pageConfig === undefined`
+  (unpaginated harness) → return `editor` unchanged (can't determine landscape dims).
 - Resolve the active section id (the walk above). If none → return `editor` unchanged
-  (no-op; toolbar button is still safe to press in a section-less doc).
+  (no-op; toolbar button is still safe to press in a section-less doc). The walk must
+  treat a null mid-walk `getBlock` result as "no active section → no-op" (never throw).
 - Read the section block's current `attrs.pageInlineSize`. Treat the section as "currently
-  landscape" iff it has a `pageInlineSize` override present (a number). Toggle:
+  landscape" iff it has a `pageInlineSize` override present (`typeof === "number"`). Toggle:
   - currently landscape → merge `{ pageInlineSize: undefined, pageBlockSize: undefined }`
     (clears both keys → falls back to doc-wide).
-  - else → merge `{ pageInlineSize: config.pageBlockSize, pageBlockSize: config.pageInlineSize }`
+  - else → merge `{ pageInlineSize: config.pageConfig.pageBlockSize, pageBlockSize: config.pageConfig.pageInlineSize }`
     (the doc-wide dimensions SWAPPED — wider + shorter pages).
 - `const result = mergeBlockAttrs(editor.state, sectionId, bag);`
 - T7 no-op identity: `if (result.state === editor.state) return editor;` (guards the
@@ -82,6 +86,7 @@ like `RectangleHorizontal`), `onAction={() => dispatch({ type: "TOGGLE_SECTION_L
 - Dispatch again → the override is CLEARED (`attrs.pageInlineSize === undefined`); section
   2's pages return to doc-wide geometry.
 - Cursor in a section-less doc (no `SECTION_BREAK`) → no-op (`result === editor`, no commit).
+- `config.pageConfig` absent (unpaginated config) → no-op (same editor ref, no commit).
 - Undo after a toggle restores the prior geometry (history integration).
 - No-op identity: toggling to a value equal to the current attrs returns the same editor
   ref (covered by the clear-then-clear or the mergeBlockAttrs no-op short-circuit).
