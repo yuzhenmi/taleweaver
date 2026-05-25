@@ -46,6 +46,7 @@ import {
   handleRedo,
   handlePaste,
   handleInsertNode,
+  handleSectionBreak,
 } from "./actions";
 
 // Re-export helpers that are part of the public API.
@@ -233,6 +234,9 @@ export function reduceEditor(
       break;
     case "INSERT_NODE":
       result = handleInsertNode(editor, action.node, action.position, config);
+      break;
+    case "SECTION_BREAK":
+      result = handleSectionBreak(editor, config);
       break;
     default: {
       action satisfies never;

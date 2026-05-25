@@ -26,3 +26,4 @@ export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";
 export { handleInsertNode } from "./insert-node";
+export { handleSectionBreak } from "./section-break";
