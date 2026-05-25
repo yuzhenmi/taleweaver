@@ -8,6 +8,7 @@ import {
   List,
   ListOrdered,
   ChevronDown,
+  SeparatorHorizontal,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -215,6 +216,16 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Numbered list"
         icon={ListOrdered}
         onAction={() => dispatch({ type: "TOGGLE_LIST", listType: "ordered" })}
+      />
+
+      <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
+
+      {/* Section break: starts a new section (each section begins on a fresh
+          page). Inserts at the cursor's block boundary. */}
+      <ToolbarButton
+        label="Section break (new page)"
+        icon={SeparatorHorizontal}
+        onAction={() => dispatch({ type: "SECTION_BREAK" })}
       />
     </div>
   );
