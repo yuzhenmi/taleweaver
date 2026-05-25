@@ -94,6 +94,15 @@ export function createEditorController(
     positionedBridge = resolvePositionedTree(layoutTree);
     return positionedBridge;
   }
+  // Hit-test against ONLY the clicked page (virtual) — never `materializeAll`.
+  // `resolvePositionFromPixel` filters its line index by `pageIndex`, so a
+  // single `PageBox` resolves correctly (mirrors the per-page line-nav
+  // migration). Non-paginated mode has a positioned `LayoutBox` already.
+  function treeForPageHitTest(pageIndex: number): LayoutBox | null {
+    if (layoutTree === null) return null;
+    if (layoutTree.type === "virtual-root") return layoutTree.getPage(pageIndex);
+    return layoutTree;
+  }
   let focused = true;
   let cursorVisible = true;
   let blinkIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -687,14 +696,13 @@ export function createEditorController(
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
-    // Mouse hit-test stays on the lazy `materializeAll()` bridge (Phase 4).
-    // Resolving the positioned tree here materializes all pages — acceptable on
-    // a (rare) mouse event, and lazy so the typing/Enter hot path never hits it.
-    const positioned = getPositionedTree();
-    if (!positioned) return;
+    // Hit-test against ONLY the clicked page (virtual tree) — never
+    // materialize the whole document (Phase 4).
+    const hitTree = treeForPageHitTest(coords.pageIndex);
+    if (!hitTree) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      positioned,
+      hitTree,
       measurer,
       coords.x,
       coords.y,
@@ -771,12 +779,13 @@ export function createEditorController(
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
-    // Drag hit-test on the lazy bridge (see handleMouseDown).
-    const positioned = getPositionedTree();
-    if (!positioned) return;
+    // Drag hit-test against ONLY the page under the pointer (see
+    // handleMouseDown) — never materialize the whole document.
+    const hitTree = treeForPageHitTest(coords.pageIndex);
+    if (!hitTree) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      positioned,
+      hitTree,
       measurer,
       coords.x,
       coords.y,

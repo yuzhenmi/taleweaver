@@ -627,6 +627,37 @@ describe("createEditorController", () => {
 
       ctrl.destroy();
     });
+
+    it("paginated mousedown hit-test resolves via getPage(clicked), never materializeAll", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // Paint already called getPage for visible pages; isolate the mousedown.
+      getPage.mockClear();
+      materializeAll.mockClear();
+
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      // clientY 150 → page 1 (slotHeight = pageHeight 100 + gap 24 = 124).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, bubbles: true }),
+      );
+
+      // The hit-test materializes ONLY the clicked page — never the whole tree.
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalledWith(1);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
   });
 
   describe("cursor blink", () => {
