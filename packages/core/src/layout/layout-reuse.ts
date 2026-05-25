@@ -2,6 +2,7 @@ import type { LayoutBox } from "./layout-box-v2";
 import type { RenderNode } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import { computedStylesEqual } from "../cascade/cascade-pass";
+import { flattenContents } from "./group-children";
 
 /** Entry stored per render-node key in the cache. */
 export interface LayoutBoxCacheEntry {
@@ -103,8 +104,15 @@ export function buildLayoutBoxCacheFromTree(
   const visitPair = (box: LayoutBox, rn: RenderNode) => {
     cache.set(box.key, { box, renderNode: rn });
     if (!("children" in box) || rn.type !== "element") return;
+    // Index by the FLATTENED render-node children: `box.children` come from
+    // `groupChildren`/`layoutBlock`, which flatten `display: contents` elements,
+    // so the layout boxes carry the contents element's grandchildren keys (not
+    // the contents element's own key). Building `rnByKey` from raw `rn.children`
+    // would orphan those layout boxes from their render nodes and silently break
+    // L-PERF-A reuse for them on every keystroke. (Same-ref fast path when no
+    // contents element is present.)
     const rnByKey = new Map<string, RenderNode>();
-    for (const child of rn.children) {
+    for (const child of flattenContents(rn.children)) {
       rnByKey.set(child.key, child);
     }
     walkChildren(box.children, rnByKey);

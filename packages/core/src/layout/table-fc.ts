@@ -36,6 +36,16 @@ function groupTableRows(table: ElementBox): readonly TableRowGroup[] {
   let pendingCells: RenderNode[] | null = null;
 
   for (const child of table.children) {
+    // `display: contents` inside a table is NOT supported (P1.C.1a scope is
+    // block-level sections). The table FC does not flatten contents children, so
+    // one wrapping table-rows would be mis-grouped as bare cells → silent-wrong
+    // output. Fail loudly until a future piece handles it.
+    if (child.type === "element" && child.computedStyle?.display === "contents") {
+      throw new Error(
+        "table-fc: display:contents inside a table is not supported yet " +
+          "(group-children flatten is not applied in the table formatting context)",
+      );
+    }
     if (
       child.type === "element" &&
       child.computedStyle?.display === "table-row"

@@ -69,3 +69,36 @@ describe("anonymousBlockKey", () => {
     expect(anonymousBlockKey("doc/p1", 3)).toBe("doc/p1/anon[3]");
   });
 });
+
+describe("groupChildren — display: contents flatten (P1.C.1a)", () => {
+  it("splices a contents element's children in place (same groups as hoisted)", () => {
+    const para = (k: string) => createElementBox(k, { display: "block" }, [createTextBox(`${k}t`, { display: "inline" }, "x")]);
+    const withWrapper = createElementBox("doc", { display: "block" }, [
+      para("p1"),
+      createElementBox("sec", { display: "contents" }, [para("a"), para("b")]),
+      para("p2"),
+    ]);
+    const hoisted = createElementBox("doc", { display: "block" }, [para("p1"), para("a"), para("b"), para("p2")]);
+    const cw = cascadePass(withWrapper);
+    const ch = cascadePass(hoisted);
+    if (cw.type !== "element" || ch.type !== "element") throw new Error();
+    expect(groupChildren(cw)).toEqual(groupChildren(ch));
+    // The contents element is not itself a group.
+    expect(groupChildren(cw).some((g) => g.kind === "block" && g.child.key === "sec")).toBe(false);
+  });
+
+  it("flattens nested contents recursively; empty contents contributes nothing", () => {
+    const para = (k: string) => createElementBox(k, { display: "block" }, [createTextBox(`${k}t`, { display: "inline" }, "x")]);
+    const nested = createElementBox("doc", { display: "block" }, [
+      createElementBox("outer", { display: "contents" }, [
+        createElementBox("inner", { display: "contents" }, [para("x")]),
+        createElementBox("empty", { display: "contents" }, []),
+      ]),
+    ]);
+    const hoisted = createElementBox("doc", { display: "block" }, [para("x")]);
+    const cn = cascadePass(nested);
+    const ch = cascadePass(hoisted);
+    if (cn.type !== "element" || ch.type !== "element") throw new Error();
+    expect(groupChildren(cn)).toEqual(groupChildren(ch));
+  });
+});

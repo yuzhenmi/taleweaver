@@ -24,6 +24,7 @@ import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import { measurePass } from "./measure-pass";
+import { flattenContents } from "./group-children";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**
@@ -60,6 +61,14 @@ export function buildVirtualPaginatedTree(
   // `layout-incremental.ts` / `dispatch.ts`; we forward its `plan` so the
   // measure pass restores `paginateRoot`'s old L-PERF-C O(1)-at-end behavior
   // instead of re-walking every page each keystroke.
-  const plan = measurePass(metas, pageConfig, cascadedRoot.children, prevTree?.plan);
+  // `metas` are built over `groupChildren` (which flattens `display: contents`
+  // elements), so the measure pass's child-fingerprint slices
+  // (`PagePlanEntry.children`, `pageIndexOfBlock`, carry-forward reuse) must be
+  // indexed over the SAME flattened child list — not raw `cascadedRoot.children`
+  // — or a `display: contents` element at the root level desyncs the slice
+  // index from the meta index.
+  const plan = measurePass(
+    metas, pageConfig, flattenContents(cascadedRoot.children), prevTree?.plan,
+  );
   return makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, pageConfig, prevTree);
 }

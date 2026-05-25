@@ -33,6 +33,42 @@ export type ChildGroup =
   | { readonly kind: "inline-run"; readonly children: readonly RenderNode[]; readonly positionalIndex: number };
 
 /**
+ * Flatten `display: contents` elements (CSS Display 3 §3.2): such an element
+ * generates no box, so it is replaced in place by its own children — recursively,
+ * to handle nested `contents`. The element keeps its render/cascade identity (its
+ * children already inherit through it via the normal cascade chain); it simply
+ * contributes no box and no box-model (margins/padding/border are dropped with
+ * the suppressed box).
+ *
+ * Returns the SAME array reference when no `contents` element is present (the
+ * overwhelmingly common case — allocation-free, zero hot-path cost). Shared by
+ * `groupChildren` (BFC + build-fit-metas) and the intrinsic-sizes pass so the
+ * two child-walks agree on transparency.
+ */
+export function flattenContents(
+  children: readonly RenderNode[],
+): readonly RenderNode[] {
+  let hasContents = false;
+  for (const c of children) {
+    if (c.type === "element" && c.computedStyle?.display === "contents") {
+      hasContents = true;
+      break;
+    }
+  }
+  if (!hasContents) return children;
+
+  const out: RenderNode[] = [];
+  for (const c of children) {
+    if (c.type === "element" && c.computedStyle?.display === "contents") {
+      for (const grandchild of flattenContents(c.children)) out.push(grandchild);
+    } else {
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/**
  * Determine if a child should be treated as inline-display for the purpose
  * of anonymous block-run grouping.
  */
@@ -56,7 +92,11 @@ export function groupChildren(parent: ElementBox): readonly ChildGroup[] {
   const out: ChildGroup[] = [];
   let currentRun: RenderNode[] | null = null;
 
-  for (const child of parent.children) {
+  // Flatten `display: contents` children first so a contents element produces no
+  // box; its children group as if direct children of `parent`. `positionalIndex`
+  // below is `out.length` (the OUTPUT-group ordinal), so anonymous-block keys
+  // align with the wrapper-removed tree automatically.
+  for (const child of flattenContents(parent.children)) {
     if (isInlineChild(child)) {
       if (!currentRun) {
         currentRun = [];

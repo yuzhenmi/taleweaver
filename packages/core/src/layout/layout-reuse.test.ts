@@ -184,6 +184,29 @@ describe("buildLayoutBoxCacheFromTree", () => {
     buildLayoutBoxCacheFromTree(box, rn, cache);
     expect(cache.get("root")?.box).toBe(box);
   });
+
+  it("indexes children flattened through a display:contents wrapper (P1.C.1a)", () => {
+    // `groupChildren` flattens the contents wrapper, so the layout boxes carry
+    // the grandchildren keys ("a", "b") — NOT the wrapper's key ("sec"). The
+    // cache must index by the FLATTENED render children so those layout boxes
+    // reach their render nodes; otherwise L-PERF-A reuse silently breaks for
+    // them on every keystroke.
+    const a = createElementBox("a", { display: "block", blockSize: 20 }, []);
+    const b = createElementBox("b", { display: "block", blockSize: 20 }, []);
+    const sec = createElementBox("sec", { display: "contents" }, [a, b]);
+    const parent = createElementBox("parent", { display: "block" }, [sec]);
+    const cascaded = cascadePass(parent);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (rootResult.box === null) throw new Error("layoutBlock returned null box");
+    const cache = buildLayoutBoxCacheFromTree(rootResult.box, cascaded);
+    // The flattened grandchildren are indexed (reachable for reuse).
+    expect(cache.get("a")?.box.key).toBe("a");
+    expect(cache.get("b")?.box.key).toBe("b");
+    // The suppressed wrapper produced no box, so it is absent from the cache.
+    expect(cache.get("sec")).toBeUndefined();
+  });
 });
 
 // ─── Integration: subtree reuse end-to-end ─────────────────────────────────

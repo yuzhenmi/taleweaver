@@ -178,3 +178,34 @@ describe("computeIntrinsicSizes", () => {
     expect(result.minContent).toBe(10);
   });
 });
+
+describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
+  const shaper = createMockShaper(10, 16);
+
+  it("a contents wrapper contributes its children's intrinsic sizes, not zero", () => {
+    // doc > [ <contents sec>( p("abc") , p("de") ) ]
+    const sec = createElementBox("sec", { display: "contents" }, [
+      createElementBox("a", { display: "block" }, [createTextBox("at", { display: "inline" }, "abc")]),
+      createElementBox("b", { display: "block" }, [createTextBox("bt", { display: "inline" }, "de")]),
+    ]);
+    const withWrapper = createElementBox("doc", { display: "block" }, [sec]);
+    const hoisted = createElementBox("doc", { display: "block" }, [
+      createElementBox("a", { display: "block" }, [createTextBox("at", { display: "inline" }, "abc")]),
+      createElementBox("b", { display: "block" }, [createTextBox("bt", { display: "inline" }, "de")]),
+    ]);
+    const w = computeIntrinsicSizes(cascadePass(withWrapper), shaper, createIntrinsicSizesCache());
+    const h = computeIntrinsicSizes(cascadePass(hoisted), shaper, createIntrinsicSizesCache());
+    expect(w).toEqual(h);
+    // "abc" max = 30 is the widest block child; a contents wrapper that returned
+    // {0,0} (the pre-fix bug) would give maxContent 0 here.
+    expect(w.maxContent).toBe(30);
+  });
+
+  it("a contents element queried as the root delegates to block-container sizing", () => {
+    const sec = createElementBox("sec", { display: "contents" }, [
+      createElementBox("a", { display: "block" }, [createTextBox("at", { display: "inline" }, "abcd")]),
+    ]);
+    const result = computeIntrinsicSizes(cascadePass(sec), shaper, createIntrinsicSizesCache());
+    expect(result.maxContent).toBe(40); // "abcd" = 4 × 10
+  });
+});

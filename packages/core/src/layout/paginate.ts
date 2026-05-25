@@ -8,6 +8,7 @@ import { createBlockBox } from "./layout-box-v2";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
+import { flattenContents } from "./group-children";
 import { computeUsedStyle } from "./used-style";
 import type { BreakToken, FragmentationContext } from "./fragmentation";
 
@@ -168,6 +169,14 @@ export function paginateRoot(
   // each PageBox. Content visibly insets from the page edges.
   const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageContentInlineSize };
 
+  // `layoutBlock` walks the root's children via `groupChildren` (which flattens
+  // `display: contents` elements), so a `BreakToken.resumeChildIndex` is an index
+  // into the FLATTENED child list. The page-cache fingerprints (`startIndex`,
+  // `childrenOnPage` slice) must be indexed over the same flattened list — not
+  // raw `root.children` — or a `display: contents` element at root level desyncs
+  // the slice index from the break index.
+  const effectiveChildren = flattenContents(root.children);
+
   const prevCache = getPaginationCache(prevRoot ?? null);
   const prevEntries: readonly PageCacheEntry[] | null = prevCache?.entries ?? null;
 
@@ -192,7 +201,7 @@ export function paginateRoot(
       if (
         cached.startIndex === startIndex &&
         breakTokensEqual(cached.resumeFrom, resumeFrom) &&
-        childrenMatchFingerprint(root.children, startIndex, cached.childrenOnPage)
+        childrenMatchFingerprint(effectiveChildren, startIndex, cached.childrenOnPage)
       ) {
         pages.push(cached.pageBox);
         newEntries.push(cached);
@@ -252,7 +261,7 @@ export function paginateRoot(
     // partial state recomputes identically.
     const nextStartIndex =
       breakToken === null
-        ? root.children.length
+        ? effectiveChildren.length
         : breakToken.type === "block"
           ? breakToken.resumeChildIndex
           : startIndex;
@@ -260,14 +269,14 @@ export function paginateRoot(
       newEntries.push({
         startIndex,
         resumeFrom: cycleResumeFrom,
-        childrenOnPage: root.children.slice(startIndex, nextStartIndex),
+        childrenOnPage: effectiveChildren.slice(startIndex, nextStartIndex),
         pageBox: page,
         breakToken,
       });
     }
 
     if (breakToken === null) {
-      startIndex = root.children.length;
+      startIndex = effectiveChildren.length;
       resumeFrom = null;
       pageIndex++;
       break;

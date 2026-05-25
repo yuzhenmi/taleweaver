@@ -17,6 +17,7 @@ import { makeRootContext, makeChildContext } from "./layout-context";
 import type { IntrinsicSizesCache } from "./intrinsic-sizes";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
+import { flattenContents } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -140,7 +141,14 @@ function collectInlineTokens(
   // incremental reuse — matches pre-L-D behavior for those callers).
   parentCtx: LayoutContext | null,
 ): void {
-  for (const child of children) {
+  // Flatten `display: contents` elements: such an element generates no box, so
+  // its children participate in this IFC as if direct children. Unlike the
+  // `inline` branch below, a contents element adds NO entry to
+  // `ancestors`/`ancestorStyles` (it produces no inline box); its children
+  // already inherited through it via the cascade, and they tokenize at the same
+  // ancestor level as the contents element's siblings. (Same-ref fast path when
+  // no contents element is present — zero hot-path cost.)
+  for (const child of flattenContents(children)) {
     if (!child.computedStyle) throw new Error("cascade required");
     const cs = child.computedStyle;
 

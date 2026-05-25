@@ -1,6 +1,7 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
 import type { TextShaper } from "./text-shaper";
 import type { IntrinsicSizes, IntrinsicSizesCache } from "./intrinsic-sizes";
+import { flattenContents } from "./group-children";
 
 /**
  * Compute the intrinsic inline-axis sizes (min-content, max-content) of
@@ -48,6 +49,13 @@ function computeUncached(
       return computeInlineIntrinsicSizes(node, shaper, cache);
     case "table":
       return computeTableIntrinsicSizes(node, shaper, cache);
+    case "contents":
+      // No box of its own; its children contribute as if direct children of
+      // its parent. Treated as a block container here (the general mixed
+      // block+inline case). Reached only if a `contents` element is the ROOT of
+      // an intrinsic query — the common child case is handled by the
+      // `flattenContents` calls in the block/inline loops below.
+      return computeBlockIntrinsicSizes(node, shaper, cache);
     case "table-row":
     case "none":
     default:
@@ -103,7 +111,7 @@ function computeBlockIntrinsicSizes(
     runMax = 0;
   };
 
-  for (const child of node.children) {
+  for (const child of flattenContents(node.children)) {
     const isInline =
       child.type === "text" ||
       (child.type === "element" &&
@@ -137,7 +145,7 @@ function computeInlineIntrinsicSizes(
   // Inline: min = max(child.min); max = sum(child.max).
   let min = 0;
   let sum = 0;
-  for (const child of node.children) {
+  for (const child of flattenContents(node.children)) {
     const c = computeIntrinsicSizes(child, shaper, cache);
     if (c.minContent > min) min = c.minContent;
     sum += c.maxContent;

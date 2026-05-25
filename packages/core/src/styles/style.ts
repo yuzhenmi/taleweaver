@@ -4,7 +4,13 @@ import type { WritingMode, Direction } from "./writing-mode";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
-  | "table" | "table-row" | "table-cell" | "flow-root" | "none";
+  | "table" | "table-row" | "table-cell" | "flow-root" | "none"
+  // `contents`: the element generates NO box; its children lay out as if they
+  // were direct children of the element's parent (CSS Display 3 §3.2). The
+  // layout pipeline implements this by flattening such elements in
+  // `group-children`'s `flattenContents` (shared by the BFC, build-fit-metas,
+  // and the intrinsic-sizes pass). Used by transparent `section` blocks.
+  | "contents";
 
 export type BorderStyle = "none" | "solid" | "dashed" | "dotted";
 

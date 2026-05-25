@@ -299,6 +299,16 @@ function buildChildMeta(
   if (childCs === undefined) {
     throw new Error("buildBlockFitMetas: child must be cascaded (computedStyle missing)");
   }
+  // A `display: contents` element must have been flattened away by
+  // `flattenContents` (in `groupChildren`) before reaching here — it has no box,
+  // so building a fit-meta (with margins/breaks read off its style below) would
+  // be wrong. A escape here means the flatten missed a site; fail loudly.
+  if (childCs.display === "contents") {
+    throw new Error(
+      "buildChildMeta: received a display:contents element — it should have been " +
+        "flattened by groupChildren/flattenContents before block classification",
+    );
+  }
 
   const used = computeUsedStyle(childCs, pageContentInlineSize, "indefinite");
   const marginBlockStart = used.marginBlockStart;
