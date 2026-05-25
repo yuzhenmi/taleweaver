@@ -16,9 +16,11 @@ import type { ElementBox } from "../render/render-node";
 import type { LayoutBox, LineBox } from "./layout-box-v2";
 import type { BlockFitMeta } from "./fit-core";
 import type { TextShaper } from "./text-shaper";
-import { groupChildren } from "./group-children";
+import { groupChildren, anonymousBlockKey } from "./group-children";
+import type { ChildGroup } from "./group-children";
 import { layoutBlock } from "./bfc";
-import { makeRootContext } from "./layout-context";
+import { layoutInlineContent } from "./ifc";
+import { makeRootContext, makeChildContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
@@ -42,29 +44,141 @@ export function buildBlockFitMetas(
   shaper: TextShaper,
   pageContentInlineSize: number,
 ): readonly BlockFitMeta[] {
-  return buildMetasForChildren(cascadedRoot, shaper, pageContentInlineSize);
+  const rootCs = cascadedRoot.computedStyle;
+  if (rootCs === undefined) {
+    throw new Error("buildBlockFitMetas: root must be cascaded (computedStyle missing)");
+  }
+  // `pageContentInlineSize` is the inline-size AVAILABLE to the root box (the
+  // page content area). `buildMetasForChildren` threads "the content inline-size
+  // for THIS parent's children" — so reduce the root's own inline padding here
+  // ONCE (mirroring `bfc.layoutBlock`, which subtracts the root's inline padding
+  // exactly once before laying out its children, bfc.ts:227). Every descendant
+  // level then subtracts its own inline padding exactly once via `classifyChild`'s
+  // recursion, and `ifcLeafMetaFromInlineRun` consumes the already-reduced width
+  // DIRECTLY without re-subtracting.
+  const rootContentInlineSize = contentInlineSizeOf(rootCs, pageContentInlineSize);
+  return buildMetasForChildren(cascadedRoot, shaper, rootContentInlineSize);
 }
 
 /**
- * Build metas for the block-level children of `parent`. Inline-run groups at
- * this level are not standalone children — they would be wrapped by the parent
- * block's own IFC — so a `parent` that mixes block + inline children is itself
- * an IFC/mixed leaf and is handled by the caller's per-child classification
- * (`classifyChild`), not here. This walk only emits one meta per block child,
- * matching `fitOnePage`'s top-level walk (which consumes one meta per
- * top-level block).
+ * Build metas for the children of `parent`, mirroring `bfc.layoutBlock`'s
+ * `groupChildren`-driven walk EXACTLY. `groupChildren` yields an ordered
+ * sequence of `inline-run` groups and `block` groups; bfc lays each inline-run
+ * group out as an anonymous IFC block (synthesizing `anonElement` and calling
+ * `layoutInlineContent`) and each block group as a real block child. We mirror
+ * that order:
+ *   - `inline-run` group → an `ifc`-leaf meta whose lines come from laying the
+ *     anonymous inline-run out via `layoutInlineContent` (margins 0, breaks auto
+ *     — anonymous boxes have none).
+ *   - `block` group → recurse via `classifyChild`.
+ *
+ * This is the single walk used at every nesting level AND at the document root,
+ * so a MIXED-content container (block + bare inline runs) produces metas in the
+ * same order `fitOnePage` consumes them, matching bfc's per-group placement.
+ * `parentCs` is `parent.computedStyle` — the style the anonymous IFC block
+ * inherits (bfc sets `computedStyle: cs` on `anonElement`), so its
+ * orphans/widows come from `parentCs`, not the CSS default.
  */
 function buildMetasForChildren(
   parent: ElementBox,
   shaper: TextShaper,
-  pageContentInlineSize: number,
+  parentContentInlineSize: number,
 ): readonly BlockFitMeta[] {
+  const parentCs = parent.computedStyle;
+  if (parentCs === undefined) {
+    throw new Error("buildBlockFitMetas: parent must be cascaded (computedStyle missing)");
+  }
+  // `parentContentInlineSize` is the inline-size AVAILABLE to each of `parent`'s
+  // children — i.e. the parent's CONTENT inline-size, with the parent's own
+  // inline padding already subtracted exactly ONCE by the caller (the top-level
+  // `buildBlockFitMetas` for the root, or `classifyChild` for a nested
+  // container). bfc lays both block children (`makeChildContext(.., contentInlineSize)`,
+  // bfc.ts:531) and the anonymous IFC for a bare inline run (bfc.ts:334) at this
+  // same content width.
   const metas: BlockFitMeta[] = [];
-  for (const child of parent.children) {
-    if (child.type !== "element") continue;
-    metas.push(classifyChild(child, shaper, pageContentInlineSize));
+  for (const group of groupChildren(parent)) {
+    if (group.kind === "inline-run") {
+      metas.push(ifcLeafMetaFromInlineRun(parent, parentCs, group, shaper, parentContentInlineSize));
+    } else {
+      const child = group.child;
+      if (child.type !== "element") continue;
+      metas.push(classifyChild(child, shaper, parentContentInlineSize));
+    }
   }
   return metas;
+}
+
+/**
+ * Build an `ifc`-leaf `BlockFitMeta` for an inline-run group — the anonymous IFC
+ * block bfc synthesizes for a run of consecutive inline children. Mirrors
+ * `bfc.ts:321–355`: synthesize the SAME anonymous `ElementBox` (key
+ * `anonymousBlockKey(parent.key, positionalIndex)`, `computedStyle: parentCs`)
+ * and lay it out UNFRAGMENTED via `layoutInlineContent` against the parent's
+ * content inline-size — heights are position-independent. The resulting
+ * LineBoxes give the per-line block-sizes / hyphen flags exactly as a leaf
+ * paragraph's do.
+ *
+ * `parentContentInlineSize` is ALREADY the parent's content inline-size — the
+ * parent's own inline padding was subtracted exactly once by the caller
+ * (`buildMetasForChildren`). bfc lays this anonymous IFC at the parent's
+ * `contentInlineSize` (bfc.ts:334) with the inline padding subtracted exactly
+ * ONCE (bfc.ts:227), so we feed `parentContentInlineSize` to `makeChildContext`
+ * DIRECTLY — re-applying `contentInlineSizeOf` here would subtract the inline
+ * padding a SECOND time and shrink the wrap width, changing the line count.
+ *
+ * Anonymous boxes carry no margins and no break-* properties, so the leaf's
+ * margins are 0 and its breaks are auto. orphans/widows come from `parentCs`
+ * (the style the anonymous block inherits), matching the IFC line-fit
+ * (`ifc.ts` reads `parentCs.orphans ?? 2`).
+ */
+function ifcLeafMetaFromInlineRun(
+  parent: ElementBox,
+  parentCs: ComputedStyle,
+  group: Extract<ChildGroup, { kind: "inline-run" }>,
+  shaper: TextShaper,
+  parentContentInlineSize: number,
+): BlockFitMeta {
+  const anonKey = anonymousBlockKey(parent.key, group.positionalIndex);
+  const anonElement: ElementBox = Object.freeze({
+    type: "element" as const,
+    key: anonKey,
+    style: parent.style,
+    computedStyle: parentCs,
+    children: Object.freeze([...group.children]),
+  });
+  // The anonymous IFC inherits the parent's containing block; its content
+  // inline-size IS `parentContentInlineSize` (already padding-reduced once). The
+  // root context's containing-inline-size is irrelevant to the wrap (the child
+  // context overrides it), but we pass the same value for consistency.
+  const parentCtx = makeRootContext(parentCs, parentContentInlineSize);
+  const ifcCtx = makeChildContext(parentCtx, parentCs, parentContentInlineSize, "indefinite");
+  // Unfragmented IFC layout (no FragmentationContext): produces every line.
+  const result = layoutInlineContent(anonElement, 0, 0, ifcCtx, shaper, undefined);
+  if (result.box === null) {
+    throw new Error("buildBlockFitMetas: unfragmented inline-run layout returned null box");
+  }
+  const lines = result.box.children.filter((c): c is LineBox => c.type === "line");
+  const lineBlockSizes = lines.map((l) => l.blockSize);
+  const lineEndsWithHyphen = lines.map((l) => l.endsWithHyphenContinuation === true);
+  return {
+    kind: "ifc",
+    // Anonymous IFC blocks have no margins and no break properties.
+    marginBlockStart: 0,
+    marginBlockEnd: 0,
+    breakBefore: "auto",
+    breakAfter: "auto",
+    breakInsideAvoid: false,
+    listItem: false,
+    // This leaf is a bare inline-run group, NOT a paragraph block: its break
+    // token is the container's direct `{ifc, L}` resumeChildToken (no paragraph
+    // wrap). See `BlockFitMeta.anonymousInlineRun`.
+    anonymousInlineRun: true,
+    totalBlockSize: result.box.blockSize,
+    lineBlockSizes,
+    orphans: parentCs.orphans ?? 2,
+    widows: parentCs.widows ?? 2,
+    lineEndsWithHyphen,
+  };
 }
 
 /**
@@ -156,11 +270,24 @@ function classifyChild(
 
   // Container block: recurse into its block children.
   const children = buildMetasForChildren(child, shaper, contentInlineSizeOf(childCs, pageContentInlineSize));
+  // Block-axis padding insets the children's fragmentation space by
+  // `paddingBlockStart` (bfc.ts:229/350/540). `paddingBlockEnd` is added to the
+  // container height after children are placed (bfc.ts:728) — already folded
+  // into `totalBlockSize`; it ALSO inflates a fragmenting container's PARTIAL
+  // height (bfc.ts:299), which `fitOnePage`'s §C.6 check needs. `noBottomBoundary`
+  // (bfc.ts:224) decides whether the trailing child margin is suppressed in that
+  // partial height. Border-block-width never shifts block-axis geometry in this
+  // engine; it participates ONLY here, as a margin-collapse-through boundary.
+  const noBottomBoundary =
+    used.paddingBlockEnd === 0 && childCs.borderBlockEndWidth === 0;
   return {
     kind: "block",
     ...common,
     totalBlockSize: placed.blockSize,
     children,
+    paddingBlockStart: used.paddingBlockStart,
+    paddingBlockEnd: used.paddingBlockEnd,
+    noBottomBoundary,
   };
 }
 

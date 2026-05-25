@@ -23,7 +23,7 @@ import type { Style } from "../../styles";
 import type { BreakToken, FragmentationContext } from "../fragmentation";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
-import { measurePass } from "../measure-pass";
+import { measurePass, measurePassUnsupported } from "../measure-pass";
 import type { PagePlanEntry } from "../measure-pass";
 
 // ---------------------------------------------------------------------------
@@ -196,6 +196,34 @@ function paragraph(key: string, numLines: number, extra?: Partial<Style>): Eleme
   const text = Array.from({ length: numLines }, () => "x").join("\n");
   const textNode = createTextBox(`${key}-t`, { whiteSpace: "pre" }, text);
   return createElementBox(key, { display: "block", whiteSpace: "pre", ...(extra ?? {}) } as Style, [textNode]);
+}
+
+/**
+ * A bare inline-display child producing `numLines` hard-wrapped lines. Placed
+ * directly among a container's children (NOT wrapped in its own block), it
+ * forms an `inline-run` group that bfc lays out via an anonymous IFC block.
+ * Used to build MIXED-content containers (block + bare inline run + block).
+ */
+function bareInlineRun(key: string, numLines: number): ElementBox {
+  const text = Array.from({ length: numLines }, () => "x").join("\n");
+  const textNode = createTextBox(`${key}-t`, { whiteSpace: "pre" }, text);
+  return createElementBox(key, { display: "inline", whiteSpace: "pre" } as Style, [textNode]);
+}
+
+/**
+ * A bare inline-display child whose text SOFT-wraps (space-separated words,
+ * `whiteSpace: normal`). The number of lines therefore depends on the CONTENT
+ * inline-size it is laid out against — the lever that exposes Fix 1's
+ * double-subtraction of a container's inline padding. With the mock shaper
+ * (charWidth 8) `wordCount` one-char words each cost 8px plus an 8px space:
+ * line capacity is `floor((contentInlineSize + 8) / 16)` words. A 20px change
+ * in the content width (one inline-padding's worth, applied twice vs once) can
+ * move the per-line word count by one and thus change the line count.
+ */
+function softInlineRun(key: string, wordCount: number): ElementBox {
+  const text = Array.from({ length: wordCount }, () => "x").join(" ");
+  const textNode = createTextBox(`${key}-t`, {}, text);
+  return createElementBox(key, { display: "inline" } as Style, [textNode]);
 }
 
 // ---------------------------------------------------------------------------
@@ -417,5 +445,402 @@ describe("measure-pass equivalence — (d) nested containers", () => {
     const items = Array.from({ length: 9 }, (_, i) => fixedBlock(`li-${i}`, 40, { display: "list-item" }));
     const root = cascadeRoot({ display: "block" }, items);
     assertEquivalent(root, noMarginPageConfig(120));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (e) MIXED-content container (#253): block + bare inline-run + block.
+// bfc groups the container's children into an ordered sequence of `block` and
+// `inline-run` groups; each inline-run becomes an anonymous IFC block. The
+// measure pass must mirror that ORDER so the container's child metas reproduce
+// the same per-line/per-block break decisions across a page boundary.
+// ---------------------------------------------------------------------------
+
+describe("measure-pass equivalence — (e) mixed block+inline container content", () => {
+  it("container: block, bare inline run, block — spanning a boundary", () => {
+    // div { fixedBlock(40); inline-run(6 lines = 96); fixedBlock(40) } = 176;
+    // page content 100 ⇒ fragments across a boundary inside the container.
+    const div = createElementBox("mix", { display: "block" } as Style, [
+      fixedBlock("m0", 40),
+      bareInlineRun("mr", 6),
+      fixedBlock("m1", 40),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [div]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("container: leading inline run then blocks — spanning a boundary", () => {
+    const div = createElementBox("mix", { display: "block" } as Style, [
+      bareInlineRun("mr", 5), // 80
+      fixedBlock("m0", 40),
+      fixedBlock("m1", 40),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [div]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("document ROOT with mixed children (bare inline run between blocks)", () => {
+    // The root itself is a container; a bare inline run between two blocks must
+    // be modeled at the top level too, not just in nested containers.
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 40),
+      bareInlineRun("rr", 6),
+      fixedBlock("b1", 40),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("nested mixed container (div > [block, inline-run, block]) spanning a boundary", () => {
+    const inner = createElementBox("inner", { display: "block" } as Style, [
+      fixedBlock("i0", 30),
+      bareInlineRun("ir", 5), // 80
+      fixedBlock("i1", 30),
+    ]);
+    const outer = createElementBox("outer", { display: "block" } as Style, [inner]);
+    const root = cascadeRoot({ display: "block" }, [outer]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (f) PADDED / BORDERED container (#254): block-axis padding/border insets the
+// children's available space and adds to the container's consumed height.
+// bfc starts `childBlockOffset` at paddingBlockStart and ends the box at
+// childBlockOffset + paddingBlockEnd; border-block-width does NOT shift block-
+// axis geometry in this engine (it only governs margin-collapse-through via
+// noTopBoundary/noBottomBoundary). The oracle settles the border question.
+// ---------------------------------------------------------------------------
+
+describe("measure-pass equivalence — (f) padded/bordered container space", () => {
+  it("padded container (paddingBlockStart/End 20) holding paragraphs, spanning a boundary", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
+    );
+    // 12 lines × 16 = 192 + 40 padding = 232; page content 100.
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded container with top-only padding spanning a boundary", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", paddingBlockStart: 30 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("bordered container spanning a boundary (settles border's geometry role)", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded + bordered container spanning a boundary", () => {
+    const quote = createElementBox(
+      "quote",
+      {
+        display: "block",
+        paddingBlockStart: 15,
+        paddingBlockEnd: 15,
+        borderBlockStartWidth: 5,
+        borderBlockEndWidth: 5,
+      } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded container preceded by a block, spanning a boundary", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 50), quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("COMBINED: padded container with MIXED content spanning a boundary", () => {
+    const mix = createElementBox(
+      "mix",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [fixedBlock("m0", 30), bareInlineRun("mr", 5), fixedBlock("m1", 30)],
+    );
+    const root = cascadeRoot({ display: "block" }, [mix]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (g) measurePassUnsupported gate: after #253/#254 are modeled, padded/bordered
+// containers and mixed content are SUPPORTED (false); only float/clear remain
+// unsupported (true).
+// ---------------------------------------------------------------------------
+
+describe("measurePassUnsupported gate after #253/#254", () => {
+  it("mixed-content container is now SUPPORTED (false)", () => {
+    const div = createElementBox("mix", { display: "block" } as Style, [
+      fixedBlock("m0", 40),
+      bareInlineRun("mr", 6),
+      fixedBlock("m1", 40),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [div]);
+    expect(measurePassUnsupported(root)).toBe(false);
+  });
+
+  it("padded container is now SUPPORTED (false)", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    expect(measurePassUnsupported(root)).toBe(false);
+  });
+
+  it("bordered container is now SUPPORTED (false)", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4)],
+    );
+    const root = cascadeRoot({ display: "block" }, [quote]);
+    expect(measurePassUnsupported(root)).toBe(false);
+  });
+
+  it("padded + mixed container is now SUPPORTED (false)", () => {
+    const mix = createElementBox(
+      "mix",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [fixedBlock("m0", 30), bareInlineRun("mr", 5), fixedBlock("m1", 30)],
+    );
+    const root = cascadeRoot({ display: "block" }, [mix]);
+    expect(measurePassUnsupported(root)).toBe(false);
+  });
+
+  it("floated document is still UNSUPPORTED (true)", () => {
+    const floated = createElementBox("f", { display: "block", float: "inline-start" } as Style, [
+      createTextBox("ft", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), floated]);
+    expect(measurePassUnsupported(root)).toBe(true);
+  });
+
+  it("clear:both document is still UNSUPPORTED (true)", () => {
+    const cleared = createElementBox("c", { display: "block", clear: "both" } as Style, [
+      createTextBox("ct", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), cleared]);
+    expect(measurePassUnsupported(root)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (h) INLINE-padding container content width (Fix 1): a container's
+// paddingInlineStart/End reduces the CONTENT inline-size its children (and any
+// bare inline run laid out as an anonymous IFC block) wrap against. bfc
+// subtracts that inline padding EXACTLY ONCE per nesting level (bfc.ts:227 —
+// `contentInlineSize = finalInlineSize − paddingInlineStart − paddingInlineEnd`)
+// and lays the anonymous IFC at that content width (bfc.ts:334). A
+// soft-wrapping inline run's LINE COUNT therefore depends on the content width,
+// so a measure pass that subtracts the inline padding twice produces extra
+// lines and a different page boundary. These fixtures use SOFT-wrapping runs
+// (space-separated words) so the line count is width-sensitive, and assert
+// exact equivalence against the real `paginateRoot` oracle.
+// ---------------------------------------------------------------------------
+
+describe("measure-pass equivalence — (h) inline-padding container content width", () => {
+  // Mock-shaper geometry (charWidth 8, lineHeight 16): one-char words each cost
+  // 8px plus an 8px inter-word space, so line capacity = floor((width + 8)/16)
+  // words. At a page inline-size of 600 (no margins), a container with inline
+  // padding 10/10 has CONTENT width 580 (subtracted ONCE) ⇒ floor(588/16)=36
+  // words/line. The BUG subtracts the padding a SECOND time ⇒ width 560 ⇒
+  // floor(568/16)=35 words/line. The word counts below sit in the gap where 36
+  // vs 35 words/line yields a DIFFERENT line count for the BARE inline run laid
+  // out via the anonymous-IFC path (`ifcLeafMetaFromInlineRun` — the buggy
+  // path). The page block-size is chosen so the extra (8th) line spills onto an
+  // extra page, making the page COUNT diverge — not just an interior offset.
+  // (A SOLE inline child of a container is classified as a paragraph IFC leaf
+  // via `layoutChildInWrapper`, which does NOT double-subtract; so every fixture
+  // here uses a MIXED block+inline-run sequence to route through the buggy
+  // anonymous-IFC code path.)
+
+  it("inline-padded container with MIXED content; soft run line count adds a page", () => {
+    // div { fixedBlock(32); softInlineRun(250 words); fixedBlock(32) }, inline
+    // padding 10/10. Correct content width 580 ⇒ ceil(250/36)=7 run lines (112px)
+    // ⇒ container 32 + 112 + 32 = 176. Buggy width 560 ⇒ ceil(250/35)=8 lines
+    // (128px) ⇒ container 32 + 128 + 32 = 192. Page content 176: the correct
+    // container fits exactly on ONE page; the buggy (192px) container does not.
+    // Page count diverges, plus interior boundaries shift. Oracle settles it.
+    const div = createElementBox(
+      "mix",
+      { display: "block", paddingInlineStart: 10, paddingInlineEnd: 10 } as Style,
+      [fixedBlock("m0", 32), softInlineRun("mr", 250), fixedBlock("m1", 32)],
+    );
+    const root = cascadeRoot({ display: "block" }, [div]);
+    assertEquivalent(root, noMarginPageConfig(176, 600));
+  });
+
+  it("inline-padded container, LEADING soft run then blocks; line count shifts trailing block", () => {
+    // Run FIRST (250 words ⇒ 7 lines/112px at 580 vs 8 lines/128px at 560), then
+    // two 40px blocks. Page content 120. Correct: run 112 ≤ 120 (page 0), block
+    // m0 breaks to page 1 (112+40>120), block m1 follows. Buggy: run 128 > 120 ⇒
+    // run itself fragments at the page-0 bottom (resume mid-run), shifting every
+    // subsequent boundary. Oracle settles the exact plan.
+    const div = createElementBox(
+      "mix",
+      { display: "block", paddingInlineStart: 10, paddingInlineEnd: 10 } as Style,
+      [softInlineRun("mr", 250), fixedBlock("m0", 40), fixedBlock("m1", 40)],
+    );
+    const root = cascadeRoot({ display: "block" }, [div]);
+    assertEquivalent(root, noMarginPageConfig(120, 600));
+  });
+
+  it("NESTED inline-padded containers with MIXED inner content; inner run wraps at inner content width", () => {
+    // outer inline padding 10/10 ⇒ inner available 580; inner inline padding
+    // 10/10 ⇒ inner CONTENT width 560 (each level subtracts ONCE) ⇒ 35/line.
+    // The BUG subtracts twice per level ⇒ 540 (33/line) for the inner run. 240
+    // words: at 560 ceil(240/35)=7 lines (112px); at 540 ceil(240/33)=8 lines
+    // (128px). Inner container (with 20px lead + 20px trail blocks): 20+112+20=
+    // 152 (correct) vs 20+128+20=168 (buggy). Page content 152 ⇒ the correct
+    // tree is one page, the buggy tree fragments. Page count + boundaries diverge.
+    const inner = createElementBox(
+      "inner",
+      { display: "block", paddingInlineStart: 10, paddingInlineEnd: 10 } as Style,
+      [fixedBlock("i0", 20), softInlineRun("ir", 240), fixedBlock("i1", 20)],
+    );
+    const outer = createElementBox(
+      "outer",
+      { display: "block", paddingInlineStart: 10, paddingInlineEnd: 10 } as Style,
+      [inner],
+    );
+    const root = cascadeRoot({ display: "block" }, [outer]);
+    assertEquivalent(root, noMarginPageConfig(152, 600));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (i) TWO-LEVEL padded container: padded container A → padded container B →
+// paragraphs (Fix 2). When B fragments across a boundary, A reconstructs B's
+// partial-fragment height from B's `consumedBlockSize` (FitPageResult). This
+// fixture exercises that nested-consumed-size path end-to-end so B's
+// `consumedBlockSize` feeding A's partial height is oracle-proven.
+// ---------------------------------------------------------------------------
+
+describe("measure-pass equivalence — (i) two-level padded container consumedBlockSize", () => {
+  it("padded A > padded B > paragraphs, B fragments across multiple boundaries", () => {
+    // A (paddingBlockStart/End 15) > B (paddingBlockStart/End 10) > three 4-line
+    // paragraphs (64px each = 192). Page content 120. B's content overflows one
+    // page, so B fragments and threads a nested resume token; A reconstructs B's
+    // partial-fragment height from B's `consumedBlockSize` (paddingStart + B's
+    // consumed children + trailing margin + paddingEnd). The document spans 3
+    // pages — the nested consumedBlockSize feeding A's partial height is
+    // oracle-proven across two interior boundaries.
+    const b = createElementBox(
+      "B",
+      { display: "block", paddingBlockStart: 10, paddingBlockEnd: 10 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
+    );
+    const a = createElementBox(
+      "A",
+      { display: "block", paddingBlockStart: 15, paddingBlockEnd: 15 } as Style,
+      [b],
+    );
+    const root = cascadeRoot({ display: "block" }, [a]);
+    assertEquivalent(root, noMarginPageConfig(120));
+  });
+
+  it("padded A > [block, padded B > paragraphs], B fragments after a sibling", () => {
+    // A leading block sibling consumes part of A's content so B starts mid-flow,
+    // then B fragments. A reconstructs B's partial-fragment height from B's
+    // `consumedBlockSize`. Three 5-line paragraphs (80px each) overflow the page;
+    // the document spans 3 pages, exercising the nested-consumed-size path with a
+    // non-trivial leading sibling offset.
+    const b = createElementBox(
+      "B",
+      { display: "block", paddingBlockStart: 10, paddingBlockEnd: 10 } as Style,
+      [paragraph("q0", 5), paragraph("q1", 5), paragraph("q2", 5)],
+    );
+    const a = createElementBox(
+      "A",
+      { display: "block", paddingBlockStart: 10, paddingBlockEnd: 10 } as Style,
+      [fixedBlock("lead", 30), b],
+    );
+    const root = cascadeRoot({ display: "block" }, [a]);
+    assertEquivalent(root, noMarginPageConfig(120));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (j) Trailing-margin propagation for an anonymous inline-run PARTIAL fit
+// (Fix 3). When a bare inline run partial-fits at a page boundary, bfc resets
+// `prevMarginBlockEnd = 0` (bfc.ts:373) BEFORE building the partial result, so
+// the container's propagated trailing margin is 0 — NOT the bottom margin of a
+// block sibling placed before the run. The fragmenting container has
+// paddingBlockEnd > 0 so its partial-fragment height folds in the trailing
+// margin (noBottomBoundary is false), making a stale trailing margin observable
+// in the page boundary.
+// ---------------------------------------------------------------------------
+
+describe("measure-pass equivalence — (j) anon inline-run partial-fit trailing margin", () => {
+  // A leading top-level spacer (10px) makes the padded `mix` container NOT
+  // first-on-fragment, so when its partial-fragment height EXCEEDS the page
+  // remainder bfc breaks BEFORE it rather than §C.6-consuming it whole — the
+  // decision is sensitive to the partial height down to the pixel. Inside
+  // `mix`: a 10px block sibling carrying marginBlockEnd 20, then a hard-wrapped
+  // 4-line inline run. Page content 100; the spacer leaves remaining 90 for
+  // `mix`. bfc lays the run via an anonymous IFC and resets prevMarginBlockEnd
+  // to 0 (bfc.ts:373) BEFORE building the partial result, so the trailing
+  // margin folded into `mix`'s partial-fragment height (paddingBlockEnd 10 ⇒
+  // noBottomBoundary false) is 0, NOT the block's 20px margin. Reconstructed
+  // partial height: paddingStart 0 + consumed(10+20+2×16=62) + 0 + paddingEnd 10
+  // = 72 ≤ 90 ⇒ `mix` fits partially on page 0 and threads its nested resume
+  // token. A measure pass that leaves the STALE 20px margin computes 92 > 90 ⇒
+  // it would break BEFORE `mix`, pushing the whole container to page 1 — a
+  // different page plan. The oracle settles it.
+  it("padded container: block (marginBlockEnd) then HARD-wrapped run partial-fits at boundary", () => {
+    const mix = createElementBox(
+      "mix",
+      { display: "block", paddingBlockEnd: 10 } as Style,
+      [
+        fixedBlock("blk", 10, { marginBlockEnd: 20 }),
+        bareInlineRun("run", 4),
+      ],
+    );
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("spacer", 10), mix]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded container: block (marginBlockEnd) then SOFT-wrapped run partial-fits at boundary", () => {
+    // Same shape with a soft-wrapping run (page inline 600 ⇒ 38 words/line at the
+    // root content width, no inline padding on `mix`). 80 words ⇒ ceil(80/38)=
+    // 3 lines? No — we need a partial fit of exactly 2 placed lines with a
+    // genuine remainder, so size the run to >2 lines. floor((600+8)/16)=38
+    // words/line ⇒ 80 words = 3 lines (38,38,4). With remaining 60 (90 − 30)
+    // for the run, 3 lines (48) all fit — not a partial. Use a leading block
+    // that leaves remaining for exactly a 2-line partial: blk 10 + margin 20 ⇒
+    // run starts at 30 within mix, remaining 60 ⇒ floor(60/16)=3 lines would
+    // fit; we need <total. 120 words ⇒ 4 lines (38×3+6) ⇒ 3 placed, resume@3.
+    // consumed = 10+20+3×16 = 78; fixed partial = 78+0+10 = 88 ≤ 90; buggy =
+    // 78+20+10 = 108 > 90. Boundary flips. (Soft path corroborates the hard one.)
+    const mix = createElementBox(
+      "mix",
+      { display: "block", paddingBlockEnd: 10 } as Style,
+      [
+        fixedBlock("blk", 10, { marginBlockEnd: 20 }),
+        softInlineRun("run", 120),
+      ],
+    );
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("spacer", 10), mix]);
+    assertEquivalent(root, noMarginPageConfig(100, 600));
   });
 });

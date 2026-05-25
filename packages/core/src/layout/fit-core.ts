@@ -48,6 +48,63 @@ export interface BlockFitMeta {
   /** `block` (container): recursive child metas; absent for leaves. */
   readonly children?: readonly BlockFitMeta[];
 
+  /**
+   * `block` (container) only: the container's own block-axis padding. bfc insets
+   * its children's flow by `paddingBlockStart` (bfc.ts:229 — `childBlockOffset`
+   * starts there) so the children's available block-size on a fragment is
+   * `remaining − paddingBlockStart`. `paddingBlockEnd` is added to the
+   * container's consumed height AFTER all children are placed (bfc.ts:728), so
+   * it does NOT reduce the children's fragmentation space — it is carried only
+   * for the whole-fit accounting, which already lives in `totalBlockSize`.
+   *
+   * Border-block-width is deliberately NOT modeled: in this engine border does
+   * NOT shift block-axis geometry (it is absent from `childBlockOffset` and
+   * from `inFlowBlockSize`); its only role is governing margin-collapse-through
+   * via `noTopBoundary`/`noBottomBoundary`, which the §5.4 truncation already
+   * makes a no-op in the paginated path. The oracle confirms a bordered-only
+   * container produces identical boundaries to an unbordered one.
+   *
+   * Absent (0) for leaves and unpadded containers.
+   */
+  readonly paddingBlockStart?: number;
+
+  /**
+   * `block` (container) only: the container's own block-axis end padding. Added
+   * to the container's height AFTER all children are placed (bfc.ts:728/299).
+   * It is already folded into `totalBlockSize` (whole-fit path), but it ALSO
+   * inflates a fragmenting container's PARTIAL-fragment height (bfc.ts:299
+   * `childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd`), which is
+   * what the parent's §C.6 whole-block-fit overflow check compares against
+   * `remaining`. Absent (0) for leaves and containers with no end padding.
+   */
+  readonly paddingBlockEnd?: number;
+
+  /**
+   * `block` (container) only: bfc's `noBottomBoundary` — true when the container
+   * has NO block-end padding AND no block-end border (bfc.ts:224). When true,
+   * the last placed child's bottom margin is SUPPRESSED in the partial-fragment
+   * height (bfc.ts:298 `noBottomBoundary ? 0 : prevMarginBlockEnd`). This is the
+   * one place border-block-width participates — solely as a margin-collapse-
+   * through boundary, never as block-axis geometry. Absent ⇒ treated as `true`
+   * (the common no-bottom-boundary case).
+   */
+  readonly noBottomBoundary?: boolean;
+
+  /**
+   * `ifc` leaf only: distinguishes the TWO IFC-leaf shapes, which differ in the
+   * break-token nesting bfc emits.
+   *   - PARAGRAPH leaf (a block child whose own content is a single inline run):
+   *     the inline content is an anonymous IFC block at the paragraph's OWN
+   *     child index 0, so its break token is `{block i, {block 0, {ifc, L}}}`
+   *     (the flow wraps the paragraph, the paragraph wraps its anon-IFC).
+   *   - ANONYMOUS inline-run leaf (a bare inline run grouped directly inside a
+   *     mixed container): the run IS the group at flow index i, so its break
+   *     token is `{block i, {ifc, L}}` — the IFC token is the container's direct
+   *     `resumeChildToken`, with NO intermediate paragraph layer.
+   * `true` ⇒ anonymous inline-run leaf; `undefined`/`false` ⇒ paragraph leaf.
+   */
+  readonly anonymousInlineRun?: boolean;
+
   /** `ifc` leaf: per-line block-sizes (line heights), in order. */
   readonly lineBlockSizes?: readonly number[];
   /** `ifc` leaf: CSS `orphans` (min lines kept at fragment bottom). */
@@ -79,6 +136,24 @@ export interface FitPageResult {
   readonly resumeOut: BreakToken | null;
   /** Ordered-list counter value after this page (seed for the next page). */
   readonly listCounterAtEnd: number;
+  /**
+   * In-flow block-size consumed by this flow on this page — the recursion's
+   * `runningOffset` at the moment it returned. A PARENT container reads this to
+   * reconstruct the bfc partial-fragment height of a fragmenting child container
+   * (`paddingBlockStart + consumedBlockSize + trailingMarginBlockEnd +
+   * paddingBlockEnd`, bfc.ts:298–299), so it can run the same §C.6
+   * whole-block-fit / overflow check bfc does at bfc.ts:626–642. Does NOT
+   * include the flow's own padding (the flow models a container's *children*;
+   * the parent adds the container's padding).
+   */
+  readonly consumedBlockSize: number;
+  /**
+   * Bottom margin of the last in-flow child placed on this page (`prevMarginBlockEnd`
+   * at return). Folded into the partial-fragment height by a parent container
+   * whose own bottom boundary does not suppress it (bfc.ts:298
+   * `noBottomBoundary ? 0 : prevMarginBlockEnd`).
+   */
+  readonly trailingMarginBlockEnd: number;
 }
 
 /** Result of fitting lines of one IFC leaf into the remaining page space. */
@@ -276,9 +351,34 @@ function fitOnePageRecursive(
   let childrenCount = 0; // whole blocks fully consumed on this page
   let prevMarginBlockEnd = 0;
 
+  // Stamp every FitPageResult with the in-flow block-size consumed so far
+  // (`runningOffset`) and the last child's bottom margin (`prevMarginBlockEnd`),
+  // read at return time. A PARENT container uses these to reconstruct bfc's
+  // partial-fragment height for a fragmenting child container (see
+  // `FitPageResult.consumedBlockSize`). `checkBreakAfter` returns are stamped at
+  // their call sites (it runs after the consume that advanced `runningOffset`).
+  const finish = (
+    partial: Omit<FitPageResult, "consumedBlockSize" | "trailingMarginBlockEnd">,
+  ): FitPageResult => ({
+    ...partial,
+    consumedBlockSize: runningOffset,
+    trailingMarginBlockEnd: prevMarginBlockEnd,
+  });
+
   for (let i = effectiveStartIndex; i < metas.length; i++) {
     const meta = metas[i];
     const fragmentHasContent = childrenCount > 0;
+
+    // An ANONYMOUS inline-run leaf participates in NO margin collapse. bfc lays
+    // its synthesized anonymous IFC block directly at `childBlockOffset`
+    // (bfc.ts:355) — the inline-run branch (bfc.ts:318–386) does NOT run the
+    // `Math.max(prevMarginBlockEnd, childMarginBlockStart)` advance the block-
+    // child branch does (bfc.ts:480–484), so the preceding sibling's bottom
+    // margin is simply DROPPED (not collapsed into the run), and the run carries
+    // no bottom margin out (bfc sets `prevMarginBlockEnd = 0` at bfc.ts:373). A
+    // PARAGRAPH IFC leaf (anon = false) is a real block child and DOES collapse
+    // margins normally, so this skip is gated on `anonymousInlineRun`.
+    const isAnonInlineRun = meta.anonymousInlineRun === true;
 
     // §5.4 first-on-fragment top-margin truncation (bfc.ts:466–468): the first
     // child placed on a fresh fragment has its top margin truncated to 0.
@@ -290,8 +390,14 @@ function fitOnePageRecursive(
     // Advance the running offset by the collapsed/truncated margin
     // (bfc.ts:480–484). No clearance (floats out of scope). The first child of
     // a fragment already had `childMarginBlockStart` truncated to 0 by §5.4
-    // above, so its advance is 0 regardless of the flow's top boundary.
-    if (fragmentHasContent) {
+    // above, so its advance is 0 regardless of the flow's top boundary. An
+    // anonymous inline-run leaf is laid flush (no margin advance, see above).
+    if (isAnonInlineRun) {
+      // No advance; also drop the preceding sibling's pending bottom margin so
+      // it does not flow past the run into the NEXT sibling's collapse (bfc
+      // resets prevMarginBlockEnd to 0 the moment it lays the anonymous IFC).
+      prevMarginBlockEnd = 0;
+    } else if (fragmentHasContent) {
       runningOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     } else {
       runningOffset += childMarginBlockStart;
@@ -305,13 +411,13 @@ function fitOnePageRecursive(
     // Only fires when the fragment already has content; a forced break cannot
     // occur before the first piece of content on a fragment.
     if (meta.breakBefore === "page" && fragmentHasContent) {
-      return {
+      return finish({
         childrenCount,
         resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
         // Roll back the list contribution we just counted — this child is NOT
         // consumed on this page; its counter belongs to the next page's seed.
         listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-      };
+      });
     }
 
     // --- Per-child fit. ---
@@ -321,14 +427,23 @@ function fitOnePageRecursive(
     const leafResumeToken = i === effectiveStartIndex ? firstChildResumeToken : null;
 
     if (meta.kind === "ifc") {
-      // An ifc-leaf meta models a PARAGRAPH block whose inline content forms a
-      // single anonymous IFC group at the paragraph's child index 0 (bfc.ts:320
-      // synthesizes that anonymous block). So the paragraph's own break token is
-      // `{block, resumeChildIndex:0, resumeChildToken:{ifc, resumeAtLine}}`, and
-      // the resume token THIS flow threads in (`leafResumeToken`) is that
-      // paragraph-level block token — one level deeper than a bare IFC token.
+      // An ifc-leaf meta is one of TWO shapes (see `BlockFitMeta.anonymousInlineRun`):
+      //   - PARAGRAPH leaf: a block child whose inline content forms a single
+      //     anonymous IFC group at the paragraph's child index 0 (bfc.ts:320).
+      //     Its break token is `{block i, {block 0, {ifc, L}}}` — the resume
+      //     token THIS flow threads in (`leafResumeToken`) is that paragraph-
+      //     level block token, one level deeper than a bare IFC token.
+      //   - ANONYMOUS inline-run leaf: a bare inline run grouped directly inside
+      //     a mixed container (bfc.ts:320–386). The run IS the group at flow
+      //     index i, so bfc emits the IFC token as the container's DIRECT
+      //     `resumeChildToken` (`{block i, {ifc, L}}`), with no paragraph layer.
+      const isAnonRun = meta.anonymousInlineRun === true;
       const lineSizes = meta.lineBlockSizes ?? [];
-      const startLine = ifcResumeAtLineFromParagraphToken(leafResumeToken);
+      const startLine = isAnonRun
+        ? bareIfcResumeAtLine(leafResumeToken)
+        : ifcResumeAtLineFromParagraphToken(leafResumeToken);
+      const makeIfcResumeToken = (resumeAtLine: number): BreakToken =>
+        isAnonRun ? { type: "ifc", resumeAtLine } : paragraphIfcToken(resumeAtLine);
       const fit = fitLinesInIFC(
         lineSizes,
         meta.lineEndsWithHyphen,
@@ -361,14 +476,14 @@ function fitOnePageRecursive(
           prevMarginBlockEnd = meta.marginBlockEnd;
           childrenCount++;
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-          if (afterBreak !== null) return afterBreak;
+          if (afterBreak !== null) return finish(afterBreak);
           continue;
         }
-        return {
+        return finish({
           childrenCount,
           resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-        };
+        });
       }
 
       if (fit.placedLineCount === 0) {
@@ -381,22 +496,40 @@ function fitOnePageRecursive(
           childrenCount++;
           // break-after still applies after a consumed block.
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-          if (afterBreak !== null) return afterBreak;
+          if (afterBreak !== null) return finish(afterBreak);
           continue;
         }
-        return {
+        return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: paragraphIfcToken(startLine) },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: makeIfcResumeToken(startLine) },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-        };
+        });
       }
       if (fit.resumeAtLine !== null) {
         // Partial IFC fit → this child is the last on the page (bfc.ts:376–382).
-        return {
+        // Advance `runningOffset` by the PLACED lines' heights so a parent
+        // container's `consumedBlockSize` is exact (bfc.ts:372 advances
+        // `childBlockOffset` by the partial IFC box height before propagating the
+        // break).
+        //
+        // Trailing margin out of this partial fragment, by leaf shape:
+        //   - ANONYMOUS inline-run leaf: `prevMarginBlockEnd` was already zeroed
+        //     in the pre-advance step above (bfc resets it to 0 the moment it
+        //     lays the anonymous IFC, bfc.ts:373), so the container's
+        //     reconstructed partial-fragment height carries NO trailing margin —
+        //     never the preceding block sibling's stale bottom margin.
+        //   - PARAGRAPH leaf (anon = false): bfc does NOT reset `prevMarginBlockEnd`
+        //     before propagating a paragraph's partial token, so we leave it
+        //     unchanged — the previous sibling's bottom margin is preserved, as in
+        //     bfc.
+        let placedUsed = 0;
+        for (let li = startLine; li < startLine + fit.placedLineCount; li++) placedUsed += lineSizes[li];
+        runningOffset += placedUsed;
+        return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: paragraphIfcToken(fit.resumeAtLine) },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: makeIfcResumeToken(fit.resumeAtLine) },
           listCounterAtEnd: listCounter,
-        };
+        });
       }
       // All remaining lines fit. Advance by the consumed line heights.
       let used = 0;
@@ -405,7 +538,7 @@ function fitOnePageRecursive(
       prevMarginBlockEnd = meta.marginBlockEnd;
       childrenCount++;
       const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-      if (afterBreak !== null) return afterBreak;
+      if (afterBreak !== null) return finish(afterBreak);
       continue;
     }
 
@@ -423,21 +556,27 @@ function fitOnePageRecursive(
           prevMarginBlockEnd = meta.marginBlockEnd;
           childrenCount++;
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-          if (afterBreak !== null) return afterBreak;
+          if (afterBreak !== null) return finish(afterBreak);
           continue;
         }
-        return {
+        return finish({
           childrenCount,
           resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: startRow } },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-        };
+        });
       }
       if (fit.resumeAtRow !== null) {
-        return {
+        // Advance `runningOffset` by the PLACED rows' heights so a parent
+        // container's `consumedBlockSize` is exact (mirrors the partial-IFC case
+        // above). The fragmenting table carries no trailing margin.
+        let placedRowsUsed = 0;
+        for (let ri = startRow; ri < startRow + fit.placedRowCount; ri++) placedRowsUsed += rowSizes[ri];
+        runningOffset += placedRowsUsed;
+        return finish({
           childrenCount,
           resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: fit.resumeAtRow } },
           listCounterAtEnd: listCounter,
-        };
+        });
       }
       let used = 0;
       for (let ri = startRow; ri < startRow + fit.placedRowCount; ri++) used += rowSizes[ri];
@@ -445,7 +584,7 @@ function fitOnePageRecursive(
       prevMarginBlockEnd = meta.marginBlockEnd;
       childrenCount++;
       const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-      if (afterBreak !== null) return afterBreak;
+      if (afterBreak !== null) return finish(afterBreak);
       continue;
     }
 
@@ -456,6 +595,13 @@ function fitOnePageRecursive(
     const childResume =
       leafResumeToken !== null && leafResumeToken.type === "block" ? leafResumeToken : null;
     const childChildren = meta.children ?? [];
+    // bfc insets the container's children by `paddingBlockStart` (bfc.ts:229/350/
+    // 540): the children's available block-size is `remaining − paddingBlockStart`.
+    // `paddingBlockEnd` is added to the container height AFTER all children are
+    // placed (bfc.ts:728), so it does NOT reduce the children's fragmentation
+    // space and is folded into `totalBlockSize` for the whole-fit path below.
+    const containerPaddingBlockStart = meta.paddingBlockStart ?? 0;
+    const childAvailable = remaining - containerPaddingBlockStart;
     // The recursion relies on the §5.4 truncation (which always zeroes the first
     // child of a fresh fragment) for the page-break-relevant first-child margin
     // case — matching bfc, which truncates the first child of every fragment
@@ -464,38 +610,82 @@ function fitOnePageRecursive(
       childChildren,
       0,
       childResume,
-      remaining,
+      childAvailable,
       listCounter,
     );
 
-    // Determine the container's consumed height on this page. When the
-    // container fragmented (resumeOut !== null) it consumed exactly `remaining`
-    // (it filled to the page bottom); when it fit fully, it consumed its
-    // totalBlockSize.
+    // When the container fragmented (resumeOut !== null), reconstruct the bfc
+    // PARTIAL-fragment height of the container box (bfc.ts:298–299):
+    //   childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd
+    // where childBlockOffset = paddingBlockStart + children's consumed offset
+    // and lastMarginBlockEndPartial = noBottomBoundary ? 0 : prevMarginBlockEnd.
+    // bfc's per-child whole-block-fit check (bfc.ts:626–642) compares THIS
+    // partial height against `remaining` BEFORE the break-inside / nested-resume
+    // handling — a padded/bordered container's bottom padding can push the
+    // partial over the page bottom, triggering §C.6 the same way an oversized
+    // leaf does.
     if (childResult.resumeOut !== null) {
-      // Container fragmented across the page boundary. bfc.ts:645–673:
-      // break-inside:avoid → discard partial, push whole (or §C.6 overflow if
-      // first-on-fragment); otherwise the container is the last on the page.
+      const containerPaddingBlockEnd = meta.paddingBlockEnd ?? 0;
+      // Default true: an absent flag means no bottom boundary (the common case),
+      // so the trailing margin is suppressed.
+      const noBottomBoundary = meta.noBottomBoundary ?? true;
+      const lastMarginBlockEndPartial = noBottomBoundary ? 0 : childResult.trailingMarginBlockEnd;
+      const partialContainerHeight =
+        containerPaddingBlockStart +
+        childResult.consumedBlockSize +
+        lastMarginBlockEndPartial +
+        containerPaddingBlockEnd;
+
+      // bfc.ts:626–642 whole-block fit check on the PARTIAL box height. When it
+      // overflows `remaining`, the partial fragment is treated like an oversized
+      // child: §C.6 consume-the-partial-whole when first-on-fragment (the
+      // container's inner resume token is DISCARDED — bfc pushes the partial box
+      // and `continue`s, bfc.ts:630–634), else break BEFORE this container.
+      if (partialContainerHeight > remaining) {
+        if (!fragmentHasContent) {
+          runningOffset += partialContainerHeight;
+          prevMarginBlockEnd = meta.marginBlockEnd;
+          childrenCount++;
+          listCounter = childResult.listCounterAtEnd;
+          const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
+          if (afterBreak !== null) return finish(afterBreak);
+          continue;
+        }
+        return finish({
+          childrenCount,
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
+          listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
+        });
+      }
+
+      // Partial fits. bfc.ts:645–673: break-inside:avoid → discard partial, push
+      // whole (or §C.6 overflow if first-on-fragment); otherwise the container is
+      // the last on the page and threads its nested resume token.
       if (meta.breakInsideAvoid) {
         if (!fragmentHasContent) {
-          // §C.6 overflow-consume-whole (bfc.ts:653–658).
+          // §C.6 overflow-consume-whole (bfc.ts:653–658): re-lay the WHOLE
+          // container unfragmented → its `totalBlockSize`.
           runningOffset += meta.totalBlockSize;
           prevMarginBlockEnd = meta.marginBlockEnd;
           childrenCount++;
           listCounter = childResult.listCounterAtEnd;
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-          if (afterBreak !== null) return afterBreak;
+          if (afterBreak !== null) return finish(afterBreak);
           continue;
         }
-        return {
+        return finish({
           childrenCount,
           resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-        };
+        });
       }
       // Container is the last block on this page; thread its nested resume.
-      // Its list contribution counts (the items it placed are consumed).
-      return {
+      // Its list contribution counts (the items it placed are consumed). Advance
+      // `runningOffset` by the partial height so `consumedBlockSize` is exact for
+      // a grandparent container (this flow may itself be nested).
+      runningOffset += partialContainerHeight;
+      prevMarginBlockEnd = meta.marginBlockEnd;
+      return finish({
         childrenCount,
         resumeOut: {
           type: "block",
@@ -509,7 +699,7 @@ function fitOnePageRecursive(
           },
         },
         listCounterAtEnd: childResult.listCounterAtEnd,
-      };
+      });
     }
 
     // Container fit fully. Whole-block fit check (bfc.ts:626–642).
@@ -521,14 +711,14 @@ function fitOnePageRecursive(
         childrenCount++;
         listCounter = childResult.listCounterAtEnd;
         const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-        if (afterBreak !== null) return afterBreak;
+        if (afterBreak !== null) return finish(afterBreak);
         continue;
       }
-      return {
+      return finish({
         childrenCount,
         resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: null },
         listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
-      };
+      });
     }
 
     // Fits fully.
@@ -537,11 +727,11 @@ function fitOnePageRecursive(
     childrenCount++;
     listCounter = childResult.listCounterAtEnd;
     const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
-    if (afterBreak !== null) return afterBreak;
+    if (afterBreak !== null) return finish(afterBreak);
   }
 
   // All blocks consumed — document (or container) end.
-  return { childrenCount, resumeOut: null, listCounterAtEnd: listCounter };
+  return finish({ childrenCount, resumeOut: null, listCounterAtEnd: listCounter });
 }
 
 /**
@@ -586,6 +776,19 @@ function ifcResumeAtLineFromParagraphToken(token: BreakToken | null): number {
 }
 
 /**
+ * Extract the IFC resume line from a BARE `{ifc}` token threaded to an anonymous
+ * inline-run leaf (no intermediate paragraph layer — see
+ * `BlockFitMeta.anonymousInlineRun`). The container threads its direct
+ * `resumeChildToken`, which for an anonymous inline-run group is the IFC token
+ * itself. Returns 0 when there is no resume state.
+ */
+function bareIfcResumeAtLine(token: BreakToken | null): number {
+  if (token === null) return 0;
+  if (token.type === "ifc") return token.resumeAtLine;
+  return 0;
+}
+
+/**
  * Recursively accumulate the ordered-list counter contribution of `meta`:
  * +1 if it is a `list-item`, plus the contribution of every descendant
  * list-item (a container's nested list items, walked in order). Mirrors the
@@ -602,8 +805,9 @@ function accumulateListCounter(meta: BlockFitMeta, counter: number): number {
 
 /**
  * break-after:page handling (bfc.ts:711–724). Only fires when more children
- * remain in this flow. Returns a FitPageResult to STOP the page, or null to
- * continue. `childrenCount` already includes the just-consumed child.
+ * remain in this flow. Returns a PARTIAL result (the caller's `finish` closure
+ * stamps `consumedBlockSize` / `trailingMarginBlockEnd`) to STOP the page, or
+ * `null` to continue. `childrenCount` already includes the just-consumed child.
  */
 function checkBreakAfter(
   meta: BlockFitMeta,
@@ -611,7 +815,7 @@ function checkBreakAfter(
   total: number,
   childrenCount: number,
   listCounter: number,
-): FitPageResult | null {
+): Omit<FitPageResult, "consumedBlockSize" | "trailingMarginBlockEnd"> | null {
   if (meta.breakAfter !== "page") return null;
   const hasMoreChildren = index + 1 < total;
   if (!hasMoreChildren) return null;

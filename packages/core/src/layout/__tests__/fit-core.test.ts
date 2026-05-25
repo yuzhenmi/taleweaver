@@ -173,7 +173,7 @@ describe("fitRowsInTable (fit-core, table E.1)", () => {
 describe("fitOnePage (fit-core, block packing)", () => {
   it("packs whole blocks that fit; resumeOut null at doc end", () => {
     const metas = [blockMeta(50), blockMeta(50), blockMeta(50)];
-    expect(fitOnePage(metas, 0, null, 1000, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 1000, 0)).toMatchObject({
       childrenCount: 3,
       resumeOut: null,
       listCounterAtEnd: 0,
@@ -183,7 +183,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
   it("stops at the first whole block that doesn't fit (non-empty fragment)", () => {
     // 100 each; page 250 ⇒ 2 fit, 3rd breaks.
     const metas = [blockMeta(100), blockMeta(100), blockMeta(100)];
-    expect(fitOnePage(metas, 0, null, 250, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 250, 0)).toMatchObject({
       childrenCount: 2,
       resumeOut: { type: "block", resumeChildIndex: 2, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -194,7 +194,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
     const metas = [blockMeta(1000), blockMeta(1000)];
     // First block 1000 > page 500 but it's first-on-fragment ⇒ consumed whole;
     // second can't fit after ⇒ break at index 1.
-    expect(fitOnePage(metas, 0, null, 500, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 500, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: { type: "block", resumeChildIndex: 1, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -207,7 +207,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
     const m = (h: number) => blockMeta(h, { marginBlockStart: 20, marginBlockEnd: 30 });
     // offsets: 0 (1st top truncated) +80 = 80; +max(30,20)=30 → 110 +80 = 190;
     // +30 → 220 +80 = 300. page 220 fits exactly 2 (190 then 3rd would be 300).
-    expect(fitOnePage([m(80), m(80), m(80)], 0, null, 220, 0)).toEqual({
+    expect(fitOnePage([m(80), m(80), m(80)], 0, null, 220, 0)).toMatchObject({
       childrenCount: 2,
       resumeOut: { type: "block", resumeChildIndex: 2, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -223,7 +223,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
     // 0+80=80; +max(40,40)=40 →120 +80 =200. page 200 fits 2 exactly; a 3rd
     // would start at 200+40=240 > 200.
     const m = (h: number) => blockMeta(h, { marginBlockStart: 40, marginBlockEnd: 40 });
-    expect(fitOnePage([m(80), m(80), m(80)], 0, null, 200, 0)).toEqual({
+    expect(fitOnePage([m(80), m(80), m(80)], 0, null, 200, 0)).toMatchObject({
       childrenCount: 2,
       resumeOut: { type: "block", resumeChildIndex: 2, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -232,7 +232,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
 
   it("break-before:page on a non-first child forces a break at that child", () => {
     const metas = [blockMeta(50), blockMeta(50, { breakBefore: "page" }), blockMeta(50)];
-    expect(fitOnePage(metas, 0, null, 1000, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 1000, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: { type: "block", resumeChildIndex: 1, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -241,7 +241,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
 
   it("break-before:page on the first child of a fragment is a no-op", () => {
     const metas = [blockMeta(50, { breakBefore: "page" }), blockMeta(50)];
-    expect(fitOnePage(metas, 0, null, 1000, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 1000, 0)).toMatchObject({
       childrenCount: 2,
       resumeOut: null,
       listCounterAtEnd: 0,
@@ -250,7 +250,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
 
   it("break-after:page forces the NEXT child to a new page", () => {
     const metas = [blockMeta(50, { breakAfter: "page" }), blockMeta(50)];
-    expect(fitOnePage(metas, 0, null, 1000, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 1000, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: { type: "block", resumeChildIndex: 1, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -260,7 +260,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
   it("ifc leaf fragments → nested paragraph-level resumeChildToken", () => {
     // 10 lines × 16 = 160; page 100 ⇒ 6 lines (96), resume at line 6.
     const metas = [ifcMeta(10, 16)];
-    expect(fitOnePage(metas, 0, null, 100, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 100, 0)).toMatchObject({
       childrenCount: 0,
       resumeOut: {
         type: "block",
@@ -279,7 +279,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
       resumeChildToken: { type: "block" as const, resumeChildIndex: 0, resumeChildToken: { type: "ifc" as const, resumeAtLine: 6 } },
     };
     // Remaining 4 lines (6..9) × 16 = 64, fits in page 100 ⇒ done.
-    expect(fitOnePage(metas, 0, resumeInto, 100, 0)).toEqual({
+    expect(fitOnePage(metas, 0, resumeInto, 100, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: null,
       listCounterAtEnd: 0,
@@ -289,7 +289,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
   it("break-inside:avoid ifc leaf pushed whole to next page (non-empty fragment)", () => {
     // b0 fills 96 of 100; p1 (avoid, 4 lines × 16 = 64) won't fit ⇒ pushed whole.
     const metas = [blockMeta(96), ifcMeta(4, 16, { breakInsideAvoid: true })];
-    expect(fitOnePage(metas, 0, null, 100, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 100, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: { type: "block", resumeChildIndex: 1, resumeChildToken: null },
       listCounterAtEnd: 0,
@@ -300,7 +300,7 @@ describe("fitOnePage (fit-core, block packing)", () => {
     // 30 lines × 16 = 480 > page 200; avoid + first-on-fragment ⇒ overflow whole,
     // no break.
     const metas = [ifcMeta(30, 16, { breakInsideAvoid: true })];
-    expect(fitOnePage(metas, 0, null, 200, 0)).toEqual({
+    expect(fitOnePage(metas, 0, null, 200, 0)).toMatchObject({
       childrenCount: 1,
       resumeOut: null,
       listCounterAtEnd: 0,
@@ -346,6 +346,48 @@ describe("fitOnePage (fit-core, block packing)", () => {
       resumeChildToken: {
         type: "block",
         resumeChildIndex: 3,
+        resumeChildToken: { type: "block", resumeChildIndex: 0, resumeChildToken: { type: "ifc", resumeAtLine: 0 } },
+      },
+    });
+  });
+
+  it("padded container fragment: outer consumedBlockSize folds in the container's block padding", () => {
+    // A leading spacer (30px) then a padded container so the container is NOT
+    // first-on-fragment (it threads a nested resume token rather than being
+    // §C.6-consumed). Container: paddingBlockStart/End 10 each, two 2-line ifc
+    // paragraphs (32px each). Page content 100.
+    //
+    // spacer 0..30 ⇒ runningOffset 30. Container (marginStart 0, no advance):
+    //   childAvailable = (100 − 30) − paddingBlockStart 10 = 60.
+    //   para0 (32) fits 0..32; para1: remaining 60−32=28 ⇒ 1 line fits but widows
+    //   (2) force pushing the whole paragraph ⇒ break at child idx 1, the inner
+    //   flow consumed 32.
+    // Reconstructed partial container height = paddingStart 10 + consumed 32 +
+    //   trailingMargin 0 (paddingBlockEnd 10 ⇒ noBottomBoundary false, but the
+    //   last placed child is an anon-free paragraph leaf carrying no margin) +
+    //   paddingEnd 10 = 52, which fits in remaining 70 ⇒ container is last on the
+    //   page. The OUTER flow's consumedBlockSize = 30 (spacer) + 52 = 82 — the
+    //   container's own block padding (20) is folded in, NOT dropped. This pins
+    //   `FitPageResult.consumedBlockSize` for a padded fragmenting container by
+    //   value (the field a grandparent reads to reconstruct ITS partial height).
+    const spacer = blockMeta(30);
+    const padded = blockMeta(10 + 64 + 10, {
+      children: [ifcMeta(2, 16), ifcMeta(2, 16)],
+      paddingBlockStart: 10,
+      paddingBlockEnd: 10,
+      noBottomBoundary: false,
+    });
+    const result = fitOnePage([spacer, padded], 0, null, 100, 0);
+    expect(result.childrenCount).toBe(1); // only the spacer is a whole block
+    expect(result.consumedBlockSize).toBe(82);
+    expect(result.trailingMarginBlockEnd).toBe(0);
+    // Container threads its nested paragraph resume token (last block on page).
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 1,
+      resumeChildToken: {
+        type: "block",
+        resumeChildIndex: 1,
         resumeChildToken: { type: "block", resumeChildIndex: 0, resumeChildToken: { type: "ifc", resumeAtLine: 0 } },
       },
     });

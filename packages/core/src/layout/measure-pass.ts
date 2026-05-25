@@ -16,8 +16,6 @@ import type { BreakToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { PageConfig } from "./page-config";
-import { groupChildren } from "./group-children";
-import type { ComputedLength } from "../styles/length";
 
 /** One page's boundary decision (plain data; no positioned boxes). */
 export interface PagePlanEntry {
@@ -231,25 +229,15 @@ function pageIndexAtBlockOffset(
 /**
  * Recursive detection of any document feature the measure pass / fit-core
  * cannot reproduce, so callers can route such documents to the legacy full
- * positioned layout. Returns `true` (UNSUPPORTED) for any of:
+ * positioned layout. Returns `true` (UNSUPPORTED) for:
  *
- *   1. `float` / `clear` — break decisions become non-local (shared float
- *      environment); OUT OF SCOPE for v1 (design §"Out of scope for v1").
- *   2. A CONTAINER block (a block element with block-level element children)
- *      that has block-axis padding or border > 0. `fitOnePage`'s recursion
- *      threads the parent's `remaining` straight into the container's children
- *      without subtracting the container's own block-axis padding/border, so
- *      the available space for the children is overstated. A LEAF paragraph
- *      with padding is FINE — its padding is folded into its own
- *      `totalBlockSize` / line heights, with no recursion to mis-budget — so
- *      only container blocks are flagged. (Phase-3 prerequisite #254.)
- *   3. A block element with MIXED content — BOTH block-level element children
- *      AND text / inline children. `buildBlockFitMetas` walks only the block
- *      children and drops the bare inline runs, so the container's metas omit
- *      real content. (Phase-3 prerequisite #253.)
+ *   `float` / `clear` — break decisions become non-local (shared float
+ *   environment); OUT OF SCOPE for v1 (design §"Out of scope for v1").
  *
- * Tasks #253 (mixed content) and #254 (padded/bordered container) will teach
- * the measure pass to model these cases, shrinking this fallback.
+ * Mixed block+inline container content (handled: #253) and padded/bordered
+ * containers (handled: #254) are now modeled by `buildBlockFitMetas` /
+ * `fitOnePage` and oracle-proven equivalent to `paginateRoot`, so they are no
+ * longer flagged.
  *
  * NOTE: this is an O(N) walk. The design calls for a cheap rolled-up cascade
  * flag on the hot path; that rollup is a separate task. This helper is the
@@ -264,46 +252,13 @@ export function measurePassUnsupported(cascadedRoot: RenderNode): boolean {
 function elementUnsupported(node: ElementBox): boolean {
   const cs = node.computedStyle;
   if (cs !== undefined) {
-    // (1) float / clear.
+    // float / clear: non-local break decisions, out of scope for v1.
     if (cs.float === "inline-start" || cs.float === "inline-end") return true;
     if (cs.clear !== "none") return true;
-  }
-
-  // Classify this element's content the same way `buildBlockFitMetas` does.
-  const groups = groupChildren(node);
-  const hasBlockChild = groups.some((g) => g.kind === "block");
-  const hasInlineRun = groups.some((g) => g.kind === "inline-run");
-
-  if (hasBlockChild) {
-    // (3) mixed content: a container that ALSO has bare inline/text children.
-    if (hasInlineRun) return true;
-
-    // (2) padded/bordered container: block-axis padding or border > 0 on a
-    // block element with block children. Skip `display: table` (its FC budgets
-    // padding/border itself; it is a leaf in `buildBlockFitMetas`). Read the
-    // COMPUTED values directly (unit-agnostic) so a non-zero PERCENT padding is
-    // also caught — resolving against a containing inline-size we don't have
-    // here would falsely zero it.
-    if (cs !== undefined && cs.display !== "table") {
-      if (
-        lengthIsNonZero(cs.paddingBlockStart) ||
-        lengthIsNonZero(cs.paddingBlockEnd) ||
-        cs.borderBlockStartWidth > 0 ||
-        cs.borderBlockEndWidth > 0
-      ) {
-        return true;
-      }
-    }
   }
 
   for (const child of node.children) {
     if (child.type === "element" && elementUnsupported(child)) return true;
   }
   return false;
-}
-
-/** A computed length is non-zero if it is a non-zero px number OR a non-zero percent. */
-function lengthIsNonZero(value: ComputedLength): boolean {
-  if (typeof value === "number") return value > 0;
-  return value.value > 0;
 }

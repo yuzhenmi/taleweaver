@@ -3,8 +3,8 @@
 // Direct unit tests for `measurePass` + `measurePassUnsupported`. The broad
 // oracle-driven equivalence suite lives in `measure-pass-equivalence.test.ts`;
 // these assert the plan SHAPE (offsets, slices, resume tokens, totals) and the
-// unsupported-doc fallback detector (float/clear, padded container, mixed
-// content) on hand-built inputs.
+// unsupported-doc fallback detector (now ONLY float/clear — padded/bordered
+// containers and mixed content are modeled per #253/#254) on hand-built inputs.
 
 import { describe, it, expect } from "vitest";
 import { measurePass, measurePassUnsupported } from "../measure-pass";
@@ -278,25 +278,27 @@ describe("measurePassUnsupported", () => {
     expect(measurePassUnsupported(root)).toBe(true);
   });
 
-  // --- (2) padded / bordered CONTAINER (block element with block children). ---
+  // --- (2) padded / bordered CONTAINER — now SUPPORTED (#254 handled). ---
+  // `buildBlockFitMetas` / `fitOnePage` model block-axis padding (and the
+  // border margin-collapse boundary); oracle-proven equivalent to paginateRoot.
 
-  it("true for a container with block-axis padding > 0 (#254)", () => {
+  it("false for a container with block-axis padding > 0 (#254 handled)", () => {
     const container = createElementBox("c", { display: "block", paddingBlockStart: 12 } as Style, [
       para("p0"),
       para("p1"),
     ]);
     const root = cascade({ display: "block" }, [container]);
-    expect(measurePassUnsupported(root)).toBe(true);
+    expect(measurePassUnsupported(root)).toBe(false);
   });
 
-  it("true for a container with a block-axis border > 0 (#254)", () => {
+  it("false for a container with a block-axis border > 0 (#254 handled)", () => {
     const container = createElementBox(
       "c",
       { display: "block", borderBlockEndWidth: 3, borderBlockEndStyle: "solid" } as Style,
       [para("p0"), para("p1")],
     );
     const root = cascade({ display: "block" }, [container]);
-    expect(measurePassUnsupported(root)).toBe(true);
+    expect(measurePassUnsupported(root)).toBe(false);
   });
 
   it("false for a LEAF paragraph with padding (padding folds into its own height)", () => {
@@ -316,21 +318,31 @@ describe("measurePassUnsupported", () => {
     expect(measurePassUnsupported(root)).toBe(false);
   });
 
-  // --- (3) MIXED content (block element with BOTH block AND inline children). ---
+  // --- (3) MIXED content — now SUPPORTED (#253 handled). ---
+  // `buildBlockFitMetas` mirrors `groupChildren`, emitting an ifc-leaf meta for
+  // each bare inline run; oracle-proven equivalent to paginateRoot.
 
-  it("true for a block element with both block and inline children (#253)", () => {
-    // A container holding a paragraph (block) AND a bare text run (inline):
-    // buildBlockFitMetas walks only the block child and drops the inline run.
+  it("false for a block element with both block and inline children (#253 handled)", () => {
     const mixed = createElementBox("m", { display: "block" } as Style, [
       para("p0"),
       createTextBox("loose-t", {}, "bare inline text"),
     ]);
     const root = cascade({ display: "block" }, [mixed]);
-    expect(measurePassUnsupported(root)).toBe(true);
+    expect(measurePassUnsupported(root)).toBe(false);
   });
 
   it("false for a pure-inline paragraph (only text children, no block children)", () => {
     const root = cascade({ display: "block" }, [para("p0")]);
     expect(measurePassUnsupported(root)).toBe(false);
+  });
+
+  it("true for a floated descendant inside a padded container (only float/clear unsupported)", () => {
+    // Padding alone is now supported; the float is what still routes to legacy.
+    const container = createElementBox("c", { display: "block", paddingBlockStart: 12 } as Style, [
+      para("p0"),
+      createElementBox("f", { display: "block", float: "inline-start" } as Style, []),
+    ]);
+    const root = cascade({ display: "block" }, [container]);
+    expect(measurePassUnsupported(root)).toBe(true);
   });
 });
