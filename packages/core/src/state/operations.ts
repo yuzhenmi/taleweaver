@@ -24,3 +24,11 @@ export { mergeAdjacentBlocks } from "./merge-blocks";
 export { deleteRange } from "./delete-range";
 export { replaceRange } from "./replace-range";
 export { clonePastedSubtree, type ClonedSubtree } from "./clone-pasted-subtree";
+export {
+  reparentChildren,
+  computeReparentWrites,
+  planReparentChildren,
+  reparentChildrenInTx,
+  type BlockFieldWrite,
+  type ReparentPlan,
+} from "./reparent-children";
