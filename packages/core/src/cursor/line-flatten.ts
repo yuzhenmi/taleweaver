@@ -146,9 +146,13 @@ export function getLineIndex(root: LayoutBox): LineIndex {
  * type (TextRunBox for text-runs, InlineBlockBox for inline-blocks),
  * so consumers can access `box.text` etc. without casts.
  *
- * `offsetContribution` matches the IFC's per-token accumulator rule:
- * `text.length` for text-runs, `1` for inline-blocks (state-model
- * embed). Summed across leaves, the total equals the line's
+ * `offsetContribution` is the STATE-character span this leaf owns,
+ * matching the IFC's per-token accumulator rule: a text-run's
+ * `offsetLength` (≥ its rendered `text.length` — strictly greater when
+ * trailing collapsed whitespace was absorbed into the run, so cursor
+ * offsets after a collapsed double space stay aligned with state
+ * offsets), and `1` for an inline-block (state-model embed). Summed
+ * across leaves, the total equals the line's
  * `inlineOffsetEnd - inlineOffsetStart`.
  */
 export type LineLeaf =
@@ -242,7 +246,9 @@ function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): voi
       absoluteX: parentX + box.x,
       width: box.width,
       computedStyle: box.computedStyle,
-      offsetContribution: box.text.length,
+      // STATE-char span, not rendered text.length: a run that absorbed
+      // trailing collapsed whitespace owns more offsets than it renders.
+      offsetContribution: box.offsetLength,
     });
     return;
   }

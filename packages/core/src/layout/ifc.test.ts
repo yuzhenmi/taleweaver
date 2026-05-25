@@ -785,6 +785,88 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     if (firstChild.type !== "text-run") throw new Error();
     expect(firstChild.text).toBe("fgh");
   });
+
+  it("hyphen split of a word adjacent to a collapsed double space keeps the source-length invariant (no NaN)", () => {
+    // "abcdefgh  ij": the word "abcdefgh" (8 chars) is immediately followed by
+    // a DOUBLE space that collapses to one rendered space under white-space:
+    // normal. The word's wrap unit therefore carries a trailing space token
+    // whose sourceLength is 2 (it absorbed the collapsed-away char) — so the
+    // unit's source span (10) exceeds its rendered text length.
+    //
+    // At width 60 the hyphen break fires (prefix "abcde-" = 60px fits). The
+    // split must satisfy prefixToken.sourceLength + suffixToken.sourceLength
+    // === originalToken.sourceLength, where originalToken is the word "abcdefgh"
+    // — even though the suffix run "fgh " ends up with sourceLength > its
+    // rendered text.length because the absorbed collapsed-space char stays with
+    // the suffix's last position. We verify this through the rendered geometry:
+    // every offset is finite (never NaN), the lines connect by state offset,
+    // and the last line's inlineOffsetEnd reaches the full state length.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t", {}, "abcdefgh  ij"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("expected element");
+
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
+      shaperWithHyphen(),
+    );
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines = result.box.children.filter(
+      (l): l is import("./layout-box-v2").LineBox => l.type === "line",
+    );
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    // The word was hyphen-split: line 1 ends with "abcde" + a "-" glyph.
+    const line1 = lines[0];
+    const prefixRuns = line1.children.filter(
+      (c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run",
+    );
+    expect(prefixRuns.map(r => r.text)).toContain("abcde");
+    expect(prefixRuns.map(r => r.text)).toContain("-");
+
+    // Every line offset is finite (never NaN) — the second-pass sourceLength
+    // and the hyphen-split arithmetic both stay numeric across the collapse.
+    for (const line of lines) {
+      expect(Number.isFinite(line.inlineOffsetStart)).toBe(true);
+      expect(Number.isFinite(line.inlineOffsetEnd)).toBe(true);
+      for (const run of line.children) {
+        if (run.type !== "text-run") continue;
+        expect(Number.isNaN(run.offsetLength)).toBe(false);
+        expect(Number.isFinite(run.offsetLength)).toBe(true);
+      }
+    }
+
+    // Lines connect by state offset and the last line covers the full state
+    // length (12 = "abcdefgh  ij".length). The hyphen "-" glyph contributes
+    // offsetLength 0, so summing rendered-char counts still reaches state
+    // length: prefix(5) + suffix-word-remainder(3) + collapsed-space(2 source,
+    // 1 rendered absorbed into the suffix run) + "ij"(2) = 12.
+    for (let i = 0; i + 1 < lines.length; i++) {
+      expect(lines[i + 1].inlineOffsetStart).toBe(lines[i].inlineOffsetEnd);
+    }
+    expect(lines[lines.length - 1].inlineOffsetEnd).toBe("abcdefgh  ij".length);
+
+    // Algebraic invariant: the prefix run's offsetLength (= prefix token's
+    // sourceLength) plus the suffix word-remainder's offsetLength sum to the
+    // original word token's source span. The suffix run "fgh " carries the
+    // word remainder (3) PLUS the absorbed collapsed space (2) = 5 sourceLength
+    // over 4 rendered chars; subtracting the trailing "ij" run isolates the
+    // word's contribution. We assert prefix(5) + 5 === word source span (8) +
+    // collapsed-space span (2) − is reconstructed exactly by the line offsets.
+    const prefixOffsetLen = prefixRuns
+      .filter(r => r.text !== "-")
+      .reduce((s, r) => s + r.offsetLength, 0);
+    const line2 = lines[1];
+    const line2RunOffsetLen = line2.children
+      .filter((c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run")
+      .reduce((s, r) => s + r.offsetLength, 0);
+    // prefix(5) + line-2 runs(5 + 2) = 12 = full state length, all finite.
+    expect(prefixOffsetLen + line2RunOffsetLen).toBe("abcdefgh  ij".length);
+    expect(Number.isNaN(prefixOffsetLen + line2RunOffsetLen)).toBe(false);
+  });
 });
 
 describe("Token IDs — stability", () => {
@@ -1064,5 +1146,150 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     for (let i = 0; i < lines2.length - 1; i++) {
       expect(lines2[i].isBlockBoundaryLine).toBe(false);
     }
+  });
+});
+
+describe("collectTokens — sourceLength (collapsed-whitespace offset accounting)", () => {
+  function tokensOf(text: string, whiteSpace?: ComputedStyle["whiteSpace"]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(whiteSpace ? { whiteSpace } : {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+  }
+
+  it("single space: each token's sourceLength === text.length (no collapse, no regression)", () => {
+    // "a b" → ["a", " ", "b"]; matchStarts 0,1,2; all sourceLength == text.length.
+    const tokens = tokensOf("a b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 1]);
+    // Sum of sourceLength === state-char count.
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("a b".length);
+  });
+
+  it("double space: the space token absorbs the collapsed-away char (sourceLength 2)", () => {
+    // "a  b" tokenizes (white-space:normal) to ["a", " ", "b"]; the single
+    // " " token must own BOTH source spaces. matchStarts: a@0, " "@1, b@3.
+    // sourceLength: a=1, " "=3-1=2, b=(4-3)=1. Sum = 4 = state length.
+    const tokens = tokensOf("a  b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 2, 1]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("a  b".length);
+  });
+
+  it("triple space: collapse count 2 absorbed into the preceding space token", () => {
+    // "a   b" → ["a", " ", "b"]; matchStarts a@0, " "@1, b@4.
+    // sourceLength: a=1, " "=4-1=3, b=(5-4)=1. Sum = 5 = state length.
+    const tokens = tokensOf("a   b");
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 3, 1]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("a   b".length);
+  });
+
+  it("LINE_BREAK token gets sourceLength 1 (the source \\n)", () => {
+    const tokens = tokensOf("line one\nline two", "pre");
+    const lb = tokens.find(t => t.isLineBreak);
+    expect(lb).toBeDefined();
+    expect(lb?.sourceLength).toBe(1);
+  });
+
+  it("inline-block token gets sourceLength 1 (state-model embed = 1 unit)", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].inlineBlock).toBeDefined();
+    expect(tokens[0].sourceLength).toBe(1);
+  });
+
+  it("pre-wrap: multiple whitespace survives as rendered chars; sourceLength == text.length", () => {
+    // Under pre-wrap, "a  b" keeps the double space as a single multi-char
+    // segment, so no collapse: sourceLength == text.length for every token.
+    const tokens = tokensOf("a  b", "pre-wrap");
+    for (const t of tokens) {
+      expect(t.sourceLength).toBe(t.text.length);
+    }
+  });
+
+  it("tab-separated words (white-space:normal) do NOT crash; offsets stay finite (C1 regression lock)", () => {
+    // Under "normal", the tokenizer splits "hello\tworld" on /\s+/ and emits a
+    // SYNTHETIC literal " " token for the inter-word gap. But the SOURCE
+    // separator is a TAB, so `fullText.indexOf(" ", cursor)` returns -1 for
+    // that token: the synthetic " " is not a verbatim substring at the gap.
+    //
+    // The earlier `throw` here crashed the editor on any document with a tab
+    // between words (a common real authoring case). The fix falls back to
+    // `matchStart = cursor` (best-effort) instead, so layout never crashes and
+    // the second-pass sourceLength (next.matchStart − this.matchStart) stays
+    // finite. This test FAILS against the throw version and passes after the
+    // graceful fallback is restored.
+    expect(() => tokensOf("hello\tworld")).not.toThrow();
+
+    const tokens = tokensOf("hello\tworld");
+    // We get word + synthetic-space + word tokens (3 total).
+    expect(tokens.length).toBe(3);
+    expect(tokens.map(t => t.text)).toEqual(["hello", " ", "world"]);
+
+    // "world" resolves to a token with a finite, non-NaN sourceLength. We do
+    // NOT over-assert the exact offset — under the tab/best-effort fallback the
+    // separator offset is approximate; the contract we lock is "no crash +
+    // finite offsets", not byte-exact positions.
+    const world = tokens.find(t => t.text === "world");
+    expect(world).toBeDefined();
+    expect(Number.isFinite(world?.sourceLength)).toBe(true);
+
+    // No token has a NaN sourceLength, and the running sum stays finite.
+    for (const t of tokens) {
+      expect(Number.isNaN(t.sourceLength)).toBe(false);
+    }
+    expect(Number.isFinite(tokens.reduce((s, t) => s + t.sourceLength, 0))).toBe(true);
+  });
+});
+
+describe("layoutInlineContent — offsetLength (state-correct line offsets across collapse)", () => {
+  it("single space 'a b': inlineOffsetEnd === text.length (no regression)", () => {
+    const lines = ifcOf("a b", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetEnd).toBe("a b".length);
+  });
+
+  it("double space 'a  b': run offsetLengths sum to 4; line inlineOffsetEnd === 4", () => {
+    const lines = ifcOf("a  b", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    // The line spans the full state range including the collapsed space.
+    expect(line.inlineOffsetEnd).toBe(4);
+    // Sum the text-run children's offsetLength → must equal state length.
+    const runs = line.children.filter((c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run");
+    const total = runs.reduce((s, r) => s + r.offsetLength, 0);
+    expect(total).toBe(4);
+  });
+
+  it("triple space 'a   b': line inlineOffsetEnd === 5 (collapse count 2 owned by run)", () => {
+    const lines = ifcOf("a   b", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetEnd).toBe(5);
+  });
+
+  it("soft-wrap with a collapsed trailing space at the break: lines connect by state offset", () => {
+    // Force a wrap mid-paragraph; a collapsed double space sits at the wrap.
+    // mock shaper 8px/char. "dsajidosja idoajs  dsajiodj saoidj".
+    const text = "dsajidosja idoajs  dsajiodj saoidj";
+    const lines = ifcOf(text, 150).filter((l): l is import("./layout-box-v2").LineBox => l.type === "line");
+    expect(lines.length).toBeGreaterThan(1);
+    for (let i = 0; i + 1 < lines.length; i++) {
+      expect(lines[i + 1].inlineOffsetStart).toBe(lines[i].inlineOffsetEnd);
+    }
+    // Cumulative coverage reaches the full state length.
+    expect(lines[lines.length - 1].inlineOffsetEnd).toBe(text.length);
   });
 });

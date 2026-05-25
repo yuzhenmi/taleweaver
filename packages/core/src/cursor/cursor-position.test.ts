@@ -113,6 +113,39 @@ describe("resolvePixelPosition (new)", () => {
     expect(result.x).toBe(40); // 5 chars × 8px
   });
 
+  it("offset inside a collapsed inter-word whitespace tail clamps to the run's right edge", () => {
+    // "dsajidosja idoajs  dsajiodj" — double space between word2 and word3.
+    // State offsets: dsajidosja=[0,10), space@10, idoajs=[11,17), space@17,
+    //   space@18 (collapsed away), dsajiodj=[19,27).
+    // Runs (single wide line): "dsajidosja " (offsetLength 11, rendered 11ch),
+    //   "idoajs " (offsetLength 8 — owns the 2 source spaces, rendered 7ch),
+    //   "dsajiodj" (offsetLength 8). Run2 spans x[88,144); run3 starts at 144.
+    const state = singleParagraph("dsajidosja idoajs  dsajiodj");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // offset 18: the collapsed-away second space. Lives in run2's tail; the
+    // explicit clamp pins X to run2's rendered right edge = 88 + 7*8 = 144.
+    const pos18 = createPosition("p" as BlockId, 18);
+    const r18 = resolvePixelPosition(state, pos18, layout, shaper);
+    expect(r18).not.toBeNull();
+    if (r18 === null) return;
+    expect(r18.x).toBe(144);
+
+    // offset 19: start of "dsajiodj". Left edge of run3 = 144 (adjacent).
+    const pos19 = createPosition("p" as BlockId, 19);
+    const r19 = resolvePixelPosition(state, pos19, layout, shaper);
+    expect(r19).not.toBeNull();
+    if (r19 === null) return;
+    expect(r19.x).toBe(144);
+
+    // offset 27: end of "dsajiodj" = 144 + 8*8 = 208.
+    const pos27 = createPosition("p" as BlockId, 27);
+    const r27 = resolvePixelPosition(state, pos27, layout, shaper);
+    expect(r27).not.toBeNull();
+    if (r27 === null) return;
+    expect(r27.x).toBe(208);
+  });
+
   it("wraps to line 2 when offset falls past line 1's break", () => {
     // 200 chars at 8px/char in a 800px container → ~100 chars/line.
     // Use spaces every 10 chars so the mock shaper can soft-break.

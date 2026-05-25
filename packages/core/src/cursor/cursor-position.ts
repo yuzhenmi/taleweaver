@@ -293,7 +293,15 @@ function resolvePositionInOwnLines(
     if (withinLineOffset <= leafEnd) {
       const localOffset = withinLineOffset - cursorOffset;
       if (leaf.kind === "text-run") {
-        const prefix = leaf.box.text.slice(0, localOffset);
+        // `offsetContribution` (state span) can exceed the rendered text
+        // length when this run absorbed trailing collapsed whitespace, so
+        // `localOffset` may point INTO that collapsed-whitespace tail. Clamp
+        // to the rendered chars explicitly (don't rely on JS slice's silent
+        // clamp): an offset inside the collapsed tail measures to the run's
+        // rendered right edge, which is the visual boundary before the next
+        // run/word.
+        const localChar = Math.min(localOffset, leaf.box.text.length);
+        const prefix = leaf.box.text.slice(0, localChar);
         const xOffset = measurer.measureWidth(prefix, leaf.computedStyle);
         return pixelPositionForLine(target, leaf.absoluteX + xOffset);
       }

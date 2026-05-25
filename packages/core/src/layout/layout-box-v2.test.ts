@@ -25,7 +25,7 @@ describe("BlockBox", () => {
 
 describe("LineBox", () => {
   it("constructs with text-run children", () => {
-    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hello", 50);
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hello", 5, 50);
     const line = createLineBox("l", 0, 0, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 16, 100, "owner" as BlockId, 0, 5, true);
     expect(line.type).toBe("line");
     expect(line.children).toHaveLength(1);
@@ -37,7 +37,7 @@ describe("LayoutBox union narrowing", () => {
     const items: LayoutBox[] = [
       createBlockBox("a", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, [], 10),
       createLineBox("b", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, [], 10, 10, "owner" as BlockId, 0, 0, true),
-      createTextRunBox("c", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, "x", 10),
+      createTextRunBox("c", 0, 0, 10, 10, "horizontal-tb", "ltr", cs, us, "x", 1, 10),
     ];
     expect(items.filter((b): b is BlockBox => b.type === "block")).toHaveLength(1);
     expect(items.filter((b): b is LineBox => b.type === "line")).toHaveLength(1);
@@ -47,7 +47,7 @@ describe("LayoutBox union narrowing", () => {
 
 describe("InlineBox", () => {
   it("constructs with children, fragmentEdge for first/last fragment", () => {
-    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const inline = createInlineBox("i", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", "ancestor-key", 50);
     expect(inline.type).toBe("inline");
     expect(inline.fragmentEdge).toBe("first");
@@ -55,7 +55,7 @@ describe("InlineBox", () => {
   });
 
   it("supports four fragmentEdge values", () => {
-    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const first   = createInlineBox("a", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "first", "anc", 50);
     const middle  = createInlineBox("b", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "middle", "anc", 50);
     const last    = createInlineBox("c", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], "last", "anc", 50);
@@ -66,7 +66,7 @@ describe("InlineBox", () => {
 
 describe("InlineBlockBox", () => {
   it("constructs with children", () => {
-    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const inlineBlock = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], 50);
     expect(inlineBlock.type).toBe("inline-block");
     expect(inlineBlock.children).toHaveLength(1);
@@ -147,7 +147,7 @@ it("LTR horizontal-tb is unaffected by containingInlineSize", () => {
 
 describe("withInlineOffset", () => {
   it("updates inlineOffset and re-derives physical x; preserves blockOffset/y and all other fields", () => {
-    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [tr], 200);
     const moved = withInlineOffset(orig, 75, /* containingInlineSize */ 200);
     expect(moved.type).toBe("block");
@@ -178,7 +178,7 @@ describe("withInlineOffset", () => {
 
 describe("withBlockOffset", () => {
   it("updates blockOffset and re-derives physical y; preserves inlineOffset/x and all other fields", () => {
-    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const orig = createBlockBox("k", 10, 20, 100, 50, "horizontal-tb", "ltr", cs, us, [tr], 200);
     const moved = withBlockOffset(orig, 99, /* containingInlineSize */ 200);
     expect(moved.type).toBe("block");
@@ -197,7 +197,7 @@ describe("withBlockOffset", () => {
   });
 
   it("preserves type-specific fields (inline-block children, table columnPxWidths, line baseline)", () => {
-    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 50);
+    const tr = createTextRunBox("t-child", 0, 0, 10, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
     const line = createLineBox("l", 5, 5, 100, 16, "horizontal-tb", "ltr", cs, us, [tr], 12, 100, "owner" as BlockId, 0, 1, false);
     const movedLine = withBlockOffset(line, 40, 100);
     if (movedLine.type !== "line") throw new Error("?");

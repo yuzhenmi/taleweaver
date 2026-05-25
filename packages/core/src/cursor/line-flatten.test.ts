@@ -9,7 +9,7 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state/block-position";
 import type { BlockId } from "../state/block-id";
-import { collectLineBoxes, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
+import { collectLineBoxes, collectLineLeaves, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
 
 const shaper = createMockShaper(8, 16);
 
@@ -408,5 +408,43 @@ describe("findLineForPosition", () => {
     // Position past the end of the last outer line should resolve to it.
     const idx = findLineForPosition(lines, createPosition(outerOwner as BlockId, 9999));
     expect(lines[idx].line).toBe(lastOuter.line);
+  });
+});
+
+describe("collectLineLeaves — offsetContribution = state span (collapsed whitespace)", () => {
+  it("text-run leaf offsetContribution equals the run's offsetLength, not rendered text.length", () => {
+    // "a  b" (double space) → run "a " owns 2 source chars (rendered "a "
+    // is 2ch — coincidentally; the discriminating case is the inter-word
+    // collapse). Use "idoajs  dsajiodj" so the "idoajs " run owns the
+    // collapsed double space: rendered "idoajs " = 7ch, offsetLength = 8.
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block" }, [
+        createElementBox("p", { display: "block" }, [
+          createTextBox("t", {}, "idoajs  dsajiodj"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 800);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(r.box, 0, 0, lines);
+    expect(lines.length).toBe(1);
+
+    const leaves = collectLineLeaves(lines[0].line, lines[0].absoluteX);
+    const textLeaves = leaves.filter(l => l.kind === "text-run");
+    // The "idoajs " run: rendered text length 7, offsetContribution 8.
+    const idoajs = textLeaves.find(l => l.kind === "text-run" && l.box.text === "idoajs ");
+    expect(idoajs).toBeDefined();
+    if (idoajs === undefined || idoajs.kind !== "text-run") return;
+    expect(idoajs.box.text.length).toBe(7);
+    expect(idoajs.box.offsetLength).toBe(8);
+    expect(idoajs.offsetContribution).toBe(8);
+
+    // Sum of contributions equals the line's state span.
+    const total = leaves.reduce((s, l) => s + l.offsetContribution, 0);
+    expect(total).toBe(lines[0].line.inlineOffsetEnd - lines[0].line.inlineOffsetStart);
+    expect(total).toBe("idoajs  dsajiodj".length);
   });
 });

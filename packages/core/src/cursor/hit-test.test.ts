@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolvePositionFromPixel } from "./hit-test";
+import { selectWord } from "./cursor-ops";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
@@ -432,5 +433,56 @@ describe("resolvePositionFromPixel (new)", () => {
     if (result === null) return;
     expect(result.blockId).toBe("pEmpty");
     expect(result.offset).toBe(0);
+  });
+});
+
+describe("collapsed-whitespace offset drift (double-click third word after double space)", () => {
+  // Root-cause repro: under white-space:normal a double space collapses to one
+  // rendered space, but cursor offsets are STATE offsets. A click at the
+  // rendered start of word3 must resolve to its STATE offset, not drift down
+  // by the collapse count. Then `selectWord` must select word3's full range.
+  const SENTENCE = "dsajidosja idoajs  dsajiodj saoidj";
+  // State offsets: dsajidosja=[0,10), space@10, idoajs=[11,17), space@17,
+  //   space@18 (collapsed away in render), dsajiodj=[19,27), space@27, saoidj=[28,34).
+  // Rendered (collapsed) string: "dsajidosja idoajs dsajiodj saoidj".
+  // Rendered start of word3 "dsajiodj": 10 + 1 + 6 + 1 = 18 rendered chars → x = 18*8 = 144.
+
+  it("click at rendered start of word3 resolves to STATE offset 19", () => {
+    const state = singleParagraph(SENTENCE);
+    const { layout, shaper } = pipeline(state);
+    // Click slightly inside word3's first glyph (x≈146) on the single line.
+    const result = resolvePositionFromPixel(state, layout, shaper, 146, 0);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("p");
+    expect(result.offset).toBe(19);
+  });
+
+  it("selectWord at the resolved offset selects word3 [19, 27)", () => {
+    const state = singleParagraph(SENTENCE);
+    const { layout, shaper } = pipeline(state);
+    const result = resolvePositionFromPixel(state, layout, shaper, 146, 0);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    const span = selectWord(state, result);
+    expect(span.anchor.blockId).toBe("p");
+    expect(span.focus.blockId).toBe("p");
+    expect(span.anchor.offset).toBe(19);
+    expect(span.focus.offset).toBe(27);
+  });
+
+  it("single-space sentence: word offsets are unaffected (no regression)", () => {
+    // "dsajidosja idoajs dsajiodj" with SINGLE spaces. word3 starts at state
+    // offset 10+1+6+1 = 18 (no collapse), rendered x = 18*8 = 144.
+    const single = "dsajidosja idoajs dsajiodj saoidj";
+    const state = singleParagraph(single);
+    const { layout, shaper } = pipeline(state);
+    const result = resolvePositionFromPixel(state, layout, shaper, 146, 0);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.offset).toBe(18);
+    const span = selectWord(state, result);
+    expect(span.anchor.offset).toBe(18);
+    expect(span.focus.offset).toBe(26);
   });
 });

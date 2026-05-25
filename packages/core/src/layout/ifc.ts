@@ -54,6 +54,17 @@ interface Token {
   /** Key of the source TextBox (render node) — used for layout key tracing. */
   sourceKey: string;
   text: string;
+  /**
+   * Number of SOURCE (state-model) characters this token spans. Differs from
+   * `text.length` when the tokenizer collapsed whitespace: a token absorbs the
+   * source gap up to the next token's `matchStart` (and, for the last token of
+   * a node, the trailing source up to the node's end), so collapsed-away
+   * whitespace is attributed to the preceding token. This keeps every cursor
+   * offset after a collapsed run aligned with its state offset. For text
+   * without collapse `sourceLength === text.length`. Inline-block tokens (an
+   * embed = 1 state unit) and a lone `LINE_BREAK` token carry `1`.
+   */
+  sourceLength: number;
   width: number;
   style: ComputedStyle;
   isSpace: boolean;
@@ -173,43 +184,61 @@ function collectInlineTokens(
       // Tokenize by white-space rules, then map each token string back to an
       // offset range in fullText so we can look up its cluster width.
       const parts = tokenize(fullText, cs.whiteSpace);
+      // Collect this node's tokens with their source `matchStart` first; then
+      // a second pass assigns `sourceLength` per the look-ahead rule (each
+      // token spans up to the next token's matchStart; the last token spans to
+      // `fullText.length`). This attributes any collapsed-away whitespace to
+      // the PRECEDING token so cursor offsets after a collapse stay aligned
+      // with state offsets. The two-pass shape is required because a token's
+      // `sourceLength` depends on its successor's position.
+      const nodeTokens: { token: Token; matchStart: number }[] = [];
       let cursor = 0;
       for (const part of parts) {
         if (part === LINE_BREAK) {
           // LINE_BREAK is a sentinel string — advance past any \n at cursor.
+          // The token's source position is the `\n` it replaced; the
+          // look-ahead rule then gives it sourceLength 1 (one source `\n`).
+          const lbStart = cursor;
           if (cursor < fullText.length && fullText[cursor] === "\n") cursor++;
-          out.push({
-            id: `${child.key}:lb`,
-            sourceKey: child.key,
-            text: LINE_BREAK,
-            width: 0,
-            style: cs,
-            isSpace: false,
-            isLineBreak: true,
-            inlineAncestors: ancestors,
-            inlineAncestorStyles: ancestorStyles,
+          nodeTokens.push({
+            matchStart: lbStart,
+            token: {
+              id: `${child.key}:lb`,
+              sourceKey: child.key,
+              text: LINE_BREAK,
+              // Patched in the second pass; provisional value here.
+              sourceLength: 1,
+              width: 0,
+              style: cs,
+              isSpace: false,
+              isLineBreak: true,
+              inlineAncestors: ancestors,
+              inlineAncestorStyles: ancestorStyles,
+            },
           });
           continue;
         }
 
-        // Find part in fullText starting at cursor (handles collapsed whitespace).
+        // Find part in fullText starting at cursor. Under collapsing
+        // white-space ("normal"/"nowrap") a run of N source whitespace chars
+        // collapses to a single one-char " " token; `indexOf` finds the FIRST
+        // of those chars, so `matchStart` is the true source position of the
+        // token's first glyph. The collapsed-away chars are reclaimed in the
+        // second pass via the look-ahead `sourceLength`. (Under "pre"/
+        // "pre-wrap" nothing collapses, so matchStart/sourceLength == text.)
         //
-        // L-F / A4: if `indexOf` fails (the tokenizer collapsed whitespace
-        // in a way that no source substring matches `part` from `cursor`),
-        // we fall back to `cursor` as a best-effort source position. The
-        // resulting `matchStart` / `matchEnd` advance by token length,
-        // which under collapsing whitespace can diverge from the true
-        // source advance — making downstream `widthOfRange` / cluster-
-        // width lookups reference the wrong source positions. The bug is
-        // dormant for default `white-space: normal` (one collapsed space
-        // is a one-char part, position-stable) but activates on `pre-wrap`
-        // where multiple consecutive whitespace chars survive as multi-
-        // char source ranges that don't equal the token's collapsed form.
-        //
-        // For now: surface a dev-mode warning so the bug becomes visible
-        // if it ever fires in production. A proper fix requires teaching
-        // the tokenizer to preserve source positions (or threading them
-        // through), which is out of scope for this fix bundle.
+        // `indexOf` CAN return -1: under "normal"/"nowrap"/"pre-line" the
+        // tokenizer emits a SYNTHETIC literal " " token for inter-word gaps
+        // and trailing whitespace, but the source separator may be a TAB,
+        // NBSP, or other `/\s+/` char rather than a literal space — so the
+        // synthetic " " is not a verbatim substring at `cursor`. (A run of
+        // ordinary spaces still collapses to a " " that DOES exist at the
+        // gap's first char, so the double-space case never reaches here.)
+        // Fall back to `cursor` as a best-effort source position: offsets
+        // become approximate for the unusual separator but stay finite (the
+        // second-pass sourceLength is next.matchStart − this.matchStart, never
+        // NaN), and the editor does not crash. Surface a dev-mode warning so
+        // the drift is visible without being fatal in production.
         let matchStart = fullText.indexOf(part, cursor);
         if (matchStart === -1) {
           const g = globalThis as {
@@ -218,9 +247,9 @@ function collectInlineTokens(
           };
           if (g.process?.env?.NODE_ENV !== "production" && g.console !== undefined) {
             g.console.warn(
-              `[layout/ifc] collectTokens: indexOf("${part}", ${cursor}) failed in fullText="${fullText.slice(0, 64)}..."; ` +
-                `falling back to cursor — widthOfRange may be inaccurate. ` +
-                `If white-space: pre-wrap is active, this indicates a tokenizer/source-position drift bug.`,
+              `[layout/ifc] collectTokens: indexOf(${JSON.stringify(part)}, ${cursor}) failed in fullText="${fullText.slice(0, 64)}..."; ` +
+                `falling back to cursor — source offsets may be approximate. ` +
+                `Typically a synthetic whitespace token over a non-space separator (tab/NBSP).`,
             );
           }
           matchStart = cursor;
@@ -249,21 +278,40 @@ function collectInlineTokens(
           if (tokenHyphenBreaks.length > 0) hyphenBreaks = tokenHyphenBreaks;
         }
 
-        out.push({
-          id: `${child.key}:${matchStart}`,
-          sourceKey: child.key,
-          text: part,
-          width,
-          style: cs,
-          isSpace: /^\s+$/.test(part),
-          isLineBreak: false,
-          inlineAncestors: ancestors,
-          inlineAncestorStyles: ancestorStyles,
-          ...(clusterWidths ? { clusterWidths } : {}),
-          ...(hyphenBreaks ? { hyphenBreaks } : {}),
+        nodeTokens.push({
+          matchStart,
+          token: {
+            id: `${child.key}:${matchStart}`,
+            sourceKey: child.key,
+            text: part,
+            // Patched in the second pass below.
+            sourceLength: part.length,
+            width,
+            style: cs,
+            isSpace: /^\s+$/.test(part),
+            isLineBreak: false,
+            inlineAncestors: ancestors,
+            inlineAncestorStyles: ancestorStyles,
+            ...(clusterWidths ? { clusterWidths } : {}),
+            ...(hyphenBreaks ? { hyphenBreaks } : {}),
+          },
         });
 
         cursor = matchEnd;
+      }
+
+      // Second pass: assign each token's `sourceLength` as the source span up
+      // to the NEXT token's matchStart (last token → end of node). This makes
+      // a token own its rendered chars PLUS any collapsed-away whitespace that
+      // immediately follows it, so the next token's base offset equals the
+      // state offset of its first rendered glyph.
+      for (let ti = 0; ti < nodeTokens.length; ti++) {
+        const start = nodeTokens[ti].matchStart;
+        const nextStart = ti + 1 < nodeTokens.length
+          ? nodeTokens[ti + 1].matchStart
+          : fullText.length;
+        nodeTokens[ti].token.sourceLength = nextStart - start;
+        out.push(nodeTokens[ti].token);
       }
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
@@ -308,6 +356,8 @@ function collectInlineTokens(
         id: child.key,
         sourceKey: child.key,
         text: "",
+        // An inline-block is a state-model embed item = exactly 1 cursor unit.
+        sourceLength: 1,
         width: finalInlineSize,
         style: cs,
         isSpace: false,
@@ -487,11 +537,12 @@ export function layoutInlineContent(
   let currentLineEndTokenIdx = -1;
   // E-E.1: state-model offset accumulator for stamping
   // `inlineOffsetStart` / `inlineOffsetEnd` on each emitted LineBox.
-  // Advances per unit consumed via `pushUnit`. Each token contributes
-  // 1 for inline-block (state-model embed) tokens or `text.length` for
-  // text / space / line-break tokens (matches the state-model rule:
-  // each embed counts as one cursor position; text chars are UTF-16
-  // code units).
+  // Advances per unit consumed via `pushUnit`. Each token contributes its
+  // `sourceLength` — the count of STATE-model characters it owns: 1 for an
+  // inline-block embed, 1 for a lone LINE_BREAK, and the rendered chars PLUS
+  // any collapsed-away trailing whitespace for text/space tokens (UTF-16 code
+  // units). Summing sourceLength keeps offsets state-aligned across a
+  // collapsed run.
   let cursorOffset = 0;
   let currentLineStartOffset = -1;
 
@@ -546,6 +597,11 @@ export function layoutInlineContent(
       id: firstTok.id,
       sourceKey: firstTok.sourceKey,
       text: prefixText,
+      // Split the original token's source span by character count at the break
+      // index. The prefix is the original text's [0, bestBreakIdx). Set this
+      // explicitly (no `?? text.length` fallback) so the sum of split tokens'
+      // sourceLength always equals the original — never NaN on hyphen lines.
+      sourceLength: bestBreakIdx,
       width: bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,
@@ -558,6 +614,11 @@ export function layoutInlineContent(
       id: `${firstTok.sourceKey}:${suffixOffset}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
+      // The remainder of the original token's source span. Together with the
+      // prefix's `bestBreakIdx` this re-sums to firstTok.sourceLength, which
+      // (for a word token under collapse) may exceed text.length — the excess
+      // trailing collapsed whitespace stays with the suffix's last position.
+      sourceLength: firstTok.sourceLength - bestBreakIdx,
       width: firstTok.width - bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,
@@ -647,16 +708,20 @@ export function layoutInlineContent(
   }
 
   /**
-   * Compute a wrap-unit's state-model offset contribution. Text /
-   * space / line-break tokens contribute `text.length`; inline-block
-   * tokens (representing state-model embed items) contribute exactly
-   * 1. Used by the wrap pass's per-block offset accumulator to stamp
-   * `inlineOffsetStart` / `inlineOffsetEnd` on emitted LineBoxes.
+   * Compute a wrap-unit's state-model offset contribution. Each token
+   * contributes its `sourceLength` — the count of STATE-model characters it
+   * owns, which equals `text.length` for non-collapsing text but is larger
+   * when the token absorbed trailing collapsed whitespace (and is 1 for
+   * inline-block embed tokens and a lone `LINE_BREAK`). Summing sourceLength
+   * keeps the per-block offset cursor state-correct, so the LineBox
+   * `inlineOffsetStart`/`inlineOffsetEnd` stamped from it match state offsets
+   * and the `nextLine.inlineOffsetStart === prevLine.inlineOffsetEnd`
+   * invariant holds across a collapsed run.
    */
   function unitOffsetContribution(unit: WrapUnit): number {
     let total = 0;
     for (const t of unit.tokens) {
-      total += t.inlineBlock !== undefined ? 1 : t.text.length;
+      total += t.sourceLength;
     }
     return total;
   }
@@ -1122,6 +1187,9 @@ function buildLineWithFragments(
       writingMode, direction,
       hyphenBreak.style, hyphenUsedStyle,
       "-",
+      // The synthetic hyphen glyph has no backing state character; it owns
+      // zero state offsets so cursor accounting skips over it.
+      /* offsetLength */ 0,
       /* containingInlineSize */ lineInlineSize,
     );
     children = [...children, hyphenBox];
@@ -1188,6 +1256,11 @@ function buildLineChildrenForAncestorLevel(
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
         const text = unit.tokens.map(t => t.text).join("");
+        // State-character span this run owns: the SUM of its tokens'
+        // sourceLength (each token's rendered chars + any collapsed-away
+        // trailing whitespace it absorbed). This is ≥ the rendered text length
+        // and is what the cursor layer uses to keep offsets state-aligned.
+        const offsetLength = unit.tokens.reduce((sum, t) => sum + t.sourceLength, 0);
         const tokBlockSize = measurer.measureHeight(tokStyle);
         lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, tokBlockSize);
 
@@ -1199,6 +1272,7 @@ function buildLineChildrenForAncestorLevel(
         out.push(createTextRunBox(
           runKey,
           cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
+          offsetLength,
           /* containingInlineSize */ lineInlineSize,
         ));
       }

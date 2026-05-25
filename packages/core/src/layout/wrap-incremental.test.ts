@@ -20,6 +20,7 @@ function makeToken(
     id,
     sourceKey: "src",
     text: id,
+    sourceLength: id.length,
     width: 10,
     style: defaultStyle,
     isSpace: false,

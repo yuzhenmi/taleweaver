@@ -102,6 +102,17 @@ export interface LineBox extends LayoutBoxBase {
 export interface TextRunBox extends LayoutBoxBase {
   readonly type: "text-run";
   readonly text: string;
+  /**
+   * Number of STATE-model characters this run owns. Equals `text.length`
+   * in the common (non-collapsing) case, but is GREATER when trailing
+   * collapsed whitespace was absorbed into this run: under
+   * `white-space: normal` a double space renders as one glyph yet
+   * occupies two state-character offsets, and the collapsed-away
+   * character is attributed to the preceding run so cursor offsets after
+   * it stay aligned with state offsets. The synthetic hyphen run (a
+   * rendered glyph with no backing state char) carries `offsetLength: 0`.
+   */
+  readonly offsetLength: number;
 }
 
 /**
@@ -269,6 +280,7 @@ export function createTextRunBox(
   computedStyle: ComputedStyle,
   usedStyle: UsedStyle,
   text: string,
+  offsetLength: number,
   containingInlineSize: number,
 ): TextRunBox {
   const base = createBoxBase({
@@ -279,6 +291,7 @@ export function createTextRunBox(
     type: "text-run" as const,
     ...base,
     text,
+    offsetLength,
   });
 }
 
@@ -507,7 +520,7 @@ function rebuildBoxWithOffsets(
       return createTextRunBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize,
+        box.text, box.offsetLength, containingInlineSize,
       );
     case "inline":
       return createInlineBox(
