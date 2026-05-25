@@ -97,13 +97,21 @@ Each item gets a tracked task (S-A* / S-B* / S-C* / S-D*).
 | S-A2 | Lazy overlay snapshot cache | state.ts, snapshot.ts | O(N_cached) per keystroke | 6224c95 |
 | S-A3 | `dirtyIds` on undo/redo | history.ts, editor/actions/undo.ts, redo.ts | Full re-render on every undo | 2414786 |
 
-**Bundle S-B — correctness gaps**
-| # | Task | File |
-|---|------|------|
-| S-B1 | `setBlockAttrs` no-op short-circuit | set-block-attrs.ts |
-| S-B2 | `History.commit` pre-condition ordering | history.ts:148 |
-| S-B3 | `removeBlock` conditional parent writes | remove-block.ts:119 |
-| S-B4 | `clonePastedSubtree` destination collision check | clone-pasted-subtree.ts:94 |
+**Bundle S-B — correctness gaps** — **S-B1/S-B2/S-B4 LANDED 2026-05-25 (commit 7429852); S-B3 NOT DONE (recommendation was wrong — see note)**
+| # | Task | File | Status |
+|---|------|------|--------|
+| S-B1 | `setBlockAttrs` no-op short-circuit | set-block-attrs.ts | ✅ |
+| S-B2 | `History.commit` pre-condition ordering | history.ts:148 | ✅ |
+| S-B3 | `removeBlock` conditional parent writes | remove-block.ts:119 | ❌ WON'T-FIX-AS-AUDITED |
+| S-B4 | `clonePastedSubtree` destination collision check | clone-pasted-subtree.ts:94 | ✅ |
+
+> **S-B3 correction:** the recommendation to write parent `firstChildId`/`lastChildId`
+> only-when-changed is WRONG — the unconditional same-value write is the mechanism
+> that lands the parent in `dirtyIds` on a middle-child removal (the parent's
+> rendered child list changed even though first/last didn't). Making it conditional
+> would leave the parent's cached RenderNode stale. The genuine latent issue is that
+> this parent-dirty contract relies on Yjs firing change events for same-value sets;
+> a robust fix needs an explicit mark-dirty mechanism (tracked as #227, low urgency).
 
 **Bundle S-C — design debt**
 | # | Task | File |
