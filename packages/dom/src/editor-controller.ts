@@ -173,13 +173,27 @@ export function createEditorController(
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
   // Per-page SLOT geometry, derived without positioning any page:
-  //   - virtual tree → `vtree.plan.entries` (count + `blockSize` per slot);
-  //   - positioned tree → the positioned `PageBox` children's width/height.
+  //   - virtual tree → `vtree.plan.entries` (per-entry `pageConfig` +
+  //     running-sum `blockOffset`);
+  //   - positioned tree → the positioned `PageBox` children's geometry.
   // `pageSlots`'s length is the page count; an empty array means non-paginated
   // (single-canvas mode).
+  //
+  // Pages are NOT uniform-height (C.2b-2): a `section` can override its page
+  // geometry, so every consumer (slot sizing, caret/textarea Y, scroll, mouse
+  // hit-test) reads PER-SLOT geometry from this array — there is no
+  // `pageIndex * (pageHeight + pageGap)` arithmetic and no virtual-vs-positioned
+  // branching at the call sites. `top` is the page's document-y (the plan's
+  // running-sum `blockOffset`); `gap` is the visual gap AFTER this page. For a
+  // doc whose every page resolves to the doc-wide config this reduces to the old
+  // uniform behavior (`top === i*(H+gap)`, `gap === pageGap`, `width === H-wide`).
   interface PageSlotGeom {
     readonly width: number;
     readonly height: number;
+    /** Visual gap AFTER this page (per-section in virtual mode). */
+    readonly gap: number;
+    /** Document-y of this page's top edge (the plan's running-sum offset). */
+    readonly top: number;
   }
   let pageSlotGeoms: PageSlotGeom[] = [];
   // Positioned-mode only: the materialized `PageBox` children (the legacy
@@ -368,6 +382,14 @@ export function createEditorController(
         canvas.height = physicalHeight;
         canvas.style.width = `${page.width}px`;
         canvas.style.height = `${page.height}px`;
+        // A dimension change means this page's geometry changed (C.2b-2: a
+        // section's page size was overridden, re-materializing the PageBox at a
+        // new width/height). A pure geometry change moves no content boxes, so
+        // walkAndDetectChanges would see "no diff" and short-circuit, leaving
+        // the resized canvas blank/stale. Drop the per-page PaintCache so the
+        // whole page is treated dirty and actually repaints (mirrors
+        // acquireCanvas's delete-on-recycle).
+        pageCaches.delete(idx);
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -444,11 +466,13 @@ export function createEditorController(
     if (!focused || !state) return;
     const sp = scrollParent;
 
-    // Compute visual Y from pageIndex and page-relative cursor Y
+    // Compute visual Y from the cursor's page slot. Per-page geometry (C.2b-2):
+    // the page's document-y is its slot `top` (running-sum offset), NOT a
+    // uniform `pageIndex * (pageHeight + pageGap)`. Paginated-vs-not is keyed on
+    // slot presence (an empty `pageSlotGeoms` ⇒ non-paginated single canvas).
+    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
     const cursorVisualY =
-      pageCount() > 0 && pageHeight
-        ? cursorPos.pageIndex * (pageHeight + pageGap) + cursorPos.y
-        : cursorPos.y;
+      pageCount() > 0 && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
     const cursorH = cursorPos.height;
     const scrollPadding = 64;
 
@@ -493,17 +517,29 @@ export function createEditorController(
     if (pageHeight) {
       if (tree.type === "virtual-root") {
         newVirtualTree = tree;
+        // Per-entry geometry (C.2b-2): width + gap are PER-ENTRY (a section may
+        // override its page size/gap), height is the entry's `blockSize`, and
+        // `top` is the running-sum `blockOffset`. The slot tops in DOM flow
+        // (height + marginBottom, summed) MUST agree with `top` — caret/mouse
+        // use `top` while the DOM stacks slots by height + gap.
         for (const entry of tree.plan.entries) {
-          newSlotGeoms.push({ width: tree.plan.pageInlineSize, height: entry.blockSize });
+          newSlotGeoms.push({
+            width: entry.pageConfig.pageInlineSize,
+            height: entry.blockSize,
+            gap: entry.pageConfig.pageGap,
+            top: entry.blockOffset,
+          });
         }
       } else if (tree.type === "block") {
         for (const c of tree.children) {
           // "page"-type children indicate the paginated positioned tree.
           // `LayoutBox` is a discriminated union including `PageBox`, so the
-          // `type` check narrows `c` to `PageBox` — no cast needed.
+          // `type` check narrows `c` to `PageBox` — no cast needed. The legacy
+          // floats/`clear` fallback uses the doc-wide `pageGap` (it does not yet
+          // model per-section geometry); `top` is the box's own document-y.
           if (c.type === "page") {
             newPositionedPages.push(c);
-            newSlotGeoms.push({ width: c.width, height: c.height });
+            newSlotGeoms.push({ width: c.width, height: c.height, gap: pageGap, top: c.blockOffset });
           }
         }
       }
@@ -554,11 +590,12 @@ export function createEditorController(
       container.style.minHeight = "100%";
     }
 
-    // Position textarea on the correct page
+    // Position textarea on the correct page. Per-page geometry (C.2b-2): the
+    // page's document-y is its slot `top` (the plan's running-sum offset), NOT
+    // `pageIndex * (pageHeight + pageGap)`.
+    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
     const textareaTop =
-      isPaginated && pageHeight
-        ? cursorPos.pageIndex * (pageHeight + pageGap) + cursorPos.y
-        : cursorPos.y;
+      isPaginated && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
     textarea.style.left = `${cursorPos.x}px`;
     textarea.style.top = `${textareaTop}px`;
     textarea.style.height = `${cursorPos.height}px`;
@@ -601,7 +638,10 @@ export function createEditorController(
       slot.dataset.pageIndex = String(i);
       slot.style.width = `${geom.width}px`;
       slot.style.height = `${geom.height}px`;
-      slot.style.marginBottom = i < targetCount - 1 ? `${pageGap}px` : "0";
+      // Per-entry gap (C.2b-2): keeps the DOM-flow slot tops (height +
+      // marginBottom, summed) consistent with each slot's `top` (running-sum
+      // offset) that caret/mouse use — they MUST agree.
+      slot.style.marginBottom = i < targetCount - 1 ? `${geom.gap}px` : "0";
     }
 
     // Setup IntersectionObserver
@@ -712,23 +752,35 @@ export function createEditorController(
         }
       }
 
-      // Click outside any slot — find the page by visual Y. With a virtual
-      // tree the plan maps document-y → page authoritatively
-      // (`pageIndexAtBlockOffset`); the slots are uniform `pageHeight` so the
-      // document-y for a given visual-y is `idx*(pageHeight+pageGap)+local` and
-      // the inverse is the floor arithmetic below. Both agree for uniform
-      // pages; we keep the cheap floor and clamp to the page count.
+      // Click outside any slot — find the page by visual Y. Pages are NOT
+      // uniform-height (C.2b-2: a section may override its geometry), so the
+      // slot top is the running-sum `top` in `pageSlotGeoms`, NOT
+      // `idx*(pageHeight+pageGap)`. With a virtual tree the plan maps document-y
+      // → page authoritatively (`pageIndexAtBlockOffset`, a binary search over
+      // the running-sum offsets); the positioned fallback finds the last slot
+      // whose `top <= visualY`. The page-local Y subtracts that slot's `top` and
+      // clamps to THAT page's own height (so a click low on a tall section page
+      // is not clamped to the short default).
       const rect = container.getBoundingClientRect();
       const visualY = e.clientY - rect.top;
-      const slotHeight = pageHeight + pageGap;
-      let idx = Math.max(0, Math.min(total - 1, Math.floor(visualY / slotHeight)));
+      let idx: number;
       if (virtualTree !== null) {
-        // Authoritative pixel-y → page via the plan (document-y == visual-y for
-        // uniform page heights with the same gap the plan uses).
         idx = Math.max(0, Math.min(total - 1, virtualTree.plan.pageIndexAtBlockOffset(visualY)));
+      } else {
+        // Positioned fallback: the last slot whose top edge is at/above visualY.
+        idx = 0;
+        for (let i = 0; i < total; i++) {
+          if (pageSlotGeoms[i].top <= visualY) idx = i;
+          else break;
+        }
       }
-      const pageLocalY = visualY - idx * slotHeight;
-      return { x: e.clientX - rect.left, y: Math.max(0, Math.min(pageHeight, pageLocalY)), pageIndex: idx };
+      const slot = pageSlotGeoms[idx];
+      const pageLocalY = visualY - (slot?.top ?? 0);
+      return {
+        x: e.clientX - rect.left,
+        y: Math.max(0, Math.min(slot?.height ?? 0, pageLocalY)),
+        pageIndex: idx,
+      };
     }
     const rect = container.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: 0 };

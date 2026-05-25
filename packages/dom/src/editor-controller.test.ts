@@ -95,11 +95,22 @@ function makeFakeEditorState(
   };
 }
 
-/** Build a paginated layout tree with `pageCount` pages, each `pageHeight` tall. */
+/**
+ * Build a paginated POSITIONED layout tree with `pageCount` pages, each
+ * `pageHeight` tall. Each page's `blockOffset` is the running sum
+ * `i * (pageHeight + pageGap)` — matching the real paginator
+ * (`packages/core/src/layout/paginate.ts`), which places positioned pages with
+ * the gap INCLUDED. This keeps the fixture consistent with the controller's
+ * positioned-path invariant: the DOM stacks slots by height + marginBottom (the
+ * gap), so each slot's `top` (read from `blockOffset` by caret/scroll/hit-test)
+ * MUST equal the running sum. `pageGap` defaults to the controller's
+ * `DEFAULT_PAGE_GAP` (24), which the positioned fallback uses for stacking.
+ */
 function buildPaginatedLayoutTree(
   pageCount: number,
   width: number,
   pageHeight: number,
+  pageGap = 24,
 ): core.LayoutBox {
   const cs = core.INITIAL_COMPUTED_STYLE;
   const us = core.computeUsedStyle(cs, width, "indefinite");
@@ -109,7 +120,7 @@ function buildPaginatedLayoutTree(
       core.createPageBox(
         `page-${i}`,
         0,
-        i * pageHeight,
+        i * (pageHeight + pageGap),
         width,
         pageHeight,
         cs.writingMode,
@@ -127,7 +138,7 @@ function buildPaginatedLayoutTree(
     0,
     0,
     width,
-    pageCount * pageHeight,
+    pageCount * pageHeight + Math.max(0, pageCount - 1) * pageGap,
     cs.writingMode,
     cs.direction,
     cs,
@@ -156,6 +167,14 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
     pageIndex: i,
     blockOffset: i * (pageHeight + pageGap),
     blockSize: pageHeight,
+    // Uniform per-entry geometry (C.2b-2): every page resolves to the doc-wide
+    // config, so this models the "uniform == today" no-regression case.
+    pageConfig: {
+      pageInlineSize: width,
+      pageBlockSize: pageHeight,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap,
+    },
     children: [],
     startIndex: i,
     resumeInto: null,
@@ -201,6 +220,100 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
   } as unknown as core.VirtualLayoutTree;
 
   return { tree, getPage, materializeAll };
+}
+
+/**
+ * A spy `VirtualLayoutTree` with PER-ENTRY page geometry (C.2b-2). Each entry
+ * carries its own `pageConfig` (inline-size, block-size, margins, gap), a
+ * RUNNING-SUM `blockOffset`, and a `blockSize` equal to its config's
+ * `pageBlockSize`. `pageHeights`/`pageGaps`/`pageWidths` are per-page arrays so
+ * a section boundary can be modeled (e.g. page 1 onward taller/wider). Pages are
+ * NOT uniform — `pageIndexAtBlockOffset` binary-searches the running-sum offsets.
+ */
+function makeSpyVirtualTreeWithGeom(
+  pageHeights: number[],
+  pageWidths: number[],
+  pageGaps: number[],
+) {
+  const pageCount = pageHeights.length;
+  const cs = core.INITIAL_COMPUTED_STYLE;
+
+  // Running-sum offsets: blockOffset[i] = sum of (height[j] + gap[j]) for j<i.
+  const offsets: number[] = [];
+  let running = 0;
+  for (let i = 0; i < pageCount; i++) {
+    offsets.push(running);
+    running += pageHeights[i] + (i < pageCount - 1 ? pageGaps[i] : 0);
+  }
+  const totalBlockSize = running;
+
+  const entries = Array.from({ length: pageCount }, (_, i) => ({
+    pageIndex: i,
+    blockOffset: offsets[i],
+    blockSize: pageHeights[i],
+    pageConfig: {
+      pageInlineSize: pageWidths[i],
+      pageBlockSize: pageHeights[i],
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: pageGaps[i],
+    },
+    children: [],
+    startIndex: i,
+    resumeInto: null,
+    resumeOut: null,
+    listCounterAtStart: 0,
+  }));
+
+  const pageIndexAtBlockOffset = (y: number): number => {
+    if (y <= 0) return 0;
+    if (y >= totalBlockSize) return pageCount - 1;
+    for (let i = pageCount - 1; i >= 0; i--) {
+      if (y >= offsets[i]) return i;
+    }
+    return 0;
+  };
+
+  const plan = {
+    entries,
+    totalBlockSize,
+    pageInlineSize: pageWidths[0],
+    pageContentBlockSize: pageHeights[0],
+    pageIndexAtBlockOffset,
+    pageIndexOfBlock: () => -1,
+    pageSpanOfBlock: () => null,
+  } as unknown as core.VirtualLayoutTree["plan"];
+
+  const makePage = (i: number) => {
+    const us = core.computeUsedStyle(cs, pageWidths[i], "indefinite");
+    return core.createPageBox(
+      `page-${i}`, 0, offsets[i], pageWidths[i], pageHeights[i],
+      cs.writingMode, cs.direction, cs, us, [], i, pageWidths[i],
+    );
+  };
+
+  const getPage = vi.fn((i: number) => makePage(i));
+  const materializeAll = vi.fn(() => {
+    const pages = entries.map((_, i) => makePage(i));
+    const us = core.computeUsedStyle(cs, pageWidths[0], "indefinite");
+    return core.createBlockBox("doc", 0, 0, pageWidths[0], totalBlockSize,
+      cs.writingMode, cs.direction, cs, us, pages, pageWidths[0]);
+  });
+
+  const tree = {
+    type: "virtual-root" as const,
+    plan,
+    inlineSize: pageWidths[0],
+    blockSize: totalBlockSize,
+    getPage,
+    getPages: vi.fn((from: number, to: number) => {
+      const out = [];
+      for (let i = from; i <= to; i++) out.push(makePage(i));
+      return out;
+    }),
+    materializeAll,
+  } as unknown as core.VirtualLayoutTree;
+
+  return { tree, getPage, materializeAll, offsets, totalBlockSize };
 }
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
@@ -700,6 +813,154 @@ describe("createEditorController", () => {
 
       ctrl.destroy();
       document.body.removeChild(container);
+    });
+  });
+
+  describe("per-section page geometry (C.2b-2)", () => {
+    // A doc with a TALL/WIDE section starting at page 1: page 0 is the doc-wide
+    // default (100×600, gap 24); pages 1-2 belong to a section overriding to
+    // 200 tall × 800 wide, gap 40.
+    function makeTallSectionTree() {
+      return makeSpyVirtualTreeWithGeom(
+        [100, 200, 200],
+        [600, 800, 800],
+        [24, 40, 40],
+      );
+    }
+
+    it("slot heights/widths/gaps come from each entry's pageConfig", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(3);
+
+      // Page 0: doc-wide default.
+      expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
+      expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
+      // Per-entry gap AFTER page 0 (page 0's own gap = 24).
+      expect((slots[0] as HTMLDivElement).style.marginBottom).toBe("24px");
+
+      // Page 1: section override — taller + wider.
+      expect((slots[1] as HTMLDivElement).style.width).toBe("800px");
+      expect((slots[1] as HTMLDivElement).style.height).toBe("200px");
+      // Per-entry gap AFTER page 1 (section gap = 40).
+      expect((slots[1] as HTMLDivElement).style.marginBottom).toBe("40px");
+
+      // Page 2: last slot — no trailing margin.
+      expect((slots[2] as HTMLDivElement).style.width).toBe("800px");
+      expect((slots[2] as HTMLDivElement).style.height).toBe("200px");
+      expect((slots[2] as HTMLDivElement).style.marginBottom).toBe("0px");
+
+      ctrl.destroy();
+    });
+
+    it("textarea/caret top uses the entry's running-sum blockOffset, not pageIndex*(H+gap)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      // Cursor on page 2 (post-boundary). cursorPos.y = 20 (from MOCK).
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      const textarea = container.querySelector("textarea")!;
+      // Running sum: offsets[2] = 100+24 + 200+40 = 364. + cursorPos.y(20) = 384.
+      // A uniform pageIndex*(100+24)+20 would be 2*124+20 = 268 — WRONG.
+      expect(offsets[2]).toBe(364);
+      expect(textarea.style.top).toBe(`${offsets[2] + 20}px`);
+
+      ctrl.destroy();
+      vi.mocked(core.resolvePixelPosition).mockReturnValue(MOCK_PIXEL_POSITION);
+    });
+
+    it("mouse fallback (click outside any slot) maps across a geometry boundary to the right page, clamped to THAT page's height", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, getPage } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      getPage.mockClear();
+      vi.mocked(core.resolvePositionFromPixel).mockClear();
+
+      // Container rect spans the whole doc; the event target is the container
+      // itself (no data-page-index) → the "outside any slot" fallback runs.
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 800, bottom: 564, width: 800, height: 564,
+        x: 0, y: 0, toJSON: () => {},
+      }));
+
+      // visualY = 500 lands inside page 2 (offsets[2] = 364, page 2 spans
+      // [364, 564)). A uniform floor(500/124) would give page 4 — out of range.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 500, detail: 1, bubbles: true }),
+      );
+
+      // Hit-tested page 2 via getPage (never materializeAll).
+      expect(getPage).toHaveBeenCalledWith(2);
+
+      // resolvePositionFromPixel called with pageLocalY = 500 - 364 = 136,
+      // clamped to page 2's own height (200) ⇒ 136 (not clamped to the
+      // short default 100). Args: (state, tree, measurer, x, y, pageIndex).
+      const call = vi.mocked(core.resolvePositionFromPixel).mock.calls.at(-1)!;
+      expect(call[5]).toBe(2); // pageIndex
+      expect(call[4]).toBe(136); // pageLocalY clamped to the tall page's height
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
+        core.createPosition("mock-block" as core.BlockId, 0),
+      );
+    });
+
+    it("mouse fallback clamps a click below a page's content to THAT page's height (not the doc-wide default)", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      vi.mocked(core.resolvePositionFromPixel).mockClear();
+
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 800, bottom: 564, width: 800, height: 564,
+        x: 0, y: 0, toJSON: () => {},
+      }));
+
+      // visualY = 555 — near the bottom of page 2 (spans [364, 564)).
+      // pageLocalY = 555 - 364 = 191, which is < page 2's height (200), so it
+      // stays 191. Critically NOT clamped to the short default (100).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 555, detail: 1, bubbles: true }),
+      );
+      const call = vi.mocked(core.resolvePositionFromPixel).mock.calls.at(-1)!;
+      expect(call[5]).toBe(2);
+      expect(call[4]).toBe(191);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
+        core.createPosition("mock-block" as core.BlockId, 0),
+      );
     });
   });
 
