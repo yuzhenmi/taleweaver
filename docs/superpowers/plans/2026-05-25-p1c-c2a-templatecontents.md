@@ -87,6 +87,10 @@ Changes:
   `dirtyIds` ⊇ `{tmplP}` (exercises the `findOwningBlockId` template branch). ALSO update the
   existing structural test ("creates a Y.Doc with the three top-level maps") to assert
   `getTemplateContentsMap(doc) instanceof Y.Map` and rename it to "four top-level maps" (I3).
+  ALSO add a parallel "materializes template-content blocks" test in
+  `packages/core/src/state/build-state-from-blocks.test.ts` (mirroring the existing
+  "materializes embed-content blocks" test) covering the new `buildStateFromBlocks` template
+  seeding directly.
 - [ ] **Step 2: Run, confirm fail** (`getTemplateContentsMap` undefined / dirtyIds empty).
   Run: `npm test --workspace=packages/core -- --run yjs-doc`
 - [ ] **Step 3: Implement** items 1–7 above (incl. the `perf-find-owning-block.test.ts` 4-arg
@@ -160,7 +164,8 @@ template):
 
 ## Task 4: `state.ts` — accessors + `resolveBlock`
 
-**Files:** Modify `packages/core/src/state/state.ts`; Test: `packages/core/src/state/state.test.ts`.
+**Files:** Modify `packages/core/src/state/state.ts`; Modify `packages/core/src/index.ts` (barrel
+export — C-NEW); Test: `packages/core/src/state/state.test.ts`.
 
 - `getTemplateContent(state, id): Block | null` → `getTemplateContentSnapshot(internal.doc, id, internal.snapshotCache)` (mirror `getEmbedContent`).
 - `getTemplateContentIds(state): IterableIterator<BlockId>` → `getTemplateContentsMap(...).keys()` (mirror `getEmbedContentIds`).
@@ -168,6 +173,11 @@ template):
   check `getBlock` → kind "block"; else `getEmbedContent` → "embedContent"; else
   `getTemplateContent` → "templateContent"; else `null`. (Main tree precedence, matching
   `getBlockFromEither`.) Keep `getBlockFromEither` as the value-only shortcut (existing callers).
+- **Barrel (C-NEW):** add `getTemplateContent` and `resolveBlock` to the state export block in
+  `packages/core/src/index.ts` (alongside the existing `getBlock`/`getEmbedContent`/
+  `getBlockFromEither` exports) so the foundation is "inert but COMPLETE" — C.2c consumers reach
+  `getTemplateContent`/`resolveBlock` via the barrel without patching it. (`getTemplateContentIds`
+  follows `getEmbedContentIds` — internal render-pass util, NOT barrel-exported.)
 
 - [ ] **Step 1: Write failing tests:** build a state with a body block, an embed body, and a
   template body; assert `resolveBlock` returns `kind` `"block"`/`"embedContent"`/`"templateContent"`
