@@ -47,6 +47,7 @@ import {
   handlePaste,
   handleInsertNode,
   handleSectionBreak,
+  handleToggleSectionLandscape,
 } from "./actions";
 
 // Re-export helpers that are part of the public API.
@@ -237,6 +238,9 @@ export function reduceEditor(
       break;
     case "SECTION_BREAK":
       result = handleSectionBreak(editor, config);
+      break;
+    case "TOGGLE_SECTION_LANDSCAPE":
+      result = handleToggleSectionLandscape(editor, config);
       break;
     default: {
       action satisfies never;

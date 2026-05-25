@@ -9,6 +9,7 @@ import {
   ListOrdered,
   ChevronDown,
   SeparatorHorizontal,
+  RectangleHorizontal,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -226,6 +227,15 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Section break (new page)"
         icon={SeparatorHorizontal}
         onAction={() => dispatch({ type: "SECTION_BREAK" })}
+      />
+
+      {/* Toggle the page orientation of the SECTION at the cursor between the
+          doc-wide page size and landscape (doc-wide dimensions swapped).
+          No-op in a section-less doc — make a Section break first. */}
+      <ToolbarButton
+        label="Toggle section orientation"
+        icon={RectangleHorizontal}
+        onAction={() => dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" })}
       />
     </div>
   );

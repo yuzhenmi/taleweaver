@@ -110,4 +110,6 @@ portrait→landscape boundary; toggling back restores portrait with no stale pai
   first.
 
 ## Status
-- [ ] T1 — action + handler + reducer wiring + toolbar button + editor-behavior tests.
+- [x] T1 — action + handler + reducer wiring + toolbar button + editor-behavior tests
+  (implemented; build + full core suite (1634) + dom suite (149) + react build green;
+  pending code-reviewer gate + commit).

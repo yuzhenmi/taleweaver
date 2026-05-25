@@ -27,3 +27,4 @@ export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";
 export { handleInsertNode } from "./insert-node";
 export { handleSectionBreak } from "./section-break";
+export { handleToggleSectionLandscape } from "./toggle-section-landscape";

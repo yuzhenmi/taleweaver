@@ -29,4 +29,5 @@ export type EditorAction =
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
   | { type: "DELETE_LINE" }
   | { type: "INSERT_NODE"; node: BlockInit; position?: Position }
-  | { type: "SECTION_BREAK" };
+  | { type: "SECTION_BREAK" }
+  | { type: "TOGGLE_SECTION_LANDSCAPE" };
