@@ -59,6 +59,29 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
   });
 
+  it("commit refuses a no-op (empty dirtyIds) BEFORE mutating; stacks stay aligned (S-B2)", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+
+    // Hand-built no-op result (empty dirtyIds), independent of S-B1's no-op path.
+    const noop = { state: state0, dirtyIds: new Set<BlockId>() };
+    expect(() => history.commit(noop, { before, after })).toThrow(/no-op/);
+    expect(history.canUndo()).toBe(false);
+
+    // The rejected no-op must NOT have partially mutated (pushed a selection
+    // entry / advanced currentState): a subsequent REAL commit + undo round-trips
+    // cleanly. On the pre-fix code the no-op pushed an unmatched selection entry
+    // before throwing, so this real commit would trip the alignment assertion.
+    const real = setBlockAttrs(state0, child.id, { bold: true });
+    history.commit(real, { before, after });
+    expect(history.canUndo()).toBe(true);
+    const undone = history.undo();
+    expect(undone?.selection).toEqual(before);
+  });
+
   it("commit(opResult, {before, after}) advances state and records the entry", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
@@ -434,11 +457,13 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(internals.redoSelectionStack).toEqual(redoStackBefore);
   });
 
-  it("commit on a no-op opResult would misalign — handlers must short-circuit (assertion fires)", () => {
+  it("commit on a no-op opResult is rejected by the pre-mutation guard (handlers must short-circuit)", () => {
     // Documents the contract: action handlers must NOT call
     // `history.commit` if `opResult.dirtyIds.size === 0` (Yjs skips
-    // no-op groups, so undoStack would not grow). If a handler
-    // forgets, the dev-mode write-time alignment assertion catches it.
+    // no-op groups, so undoStack would not grow). The dev-mode
+    // pre-condition guard (S-B2) catches this BEFORE any mutation, so the
+    // wrapper is never left half-updated. (A post-mutation stack-alignment
+    // assertion remains as a belt-and-suspenders for other desync causes.)
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
@@ -449,6 +474,6 @@ describe("history (Y.UndoManager wrapper)", () => {
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     expect(() =>
       history.commit(noopResult, { before: sel, after: sel }),
-    ).toThrow(/stack alignment broken/);
+    ).toThrow(/no-op operation/);
   });
 });

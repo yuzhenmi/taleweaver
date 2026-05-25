@@ -679,3 +679,39 @@ describe("clonePastedSubtree — error cases", () => {
     expect(cloned?.lastChildId).toBe(result.rootId); // both child pointers self-loop, both rewritten consistently
   });
 });
+
+describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
+  const sourceFixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }),
+      ],
+    });
+
+  it("checks newly-allocated ids against the DESTINATION namespace, not the source", () => {
+    const sourceState = sourceFixture(); // ids: "doc", "p" — no "clone-0"
+    // Destination ALREADY contains "clone-0" — the first id the counter allocator mints.
+    const destinationState = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document", firstChildId: "clone-0", lastChildId: "clone-0" }),
+        buildBlock({ id: "clone-0", type: "paragraph", parentId: "root", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("clone");
+    // Pre-fix (checked source) this would NOT throw — source has no "clone-0".
+    expect(() =>
+      clonePastedSubtree(sourceState, "p" as BlockId, allocator, destinationState),
+    ).toThrow(/colliding id "clone-0"/);
+  });
+
+  it("same-document clone (no destination arg) defaults to source and still works", () => {
+    const sourceState = sourceFixture();
+    const allocator = createTestAllocator("clone");
+    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    expect(result.rootId).toBe("clone-0");
+    expect(result.blocks.size).toBe(1);
+  });
+});

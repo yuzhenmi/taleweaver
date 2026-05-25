@@ -41,4 +41,19 @@ describe("setBlockAttrs", () => {
     const state = fixture();
     expect(() => setBlockAttrs(state, "missing" as BlockId, {})).toThrow(/not found/);
   });
+
+  it("no-op short-circuit: same-value write returns the input state unchanged (S-B1)", () => {
+    const state = fixture();
+    // The fixture's "p" block already has { textAlign: "left" }.
+    const result = setBlockAttrs(state, "p" as BlockId, { textAlign: "left" });
+    expect(result.state).toBe(state); // applyOperation no-op identity
+    expect(result.dirtyIds.size).toBe(0); // no spurious dirty event
+  });
+
+  it("a genuinely different bag still mutates and dirties the block (S-B1)", () => {
+    const state = fixture();
+    const result = setBlockAttrs(state, "p" as BlockId, { textAlign: "right" });
+    expect(result.state).not.toBe(state);
+    expect([...result.dirtyIds]).toEqual(["p"]);
+  });
 });

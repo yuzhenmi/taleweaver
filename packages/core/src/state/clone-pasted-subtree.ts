@@ -59,6 +59,11 @@ export function clonePastedSubtree(
   sourceState: State,
   sourceRootId: BlockId,
   allocator: IdAllocator,
+  // The doc the clone will be inserted INTO — the namespace newly-allocated
+  // ids must not collide with. Defaults to `sourceState` for same-document
+  // paste (source === destination). For cross-document paste, pass the
+  // destination state so the dev collision check guards the right namespace.
+  destinationState: State = sourceState,
 ): ClonedSubtree {
   if (getBlock(sourceState, sourceRootId) === null) {
     throw new Error(
@@ -82,21 +87,23 @@ export function clonePastedSubtree(
   // is valid — internal references are remapped by id, not by allocation
   // position.
   //
-  // Each newly-allocated id is verified (in dev) against the source state's
-  // Y.Doc to detect colliding ids — the cloned subtree's ids must not
-  // overlap with the source namespace, or downstream merges/inserts will
-  // corrupt either tree. This matters more here than for single-block ops
-  // because clonePastedSubtree allocates many ids in a row, multiplying
-  // collision risk under counter-based test allocators.
+  // Each newly-allocated id is verified (in dev) against the DESTINATION
+  // state's Y.Doc to detect colliding ids — the cloned subtree's ids must not
+  // overlap with the namespace it will be inserted into, or downstream
+  // merges/inserts will corrupt either tree. (For same-document paste
+  // `destinationState === sourceState`.) This matters more here than for
+  // single-block ops because clonePastedSubtree allocates many ids in a row,
+  // multiplying collision risk under counter-based test allocators.
+  const destinationDoc = destinationState[STATE_INTERNAL].doc;
   const idMap = new Map<BlockId, BlockId>();
   for (const oldId of treeIds) {
     const newId = allocator.allocate();
-    assertNoIdCollision(sourceState[STATE_INTERNAL].doc, newId, "clonePastedSubtree");
+    assertNoIdCollision(destinationDoc, newId, "clonePastedSubtree");
     idMap.set(oldId, newId);
   }
   for (const oldId of embedContentIds) {
     const newId = allocator.allocate();
-    assertNoIdCollision(sourceState[STATE_INTERNAL].doc, newId, "clonePastedSubtree");
+    assertNoIdCollision(destinationDoc, newId, "clonePastedSubtree");
     idMap.set(oldId, newId);
   }
 

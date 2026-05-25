@@ -156,6 +156,20 @@ export class History {
    * alignment. The dev-mode assertion below catches this.
    */
   commit(opResult: OperationResult, selections: SelectionEntry): void {
+    // Pre-condition, checked BEFORE any mutation so a misuse throws without
+    // leaving the wrapper half-updated (currentState advanced / selection
+    // pushed). `dirtyIds.size === 0` is exactly the forbidden no-op: Yjs
+    // records no undo group for it, so pushing a selection entry would
+    // misalign the stacks. (Sound today because every action handler surfaces
+    // its full change set via the FINAL OperationResult it commits; a future
+    // compound action whose last op has an empty dirty set must propagate a
+    // merged dirty set.) Dev-only — compiled out of production.
+    if (isDevMode() && opResult.dirtyIds.size === 0) {
+      throw new Error(
+        `History.commit: refusing to commit a no-op operation (dirtyIds empty); ` +
+          `handlers must short-circuit when opResult.dirtyIds.size === 0.`,
+      );
+    }
     this.currentState = opResult.state;
     this.undoManager.stopCapturing();
     this.undoSelectionStack.push(selections);
