@@ -247,6 +247,129 @@ describe("render — embed-content zones", () => {
 });
 
 // ---------------------------------------------------------------------------
+// C.2a-T5: template-content zones (parallel to embed-content zones).
+// Header/footer template bodies live in the templateContents Y.Map and
+// render into RenderOutput.templateContents the same way footnote bodies
+// render into RenderOutput.embedContents. Inert in C.2a — nothing positions
+// these bodies until C.2c.
+// ---------------------------------------------------------------------------
+
+describe("render — template-content zones", () => {
+  const tmplBodyComponent: LeafComponentDefinition = {
+    type: "tmpl-body",
+    kind: "leaf",
+    leafShape: "inline-bearing",
+    render: (view, _ctx, inlineChildren) =>
+      ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
+  };
+
+  it("renders each template-content block into its own RenderNode keyed by id", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("body text")]),
+        }),
+      ],
+      templateContents: [
+        buildBlock({
+          id: "hdr-body-1",
+          type: "tmpl-body",
+          inlineContent: inlineContent([text("header text")]),
+        }),
+      ],
+    });
+    const reg = basicRegistry();
+    reg.register(tmplBodyComponent);
+    const out = render(state, reg, createDefaultAttrRegistry());
+    expect(out.templateContents.size).toBe(1);
+    const body = out.templateContents.get("hdr-body-1" as BlockId);
+    expect(body).toBeDefined();
+    expect(body?.type).toBe("element");
+    expect(body?.key).toBe("hdr-body-1");
+  });
+
+  it("empty case: no template bodies → templateContents.size === 0, root + embedContents unchanged", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+      ],
+    });
+    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    expect(out.templateContents.size).toBe(0);
+    // No regression to the existing maps: root still a document element with
+    // one child, embedContents still empty.
+    expect(out.root.type).toBe("element");
+    expect((out.root as ElementBox).children).toHaveLength(1);
+    expect(out.embedContents.size).toBe(0);
+  });
+
+  it("incremental render: dirty template body re-rendered fresh, unchanged body reused by ref", () => {
+    const reg = basicRegistry();
+    reg.register(tmplBodyComponent);
+    const attrs = createDefaultAttrRegistry();
+
+    const state1 = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
+      ],
+      templateContents: [
+        buildBlock({ id: "hdr-a", type: "tmpl-body", inlineContent: inlineContent([text("alpha")]) }),
+        buildBlock({ id: "hdr-b", type: "tmpl-body", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+    const prev = render(state1, reg, attrs);
+
+    // New state: hdr-a's content changed, hdr-b unchanged. The
+    // incremental render is driven by an explicit dirtyIds set naming the
+    // changed body (template bodies have no main-tree parent chain, so the
+    // invalidation set is exactly {hdr-a}). hdr-b must be reused by ref.
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
+      ],
+      templateContents: [
+        buildBlock({ id: "hdr-a", type: "tmpl-body", inlineContent: inlineContent([text("ALPHA-edited")]) }),
+        buildBlock({ id: "hdr-b", type: "tmpl-body", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["hdr-a" as BlockId]),
+    });
+
+    const prevA = prev.templateContents.get("hdr-a" as BlockId);
+    const outA = out.templateContents.get("hdr-a" as BlockId);
+    const prevB = prev.templateContents.get("hdr-b" as BlockId);
+    const outB = out.templateContents.get("hdr-b" as BlockId);
+
+    // hdr-b unchanged → reused by reference from prev.
+    expect(outB).toBe(prevB);
+    // hdr-a dirty → freshly produced (different reference).
+    expect(outA).not.toBe(prevA);
+    // …and the fresh node reflects the edited content.
+    expect(outA?.type).toBe("element");
+    if (outA?.type === "element") {
+      const textChild = outA.children[0];
+      expect(textChild.type).toBe("text");
+      expect((textChild as { text: string }).text).toBe("ALPHA-edited");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // R-B fix bundle (A1 + A2 + A3 + A5)
 // ---------------------------------------------------------------------------
 

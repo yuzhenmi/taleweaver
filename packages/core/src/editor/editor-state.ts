@@ -66,8 +66,8 @@ export interface EditorState {
    */
   readonly renderTree: RenderNode;
   /**
-   * Full render output (root + embedContents) — needed as the `prev`
-   * input to the next `renderIncremental` call so unchanged
+   * Full render output (root + embedContents + templateContents) — needed
+   * as the `prev` input to the next `renderIncremental` call so unchanged
    * RenderNodes flow through by reference.
    */
   readonly renderOutput: RenderOutput;

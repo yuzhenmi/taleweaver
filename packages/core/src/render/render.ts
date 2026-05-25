@@ -1,7 +1,13 @@
 import type { Block } from "../state/block";
 import type { BlockId } from "../state/block-id";
 import type { State } from "../state/state";
-import { getBlock, getEmbedContent, getEmbedContentIds } from "../state/state";
+import {
+  getBlock,
+  getEmbedContent,
+  getEmbedContentIds,
+  getTemplateContent,
+  getTemplateContentIds,
+} from "../state/state";
 import type { ReadonlyAttrs } from "../state/attrs";
 import type { InlineContent } from "../state/inline-content";
 import type { Style, ComputedStyle } from "../styles";
@@ -22,11 +28,15 @@ import { createTextBox, createElementBox } from "./render-node";
 /**
  * Output of the new renderer. `root` is the main document's RenderNode tree;
  * `embedContents` (populated by T8) carries footnote bodies etc. as a
- * parallel map keyed by BlockId, consumed by pagination.
+ * parallel map keyed by BlockId, consumed by pagination. `templateContents`
+ * (C.2a) carries header/footer template bodies as a second parallel map,
+ * rendered the same way as embeds; nothing positions these bodies until
+ * C.2c wires templates into pagination.
  */
 export interface RenderOutput {
   readonly root: RenderNode;
   readonly embedContents: ReadonlyMap<BlockId, RenderNode>;
+  readonly templateContents: ReadonlyMap<BlockId, RenderNode>;
 }
 
 /**
@@ -163,7 +173,30 @@ export function render(
       ),
     );
   }
-  return Object.freeze({ root, embedContents });
+  // Template contents: rendered exactly like embed contents — each
+  // header/footer template body is a self-contained subtree with no parent
+  // computed style (uses initial). Its own freshly-seeded `visited` set
+  // (independent walk over its own descendants). Inert until C.2c.
+  const templateContents = new Map<BlockId, RenderNode>();
+  for (const id of getTemplateContentIds(state)) {
+    const block = getTemplateContent(state, id);
+    if (block === null) continue; // shouldn't happen since we just enumerated the map
+    const visitedTemplate = new Set<BlockId>();
+    templateContents.set(
+      id,
+      renderBlock(
+        block,
+        null,
+        undefined,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        visitedTemplate,
+      ),
+    );
+  }
+  return Object.freeze({ root, embedContents, templateContents });
 }
 
 /**
@@ -485,7 +518,37 @@ function renderIncremental(
     );
   }
 
-  return Object.freeze({ root, embedContents });
+  // Template contents: same reuse-vs-rerender logic as embed contents.
+  // Reuse prev's RenderNode unless the template body's source block is in
+  // the invalidation set, or it's a newly-added body (no prev entry).
+  const templateContents = new Map<BlockId, RenderNode>();
+  for (const id of getTemplateContentIds(state)) {
+    const cachedTemplate = prev.templateContents.get(id);
+    if (cachedTemplate !== undefined && !invalidated.has(id)) {
+      templateContents.set(id, cachedTemplate);
+      continue;
+    }
+    const block = getTemplateContent(state, id);
+    if (block === null) continue;
+    const templateVisited = new Set<BlockId>();
+    templateContents.set(
+      id,
+      renderBlockIncremental(
+        block,
+        null,
+        undefined,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        templateVisited,
+        invalidated,
+        prevByKey,
+      ),
+    );
+  }
+
+  return Object.freeze({ root, embedContents, templateContents });
 }
 
 /**
