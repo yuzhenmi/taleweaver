@@ -10,6 +10,17 @@ import { createElementBox } from "../render/render-node";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { BlockId } from "../state/block-id";
+import type { PageConfig } from "./page-config";
+
+// A doc-wide PageConfig for buildSectionPlan's 2nd argument. 800px block-size
+// with 60px top/bottom margins ⇒ a healthy positive content area, so margin
+// overrides only trip the content-size guard when deliberately huge.
+const DOC_WIDE: PageConfig = {
+  pageInlineSize: 600,
+  pageBlockSize: 800,
+  pageMargins: { blockStart: 60, blockEnd: 60, inlineStart: 72, inlineEnd: 72 },
+  pageGap: 20,
+};
 
 // --- Fixture helpers ---------------------------------------------------------
 //
@@ -35,10 +46,21 @@ function para(key: string): ElementBox {
   return withComputed(createElementBox(key, { display: "block" }, []), "block");
 }
 
-/** A section (display:contents + the section marker). */
-function section(key: string, children: readonly RenderNode[]): ElementBox {
+/**
+ * A section (display:contents + the section marker). Optional `geometry` is
+ * merged into the metadata to model a section carrying page-geometry overrides
+ * (C.2b-2): the section component stamps these from `view.attrs`.
+ */
+function section(
+  key: string,
+  children: readonly RenderNode[],
+  geometry?: Record<string, unknown>,
+): ElementBox {
   return withComputed(
-    createElementBox(key, { display: "contents" }, children, { blockType: "section" }),
+    createElementBox(key, { display: "contents" }, children, {
+      blockType: "section",
+      ...geometry,
+    }),
     "contents",
   );
 }
@@ -78,7 +100,7 @@ describe("IMPLICIT_SECTION_PLAN", () => {
 describe("buildSectionPlan", () => {
   it("section-less doc → a single implicit leading boundary", () => {
     const root = docRoot([para("p1"), para("p2"), para("p3")]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
     });
   });
@@ -89,7 +111,7 @@ describe("buildSectionPlan", () => {
       section("sec", [para("a"), para("b")]),
       para("p2"),
     ]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 1, sectionId: "sec" },
@@ -102,7 +124,7 @@ describe("buildSectionPlan", () => {
       section("sec1", [para("a")]),
       section("sec2", [para("b"), para("c")]),
     ]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [
         { startFlattenedIndex: 0, sectionId: "sec1" },
         { startFlattenedIndex: 1, sectionId: "sec2" },
@@ -112,7 +134,7 @@ describe("buildSectionPlan", () => {
 
   it("single section(a,b,c) with no leading block → [{0,sec}] (section starts at 0)", () => {
     const root = docRoot([section("sec", [para("a"), para("b"), para("c")])]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [{ startFlattenedIndex: 0, sectionId: "sec" }],
     });
   });
@@ -127,7 +149,7 @@ describe("buildSectionPlan", () => {
       para("after"),
       section("sec2", [para("x")]),
     ]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [
         { startFlattenedIndex: 0, sectionId: "sec" },
         { startFlattenedIndex: 3, sectionId: "sec2" },
@@ -143,7 +165,7 @@ describe("buildSectionPlan", () => {
       section("empty", []),
       section("real", [para("a")]),
     ]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 1, sectionId: "real" },
@@ -153,7 +175,7 @@ describe("buildSectionPlan", () => {
 
   it("de-dups an empty leading section into the next section (still strictly increasing)", () => {
     const root = docRoot([section("empty", []), section("real", [para("a"), para("b")])]);
-    expect(buildSectionPlan(root)).toEqual({
+    expect(buildSectionPlan(root, DOC_WIDE)).toEqual({
       boundaries: [{ startFlattenedIndex: 0, sectionId: "real" }],
     });
   });
@@ -166,7 +188,7 @@ describe("buildSectionPlan", () => {
       section("s2", [para("b"), para("c")]),
       para("tail"),
     ]);
-    const plan = buildSectionPlan(root);
+    const plan = buildSectionPlan(root, DOC_WIDE);
     for (let i = 1; i < plan.boundaries.length; i++) {
       expect(plan.boundaries[i].startFlattenedIndex).toBeGreaterThan(
         plan.boundaries[i - 1].startFlattenedIndex,
@@ -179,6 +201,88 @@ describe("buildSectionPlan", () => {
         { startFlattenedIndex: 2, sectionId: "s2" },
       ],
     });
+  });
+});
+
+// --- buildSectionPlan: per-section pageConfig (C.2b-2) ------------------------
+
+describe("buildSectionPlan — per-section pageConfig", () => {
+  it("a section WITH a pageBlockSize override → boundary.pageConfig reflects it", () => {
+    const root = docRoot([
+      para("p1"),
+      section("sec", [para("a")], { pageBlockSize: 1000 }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary).toBeDefined();
+    expect(secBoundary?.pageConfig?.pageBlockSize).toBe(1000);
+    // The rest of the config is inherited from docWide.
+    expect(secBoundary?.pageConfig?.pageInlineSize).toBe(DOC_WIDE.pageInlineSize);
+    expect(secBoundary?.pageConfig?.pageMargins).toEqual(DOC_WIDE.pageMargins);
+  });
+
+  it("a section with NO overrides → boundary.pageConfig is undefined (inert no-override path)", () => {
+    const root = docRoot([para("p1"), section("sec", [para("a")])]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary).toBeDefined();
+    expect(secBoundary?.pageConfig).toBeUndefined();
+  });
+
+  it("a section whose overrides resolve EQUAL to docWide → pageConfig undefined", () => {
+    // Echoing docWide's own values back is a no-op: deep-equal to docWide ⇒ no
+    // pageConfig stamped, keeping the reuse/measure path obviously inert.
+    const root = docRoot([
+      section("sec", [para("a")], {
+        pageBlockSize: DOC_WIDE.pageBlockSize,
+        pageInlineSize: DOC_WIDE.pageInlineSize,
+        pageGap: DOC_WIDE.pageGap,
+        pageMargins: { ...DOC_WIDE.pageMargins },
+      }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary?.pageConfig).toBeUndefined();
+  });
+
+  it("the implicit leading boundary never carries a pageConfig", () => {
+    const root = docRoot([
+      para("p1"),
+      section("sec", [para("a")], { pageBlockSize: 1000 }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const implicit = plan.boundaries.find((b) => b.sectionId === null);
+    expect(implicit).toBeDefined();
+    expect(implicit?.pageConfig).toBeUndefined();
+  });
+
+  it("a margin-only override stamps a pageConfig merged over docWide margins", () => {
+    const root = docRoot([
+      section("sec", [para("a")], { pageMargins: { inlineStart: 120 } }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary?.pageConfig?.pageMargins).toEqual({
+      blockStart: 60,
+      blockEnd: 60,
+      inlineStart: 120,
+      inlineEnd: 72,
+    });
+  });
+
+  it("an unusable override (content-size <= 0) falls back to docWide ⇒ pageConfig undefined", () => {
+    const root = docRoot([
+      section("sec", [para("a")], { pageMargins: { blockStart: 500, blockEnd: 500 } }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    // Validator returns docWide for the unusable combination, which equals
+    // docWide ⇒ no pageConfig stamped.
+    expect(secBoundary?.pageConfig).toBeUndefined();
+  });
+
+  it("IMPLICIT_SECTION_PLAN stays a const with no pageConfig", () => {
+    expect(IMPLICIT_SECTION_PLAN.boundaries[0].pageConfig).toBeUndefined();
   });
 });
 

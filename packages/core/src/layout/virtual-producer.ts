@@ -74,7 +74,7 @@ export function buildVirtualPaginatedTree(
   // before the flattened child that begins each new section. A section-less doc
   // yields `[{0, null}]` ⇒ no breaks ⇒ unchanged pagination. `prevTree?.plan`
   // carries the prior `sectionPlan` (now a required field) for the reuse gate.
-  const sectionPlan = buildSectionPlan(cascadedRoot);
+  const sectionPlan = buildSectionPlan(cascadedRoot, pageConfig);
   const plan = measurePass(
     metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan,
   );

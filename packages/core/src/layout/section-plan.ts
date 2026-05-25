@@ -17,13 +17,22 @@
  */
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { BlockId } from "../state/block-id";
+import type { PageConfig } from "./page-config";
 import { flattenContents } from "./group-children";
+import { resolveSectionPageConfig } from "./section-page-config";
 
 /** One section boundary: the section starts at flattened-child index `startFlattenedIndex`. */
 export interface SectionBoundary {
   readonly startFlattenedIndex: number;
   /** The `section` block's id, or null for the implicit (section-less) leading section. */
   readonly sectionId: BlockId | null;
+  /**
+   * The section's effective page geometry, if it OVERRIDES the doc-wide config
+   * (C.2b-2). `undefined` for the implicit leading boundary and for any section
+   * whose attrs resolve equal to docWide — leaving the no-override path inert,
+   * so consumers (T2's measure pass) fall back to docWide when this is absent.
+   */
+  readonly pageConfig?: PageConfig;
 }
 
 export interface SectionPlan {
@@ -53,8 +62,44 @@ export const IMPLICIT_SECTION_PLAN: SectionPlan = {
  * stamped with the `{ blockType: "section" }` metadata marker by the section
  * component (the only new signal needed to identify sections in the cascaded tree).
  */
-export function isSectionBox(node: RenderNode): boolean {
+export function isSectionBox(node: RenderNode): node is ElementBox {
   return node.type === "element" && node.metadata?.blockType === "section";
+}
+
+/**
+ * Deep-equal two `PageConfig`s over their scalar + margin fields. Used to keep
+ * the no-override path inert: a section whose resolved config equals docWide
+ * gets NO `pageConfig` stamped on its boundary.
+ */
+function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
+  return (
+    a.pageInlineSize === b.pageInlineSize &&
+    a.pageBlockSize === b.pageBlockSize &&
+    a.pageGap === b.pageGap &&
+    a.pageMargins.blockStart === b.pageMargins.blockStart &&
+    a.pageMargins.blockEnd === b.pageMargins.blockEnd &&
+    a.pageMargins.inlineStart === b.pageMargins.inlineStart &&
+    a.pageMargins.inlineEnd === b.pageMargins.inlineEnd
+  );
+}
+
+/**
+ * Build a `SectionBoundary` for a real section, resolving its effective page
+ * geometry from the section's metadata over `docWide`. The `pageConfig` field
+ * is stamped ONLY when the resolved config differs from `docWide`; an equal
+ * (or no-override) config leaves it `undefined`, keeping the common case inert.
+ */
+function makeSectionBoundary(
+  startFlattenedIndex: number,
+  sectionBox: ElementBox,
+  docWide: PageConfig,
+): SectionBoundary {
+  const cfg = resolveSectionPageConfig(docWide, sectionBox.metadata);
+  const sectionId = sectionBox.key as BlockId;
+  if (pageConfigsEqual(cfg, docWide)) {
+    return { startFlattenedIndex, sectionId };
+  }
+  return { startFlattenedIndex, sectionId, pageConfig: cfg };
 }
 
 /**
@@ -66,17 +111,22 @@ export function isSectionBox(node: RenderNode): boolean {
  *   (DE-DUP: if a boundary already exists at this index — e.g. preceded by an
  *   empty section — REPLACE its sectionId, keeping the LAST section opened at the
  *   index). Then advance `flattenedCount` by the section's own flattened length.
+ *   Each real boundary resolves its effective `pageConfig` from the section's
+ *   geometry metadata over `docWide` (stamped only when it differs from docWide).
  * - Else advance `flattenedCount` by the child's flattened length (normally 1; a
  *   non-section `display:contents` wrapper correctly expands via `flattenContents`).
  *
  * After the walk, if no boundary sits at index 0 (the first child is not a
- * section), PREPEND the implicit `{ 0, null }` boundary. A section-less doc thus
- * yields exactly `[{ 0, null }]`.
+ * section), PREPEND the implicit `{ 0, null }` boundary (no `pageConfig`). A
+ * section-less doc thus yields exactly `[{ 0, null }]`.
  *
  * INVARIANT (I-2): the returned `boundaries` are sorted with STRICTLY increasing
  * `startFlattenedIndex` — the de-dup guarantees no two entries share an index.
  */
-export function buildSectionPlan(cascadedRoot: ElementBox): SectionPlan {
+export function buildSectionPlan(
+  cascadedRoot: ElementBox,
+  docWide: PageConfig,
+): SectionPlan {
   // Mutable accumulator; the de-dup needs to overwrite the last-pushed boundary
   // when a coincident index recurs, so we build with a plain array.
   const boundaries: SectionBoundary[] = [];
@@ -85,16 +135,14 @@ export function buildSectionPlan(cascadedRoot: ElementBox): SectionPlan {
   for (const child of cascadedRoot.children) {
     if (isSectionBox(child)) {
       const startFlattenedIndex = flattenedCount;
+      const boundary = makeSectionBoundary(startFlattenedIndex, child, docWide);
       const last = boundaries[boundaries.length - 1];
       if (last !== undefined && last.startFlattenedIndex === startFlattenedIndex) {
         // De-dup: a coincident boundary (preceding empty section). Keep the LAST
         // section opened at this index — its body, if any, belongs to it.
-        boundaries[boundaries.length - 1] = {
-          startFlattenedIndex,
-          sectionId: child.key as BlockId,
-        };
+        boundaries[boundaries.length - 1] = boundary;
       } else {
-        boundaries.push({ startFlattenedIndex, sectionId: child.key as BlockId });
+        boundaries.push(boundary);
       }
       flattenedCount += flattenContents([child]).length;
     } else {

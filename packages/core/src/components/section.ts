@@ -17,7 +17,16 @@ export const sectionComponent: ContainerComponentDefinition = {
   type: "section",
   kind: "container",
   render: (view, _ctx, childRenderNodes) =>
+    // Stamp the section marker plus any page-geometry overrides from attrs into
+    // the ElementBox metadata. ElementBox has no `attrs` field, so geometry must
+    // ride through `metadata`; values may be `undefined` (no override) — the
+    // section-page-config validator (C.2b-2) handles absence. Metadata is
+    // additive and `display: contents` is unchanged, so transparency holds.
     createElementBox(view.id, { display: "contents" }, childRenderNodes, {
       blockType: "section",
+      pageInlineSize: view.attrs.pageInlineSize,
+      pageBlockSize: view.attrs.pageBlockSize,
+      pageMargins: view.attrs.pageMargins,
+      pageGap: view.attrs.pageGap,
     }),
 };
