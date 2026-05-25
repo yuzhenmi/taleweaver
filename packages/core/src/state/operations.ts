@@ -16,6 +16,7 @@ export { setBlockAttrs } from "./set-block-attrs";
 export { mergeBlockAttrs } from "./merge-block-attrs";
 export { setBlockType } from "./set-block-type";
 export { insertBlock, type InsertBlockArgs } from "./insert-block";
+export { insertBlocksAfter, type SiblingBlockInit } from "./insert-blocks-after";
 export { removeBlock } from "./remove-block";
 export { insertText } from "./insert-text";
 export { applyAttrsToRange } from "./apply-attrs";

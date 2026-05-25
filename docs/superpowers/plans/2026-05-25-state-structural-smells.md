@@ -105,28 +105,89 @@ function getTreeMaps(doc): readonly Y.Map<Y.Map<unknown>>[] { ... }
 add a test asserting a 4th-tree-style addition is table-driven if cheap. Build +
 full test → reviewer → commit.
 
-## Task B: Atomic bulk-insert primitive + paste migration (closes #268)
+## Task B: Atomic bulk sibling-block insert primitive + paste migration
+
+**Grounding (corrected after reading the code):** `handlePaste`
+(`editor/actions/paste.ts`) does PLAIN-TEXT paste — for k lines it chains
+`splitBlockAtPosition` + `insertText` PER LINE (≈2k `applyOperation` calls).
+THAT is the deep-chain source the "bulk PASTE of 200 lines" integration test
+exercises. (`clonePastedSubtree` exists but is currently unwired — rich paste
+is a later concern; its atomic-insert variant is a follow-up, not this task.)
+
+### Task B.1 — `insertBlocksAfter` Layer-3 primitive
 
 **Files:**
-- Create: `packages/core/src/state/insert-subtree.ts` (+ test)
+- Create: `packages/core/src/state/insert-blocks-after.ts`
+- Test: `packages/core/src/state/insert-blocks-after.test.ts`
 - Modify: `packages/core/src/state/operations.ts` (barrel export)
-- Modify: paste action handler (`packages/core/src/editor/actions/paste.ts` or
-  equiv) to use the bulk op.
-- Behavior-level regression: paste through the real editor + controller.
 
-**Design:** `clonePastedSubtree` already produces a `ClonedSubtree` (fresh ids,
-rewired refs) as plain JS. Add a Layer-3 op that integrates the whole subtree —
-all blocks into `blocks`, embed-content refs into `embedContents`, and the
-child-list relink into the destination parent — inside ONE `applyOperation`
-transaction. Migrate paste to call it. Result: the paste path produces ONE cache
-layer instead of N, so the `chainDepth`/`compactCache` machinery stops being
-load-bearing for paste (keep it as a backstop; do NOT remove without a
-measurement showing it's dead).
+**Signature:**
+```ts
+export interface SiblingBlockInit {
+  type: string;
+  attrs?: ReadonlyAttrs;
+  inlineContent?: InlineContent | null;  // leaf blocks only in v1
+}
+export function insertBlocksAfter(
+  state: State,
+  afterBlockId: BlockId,
+  inits: readonly SiblingBlockInit[],
+  allocator: IdAllocator,
+): OperationResult & { readonly newBlockIds: readonly BlockId[] };
+```
 
-**Steps:** TDD the op (single transaction; dirtyIds = all inserted ids; parent
-relink correct; embed refs land in embedContents). Then migrate paste + add a
-behavior-level paste regression. Build + full test + browser smoke → reviewer →
-commit.
+**Semantics (ONE Y.Doc transaction):** insert `inits` as a contiguous run of
+new sibling blocks immediately after `afterBlockId`, preserving order. The run
+head's `prevSiblingId = afterBlockId`; the run tail's `nextSiblingId =`
+afterBlock's OLD `nextSiblingId`; `afterBlock.nextSiblingId =` run head; the
+old next sibling's `prevSiblingId =` run tail (OR, if afterBlock was the
+parent's last child, `parent.lastChildId =` run tail). Each new block:
+`parentId =` afterBlock's parent, leaf (`firstChildId/lastChildId = null`).
+Empty `inits` → no-op (same `State` ref), `newBlockIds = []`.
+
+**Guards/throws:** `afterBlockId` not found; afterBlock has null parent (can't
+add siblings to the root). Dev id-collision check on each allocated id
+(`assertNoIdCollision` against the same doc, like `insertBlock`).
+
+**dirtyIds:** all new ids + `afterBlockId` + (old next sibling id, or parent id
+when appending at the end — matching `insertBlock`'s boundary-only parent-dirty
+rule).
+
+**TDD steps:** RED tests first — (a) insert 1 after a middle child relinks
+prev/next; (b) insert 3 after the LAST child updates `parent.lastChildId` to the
+run tail; (c) insert after a middle child updates the old-next's `prevSiblingId`,
+parent NOT dirtied; (d) order preserved + inter-run prev/next chain correct;
+(e) empty inits → same-State no-op; (f) throws on missing afterBlock / null
+parent; (g) dirtyIds set exact. Build + full suite → reviewer → commit.
+
+### Task B.2 — migrate `handlePaste` multi-line loop
+
+**Files:** Modify `packages/core/src/editor/actions/paste.ts`. Behavior-level
+regression in the editor paste test (real editor + controller); browser smoke.
+
+**New flow (constant # of ops, independent of line count k):**
+1. (expanded selection) `deleteRange` — unchanged.
+2. `insertText(line0 at pos)` — unchanged for the first line.
+3. If `k > 1`: `splitBlockAtPosition` at (pos.block, pos.offset + line0.length)
+   → original keeps `prefix⊕line0`, new block `N_last` holds the suffix.
+4. Prepend `line(k-1)` to `N_last` via `insertText(N_last, 0, line(k-1))`.
+5. If `k > 2`: ONE `insertBlocksAfter(original, [para(line1), …, para(line_{k-2})], …)`
+   inserting the middle lines as paragraphs between `original` and `N_last`.
+   (Replaces the old O(k) split+insert loop.)
+6. Cursor: end of `line(k-1)` text in `N_last` (offset = line(k-1).length).
+
+Accumulate dirtyIds across the (now constant-count) ops; preserve the existing
+`state === editor.state` no-op short-circuit and `history.commit` +
+`rebuildTrees` tail. The "bulk PASTE of 200 lines completes in linear time"
+integration test must still pass (and now with a SHALLOW cache chain).
+
+**Steps:** TDD the paste behavior (single line; two lines; k lines with
+non-empty suffix after cursor; paste into middle of a block; empty lines in the
+middle). Build + full suite + browser smoke (`npm run dev --workspace=examples/react`,
+paste a multi-line clipboard) → reviewer → commit.
+
+**Note:** keep the `chainDepth`/`compactCache` machinery as a backstop; do NOT
+remove it without a measurement showing it's dead for all bulk paths.
 
 ---
 
