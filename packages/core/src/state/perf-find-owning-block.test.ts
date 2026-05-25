@@ -72,51 +72,32 @@ describe("findOwningBlockId perf", () => {
     const yItem = yInline.get(0);
     const yText = yItem.get("text") as Y.Text;
 
-    const blocksMapAsAny = yBlocks as unknown as Parameters<
-      typeof findOwningBlockIdForTest
-    >[0];
-    const embedContentsMapAsAny = getEmbedContentsMap(doc) as unknown as Parameters<
-      typeof findOwningBlockIdForTest
-    >[1];
-    const templateContentsMapAsAny = getTemplateContentsMap(doc) as unknown as Parameters<
-      typeof findOwningBlockIdForTest
-    >[2];
-    const yTextAsAny = yText as unknown as Parameters<
-      typeof findOwningBlockIdForTest
-    >[3];
+    type TreeMapsArg = Parameters<typeof findOwningBlockIdForTest>[0];
+    type TypeArg = Parameters<typeof findOwningBlockIdForTest>[1];
+    const treeMapsAsAny = [
+      yBlocks,
+      getEmbedContentsMap(doc),
+      getTemplateContentsMap(doc),
+    ] as unknown as TreeMapsArg;
+    const yTextAsAny = yText as unknown as TypeArg;
 
     // Warm up.
     for (let i = 0; i < 100; i++) {
-      findOwningBlockIdForTest(
-        blocksMapAsAny,
-        embedContentsMapAsAny,
-        templateContentsMapAsAny,
-        yTextAsAny,
-      );
+      findOwningBlockIdForTest(treeMapsAsAny, yTextAsAny);
     }
 
     const iterations = 1000;
     const t0 = performance.now();
     for (let i = 0; i < iterations; i++) {
-      findOwningBlockIdForTest(
-        blocksMapAsAny,
-        embedContentsMapAsAny,
-        templateContentsMapAsAny,
-        yTextAsAny,
-      );
+      findOwningBlockIdForTest(treeMapsAsAny, yTextAsAny);
     }
     const elapsedMs = performance.now() - t0;
     const perCallUs = (elapsedMs / iterations) * 1000;
 
     // Correctness check (defensive — guards against a refactor breaking the lookup).
-    expect(
-      findOwningBlockIdForTest(
-        blocksMapAsAny,
-        embedContentsMapAsAny,
-        templateContentsMapAsAny,
-        yTextAsAny,
-      ),
-    ).toBe(targetBlockId);
+    expect(findOwningBlockIdForTest(treeMapsAsAny, yTextAsAny)).toBe(
+      targetBlockId,
+    );
 
     // <10us per call. The actual O(1) path runs in ~0.2-0.5us in practice;
     // the old O(N) path would be ~hundreds of microseconds at N=10K, so this

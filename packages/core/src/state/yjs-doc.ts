@@ -31,6 +31,30 @@ export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
 }
 
 /**
+ * Which tree a block id belongs to. The single source of truth for the set
+ * of top-level block-tree Y.Maps. Adding a 4th tree (e.g. comments) means
+ * extending this record + `BlockTreeKind` — every consumer below
+ * (`getYBlock`, dirty-capture event scan, owning-block walk) iterates it
+ * rather than naming the three maps individually.
+ */
+const TREE_MAP_GETTERS = {
+  block: getBlocksMap,
+  embedContent: getEmbedContentsMap,
+  templateContent: getTemplateContentsMap,
+} as const satisfies Record<string, (doc: Y.Doc) => Y.Map<Y.Map<unknown>>>;
+
+export type BlockTreeKind = keyof typeof TREE_MAP_GETTERS;
+
+/**
+ * All top-level block-tree maps for `doc`, in the stable order of
+ * `TREE_MAP_GETTERS`. Used by `captureDirtyIds` (the changed-key event scan
+ * and the owning-block parent-chain membership test).
+ */
+export function getTreeMaps(doc: Y.Doc): Y.Map<Y.Map<unknown>>[] {
+  return Object.values(TREE_MAP_GETTERS).map((get) => get(doc));
+}
+
+/**
  * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
  * set once in `createYDoc` and never reassigned during a session.
  *
@@ -80,15 +104,9 @@ export function getYBlock(
   doc: Y.Doc,
   id: BlockId,
   opName: string,
-  kind: "block" | "embedContent" | "templateContent" = "block",
+  kind: BlockTreeKind = "block",
 ): Y.Map<unknown> {
-  const map =
-    kind === "block"
-      ? getBlocksMap(doc)
-      : kind === "embedContent"
-        ? getEmbedContentsMap(doc)
-        : getTemplateContentsMap(doc);
-  const yBlock = map.get(id);
+  const yBlock = TREE_MAP_GETTERS[kind](doc).get(id);
   if (yBlock === undefined) {
     throw new Error(`${opName}: ${kind} "${id}" disappeared mid-transaction`);
   }
@@ -109,9 +127,9 @@ type AnyYType = Y.AbstractType<Y.YEvent<any>>;
 /**
  * Runs `fn` inside a Y.Doc transaction and returns the set of BlockIds
  * whose subtree was touched. A BlockId becomes dirty when:
- *   - the blocks map adds/removes/replaces it as a key, OR
- *   - the embedContents map adds/removes/replaces it as a key, OR
- *   - the templateContents map adds/removes/replaces it as a key, OR
+ *   - any block-tree map (every map in `TREE_MAP_GETTERS` — currently
+ *     blocks / embedContents / templateContents) adds/removes/replaces it
+ *     as a key, OR
  *   - any Y type nested under one of those entries is mutated.
  *
  * Implementation: attach an `afterTransaction` listener for the duration
@@ -119,8 +137,8 @@ type AnyYType = Y.AbstractType<Y.YEvent<any>>;
  *
  * **Cost.** O(unique_cursors_visited) per transaction, where
  * unique_cursors_visited is the total number of distinct Y types found
- * on the union of parent chains from each changed Y type up to the
- * blocks/embedContents map boundary. A per-transaction memo
+ * on the union of parent chains from each changed Y type up to a
+ * block-tree map boundary. A per-transaction memo
  * (`findOwningBlockIdMemoized` below) ensures each cursor is walked at
  * most once even when many changed Y types share intermediate ancestors
  * — a common pattern in wide-selection format ops where every item's
@@ -161,29 +179,19 @@ export function captureDirtyIds(
   fn: () => void,
 ): ReadonlySet<BlockId> {
   const dirtyIds = new Set<BlockId>();
-  const blocksMap = getBlocksMap(doc);
-  const embedContentsMap = getEmbedContentsMap(doc);
-  const templateContentsMap = getTemplateContentsMap(doc);
-  const blocksMapAsAny = blocksMap as unknown as AnyYType;
-  const embedContentsMapAsAny = embedContentsMap as unknown as AnyYType;
-  const templateContentsMapAsAny = templateContentsMap as unknown as AnyYType;
+  const treeMaps = getTreeMaps(doc);
+  // Membership set of the tree maps (as the YEvent-keyed type) for the
+  // owning-block parent-chain test.
+  const treeMapSet = new Set<AnyYType>(
+    treeMaps.map((m) => m as unknown as AnyYType),
+  );
 
   const captureDirty = (tx: Y.Transaction) => {
-    const blocksEvent = tx.changed.get(blocksMapAsAny);
-    if (blocksEvent) {
-      for (const key of blocksEvent) {
-        if (key !== null) dirtyIds.add(key as BlockId);
-      }
-    }
-    const embedsEvent = tx.changed.get(embedContentsMapAsAny);
-    if (embedsEvent) {
-      for (const key of embedsEvent) {
-        if (key !== null) dirtyIds.add(key as BlockId);
-      }
-    }
-    const templatesEvent = tx.changed.get(templateContentsMapAsAny);
-    if (templatesEvent) {
-      for (const key of templatesEvent) {
+    // A direct add/remove/replace of a tree key marks that id dirty.
+    for (const map of treeMaps) {
+      const event = tx.changed.get(map as unknown as AnyYType);
+      if (event === undefined) continue;
+      for (const key of event) {
         if (key !== null) dirtyIds.add(key as BlockId);
       }
     }
@@ -192,13 +200,7 @@ export function captureDirtyIds(
     // internal items between transactions.
     const memo = new Map<AnyYType, BlockId | null>();
     for (const [type] of tx.changedParentTypes) {
-      const owningBlockId = findOwningBlockIdMemoized(
-        type,
-        blocksMapAsAny,
-        embedContentsMapAsAny,
-        templateContentsMapAsAny,
-        memo,
-      );
+      const owningBlockId = findOwningBlockIdMemoized(type, treeMapSet, memo);
       if (owningBlockId !== null) {
         dirtyIds.add(owningBlockId);
       }
@@ -221,16 +223,14 @@ export function captureDirtyIds(
  * `changedParentTypes` iteration.
  *
  * Walks up the Y type parent chain to find the BlockId that owns `type`,
- * i.e. the key under blocksMap, embedContentsMap, or templateContentsMap
- * whose value is an ancestor of `type`. Returns null if `type` is not
- * nested under any of them.
+ * i.e. the key under one of the tree maps (`treeMapSet`) whose value is an
+ * ancestor of `type`. Returns null if `type` is not nested under any of them.
  *
  * **O(depth) per call** — no linear scan of the outer map. Once we reach a
- * `cursor` whose `parent` is the blocks map, the embedContents map, or the
- * templateContents map, `cursor` is the block-level Y.Map and its insertion
- * key is recoverable from `_item.parentSub`. This is the Yjs internal field
- * that records the key under which a shared type was inserted into its
- * parent Y.Map.
+ * `cursor` whose `parent` is a tree map, `cursor` is the block-level Y.Map
+ * and its insertion key is recoverable from `_item.parentSub`. This is the
+ * Yjs internal field that records the key under which a shared type was
+ * inserted into its parent Y.Map.
  *
  * `_item.parentSub` is documented as internal but is stable across Yjs 13.x
  * and used by Yjs's own bindings (e.g. y-prosemirror). The version is
@@ -242,18 +242,12 @@ export function captureDirtyIds(
  */
 function findOwningBlockId(
   type: AnyYType,
-  blocksMapAsAny: AnyYType,
-  embedContentsMapAsAny: AnyYType,
-  templateContentsMapAsAny: AnyYType,
+  treeMapSet: ReadonlySet<AnyYType>,
 ): BlockId | null {
   let cursor: AnyYType | null = type;
   while (cursor !== null) {
     const parent = cursor.parent as AnyYType | null;
-    if (
-      parent === blocksMapAsAny ||
-      parent === embedContentsMapAsAny ||
-      parent === templateContentsMapAsAny
-    ) {
+    if (parent !== null && treeMapSet.has(parent)) {
       // `cursor` is the block-level Y.Map. Its key in the outer map is the
       // `parentSub` field of its CRDT item.
       const item = (cursor as unknown as { _item?: { parentSub?: string } })
@@ -268,21 +262,15 @@ function findOwningBlockId(
 
 /**
  * Test-only export of `findOwningBlockId` for direct perf measurement.
- * Production code path is via `runTransaction`; do not import this from
- * non-test files.
+ * `treeMapsAsAny` is the list of tree maps cast to the YEvent-keyed type
+ * (e.g. `getTreeMaps(doc).map(m => m as unknown as ...)`). Production code
+ * path is via `runTransaction`; do not import this from non-test files.
  */
 export function findOwningBlockIdForTest(
-  blocksMapAsAny: AnyYType,
-  embedContentsMapAsAny: AnyYType,
-  templateContentsMapAsAny: AnyYType,
+  treeMapsAsAny: readonly AnyYType[],
   type: AnyYType,
 ): BlockId | null {
-  return findOwningBlockId(
-    type,
-    blocksMapAsAny,
-    embedContentsMapAsAny,
-    templateContentsMapAsAny,
-  );
+  return findOwningBlockId(type, new Set(treeMapsAsAny));
 }
 
 /**
@@ -296,9 +284,7 @@ export function findOwningBlockIdForTest(
  */
 function findOwningBlockIdMemoized(
   type: AnyYType,
-  blocksMapAsAny: AnyYType,
-  embedContentsMapAsAny: AnyYType,
-  templateContentsMapAsAny: AnyYType,
+  treeMapSet: ReadonlySet<AnyYType>,
   memo: Map<AnyYType, BlockId | null>,
 ): BlockId | null {
   const direct = memo.get(type);
@@ -316,11 +302,7 @@ function findOwningBlockIdMemoized(
     path.push(cursor);
     _walkStepCounter++;
     const parent = cursor.parent as AnyYType | null;
-    if (
-      parent === blocksMapAsAny ||
-      parent === embedContentsMapAsAny ||
-      parent === templateContentsMapAsAny
-    ) {
+    if (parent !== null && treeMapSet.has(parent)) {
       const item = (cursor as unknown as { _item?: { parentSub?: string } })
         ._item;
       resolved =
