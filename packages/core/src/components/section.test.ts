@@ -47,4 +47,10 @@ describe("sectionComponent", () => {
     expect(node.key).toBe("sec1");
     expect(node.children).toEqual([]);
   });
+
+  it("stamps the { blockType: 'section' } metadata marker so buildSectionPlan can identify it", () => {
+    const node = sectionComponent.render(makeContainerView("sec1"), makeContext(), []);
+    if (node.type !== "element") throw new Error("expected an element box");
+    expect(node.metadata?.blockType).toBe("section");
+  });
 });

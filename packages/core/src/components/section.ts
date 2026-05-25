@@ -17,5 +17,7 @@ export const sectionComponent: ContainerComponentDefinition = {
   type: "section",
   kind: "container",
   render: (view, _ctx, childRenderNodes) =>
-    createElementBox(view.id, { display: "contents" }, childRenderNodes),
+    createElementBox(view.id, { display: "contents" }, childRenderNodes, {
+      blockType: "section",
+    }),
 };
