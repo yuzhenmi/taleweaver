@@ -110,6 +110,10 @@ cursor stays at `{ currentBlock.id, endOffset }` (end of P's last block). Else e
   the lone section; revisit only if a real need appears.
 - List/table cross-container backspace (separate gaps).
 
-## Status
-- [ ] T1 — mergeSectionWithPrevious op.
-- [ ] T2 — delete-backward / delete-forward wiring.
+## Status — COMPLETE
+- [x] T1 — mergeSectionWithPrevious op. Commit `8f13bff`.
+- [x] T2 — delete-backward / delete-forward wiring + behavior tests. (this commit)
+
+Browser-verify (user): Backspace at the start of a section's first block removes the
+break (content rejoins the previous page, paragraphs stay separate; a second
+Backspace then merges them); Delete at the end of the previous section does the same.

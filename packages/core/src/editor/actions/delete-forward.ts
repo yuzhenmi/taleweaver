@@ -4,6 +4,7 @@ import { createPosition, createSpan } from "../../state/block-position";
 import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { mergeAdjacentBlocks } from "../../state/merge-blocks";
+import { mergeSectionWithPrevious } from "../../state/merge-section";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { inlineContentLength } from "../../state/inline-content";
@@ -80,6 +81,42 @@ export function handleDeleteForward(
   }
   const nextBlock = getBlock(editor.state, nextPos.blockId);
   if (nextBlock === null) return editor;
+
+  // Section-boundary forward delete: the cursor is at the END of a flat
+  // doc-root `section` P's LAST child, and P has a next section sibling X.
+  // Remove the break by merging X into P (X's blocks reparent onto the end of
+  // P; X is dropped). The cursor stays at the end of P's last block, which
+  // keeps its id. The boundary paragraphs are NOT merged (Word / Google Docs
+  // behavior: a second Delete then merges them via the same-parent path
+  // below).
+  if (currentBlock.parentId !== null) {
+    const section = getBlock(editor.state, currentBlock.parentId);
+    if (
+      section !== null &&
+      section.type === "section" &&
+      section.parentId === editor.state.rootId &&
+      section.lastChildId === currentBlock.id &&
+      section.nextSiblingId !== null
+    ) {
+      const nextSection = getBlock(editor.state, section.nextSiblingId);
+      if (nextSection !== null && nextSection.type === "section") {
+        const result = mergeSectionWithPrevious(editor.state, nextSection.id);
+        if (result.state === editor.state) return editor;
+        const newCursor = createPosition(pos.blockId, pos.offset);
+        const newSelection = createSpan(newCursor, newCursor);
+        editor.history.commit(result, {
+          before: selection,
+          after: newSelection,
+        });
+        return rebuildTrees(
+          { ...editor, state: result.state, selection: newSelection },
+          editor,
+          config,
+          result.dirtyIds,
+        );
+      }
+    }
+  }
 
   if (
     currentBlock.parentId !== nextBlock.parentId ||
