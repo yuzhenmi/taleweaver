@@ -51,6 +51,15 @@ buildLineWithFragments createTextRunBox call sites).
   next token's matchStart within the node; last token → `fullText.length − matchStart`). Handle the
   `LINE_BREAK` token (its matchStart is the `\n` position; sourceLength falls out of the rule = 1
   for a lone `\n`). Inline-block token sourceLength = 1.
+- **CRITICAL — hyphen-split tokens.** `tryHyphenSplit` (ifc.ts ~544-569) creates synthetic
+  `prefixToken` / `suffixToken` literals. They MUST also set `sourceLength`, split by character count
+  at the break index: `prefixToken.sourceLength = bestBreakIdx`; `suffixToken.sourceLength =
+  original.sourceLength − bestBreakIdx`. (The hyphen GLYPH is separate — the synthetic hyphen
+  `TextRunBox` gets `offsetLength: 0`, below.) Without this, summing `t.sourceLength` yields `NaN` for
+  hyphenated lines. Do NOT fall back to `?? t.text.length` — set it explicitly so the contract is total.
+- The TWO `createTextRunBox` call sites are: ifc.ts ~1199 (`buildLineChildrenForAncestorLevel`, the
+  merged-token run → `offsetLength` = sum of its tokens' `sourceLength`) and ifc.ts ~1119
+  (`buildLineWithFragments`, the synthetic hyphen run → `offsetLength: 0`).
 - `unitOffsetContribution` (ifc.ts) sums `t.sourceLength` (inline-block → 1) instead of `t.text.length`.
   This makes `cursorOffset` / line `inlineOffsetStart`/`inlineOffsetEnd` STATE-correct and keeps the
   `nextLine.inlineOffsetStart === prevLine.inlineOffsetEnd` invariant (the cursor flows continuously
@@ -71,11 +80,13 @@ buildLineWithFragments createTextRunBox call sites).
   target run never exceeds its rendered chars. (A click in a run's trailing collapsed-whitespace
   region lands at `text.length` of that run = the boundary, acceptable.) No code change beyond the
   contribution source — but ADD a regression test (the repro).
-- **cursor-position (X-from-offset inverse)** (`cursor-position.ts`): when mapping an offset to a
-  leaf + local char for X measurement, the local char within a run must CLAMP to the run's rendered
-  `text.length` (an offset inside a run's collapsed-whitespace tail maps to the run's right edge).
-  Confirm/implement the clamp; add a test: offset 18 (the collapsed space) and offset 19 both produce
-  sensible X (18 → right edge of "idoajs ", 19 → start of "dsajiodj").
+- **cursor-position (X-from-offset inverse)** (`cursor-position.ts` ~293-298): it accumulates
+  `leaf.offsetContribution` (now the corrected state span) then does `leaf.box.text.slice(0,
+  localOffset)`. An offset inside a run's collapsed-whitespace tail gives `localOffset >
+  box.text.length`. Add an EXPLICIT clamp `const localChar = Math.min(localOffset,
+  leaf.box.text.length)` before the slice (do NOT rely on JS `slice` silently clamping — the
+  project's type-safety standard wants the intent explicit). Add a test: offset 18 (the collapsed
+  space) → right edge of "idoajs "; offset 19 → start of "dsajiodj".
 - **selection-geometry** + **line-navigation**: both consume the same leaf offsets / `findLineForPosition`
   (state-offset based). Verify no double-counting; add a selection-rect test spanning across a collapsed
   double space (the highlight covers the right state range).
@@ -96,10 +107,26 @@ buildLineWithFragments createTextRunBox call sites).
    click on first word of line 2 maps to its state offset.
 5. cursor-position inverse: offset→X for an offset inside a collapsed-whitespace tail clamps to the
    run's right edge; offset at the next word's start → that word's left edge.
-6. Full core + dom suites stay green (the existing hit-test/cursor-position/selection tests use
-   single-space or no-whitespace fixtures ⇒ unaffected).
+6. **Hyphen-split across a collapsed space:** a hyphenated word followed by a double space then a word,
+   wrapping at the hyphen → no `NaN` offsets, the post-double-space word resolves to its state offset
+   (exercises the split-token `sourceLength` propagation).
+7. **All-whitespace text node** (`"   "` alone) and **leading collapsed whitespace** (`"  word"`):
+   confirm this fix does NOT change their behavior (these are PRE-EXISTING separate gaps — orphan/
+   all-whitespace tokens are skipped by the unit-grouper today; the fix neither fixes nor worsens
+   them). Assert the current `inlineOffsetEnd` is unchanged so we have a regression lock; the real fix
+   is a follow-up (see Out of scope).
+8. **`collectTokens` external path:** the exported `collectTokens` tests in `ifc.test.ts` assert each
+   returned `token.sourceLength` is populated and correct (the field rides the external path too).
+9. Full core + dom suites stay green (the existing hit-test/cursor-position/selection tests use
+   single-space or no-whitespace fixtures ⇒ `sourceLength === text.length` ⇒ unaffected).
 
 ## Out of scope / follow-up
+- **Leading collapsed whitespace** (`"  word"`) and **all-whitespace text nodes** (`"   "`): the
+  unit-grouper skips orphan/leading space tokens, so their state chars are dropped from the offset
+  accumulator TODAY (pre-existing). This fix targets INTER-word trailing collapsed whitespace only; it
+  does not fix the leading/all-whitespace case (and the TDD locks that it isn't made worse). Separate
+  follow-up task: attribute leading/orphan whitespace so `inlineOffsetEnd === block inlineContent
+  length` for whitespace-only and leading-whitespace lines.
 - `white-space: pre-wrap` (multiple whitespace survives as rendered chars) — the rule still holds
   (no collapse ⇒ sourceLength == text.length), but add a `pre-wrap` smoke test if cheap.
 - The `L-F/A4` dev-mode warning in `ifc.ts` can be removed/retargeted once source positions are
