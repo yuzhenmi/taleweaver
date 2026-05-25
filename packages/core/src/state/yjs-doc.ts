@@ -125,6 +125,22 @@ export interface TransactionResult {
 type AnyYType = Y.AbstractType<Y.YEvent<any>>;
 
 /**
+ * Recover the key a block-level Y.Map was inserted under in its parent tree
+ * Y.Map: the `parentSub` field of its CRDT `_item`. `_item` / `parentSub`
+ * are Yjs internals (TypeScript-invisible) but stable across Yjs 13.x and
+ * used by Yjs's own bindings (e.g. y-prosemirror); the version is pinned to
+ * `~13.6.x` and `yjs-version-guard.test.ts` is the tripwire if the field is
+ * ever removed. The `as unknown as { ... }` cast is the compliant escape
+ * hatch (CLAUDE.md forbids `as any`). Returns null if the item or its
+ * `parentSub` is absent. Shared by the two owning-block walks below.
+ */
+function getParentSubKey(cursor: AnyYType): BlockId | null {
+  const item = (cursor as unknown as { _item?: { parentSub?: string } })._item;
+  if (item === undefined || item.parentSub === undefined) return null;
+  return item.parentSub as BlockId;
+}
+
+/**
  * Runs `fn` inside a Y.Doc transaction and returns the set of BlockIds
  * whose subtree was touched. A BlockId becomes dirty when:
  *   - any block-tree map (every map in `TREE_MAP_GETTERS` — currently
@@ -228,17 +244,8 @@ export function captureDirtyIds(
  *
  * **O(depth) per call** — no linear scan of the outer map. Once we reach a
  * `cursor` whose `parent` is a tree map, `cursor` is the block-level Y.Map
- * and its insertion key is recoverable from `_item.parentSub`. This is the
- * Yjs internal field that records the key under which a shared type was
- * inserted into its parent Y.Map.
- *
- * `_item.parentSub` is documented as internal but is stable across Yjs 13.x
- * and used by Yjs's own bindings (e.g. y-prosemirror). The version is
- * pinned to `~13.6.x` in `packages/core/package.json` (patch-only upgrades)
- * and `yjs-version-guard.test.ts` fails loudly if the field is ever removed.
- *
- * `_item` and `parentSub` are TypeScript-invisible; the `as unknown as
- * { ... }` cast is the compliant escape hatch (CLAUDE.md forbids `as any`).
+ * and its insertion key is recovered via `getParentSubKey` (see that helper
+ * for the Yjs-internal `_item.parentSub` rationale + version pin).
  */
 function findOwningBlockId(
   type: AnyYType,
@@ -248,12 +255,8 @@ function findOwningBlockId(
   while (cursor !== null) {
     const parent = cursor.parent as AnyYType | null;
     if (parent !== null && treeMapSet.has(parent)) {
-      // `cursor` is the block-level Y.Map. Its key in the outer map is the
-      // `parentSub` field of its CRDT item.
-      const item = (cursor as unknown as { _item?: { parentSub?: string } })
-        ._item;
-      if (item === undefined || item.parentSub === undefined) return null;
-      return item.parentSub as BlockId;
+      // `cursor` is the block-level Y.Map; recover its key in the outer map.
+      return getParentSubKey(cursor);
     }
     cursor = parent;
   }
@@ -303,12 +306,7 @@ function findOwningBlockIdMemoized(
     _walkStepCounter++;
     const parent = cursor.parent as AnyYType | null;
     if (parent !== null && treeMapSet.has(parent)) {
-      const item = (cursor as unknown as { _item?: { parentSub?: string } })
-        ._item;
-      resolved =
-        item === undefined || item.parentSub === undefined
-          ? null
-          : (item.parentSub as BlockId);
+      resolved = getParentSubKey(cursor);
       break;
     }
     cursor = parent;

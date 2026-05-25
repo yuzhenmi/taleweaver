@@ -372,6 +372,27 @@ describe("getBlockFromEither", () => {
     expect(getBlockFromEither(state, "missing" as BlockId)).toBeNull();
   });
 
+  it("returns null for an id that lives ONLY in the templateContents map (two-tree contract)", () => {
+    // getBlockFromEither is the two-tree (main + embed) accessor; a template-
+    // only id must read as a miss even though `resolveBlock` would find it.
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      templateContents: [
+        buildBlock({
+          id: "tmpl-body-1",
+          type: "header-body",
+          inlineContent: inlineContent([text("hdr")]),
+        }),
+      ],
+    });
+    expect(getBlockFromEither(state, "tmpl-body-1" as BlockId)).toBeNull();
+    // ...but resolveBlock DOES find it (sanity: the id really is present).
+    expect(resolveBlock(state, "tmpl-body-1" as BlockId)?.kind).toBe(
+      "templateContent",
+    );
+  });
+
   it("prefers the main tree if an id collision somehow exists (defensive)", () => {
     // Allocator should prevent this, but if it ever happens we return the main-tree block.
     const state = buildState({

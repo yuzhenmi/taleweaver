@@ -18,6 +18,7 @@ import {
   getTemplateContentSnapshot,
   type SnapshotCache,
 } from "./snapshot";
+import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -29,8 +30,7 @@ import {
  * chains between compactions". 64 layers ≈ 64 hops per cold read =
  * ~3μs, an acceptable per-read floor for the bulk-op case.
  */
-const _CHAIN_DEPTH_COMPACT_THRESHOLD = 64;
-import { STATE_INTERNAL } from "./state-internal";
+const CHAIN_DEPTH_COMPACT_THRESHOLD = 64;
 
 /**
  * Opaque document-state container. Internally a Y.Doc; consumers read
@@ -117,9 +117,16 @@ export function getTemplateContent(state: State, id: BlockId): Block | null {
  *
  * Most ops should call `getBlock` or `getEmbedContent` directly — they
  * know which tree they operate on.
+ *
+ * Implemented on top of `resolveBlock` and narrowed to the two-tree subset:
+ * the precedence (main → embed) is the same first two arms `resolveBlock`
+ * walks, and a `templateContent` hit is treated as a miss here (returns
+ * null) to preserve this accessor's historical two-tree contract.
  */
 export function getBlockFromEither(state: State, id: BlockId): Block | null {
-  return getBlock(state, id) ?? getEmbedContent(state, id);
+  const resolved = resolveBlock(state, id);
+  if (resolved === null || resolved.kind === "templateContent") return null;
+  return resolved.block;
 }
 
 /**
@@ -286,7 +293,7 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
   // live entries, dirtyIds invalidated — just collapsed into a single
   // root layer instead of N layers.
   const newCache =
-    chainDepth(internal.snapshotCache) >= _CHAIN_DEPTH_COMPACT_THRESHOLD
+    chainDepth(internal.snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
       ? compactCache(internal.snapshotCache, dirtyIds)
       : createOverlayCache(internal.snapshotCache, dirtyIds);
   return {
