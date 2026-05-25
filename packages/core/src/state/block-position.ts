@@ -30,10 +30,18 @@ export function createSpan(anchor: Position, focus: Position): Span {
 }
 
 /**
- * `Selection` is a type alias for `Span` (anchor + focus, each a `Position`).
- * Kept as an alias so consumer code that historically imported `Selection`
- * from `cursor/selection` continues to compile. New code can use `Span`
- * directly.
+ * `Selection` is the editor/cursor-facing name for a `Span` (anchor + focus,
+ * each a `Position`). It is a pure alias — no added type-level distinction —
+ * KEPT DELIBERATELY (not legacy-compat): "selection" is the domain term at the
+ * editing boundary, where a directed anchor→focus pair models the user's
+ * selection, while "span" reads as the generic geometric/range pair used by
+ * lower layers. The split mirrors how top editors model selection as a
+ * first-class concept (ProseMirror `Selection`, Lexical `RangeSelection`).
+ *
+ * Convention: editor + cursor + history code spell it `Selection`; state-layer
+ * range math spells it `Span`. Do NOT churn-replace one with the other — the
+ * name carries reader intent. (Resolves the "remove the alias" review item:
+ * the decision is to keep.)
  */
 export type Selection = Span;
 
