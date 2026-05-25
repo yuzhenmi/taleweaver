@@ -1,9 +1,11 @@
 # P1.C.2 — Section-aware pagination + headers/footers (virtualized-layout re-mapping)
 
 **Date:** 2026-05-25
-**Status:** Drafted (autonomous); design-review-1 findings addressed (2 Criticals resolved as
-design decisions + gaps closed — see "Resolved during design review"); awaiting re-review
-before plans.
+**Status:** Drafted (autonomous). Design-review-1 (2 Criticals + 7) and re-review-2 (3 new
+Importants A/B/C, all in C.2b-2/C.2c) both addressed in-spec. Re-review confirmed both Criticals
+genuinely resolved and **C.2a is plan-ready**; A (createPageBox blockSize site) gates C.2b-2, B
+(makeVirtualLayoutTree signature) + C (closure-local header memo) gate C.2c — all now written
+in. C.2a may proceed to planning.
 **Amends:** `2026-05-02-p1c-pagination-templates-design.md` (original C.2–C.5) and
 `2026-05-25-p1c-block-model-remapping.md` (the C.1a/C.1b block-model addendum).
 
@@ -216,6 +218,11 @@ The `SectionPlan` boundary gains `pageConfig: PageConfig`.
 - `virtual-layout-tree.ts` `materializeAll()` / `totalBlockSize`: the
   `pageCount * pageConfig.pageBlockSize + gaps` formula becomes a running sum over per-page
   heights (the plan exposes a cumulative-offset accessor).
+- `virtual-layout-tree.ts` `materializePage`'s `createPageBox(...)` block-size argument
+  (review issue A): currently `pageConfig.pageBlockSize` (closure-captured uniform config) →
+  `entry.pageConfig.pageBlockSize`. Same for the `pageContentBlockSize` passed to `layoutBlock`.
+  (This is a core-layer site, NOT in `packages/dom` — easy to miss; the `PageBox` height would
+  otherwise be wrong for every non-default-section page.)
 - **DOM controller — every uniform-`pageHeight` assumption (recon enumerated these; ALL must
   switch to the plan's per-page blockOffset/height):**
   - `syncDom` slot sizing (the per-page DOM slot heights).
@@ -267,6 +274,20 @@ body changes the `ElementBox` ref → cache miss → re-layout; an unedited head
 once and reused across all the section's pages); only the y-origin (each page's top/bottom
 margin) differs. Incremental cascade already reuses unchanged subtree refs, so an unedited
 template body keeps a stable `cascadedTemplateContents` entry across keystrokes.
+
+Two concrete wiring points an implementer must not miss (review issues B + C):
+- **`makeVirtualLayoutTree` gains a parameter** (signature change, NOT just a closure capture):
+  `makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, pageConfig, cascadedTemplateContents,
+  prevTree?)`. Every call site in the layout coordinator (`virtual-producer.ts` + the
+  incremental/full paginated paths) must pass `cascadedTemplateContents` alongside
+  `cascadedRoot`. (C.2a/C.2b do not touch this; it is C.2c's API change.)
+- **The header/footer slot-layout memo is CLOSURE-LOCAL** — a `Map<ElementBox, { box: BlockBox;
+  contentInlineSize: number }>` inside `makeVirtualLayoutTree`, analogous to the existing
+  `pageMemo` — NOT a module-level `WeakMap` like `_metaCache`. Closure-local matches the
+  per-tree lifetime: a new tree's memo starts cold, the first page of each section lays its
+  header out once, later pages of that section hit the memo; whole-`PageBox` reuse across
+  keystrokes is still handled by the existing `prevTree` fingerprint carry-forward (the header
+  slot rides inside the reused `PageBox`).
 
 **Body-area interaction (deferred-but-noted).** A header taller than the top margin band would
 need to reduce the page's body content area (an iteration like footnotes). C.2c scopes to
