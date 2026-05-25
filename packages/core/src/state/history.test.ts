@@ -525,3 +525,115 @@ describe("history (Y.UndoManager wrapper)", () => {
     ).toThrow(/no-op operation/);
   });
 });
+
+describe("history undo-depth cap (#234)", () => {
+  function firstChildOf(state: ReturnType<typeof createEmptyDocument>): BlockId {
+    const root = getBlock(state, state.rootId);
+    if (root === null || root.firstChildId === null) {
+      throw new Error("test fixture: missing first child");
+    }
+    return root.firstChildId;
+  }
+
+  /** Commit a REPLACE of the child's attrs to `{ v }`; returns the new state. */
+  function commitV(
+    history: ReturnType<typeof createHistory>,
+    state: ReturnType<typeof createEmptyDocument>,
+    childId: BlockId,
+    v: number,
+  ): ReturnType<typeof createEmptyDocument> {
+    const r = setBlockAttrs(state, childId, { v });
+    const sel = createSpan(createPosition(childId, 0), createPosition(childId, 0));
+    history.commit(r, { before: sel, after: sel });
+    return r.state;
+  }
+
+  it("caps the undo stack at maxDepth, dropping the OLDEST entries", () => {
+    let state = createEmptyDocument();
+    const childId = firstChildOf(state);
+    const history = createHistory(state, 2);
+
+    // Four distinct mutations; cap = 2 retains only the last two groups.
+    state = commitV(history, state, childId, 1);
+    state = commitV(history, state, childId, 2);
+    state = commitV(history, state, childId, 3);
+    state = commitV(history, state, childId, 4);
+    expect(getBlock(state, childId)?.attrs).toEqual({ v: 4 });
+
+    // Undo reverts v:4 → v:3.
+    const u1 = history.undo();
+    if (u1 === null) throw new Error("expected undo 1");
+    expect(getBlock(u1.state, childId)?.attrs).toEqual({ v: 3 });
+
+    // Undo reverts v:3 → v:2.
+    const u2 = history.undo();
+    if (u2 === null) throw new Error("expected undo 2");
+    expect(getBlock(u2.state, childId)?.attrs).toEqual({ v: 2 });
+
+    // Commits 1 and 2 (initial→v:1, v:1→v:2) were trimmed; the retained
+    // window starts at the v:2→v:3 group, so v:2 is its floor — no further back.
+    expect(history.canUndo()).toBe(false);
+    expect(history.undo()).toBeNull();
+  });
+
+  it("cap=1 retains only the most recent group", () => {
+    let state = createEmptyDocument();
+    const childId = firstChildOf(state);
+    const history = createHistory(state, 1);
+
+    state = commitV(history, state, childId, 1);
+    state = commitV(history, state, childId, 2);
+    state = commitV(history, state, childId, 3);
+
+    // Only the last group (v:2→v:3) survives; one undo lands at v:2, then stop.
+    const u1 = history.undo();
+    if (u1 === null) throw new Error("expected undo 1");
+    expect(getBlock(u1.state, childId)?.attrs).toEqual({ v: 2 });
+    expect(history.canUndo()).toBe(false);
+    expect(history.undo()).toBeNull();
+  });
+
+  it("does not trim when commits stay under the cap (full history undoable)", () => {
+    let state = createEmptyDocument();
+    const childId = firstChildOf(state);
+    const history = createHistory(state, 5);
+
+    state = commitV(history, state, childId, 1);
+    state = commitV(history, state, childId, 2);
+    state = commitV(history, state, childId, 3);
+
+    history.undo(); // v3 → v2
+    history.undo(); // v2 → v1
+    const u3 = history.undo(); // v1 → initial {}
+    if (u3 === null) throw new Error("expected undo 3");
+    expect(getBlock(u3.state, childId)?.attrs).toEqual({});
+    expect(history.canUndo()).toBe(false);
+  });
+
+  it("redo works within the retained post-cap window", () => {
+    let state = createEmptyDocument();
+    const childId = firstChildOf(state);
+    const history = createHistory(state, 2);
+
+    state = commitV(history, state, childId, 1);
+    state = commitV(history, state, childId, 2);
+    state = commitV(history, state, childId, 3);
+    state = commitV(history, state, childId, 4);
+
+    history.undo(); // v4 → v3
+    history.undo(); // v3 → v2 (canUndo now false)
+
+    const r1 = history.redo(); // v2 → v3
+    if (r1 === null) throw new Error("expected redo 1");
+    expect(getBlock(r1.state, childId)?.attrs).toEqual({ v: 3 });
+
+    const r2 = history.redo(); // v3 → v4
+    if (r2 === null) throw new Error("expected redo 2");
+    expect(getBlock(r2.state, childId)?.attrs).toEqual({ v: 4 });
+  });
+
+  it("rejects maxDepth < 1", () => {
+    const state = createEmptyDocument();
+    expect(() => createHistory(state, 0)).toThrow(/maxDepth must be >= 1/);
+  });
+});

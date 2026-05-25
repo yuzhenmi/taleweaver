@@ -86,9 +86,28 @@ export interface UndoRedoResult {
  * boundary marked by `commit`. Under `captureTimeout: 0` Yjs would split
  * every transaction into its own undo group, breaking the alignment
  * invariant for any handler that chains ops.
+ *
+ * ## Undo-depth cap
+ *
+ * Y.UndoManager has no built-in maxDepth, so `commit` trims the OLDEST
+ * entries from both the undo stack and the aligned selection stack once
+ * `maxDepth` (default `DEFAULT_MAX_UNDO_DEPTH`) is exceeded — bounding
+ * long-session memory at the cost of making the most distant history
+ * non-undoable. The lockstep front-trim preserves the alignment invariant.
+ * See `commit`.
  */
+/**
+ * Default cap on undo-stack depth. `Y.UndoManager` has no built-in maxDepth;
+ * without a cap the undo stack — and the DeleteSets each `StackItem` retains
+ * to be able to reverse its group — grows unbounded across a long editing
+ * session. 1000 actions is generous for a word processor (well past any
+ * realistic single-session undo reach) while bounding worst-case memory.
+ */
+const DEFAULT_MAX_UNDO_DEPTH = 1000;
+
 export class History {
   private readonly undoManager: Y.UndoManager;
+  private readonly maxDepth: number;
   private currentState: State;
   /**
    * Selection-entry stack aligned 1:1 with `undoManager.undoStack`.
@@ -111,7 +130,11 @@ export class History {
   /** Selection-entry stack aligned 1:1 with `undoManager.redoStack`. */
   private readonly redoSelectionStack: SelectionEntry[] = [];
 
-  constructor(state: State) {
+  constructor(state: State, maxDepth: number = DEFAULT_MAX_UNDO_DEPTH) {
+    if (maxDepth < 1) {
+      throw new Error(`History: maxDepth must be >= 1, got ${maxDepth}`);
+    }
+    this.maxDepth = maxDepth;
     this.currentState = state;
     this.undoManager = new Y.UndoManager(
       [
@@ -172,6 +195,17 @@ export class History {
     this.undoManager.stopCapturing();
     this.undoSelectionStack.push(selections);
     this.redoSelectionStack.length = 0;
+    // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack
+    // exceeds the cap drop the OLDEST entries from both the UndoManager's
+    // undoStack and our aligned selection stack IN LOCKSTEP — an equal splice
+    // preserves the `undoSelectionStack.length === undoStack.length`
+    // invariant. The trimmed-away history simply becomes non-undoable; this
+    // bounds long-session memory (each StackItem retains DeleteSets).
+    const excess = this.undoManager.undoStack.length - this.maxDepth;
+    if (excess > 0) {
+      this.undoManager.undoStack.splice(0, excess);
+      this.undoSelectionStack.splice(0, excess);
+    }
     if (isDevMode()) {
       if (this.undoSelectionStack.length !== this.undoManager.undoStack.length) {
         throw new Error(
@@ -290,7 +324,13 @@ export class History {
   }
 }
 
-/** Convenience factory for constructing a `History` instance. */
-export function createHistory(state: State): History {
-  return new History(state);
+/**
+ * Convenience factory for constructing a `History` instance. `maxDepth` caps
+ * the undo-stack depth (default `DEFAULT_MAX_UNDO_DEPTH`); pass a smaller value
+ * to bound memory more aggressively or for tests.
+ */
+export function createHistory(state: State, maxDepth?: number): History {
+  return maxDepth === undefined
+    ? new History(state)
+    : new History(state, maxDepth);
 }
