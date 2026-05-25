@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { BlockId } from "./block-id";
 import { getBlock, getEmbedContent } from "./state";
 import { buildStateFromBlocks } from "./build-state-from-blocks";
+import { STATE_INTERNAL } from "./state-internal";
+import { getTemplateContentsMap } from "./yjs-doc";
 import type { Block } from "./block";
 
 function block(args: {
@@ -55,11 +57,35 @@ describe("buildStateFromBlocks", () => {
     expect(getBlock(state, "fn-1" as BlockId)).toBeNull();
   });
 
+  it("materializes template-content blocks into the templateContents map", () => {
+    const state = buildStateFromBlocks({
+      rootId: "doc" as BlockId,
+      blocks: [block({ id: "doc", type: "document" })],
+      templateContents: [block({ id: "tmpl-1", type: "paragraph" })],
+    });
+    // No getTemplateContent accessor exists yet (lands in T4); read the body
+    // back through the raw template map.
+    const doc = state[STATE_INTERNAL].doc;
+    const yBody = getTemplateContentsMap(doc).get("tmpl-1" as BlockId);
+    expect(yBody?.get("type")).toBe("paragraph");
+    // It must NOT have leaked into the main blocks map or the embedContents map.
+    expect(getBlock(state, "tmpl-1" as BlockId)).toBeNull();
+    expect(getEmbedContent(state, "tmpl-1" as BlockId)).toBeNull();
+  });
+
   it("returns a state with no embedContents when none are passed", () => {
     const state = buildStateFromBlocks({
       rootId: "doc" as BlockId,
       blocks: [block({ id: "doc", type: "document" })],
     });
     expect(getEmbedContent(state, "anything" as BlockId)).toBeNull();
+  });
+
+  it("returns a state with no templateContents when none are passed", () => {
+    const state = buildStateFromBlocks({
+      rootId: "doc" as BlockId,
+      blocks: [block({ id: "doc", type: "document" })],
+    });
+    expect(getTemplateContentsMap(state[STATE_INTERNAL].doc).size).toBe(0);
   });
 });

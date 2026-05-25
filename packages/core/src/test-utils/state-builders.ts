@@ -72,6 +72,11 @@ export function buildBlock(args: {
  * holds for state.blocks. Embed-content blocks typically have parentId
  * === null (no parent — they're referenced via EmbedItem.properties.contentBlockId).
  *
+ * Optional `templateContents` parameter materializes template-content
+ * blocks (header/footer bodies, etc.) into the Y.Doc's templateContents
+ * map. Like embed-content blocks, they live in their own top-level map
+ * and typically have parentId === null.
+ *
  * Delegates to `buildStateFromBlocks` (state-module-internal); the
  * indirection is what keeps the Y.Doc-direct writes inside `state/`.
  */
@@ -79,10 +84,12 @@ export function buildState(args: {
   rootId: string;
   blocks: ReadonlyArray<Block>;
   embedContents?: ReadonlyArray<Block>;
+  templateContents?: ReadonlyArray<Block>;
 }): State {
   return buildStateFromBlocks({
     rootId: args.rootId as BlockId,
     blocks: args.blocks,
     embedContents: args.embedContents,
+    templateContents: args.templateContents,
   });
 }

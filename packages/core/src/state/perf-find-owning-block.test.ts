@@ -17,6 +17,7 @@ import {
   findOwningBlockIdForTest,
   getBlocksMap,
   getEmbedContentsMap,
+  getTemplateContentsMap,
   runTransaction,
 } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
@@ -77,26 +78,44 @@ describe("findOwningBlockId perf", () => {
     const embedContentsMapAsAny = getEmbedContentsMap(doc) as unknown as Parameters<
       typeof findOwningBlockIdForTest
     >[1];
-    const yTextAsAny = yText as unknown as Parameters<
+    const templateContentsMapAsAny = getTemplateContentsMap(doc) as unknown as Parameters<
       typeof findOwningBlockIdForTest
     >[2];
+    const yTextAsAny = yText as unknown as Parameters<
+      typeof findOwningBlockIdForTest
+    >[3];
 
     // Warm up.
     for (let i = 0; i < 100; i++) {
-      findOwningBlockIdForTest(blocksMapAsAny, embedContentsMapAsAny, yTextAsAny);
+      findOwningBlockIdForTest(
+        blocksMapAsAny,
+        embedContentsMapAsAny,
+        templateContentsMapAsAny,
+        yTextAsAny,
+      );
     }
 
     const iterations = 1000;
     const t0 = performance.now();
     for (let i = 0; i < iterations; i++) {
-      findOwningBlockIdForTest(blocksMapAsAny, embedContentsMapAsAny, yTextAsAny);
+      findOwningBlockIdForTest(
+        blocksMapAsAny,
+        embedContentsMapAsAny,
+        templateContentsMapAsAny,
+        yTextAsAny,
+      );
     }
     const elapsedMs = performance.now() - t0;
     const perCallUs = (elapsedMs / iterations) * 1000;
 
     // Correctness check (defensive — guards against a refactor breaking the lookup).
     expect(
-      findOwningBlockIdForTest(blocksMapAsAny, embedContentsMapAsAny, yTextAsAny),
+      findOwningBlockIdForTest(
+        blocksMapAsAny,
+        embedContentsMapAsAny,
+        templateContentsMapAsAny,
+        yTextAsAny,
+      ),
     ).toBe(targetBlockId);
 
     // <10us per call. The actual O(1) path runs in ~0.2-0.5us in practice;

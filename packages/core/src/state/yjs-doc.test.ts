@@ -4,6 +4,7 @@ import {
   createYDoc,
   getBlocksMap,
   getEmbedContentsMap,
+  getTemplateContentsMap,
   getMetaMap,
   getYBlock,
   runTransaction,
@@ -14,10 +15,11 @@ import type { BlockId } from "./block-id";
 
 describe("yjs-doc", () => {
   describe("createYDoc", () => {
-    it("creates a Y.Doc with the three top-level maps", () => {
+    it("creates a Y.Doc with the four top-level maps", () => {
       const doc = createYDoc();
       expect(getBlocksMap(doc)).toBeInstanceOf(Y.Map);
       expect(getEmbedContentsMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getTemplateContentsMap(doc)).toBeInstanceOf(Y.Map);
       expect(getMetaMap(doc)).toBeInstanceOf(Y.Map);
     });
 
@@ -80,6 +82,42 @@ describe("yjs-doc", () => {
         embeds.set("body-1", yBody);
       });
       expect(result.dirtyIds.has("body-1" as BlockId)).toBe(true);
+    });
+
+    it("captures template-content map mutations as dirty BlockIds", () => {
+      const doc = createYDoc();
+      const result = runTransaction(doc, () => {
+        const templates = getTemplateContentsMap(doc);
+        const yBody = new Y.Map();
+        yBody.set("type", "header-body");
+        templates.set("tmplP", yBody);
+      });
+      expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
+    });
+
+    it("captures a nested edit inside a template body's inlineContent as the body's dirtyId", () => {
+      const doc = createYDoc();
+      const templates = getTemplateContentsMap(doc);
+      const yBody = new Y.Map<unknown>();
+      const yArray = new Y.Array<Y.Map<unknown>>();
+      const yItem = new Y.Map<unknown>();
+      const yText = new Y.Text();
+      yText.insert(0, "hello");
+      yItem.set("text", yText);
+      yArray.push([yItem]);
+      yBody.set("inlineContent", yArray);
+      runTransaction(doc, () => {
+        templates.set("tmplP", yBody);
+      });
+
+      // Mutate the Y.Text nested deep inside the template body (exercises the
+      // findOwningBlockId template-map branch).
+      const result = runTransaction(doc, () => {
+        const yb = getYBlock(doc, "tmplP" as BlockId, "test", "templateContent");
+        const arr = yb.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+        (arr.get(0).get("text") as Y.Text).insert(0, "X");
+      });
+      expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
     });
 
     it("captures Y.Text mutation deep inside Y.Array inside block as the block's dirtyId", () => {
@@ -200,6 +238,15 @@ describe("yjs-doc", () => {
         getEmbedContentsMap(doc).set("body-1", yBody);
       });
       expect(getYBlock(doc, "body-1" as BlockId, "test", "embedContent")).toBe(yBody);
+    });
+
+    it("kind='templateContent' reads from the templateContents map", () => {
+      const doc = createYDoc();
+      const yBody = new Y.Map<unknown>();
+      runTransaction(doc, () => {
+        getTemplateContentsMap(doc).set("tmpl-1", yBody);
+      });
+      expect(getYBlock(doc, "tmpl-1" as BlockId, "test", "templateContent")).toBe(yBody);
     });
   });
 });

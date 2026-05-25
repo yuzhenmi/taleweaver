@@ -3,12 +3,14 @@ import type { BlockId } from "./block-id";
 
 const BLOCKS_KEY = "blocks";
 const EMBED_CONTENTS_KEY = "embedContents";
+const TEMPLATE_CONTENTS_KEY = "templateContents";
 const META_KEY = "meta";
 
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   const doc = new Y.Doc();
   doc.getMap(BLOCKS_KEY);
   doc.getMap(EMBED_CONTENTS_KEY);
+  doc.getMap(TEMPLATE_CONTENTS_KEY);
   const meta = doc.getMap(META_KEY);
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
@@ -24,6 +26,10 @@ export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(EMBED_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
+export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(TEMPLATE_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
 /**
  * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
  * set once in `createYDoc` and never reassigned during a session.
@@ -35,6 +41,12 @@ export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  * design relies on the meta map holding only immutable session-level
  * fields (rootId today; possibly format version, doc id, etc. in the
  * future).
+ *
+ * (Undo-TRACKING is distinct from dirty-CAPTURE: `captureDirtyIds` below
+ * treats the blocks, embedContents, AND templateContents maps as dirty
+ * roots for incremental render. The meta map is in neither set. The
+ * templateContents map is dirty-captured but is added to the UndoManager's
+ * tracked scopes separately — see the `History` constructor.)
  *
  * If you are adding a NEW meta-map writer, you MUST decide explicitly
  * whether the field should be undoable:
@@ -60,15 +72,21 @@ export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
  * CLAUDE.md's no-`!` rule via narrowing, (b) it surfaces the op name in
  * the error if it ever does fire.
  *
- * `kind` selects between the main blocks map and the embedContents map.
+ * `kind` selects between the main blocks map, the embedContents map, and
+ * the templateContents map.
  */
 export function getYBlock(
   doc: Y.Doc,
   id: BlockId,
   opName: string,
-  kind: "block" | "embedContent" = "block",
+  kind: "block" | "embedContent" | "templateContent" = "block",
 ): Y.Map<unknown> {
-  const map = kind === "block" ? getBlocksMap(doc) : getEmbedContentsMap(doc);
+  const map =
+    kind === "block"
+      ? getBlocksMap(doc)
+      : kind === "embedContent"
+        ? getEmbedContentsMap(doc)
+        : getTemplateContentsMap(doc);
   const yBlock = map.get(id);
   if (yBlock === undefined) {
     throw new Error(`${opName}: ${kind} "${id}" disappeared mid-transaction`);
@@ -92,6 +110,7 @@ type AnyYType = Y.AbstractType<Y.YEvent<any>>;
  * whose subtree was touched. A BlockId becomes dirty when:
  *   - the blocks map adds/removes/replaces it as a key, OR
  *   - the embedContents map adds/removes/replaces it as a key, OR
+ *   - the templateContents map adds/removes/replaces it as a key, OR
  *   - any Y type nested under one of those entries is mutated.
  *
  * Implementation: attach an `afterTransaction` listener for the duration
@@ -143,8 +162,10 @@ export function captureDirtyIds(
   const dirtyIds = new Set<BlockId>();
   const blocksMap = getBlocksMap(doc);
   const embedContentsMap = getEmbedContentsMap(doc);
+  const templateContentsMap = getTemplateContentsMap(doc);
   const blocksMapAsAny = blocksMap as unknown as AnyYType;
   const embedContentsMapAsAny = embedContentsMap as unknown as AnyYType;
+  const templateContentsMapAsAny = templateContentsMap as unknown as AnyYType;
 
   const captureDirty = (tx: Y.Transaction) => {
     const blocksEvent = tx.changed.get(blocksMapAsAny);
@@ -159,6 +180,12 @@ export function captureDirtyIds(
         if (key !== null) dirtyIds.add(key as BlockId);
       }
     }
+    const templatesEvent = tx.changed.get(templateContentsMapAsAny);
+    if (templatesEvent) {
+      for (const key of templatesEvent) {
+        if (key !== null) dirtyIds.add(key as BlockId);
+      }
+    }
     // Memo lifetime is exactly this captureDirty call. Sharing across
     // transactions is unsafe because Yjs may garbage-collect / re-layout
     // internal items between transactions.
@@ -168,6 +195,7 @@ export function captureDirtyIds(
         type,
         blocksMapAsAny,
         embedContentsMapAsAny,
+        templateContentsMapAsAny,
         memo,
       );
       if (owningBlockId !== null) {
@@ -192,14 +220,16 @@ export function captureDirtyIds(
  * `changedParentTypes` iteration.
  *
  * Walks up the Y type parent chain to find the BlockId that owns `type`,
- * i.e. the key under blocksMap or embedContentsMap whose value is an
- * ancestor of `type`. Returns null if `type` is not nested under either.
+ * i.e. the key under blocksMap, embedContentsMap, or templateContentsMap
+ * whose value is an ancestor of `type`. Returns null if `type` is not
+ * nested under any of them.
  *
  * **O(depth) per call** — no linear scan of the outer map. Once we reach a
- * `cursor` whose `parent` is the blocks map or the embedContents map,
- * `cursor` is the block-level Y.Map and its insertion key is recoverable
- * from `_item.parentSub`. This is the Yjs internal field that records the
- * key under which a shared type was inserted into its parent Y.Map.
+ * `cursor` whose `parent` is the blocks map, the embedContents map, or the
+ * templateContents map, `cursor` is the block-level Y.Map and its insertion
+ * key is recoverable from `_item.parentSub`. This is the Yjs internal field
+ * that records the key under which a shared type was inserted into its
+ * parent Y.Map.
  *
  * `_item.parentSub` is documented as internal but is stable across Yjs 13.x
  * and used by Yjs's own bindings (e.g. y-prosemirror). The version is
@@ -213,11 +243,16 @@ function findOwningBlockId(
   type: AnyYType,
   blocksMapAsAny: AnyYType,
   embedContentsMapAsAny: AnyYType,
+  templateContentsMapAsAny: AnyYType,
 ): BlockId | null {
   let cursor: AnyYType | null = type;
   while (cursor !== null) {
     const parent = cursor.parent as AnyYType | null;
-    if (parent === blocksMapAsAny || parent === embedContentsMapAsAny) {
+    if (
+      parent === blocksMapAsAny ||
+      parent === embedContentsMapAsAny ||
+      parent === templateContentsMapAsAny
+    ) {
       // `cursor` is the block-level Y.Map. Its key in the outer map is the
       // `parentSub` field of its CRDT item.
       const item = (cursor as unknown as { _item?: { parentSub?: string } })
@@ -238,9 +273,15 @@ function findOwningBlockId(
 export function findOwningBlockIdForTest(
   blocksMapAsAny: AnyYType,
   embedContentsMapAsAny: AnyYType,
+  templateContentsMapAsAny: AnyYType,
   type: AnyYType,
 ): BlockId | null {
-  return findOwningBlockId(type, blocksMapAsAny, embedContentsMapAsAny);
+  return findOwningBlockId(
+    type,
+    blocksMapAsAny,
+    embedContentsMapAsAny,
+    templateContentsMapAsAny,
+  );
 }
 
 /**
@@ -256,6 +297,7 @@ function findOwningBlockIdMemoized(
   type: AnyYType,
   blocksMapAsAny: AnyYType,
   embedContentsMapAsAny: AnyYType,
+  templateContentsMapAsAny: AnyYType,
   memo: Map<AnyYType, BlockId | null>,
 ): BlockId | null {
   const direct = memo.get(type);
@@ -273,7 +315,11 @@ function findOwningBlockIdMemoized(
     path.push(cursor);
     _walkStepCounter++;
     const parent = cursor.parent as AnyYType | null;
-    if (parent === blocksMapAsAny || parent === embedContentsMapAsAny) {
+    if (
+      parent === blocksMapAsAny ||
+      parent === embedContentsMapAsAny ||
+      parent === templateContentsMapAsAny
+    ) {
       const item = (cursor as unknown as { _item?: { parentSub?: string } })
         ._item;
       resolved =

@@ -2,13 +2,19 @@ import type { Block } from "./block";
 import type { BlockId } from "./block-id";
 import { createState, type State } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
-import { runTransaction, getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+import {
+  runTransaction,
+  getBlocksMap,
+  getEmbedContentsMap,
+  getTemplateContentsMap,
+} from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 
 export interface BuildStateFromBlocksArgs {
   readonly rootId: BlockId;
   readonly blocks: ReadonlyArray<Block>;
   readonly embedContents?: ReadonlyArray<Block>;
+  readonly templateContents?: ReadonlyArray<Block>;
 }
 
 /**
@@ -45,6 +51,24 @@ export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): State {
       const yEmbeds = getEmbedContentsMap(doc);
       for (const block of args.embedContents) {
         yEmbeds.set(
+          block.id,
+          buildYBlock({
+            type: block.type,
+            attrs: block.attrs,
+            parentId: block.parentId,
+            prevSiblingId: block.prevSiblingId,
+            nextSiblingId: block.nextSiblingId,
+            firstChildId: block.firstChildId,
+            lastChildId: block.lastChildId,
+            inlineContent: block.inlineContent,
+          }),
+        );
+      }
+    }
+    if (args.templateContents !== undefined) {
+      const yTemplates = getTemplateContentsMap(doc);
+      for (const block of args.templateContents) {
+        yTemplates.set(
           block.id,
           buildYBlock({
             type: block.type,
