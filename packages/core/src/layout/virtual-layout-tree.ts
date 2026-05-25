@@ -97,6 +97,18 @@ interface PageFingerprint {
   readonly listCounterAtStart: number;
   readonly pageInlineSize: number;
   readonly pageContentBlockSize: number;
+  /**
+   * The section page-break cap this page was POSITIONED with (see
+   * `PagePlanEntry.stopBeforeIndex`). MUST participate in the fingerprint:
+   * `materializePage` threads it into `bfc.layoutBlock`, so two entries with
+   * identical children/resume tokens but DIFFERENT caps produce DIFFERENT
+   * PageBoxes (one truncated at the section boundary, one not). A SECTION_BREAK
+   * that creates/moves a boundary leaves a page's body refs unchanged but flips
+   * its cap (e.g. null → N); without this field the carry-forward memo would
+   * reuse the prior UNCAPPED PageBox and re-leak the next section's blocks onto
+   * this page on the next edit cycle.
+   */
+  readonly stopBeforeIndex: number | null;
 }
 
 function fingerprintOf(
@@ -112,6 +124,7 @@ function fingerprintOf(
     listCounterAtStart: entry.listCounterAtStart,
     pageInlineSize,
     pageContentBlockSize,
+    stopBeforeIndex: entry.stopBeforeIndex,
   };
 }
 
@@ -142,6 +155,7 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.listCounterAtStart === b.listCounterAtStart &&
     a.pageInlineSize === b.pageInlineSize &&
     a.pageContentBlockSize === b.pageContentBlockSize &&
+    a.stopBeforeIndex === b.stopBeforeIndex &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut)
@@ -263,6 +277,11 @@ export function makeVirtualLayoutTree(
         availableBlockSize: pageContentBlockSize,
         pageIndex,
         resumeFrom: entry.resumeInto,
+        // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
+        // `fitOnePage` applied to this page, so positioning stops before the
+        // next section's leading block instead of greedily filling the leftover
+        // room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
+        stopBeforeIndex: entry.stopBeforeIndex ?? undefined,
       },
     );
     // Wrap exactly as paginate.ts:226–237. The BFC BlockBox can be null

@@ -86,6 +86,17 @@ export interface PagePlanEntry {
    * Carried for C.2c (e.g. "first page of section" header variants).
    */
   readonly sectionPageIndex: number;
+  /**
+   * The section page-break cap applied to THIS page's fit (`st.nextBoundaryIndex`):
+   * an EXCLUSIVE upper bound on the top-level child index the page may place — so
+   * a block belonging to the NEXT section starts a fresh page instead of leaking
+   * onto this one. `null` when the page's active section has no next boundary
+   * (last/only section) ⇒ no cap. The positioning pass (`materializePage`) threads
+   * this into `bfc.layoutBlock`'s `FragmentationContext.stopBeforeIndex` so the
+   * positioned page honors the SAME cap the plan's `fitOnePage` used — without it,
+   * positioning would refill the leftover room with the next section's blocks.
+   */
+  readonly stopBeforeIndex: number | null;
 }
 
 /** The document's full pagination plan. */
@@ -358,6 +369,12 @@ export function measurePass(
           // already accounts for any pages that shifted before this one.
           activeSectionId,
           sectionPageIndex,
+          // The cap that shaped THIS page (the CURRENT `st`, not the prior
+          // entry's): `st` is computed at the top of the loop before both the
+          // reuse and re-fit branches, and the reuse gate (`sectionStatesEqual`)
+          // proves `nextBoundaryIndex` is unchanged, so the prior fit is still
+          // valid under this cap.
+          stopBeforeIndex: st.nextBoundaryIndex ?? null,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -451,6 +468,9 @@ export function measurePass(
       listCounterAtStart,
       activeSectionId,
       sectionPageIndex,
+      // The SAME cap (`st.nextBoundaryIndex`) passed to `fitOnePage` above — so
+      // the positioning pass reproduces this page's fit exactly.
+      stopBeforeIndex: st.nextBoundaryIndex ?? null,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the

@@ -316,6 +316,39 @@ export function layoutBlock(
   }
 
   for (let i = startIndex; i < groups.length; i++) {
+    // Section cap (C.2b-1): stop before placing the TOP-LEVEL child at
+    // `fragmentation.stopBeforeIndex`, as if it had `break-before:page`. This
+    // mirrors the plan's `fitOnePage` cap so positioning agrees with the page
+    // plan — without it, a section's last page (with leftover room) greedily
+    // fills with the next section's leading block(s), duplicating them across
+    // pages. Placed at the TOP of the loop body, BEFORE any per-child side
+    // effects (margin advance / list counter / marker), so the capped child has
+    // no side effects — identical to fit-core's pre-side-effect cap.
+    //
+    // Gated on `layoutChildren.length > 0` (fragment-has-content), EXACTLY like
+    // the `break-before:page` path below: a forced break cannot occur before the
+    // first piece of content on a fragment. This makes the cap robust when the
+    // page STARTS at the boundary child (a resume where
+    // `startIndex === stopBeforeIndex`): that child is the new section's first
+    // page's first child and MUST be placed, so the cap correctly does not fire.
+    //
+    // TOP-LEVEL ONLY: this reads `fragmentation.stopBeforeIndex` directly; the
+    // child `FragmentationContext`s built later in this loop (`ifcFragmentation`,
+    // `childFragmentation`) are constructed fresh WITHOUT this field, so nested
+    // containers / IFC leaves are never capped.
+    if (
+      fragmentation !== undefined &&
+      fragmentation.stopBeforeIndex !== undefined &&
+      i === fragmentation.stopBeforeIndex &&
+      layoutChildren.length > 0
+    ) {
+      return buildPartialResult(layoutChildren, {
+        type: "block",
+        resumeChildIndex: i,
+        resumeChildToken: null,
+      });
+    }
+
     const group = groups[i];
     if (group.kind === "inline-run") {
       // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.

@@ -375,6 +375,51 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     expect(treeB.getPage(changedPage)).not.toBe(treeA.getPage(changedPage));
   });
 
+  it("a page whose stopBeforeIndex (section cap) changed is NOT reused (C.2b-1 fix)", () => {
+    // The section page-break cap is applied at POSITIONING time
+    // (materializePage threads it into bfc.layoutBlock), so two entries with
+    // identical children/resume tokens but different `stopBeforeIndex` produce
+    // DIFFERENT PageBoxes (one truncated at the boundary, one not). A
+    // SECTION_BREAK flips a page's cap (e.g. null → N) while leaving its body
+    // refs unchanged — without `stopBeforeIndex` in the fingerprint the memo
+    // would reuse the prior UNCAPPED box and re-leak the next section's blocks.
+    const pageConfig = noMarginPageConfig(300, 600);
+    const childrenA = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const rootA = cascadeRoot({ display: "block" }, childrenA);
+    const { plan: planA, tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    expect(planA.entries.length).toBeGreaterThanOrEqual(2);
+    // Baseline (IMPLICIT_SECTION_PLAN) ⇒ every page is uncapped.
+    expect(planA.entries.every((e) => e.stopBeforeIndex === null)).toBe(true);
+    for (let i = 0; i < planA.entries.length; i++) treeA.getPage(i);
+
+    // Tree B's plan = tree A's plan with page 0's cap flipped null → a real
+    // boundary (positions one fewer block); every other field — children refs,
+    // resume tokens, offsets, dimensions, list seed — byte-for-byte identical,
+    // built against the SAME rootA. The ONLY fingerprint delta is page 0's cap.
+    const cap = planA.entries[0].startIndex + 1;
+    const entriesB: PagePlanEntry[] = planA.entries.map((e) =>
+      e.pageIndex === 0 ? { ...e, stopBeforeIndex: cap } : e,
+    );
+    const planB: PagePlan = {
+      entries: entriesB,
+      sectionPlan: planA.sectionPlan,
+      totalBlockSize: planA.totalBlockSize,
+      pageInlineSize: planA.pageInlineSize,
+      pageContentBlockSize: planA.pageContentBlockSize,
+      pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
+      pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
+      pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
+    };
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
+
+    // Page 0's cap changed ⇒ NOT reused (re-materialized with the cap).
+    expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
+    // A later page with an unchanged (still-null) cap ⇒ still reused by ref.
+    const laterUnchanged = planA.entries.length - 1;
+    expect(treeB.getPage(laterUnchanged)).toBe(treeA.getPage(laterUnchanged));
+  });
+
   it("carry-forward only applies to pages the prev tree actually materialized", () => {
     // If a prev page was never materialized, the new tree must materialize it
     // fresh (not crash, not return undefined).

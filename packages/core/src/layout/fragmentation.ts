@@ -48,6 +48,18 @@ export interface FragmentationContext {
   /** Resume state from the previous fragment, if any. Null on first attempt
    * for a fresh fragment. */
   readonly resumeFrom: BreakToken | null;
+  /**
+   * An EXCLUSIVE upper bound on the TOP-LEVEL child index this fragment may
+   * place — the section-page-break cap (C.2b-1). When set, `bfc.layoutBlock`
+   * stops before placing the top-level child at this index, forcing a page
+   * break there exactly as if that child had `break-before:page` (mirroring the
+   * plan's `fitOnePage` `stopBeforeIndex` cap, so positioning agrees with the
+   * page plan). TOP-LEVEL ONLY: it is never propagated into the child
+   * `FragmentationContext`s the loop builds for nested containers / IFC leaves —
+   * those are constructed fresh without it — so nested formatting contexts are
+   * never capped. Undefined ⇒ no cap (the common, section-less case).
+   */
+  readonly stopBeforeIndex?: number;
 }
 
 /**
