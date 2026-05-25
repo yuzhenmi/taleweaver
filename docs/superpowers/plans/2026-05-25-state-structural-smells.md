@@ -191,9 +191,28 @@ remove it without a measurement showing it's dead for all bulk paths.
 
 ---
 
-## Status
+## Status — COMPLETE
 
 - [x] T1 (C.2b-1) committed `b9b587b` — clean base for this work.
-- [ ] A1 — in progress.
-- [ ] A2.
-- [ ] B.
+- [x] A1 — SnapshotCache → per-tree maps + ONE invalidation set. `75f424e`.
+      (The first attempt collapsed snapshots to a single id-keyed map; the full
+      suite caught the accessor-discrimination break via build-state-from-blocks,
+      so per-tree maps are retained and only the invalidation sets collapsed.)
+- [x] A2 — yjs-doc dirty-tracking routed through one `TREE_MAP_GETTERS` table
+      (captureDirtyIds / findOwningBlockId / getYBlock). `112e0a8`. Subsumes #270.
+- [x] B.1 — `insertBlocksAfter` bulk sibling-block insert primitive. `92c48c7`.
+- [x] B.2 — `handlePaste` migrated onto it; constant op count; added the
+      previously-absent paste characterization suite. `ab73e9b`.
+
+Each cycle gated on an independent code-reviewer pass (review-until-clean) before
+commit; all reviewer findings applied (none downplayed). Full suite 1531 pass / 4
+skip at close.
+
+**Deliberately NOT done (deferred, with rationale):**
+- The `chainDepth`/`compactCache` machinery is KEPT as a backstop. Paste no longer
+  builds a deep chain, but the machinery still guards other bulk paths (undo/redo
+  of bulk ops, a future rich-paste via `clonePastedSubtree`). Removing it needs a
+  measurement showing it's dead for ALL bulk paths — that's a separate follow-up,
+  not part of fixing the smell.
+- Rich-paste (`clonePastedSubtree`, currently unwired) gets its own atomic-insert
+  variant when rich paste is wired; out of scope here.
