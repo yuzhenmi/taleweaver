@@ -207,6 +207,34 @@ accessor (C.2 prereq, when `templateContents` lands). For C.1 (no
 > (e.g. tables EDITING — the Table FC already lays out; the gap is editor
 > actions, no new layout foundation), that is a reasonable redirect.
 
+## C.1a + C.1b implementation addendum (2026-05-25, as-built)
+
+C.1a and C.1b are implemented + reviewer-approved on `feature/dom-architecture-redesign`.
+As-built reconciliation vs. the buildable order above:
+
+- **C.1a shipped** as the `display: contents` layout foundation: a shared
+  `flattenContents` helper wired into `groupChildren`, the intrinsic-sizes pass, the
+  measure/paginate fit-meta walk, the IFC inline-token collection, and the layout-reuse
+  cache. A `display:contents` wrapper lays out geometry-identically to its children
+  spliced into the parent (toggle-verified equivalence tests).
+- **C.1b shipped** as: `section` container component (computes `display: contents` via the
+  component, NOT an attr interpreter); `reparentChildren` Layer-3 op (R3) realized as a
+  pure `computeReparentWrites` builder + `reparentChildrenInTx` applier + validating
+  `planReparentChildren`; `applySectionBreak` atomic op; `SECTION_BREAK` editor action;
+  and an editor-level transparency + undo/redo integration test.
+- **Decision — section-attrs interpreter DEFERRED to C.2.** Section page-geometry settings
+  (`pageInlineSize`, `pageMargins`, …) are consumed by the paginator (C.2), are NOT
+  `ComputedStyle` properties, and nothing reads them in C.1b. C.1b creates sections with
+  empty `attrs` (so the buildable-order line 191 "+ section-attrs interpreter" moves to C.2).
+- **Decision — break-at-container-start is a no-op.** Breaking at a container's FIRST child
+  would create an empty leading section; `applySectionBreak` returns the input state
+  unchanged (uniform for implicit + explicit). Sections are FLAT, never nested (structural —
+  `buildYBlock` hardcodes `parentId: rootId`; the boundary resolver only selects root-parented
+  sections). C.2 may revisit leading empty sections once a page break makes them meaningful.
+- **C.2 prerequisites confirmed** (from the state-module design review): R2 `captureDirtyIds`
+  must be extended for the new `templateContents` Y.Map, and R4 needs a unified
+  `resolveBlock(blockId) → { block, map }`. Both are C.2's first tasks.
+
 ## Open questions for review
 
 1. **Transparent-section model.** Is "section is a pagination-level grouping,

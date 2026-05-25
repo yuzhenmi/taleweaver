@@ -67,7 +67,15 @@ each box's `display` value.
   inline runs adjacent to block siblings get wrapped in an anonymous
   block; block-level cells outside a row get wrapped in anonymous rows;
   etc.). Consumed by the BFC (mixed block+inline children) and the
-  Table FC (anonymous rows and cells).
+  Table FC (anonymous rows and cells). Also exports `flattenContents`,
+  which implements `display: contents` (CSS Display 3 §3.2): a
+  `display: contents` element generates no box, so it is spliced out and
+  replaced in place by its own children (recursively). `flattenContents`
+  is applied at every child-walk that must agree on this transparency —
+  `groupChildren` itself, the intrinsic-sizes pass, the measure/paginate
+  fit-meta walk, the IFC inline-token collection, and the layout-reuse
+  cache index — so a transparent element (e.g. a `section` block) never
+  contributes a box, margin, or break context of its own.
 
 - **`bfc-establishment`** — `establishesNewBFC(computedStyle)` returns
   whether a box establishes its own BFC. Used to decide whether the BFC
