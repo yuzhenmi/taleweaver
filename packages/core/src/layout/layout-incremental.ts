@@ -13,6 +13,9 @@ import { makeRootContext } from "./layout-context";
 import { buildLayoutBoxCacheFromTree } from "./layout-reuse";
 import { markStart, markEnd } from "../perf/perf-trace";
 import { paginateRoot } from "./paginate";
+import { measurePassUnsupported } from "./measure-pass";
+import { buildVirtualPaginatedTree } from "./virtual-producer";
+import type { VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**
  * Incremental layout entry point.
@@ -29,15 +32,22 @@ import { paginateRoot } from "./paginate";
 export function layoutTreeIncremental(
   newRoot: RenderNode,
   oldRoot: RenderNode | null,
-  oldLayout: LayoutBox | null,
+  oldLayout: LayoutBox | VirtualLayoutTree | null,
   containerWidth: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   pageConfig?: PageConfig,
-): LayoutBox {
+): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTreeIncremental");
   try {
-    // Plan 2: whole-tree identity short-circuit.
-    if (newRoot === oldRoot && oldLayout !== null && oldLayout.width === containerWidth) {
+    // Plan 2: whole-tree identity short-circuit. Only a POSITIONED prior tree
+    // exposes `.width`; a `VirtualLayoutTree` carries the plan and must be
+    // re-derived (cheaply) below so its carry-forward memo + plan stay current.
+    if (
+      newRoot === oldRoot &&
+      oldLayout !== null &&
+      oldLayout.type !== "virtual-root" &&
+      oldLayout.width === containerWidth
+    ) {
       return oldLayout;
     }
 
@@ -52,11 +62,22 @@ export function layoutTreeIncremental(
 
     const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
 
+    // The prior layout split by shape: a positioned `LayoutBox` (legacy /
+    // unpaginated / unsupported-feature fallback) vs a `VirtualLayoutTree`
+    // (paginated virtual mode). The legacy `paginateRoot` per-page WeakMap
+    // cache (L-PERF-C) and the subtree-reuse cache key on positioned boxes, so
+    // they apply ONLY to a positioned prior tree; the virtual tree reuses pages
+    // via its own carry-forward memo (threaded as `prevTree` below).
+    const prevPositioned: LayoutBox | null =
+      oldLayout !== null && oldLayout.type !== "virtual-root" ? oldLayout : null;
+    const prevVirtual: VirtualLayoutTree | undefined =
+      oldLayout !== null && oldLayout.type === "virtual-root" ? oldLayout : undefined;
+
     // Plan 3.H: build a prevLayoutCache from the old layout so that layoutBlock
     // can reuse unchanged subtrees by reference. We need the old render root to
     // populate render-node references in the cache entries.
-    const prevCache = (oldLayout !== null && oldRoot !== null)
-      ? buildLayoutBoxCacheFromTree(oldLayout, oldRoot)
+    const prevCache = (prevPositioned !== null && oldRoot !== null)
+      ? buildLayoutBoxCacheFromTree(prevPositioned, oldRoot)
       : null;
 
     // Build the root context and inject the prev cache + prev float env.
@@ -69,16 +90,28 @@ export function layoutTreeIncremental(
       prevFloatEnv: null,
     };
 
-    let result: LayoutBox;
+    let result: LayoutBox | VirtualLayoutTree;
 
     if (pageConfig !== undefined && cs.display === "block") {
-      // Paginated mode: paginateRoot drives layoutBlock per page.
-      // Pass rootCtx so that subtree reuse cache flows through.
-      // Pass oldLayout so paginate's per-page cache (L-PERF-C) can
-      // short-circuit unchanged pages without invoking layoutBlock at
-      // all — drops per-keystroke layout from O(N_blocks iteration)
-      // to O(N_pages_visible × const + N_dirty_blocks).
-      result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig, oldLayout);
+      // Paginated mode. The measure pass / fit-core reproduce only the
+      // features it models; documents with float/`clear` fall back to the
+      // legacy positioned `paginateRoot` path (design §"Out of scope for v1").
+      if (!measurePassUnsupported(layoutRoot)) {
+        // Virtual mode: build the page plan + a lazily-materializing
+        // `VirtualLayoutTree`. No page is positioned here (the win lands when
+        // consumers stop materializing in Tasks 2/3); in Task 1 every consumer
+        // rides `resolvePositionedTree`'s `materializeAll()` bridge. The prior
+        // VirtualLayoutTree (when there was one) threads through as the
+        // carry-forward memo so unchanged pages reuse their PageBox by ref.
+        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual);
+      } else {
+        // Unsupported-feature fallback: legacy positioned page tree.
+        // paginateRoot drives layoutBlock per page; pass rootCtx so the
+        // subtree-reuse cache flows through, and the prior POSITIONED layout so
+        // paginate's per-page cache (L-PERF-C) can short-circuit unchanged
+        // pages without invoking layoutBlock at all.
+        result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig, prevPositioned);
+      }
     } else {
       switch (cs.display) {
         case "block": {

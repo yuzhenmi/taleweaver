@@ -11,6 +11,9 @@ import {
   resolvePixelPosition,
   resolvePositionFromPixel,
   computeSelectionRects,
+  resolvePositionedTree,
+  markStart,
+  markEnd,
   type LayoutBox,
   type Position,
   type TextShaper,
@@ -70,6 +73,12 @@ export function createEditorController(
   // ── State ──────────────────────────────────────────────────────────────
 
   let state: EditorState | null = null;
+  // The fully-positioned layout tree for the current `state`. In paginated mode
+  // `state.layoutTree` is a `VirtualLayoutTree`; the controller rides the
+  // `materializeAll()` bridge (Phase 3 Task 1) by resolving it ONCE per
+  // `update()` and reading positioned `PageBox`es here. Tasks 2/3 migrate the
+  // hot paths off this bridge to the plan / `getPage`.
+  let positionedLayout: LayoutBox | null = null;
   let focused = true;
   let cursorVisible = true;
   let blinkIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -186,11 +195,12 @@ export function createEditorController(
   function paintSingle() {
     if (!state) return;
     if (!singleCanvas) return;
+    if (!positionedLayout) return;
     if (!singleCtx) singleCtx = singleCanvas.getContext("2d");
     const ctx = singleCtx;
     if (!ctx) return;
 
-    const tree = state.layoutTree;
+    const tree = positionedLayout;
     const logicalWidth = tree.width;
     const logicalHeight = tree.height;
 
@@ -357,9 +367,9 @@ export function createEditorController(
   // ── DOM sync ───────────────────────────────────────────────────────────
 
   function syncDom() {
-    if (!state) return;
+    if (!state || !positionedLayout) return;
 
-    const tree = state.layoutTree;
+    const tree = positionedLayout;
     const newPages: LayoutBox[] = [];
     if (pageHeight && tree.type === "block") {
       for (const c of tree.children) {
@@ -419,6 +429,7 @@ export function createEditorController(
   }
 
   function syncPageCanvases() {
+    const tTotal = markStart("ctrl.syncPageCanvases");
     const currentCount = pageSlots.length;
     const targetCount = pages.length;
 
@@ -458,6 +469,7 @@ export function createEditorController(
 
     // Setup IntersectionObserver
     setupIntersectionObserver();
+    markEnd("ctrl.syncPageCanvases", tTotal);
   }
 
   function acquireCanvas(idx: number, slot: HTMLDivElement) {
@@ -576,7 +588,7 @@ export function createEditorController(
   }
 
   function handleMouseDown(e: MouseEvent) {
-    if (destroyed || !state) return;
+    if (destroyed || !state || !positionedLayout) return;
     e.preventDefault();
     textarea.focus();
 
@@ -585,7 +597,7 @@ export function createEditorController(
 
     const pos = resolvePositionFromPixel(
       state.state,
-      state.layoutTree,
+      positionedLayout,
       measurer,
       coords.x,
       coords.y,
@@ -657,14 +669,14 @@ export function createEditorController(
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isDragging || !dragAnchor || !state) return;
+    if (!isDragging || !dragAnchor || !state || !positionedLayout) return;
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
     const pos = resolvePositionFromPixel(
       state.state,
-      state.layoutTree,
+      positionedLayout,
       measurer,
       coords.x,
       coords.y,
@@ -787,15 +799,25 @@ export function createEditorController(
 
   function update(editorState: EditorState) {
     if (destroyed) return;
+    const tTotal = markStart("ctrl.update");
     state = editorState;
+
+    // Phase 3 Task 1 bridge: in paginated mode `state.layoutTree` is a
+    // `VirtualLayoutTree`; materialize the full positioned tree ONCE per update
+    // and read it everywhere the controller expects a positioned `LayoutBox`
+    // (cursor resolve, selection rects, syncDom, paint, mouse hit-test). This is
+    // behavior-identical to the pre-virtual tree (Phase 2 proved
+    // `materializeAll() ≡ paginateRoot`); Tasks 2/3 move the hot paths off it.
+    positionedLayout = resolvePositionedTree(state.layoutTree);
 
     // Compute cursor position and selection rects. resolvePixelPosition
     // returns null for unknown blockIds; fall back to default coords so
     // the controller can still paint a placeholder cursor.
+    const tResolve = markStart("ctrl.resolveCursor");
     const resolved = resolvePixelPosition(
       state.state,
       state.selection.focus,
-      state.layoutTree,
+      positionedLayout,
       measurer,
     );
     cursorPos = resolved ?? {
@@ -808,23 +830,41 @@ export function createEditorController(
       lineMarginBottom: 0,
       pageIndex: 0,
     };
+    markEnd("ctrl.resolveCursor", tResolve);
+
+    const tSel = markStart("ctrl.selectionRects");
     selectionRects = isCollapsed(state.selection)
       ? []
       : computeSelectionRects(
           state.state,
           state.selection,
-          state.layoutTree,
+          positionedLayout,
           measurer,
         );
+    markEnd("ctrl.selectionRects", tSel);
 
+    const tSync = markStart("ctrl.syncDom");
     syncDom();
+    markEnd("ctrl.syncDom", tSync);
+
+    const tBlink = markStart("ctrl.startBlink");
     startBlink();
+    markEnd("ctrl.startBlink", tBlink);
+
+    const tPaint = markStart("ctrl.paint");
     paint();
+    markEnd("ctrl.paint", tPaint);
+
+    const tScroll = markStart("ctrl.scrollIntoView");
     scrollCursorIntoView();
+    markEnd("ctrl.scrollIntoView", tScroll);
+
+    markEnd("ctrl.update", tTotal);
   }
 
   function destroy() {
     destroyed = true;
+    positionedLayout = null;
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);

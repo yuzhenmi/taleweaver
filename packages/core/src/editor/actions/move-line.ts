@@ -3,6 +3,7 @@ import { createSpan } from "../../state/block-position";
 import { spanStart, spanEnd } from "../../state/block-compare";
 import { moveToLine } from "../../cursor/line-navigation";
 import { isCollapsed } from "../../cursor/selection";
+import { resolvePositionedTree } from "../../layout/positioned-tree";
 
 export function handleMoveLine(
   editor: EditorState,
@@ -21,7 +22,7 @@ export function handleMoveLine(
   const result = moveToLine(
     editor.state,
     moveFocus,
-    editor.layoutTree,
+    resolvePositionedTree(editor.layoutTree),
     config.measurer,
     direction,
     editor.targetX,

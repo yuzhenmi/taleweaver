@@ -151,6 +151,12 @@ export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
 export type { PageBox } from "./layout/page-box";
 export { createPageBox } from "./layout/page-box";
+// Virtualized layout: the `VirtualLayoutTree` is `EditorState.layoutTree` in
+// paginated mode; `resolvePositionedTree` is the bridge consumers ride to a
+// fully-positioned `LayoutBox` (via `materializeAll()`) until they migrate to
+// the plan / `getPage` API.
+export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
+export { resolvePositionedTree } from "./layout/positioned-tree";
 export { computeUsedStyle } from "./layout/used-style";
 export type { PageConfig, PageMargins } from "./layout/page-config";
 

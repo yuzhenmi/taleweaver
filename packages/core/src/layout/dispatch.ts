@@ -11,6 +11,9 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "./layout-context";
 import { markStart, markEnd } from "../perf/perf-trace";
 import { paginateRoot } from "./paginate";
+import { measurePassUnsupported } from "./measure-pass";
+import { buildVirtualPaginatedTree } from "./virtual-producer";
+import type { VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -25,7 +28,7 @@ export function layoutTree(
   containerInlineSize: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   pageConfig?: PageConfig,
-): LayoutBox {
+): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
   try {
     if (root.type !== "element") {
@@ -44,7 +47,7 @@ export function layoutTree(
     const cs = layoutRoot.computedStyle ?? INITIAL_COMPUTED_STYLE;
     const ctx = makeRootContext(cs, containerInlineSize);
 
-    let result: LayoutBox;
+    let result: LayoutBox | VirtualLayoutTree;
 
     if (pageConfig !== undefined) {
       // Paginated mode: paginateRoot drives layoutBlock per page and assembles
@@ -53,7 +56,13 @@ export function layoutTree(
       // to unpaginated table layout (acceptable for P1.B scope; table-as-root
       // with pagination is unusual in real documents).
       if (cs.display === "block") {
-        result = paginateRoot(layoutRoot, ctx, shaper, pageConfig);
+        // Virtual mode unless the document uses a feature the measure pass
+        // can't reproduce (float/`clear`), in which case fall back to the
+        // legacy positioned page tree. This is the full (non-incremental)
+        // build — e.g. the resize path — so there is no carry-forward memo.
+        result = measurePassUnsupported(layoutRoot)
+          ? paginateRoot(layoutRoot, ctx, shaper, pageConfig)
+          : buildVirtualPaginatedTree(layoutRoot, ctx, shaper, pageConfig);
       } else {
         // Non-block root with pagination: layout without pagination for now.
         if (cs.display === "table") {

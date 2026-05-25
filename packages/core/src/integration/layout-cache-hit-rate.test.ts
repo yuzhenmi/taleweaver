@@ -1,14 +1,18 @@
 /**
  * Diagnostic test that drives a real editor keystroke on a multi-
- * paragraph paginated document and asserts the per-paragraph
- * layoutBlock cache hit rate. After L-PERF-A, a single-paragraph
- * INSERT_TEXT should cache-miss ONLY the dirty paragraph; every other
- * paragraph in the doc should cache-hit.
+ * paragraph paginated document and asserts that a single-paragraph
+ * INSERT_TEXT reuses every UNCHANGED paragraph rather than re-laying it out.
  *
- * If this asserts a low hit ratio, the user's profiler observation
- * ("layoutBlock dominant, collectInlineTokens many times") is
- * confirmed at the unit-test level and we can iterate on the
- * underlying cause.
+ * **Virtual-mode reuse metric (post Phase-3 wiring).** In virtual paginated
+ * mode the reducer no longer runs the per-page `paginateRoot` paginator over
+ * every paragraph — it builds a `PagePlan` + a lazy `VirtualLayoutTree` and
+ * positions NO pages. Block reuse therefore moved out of bfc's per-block
+ * subtree cache (`__getLayoutCacheStatsForTest`, which now reads ~0 because
+ * that paginator doesn't run in the reducer) and INTO `buildBlockFitMetas`'s
+ * meta cache (keyed on the cascaded node ref). So the surviving "most blocks
+ * reused" signal is the META BUILD COUNT: a single-paragraph edit rebuilds
+ * only the dirty paragraph's meta and ref-reuses the rest. These diagnostics
+ * assert that.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -27,6 +31,10 @@ import {
   __getLayoutCacheStatsForTest,
   __resetLayoutCacheStatsForTest,
 } from "../layout/bfc";
+import {
+  __getMetaBuildCountForTest,
+  __resetMetaBuildCountForTest,
+} from "../layout/build-fit-metas";
 
 function makeConfig(): EditorConfig {
   const pageConfig: PageConfig = {
@@ -91,8 +99,10 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
 
     // Reset counters, dispatch ONE keystroke, report.
     __resetLayoutCacheStatsForTest();
+    __resetMetaBuildCountForTest();
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
     const stats = __getLayoutCacheStatsForTest();
+    const metaBuildCount = __getMetaBuildCountForTest();
 
     const total = stats.hits + stats.missesNoEntry + stats.missesRenderInequiv +
                   stats.hitsRepositioned + stats.missesSize + stats.missesResumeFrom +
@@ -105,25 +115,20 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
       `hitsRepositioned=${stats.hitsRepositioned}`,
       `missesSize=${stats.missesSize}`,
       `missesResumeFrom=${stats.missesResumeFrom}`,
-      `missesReusableGate=${stats.missesReusableGate}`,
       `fullLayoutInvocations=${stats.fullLayoutInvocations}`,
+      `metaBuildCount=${metaBuildCount}`,
     );
 
-    // The doc has 50 paragraphs + 1 doc root + 1 per-page-root call per page
-    // (~3-4 pages for 50 paras at default page-size). After a single-paragraph
-    // edit, ALL UNCHANGED paragraphs (~49) should cache-hit. The dirty
-    // paragraph cache-misses (renderInequiv) — exactly 1.
-    // 50 paragraphs fit on a single page at the default page config,
-    // so L-PERF-C's page-level reuse has nothing to skip here — the
-    // dirty page IS the only page. The signal we care about is full
-    // layoutBlock invocations stay small (per-page-root + dirty
-    // paragraph + outer all-pages-root, no spurious extras). Child
-    // cache-hits absorb the rest of the per-page iteration.
+    // Virtual-mode reuse signal: a single-paragraph edit on a 50-paragraph doc
+    // rebuilds only the dirty paragraph's meta (and any ancestor whose child
+    // list changed); the other ~49 paragraphs ref-reuse their cached meta. So
+    // the meta build count is tiny and INDEPENDENT of the 50-block doc size.
+    // (Pre-Task-0 this was 50 — a full rebuild every keystroke.)
+    expect(metaBuildCount).toBeLessThanOrEqual(3);
+    // Any bfc layoutBlock work in the reducer is now confined to the dirty
+    // block's meta build (buildBlockFitMetas lays out only cache-miss blocks),
+    // so full layout invocations stay tiny regardless of doc size.
     expect(stats.fullLayoutInvocations).toBeLessThanOrEqual(5);
-    // Confirm child-level cache is also engaging (most children on
-    // the dirty page cache-hit even though their containing page
-    // doesn't reuse).
-    expect(stats.hits).toBeGreaterThanOrEqual(20);
   });
 
   it("single keystroke at start of 500-paragraph doc cache-hits MOST pages via L-PERF-C", () => {
@@ -262,29 +267,22 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     );
 
     __resetLayoutCacheStatsForTest();
+    __resetMetaBuildCountForTest();
     const t0 = performance.now();
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
     const keystrokeMs = performance.now() - t0;
     const stats = __getLayoutCacheStatsForTest();
+    const metaBuildCount = __getMetaBuildCountForTest();
 
-    const totalInvocations = stats.hits + stats.missesNoEntry + stats.missesRenderInequiv +
-      stats.hitsRepositioned + stats.missesSize + stats.missesResumeFrom + stats.missesReusableGate;
-    const hitRatio = stats.hits / totalInvocations;
     (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
       `[L-PERF-B 500-para] keystrokeMs=${keystrokeMs.toFixed(2)}`,
-      `total=${totalInvocations}`,
-      `hits=${stats.hits}`,
-      `hitRatio=${(hitRatio * 100).toFixed(1)}%`,
+      `metaBuildCount=${metaBuildCount}`,
       `fullLayouts=${stats.fullLayoutInvocations}`,
-      `missesNoEntry=${stats.missesNoEntry}`,
-      `missesRenderInequiv=${stats.missesRenderInequiv}`,
-      `hitsRepositioned=${stats.hitsRepositioned}`,
-      `missesSize=${stats.missesSize}`,
-      `missesResumeFrom=${stats.missesResumeFrom}`,
-      `missesReusableGate=${stats.missesReusableGate}`,
     );
-    // Soft expectation: hit ratio should be very high; full layout
-    // invocations should be ~N_pages + 1 (per-page roots + dirty para).
-    expect(hitRatio).toBeGreaterThan(0.9);
+    // Scaling guard: on a 500-paragraph doc a single keystroke rebuilds only
+    // the dirty paragraph's meta — the count is tiny and does NOT scale with N
+    // (it is the same ~1 as the 50-paragraph case above). This is the property
+    // virtualization delivers: per-keystroke work is O(dirty), not O(N_blocks).
+    expect(metaBuildCount).toBeLessThanOrEqual(3);
   }, 30_000);
 });

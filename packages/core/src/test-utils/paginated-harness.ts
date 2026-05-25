@@ -1,6 +1,7 @@
 // packages/core/src/test-utils/paginated-harness.ts
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
+import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
@@ -20,7 +21,11 @@ export function paginatedHarness(
 ): PaginatedHarnessResult {
   const shaper = createMockShaper(8, 16);
   const cascaded = cascadePass(rootSpec);
-  const result = layoutTree(cascaded, containerInlineSize, shaper, pageConfig);
+  // Bridge the (virtual, in paginated mode) layout result to the positioned
+  // page tree the harness asserts over (Phase 3 Task 1).
+  const result = resolvePositionedTree(
+    layoutTree(cascaded, containerInlineSize, shaper, pageConfig),
+  );
   if (result.type !== "block") {
     throw new Error(`paginatedHarness: expected block root, got "${result.type}"`);
   }

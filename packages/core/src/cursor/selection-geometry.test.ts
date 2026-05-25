@@ -4,6 +4,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
+import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -30,7 +31,7 @@ function pipeline(
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(8, 16);
-  const layout = layoutTree(root, containerInlineSize, shaper, pageConfig);
+  const layout = resolvePositionedTree(layoutTree(root, containerInlineSize, shaper, pageConfig));
   return { layout, shaper };
 }
 

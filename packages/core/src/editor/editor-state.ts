@@ -13,6 +13,7 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
+import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { PageConfig } from "../layout/page-config";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -76,7 +77,15 @@ export interface EditorState {
    * render set up.
    */
   readonly cascadedRoot: RenderNode;
-  readonly layoutTree: LayoutBox;
+  /**
+   * The layout result. In paginated mode (the common word-processor case) this
+   * is a `VirtualLayoutTree` — a `PagePlan` plus lazily-materialized
+   * `PageBox`es — produced by `layoutTreeIncremental` / `layoutTree`. In
+   * unpaginated mode, or for documents using features the measure pass cannot
+   * reproduce (float/`clear`), it is a fully-positioned `LayoutBox`. Consumers
+   * expecting a positioned tree bridge through `resolvePositionedTree`.
+   */
+  readonly layoutTree: LayoutBox | VirtualLayoutTree;
   readonly containerWidth: number;
   readonly targetX: number | null;
 }

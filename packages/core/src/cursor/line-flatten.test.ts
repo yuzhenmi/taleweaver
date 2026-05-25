@@ -3,6 +3,7 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { layoutTree } from "../layout/dispatch";
+import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "../layout/layout-context";
@@ -127,12 +128,12 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     // Page large enough for ~1 paragraph (16px) plus margins.
-    const root = layoutTree(tree, 500, shaper, {
+    const root = resolvePositionedTree(layoutTree(tree, 500, shaper, {
       pageInlineSize: 500,
       pageBlockSize: 40,
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
-    });
+    }));
 
     const out: AbsoluteLineBox[] = [];
     collectLineBoxes(root, 0, 0, out);

@@ -1,6 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createSpan } from "../../state/block-position";
 import { moveToLineBoundary } from "../../cursor/line-navigation";
+import { resolvePositionedTree } from "../../layout/positioned-tree";
 
 export function handleExpandLineBoundary(
   editor: EditorState,
@@ -10,7 +11,7 @@ export function handleExpandLineBoundary(
   const pos = moveToLineBoundary(
     editor.state,
     editor.selection.focus,
-    editor.layoutTree,
+    resolvePositionedTree(editor.layoutTree),
     config.measurer,
     boundary,
   );

@@ -6,8 +6,18 @@ import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, BlockBox } from "../layout/layout-box-v2";
 import type { PageBox } from "../layout/page-box";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
+import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { cascadePass } from "../cascade";
+import {
+  createInitialEditorState,
+  reduceEditor,
+  type EditorConfig,
+} from "../editor/editor-state";
+import { createDefaultComponentRegistry } from "../components/component-registry";
+import { createDefaultAttrRegistry } from "../cascade/attr-registry";
+import { getBlock } from "../state/state";
+import { createPosition, createSpan } from "../state/block-position";
 
 const PAGE: PageConfig = {
   pageInlineSize: 600,
@@ -173,19 +183,68 @@ describe("pagination integration — layoutTreeIncremental + pageConfig", () => 
     const shaper = createMockShaper(8, 16);
     const cascaded = cascadePass(root);
 
-    // First pass: cold incremental (no oldRoot/oldLayout).
+    // First pass: cold incremental (no oldRoot/oldLayout). In paginated mode
+    // this returns a VirtualLayoutTree; the test asserts over the materialized
+    // page tree (Phase 3 Task 1 — `materializeAll() ≡ paginateRoot`).
     const r1 = layoutTreeIncremental(cascaded, null, null, PAGE.pageInlineSize, shaper, PAGE);
-    expect(r1.type).toBe("block");
-    const r1Pages = (r1 as BlockBox).children.filter((c): c is PageBox => c.type === "page");
+    expect(r1.type).toBe("virtual-root");
+    const r1Positioned = resolvePositionedTree(r1);
+    expect(r1Positioned.type).toBe("block");
+    const r1Pages = (r1Positioned as BlockBox).children.filter((c): c is PageBox => c.type === "page");
     expect(r1Pages.length).toBeGreaterThan(1);
 
     // Second pass: same document, prior layout passed in. This is the path
     // that previously short-circuited via the BFC reuse cache when the root's
     // children were reference-equal to the cached version.
     const r2 = layoutTreeIncremental(cascaded, cascaded, r1, PAGE.pageInlineSize, shaper, PAGE);
-    expect(r2.type).toBe("block");
-    const r2Pages = (r2 as BlockBox).children.filter((c): c is PageBox => c.type === "page");
+    expect(r2.type).toBe("virtual-root");
+    const r2Positioned = resolvePositionedTree(r2);
+    expect(r2Positioned.type).toBe("block");
+    const r2Pages = (r2Positioned as BlockBox).children.filter((c): c is PageBox => c.type === "page");
     // Same page count as r1 — fragmentation must not be short-circuited.
     expect(r2Pages.length).toBe(r1Pages.length);
+  });
+});
+
+describe("virtualized layout — EditorState.layoutTree is virtual-root after a paginated edit", () => {
+  // Phase 3 Task 1: the reducer's paginated layout path now produces a
+  // VirtualLayoutTree (discriminated by `type: "virtual-root"`), not a
+  // positioned BlockBox. Behavior is unchanged because every consumer
+  // materializes via `resolvePositionedTree`'s `materializeAll()` bridge.
+  function makePaginatedConfig(): EditorConfig {
+    return {
+      measurer: createMockShaper(8, 16),
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 600,
+      pageConfig: {
+        pageInlineSize: 816,
+        pageBlockSize: 1056,
+        pageMargins: { blockStart: 96, blockEnd: 96, inlineStart: 72, inlineEnd: 72 },
+        pageGap: 24,
+      },
+    };
+  }
+
+  it("createInitialEditorState + a paginated INSERT_TEXT yield a virtual-root layoutTree", () => {
+    const config = makePaginatedConfig();
+    const editor0 = createInitialEditorState(config);
+    // Initial paginated layout is already virtual.
+    expect(editor0.layoutTree.type).toBe("virtual-root");
+
+    const root = getBlock(editor0.state, editor0.state.rootId);
+    if (root === null || root.firstChildId === null) throw new Error("no first child");
+    const firstId = root.firstChildId;
+    const editor1 = reduceEditor(
+      editor0,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
+      config,
+    );
+    const editor2 = reduceEditor(editor1, { type: "INSERT_TEXT", text: "hello" }, config);
+    // A paginated edit (incremental path) still yields a virtual-root tree.
+    expect(editor2.layoutTree.type).toBe("virtual-root");
+    // And it materializes to the same shape a positioned tree would (the bridge).
+    const positioned = resolvePositionedTree(editor2.layoutTree);
+    expect(positioned.type).toBe("block");
   });
 });

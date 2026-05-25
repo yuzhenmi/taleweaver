@@ -17,6 +17,7 @@ import type { BlockBox } from "./layout-box-v2";
 import type { LayoutContext } from "./layout-context";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
+import { resolvePositionedTree } from "./positioned-tree";
 import type { LayoutBox } from "./layout-box-v2";
 
 const shaper = createMockShaper(8, 16);
@@ -353,7 +354,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const paginatedRoot = layoutTree(cascaded, 500, shaper, pageConfig);
+    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
 
     const cache = buildLayoutBoxCacheFromTree(paginatedRoot, cascaded);
     // After the fix, every paragraph child of the doc has a cache entry —
@@ -363,6 +364,40 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       expect(entry).toBeDefined();
       expect(entry?.box.key).toBe(`p${i}`);
     }
+  });
+
+  it("indexes a SINGLE PageBox passed as root (the getPage per-page reuse path)", () => {
+    // `VirtualLayoutTree.materializePage` calls
+    // `buildLayoutBoxCacheFromTree(prevPage, cascadedRoot)` with a SINGLE
+    // PageBox as the tree root (not the outer all-pages BlockBox). The
+    // transparent-wrapper descent must still reach the per-page paragraph
+    // boxes so intra-page L-PERF-A/G subtree reuse survives. This guards
+    // that exact call shape (the existing test above passes the outer tree).
+    const paragraphs = [];
+    for (let i = 0; i < 4; i++) {
+      const t = createTextBox(`t${i}`, { display: "inline" }, "x");
+      paragraphs.push(createElementBox(`p${i}`, { display: "block" }, [t]));
+    }
+    const doc = createElementBox("doc", { display: "block" }, paragraphs);
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const pageConfig = {
+      pageInlineSize: 500,
+      pageBlockSize: 40, // fits ~2 one-line paragraphs per page
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 0,
+    };
+    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
+    if (!("children" in paginatedRoot)) throw new Error("expected positioned tree");
+    const firstPage = paginatedRoot.children[0];
+    expect(firstPage.type).toBe("page");
+
+    // Pass the SINGLE PageBox as the root (mirrors materializePage).
+    const cache = buildLayoutBoxCacheFromTree(firstPage, cascaded);
+    // The first page holds p0 and p1; both must be indexed despite being
+    // nested under the PageBox + per-page BlockBox wrappers.
+    expect(cache.get("p0")?.box.key).toBe("p0");
+    expect(cache.get("p1")?.box.key).toBe("p1");
   });
 });
 
@@ -389,6 +424,11 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
       pageGap: 0,
     };
     const out1 = layoutTree(cascaded, 500, shaper, pageConfig);
+    // Materialize the (virtual) paginated output once. This populates out1's
+    // per-page memo BEFORE out2 is built, so out2's carry-forward memo can
+    // reuse out1's unchanged PageBoxes by reference — the virtual-mode analog
+    // of the L-PERF-A subtree reuse this test guards.
+    const out1Positioned = resolvePositionedTree(out1);
 
     // Find each paragraph's layout box from the paginated output.
     function findParagraphBox(root: BlockBox, key: string): BlockBox | undefined {
@@ -410,10 +450,10 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
       }
       return undefined;
     }
-    if (out1.type !== "block") throw new Error("expected BlockBox root");
-    const p1Box1 = findParagraphBox(out1, "p1");
-    const p2Box1 = findParagraphBox(out1, "p2");
-    const p3Box1 = findParagraphBox(out1, "p3");
+    if (out1Positioned.type !== "block") throw new Error("expected BlockBox root");
+    const p1Box1 = findParagraphBox(out1Positioned, "p1");
+    const p2Box1 = findParagraphBox(out1Positioned, "p2");
+    const p3Box1 = findParagraphBox(out1Positioned, "p3");
     expect(p1Box1).toBeDefined();
     expect(p2Box1).toBeDefined();
     expect(p3Box1).toBeDefined();
@@ -429,7 +469,7 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
     if (cascadedEdited.type !== "element") throw new Error("?");
 
     // Build cache from out1 (post-fix this populates per-paragraph entries).
-    const prevCache = buildLayoutBoxCacheFromTree(out1, cascaded);
+    const prevCache = buildLayoutBoxCacheFromTree(out1Positioned, cascaded);
     expect(prevCache.get("p1")).toBeDefined();
 
     // Re-paginate with the cache injected. Use layoutTreeIncremental to
@@ -446,12 +486,13 @@ describe("paginated layoutBlock subtree reuse (L-PERF-A)", () => {
       shaper,
       pageConfig,
     );
-    if (out2.type !== "block") throw new Error("expected BlockBox root");
+    const out2Positioned = resolvePositionedTree(out2);
+    if (out2Positioned.type !== "block") throw new Error("expected BlockBox root");
 
     // p1..p3 layout boxes are unchanged: reference equality.
-    const p1Box2 = findParagraphBox(out2, "p1");
-    const p2Box2 = findParagraphBox(out2, "p2");
-    const p3Box2 = findParagraphBox(out2, "p3");
+    const p1Box2 = findParagraphBox(out2Positioned, "p1");
+    const p2Box2 = findParagraphBox(out2Positioned, "p2");
+    const p3Box2 = findParagraphBox(out2Positioned, "p3");
     expect(p1Box2).toBe(p1Box1);
     expect(p2Box2).toBe(p2Box1);
     expect(p3Box2).toBe(p3Box1);

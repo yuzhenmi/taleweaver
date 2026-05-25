@@ -4,6 +4,7 @@ import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
+import { resolvePositionedTree } from "./positioned-tree";
 
 const measurer = createMockShaper(8, 16);
 
@@ -21,8 +22,8 @@ describe("layoutTreeIncremental", () => {
     // The spec is: short-circuit fires only when newRoot === oldRoot AND containerWidth unchanged.
     // Since cascadePass produces fresh objects per call, treeA !== treeB.
     // So we don't expect identity here — we just expect a valid layout result.
-    expect(layoutB.width).toBe(layoutA.width);
-    expect(layoutB.height).toBe(layoutA.height);
+    expect(resolvePositionedTree(layoutB).width).toBe(resolvePositionedTree(layoutA).width);
+    expect(resolvePositionedTree(layoutB).height).toBe(resolvePositionedTree(layoutA).height);
   });
 
   it("short-circuits when newRoot === oldRoot AND width unchanged", () => {
@@ -36,7 +37,7 @@ describe("layoutTreeIncremental", () => {
     const tree = cascadePass(createElementBox("root", { display: "block", blockSize: 50 }, []));
     const layoutA = layoutTree(tree, 600, measurer);
     const layoutB = layoutTreeIncremental(tree, tree, layoutA, 800, measurer);
-    expect(layoutB.width).toBe(800);
+    expect(resolvePositionedTree(layoutB).width).toBe(800);
     expect(layoutB).not.toBe(layoutA);
   });
 });

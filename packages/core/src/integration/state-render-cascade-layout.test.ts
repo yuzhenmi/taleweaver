@@ -28,6 +28,7 @@ import { buildBlock, buildState, inlineContent, text } from "../test-utils/state
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
+import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
@@ -127,7 +128,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
   it("layout output preserves the inline text content from state", () => {
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = layoutTree(renderOutput.root, 800, shaper);
+    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
     const collected = collectText(layout);
     // Each leaf block's inline text must reach the layout tree as TextRunBoxes.
     expect(collected).toContain("hello world");
@@ -175,7 +176,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // a leaked strut sentinel.
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = layoutTree(renderOutput.root, 800, shaper);
+    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
 
     function findEmptyStrutTextRuns(box: LayoutBox, fromImg: boolean): number {
       if (box.type === "text-run" && fromImg && box.text === "") return 1;
@@ -197,7 +198,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // the layout tree (so the cursor has a vertical slot to sit on).
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = layoutTree(renderOutput.root, 800, shaper);
+    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
 
     function findBlock(box: LayoutBox, key: string): LayoutBox | null {
       if (box.key === key) return box;

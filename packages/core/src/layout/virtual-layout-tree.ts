@@ -29,6 +29,7 @@ import { createBlockBox } from "./layout-box-v2";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
+import { buildLayoutBoxCacheFromTree } from "./layout-reuse";
 import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { PagePlan, PagePlanEntry } from "./measure-pass";
@@ -239,6 +240,25 @@ export function makeVirtualLayoutTree(
   }
 
   function materializePage(pageIndex: number, entry: PagePlanEntry): PageBox {
+    // Per-page subtree-reuse cache (design §"Interaction with shipped L-PERF
+    // pieces"): when the prior tree materialized this page index, build a
+    // `LayoutBoxCache` from its positioned PageBox so unchanged blocks WITHIN a
+    // re-materialized page reuse their prior boxes by reference (L-PERF-A/-G).
+    // The carry-forward memo above already reuses a WHOLE unchanged page; this
+    // covers the case where the page's fingerprint changed (e.g. a sibling
+    // block on the same page was edited) but some of its blocks did not.
+    let prevLayoutCache = null;
+    if (prevInternal !== undefined && prevInternal.__peekMaterializedPage !== undefined) {
+      const prevPage = prevInternal.__peekMaterializedPage(pageIndex);
+      if (prevPage !== undefined) {
+        prevLayoutCache = buildLayoutBoxCacheFromTree(prevPage, cascadedRoot);
+      }
+    }
+    const pageCtx: LayoutContext =
+      prevLayoutCache !== null
+        ? { ...contentCtx, prevLayoutCache, prevFloatEnv: null }
+        : contentCtx;
+
     // The SAME per-page driver call paginateRoot runs (paginate.ts:213–220),
     // seeded from the PLAN's resumeInto — NOT a sequential previous-page break.
     _getPageDriverCount++;
@@ -246,7 +266,7 @@ export function makeVirtualLayoutTree(
       cascadedRoot,
       margins.inlineStart,
       margins.blockStart,
-      contentCtx,
+      pageCtx,
       shaper,
       {
         availableBlockSize: pageContentBlockSize,
