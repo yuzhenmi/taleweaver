@@ -4,11 +4,12 @@ import { createHistory } from "./history";
 import type { SelectionEntry } from "./history";
 import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
-import { getBlock } from "./state";
-import { getMetaMap } from "./yjs-doc";
+import { applyOperation, getBlock } from "./state";
+import { getMetaMap, getTemplateContentsMap, getYBlock } from "./yjs-doc";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
+import { buildState, buildBlock } from "../test-utils/state-builders";
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -344,6 +345,53 @@ describe("history (Y.UndoManager wrapper)", () => {
     if (undone === null) throw new Error("expected undo to succeed");
     expect(getBlock(undone.state, child.id)?.attrs.bold).toBeUndefined();
     expect(getMetaMap(state0[STATE_INTERNAL].doc).get("foo")).toBe("bar");
+  });
+
+  it("undo/redo reverts and re-applies an edit to a template-content body (C.2a-T2)", () => {
+    // C.2a-T2: template bodies (header/footer bodies) live in their own
+    // top-level templateContents Y.Map. Edits to them must be undoable, so
+    // the History UndoManager must track that map as a third scope alongside
+    // blocks + embedContents. Asserted at the raw Y.Doc level (the
+    // getTemplateContent accessor lands in T4) to keep this test
+    // self-contained.
+    const bodyId = "tmplBody";
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "doc", firstChildId: null, lastChildId: null }),
+      ],
+      templateContents: [
+        buildBlock({ id: bodyId, type: "paragraph", parentId: null }),
+      ],
+    });
+    const doc = state[STATE_INTERNAL].doc;
+
+    // Pre-edit value at the raw Y.Doc level.
+    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("paragraph");
+
+    const history = createHistory(state);
+    // Edit the template body's `type` field inside a tracked transaction.
+    const opResult = applyOperation(state, () => {
+      getYBlock(doc, bodyId as BlockId, "test", "templateContent").set("type", "heading");
+    });
+    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("heading");
+
+    const sel = createSpan(createPosition(bodyId as BlockId, 0), createPosition(bodyId as BlockId, 0));
+    history.commit(opResult, { before: sel, after: sel });
+    expect(history.canUndo()).toBe(true);
+
+    // Undo must revert the template-body field to its pre-edit value.
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    if (undone === null) throw new Error("expected undo to succeed");
+    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("paragraph");
+    expect(undone.dirtyIds.has(bodyId as BlockId)).toBe(true);
+
+    // Redo re-applies the edit.
+    const redone = history.redo();
+    expect(redone).not.toBeNull();
+    if (redone === null) throw new Error("expected redo to succeed");
+    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("heading");
   });
 
   it("a new commit after undo clears the redo stack", () => {

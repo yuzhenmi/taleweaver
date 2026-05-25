@@ -3,7 +3,12 @@ import type { Selection } from "./block-position";
 import type { BlockId } from "./block-id";
 import type { OperationResult, State } from "./state";
 import { freshState } from "./state";
-import { captureDirtyIds, getBlocksMap, getEmbedContentsMap } from "./yjs-doc";
+import {
+  captureDirtyIds,
+  getBlocksMap,
+  getEmbedContentsMap,
+  getTemplateContentsMap,
+} from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
 import { isDevMode } from "./dev-mode";
 
@@ -44,9 +49,9 @@ export interface UndoRedoResult {
  * in the per-entry pairs and returned on undo/redo for the caller to apply.
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
- * with ONLY the blocks map and the embedContents map as tracked scopes.
- * Writes to the doc's meta Y.Map (see `getMetaMap` in `yjs-doc.ts`) are
- * deliberately NOT undoable. Today the meta map holds only `rootId`,
+ * with the blocks map, the embedContents map, and the templateContents map
+ * as tracked scopes. Writes to the doc's meta Y.Map (see `getMetaMap` in
+ * `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
  * which is immutable for the lifetime of a session (created once in
  * `createYDoc`, never reassigned). Because that single field never
  * changes after document construction, there is nothing to undo and no
@@ -109,7 +114,11 @@ export class History {
   constructor(state: State) {
     this.currentState = state;
     this.undoManager = new Y.UndoManager(
-      [getBlocksMap(state[STATE_INTERNAL].doc), getEmbedContentsMap(state[STATE_INTERNAL].doc)],
+      [
+        getBlocksMap(state[STATE_INTERNAL].doc),
+        getEmbedContentsMap(state[STATE_INTERNAL].doc),
+        getTemplateContentsMap(state[STATE_INTERNAL].doc),
+      ],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close
         // groups based on wall-clock time"; we control grouping entirely

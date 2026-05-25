@@ -35,18 +35,19 @@ export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  * set once in `createYDoc` and never reassigned during a session.
  *
  * **Not tracked by the History UndoManager.** The `History` class
- * (`history.ts`) constructs its `Y.UndoManager` with only the blocks
- * map and the embedContents map as tracked scopes — writes to this
- * meta map are intentionally outside the undo/redo stack. The current
- * design relies on the meta map holding only immutable session-level
- * fields (rootId today; possibly format version, doc id, etc. in the
- * future).
+ * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
+ * the embedContents map, and the templateContents map as tracked scopes —
+ * writes to this meta map are intentionally outside the undo/redo stack.
+ * The current design relies on the meta map holding only immutable
+ * session-level fields (rootId today; possibly format version, doc id,
+ * etc. in the future).
  *
  * (Undo-TRACKING is distinct from dirty-CAPTURE: `captureDirtyIds` below
  * treats the blocks, embedContents, AND templateContents maps as dirty
  * roots for incremental render. The meta map is in neither set. The
- * templateContents map is dirty-captured but is added to the UndoManager's
- * tracked scopes separately — see the `History` constructor.)
+ * templateContents map is both dirty-captured (here) and undo-tracked (added
+ * to the UndoManager's tracked scopes in the `History` constructor) — the two
+ * are independent concerns wired in separate places.)
  *
  * If you are adding a NEW meta-map writer, you MUST decide explicitly
  * whether the field should be undoable:
