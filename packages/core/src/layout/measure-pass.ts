@@ -12,10 +12,12 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
 
 import type { RenderNode, ElementBox } from "../render/render-node";
+import type { BlockId } from "../state/block-id";
 import type { BreakToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { PageConfig } from "./page-config";
+import { sectionStateAt, type SectionPlan, type SectionStateAt } from "./section-plan";
 
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count `fitOnePage` invocations from `measurePass`.
@@ -28,6 +30,15 @@ import type { PageConfig } from "./page-config";
 // pure fit-core. Production pays one integer increment per page it actually
 // re-fits (negligible).
 // ---------------------------------------------------------------------------
+
+/**
+ * Sentinel for the section-tracking running var BEFORE the first page is seen.
+ * `null` is a VALID `activeSectionId` (the implicit leading section), so it
+ * cannot double as "uninitialized" — a distinct symbol lets the reset condition
+ * be a plain `activeSectionId !== currentActiveSectionId` with no special-case
+ * `pageIndex === 0` coupling (the first page always differs from the sentinel).
+ */
+const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
 
 let _fitOnePageCallCount = 0;
 
@@ -58,11 +69,37 @@ export interface PagePlanEntry {
   readonly resumeOut: BreakToken | null;
   /** Ordered-list counter value seeding this page's markers. */
   readonly listCounterAtStart: number;
+  /**
+   * The `section` block id that OWNS this page (the active section at the page's
+   * first flattened child, per the `SectionPlan`), or `null` when this page
+   * belongs to the implicit section-less leading run. Carried for C.2c
+   * (per-section headers/footers/geometry); the C.2b-1 measure pass only tags
+   * it — getPage / materialization does not consume it yet.
+   */
+  readonly activeSectionId: BlockId | null;
+  /**
+   * 0-based index of this page WITHIN its active section: the first page of each
+   * section is 0 and it increments per page until the section ends, then resets
+   * to 0 at the next section's first page. (Reset is keyed on the
+   * `activeSectionId` changing — NOT on `resumeInto === null`, since a section's
+   * first page resumes from the forced break and so has a non-null `resumeInto`.)
+   * Carried for C.2c (e.g. "first page of section" header variants).
+   */
+  readonly sectionPageIndex: number;
 }
 
 /** The document's full pagination plan. */
 export interface PagePlan {
   readonly entries: readonly PagePlanEntry[];
+  /**
+   * The `SectionPlan` this plan was fitted against — the section boundaries that
+   * forced this plan's page breaks. REQUIRED (every plan `measurePass` returns
+   * carries the input `sectionPlan`, `IMPLICIT_SECTION_PLAN` for section-less
+   * callers). The incremental carry-forward reuse gate reads `prevPlan.sectionPlan`
+   * to compare a page's section status across cycles, so a `SECTION_BREAK` (which
+   * leaves body refs unchanged) still invalidates the pages it reshaped.
+   */
+  readonly sectionPlan: SectionPlan;
   /** Total document height (page count × page block-size + gaps). */
   readonly totalBlockSize: number;
   readonly pageInlineSize: number;
@@ -132,12 +169,25 @@ export interface PagePlan {
  * arithmetic over metas). Without `prevPlan` the from-scratch path is unchanged
  * (the equivalence oracle never passes it).
  *
+ * SECTION PAGE BREAKS (C.2b-1): `sectionPlan` is consumed to force a page break
+ * before the flattened child that begins each new section. At the top of every
+ * page the active section's NEXT boundary (`sectionStateAt(sectionPlan,
+ * startIndex).nextBoundaryIndex`) is passed to `fitOnePage` as its
+ * `stopBeforeIndex` cap — so the page never places a block belonging to the next
+ * section; that block starts a fresh page instead. Section-less callers pass
+ * `IMPLICIT_SECTION_PLAN` (a single boundary at index 0 ⇒ `nextBoundaryIndex` is
+ * always null ⇒ NO cap ever ⇒ byte-identical to the pre-section behavior). Each
+ * entry is tagged with its `activeSectionId` + `sectionPageIndex` (for C.2c).
+ * The reuse gate additionally compares section status (`sectionStatesEqual`) so a
+ * `SECTION_BREAK` invalidates only the pages it reshaped.
+ *
  * @param prevPlan the prior cycle's `PagePlan` for the carry-forward reuse, or
  *   `undefined` for a fresh build / boundary-only caller.
  */
 export function measurePass(
   metas: readonly BlockFitMeta[],
   pageConfig: PageConfig,
+  sectionPlan: SectionPlan,
   rootChildren?: readonly RenderNode[],
   prevPlan?: PagePlan,
 ): PagePlan {
@@ -201,6 +251,22 @@ export function measurePass(
   let listCounterAtStart = 0;
   let pageIndex = 0;
 
+  // --- Running section state (C.2b-1). ---
+  // `currentActiveSectionId` is the section the PREVIOUS page belonged to;
+  // `currentSectionPageIndex` is that page's 0-based within-section index. At the
+  // top of each page we recompute the active section at `startIndex`: if it
+  // CHANGED (or this is the first page) the within-section index resets to 0,
+  // else it increments. Both are updated on EVERY page (re-fit AND reuse) and
+  // stamped onto the entry. The reset is keyed on the section CHANGING — NOT on
+  // `resumeInto === null` — because a new section's first page resumes from the
+  // forced break (so `resumeInto !== null` there), which a null-resume test would
+  // miss. Initialized to a distinct sentinel (not `null`, which is a valid
+  // `activeSectionId`) so the first page always counts as a section change ⇒
+  // resets to 0, with no `pageIndex === 0` special case.
+  let currentActiveSectionId: BlockId | null | typeof UNINITIALIZED_SECTION =
+    UNINITIALIZED_SECTION;
+  let currentSectionPageIndex = 0;
+
   // Hard page-count bound (defensive). A correct fit advances state every page
   // (consumes ≥1 whole child OR carries a resume token forward), so the page
   // count is at most one per child plus a fragment continuation each — well
@@ -214,6 +280,23 @@ export function measurePass(
       );
     }
     const blockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
+
+    // --- Section state for THIS page (C.2b-1). ---
+    // `st.activeSectionId` is the section owning the child at `startIndex`;
+    // `st.nextBoundaryIndex` is the next section boundary strictly after it — the
+    // forced-break cap (`stopBeforeIndex`) that ends this section. Compute it
+    // BEFORE the reuse/refit branches so BOTH stamp the same value. Update the
+    // running within-section index: reset to 0 when the section changed (or first
+    // page), else increment.
+    const st = sectionStateAt(sectionPlan, startIndex);
+    const activeSectionId = st.activeSectionId;
+    if (pageIndex === 0 || activeSectionId !== currentActiveSectionId) {
+      currentSectionPageIndex = 0;
+    } else {
+      currentSectionPageIndex += 1;
+    }
+    currentActiveSectionId = activeSectionId;
+    const sectionPageIndex = currentSectionPageIndex;
 
     // --- Incremental reuse (L-PERF-C semantics). ---
     // Reuse a prior page entry — skipping `fitOnePage` — when it is provably
@@ -246,6 +329,15 @@ export function measurePass(
         prevK !== undefined &&
         reusable !== undefined &&
         breakTokensEqual(reusable.resumeInto, resumeInto) &&
+        // Section status (C.2b-1): the prior page may be reused at `startIndex`
+        // ONLY when its section status is unchanged across cycles. `activeSectionId`
+        // unchanged ⇒ the page belongs to the same section; `nextBoundaryIndex`
+        // unchanged ⇒ the forced cap (`stopBeforeIndex`) that SHAPED the page is
+        // identical ⇒ the reused boundary is still valid. A `SECTION_BREAK` that
+        // inserts/moves a boundary changes one of these for the pages it reshaped
+        // (forcing a re-fit) while leaving earlier sections' pages' status
+        // untouched (reuse). `prevPlan.sectionPlan` is always present (required).
+        sectionStatesEqual(st, sectionStateAt(prevPlan.sectionPlan, startIndex)) &&
         canReusePage(rootChildren, startIndex, metas.length, reusable, prevNext)
       ) {
         const reusedSliceEnd =
@@ -261,6 +353,11 @@ export function measurePass(
           resumeInto,
           resumeOut: reusable.resumeOut,
           listCounterAtStart,
+          // Stamp from the RUNNING section vars (computed above), NOT the prior
+          // entry — `sectionPageIndex` is position-dependent and the running pair
+          // already accounts for any pages that shifted before this one.
+          activeSectionId,
+          sectionPageIndex,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -312,6 +409,13 @@ export function measurePass(
       resumeInto,
       pageContentBlockSize,
       listCounterAtStart,
+      // Section cap (C.2b-1): stop before the next section boundary so a block
+      // belonging to the NEXT section starts a fresh page. `null` (no next
+      // boundary — last/only section) ⇒ no cap. `fitOnePage` normalizes a cap
+      // `<= startIndex` to no-cap, but the SectionPlan's strictly-increasing
+      // boundaries (invariant I-2) guarantee `nextBoundaryIndex > startIndex`
+      // whenever it is non-null.
+      st.nextBoundaryIndex ?? undefined,
     );
 
     // The next page begins at the first child not fully consumed on this page.
@@ -345,6 +449,8 @@ export function measurePass(
       resumeInto,
       resumeOut: result.resumeOut,
       listCounterAtStart,
+      activeSectionId,
+      sectionPageIndex,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the
@@ -378,6 +484,7 @@ export function measurePass(
 
   return {
     entries,
+    sectionPlan,
     totalBlockSize,
     pageInlineSize: pageConfig.pageInlineSize,
     pageContentBlockSize,
@@ -411,6 +518,19 @@ function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
   if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
   if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
   return false;
+}
+
+/**
+ * Whether two `SectionStateAt`s are equal for the incremental reuse gate
+ * (C.2b-1): the page belongs to the SAME section AND was capped at the SAME next
+ * boundary. `activeSectionId` equality proves the section membership is unchanged;
+ * `nextBoundaryIndex` equality proves the forced `stopBeforeIndex` that shaped the
+ * page is identical. Both must hold for the prior fit to carry forward — a
+ * `SECTION_BREAK` that moves/inserts a boundary changes one of them for the pages
+ * it reshaped, forcing those (and only those) to re-fit.
+ */
+function sectionStatesEqual(a: SectionStateAt, b: SectionStateAt): boolean {
+  return a.activeSectionId === b.activeSectionId && a.nextBoundaryIndex === b.nextBoundaryIndex;
 }
 
 /**

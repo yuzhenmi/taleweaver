@@ -25,6 +25,7 @@ import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, measurePassUnsupported } from "../measure-pass";
 import type { PagePlanEntry } from "../measure-pass";
+import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 
 // ---------------------------------------------------------------------------
 // Oracle: drive the real layout page-by-page (mirror of paginateRoot's loop)
@@ -145,7 +146,7 @@ function assertEquivalent(root: ElementBox, pageConfig: PageConfig): void {
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, root.children);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
 
   // Page count.
   expect(plan.entries.length).toBe(oracle.pages.length);
@@ -299,7 +300,7 @@ describe("measure-pass equivalence — (a) leaf blocks", () => {
     // truncation explicit and guard against a regression that re-introduces a
     // 40px lead-in (which would shift the page-0 boundary).
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), 600);
-    const plan = measurePass(metas, noMarginPageConfig(300), root.children);
+    const plan = measurePass(metas, noMarginPageConfig(300), IMPLICIT_SECTION_PLAN, root.children);
     expect(plan.entries[0].blockOffset).toBe(0);
     expect(plan.entries[0].startIndex).toBe(0);
     expect(plan.entries[0].children.length).toBe(2);

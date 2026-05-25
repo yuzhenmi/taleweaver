@@ -28,6 +28,7 @@ import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
+import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import {
   makeVirtualLayoutTree,
   __getGetPageDriverCountForTest,
@@ -102,7 +103,7 @@ function buildPlanAndTree(root: ElementBox, pageConfig: PageConfig) {
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
   const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, root.children);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
   return { plan, tree };
@@ -288,7 +289,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
-    const planB = measurePass(metasB, pageConfig, rootBShared.children);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
 
@@ -319,7 +320,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = cfgB.pageInlineSize - cfgB.pageMargins.inlineStart - cfgB.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
-    const planB = measurePass(metasB, cfgB, rootBShared.children);
+    const planB = measurePass(metasB, cfgB, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfgB.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), cfgB, treeA);
 
@@ -357,6 +358,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     );
     const planB: PagePlan = {
       entries: entriesB,
+      sectionPlan: planA.sectionPlan,
       totalBlockSize: planA.totalBlockSize,
       pageInlineSize: planA.pageInlineSize,
       pageContentBlockSize: planA.pageContentBlockSize,
@@ -392,7 +394,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
-    const planB = measurePass(metasB, pageConfig, rootBShared.children);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
 

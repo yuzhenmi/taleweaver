@@ -24,6 +24,7 @@ import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import { measurePass } from "./measure-pass";
+import { buildSectionPlan } from "./section-plan";
 import { flattenContents } from "./group-children";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 
@@ -67,8 +68,15 @@ export function buildVirtualPaginatedTree(
   // indexed over the SAME flattened child list — not raw `cascadedRoot.children`
   // — or a `display: contents` element at the root level desyncs the slice
   // index from the meta index.
+  // Section page breaks (C.2b-1): build the SectionPlan from the UNFLATTENED
+  // cascaded root (sections self-identify via the `metadata.blockType ===
+  // "section"` marker; no extra params). The measure pass forces a page break
+  // before the flattened child that begins each new section. A section-less doc
+  // yields `[{0, null}]` ⇒ no breaks ⇒ unchanged pagination. `prevTree?.plan`
+  // carries the prior `sectionPlan` (now a required field) for the reuse gate.
+  const sectionPlan = buildSectionPlan(cascadedRoot);
   const plan = measurePass(
-    metas, pageConfig, flattenContents(cascadedRoot.children), prevTree?.plan,
+    metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan,
   );
   return makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, pageConfig, prevTree);
 }

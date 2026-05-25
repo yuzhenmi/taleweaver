@@ -28,6 +28,7 @@ import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import { createMockShaper } from "../mock-shaper";
+import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 
 // ---------------------------------------------------------------------------
 // Fixtures + helpers
@@ -93,7 +94,7 @@ function cascadeRoot(root: ElementBox): ElementBox {
 /** Build a `PagePlan` from a cascaded root (optionally with a prior plan). */
 function planFrom(cascaded: ElementBox, pageConfig: PageConfig, prevPlan?: PagePlan): PagePlan {
   const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
-  return measurePass(metas, pageConfig, cascaded.children, prevPlan);
+  return measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, cascaded.children, prevPlan);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +326,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
     const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
-    measurePass(metas1, PAGE, cascaded1.children, planA);
+    measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
     const fitCalls = __getFitOnePageCallCountForTest();
 
     // Only the trailing dirty page(s) re-fit — a small constant, NOT ~60.
@@ -338,7 +339,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
     const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
-    measurePass(metas, PAGE, cascaded.children);
+    measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
     expect(__getFitOnePageCallCountForTest()).toBe(60);
   });
 
@@ -355,7 +356,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
     const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
-    const planB = measurePass(metas1, PAGE, cascaded1.children, planA);
+    const planB = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
     const fitCalls = __getFitOnePageCallCountForTest();
 
     // 181 paragraphs ⇒ 61 pages; the top-insert shifts all of them ⇒ a full
@@ -379,7 +380,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
     const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
-    measurePass(metas1, PAGE, cascaded1.children, planA);
+    measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
     expect(__getFitOnePageCallCountForTest()).toBeLessThanOrEqual(2);
   });
 });
@@ -427,6 +428,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
     let plan = measurePass(
       buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE),
       PAGE,
+      IMPLICIT_SECTION_PLAN,
       cascaded.children,
     );
 
@@ -437,7 +439,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
       const cascaded1 = cascadePassIncremental(render1, render0, cascaded) as ElementBox;
       const start = performance.now();
       const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
-      plan = measurePass(metas1, PAGE, cascaded1.children, incremental ? plan : undefined);
+      plan = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, incremental ? plan : undefined);
       ms += performance.now() - start;
       render0 = render1;
       cascaded = cascaded1;
