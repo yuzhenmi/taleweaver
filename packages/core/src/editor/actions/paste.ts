@@ -8,8 +8,21 @@ import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { insertText } from "../../state/insert-text";
 import { splitBlockAtPosition } from "../../state/split-block";
+import { insertBlocksAfter, type SiblingBlockInit } from "../../state/insert-blocks-after";
+import type { InlineContent } from "../../state/inline-content";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+
+/**
+ * Build the inline content for one pasted line: a single empty-attrs text
+ * run, or an empty leaf when the line is empty. Pasted runs carry EMPTY
+ * attrs `{}` (matching the legacy per-line `insertText(..., {})` path).
+ */
+function lineToInlineContent(lineText: string): InlineContent {
+  return lineText.length > 0
+    ? { items: [{ kind: "text", text: lineText, attrs: {} }] }
+    : { items: [] };
+}
 
 export function handlePaste(
   editor: EditorState,
@@ -48,8 +61,10 @@ export function handlePaste(
   }
 
   const lines = text.split("\n");
+  const k = lines.length;
 
-  // Insert first line as text at the current position.
+  // Insert the first line as text at the current position. (If L0 is empty,
+  // skip; pos stays put — matching the legacy path.)
   if (lines[0].length > 0) {
     const r = insertText(state, pos, lines[0], {});
     state = r.state;
@@ -57,26 +72,80 @@ export function handlePaste(
     pos = createPosition(pos.blockId, pos.offset + lines[0].length);
   }
 
-  // Subsequent lines: split block, then insert text into the new block.
-  for (let i = 1; i < lines.length; i++) {
+  // Multi-line paste: split the boundary block ONCE, prepend the last line
+  // to the freshly created suffix block, and bulk-insert any MIDDLE lines as
+  // sibling blocks between the two — a CONSTANT number of `applyOperation`
+  // calls regardless of line count (replacing the legacy O(k) per-line
+  // split+insert chain — Smell B / #291).
+  if (k > 1) {
     const block = getBlock(state, pos.blockId);
-    if (block === null || block.inlineContent === null || block.parentId === null) {
-      break;
-    }
-    const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
-    state = splitResult.state;
-    for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
-    const updatedOriginal = getBlock(state, pos.blockId);
-    if (updatedOriginal === null) break;
-    const newBlockId = updatedOriginal.nextSiblingId;
-    if (newBlockId === null) break;
-    pos = createPosition(newBlockId, 0);
+    // Match the legacy guard: a null-parent / null-inlineContent / missing
+    // boundary block STOPS the multi-line path (cursor stays after L0).
+    if (block !== null && block.inlineContent !== null && block.parentId !== null) {
+      const sourceType = block.type;
+      const sourceAttrs = block.attrs;
+      const sourceId = block.id;
 
-    if (lines[i].length > 0) {
-      const r = insertText(state, pos, lines[i], {});
-      state = r.state;
-      for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
-      pos = createPosition(pos.blockId, pos.offset + lines[i].length);
+      // (a) Split B at pos: B keeps `prefix⊕L0`; a new next sibling N_last
+      //     holds `suffix`. New block inherits B's type/attrs (split clones).
+      const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
+      state = splitResult.state;
+      for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
+
+      // N_last is the suffix block split created. Both arms below are
+      // contractually IMPOSSIBLE — split never deletes the source block and
+      // always rewires its nextSiblingId to the new block — so we throw rather
+      // than silently dropping lines 1..k-1 (which would make a multi-line
+      // paste appear to succeed while losing content).
+      const afterSplit = getBlock(state, sourceId);
+      if (afterSplit === null) {
+        throw new Error(
+          `handlePaste: source block "${sourceId}" disappeared after split (invariant violation)`,
+        );
+      }
+      const lastNewBlockId = afterSplit.nextSiblingId;
+      if (lastNewBlockId === null) {
+        throw new Error(
+          `handlePaste: split of "${sourceId}" produced no next sibling (invariant violation)`,
+        );
+      }
+      const lastLine = lines[k - 1];
+
+      // (b) Prepend the last line to N_last (offset 0).
+      if (lastLine.length > 0) {
+        const r = insertText(
+          state,
+          createPosition(lastNewBlockId, 0),
+          lastLine,
+          {},
+        );
+        state = r.state;
+        for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
+      }
+
+      // (c) Bulk-insert the MIDDLE lines L1…L_{k-2} between B and N_last in
+      //     ONE transaction.
+      if (k > 2) {
+        const middleInits: SiblingBlockInit[] = [];
+        for (let i = 1; i < k - 1; i++) {
+          middleInits.push({
+            type: sourceType,
+            attrs: sourceAttrs,
+            inlineContent: lineToInlineContent(lines[i]),
+          });
+        }
+        const bulkResult = insertBlocksAfter(
+          state,
+          sourceId,
+          middleInits,
+          productionAllocator,
+        );
+        state = bulkResult.state;
+        for (const id of bulkResult.dirtyIds) accumulatedDirtyIds.add(id);
+      }
+
+      // (d) Cursor: end of the last pasted line in N_last.
+      pos = createPosition(lastNewBlockId, lastLine.length);
     }
   }
 
