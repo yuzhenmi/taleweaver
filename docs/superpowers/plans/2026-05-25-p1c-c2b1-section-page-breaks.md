@@ -285,6 +285,28 @@ Changes:
 - getPage/materialization changes → none needed (the break is encoded in the plan entries).
 - Section-attrs interpreter → C.2b-2 (no section attrs are read here).
 
+## Status — COMPLETE (2026-05-25)
+
+- [x] **T1** — `section-plan.ts` (`SectionPlan`/`buildSectionPlan`/`sectionStateAt`/
+  `IMPLICIT_SECTION_PLAN`/`isSectionBox`) + `section.ts` `metadata.blockType="section"`
+  marker. Commit `b9b587b`.
+- [x] **T2** — `fitOnePage` `stopBeforeIndex` (forced break before a top-level child
+  index, gated on `fragmentHasContent` like break-before:page; top-level only).
+  Commit `e790e74`.
+- [x] **T3** — `measurePass` section-awareness: `SectionPlan` input, forced break via
+  `stopBeforeIndex`, `PagePlanEntry.activeSectionId`/`sectionPageIndex`, required
+  `PagePlan.sectionPlan`, section-status reuse gate (`sectionStatesEqual`),
+  `virtual-producer` wiring (`buildSectionPlan(cascadedRoot)`). Commit `0c1996d`.
+
+Each task gated on an independent code-reviewer (review-until-clean) before commit;
+all findings applied. Section-less docs paginate byte-identically (equivalence harness +
+`IMPLICIT_SECTION_PLAN` callers). Full core suite 1559 pass / 4 skip; dom 145 pass.
+
+**Carried for C.2c (not consumed yet):** `activeSectionId` / `sectionPageIndex` per page.
+**Not browser-verified yet** (the user browser-verifies): an explicit-section doc should
+show each section starting on a fresh page; a section-less doc should paginate exactly as
+before.
+
 ## Self-review (writing-plans checklist)
 - **Spec coverage:** pre-pass + SectionPlan (T1), the forced-break mechanism as a fit input not a
   meta flag (T2 stopBeforeIndex + T3 wiring), SectionPlan-as-explicit-reuse-input carry-forward
