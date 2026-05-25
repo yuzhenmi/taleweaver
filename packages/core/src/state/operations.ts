@@ -37,3 +37,4 @@ export {
   applySectionBreak,
   type SectionBreakResult,
 } from "./section-break";
+export { mergeSectionWithPrevious } from "./merge-section";
