@@ -192,6 +192,49 @@ describe("deleteRange — cross-block (same-parent)", () => {
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
   });
 
+  it("refuses a cross-block span whose intervening sibling is a CONTAINER (S-E6)", () => {
+    // doc > [p1, list(container with a child), p2]. A span p1→p2 crosses
+    // `list`; flat-deleting it would orphan `li`. deleteRange must refuse.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "list", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "list", type: "list", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({ id: "li", type: "list-item", parentId: "list", inlineContent: inlineContent([text("item")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "list", inlineContent: inlineContent([text("world")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
+    expect(() => deleteRange(state, span)).toThrow(
+      /intervening sibling "list" is a container/,
+    );
+    // The doc is untouched (the throw happens during planning, pre-mutation).
+    expect(getBlock(state, "li" as BlockId)?.type).toBe("list-item");
+  });
+
+  it("normalizes a reverse-order cross-block span before deleting (S-E6 cross-path)", () => {
+    // doc > [p1("hello"), p2(" world")]. Span given REVERSED (anchor after
+    // focus in doc order). normalizeSpan must reorder it to p1@2..p2@3, so the
+    // result matches the forward span: p1 = "herld", p2 deleted.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(" world")]) }),
+      ],
+    });
+    const reversed = createSpan(
+      createPosition("p2" as BlockId, 3),
+      createPosition("p1" as BlockId, 2),
+    );
+    const result = deleteRange(state, reversed);
+    const p1 = getBlock(result.state, "p1" as BlockId);
+    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "herld" });
+    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+  });
+
   it("middle pair (anchor not first, focus not last): parent unchanged", () => {
     // doc > [p0, p1, p2, p3] — delete from p1@2 to p2@2.
     // Expected: p0 unchanged, p1 absorbs p2 tail, p2 deleted, p3.prevSibling rewires.

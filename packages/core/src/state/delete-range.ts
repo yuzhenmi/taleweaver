@@ -401,11 +401,25 @@ export function planDeleteRange(
   const interveningIds: BlockId[] = [];
   let cur: BlockId | null = anchorBlock.nextSiblingId;
   while (cur !== null && cur !== focusBlock.id) {
-    interveningIds.push(cur);
     const node = getBlock(state, cur);
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
     }
+    // Defensive (S-E6): the cross-block delete removes each intervening
+    // sibling via a flat `yBlocks.delete` — which would ORPHAN a container's
+    // subtree (its descendants are never visited or cascade-deleted). Refuse
+    // a container in the intervening run rather than silently corrupt state;
+    // action handlers must decompose such a span (the same stance as the
+    // cross-parent refusal above). Leaves are `inlineContent !== null` and
+    // `firstChildId === null`.
+    if (node.firstChildId !== null || node.inlineContent === null) {
+      throw new Error(
+        `deleteRange: intervening sibling "${cur}" is a container, not a leaf; ` +
+          `cross-block delete spanning a container is not supported ` +
+          `(action handlers should decompose into per-block operations).`,
+      );
+    }
+    interveningIds.push(cur);
     cur = node.nextSiblingId;
   }
   if (cur !== focusBlock.id) {
