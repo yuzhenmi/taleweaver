@@ -17,7 +17,12 @@ import type { BreakToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { PageConfig } from "./page-config";
-import { sectionStateAt, type SectionPlan, type SectionStateAt } from "./section-plan";
+import {
+  pageConfigsEqual,
+  sectionStateAt,
+  type SectionPlan,
+  type SectionStateAt,
+} from "./section-plan";
 
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count `fitOnePage` invocations from `measurePass`.
@@ -55,10 +60,24 @@ export function __resetFitOnePageCallCountForTest(): void {
 /** One page's boundary decision (plain data; no positioned boxes). */
 export interface PagePlanEntry {
   readonly pageIndex: number;
-  /** Document-y of this page's top edge. */
+  /**
+   * Document-y of this page's top edge. A RUNNING SUM over the per-page heights
+   * before it (C.2b-2) — pages are no longer uniform-height once a section
+   * carries a geometry override. For a doc whose every page resolves to the
+   * doc-wide config this reduces to `pageIndex * (pageBlockSize + pageGap)`.
+   */
   readonly blockOffset: number;
-  /** Page block-size (constant per config). */
+  /** This page's block-size — its EFFECTIVE config's `pageBlockSize` (C.2b-2). */
   readonly blockSize: number;
+  /**
+   * The EFFECTIVE page geometry for THIS page (C.2b-2): the active section's
+   * boundary `pageConfig` if it overrides the doc-wide config, else the doc-wide
+   * `pageConfig` measurePass was called with. Drives `blockSize`, this page's
+   * content block-size (the value passed to `fitOnePage`), the running-sum gap,
+   * and the per-entry reuse gate. Consumers (T3 materialization) read the page's
+   * inline-size / margins off it.
+   */
+  readonly pageConfig: PageConfig;
   /** Cascaded top-level child references that begin/continue on this page. */
   readonly children: readonly RenderNode[];
   /** Index of the first top-level child on this page (into the doc's children). */
@@ -111,17 +130,30 @@ export interface PagePlan {
    * leaves body refs unchanged) still invalidates the pages it reshaped.
    */
   readonly sectionPlan: SectionPlan;
-  /** Total document height (page count × page block-size + gaps). */
+  /**
+   * Total document height: the running sum over the per-page block-sizes +
+   * inter-page gaps (the last page's `blockOffset + pageBlockSize`, no trailing
+   * gap). Per-page heights need not be uniform once a section overrides its
+   * geometry (C.2b-2); for a no-override doc this equals `pageCount × pageBlockSize
+   * + (pageCount-1) × pageGap`.
+   */
   readonly totalBlockSize: number;
   readonly pageInlineSize: number;
   /**
-   * The page CONTENT block-size this plan was fitted at
-   * (`pageBlockSize − margins.blockStart − margins.blockEnd`). Every entry's
-   * boundary was computed against this value, so a `prevPlan` carry-forward is
-   * only sound when the new cycle's `pageContentBlockSize` matches. The reuse
-   * setup in `measurePass` refuses the entire prior plan on a mismatch (forcing
-   * a full re-fit), guarding against stale boundaries if the page geometry
-   * (block-size / margins) ever changes between cycles.
+   * The DOC-WIDE page CONTENT block-size this plan was fitted at
+   * (`pageBlockSize − margins.blockStart − margins.blockEnd`, from the doc-wide
+   * `pageConfig` param — NOT any section override). This is used ONLY as the
+   * COARSE whole-plan carry-forward reuse guard: if it changes between cycles,
+   * the ENTIRE prior plan is discarded and every page refits from scratch.
+   *
+   * It does NOT describe the size every boundary was fitted against — that was
+   * only true before per-section geometry. A section-overriding page fits at its
+   * OWN effective content block-size (derived from `PagePlanEntry.pageConfig`,
+   * the boundary's override), so its boundary was NOT computed against this
+   * value. The per-entry reuse gate (`canReusePage`) compares each page's
+   * effective `pageConfig` independently; this field is solely the doc-wide
+   * mismatch tripwire that invalidates the whole plan when the base geometry
+   * (doc-wide block-size / margins) changes.
    */
   readonly pageContentBlockSize: number;
   /**
@@ -261,6 +293,15 @@ export function measurePass(
   let startIndex = 0;
   let listCounterAtStart = 0;
   let pageIndex = 0;
+  // Running-sum document-y for the current page's top edge (C.2b-2). Pages are
+  // no longer uniform-height (a section may override its geometry), so each
+  // page's `blockOffset` is the accumulated heights+gaps of every page before
+  // it. After pushing a page we advance by THAT page's effective
+  // `pageBlockSize + pageGap`; the trailing gap on the last page is excluded
+  // from `totalBlockSize` (see below). For a doc with no override this reduces
+  // to `pageIndex * (pageBlockSize + pageGap)`, keeping the no-regression path
+  // byte-identical.
+  let runningBlockOffset = 0;
 
   // --- Running section state (C.2b-1). ---
   // `currentActiveSectionId` is the section the PREVIOUS page belonged to;
@@ -290,7 +331,11 @@ export function measurePass(
         `measurePass: page count exceeded safe bound (${maxPages}); fitOnePage failed to advance state — likely an unsupported document (see measurePassUnsupported).`,
       );
     }
-    const blockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
+    // Running-sum document-y of THIS page's top edge (C.2b-2). The accumulator
+    // is advanced by each page's OWN effective height + gap after the entry is
+    // pushed, so it is correct here even when earlier pages used a different
+    // geometry.
+    const blockOffset = runningBlockOffset;
 
     // --- Section state for THIS page (C.2b-1). ---
     // `st.activeSectionId` is the section owning the child at `startIndex`;
@@ -301,6 +346,17 @@ export function measurePass(
     // page), else increment.
     const st = sectionStateAt(sectionPlan, startIndex);
     const activeSectionId = st.activeSectionId;
+
+    // --- Effective per-page geometry (C.2b-2). ---
+    // The active section's boundary `pageConfig` if it overrides the doc-wide
+    // config, else the doc-wide `pageConfig` param. Drives this page's
+    // content block-size (passed to `fitOnePage`), its `blockSize`, the
+    // running-sum advance, and the per-entry reuse-gate geometry check. For a
+    // doc with no override every page resolves to `pageConfig`, so the content
+    // size equals the doc-wide `pageContentBlockSize` and the path is inert.
+    const effCfg = st.pageConfig ?? pageConfig;
+    const effContentBlockSize =
+      effCfg.pageBlockSize - effCfg.pageMargins.blockStart - effCfg.pageMargins.blockEnd;
     if (pageIndex === 0 || activeSectionId !== currentActiveSectionId) {
       currentSectionPageIndex = 0;
     } else {
@@ -349,6 +405,19 @@ export function measurePass(
         // (forcing a re-fit) while leaving earlier sections' pages' status
         // untouched (reuse). `prevPlan.sectionPlan` is always present (required).
         sectionStatesEqual(st, sectionStateAt(prevPlan.sectionPlan, startIndex)) &&
+        // Per-page geometry (C.2b-2): the prior page's fit depends on its
+        // effective content block-size, which comes from its geometry. Reuse is
+        // sound ONLY when THIS page's effective config field-equals the prior
+        // entry's `pageConfig`. The coarse whole-plan `pageContentBlockSize`
+        // guard above already refuses reuse on a DOC-WIDE change; this per-entry
+        // check is what lets a single section's geometry change refit only that
+        // section's pages while earlier sections — whose effective config is
+        // unchanged — still reuse their SHAPE. (References differ across cycles,
+        // so a field deep-equal, not `===`.) The running-sum `blockOffset` is
+        // rebuilt below from `runningBlockOffset`, so a geometry change upstream
+        // correctly shifts every later page's offset while unchanged-fit pages
+        // keep their children/resumeOut.
+        pageConfigsEqual(effCfg, reusable.pageConfig) &&
         canReusePage(rootChildren, startIndex, metas.length, reusable, prevNext)
       ) {
         const reusedSliceEnd =
@@ -358,7 +427,10 @@ export function measurePass(
         entries.push({
           pageIndex,
           blockOffset,
-          blockSize: pageConfig.pageBlockSize,
+          // This page's effective geometry (C.2b-2): the CURRENT `effCfg`, which
+          // the reuse gate proved field-equal to `reusable.pageConfig`.
+          blockSize: effCfg.pageBlockSize,
+          pageConfig: effCfg,
           children: reusedChildren,
           startIndex,
           resumeInto,
@@ -389,6 +461,11 @@ export function measurePass(
           blockToPage,
           blockToSpan,
         );
+
+        // Advance the running-sum document-y by THIS page's effective height +
+        // gap (C.2b-2). Done before BOTH exits so the next page (or the
+        // totalBlockSize computation) sees the correct accumulator.
+        runningBlockOffset += effCfg.pageBlockSize + effCfg.pageGap;
 
         if (reusable.resumeOut === null) {
           pageIndex++;
@@ -424,7 +501,10 @@ export function measurePass(
       metas,
       startIndex,
       resumeInto,
-      pageContentBlockSize,
+      // This page's EFFECTIVE content block-size (C.2b-2): the doc-wide
+      // `pageContentBlockSize` for a non-overriding page, else the active
+      // section's geometry. The fit honors the page's OWN height.
+      effContentBlockSize,
       listCounterAtStart,
       // Section cap (C.2b-1): stop before the next section boundary so a block
       // belonging to the NEXT section starts a fresh page. `null` (no next
@@ -460,7 +540,10 @@ export function measurePass(
     entries.push({
       pageIndex,
       blockOffset,
-      blockSize: pageConfig.pageBlockSize,
+      // This page's effective geometry (C.2b-2): the same `effCfg` whose content
+      // block-size shaped the fit above.
+      blockSize: effCfg.pageBlockSize,
+      pageConfig: effCfg,
       children,
       startIndex,
       resumeInto,
@@ -487,6 +570,10 @@ export function measurePass(
       blockToSpan,
     );
 
+    // Advance the running-sum document-y by THIS page's effective height + gap
+    // (C.2b-2), mirroring the reuse path. Done before BOTH exits.
+    runningBlockOffset += effCfg.pageBlockSize + effCfg.pageGap;
+
     if (result.resumeOut === null) {
       pageIndex++;
       break;
@@ -498,9 +585,14 @@ export function measurePass(
     pageIndex++;
   }
 
-  const pageCount = pageIndex;
+  // Running-sum-correct total document height (C.2b-2): the last page's top
+  // edge plus its OWN block-size, with NO trailing gap. Pages are no longer
+  // uniform-height, so a `pageCount × pageBlockSize + gaps` formula would be
+  // wrong once any section overrides its geometry. For a no-override doc the
+  // running sum reduces exactly to that formula. 0 pages ⇒ 0.
+  const lastEntry = entries[entries.length - 1];
   const totalBlockSize =
-    pageCount * pageConfig.pageBlockSize + Math.max(0, pageCount - 1) * pageConfig.pageGap;
+    lastEntry === undefined ? 0 : lastEntry.blockOffset + lastEntry.pageConfig.pageBlockSize;
 
   return {
     entries,
@@ -712,15 +804,17 @@ function deepestLeafProgress(token: BreakToken | null): number {
 /**
  * Binary search the entries' half-open intervals
  * `[entry.blockOffset, nextEntry.blockOffset)` for the page containing `y`. The
- * LAST page's interval extends through `totalBlockSize` (the document bottom,
- * which has NO trailing pageGap — `totalBlockSize` uses `pageCount - 1` gaps).
+ * LAST page's interval extends through `totalBlockSize` (the document bottom =
+ * the last page's `blockOffset + pageBlockSize`, with NO trailing pageGap).
  * `y` is clamped to `[0, totalBlockSize]`, so out-of-range values resolve to
  * the first or last page rather than producing -1.
  *
- * Reconstructing each page's bottom as `blockOffset + blockSize + pageGap`
- * would over-add a gap on the last page; instead we use the NEXT entry's
- * `blockOffset` as the half-open upper bound (and `totalBlockSize` for the
- * last), which is gap-correct by construction.
+ * The blockOffsets are a RUNNING SUM (per-page heights need not be uniform —
+ * C.2b-2), so using the NEXT entry's `blockOffset` as each page's half-open
+ * upper bound (and `totalBlockSize` for the last) stays gap- and
+ * geometry-correct by construction — no per-page `blockOffset + blockSize +
+ * pageGap` reconstruction (which would over-add a trailing gap on the last
+ * page) is needed.
  */
 function pageIndexAtBlockOffset(
   entries: readonly PagePlanEntry[],

@@ -813,3 +813,337 @@ describe("measurePass — section incremental reuse gate", () => {
     expect(plan2.entries[0].startIndex).toBe(0);
   });
 });
+
+// ===========================================================================
+// Per-section page geometry (C.2b-2 Task 2). A `SectionBoundary` may carry a
+// `pageConfig` override; the measure pass adopts that geometry PER PAGE. Pages
+// are no longer uniform-height ⇒ blockOffsets become a RUNNING SUM. Each entry
+// records its EFFECTIVE `pageConfig`. A geometry change on one section refits
+// only that section's pages onward (per-entry reuse gate). No-override docs
+// stay BYTE-IDENTICAL to C.2b-1 (the running sum reduces to pageIndex*(H+gap)).
+//
+// These tests hand-build metas + SectionPlans (boundaries carry the override)
+// so the geometry is exercised directly, independent of the cascade harness.
+// ===========================================================================
+
+// Doc-wide geometry: pageBlockSize 300, content 300 (no margins), gap 20.
+// (Same as PAGE; aliased for readability in the geometry tests.)
+const DOC_WIDE_PAGE: PageConfig = PAGE;
+
+// A TALLER section geometry: pageBlockSize 500, content 500, gap 20.
+const TALL_PAGE: PageConfig = {
+  pageInlineSize: 600,
+  pageBlockSize: 500,
+  pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+  pageGap: 20,
+};
+
+describe("measurePass — per-section page geometry", () => {
+  it("NO-REGRESSION: a uniform SectionPlan (no boundary pageConfig) paginates byte-identically", () => {
+    // 10 × 100; doc-wide content 300 ⇒ 3 per page ⇒ 4 pages. A SectionPlan
+    // whose single boundary carries NO pageConfig must reduce the running sum
+    // back to pageIndex*(H+gap) — identical to the IMPLICIT_SECTION_PLAN run.
+    const metas = Array.from({ length: 10 }, () => blockMeta(100));
+    const uniformPlan: SectionPlan = {
+      boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    };
+    const plan = measurePass(metas, DOC_WIDE_PAGE, uniformPlan);
+
+    expect(plan.entries.map((e) => e.blockOffset)).toEqual([0, 320, 640, 960]);
+    expect(plan.entries.map((e) => e.blockSize)).toEqual([300, 300, 300, 300]);
+    expect(plan.totalBlockSize).toBe(1260);
+    // Every entry's effective pageConfig is the doc-wide config (no override).
+    for (const e of plan.entries) {
+      expect(e.pageConfig).toBe(DOC_WIDE_PAGE);
+    }
+
+    // Byte-identical to the IMPLICIT_SECTION_PLAN run for the shared fields.
+    const implicit = measurePass(metas, DOC_WIDE_PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBe(implicit.entries.length);
+    expect(plan.totalBlockSize).toBe(implicit.totalBlockSize);
+    for (let i = 0; i < plan.entries.length; i++) {
+      expect(plan.entries[i].blockOffset).toBe(implicit.entries[i].blockOffset);
+      expect(plan.entries[i].blockSize).toBe(implicit.entries[i].blockSize);
+      expect(plan.entries[i].startIndex).toBe(implicit.entries[i].startIndex);
+    }
+  });
+
+  it("section 2 with a TALLER pageBlockSize ⇒ taller section-2 pages + running-sum offsets", () => {
+    // 6 × 100 blocks. Section 1 (boundary 0, doc-wide) caps at index 3 (section
+    // 2's start). Section 1 content 300 ⇒ blocks 0,1,2 on its single page.
+    // Section 2 (boundary 3, TALL_PAGE) content 500 ⇒ blocks 3,4,5 on its single
+    // page. Two pages total; the second is taller.
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const plan2 = measurePass(
+      metas,
+      DOC_WIDE_PAGE,
+      {
+        boundaries: [
+          { startFlattenedIndex: 0, sectionId: null },
+          { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
+        ],
+      },
+    );
+
+    expect(plan2.entries.length).toBe(2);
+    expect(plan2.entries.map((e) => e.startIndex)).toEqual([0, 3]);
+    // blockSize is the effective config's pageBlockSize per page.
+    expect(plan2.entries.map((e) => e.blockSize)).toEqual([300, 500]);
+    // Page 0 (section 1) keeps offset 0. Page 1 (section 2) starts at the
+    // running sum: page-0 height 300 + page-0 gap 20 = 320.
+    expect(plan2.entries.map((e) => e.blockOffset)).toEqual([0, 320]);
+    // Effective pageConfig per page.
+    expect(plan2.entries[0].pageConfig).toBe(DOC_WIDE_PAGE);
+    expect(plan2.entries[1].pageConfig).toBe(TALL_PAGE);
+    // totalBlockSize = last.blockOffset + last.pageConfig.pageBlockSize
+    //   = 320 + 500 = 820 (no trailing gap).
+    expect(plan2.totalBlockSize).toBe(820);
+  });
+
+  it("section 2's taller geometry shifts later offsets while earlier section keeps its offset", () => {
+    // 9 × 100 blocks. Section 1 (doc-wide, content 300) caps at index 3 ⇒ pages
+    // 0,1: blocks {0,1,2} then {empty? no} — actually section 1 has only blocks
+    // 0,1,2 (cap at 3) on ONE page. Section 2 (TALL, content 500, cap none) holds
+    // blocks 3..8 (6 × 100 = 600 > 500) ⇒ pages: {3,4,5,6,7} (500) then {8}.
+    const metas = Array.from({ length: 9 }, () => blockMeta(100));
+    const plan = measurePass(
+      metas,
+      DOC_WIDE_PAGE,
+      {
+        boundaries: [
+          { startFlattenedIndex: 0, sectionId: null },
+          { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
+        ],
+      },
+    );
+
+    expect(plan.entries.map((e) => e.startIndex)).toEqual([0, 3, 8]);
+    expect(plan.entries.map((e) => e.blockSize)).toEqual([300, 500, 500]);
+    // Running sum: 0; 0+300+20=320; 320+500+20=840.
+    expect(plan.entries.map((e) => e.blockOffset)).toEqual([0, 320, 840]);
+    // Section-1 page's offset (0) and config are unchanged from a doc-wide-only run.
+    expect(plan.entries[0].blockOffset).toBe(0);
+    expect(plan.entries[0].pageConfig).toBe(DOC_WIDE_PAGE);
+    // totalBlockSize = 840 + 500 = 1340.
+    expect(plan.totalBlockSize).toBe(1340);
+  });
+
+  it("section 2 with a SHORTER pageBlockSize spans MORE pages (from scratch)", () => {
+    // A SHORTER section geometry: pageBlockSize 150, content 150 (no margins).
+    // content 150 − margins 0 = 150 > 0, so it would pass resolveSectionPageConfig
+    // (we build the boundary directly here, so only the positive-content
+    // invariant matters). 6 × 100 blocks. Section 1 (boundary 0, doc-wide
+    // content 300) caps at index 3 ⇒ blocks 0,1,2 on ONE page. Section 2
+    // (boundary 3, SHORT content 150) holds blocks 3,4,5: only ONE 100-block
+    // fits per 150-tall page ⇒ THREE pages (one per block), vs the single page
+    // section 2 would occupy at doc-wide height.
+    const SHORT_PAGE: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 150,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 20,
+    };
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const shortSectionPlan: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: SHORT_PAGE },
+      ],
+    };
+    const plan = measurePass(metas, DOC_WIDE_PAGE, shortSectionPlan);
+
+    // Section 1: 1 page (blocks 0,1,2). Section 2: 3 pages (blocks 3 / 4 / 5).
+    expect(plan.entries.map((e) => e.startIndex)).toEqual([0, 3, 4, 5]);
+    expect(plan.entries.map((e) => e.activeSectionId)).toEqual([null, "s2", "s2", "s2"]);
+    // Section 2 spans MORE pages than the single page it'd occupy at doc-wide
+    // height (3 > 1).
+    const section2Pages = plan.entries.filter((e) => e.activeSectionId === "s2");
+    expect(section2Pages.length).toBe(3);
+    // Each section-2 entry carries the SHORT override + the smaller blockSize.
+    for (const e of section2Pages) {
+      expect(e.pageConfig).toBe(SHORT_PAGE);
+      expect(e.blockSize).toBe(150);
+    }
+    // Section 1 unaffected: doc-wide config + height.
+    expect(plan.entries[0].pageConfig).toBe(DOC_WIDE_PAGE);
+    expect(plan.entries[0].blockSize).toBe(300);
+    // Running-sum offsets monotonic; within section 2 the increment is the
+    // SMALLER 150 + 20 = 170 per page. Page 0 (s1, 300): 0. Page 1 (s2): 0 +
+    // 300 + 20 = 320. Page 2 (s2): 320 + 150 + 20 = 490. Page 3 (s2): 490 + 170
+    // = 660.
+    expect(plan.entries.map((e) => e.blockOffset)).toEqual([0, 320, 490, 660]);
+    // Strictly increasing.
+    for (let i = 1; i < plan.entries.length; i++) {
+      expect(plan.entries[i].blockOffset).toBeGreaterThan(plan.entries[i - 1].blockOffset);
+    }
+    // totalBlockSize = last offset + last blockSize = 660 + 150 = 810.
+    expect(plan.totalBlockSize).toBe(810);
+  });
+
+  it("empty metas doc ⇒ 1 page of doc-wide height; running-sum total = pageBlockSize", () => {
+    // No metas ⇒ fitOnePage produces a single empty page (resumeOut null), so
+    // this is really a 1-page doc of height = doc-wide pageBlockSize. Asserting
+    // the running-sum total stays correct for the minimal case.
+    const plan = measurePass([], DOC_WIDE_PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBe(1);
+    expect(plan.totalBlockSize).toBe(300);
+  });
+});
+
+describe("measurePass — per-section geometry incremental reuse gate", () => {
+  // Hand-built metas + rootChildren (ref-stable across cycles) drive the
+  // carry-forward. Sections are expressed via hand-built SectionPlans whose
+  // boundaries carry (or gain) a pageConfig.
+  function fakeChildren(n: number): readonly RenderNode[] {
+    // Distinct frozen objects; ref-stability across cycles is what reuse needs.
+    return Object.freeze(Array.from({ length: n }, (_, i) => ({ key: `b${i}` }))) as never;
+  }
+
+  it("rebuild with identical metas/sectionPlan (section 2 overridden) ⇒ all pages reuse", () => {
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const children = fakeChildren(6);
+    const sectionPlan: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
+      ],
+    };
+    const plan1 = measurePass(metas, DOC_WIDE_PAGE, sectionPlan, children);
+    expect(plan1.entries.length).toBe(2);
+
+    __resetFitOnePageCallCountForTest();
+    const plan2 = measurePass(metas, DOC_WIDE_PAGE, sectionPlan, children, plan1);
+    const fitCalls = __getFitOnePageCallCountForTest();
+
+    // Nothing changed ⇒ every page reuses ⇒ no fitOnePage calls.
+    expect(fitCalls).toBe(0);
+    expect(plan2.entries.map((e) => e.blockOffset)).toEqual(
+      plan1.entries.map((e) => e.blockOffset),
+    );
+    expect(plan2.entries.map((e) => e.blockSize)).toEqual([300, 500]);
+    expect(plan2.entries[1].pageConfig).toBe(TALL_PAGE);
+  });
+
+  it("ADDING a geometry override to section 2 ⇒ section-1 pages reuse, section-2 pages refit", () => {
+    // plan1: uniform (no override). 6 × 100; section 1 caps at index 3 (content
+    // 300 ⇒ blocks 0,1,2 on page 0). Section 2 (doc-wide too) holds blocks 3,4,5
+    // on page 1. Two pages, both doc-wide.
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const children = fakeChildren(6);
+    const planUniform: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
+      ],
+    };
+    const plan1 = measurePass(metas, DOC_WIDE_PAGE, planUniform, children);
+    expect(plan1.entries.length).toBe(2);
+    expect(plan1.entries.map((e) => e.blockSize)).toEqual([300, 300]);
+
+    // New plan: section 2 GAINS a taller geometry. Section 1's page (0) effCfg
+    // is unchanged (doc-wide) ⇒ reuses; section 2's page effCfg changed ⇒ refits.
+    const planOverridden: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
+      ],
+    };
+
+    __resetFitOnePageCallCountForTest();
+    const plan2 = measurePass(metas, DOC_WIDE_PAGE, planOverridden, children, plan1);
+    const fitCalls = __getFitOnePageCallCountForTest();
+
+    // Section 1's page reuses (effCfg unchanged); section 2's page refits
+    // (effCfg changed doc-wide → TALL). Exactly 1 fitOnePage call (the s2 page).
+    expect(fitCalls).toBe(1);
+    expect(plan2.entries.length).toBe(2);
+    expect(plan2.entries.map((e) => e.blockSize)).toEqual([300, 500]);
+    expect(plan2.entries[1].pageConfig).toBe(TALL_PAGE);
+    // Section-1 page's offset unchanged; section-2 page still at the running sum.
+    expect(plan2.entries.map((e) => e.blockOffset)).toEqual([0, 320]);
+  });
+
+  it("an EARLIER section's taller geometry SHIFTS later sections' offsets down (reuse keeps shape, gets fresh offset)", () => {
+    // plan1: TWO sections, NEITHER overridden (uniform doc-wide). 6 × 100 blocks.
+    // Section 1 (boundary 0) caps at index 3 ⇒ blocks 0,1,2 on page 0 (content
+    // 300). Section 2 (boundary 3, doc-wide) holds blocks 3,4,5 on page 1.
+    // Uniform: offsets [0, 320], blockSizes [300, 300].
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const children = fakeChildren(6);
+    const planUniform: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
+      ],
+    };
+    const plan1 = measurePass(metas, DOC_WIDE_PAGE, planUniform, children);
+    expect(plan1.entries.map((e) => e.blockOffset)).toEqual([0, 320]);
+    expect(plan1.entries.map((e) => e.blockSize)).toEqual([300, 300]);
+
+    // New plan: SECTION 1 GAINS a taller geometry; section 2 still has none.
+    // Section 1's page refits + grows (300 → 500). Section 2's fit SHAPE is
+    // unchanged (still blocks 3,4,5 on one doc-wide page) — it MAY reuse — but
+    // its OFFSET must shift DOWN by the running-sum delta from section 1's
+    // taller page; it must NOT keep plan1's offset of 320.
+    const planSection1Tall: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: null, pageConfig: TALL_PAGE },
+        { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
+      ],
+    };
+    const plan2 = measurePass(metas, DOC_WIDE_PAGE, planSection1Tall, children, plan1);
+
+    expect(plan2.entries.length).toBe(2);
+    expect(plan2.entries.map((e) => e.startIndex)).toEqual([0, 3]);
+    // Section 1 refit + taller (300 → 500); section 2 still doc-wide height (300).
+    expect(plan2.entries.map((e) => e.blockSize)).toEqual([500, 300]);
+    expect(plan2.entries[0].pageConfig).toBe(TALL_PAGE);
+    // Section 2's effective pageConfig is STILL doc-wide (no override there).
+    expect(plan2.entries[1].pageConfig).toBe(DOC_WIDE_PAGE);
+    // Section 1 page starts at 0 but is now 500 tall; section 2 page's offset
+    // shifts DOWN to the new running sum: 0 + 500 + 20 = 520 (was 320 in plan1).
+    expect(plan2.entries.map((e) => e.blockOffset)).toEqual([0, 520]);
+    // Section 2's offset did NOT keep plan1's value — it shifted by the +200
+    // running-sum delta from section 1's taller page. Asserted regardless of
+    // whether section 2's page reused its fit SHAPE (children/resumeOut).
+    expect(plan2.entries[1].blockOffset).not.toBe(plan1.entries[1].blockOffset);
+    expect(plan2.entries[1].blockOffset).toBe(plan1.entries[1].blockOffset + 200);
+    // Section 2 reuses its fit SHAPE (same children slice + resumeOut) despite
+    // the fresh offset — same childrenCount, same null resumeOut.
+    expect(plan2.entries[1].children.length).toBe(plan1.entries[1].children.length);
+    expect(plan2.entries[1].resumeOut).toEqual(plan1.entries[1].resumeOut);
+    // totalBlockSize reflects the running sum: 520 + 300 = 820.
+    expect(plan2.totalBlockSize).toBe(820);
+  });
+
+  it("a DOC-WIDE pageConfig change with a prevPlan forces a full refit (coarse guard fires)", () => {
+    // A doc-wide config tall enough to hold all 6 × 100 blocks on one page
+    // (content 700). Distinct from DOC_WIDE_PAGE so the new pageContentBlockSize
+    // differs and the whole-plan-refuse guard fires.
+    const WIDE_PAGE: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 700,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 20,
+    };
+    const metas = Array.from({ length: 6 }, () => blockMeta(100));
+    const children = fakeChildren(6);
+    const plan1 = measurePass(metas, DOC_WIDE_PAGE, IMPLICIT_SECTION_PLAN, children);
+    expect(plan1.entries.length).toBe(2); // content 300 ⇒ 3 per page ⇒ 2 pages.
+
+    // Pass a DIFFERENT doc-wide pageBlockSize ⇒ pageContentBlockSize differs ⇒
+    // the whole-plan-refuse guard refuses every reused boundary ⇒ full refit.
+    const plan2 = measurePass(metas, WIDE_PAGE, IMPLICIT_SECTION_PLAN, children, plan1);
+    __resetFitOnePageCallCountForTest();
+    const plan3 = measurePass(metas, WIDE_PAGE, IMPLICIT_SECTION_PLAN, children, plan1);
+    const fitCalls = __getFitOnePageCallCountForTest();
+
+    // content 700 ⇒ all 6 blocks fit on one page now (the plan SHAPE changed,
+    // which only a full refit produces — reuse of the prior 2-page plan could
+    // not have collapsed it).
+    expect(plan2.entries.length).toBe(1);
+    expect(plan3.entries.length).toBe(1);
+    // The coarse doc-wide guard nuked all reuse ⇒ full refit (≥ pageCount calls).
+    expect(fitCalls).toBeGreaterThanOrEqual(plan3.entries.length);
+  });
+});

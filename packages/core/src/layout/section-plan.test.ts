@@ -348,3 +348,41 @@ describe("sectionStateAt", () => {
     });
   });
 });
+
+// --- sectionStateAt: pageConfig surfacing (C.2b-2) ---------------------------
+//
+// The measure pass resolves each page's EFFECTIVE geometry from the active
+// section's boundary. `sectionStateAt` must surface the active boundary's
+// `pageConfig` (undefined when the active boundary carries no override) so the
+// loop can apply the `?? docWide` fallback.
+
+describe("sectionStateAt — pageConfig", () => {
+  const OVERRIDE: PageConfig = { ...DOC_WIDE, pageBlockSize: 1200 };
+  // plan: [{0,null}, {1,sec, OVERRIDE}, {4,sec2}]
+  const plan: SectionPlan = {
+    boundaries: [
+      { startFlattenedIndex: 0, sectionId: null },
+      { startFlattenedIndex: 1, sectionId: "sec" as BlockId, pageConfig: OVERRIDE },
+      { startFlattenedIndex: 4, sectionId: "sec2" as BlockId },
+    ],
+  };
+
+  it("active boundary WITH a pageConfig → surfaced", () => {
+    expect(sectionStateAt(plan, 1).pageConfig).toBe(OVERRIDE);
+    // between boundaries → still the active (sec) boundary's config.
+    expect(sectionStateAt(plan, 3).pageConfig).toBe(OVERRIDE);
+  });
+
+  it("active boundary WITHOUT a pageConfig → undefined", () => {
+    // index 0: implicit leading boundary (no override).
+    expect(sectionStateAt(plan, 0).pageConfig).toBeUndefined();
+    // index 4+: sec2 has no override.
+    expect(sectionStateAt(plan, 4).pageConfig).toBeUndefined();
+    expect(sectionStateAt(plan, 99).pageConfig).toBeUndefined();
+  });
+
+  it("IMPLICIT_SECTION_PLAN never surfaces a pageConfig", () => {
+    expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 0).pageConfig).toBeUndefined();
+    expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 99).pageConfig).toBeUndefined();
+  });
+});

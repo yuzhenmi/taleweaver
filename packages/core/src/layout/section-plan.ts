@@ -45,6 +45,12 @@ export interface SectionStateAt {
   readonly activeSectionId: BlockId | null;
   /** startFlattenedIndex of the next boundary strictly AFTER `index`, or null if none. */
   readonly nextBoundaryIndex: number | null;
+  /**
+   * The active boundary's page-geometry override, if any (C.2b-2). `undefined`
+   * when the active boundary carries no override (the common case + the implicit
+   * leading boundary); the measure pass applies the `?? docWide` fallback.
+   */
+  readonly pageConfig?: PageConfig;
 }
 
 /**
@@ -69,9 +75,12 @@ export function isSectionBox(node: RenderNode): node is ElementBox {
 /**
  * Deep-equal two `PageConfig`s over their scalar + margin fields. Used to keep
  * the no-override path inert: a section whose resolved config equals docWide
- * gets NO `pageConfig` stamped on its boundary.
+ * gets NO `pageConfig` stamped on its boundary. Exported so the measure pass's
+ * per-entry geometry reuse gate (C.2b-2) can reuse the SAME comparison — a
+ * page's fit depends on its effective geometry, so a config that differs by
+ * reference but is field-equal must still count as reusable.
  */
-function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
+export function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
   return (
     a.pageInlineSize === b.pageInlineSize &&
     a.pageBlockSize === b.pageBlockSize &&
@@ -187,5 +196,8 @@ export function sectionStateAt(plan: SectionPlan, index: number): SectionStateAt
   return {
     activeSectionId: active.sectionId,
     nextBoundaryIndex: next !== undefined ? next.startFlattenedIndex : null,
+    // Surface the active boundary's geometry override (C.2b-2); `undefined`
+    // when it carries none ⇒ the measure pass falls back to docWide.
+    pageConfig: active.pageConfig,
   };
 }
