@@ -155,7 +155,7 @@ describe("applyOperation", () => {
     for (let i = 0; i < NUM_BLOCKS; i++) {
       getBlock(warm, `b${i}` as BlockId);
     }
-    expect(warm[STATE_INTERNAL].snapshotCache.blocks.size).toBe(NUM_BLOCKS);
+    expect(warm[STATE_INTERNAL].snapshotCache.snapshots.block.size).toBe(NUM_BLOCKS);
 
     // Mutate a single block.
     const tiny = applyOperation(warm, () => {
@@ -165,12 +165,15 @@ describe("applyOperation", () => {
     expect(tiny.dirtyIds.size).toBe(1);
 
     const newCache = tiny.state[STATE_INTERNAL].snapshotCache;
-    // The new overlay starts empty — no entries carried forward.
-    expect(newCache.blocks.size).toBe(0);
-    expect(newCache.embedContents.size).toBe(0);
+    // The new overlay starts empty — no entries carried forward, in ANY
+    // tree (the overlay-starts-empty property is what the whole carry-forward
+    // correctness argument rests on, so assert all three sub-maps).
+    expect(newCache.snapshots.block.size).toBe(0);
+    expect(newCache.snapshots.embed.size).toBe(0);
+    expect(newCache.snapshots.template.size).toBe(0);
     // The dirty block is invalidated on this layer so reads don't fall
     // through to the stale base entry.
-    expect(newCache.invalidatedBlocks.has("b0" as BlockId)).toBe(true);
+    expect(newCache.invalidated.has("b0" as BlockId)).toBe(true);
     // Base reference points to the warmed cache.
     expect(newCache.base).toBe(warm[STATE_INTERNAL].snapshotCache);
 

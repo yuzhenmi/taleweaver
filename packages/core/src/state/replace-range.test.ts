@@ -197,7 +197,7 @@ describe("replaceRange — cross-block coverage", () => {
     // deleteRange had mutated the Y.Doc — the focus block was already
     // deleted from getBlocksMap by then. The call worked only because
     // deleteRange's pre-flight read of the focus populated
-    // state.snapshotCache.blocks with the focus snapshot, letting the
+    // state.snapshotCache.snapshots.block with the focus snapshot, letting the
     // post-delete normalizeSpan find it via cache hit. That made the
     // correctness of replaceRange depend on an unrelated implementation
     // detail of deleteRange's validation order.
@@ -232,7 +232,7 @@ describe("replaceRange — cross-block coverage", () => {
     // This simulates the absence of deleteRange's incidental cache
     // population for the focus, isolating replaceRange's own ordering
     // requirement.
-    const blocksMap = state[STATE_INTERNAL].snapshotCache.blocks;
+    const blocksMap = state[STATE_INTERNAL].snapshotCache.snapshots.block;
     blocksMap.delete(focusBlockId);
     const originalSet = blocksMap.set.bind(blocksMap);
     blocksMap.set = function (id, snap) {

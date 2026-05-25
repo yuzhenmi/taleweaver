@@ -279,12 +279,12 @@ describe("snapshot", () => {
       getBlockSnapshot(doc, "p1" as BlockId, base);
       const overlay = createOverlayCache(base, new Set());
       // Overlay starts with no own entries.
-      expect(overlay.blocks.size).toBe(0);
+      expect(overlay.snapshots.block.size).toBe(0);
       getBlockSnapshot(doc, "p1" as BlockId, overlay);
       // After the read, the overlay holds the promoted entry too.
-      expect(overlay.blocks.size).toBe(1);
-      expect(overlay.blocks.get("p1" as BlockId)).toBe(
-        base.blocks.get("p1" as BlockId),
+      expect(overlay.snapshots.block.size).toBe(1);
+      expect(overlay.snapshots.block.get("p1" as BlockId)).toBe(
+        base.snapshots.block.get("p1" as BlockId),
       );
     });
 
@@ -309,7 +309,7 @@ describe("snapshot", () => {
       expect(overlaySnap).not.toBe(baseSnap);
       expect(overlaySnap?.type).toBe("heading");
       // The base cache itself is untouched (per-State view stability).
-      expect(base.blocks.get("p1" as BlockId)).toBe(baseSnap);
+      expect(base.snapshots.block.get("p1" as BlockId)).toBe(baseSnap);
     });
 
     it("base remains untouched when overlay is read and mutated", () => {
@@ -325,8 +325,8 @@ describe("snapshot", () => {
       getBlockSnapshot(doc, "p1" as BlockId, overlay);
       getBlockSnapshot(doc, "p2" as BlockId, overlay);
       // Base still has the original p1 entry, no p2 entry was added there.
-      expect(base.blocks.get("p1" as BlockId)).toBe(beforeP1);
-      expect(base.blocks.has("p2" as BlockId)).toBe(false);
+      expect(base.snapshots.block.get("p1" as BlockId)).toBe(beforeP1);
+      expect(base.snapshots.block.has("p2" as BlockId)).toBe(false);
     });
 
     it("depth-3 chain fall-through promotes the entry into every visited layer", () => {
@@ -341,13 +341,13 @@ describe("snapshot", () => {
       expect(rootSnap).not.toBeNull();
       const l1 = createOverlayCache(root, new Set());
       const l2 = createOverlayCache(l1, new Set());
-      expect(l1.blocks.size).toBe(0);
-      expect(l2.blocks.size).toBe(0);
+      expect(l1.snapshots.block.size).toBe(0);
+      expect(l2.snapshots.block.size).toBe(0);
       const fromL2 = getBlockSnapshot(doc, "p1" as BlockId, l2);
       expect(fromL2).toBe(rootSnap);
       // Both intermediate layers received the promoted entry.
-      expect(l1.blocks.get("p1" as BlockId)).toBe(rootSnap);
-      expect(l2.blocks.get("p1" as BlockId)).toBe(rootSnap);
+      expect(l1.snapshots.block.get("p1" as BlockId)).toBe(rootSnap);
+      expect(l2.snapshots.block.get("p1" as BlockId)).toBe(rootSnap);
     });
 
     it("invalidateAll causes reads to re-snapshot for previously-cached ids", () => {
@@ -370,7 +370,7 @@ describe("snapshot", () => {
       expect(afterP1).not.toBe(beforeP1);
       expect(afterP1?.type).toBe("heading");
       // Base is untouched; reading there still returns the original snap.
-      expect(base.blocks.get("p1" as BlockId)).toBe(beforeP1);
+      expect(base.snapshots.block.get("p1" as BlockId)).toBe(beforeP1);
     });
 
     it("invalidateAll does not affect ids that were never cached anywhere", () => {
@@ -495,7 +495,7 @@ describe("snapshot", () => {
       expect(after).not.toBe(before);
       expect(after?.type).toBe("heading");
       // Base untouched (per-State view stability).
-      expect(base.templateContents.get("tmplP" as BlockId)).toBe(before);
+      expect(base.snapshots.template.get("tmplP" as BlockId)).toBe(before);
     });
   });
 });
