@@ -11,12 +11,16 @@ import {
   resolvePixelPosition,
   resolvePositionFromPixel,
   computeSelectionRects,
+  computeSelectionRectsForPage,
   resolvePositionedTree,
+  spanStart,
+  spanEnd,
   markStart,
   markEnd,
   type LayoutBox,
   type VirtualLayoutTree,
   type Position,
+  type BlockId,
   type TextShaper,
   type TextMeasurer,
   type EditorAction,
@@ -81,12 +85,13 @@ export function createEditorController(
   // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
   // every page (Phase 3 Tasks 2/3).
   let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
-  // Lazy `materializeAll()` bridge for the consumers NOT yet migrated off it
-  // (Phase 4): `computeSelectionRects` for NON-collapsed selections, and the
-  // mouse hit-test `resolvePositionFromPixel`. Resolved on FIRST access per
-  // `update()` (memoized in `positionedBridge`) — never eagerly at the top of
-  // `update()`, so the collapsed-selection typing/Enter hot path provably never
-  // triggers `materializeAll()`.
+  // Lazy `materializeAll()` bridge. The common paginated paths (paint, caret,
+  // mouse hit-test, selection rects) are now per-page via `getPage` and NEVER
+  // touch this. It remains only for: (a) non-paginated identity sizing
+  // (`paintSingle`/spacer, where `layoutTree` is already a positioned
+  // `LayoutBox`), and (b) the rare spanning-block selection fallback (a single
+  // block taller than a page). Memoized per `update()`; resolved on first
+  // access so the hot path provably never triggers `materializeAll()`.
   let positionedBridge: LayoutBox | null = null;
   function getPositionedTree(): LayoutBox | null {
     if (positionedBridge !== null) return positionedBridge;
@@ -102,6 +107,14 @@ export function createEditorController(
     if (layoutTree === null) return null;
     if (layoutTree.type === "virtual-root") return layoutTree.getPage(pageIndex);
     return layoutTree;
+  }
+  // True when `blockId` straddles a page break. Per-page selection rects can't
+  // see a block's fragment on the other page (and `resolvePixelPosition` snaps a
+  // boundary at a page edge to the continuation page), so a selection whose
+  // start/end block spans pages falls back to the full bridge for that render.
+  function blockSpansPages(plan: VirtualLayoutTree["plan"], blockId: BlockId): boolean {
+    const s = plan.pageSpanOfBlock(blockId);
+    return s !== null && s.first !== s.last;
   }
   let focused = true;
   let cursorVisible = true;
@@ -146,6 +159,16 @@ export function createEditorController(
     pageIndex: 0,
   };
   let selectionRects: SelectionRect[] = [];
+  // Selection-highlight state (set in `update()`, consumed in `paintPages` and
+  // `getCursorState`). Paginated mode computes rects PER VISIBLE PAGE in
+  // `paintPages` from the cached span boundary positions — `selectionRects`
+  // above is then empty (it carries rects only for the non-paginated path and
+  // the rare spanning-block fallback). `hasSelectionHighlight` lets the caret
+  // hide over a selection even when `selectionRects` is empty.
+  let hasSelectionHighlight = false;
+  let selStart: PixelPosition | null = null;
+  let selEnd: PixelPosition | null = null;
+  let selSpanningFallback = false;
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
@@ -246,7 +269,10 @@ export function createEditorController(
   // ── Paint ──────────────────────────────────────────────────────────────
 
   function getCursorState(): CursorState {
-    if (selectionRects.length > 0) return "hidden";
+    // Hide the caret over a non-collapsed selection. Use the flag, not
+    // `selectionRects.length`: in paginated mode the rects are computed
+    // per-page in `paintPages` and `selectionRects` stays empty.
+    if (hasSelectionHighlight) return "hidden";
     if (!focused) return "inactive";
     if (cursorVisible) return "active";
     return "hidden";
@@ -308,8 +334,23 @@ export function createEditorController(
   }
 
   function paintPages() {
+    const st = state;
+    if (!st) return;
     const dpr = typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1;
     const cs = getCursorState();
+    // Per-page selection rects for a non-collapsed selection in paginated mode,
+    // computed from the boundary positions resolved once in `update()` (cached
+    // in `selStart`/`selEnd`) — NO `resolvePixelPosition` per blink/scroll
+    // repaint. The non-paginated path and the spanning-block fallback use the
+    // `selectionRects` array (filtered per page) instead. `pgStart`/`pgEnd` are
+    // const captures so the per-page branch can narrow them to non-null without
+    // `!` at the use site (a narrowing that does NOT flow through the
+    // `perPageSel` boolean, so the null check lives at the use site below).
+    const pgStart = selStart;
+    const pgEnd = selEnd;
+    const perPageSel =
+      hasSelectionHighlight && !selSpanningFallback &&
+      layoutTree?.type === "virtual-root";
 
     for (const [idx, canvas] of activeCanvases) {
       // Position ONLY this visible page (virtual mode: `getPage(idx)`; memoized
@@ -330,8 +371,13 @@ export function createEditorController(
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Filter selection rects for this page
-      const pageSelRects = selectionRects.filter((r) => r.pageIndex === idx);
+      // Selection rects for this page: per-page (virtual) or filter the
+      // precomputed array (non-paginated / spanning fallback / collapsed=empty).
+      const pageSelRects = (perPageSel && pgStart !== null && pgEnd !== null)
+        ? computeSelectionRectsForPage(
+            st.state, st.selection, page, idx, pgStart, pgEnd, measurer,
+          )
+        : selectionRects.filter((r) => r.pageIndex === idx);
 
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
@@ -943,18 +989,39 @@ export function createEditorController(
     };
     markEnd("ctrl.resolveCursor", tResolve);
 
-    // Selection rects: SKIPPED for a collapsed selection (the typing/Enter hot
-    // path) — so no `computeSelectionRects` and no bridge materialization runs.
-    // For a non-collapsed selection it stays on the lazy bridge (Phase 4);
-    // `getPositionedTree()` materializes all pages only then.
+    // Selection rects. Collapsed (typing/Enter hot path) → none. Paginated +
+    // non-collapsed → per-page in `paintPages` from the boundary positions
+    // resolved ONCE here (no bridge). Non-paginated → the full positioned tree.
+    // Spanning-block boundary → fall back to the bridge (rare; per-page can't
+    // see a block's fragment on the other page). `selectionRects` carries rects
+    // only for the non-paginated + spanning-fallback cases; the per-page path
+    // leaves it empty and uses `selStart`/`selEnd`.
     const tSel = markStart("ctrl.selectionRects");
-    if (isCollapsed(state.selection)) {
-      selectionRects = [];
-    } else {
-      const positioned = getPositionedTree();
-      selectionRects = positioned
-        ? computeSelectionRects(state.state, state.selection, positioned, measurer)
-        : [];
+    hasSelectionHighlight = !isCollapsed(state.selection);
+    selStart = null;
+    selEnd = null;
+    selSpanningFallback = false;
+    selectionRects = [];
+    if (hasSelectionHighlight) {
+      const start = spanStart(state.state, state.selection);
+      const end = spanEnd(state.state, state.selection);
+      if (layoutTree.type === "virtual-root") {
+        selSpanningFallback =
+          blockSpansPages(layoutTree.plan, start.blockId) ||
+          blockSpansPages(layoutTree.plan, end.blockId);
+        if (selSpanningFallback) {
+          const positioned = getPositionedTree(); // rare fallback (block taller than a page)
+          selectionRects = positioned
+            ? computeSelectionRects(state.state, state.selection, positioned, measurer)
+            : [];
+        } else {
+          selStart = resolvePixelPosition(state.state, start, layoutTree, measurer);
+          selEnd = resolvePixelPosition(state.state, end, layoutTree, measurer);
+          // rects computed per-page in paintPages from selStart/selEnd
+        }
+      } else {
+        selectionRects = computeSelectionRects(state.state, state.selection, layoutTree, measurer);
+      }
     }
     markEnd("ctrl.selectionRects", tSel);
 
@@ -982,6 +1049,10 @@ export function createEditorController(
     layoutTree = null;
     positionedBridge = null;
     virtualTree = null;
+    hasSelectionHighlight = false;
+    selStart = null;
+    selEnd = null;
+    selSpanningFallback = false;
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);

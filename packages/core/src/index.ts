@@ -191,7 +191,7 @@ export { resolvePositionFromPixel } from "./cursor/hit-test";
 export type { PixelPosition } from "./cursor/cursor-position";
 export { resolvePixelPosition } from "./cursor/cursor-position";
 export type { SelectionRect } from "./cursor/selection-geometry";
-export { computeSelectionRects } from "./cursor/selection-geometry";
+export { computeSelectionRects, computeSelectionRectsForPage } from "./cursor/selection-geometry";
 export { moveToLine, moveToLineBoundary } from "./cursor/line-navigation";
 export { isCollapsed } from "./cursor/selection";
 

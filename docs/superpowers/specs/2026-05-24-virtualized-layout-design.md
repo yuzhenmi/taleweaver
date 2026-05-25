@@ -428,11 +428,21 @@ IS re-materialized (its content changed), a new ref → full repaint of that pag
    (`bfc.layoutBlock` count independent of N; the L-PERF-F red test becomes the
    green guard).
 4. **Migrate cursor / hit-test / selection / line-nav** to per-page LineIndex +
-   plan resolver (rewrite `findLineForPosition` / `moveToLine` /
-   `selection-geometry` page-locally; redirect `findBlockBaseline`).
+   plan resolver. DONE: `resolvePixelPosition` (caret), `moveToLine` /
+   `moveToLineBoundary` (line-nav), mouse hit-test (`treeForPageHitTest`), and
+   selection rects (`computeSelectionRectsForPage`, computed per visible page in
+   `paintPages` from cached span-boundary positions) all resolve per-page via
+   `getPage`. A boundary block that SPANS a page break falls back to the bridge
+   for that one query/render (rare; mirrors the line-nav spanning fallback).
    **Browser-verify** each interaction (click, arrows across page boundaries,
    shift-select across pages, Cmd+End).
-5. **Remove `materializeAll()`** and any now-dead full-tree paths. Final review.
+5. **`materializeAll()` is OFF the common path.** All hot/common paginated
+   interactions are per-page. The bridge (`getPositionedTree` →
+   `materializeAll`) remains ONLY for: non-paginated identity sizing
+   (`paintSingle`/spacer, where the tree is already positioned), and the rare
+   spanning-block selection fallback (a single block taller than a page). Full
+   deletion is not possible while those two cases exist; they are correct,
+   bounded, and off the keystroke/scroll hot path.
 6. **(Optional, later) Incremental measure pass.** Replace the O(N) metadata
    sweep with an O(dirty + log N) Fenwick/prefix structure if the O(N)
    arithmetic sweep ever becomes the bottleneck (it is allocation-free, sub-ms

@@ -606,14 +606,15 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
 
-    it("materializes (lazy bridge) ONLY when a non-collapsed selection needs selection rects", () => {
+    it("non-collapsed selection (non-spanning blocks) computes rects per-page, never materializeAll", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
 
-      // A non-collapsed selection forces computeSelectionRects → the lazy
-      // bridge fires (Phase 4 consumer). This is the ONE place materializeAll
-      // is allowed in this phase.
+      // A non-collapsed selection. The spy tree's `pageSpanOfBlock` returns null
+      // (non-spanning), so the per-page selection-rect path is taken — the
+      // bridge `materializeAll()` is NOT used (it would be only for a boundary
+      // block that straddles a page break).
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
       ctrl.update(
@@ -623,6 +624,48 @@ describe("createEditorController", () => {
         }),
       );
 
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalled(); // per-page paint + rect computation
+
+      ctrl.destroy();
+    });
+
+    it("hides the caret over a non-collapsed selection (paginated rects are empty)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
+      );
+
+      // In paginated mode `selectionRects` is empty (rects are per-page), so the
+      // caret-hide MUST come from the `hasSelectionHighlight` flag: every
+      // paintPage call's cursorState (arg index 4) is "hidden".
+      const calls = vi.mocked(canvasRenderer.paintPage).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) expect(call[4]).toBe("hidden");
+
+      ctrl.destroy();
+    });
+
+    it("spanning-block selection boundary falls back to materializeAll (rare)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Force a boundary block to straddle a page break.
+      (tree.plan as { pageSpanOfBlock: (id: core.BlockId) => { first: number; last: number } | null })
+        .pageSpanOfBlock = () => ({ first: 0, last: 1 });
+
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
+      );
+
+      // A spanning boundary block can't be resolved per-page → the bridge fires.
       expect(materializeAll).toHaveBeenCalled();
 
       ctrl.destroy();

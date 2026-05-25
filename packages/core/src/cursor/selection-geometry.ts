@@ -88,49 +88,117 @@ export function computeSelectionRects(
     const rects: SelectionRect[] = [];
 
     for (let i = startLineIdx; i <= endLineIdx; i++) {
-      const al = allLines[i];
-      const line = al.line;
-      const isFirst = i === startLineIdx;
-      const isLast = i === endLineIdx;
-
-      const { lineLeft, lineRight, trailingStyle } = computeLineEdges(al);
-      const indicatorW = line.isBlockBoundaryLine
-        ? measurer.measureWidth("  ", trailingStyle)
-        : 0;
-
-      let x: number;
-      let width: number;
-
-      if (isFirst && isLast) {
-        // Same-line selection.
-        x = startPos.x;
-        width = endPos.x - startPos.x;
-      } else if (isFirst) {
-        x = startPos.x;
-        width = lineRight + indicatorW - startPos.x;
-      } else if (isLast) {
-        x = lineLeft;
-        width = endPos.x - lineLeft;
-      } else {
-        x = lineLeft;
-        width = lineRight + indicatorW - lineLeft;
-      }
-
-      if (width <= 0) continue;
-
-      rects.push({
-        x,
-        y: al.absoluteY,
-        width,
-        height: line.blockSize,
-        pageIndex: al.pageIndex,
-      });
+      const rect = emitLineRect(
+        allLines[i], i === startLineIdx, i === endLineIdx, startPos, endPos, measurer,
+      );
+      if (rect !== null) rects.push(rect);
     }
 
     return rects;
   } finally {
     markEnd("cursor.selection-geometry", t);
   }
+}
+
+/**
+ * Per-page selection rects: emit the rects for the lines of ONE page that fall
+ * within `span`, given the span's already-resolved start/end pixel positions
+ * (resolved ONCE by the caller, against the virtual tree). The union over all
+ * pages equals `computeSelectionRects` over the materialized tree — for
+ * NON-spanning boundary blocks. A boundary block that spans a page break is NOT
+ * this function's domain (a per-page lookup can't see the boundary's other-page
+ * fragment); the caller detects that case and routes it to `computeSelectionRects`
+ * over the bridge instead. See the Phase-4 selection-rects plan.
+ */
+export function computeSelectionRectsForPage(
+  state: State,
+  span: Span,
+  pageBox: LayoutBox,
+  pageIndex: number,
+  startPos: PixelPosition,
+  endPos: PixelPosition,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
+): SelectionRect[] {
+  const t = markStart("cursor.selection-geometry");
+  try {
+    if (positionsEqual(span.anchor, span.focus)) return [];
+    const startPage = startPos.pageIndex;
+    const endPage = endPos.pageIndex;
+    if (pageIndex < startPage || pageIndex > endPage) return [];
+
+    const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
+      ? adaptShaperToMeasurer(shaperOrMeasurer)
+      : shaperOrMeasurer;
+
+    const start = spanStart(state, span);
+    const end = spanEnd(state, span);
+
+    const pageLines = getLineIndex(pageBox).all;
+    if (pageLines.length === 0) return [];
+
+    // Lines on this page within the selection. On the start page the range
+    // begins at the start line; on the end page it ends at the end line; on a
+    // fully-enclosed middle page every line is selected.
+    const lo = pageIndex === startPage ? findLineForPosition(pageLines, start) : 0;
+    const hi = pageIndex === endPage ? findLineForPosition(pageLines, end) : pageLines.length - 1;
+    if (lo < 0 || hi < 0) return [];
+
+    const rects: SelectionRect[] = [];
+    for (let i = lo; i <= hi; i++) {
+      const rect = emitLineRect(
+        pageLines[i],
+        pageIndex === startPage && i === lo,
+        pageIndex === endPage && i === hi,
+        startPos,
+        endPos,
+        measurer,
+      );
+      if (rect !== null) rects.push(rect);
+    }
+    return rects;
+  } finally {
+    markEnd("cursor.selection-geometry", t);
+  }
+}
+
+/**
+ * Emit the highlight rect for one line of a selection. `isGlobalFirst` /
+ * `isGlobalLast` are relative to the WHOLE selection (across pages), not just
+ * this page — so a line on a fully-enclosed middle page is neither, getting a
+ * full-width rect. Returns null for a zero/negative width (skipped).
+ */
+function emitLineRect(
+  al: AbsoluteLineBox,
+  isGlobalFirst: boolean,
+  isGlobalLast: boolean,
+  startPos: PixelPosition,
+  endPos: PixelPosition,
+  measurer: TextMeasurer,
+): SelectionRect | null {
+  const line = al.line;
+  const { lineLeft, lineRight, trailingStyle } = computeLineEdges(al);
+  const indicatorW = line.isBlockBoundaryLine
+    ? measurer.measureWidth("  ", trailingStyle)
+    : 0;
+
+  let x: number;
+  let width: number;
+  if (isGlobalFirst && isGlobalLast) {
+    x = startPos.x;
+    width = endPos.x - startPos.x;
+  } else if (isGlobalFirst) {
+    x = startPos.x;
+    width = lineRight + indicatorW - startPos.x;
+  } else if (isGlobalLast) {
+    x = lineLeft;
+    width = endPos.x - lineLeft;
+  } else {
+    x = lineLeft;
+    width = lineRight + indicatorW - lineLeft;
+  }
+
+  if (width <= 0) return null;
+  return { x, y: al.absoluteY, width, height: line.blockSize, pageIndex: al.pageIndex };
 }
 
 /**
