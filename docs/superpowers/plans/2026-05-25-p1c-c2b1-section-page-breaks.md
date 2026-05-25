@@ -180,12 +180,14 @@ Changes:
    plan `measurePass` produces carries it; within a session `prevPlan` is always same-version, so
    no "absent older plan" guard is needed.
 3. **`measurePass` signature** gains the `SectionPlan`: `measurePass(metas, pageConfig, sectionPlan,
-   rootChildren?, prevPlan?)`. Insert `sectionPlan` after `pageConfig`. **Update ALL callers** (the
-   TypeScript build catches misses, but enumerate): the one production caller in
-   `virtual-producer.ts`; every direct call in `measure-pass.test.ts`; the call(s) in the VL
-   equivalence oracle (`measure-pass-equivalence.test.ts`, ~lines 148 + 302). Callers without a
-   section structure pass the exported `IMPLICIT_SECTION_PLAN` (I-1) — single boundary at index 0,
-   `nextBoundaryIndex` always null ⇒ NO breaks ⇒ byte-identical to today.
+   rootChildren?, prevPlan?)`. Insert `sectionPlan` after `pageConfig`. **Update ALL SIX caller
+   sites** (grep `measurePass(`; the TS build catches misses, but enumerate so none surprise you):
+   `virtual-producer.ts` (production); `measure-pass.test.ts` (direct calls); the VL equivalence
+   oracle `measure-pass-equivalence.test.ts` (~lines 148 + 302); **`measure-pass-incremental.test.ts`**
+   (its `planFrom` helper ~line 96 + several direct calls); **`virtual-layout-tree.test.ts`** (its
+   plan-building helper + ~4 direct calls). Callers without a section structure pass the exported
+   `IMPLICIT_SECTION_PLAN` (I-1) — single boundary at index 0, `nextBoundaryIndex` always null ⇒ NO
+   breaks ⇒ byte-identical to today.
 4. **Force the break:** in the loop, before calling `fitOnePage`, compute
    `const st = sectionStateAt(sectionPlan, startIndex);` and pass `st.nextBoundaryIndex ?? undefined`
    as `fitOnePage`'s `stopBeforeIndex`. (The boundary at `startIndex` itself is the section this
