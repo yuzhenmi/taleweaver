@@ -32,3 +32,7 @@ export {
   type BlockFieldWrite,
   type ReparentPlan,
 } from "./reparent-children";
+export {
+  applySectionBreak,
+  type SectionBreakResult,
+} from "./section-break";
