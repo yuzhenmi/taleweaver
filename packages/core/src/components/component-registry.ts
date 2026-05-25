@@ -1,6 +1,7 @@
 import type { ComponentDefinition } from "./component-definition";
 import type { BlockKind, BlockKindResolver } from "../state/block-kinds";
 import { documentComponent } from "./document";
+import { sectionComponent } from "./section";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
 import { listComponent } from "./list";
@@ -63,7 +64,7 @@ export function createComponentRegistry(): ComponentRegistry {
 }
 
 /**
- * Returns a registry pre-populated with all 10 built-in components.
+ * Returns a registry pre-populated with all built-in components.
  * Per Decision F: explicit register() calls, no side-effect imports.
  *
  * `text` and `span` are deliberately NOT registered — per master spec,
@@ -74,6 +75,7 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   const reg = createComponentRegistry();
   // Containers
   reg.register(documentComponent);
+  reg.register(sectionComponent);
   reg.register(listComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);
