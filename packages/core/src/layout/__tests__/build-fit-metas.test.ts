@@ -6,17 +6,38 @@
 // to real layout is proven by `measure-pass-equivalence.test.ts`.
 
 import { describe, it, expect } from "vitest";
-import { buildBlockFitMetas } from "../build-fit-metas";
+import {
+  buildBlockFitMetas,
+  __getMetaBuildCountForTest,
+  __resetMetaBuildCountForTest,
+} from "../build-fit-metas";
 import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
-import type { ElementBox } from "../../render/render-node";
+import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { Style } from "../../styles";
 
 function cascade(children: readonly ElementBox[], rootStyle: Style = { display: "block" }): ElementBox {
   const root = cascadePass(createElementBox("root", rootStyle, children));
   if (root.type !== "element") throw new Error("non-element");
   return root;
+}
+
+/**
+ * Build a cascaded root whose top-level children are exactly `cascadedChildren`
+ * (already-cascaded `ElementBox`es), WITHOUT re-cascading them. This lets a test
+ * share child references across two roots — the lever the incremental cache
+ * keys on. The root carries the same default-block computed style the helper
+ * `cascade` produces, so the children's inherited styles (computed when they
+ * were first cascaded under an identical root) stay consistent.
+ */
+function rootFromCascadedChildren(cascadedChildren: readonly RenderNode[]): ElementBox {
+  const bareRoot = cascadePass(createElementBox("root", { display: "block" }, []));
+  if (bareRoot.type !== "element") throw new Error("non-element");
+  return Object.freeze({
+    ...bareRoot,
+    children: Object.freeze([...cascadedChildren]),
+  });
 }
 
 const shaper = () => createMockShaper(8, 16);
@@ -92,5 +113,147 @@ describe("buildBlockFitMetas", () => {
     const li = createElementBox("li", { display: "list-item", whiteSpace: "pre" } as Style, [createTextBox("lit", { whiteSpace: "pre" }, "x")]);
     const metas = buildBlockFitMetas(cascade([li]), shaper(), 600);
     expect(metas[0].listItem).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Incremental cache (virtualized-layout Phase 3, Task 0). The cache keys per-
+// block metas on the cascaded `ElementBox` reference + the available content
+// inline-size. An unchanged block (same ref, same width) reuses its meta; a
+// width change rebuilds (line wrapping is width-dependent). Bare inline-run
+// groups synthesize a fresh anonymous box each call and stay UNCACHED.
+// ---------------------------------------------------------------------------
+
+/** N paragraphs, each `numLines` hard-wrapped lines (whiteSpace: pre). */
+function paragraph(key: string, numLines: number): ElementBox {
+  const text = Array.from({ length: numLines }, () => "x").join("\n");
+  const textNode = createTextBox(`${key}-t`, { whiteSpace: "pre" }, text);
+  return createElementBox(key, { display: "block", whiteSpace: "pre" } as Style, [textNode]);
+}
+
+describe("buildBlockFitMetas — incremental cache", () => {
+  // ---- (a) correctness: warm == cold ------------------------------------
+  it("(a) building metas twice on the same cascaded root yields deep-equal results", () => {
+    __resetMetaBuildCountForTest();
+    const children = Array.from({ length: 10 }, (_, i) => paragraph(`p${i}`, (i % 3) + 1));
+    const root = cascade(children);
+
+    const cold = buildBlockFitMetas(root, shaper(), 600);
+    const warm = buildBlockFitMetas(root, shaper(), 600);
+
+    // Deep-equal: the cached (warm) metas must be identical to the fresh (cold)
+    // ones — the cache must not perturb a single field.
+    expect(warm).toEqual(cold);
+  });
+
+  it("(a) the warm pass builds zero new metas (every block ref-hits the cache)", () => {
+    const children = Array.from({ length: 10 }, (_, i) => paragraph(`p${i}`, (i % 3) + 1));
+    const root = cascade(children);
+
+    // Hold the shaper instance constant across both passes (production uses one
+    // shaper per session). A cache hit requires the same ref + width + shaper;
+    // varying the shaper is exercised separately in test (d).
+    const s = shaper();
+    buildBlockFitMetas(root, s, 600); // warm the cache
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, 600); // second pass on the SAME refs + shaper
+    expect(__getMetaBuildCountForTest()).toBe(0);
+  });
+
+  // ---- (b) incrementality: single-block edit rebuilds ~1, not N ----------
+  it("(b) a single dirty block in a 30-block doc rebuilds only that one meta", () => {
+    const N = 30;
+    // First root: 30 distinct paragraphs.
+    const firstChildren = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const firstRoot = cascade(firstChildren);
+    if (firstRoot.type !== "element") throw new Error("non-element");
+
+    // Hold the shaper instance constant across both passes (production uses one
+    // shaper per session) so the unchanged blocks ref-hit the cache; varying the
+    // shaper is exercised separately in test (d).
+    const s = shaper();
+
+    // Cold build: builds all 30 block metas.
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(firstRoot, s, 600);
+    expect(__getMetaBuildCountForTest()).toBe(N);
+
+    // Simulate a single dirty block: reuse all of the FIRST root's cascaded
+    // children BY REFERENCE except index 7, which becomes a freshly-cascaded
+    // DIFFERENT block (a new ElementBox reference the cache has never seen). The
+    // incremental cascade behaves exactly this way — an unchanged subtree keeps
+    // its ElementBox reference, a dirty block gets a new one.
+    const dirtyChild = cascade([paragraph("p7", 5)]).children[0];
+    const secondChildren = firstRoot.children.map((c, i) => (i === 7 ? dirtyChild : c));
+    const secondRoot = rootFromCascadedChildren(secondChildren);
+
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(secondRoot, s, 600);
+    // Only the one changed block rebuilds; the other 29 ref-hit the cache.
+    expect(__getMetaBuildCountForTest()).toBe(1);
+  });
+
+  it("(b) rebuilt plan after a single-block edit is still correct (matches a full cold build)", () => {
+    const N = 30;
+    const firstChildren = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const firstRoot = cascade(firstChildren);
+    if (firstRoot.type !== "element") throw new Error("non-element");
+    buildBlockFitMetas(firstRoot, shaper(), 600); // warm
+
+    const dirtyChild = cascade([paragraph("p7", 5)]).children[0];
+    const secondChildren = firstRoot.children.map((c, i) => (i === 7 ? dirtyChild : c));
+    const secondRoot = rootFromCascadedChildren(secondChildren);
+
+    const incremental = buildBlockFitMetas(secondRoot, shaper(), 600);
+    // A reference cold build of the SAME final tree (built fresh, no cache reuse
+    // of the dirty block) — the metas must be deep-equal to the incremental ones.
+    const reference = buildBlockFitMetas(rootFromCascadedChildren(secondChildren), shaper(), 600);
+    expect(incremental).toEqual(reference);
+    expect(incremental[7].totalBlockSize).toBe(80); // 5 lines × 16
+  });
+
+  // ---- (c) width guard: a resize rebuilds all -----------------------------
+  it("(c) rebuilding with a different pageContentInlineSize rebuilds every block (width changed)", () => {
+    const N = 30;
+    const children = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const root = cascade(children);
+
+    // Hold the shaper constant so ONLY the width changes between passes — this
+    // isolates the width guard (the shaper guard is exercised in test (d)).
+    const s = shaper();
+    buildBlockFitMetas(root, s, 600); // warm at width 600
+
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, 400); // resize → different width
+    // Wrapping is width-dependent, so every block misses the width guard and
+    // rebuilds — even though every ElementBox reference is unchanged.
+    expect(__getMetaBuildCountForTest()).toBe(N);
+  });
+
+  // ---- (d) shaper guard: a different shaper rebuilds with new metrics ------
+  it("(d) rebuilding with a different shaper instance rebuilds every block and uses the new metrics", () => {
+    const N = 5;
+    const children = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const root = cascade(children);
+
+    // Warm the cache with shaper A (line height 16). Two lines per paragraph
+    // ⇒ each totalBlockSize is 2 × 16 = 32.
+    const shaperA = createMockShaper(8, 16);
+    const metasA = buildBlockFitMetas(root, shaperA, 600);
+    expect(metasA[0].lineBlockSizes).toEqual([16, 16]);
+    expect(metasA[0].totalBlockSize).toBe(32);
+
+    // Same cascaded root + same width, but a DIFFERENT shaper instance with
+    // DIFFERENT metrics (line height 24). The shaper guard must force a rebuild.
+    __resetMetaBuildCountForTest();
+    const shaperB = createMockShaper(10, 24);
+    const metasB = buildBlockFitMetas(root, shaperB, 600);
+    // Every block misses the shaper guard and rebuilds — though every
+    // ElementBox reference and the width are unchanged.
+    expect(__getMetaBuildCountForTest()).toBe(N);
+    // The rebuilt metas reflect shaper B's metrics (24-px lines), NOT the stale
+    // cached 16-px values from shaper A.
+    expect(metasB[0].lineBlockSizes).toEqual([24, 24]);
+    expect(metasB[0].totalBlockSize).toBe(48);
   });
 });

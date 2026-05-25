@@ -26,6 +26,79 @@ import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { ComputedStyle } from "../styles";
 
+// ---------------------------------------------------------------------------
+// Incremental cache (virtualized-layout Phase 3, Task 0).
+//
+// `buildBlockFitMetas` is called once per measure pass (every keystroke). Each
+// call previously laid out EVERY block fresh — O(N) full unfragmented layouts —
+// which negates the virtualized win. The cache below makes a single-block edit
+// rebuild only the changed block's meta and reuse every other block's by
+// reference.
+//
+// KEY: the cascaded child `ElementBox` reference. The incremental cascade
+// (`cascadeNodeIncremental`) returns the SAME `ElementBox` reference for an
+// unchanged subtree, so an unchanged block hits the cache. The cache is a
+// `WeakMap` so dropped cascaded nodes are collected without manual eviction.
+//
+// WIDTH GUARD: line wrapping depends on the content inline-size, so the cached
+// entry stores the width it was built against. That width is the PARENT's
+// content inline-size (the available width threaded to THIS child; see
+// `buildMetasForChildren`), NOT a single page-level width. It changes per
+// nesting level — a child inside an inline-padded container sees a narrower
+// width than a wider sibling of that container, which is correct. Do NOT coarsen
+// the key to the page-level width: distinct nesting levels under one page can
+// resolve to different available widths, and collapsing them would let a meta
+// built at one level satisfy a lookup at another and return wrong line-wrapping.
+// A resize stores a different width ⇒ cache miss ⇒ rebuild (correct).
+//
+// SHAPER GUARD: the shaper's font metrics determine every `lineBlockSize` /
+// `totalBlockSize`, so a different `TextShaper` instance must also miss the
+// cache and rebuild even for the same node ref + width (see `MetaCacheEntry`).
+//
+// MODULE-LEVEL & NOT RESET: `_metaCache` is module-level and intentionally not
+// reset between calls (a `WeakMap`, so dropped cascaded nodes are collected
+// without manual eviction). Tests rely on freshly-cascaded, unique `ElementBox`
+// refs for isolation rather than a cache reset.
+//
+// NOT cached: a bare inline-run group under a container synthesizes a FRESH
+// anonymous `ElementBox` each call (`ifcLeafMetaFromInlineRun`) with no stable
+// reference, so it has no usable key and is rebuilt every call. Those are rare;
+// caching them is out of scope for v1.
+// ---------------------------------------------------------------------------
+
+interface MetaCacheEntry {
+  /** The parent's content inline-size this meta was built against (width guard). */
+  readonly width: number;
+  /**
+   * The `TextShaper` instance this meta was built with (shaper guard). Every
+   * `lineBlockSize` / `totalBlockSize` is determined by the shaper's font
+   * metrics, so a different shaper (different metrics) must miss the cache and
+   * rebuild even for the same `ElementBox` ref + width.
+   */
+  readonly shaperRef: TextShaper;
+  readonly meta: BlockFitMeta;
+}
+
+const _metaCache: WeakMap<ElementBox, MetaCacheEntry> = new WeakMap();
+
+// Test-only instrumentation: count block metas actually BUILT (cache misses).
+// A warm rebuild of an unchanged tree increments this by 0; a single-block edit
+// increments it by ~1; a width change rebuilds the whole tree. Mirrors the
+// `__get…/__reset…ForTest` counter pattern used elsewhere in this package
+// (bfc.ts, virtual-layout-tree.ts). Production pays one integer increment per
+// meta it builds.
+let _metaBuildCount = 0;
+
+/** Test-only: number of block metas BUILT (cache misses) since the last reset. */
+export function __getMetaBuildCountForTest(): number {
+  return _metaBuildCount;
+}
+
+/** Test-only: reset the meta build counter. */
+export function __resetMetaBuildCountForTest(): void {
+  _metaBuildCount = 0;
+}
+
 /**
  * Build the top-level `BlockFitMeta[]` for a cascaded document root, recursing
  * into container blocks. `pageContentInlineSize` is the per-page content-area
@@ -182,11 +255,42 @@ function ifcLeafMetaFromInlineRun(
 }
 
 /**
+ * Cache-aware entry to `buildChildMeta`. The `child` is a REAL cascaded
+ * `ElementBox` (a stable reference the incremental cascade reuses for unchanged
+ * subtrees), so we key the module-level `_metaCache` on it. A cache hit requires
+ * the same `ElementBox` reference AND the same `TextShaper` instance AND the
+ * same available content inline-size (`pageContentInlineSize` here is the width
+ * AVAILABLE to this child — the parent's content inline-size; see
+ * `buildMetasForChildren`). The width guard makes a resize (different available
+ * width ⇒ different line wrapping) a cache miss that rebuilds; the shaper guard
+ * makes a different shaper (different font metrics ⇒ different line/total
+ * block-sizes) a cache miss that rebuilds. On a miss we build the meta, bump the
+ * test-only build counter ONCE for this block, and store the entry. The
+ * recursive `buildChildMeta → buildMetasForChildren → classifyChild` walk means
+ * a container's own meta is rebuilt when its reference changes, while its
+ * unchanged grandchildren ref-hit the cache independently.
+ */
+function classifyChild(
+  child: ElementBox,
+  shaper: TextShaper,
+  pageContentInlineSize: number,
+): BlockFitMeta {
+  const cached = _metaCache.get(child);
+  if (cached !== undefined && cached.shaperRef === shaper && cached.width === pageContentInlineSize) {
+    return cached.meta;
+  }
+  const meta = buildChildMeta(child, shaper, pageContentInlineSize);
+  _metaBuildCount++;
+  _metaCache.set(child, { width: pageContentInlineSize, shaperRef: shaper, meta });
+  return meta;
+}
+
+/**
  * Classify one block-level child into a `BlockFitMeta`. Reads margins / breaks
  * from the child's computed style; total height + line/row sizes from an
  * UNFRAGMENTED layout of the child (heights are position-independent).
  */
-function classifyChild(
+function buildChildMeta(
   child: ElementBox,
   shaper: TextShaper,
   pageContentInlineSize: number,
