@@ -33,6 +33,7 @@ import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { PagePlan, PagePlanEntry } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
+import { pageConfigsEqual } from "./section-plan";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -85,9 +86,10 @@ export function __resetGetPageDriverCountForTest(): void {
  * The per-page fingerprint used by the carry-forward memo. Two pages with
  * structurally-equal fingerprints render identically, so an unchanged page from
  * a prior tree can be returned by reference (preserving paint-cache + LineIndex
- * warmth). Includes the page dimensions so a resize never reuses a PageBox laid
- * out at an old width, and `listCounterAtStart` so an ordered-list seed change
- * (which changes marker text) is never reused stale.
+ * warmth). Includes the page's EFFECTIVE geometry (`pageConfig`) so a resize or a
+ * per-section geometry override never reuses a PageBox laid out at the old
+ * geometry, and `listCounterAtStart` so an ordered-list seed change (which
+ * changes marker text) is never reused stale.
  */
 interface PageFingerprint {
   readonly children: readonly unknown[]; // cascaded child refs (reference identity)
@@ -95,8 +97,18 @@ interface PageFingerprint {
   readonly resumeOut: BreakToken | null;
   readonly blockOffset: number;
   readonly listCounterAtStart: number;
-  readonly pageInlineSize: number;
-  readonly pageContentBlockSize: number;
+  /**
+   * The EFFECTIVE per-page geometry this page was POSITIONED with (C.2b-2):
+   * `PagePlanEntry.pageConfig` (the active section's override, or the doc-wide
+   * config). The WHOLE config participates — not just `pageInlineSize` +
+   * content-block-size — because two configs can share content-block-size yet
+   * differ in margins or page-block-size, producing a DIFFERENT PageBox height
+   * and DIFFERENT BFC child offsets. Compared via `pageConfigsEqual` (deep
+   * field+margins compare; references differ across measure cycles). A
+   * section-geometry change thus invalidates exactly that section's pages while
+   * earlier sections (unchanged config) still carry forward.
+   */
+  readonly pageConfig: PageConfig;
   /**
    * The section page-break cap this page was POSITIONED with (see
    * `PagePlanEntry.stopBeforeIndex`). MUST participate in the fingerprint:
@@ -111,19 +123,14 @@ interface PageFingerprint {
   readonly stopBeforeIndex: number | null;
 }
 
-function fingerprintOf(
-  entry: PagePlanEntry,
-  pageInlineSize: number,
-  pageContentBlockSize: number,
-): PageFingerprint {
+function fingerprintOf(entry: PagePlanEntry): PageFingerprint {
   return {
     children: entry.children,
     resumeInto: entry.resumeInto,
     resumeOut: entry.resumeOut,
     blockOffset: entry.blockOffset,
     listCounterAtStart: entry.listCounterAtStart,
-    pageInlineSize,
-    pageContentBlockSize,
+    pageConfig: entry.pageConfig,
     stopBeforeIndex: entry.stopBeforeIndex,
   };
 }
@@ -153,8 +160,7 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
   return (
     a.blockOffset === b.blockOffset &&
     a.listCounterAtStart === b.listCounterAtStart &&
-    a.pageInlineSize === b.pageInlineSize &&
-    a.pageContentBlockSize === b.pageContentBlockSize &&
+    pageConfigsEqual(a.pageConfig, b.pageConfig) &&
     a.stopBeforeIndex === b.stopBeforeIndex &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
@@ -237,7 +243,7 @@ export function makeVirtualLayoutTree(
     // its PageBox by reference (paint-cache + LineIndex warmth preserved).
     if (prevInternal !== undefined && prevInternal.__peekMaterializedPage !== undefined) {
       const prevFp = prevFingerprints[pageIndex];
-      const thisFp = fingerprintOf(entry, plan.pageInlineSize, pageContentBlockSize);
+      const thisFp = fingerprintOf(entry);
       if (prevFp !== undefined && fingerprintsEqual(prevFp, thisFp)) {
         const reused = prevInternal.__peekMaterializedPage(pageIndex);
         if (reused !== undefined) {
@@ -253,6 +259,32 @@ export function makeVirtualLayoutTree(
   }
 
   function materializePage(pageIndex: number, entry: PagePlanEntry): PageBox {
+    // Per-entry effective geometry (C.2b-2): this page is positioned with its
+    // OWN `pageConfig` — the active section's geometry override (or the doc-wide
+    // config when it carries none). For a no-override doc every entry's
+    // `pageConfig` IS the doc-wide config (same fields), so the values below
+    // equal the closure-captured ones.
+    const effCfg = entry.pageConfig;
+    const effMargins = effCfg.pageMargins;
+    const effContentBlockSize =
+      effCfg.pageBlockSize - effMargins.blockStart - effMargins.blockEnd;
+    const effContentInlineSize =
+      effCfg.pageInlineSize - effMargins.inlineStart - effMargins.inlineEnd;
+
+    // Root used-style + content context per page, but PRESERVE byte-identity for
+    // uniform (doc-wide) pages: when this page's inline-size matches the doc-wide
+    // config, reuse the SAME closure objects (`rootUsedStyle` / `contentCtx`),
+    // so the equivalence harness (every page resolves to docWide) stays
+    // byte-identical to `paginateRoot`. Only an inline-overriding section
+    // recomputes them (its root used-style + containing inline-size differ).
+    const sameInline = effCfg.pageInlineSize === pageConfig.pageInlineSize;
+    const effRootUsedStyle: UsedStyle = sameInline
+      ? rootUsedStyle
+      : computeUsedStyle(rootComputed, effCfg.pageInlineSize, "indefinite");
+    const effContentCtx: LayoutContext = sameInline
+      ? contentCtx
+      : { ...ctx, containingInlineSize: effContentInlineSize };
+
     // NOTE: an earlier version threaded a per-page `prevLayoutCache` built from
     // the prior tree's PageBox (buildLayoutBoxCacheFromTree(prevPage, …)) so
     // unchanged blocks WITHIN a re-materialized page reused their prior boxes
@@ -269,12 +301,12 @@ export function makeVirtualLayoutTree(
     _getPageDriverCount++;
     const { box } = layoutBlock(
       cascadedRoot,
-      margins.inlineStart,
-      margins.blockStart,
-      contentCtx,
+      effMargins.inlineStart,
+      effMargins.blockStart,
+      effContentCtx,
       shaper,
       {
-        availableBlockSize: pageContentBlockSize,
+        availableBlockSize: effContentBlockSize,
         pageIndex,
         resumeFrom: entry.resumeInto,
         // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
@@ -285,19 +317,20 @@ export function makeVirtualLayoutTree(
       },
     );
     // Wrap exactly as paginate.ts:226–237. The BFC BlockBox can be null
-    // (no content fit) — guard it. blockOffset comes from the plan (it equals
-    // pageIndex * (pageBlockSize + pageGap); we use the plan's value, not a
-    // recompute). blockSize is the PAGE block-size, not the content size.
+    // (no content fit) — guard it. blockOffset is the plan's RUNNING SUM over
+    // the per-page heights before this one (no longer pageIndex*(H+gap), since
+    // a section may override its geometry). The PageBox block-size is the
+    // SECTION's effective page block-size, not the content size.
     const children: readonly LayoutBox[] = box ? [box] : [];
     return createPageBox(
       `page-${pageIndex}`,
       0, entry.blockOffset,
-      pageConfig.pageInlineSize, pageConfig.pageBlockSize,
+      effCfg.pageInlineSize, effCfg.pageBlockSize,
       ctx.writingMode, ctx.direction,
-      rootComputed, rootUsedStyle,
+      rootComputed, effRootUsedStyle,
       children,
       pageIndex,
-      pageConfig.pageInlineSize,
+      effCfg.pageInlineSize,
     );
   }
 
@@ -311,15 +344,20 @@ export function makeVirtualLayoutTree(
   }
 
   function materializeAll(): BlockBox {
-    // Mirror paginate.ts:295–305. totalBlockSize uses (pageCount - 1) gaps.
+    // Mirror paginate.ts:295–305. The total document height is the plan's
+    // RUNNING SUM over per-page heights (C.2b-2) — pages are no longer
+    // uniform-height once a section overrides its geometry, so we use
+    // `plan.totalBlockSize` directly rather than a `pageCount × H + gaps`
+    // formula (which would be wrong for a mixed-height doc; for a no-override
+    // doc the running sum reduces to exactly that formula). The outer BlockBox
+    // keeps the doc-wide inline-size (the bridge contract; removed in a later
+    // phase).
     const pageCount = plan.entries.length;
     const pages: PageBox[] = [];
     for (let i = 0; i < pageCount; i++) pages.push(getPage(i));
-    const totalBlockSize =
-      pageCount * pageConfig.pageBlockSize + Math.max(0, pageCount - 1) * pageConfig.pageGap;
     return createBlockBox(
       cascadedRoot.key, 0, 0,
-      pageConfig.pageInlineSize, totalBlockSize,
+      pageConfig.pageInlineSize, plan.totalBlockSize,
       ctx.writingMode, ctx.direction,
       rootComputed, rootUsedStyle,
       pages,
@@ -333,13 +371,13 @@ export function makeVirtualLayoutTree(
     return pageMemo.get(pageIndex);
   }
 
-  // This tree's per-page fingerprint, for the NEXT tree's comparison. Uses THIS
-  // tree's own geometry (pageInlineSize + pageContentBlockSize), so a config
-  // change between trees is reflected in the fingerprint.
+  // This tree's per-page fingerprint, for the NEXT tree's comparison. Uses each
+  // entry's own EFFECTIVE `pageConfig` (C.2b-2), so a doc-wide resize OR a
+  // per-section geometry change between trees is reflected in the fingerprint.
   function fingerprintAt(pageIndex: number): PageFingerprint | undefined {
     const entry = plan.entries[pageIndex];
     if (entry === undefined) return undefined;
-    return fingerprintOf(entry, plan.pageInlineSize, pageContentBlockSize);
+    return fingerprintOf(entry);
   }
 
   // The public tree: only the contract surface as enumerable own properties.

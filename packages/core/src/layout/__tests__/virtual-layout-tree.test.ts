@@ -35,6 +35,59 @@ import {
   __resetGetPageDriverCountForTest,
 } from "../virtual-layout-tree";
 
+/**
+ * Rebuild a `PagePlan` from `base`'s entries, overriding per-entry fields via
+ * `override(entry)` and RECOMPUTING the running-sum `blockOffset` + `totalBlockSize`
+ * from each entry's (possibly overridden) `pageConfig.pageBlockSize` + `pageGap`.
+ * Mirrors `measurePass`'s running-sum so a per-section geometry override produces
+ * a mixed-height plan whose offsets are correct. Plan methods (binary search etc.)
+ * are rebound against the rewritten entries by delegating through a fresh closure.
+ */
+function planWithEntries(
+  base: PagePlan,
+  override: (entry: PagePlanEntry) => PagePlanEntry,
+): PagePlan {
+  let running = 0;
+  const entries: PagePlanEntry[] = base.entries.map((e) => {
+    const o = override(e);
+    const withOffset: PagePlanEntry = {
+      ...o,
+      blockOffset: running,
+      blockSize: o.pageConfig.pageBlockSize,
+    };
+    running += o.pageConfig.pageBlockSize + o.pageConfig.pageGap;
+    return withOffset;
+  });
+  const last = entries[entries.length - 1];
+  const totalBlockSize = last === undefined ? 0 : last.blockOffset + last.pageConfig.pageBlockSize;
+
+  function pageIndexAtBlockOffset(y: number): number {
+    const lastIdx = entries.length - 1;
+    if (lastIdx <= 0) return 0;
+    if (y <= entries[0].blockOffset) return 0;
+    if (y >= totalBlockSize) return lastIdx;
+    let lo = 0;
+    let hi = lastIdx;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (entries[mid].blockOffset <= y) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  return {
+    entries,
+    sectionPlan: base.sectionPlan,
+    totalBlockSize,
+    pageInlineSize: base.pageInlineSize,
+    pageContentBlockSize: base.pageContentBlockSize,
+    pageIndexAtBlockOffset,
+    pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
+    pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Fixture builders (mirror measure-pass-equivalence.test.ts).
 // ---------------------------------------------------------------------------
@@ -473,5 +526,149 @@ describe("VirtualLayoutTree — materializes only requested pages", () => {
     tree.getPage(19);
     // Positioning page 19 must NOT position pages 0–18.
     expect(__getGetPageDriverCountForTest()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C.2b-2 Task 3: per-entry page geometry
+//
+// `materializePage` positions each page with its OWN `entry.pageConfig`
+// (block-size / inline-size / margins / running-sum blockOffset) — NOT the
+// single doc-wide closure config. The fingerprint deep-compares the whole
+// `pageConfig`, so a section-geometry change invalidates that section's pages
+// onward while earlier (unchanged) sections still carry forward by reference.
+// ---------------------------------------------------------------------------
+
+describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
+  it("materialized PageBox adopts the entry's TALLER pageConfig (height/inline/margins/offset)", () => {
+    // 6 fixed blocks of 100, 3/page at doc-wide 300 ⇒ 2 pages. Override page 1's
+    // entry to a taller + wider + margined config; the running-sum offset shifts
+    // accordingly. Page 0 keeps doc-wide dims.
+    const docWide = noMarginPageConfig(300, 600, 20);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const { plan: planA } = buildPlanAndTree(root, docWide);
+    expect(planA.entries.length).toBe(2);
+
+    // A genuinely different section geometry: taller page, wider page, non-zero
+    // margins, different gap. Its content area (700 - 10 - 10 = 680 block, 800 -
+    // 15 - 15 = 770 inline) easily holds page 1's three 100-tall blocks.
+    const tallCfg: PageConfig = {
+      pageInlineSize: 800,
+      pageBlockSize: 700,
+      pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 15, inlineEnd: 15 },
+      pageGap: 40,
+    };
+    const planB = planWithEntries(planA, (e) =>
+      e.pageIndex === 1 ? { ...e, pageConfig: tallCfg, blockSize: tallCfg.pageBlockSize } : e,
+    );
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
+    const tree = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide);
+
+    // Page 0: unchanged doc-wide dims + offset 0.
+    const p0 = tree.getPage(0);
+    expect(p0.blockSize).toBe(docWide.pageBlockSize);
+    expect(p0.inlineSize).toBe(docWide.pageInlineSize);
+    expect(p0.blockOffset).toBe(0);
+    // Doc-wide page has zero margins ⇒ its BFC child sits at the content origin (0,0).
+    expect(p0.children[0]?.inlineOffset).toBe(0);
+    expect(p0.children[0]?.blockOffset).toBe(0);
+
+    // Page 1: the override geometry.
+    const p1 = tree.getPage(1);
+    expect(p1.blockSize).toBe(tallCfg.pageBlockSize);
+    expect(p1.inlineSize).toBe(tallCfg.pageInlineSize);
+    // Running-sum offset = page 0's effective height + its gap (300 + 20).
+    expect(p1.blockOffset).toBe(docWide.pageBlockSize + docWide.pageGap);
+    expect(p1.blockOffset).toBe(planB.entries[1].blockOffset);
+    // The BFC child is inset by the section's margins.
+    expect(p1.children[0]?.inlineOffset).toBe(tallCfg.pageMargins.inlineStart);
+    expect(p1.children[0]?.blockOffset).toBe(tallCfg.pageMargins.blockStart);
+  });
+
+  it("tree.blockSize and materializeAll().blockSize equal the running-sum totalBlockSize (mixed heights)", () => {
+    const docWide = noMarginPageConfig(300, 600, 20);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const { plan: planA } = buildPlanAndTree(root, docWide);
+    expect(planA.entries.length).toBe(2);
+
+    const tallCfg: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 900,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 20,
+    };
+    const planB = planWithEntries(planA, (e) =>
+      e.pageIndex === 1 ? { ...e, pageConfig: tallCfg, blockSize: tallCfg.pageBlockSize } : e,
+    );
+    // Expected running sum: page0 (300) + gap (20) + page1 (900), no trailing gap.
+    const expectedTotal = 300 + 20 + 900;
+    expect(planB.totalBlockSize).toBe(expectedTotal);
+
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
+    const tree = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide);
+    expect(tree.blockSize).toBe(expectedTotal);
+    expect(tree.materializeAll().blockSize).toBe(expectedTotal);
+    // The outer BlockBox keeps the doc-wide inline-size (bridge contract).
+    expect(tree.materializeAll().inlineSize).toBe(docWide.pageInlineSize);
+  });
+
+  it("carry-forward refuses a page whose pageConfig changed; an unchanged page still reuses", () => {
+    const docWide = noMarginPageConfig(300, 600, 20);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const { plan: planA, tree: treeA } = buildPlanAndTree(root, docWide);
+    expect(planA.entries.length).toBe(2);
+    for (let i = 0; i < planA.entries.length; i++) treeA.getPage(i);
+
+    // Tree B: page 0 keeps doc-wide config (unchanged), page 1 gets a taller
+    // config. Page 0 ⇒ reused by reference; page 1 ⇒ re-materialized.
+    const tallCfg: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 700,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 20,
+    };
+    const planB = planWithEntries(planA, (e) =>
+      e.pageIndex === 1 ? { ...e, pageConfig: tallCfg, blockSize: tallCfg.pageBlockSize } : e,
+    );
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide, treeA);
+
+    // Page 0's pageConfig unchanged ⇒ reused by reference.
+    expect(treeB.getPage(0)).toBe(treeA.getPage(0));
+    // Page 1's pageConfig changed (taller) ⇒ NOT reused.
+    expect(treeB.getPage(1)).not.toBe(treeA.getPage(1));
+  });
+
+  it("carry-forward refuses on a margins-only pageConfig change (same content-block-size)", () => {
+    // Two configs can share content-block-size yet differ in margins ⇒ different
+    // PageBox height + BFC child offset. The whole-pageConfig deep-equal catches
+    // this where a content-block-size-only compare would miss it.
+    const docWide = noMarginPageConfig(300, 600, 20);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const { plan: planA, tree: treeA } = buildPlanAndTree(root, docWide);
+    for (let i = 0; i < planA.entries.length; i++) treeA.getPage(i);
+
+    // Same content-block-size (300) but +20/+20 margins ⇒ pageBlockSize 340.
+    // (Picked so 300 - 0 - 0 === 340 - 20 - 20 = 300 content block-size.)
+    const remarginedCfg: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 340,
+      pageMargins: { blockStart: 20, blockEnd: 20, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 20,
+    };
+    expect(remarginedCfg.pageBlockSize - 20 - 20).toBe(docWide.pageBlockSize);
+    const planB = planWithEntries(planA, (e) =>
+      e.pageIndex === 0 ? { ...e, pageConfig: remarginedCfg, blockSize: remarginedCfg.pageBlockSize } : e,
+    );
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide, treeA);
+
+    // Page 0's margins changed (even though content-block-size is identical) ⇒
+    // NOT reused: its PageBox height and BFC offset differ.
+    expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
   });
 });
