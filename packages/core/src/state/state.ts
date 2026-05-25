@@ -224,6 +224,14 @@ export interface OperationResult {
  * When `dirtyIds` is omitted, the new State gets a fully empty root
  * cache — appropriate when no dirty set is available (test fixtures,
  * external Y.Doc surgery whose effects aren't tracked).
+ *
+ * **Chain-depth compaction (#273).** The `dirtyIds` branch compacts when the
+ * input chain is too deep, mirroring `applyOperation`. Without this, a long
+ * run of undo/redo (each `undo`/`redo` calls `freshState` with a dirty set)
+ * would push overlay layers without ever flattening — re-introducing the
+ * O(depth)-per-cold-read growth that `applyOperation`'s compaction exists to
+ * prevent. Compaction is structurally equivalent (same live entries,
+ * `dirtyIds` invalidated), just collapsed to one root layer.
  */
 export function freshState(
   state: State,
@@ -231,9 +239,11 @@ export function freshState(
 ): State {
   const { doc, snapshotCache } = state[STATE_INTERNAL];
   const newCache =
-    dirtyIds !== undefined
-      ? createOverlayCache(snapshotCache, dirtyIds)
-      : createSnapshotCache();
+    dirtyIds === undefined
+      ? createSnapshotCache()
+      : chainDepth(snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
+        ? compactCache(snapshotCache, dirtyIds)
+        : createOverlayCache(snapshotCache, dirtyIds);
   return Object.freeze({
     rootId: state.rootId,
     [STATE_INTERNAL]: Object.freeze({

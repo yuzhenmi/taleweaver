@@ -12,6 +12,7 @@ import {
   resolveBlock,
 } from "./state";
 import { createEmptyDocument } from "./initial-state";
+import { chainDepth } from "./snapshot";
 import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
@@ -229,6 +230,63 @@ describe("applyOperation", () => {
     expect(snap).not.toBeNull();
     expect(snap?.type).toBe("paragraph");
   }, 30_000);
+
+  it("freshState compacts deep chains so undo/redo runs stay bounded (#273)", () => {
+    // Each undo/redo mints a freshState(state, dirtyIds). Before #273 that
+    // ONLY ever built an overlay layer — never compacted — so a long
+    // undo/redo run grew the chain without bound. Now freshState compacts at
+    // the same depth threshold applyOperation uses.
+    let state = createState({ rootId: "root" as BlockId });
+    state = applyOperation(state, () => {
+      getBlocksMap(state[STATE_INTERNAL].doc).set(
+        "root",
+        buildYBlock({
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: null,
+        }),
+      );
+    }).state;
+
+    // 200 freshState calls would chain 200-deep without compaction.
+    for (let i = 0; i < 200; i++) {
+      state = freshState(state, new Set(["root" as BlockId]));
+    }
+
+    // Bounded near the compaction threshold (≤ 64), not ~201.
+    expect(chainDepth(state[STATE_INTERNAL].snapshotCache)).toBeLessThanOrEqual(64);
+    // ...and reads still resolve correctly after compaction + invalidation.
+    expect(getBlock(state, "root" as BlockId)?.type).toBe("document");
+  });
+
+  it("freshState builds an overlay (no compaction) for a shallow chain", () => {
+    let state = createState({ rootId: "root" as BlockId });
+    state = applyOperation(state, () => {
+      getBlocksMap(state[STATE_INTERNAL].doc).set(
+        "root",
+        buildYBlock({
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: null,
+        }),
+      );
+    }).state;
+    const before = chainDepth(state[STATE_INTERNAL].snapshotCache);
+    const next = freshState(state, new Set(["root" as BlockId]));
+    // Shallow chain → overlay path: one layer deeper, base preserved.
+    expect(next[STATE_INTERNAL].snapshotCache.base).not.toBeNull();
+    expect(chainDepth(next[STATE_INTERNAL].snapshotCache)).toBe(before + 1);
+  });
 
   it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
     const state = createState({ rootId: "root" as BlockId });
