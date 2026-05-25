@@ -5,7 +5,6 @@ import { spanStart } from "../../state/block-compare";
 import { deleteRange } from "../../state/delete-range";
 import { moveToLineBoundary } from "../../cursor/line-navigation";
 import { isCollapsed } from "../../cursor/selection";
-import { resolvePositionedTree } from "../../layout/positioned-tree";
 import { rebuildTrees } from "./helpers";
 
 export function handleDeleteLine(
@@ -45,7 +44,7 @@ export function handleDeleteLine(
   const lineStart = moveToLineBoundary(
     editor.state,
     pos,
-    resolvePositionedTree(editor.layoutTree),
+    editor.layoutTree,
     config.measurer,
     "start",
   );

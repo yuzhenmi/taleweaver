@@ -1,7 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { createSpan } from "../../state/block-position";
 import { moveToLine } from "../../cursor/line-navigation";
-import { resolvePositionedTree } from "../../layout/positioned-tree";
 
 export function handleExpandLine(
   editor: EditorState,
@@ -11,7 +10,7 @@ export function handleExpandLine(
   const result = moveToLine(
     editor.state,
     editor.selection.focus,
-    resolvePositionedTree(editor.layoutTree),
+    editor.layoutTree,
     config.measurer,
     direction,
     editor.targetX,

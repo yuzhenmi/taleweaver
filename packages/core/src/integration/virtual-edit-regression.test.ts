@@ -26,6 +26,7 @@ import {
   render,
   cascadePass,
   layoutTree,
+  moveToLine,
   getBlock,
   createPosition,
   createSpan,
@@ -154,5 +155,41 @@ describe("virtual-layout caret/paint regressions", () => {
     // getPage(0) (the box the controller paints) must match a FRESH layout's
     // page 0 — i.e. it must NOT be a stale page still showing old text on line 0.
     expect(incremental.getPage(0)).toEqual(fresh.getPage(0));
+  });
+
+  it("Phase-4: MOVE_LINE up through the real handler matches a fresh-layout oracle (multi-page)", () => {
+    // Wired path: reduceEditor → handleMoveLine → moveToLine(virtual tree). On a
+    // multi-page doc, a caret on a later page must navigate up via the per-page
+    // path and land exactly where a FRESH non-incremental layout's moveToLine
+    // says it should — guarding the per-page line-nav against the bridge it
+    // replaced.
+    const config = makeConfig();
+    const text = Array.from({ length: 120 }, (_, i) => `para ${i}`).join("\n");
+    let editor = reduceEditor(createInitialEditorState(config), { type: "PASTE", text }, config);
+
+    // Caret in a mid-document block (well past page 0), then paint (the
+    // controller does this every frame — warms the per-page memo).
+    let id: BlockId | null = firstBlockId(editor);
+    for (let i = 0; i < 60 && id !== null; i++) {
+      id = getBlock(editor.state, id)?.nextSiblingId ?? null;
+    }
+    if (id === null) throw new Error("no block 60");
+    editor = reduceEditor(editor, {
+      type: "SET_SELECTION",
+      selection: createSpan(createPosition(id, 2), createPosition(id, 2)),
+    }, config);
+    paintAllPages(editor);
+
+    const before = editor;
+    const oracle = moveToLine(
+      before.state, before.selection.focus, freshLayout(before, config),
+      config.measurer, "up", before.targetX);
+    if (oracle === null) throw new Error("oracle move failed");
+
+    editor = reduceEditor(editor, { type: "MOVE_LINE", direction: "up" }, config);
+
+    // Moved, and to exactly where a fresh layout would put it.
+    expect(editor.selection.focus).not.toEqual(before.selection.focus);
+    expect(editor.selection.focus).toEqual(oracle.position);
   });
 });
