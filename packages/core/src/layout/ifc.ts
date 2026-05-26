@@ -118,24 +118,6 @@ interface Token {
 interface WrapUnit {
   tokens: Token[];
   totalWidth: number;
-  /**
-   * Width of the maximal trailing run of `isSpace` tokens at the END of
-   * `tokens` (0 if the unit ends in a non-space token). REQUIRED at every
-   * construction site — a missing site is a COMPILE error, not a silent
-   * `undefined`→NaN that would disable the trailing-whitespace hang.
-   *
-   * Under `pre-wrap` (`preservesWhitespace`), a unit's trailing spaces "hang"
-   * past the content edge at a soft-wrap line end: they RENDER but do NOT
-   * count toward the available-width wrap decision (CSS Text 3 trailing-
-   * whitespace hang; matches Google Docs). The wrap decision uses
-   * `wordWidth(unit) = totalWidth − trailingWhitespaceWidth` for the INCOMING
-   * unit instead of `totalWidth`. `currentWidth` accumulation in `pushUnit`
-   * stays FULL — a prior unit's trailing spaces become INTERIOR (and must keep
-   * counting) the instant a worded unit follows. A standalone all-space unit
-   * (leading/orphan space-run) has `trailingWhitespaceWidth === totalWidth`,
-   * so its `wordWidth` is 0.
-   */
-  trailingWhitespaceWidth: number;
   sourceKey: string;
   isLineBreak: boolean;
   /** Ancestor stack from the first token in this unit (all tokens share the same stack). */
@@ -465,25 +447,6 @@ export function layoutInlineContent(
   // "wrap" by default.
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
-  // Trailing-whitespace hang (CSS Text 3): under a preserving white-space
-  // (`pre-wrap`), a wrap unit's trailing spaces RENDER but do NOT count toward
-  // the soft-wrap available-width decision — they "hang" past the content edge.
-  // Gated on `preservesWhitespace` so collapsing modes (`normal`/`nowrap`/
-  // `pre-line`) keep byte-identical wrap behavior (no regression). See
-  // `WrapUnit.trailingWhitespaceWidth`.
-  const preserveWS = preservesWhitespace(ws);
-
-  /**
-   * Effective width a unit contributes to the soft-wrap DECISION. Under a
-   * preserving white-space the unit's own trailing spaces hang and don't count;
-   * otherwise it's the full width. `currentWidth` (the accumulated line width in
-   * `pushUnit`) always uses the FULL `totalWidth` — a prior unit's trailing
-   * spaces become INTERIOR (and must keep counting) once a worded unit follows.
-   */
-  function wordWidth(unit: WrapUnit): number {
-    return preserveWS ? unit.totalWidth - unit.trailingWhitespaceWidth : unit.totalWidth;
-  }
-
   const floatEnv = ctx.floatEnv;
 
   /** Returns the effective line inlineOffset and inlineSize at a given lineBlockOffset, accounting for floats. */
@@ -535,8 +498,6 @@ export function layoutInlineContent(
       units.push({
         tokens: [tok],
         totalWidth: 0,
-        // A LINE_BREAK is a zero-width sentinel; no trailing whitespace.
-        trailingWhitespaceWidth: 0,
         sourceKey: tok.sourceKey,
         isLineBreak: true,
         inlineAncestors: tok.inlineAncestors,
@@ -583,9 +544,6 @@ export function layoutInlineContent(
         units.push({
           tokens: spaceRun,
           totalWidth: w,
-          // A standalone space-run is ALL spaces, so its entire width is the
-          // trailing run ⇒ wordWidth === 0 (it never forces a wrap on its own).
-          trailingWhitespaceWidth: w,
           sourceKey: tok.sourceKey,
           isLineBreak: false,
           inlineAncestors: tok.inlineAncestors,
@@ -608,23 +566,17 @@ export function layoutInlineContent(
     // user-perceived "cursor stuck after typing a second space" bug).
     const unit: Token[] = [tok];
     let w = tok.width;
-    // The leading token is a non-space word, so the trailing-whitespace run is
-    // exactly the spaces slurped after it. (If none are slurped it stays 0 ⇒
-    // wordWidth === totalWidth, the unchanged behavior.)
-    let trailingWhitespaceWidth = 0;
     const unitStartIdx = i;
     let j = i + 1;
     while (j < tokens.length && tokens[j].isSpace && tokens[j].sourceKey === tok.sourceKey) {
       unit.push(tokens[j]);
       w += tokens[j].width;
-      trailingWhitespaceWidth += tokens[j].width;
       j++;
     }
     i = j;
     units.push({
       tokens: unit,
       totalWidth: w,
-      trailingWhitespaceWidth,
       sourceKey: tok.sourceKey,
       isLineBreak: false,
       inlineAncestors: tok.inlineAncestors,
@@ -744,9 +696,6 @@ export function layoutInlineContent(
     const prefixUnit: WrapUnit = {
       tokens: [prefixToken],
       totalWidth: bestPrefixWidth,
-      // The prefix ends at the hyphen break (a non-space cluster) — no trailing
-      // whitespace.
-      trailingWhitespaceWidth: 0,
       sourceKey: unit.sourceKey,
       isLineBreak: false,
       inlineAncestors: unit.inlineAncestors,
@@ -762,10 +711,6 @@ export function layoutInlineContent(
     const suffixUnit: WrapUnit = {
       tokens: [suffixToken, ...trailingTokens],
       totalWidth: suffixToken.width + trailingWidth,
-      // `trailingTokens` are exactly the original unit's slurped trailing space
-      // tokens (the suffix word `suffixToken` is non-space), so the suffix's
-      // trailing-whitespace run width is `trailingWidth`.
-      trailingWhitespaceWidth: trailingWidth,
       sourceKey: unit.sourceKey,
       isLineBreak: false,
       inlineAncestors: unit.inlineAncestors,
@@ -925,12 +870,8 @@ export function layoutInlineContent(
     // Soft wrap — only when canWrap is true
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
 
-    if (canWrap && currentWidth + wordWidth(unit) > lineInlineSize && currentUnits.length > 0) {
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
       // Before flushing: try hyphen-split on the overflowing unit.
-      // NOTE: `available` deliberately uses the FULL `currentWidth` (not a
-      // hang-adjusted value). The trailing-whitespace hang × hyphenation
-      // interaction refinement is out of scope (a preserved-space unit rarely
-      // hyphenates); see the plan's Out-of-scope note.
       const available = lineInlineSize - currentWidth;
       const split = tryHyphenSplit(unit, available);
       if (split !== null) {
@@ -956,7 +897,7 @@ export function layoutInlineContent(
     // moves to the next float bottom — so we stop as soon as there is enough
     // space (the float that was squeezing this line may have ended while a
     // later float on the other side still leaves room).
-    if (canWrap && currentWidth + wordWidth(unit) > lineInlineSize && currentUnits.length === 0) {
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
       if (lineInlineSize < availableInlineSize) {
         // eslint-disable-next-line no-constant-condition
         while (true) {
@@ -964,7 +905,7 @@ export function layoutInlineContent(
           if (next <= lineBlockOffset) break; // no float below; can't push further
           lineBlockOffset = next;
           ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
-          if (lineInlineSize >= wordWidth(unit)) break; // now fits (hung trailing spaces don't count)
+          if (lineInlineSize >= unit.totalWidth) break; // now fits
           if (lineInlineSize >= availableInlineSize) break; // no more floats squeezing
         }
       }
@@ -972,9 +913,7 @@ export function layoutInlineContent(
 
     // Hyphen split on an otherwise-empty line: the unit doesn't fit even alone,
     // but a hyphen break opportunity allows a prefix to fit.
-    if (canWrap && currentWidth + wordWidth(unit) > lineInlineSize && currentUnits.length === 0) {
-      // `available` uses full `currentWidth` — see the hang × hyphenation
-      // out-of-scope note at the first hyphen-split site above.
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
       const available = lineInlineSize - currentWidth;
       const split = tryHyphenSplit(unit, available);
       if (split !== null) {
