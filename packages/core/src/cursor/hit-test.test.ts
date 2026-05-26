@@ -7,6 +7,7 @@ import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
 import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
+import { getLineIndex, collectLineLeaves } from "./line-flatten";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
 import {
@@ -17,6 +18,7 @@ import {
   embed,
 } from "../test-utils/state-builders";
 import type { State } from "../state/state";
+import type { BlockId } from "../state/block-id";
 import type { LayoutBox } from "../layout/layout-node";
 
 function pipeline(
@@ -34,7 +36,11 @@ function pipeline(
   return { layout, shaper };
 }
 
-function singleParagraph(textContent: string): State {
+// `whiteSpace` (optional): when provided, pins the paragraph's
+// `white-space` (via the `whiteSpace` attr interpreter) instead of
+// inheriting the document root's default (`pre-wrap`). Collapse-dependent
+// fixtures pass `"normal"` so their pixel/offset assertions stay valid.
+function singleParagraph(textContent: string, whiteSpace?: string): State {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -48,6 +54,7 @@ function singleParagraph(textContent: string): State {
         id: "p",
         type: "paragraph",
         parentId: "doc",
+        attrs: whiteSpace !== undefined ? { whiteSpace } : undefined,
         inlineContent: inlineContent([text(textContent)]),
       }),
     ],
@@ -436,6 +443,55 @@ describe("resolvePositionFromPixel (new)", () => {
   });
 });
 
+describe("editor default white-space: pre-wrap (multiple spaces render)", () => {
+  // Under the editor's default white-space (now `pre-wrap`, set on the
+  // document root and inherited), a paragraph that contains two interior
+  // spaces preserves BOTH — they don't collapse to one. This is a GEOMETRY
+  // assertion through the real render→layout pipeline with the default doc
+  // (no explicit white-space attr): the only line must own all 4 state chars
+  // and its rendered content width must reflect both spaces.
+  it("'a  b' renders both spaces: line owns all 4 chars and is 32px wide", () => {
+    const state = singleParagraph("a  b");
+    const { layout } = pipeline(state);
+
+    // Find the paragraph's single LineBox and assert it owns the full state
+    // range [0, 4) — under collapse the second space would be dropped from
+    // the offset accounting / rendered width.
+    const pLines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+    expect(pLines.length).toBe(1);
+    const al = pLines[0];
+    if (al === undefined) return;
+    expect(al.line.inlineOffsetStart).toBe(0);
+    expect(al.line.inlineOffsetEnd).toBe(4);
+
+    // Rendered content width: "a"(8) + " "(8) + " "(8) + "b"(8) = 32px.
+    // Under collapse it would be 24px (one space dropped). Sum the rendered
+    // widths of the line's leaves (text-runs).
+    const leaves = collectLineLeaves(al.line, al.absoluteX);
+    const width = leaves.reduce((sum, leaf) => sum + leaf.width, 0);
+    expect(width).toBe(32);
+  });
+
+  it("selectWord on 'b' after the two spaces selects just 'b' [3,4)", () => {
+    const state = singleParagraph("a  b");
+    const { layout, shaper } = pipeline(state);
+    // "b" is the 4th rendered glyph: under pre-wrap both interior spaces
+    // render, so "b" lives at x ∈ [24, 32). Click at x=25 (just inside the
+    // start of "b") → state offset 3. Under collapse "b" would sit at x=16
+    // and this click would land in the (collapsed) space tail instead.
+    const result = resolvePositionFromPixel(state, layout, shaper, 25, 0);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    expect(result.blockId).toBe("p");
+    expect(result.offset).toBe(3);
+    const span = selectWord(state, result);
+    expect(span.anchor.blockId).toBe("p");
+    expect(span.focus.blockId).toBe("p");
+    expect(span.anchor.offset).toBe(3);
+    expect(span.focus.offset).toBe(4);
+  });
+});
+
 describe("collapsed-whitespace offset drift (double-click third word after double space)", () => {
   // Root-cause repro: under white-space:normal a double space collapses to one
   // rendered space, but cursor offsets are STATE offsets. A click at the
@@ -448,7 +504,11 @@ describe("collapsed-whitespace offset drift (double-click third word after doubl
   // Rendered start of word3 "dsajiodj": 10 + 1 + 6 + 1 = 18 rendered chars → x = 18*8 = 144.
 
   it("click at rendered start of word3 resolves to STATE offset 19", () => {
-    const state = singleParagraph(SENTENCE);
+    // Pinned to white-space:normal: this fixture's rendered geometry
+    // (x=144 for word3) is the COLLAPSE rendering. The editor body default
+    // is now pre-wrap (preserves the double space), so collapse-dependent
+    // assertions must opt back into `normal`.
+    const state = singleParagraph(SENTENCE, "normal");
     const { layout, shaper } = pipeline(state);
     // Click slightly inside word3's first glyph (x≈146) on the single line.
     const result = resolvePositionFromPixel(state, layout, shaper, 146, 0);
@@ -459,7 +519,8 @@ describe("collapsed-whitespace offset drift (double-click third word after doubl
   });
 
   it("selectWord at the resolved offset selects word3 [19, 27)", () => {
-    const state = singleParagraph(SENTENCE);
+    // Pinned to white-space:normal (collapse-dependent geometry; see above).
+    const state = singleParagraph(SENTENCE, "normal");
     const { layout, shaper } = pipeline(state);
     const result = resolvePositionFromPixel(state, layout, shaper, 146, 0);
     expect(result).not.toBeNull();

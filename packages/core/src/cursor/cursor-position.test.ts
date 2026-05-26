@@ -37,8 +37,15 @@ function pipeline(
   return { layout, shaper };
 }
 
-/** Build a single-paragraph document with the given text. */
-function singleParagraph(textContent: string): State {
+/**
+ * Build a single-paragraph document with the given text.
+ *
+ * `whiteSpace` (optional): when provided, pins the paragraph's
+ * `white-space` (via the `whiteSpace` attr interpreter) instead of
+ * inheriting the document root's default (`pre-wrap`). Collapse-dependent
+ * fixtures pass `"normal"` so their pixel/offset assertions stay valid.
+ */
+function singleParagraph(textContent: string, whiteSpace?: string): State {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -52,6 +59,7 @@ function singleParagraph(textContent: string): State {
         id: "p",
         type: "paragraph",
         parentId: "doc",
+        attrs: whiteSpace !== undefined ? { whiteSpace } : undefined,
         inlineContent: inlineContent([text(textContent)]),
       }),
     ],
@@ -120,7 +128,13 @@ describe("resolvePixelPosition (new)", () => {
     // Runs (single wide line): "dsajidosja " (offsetLength 11, rendered 11ch),
     //   "idoajs " (offsetLength 8 — owns the 2 source spaces, rendered 7ch),
     //   "dsajiodj" (offsetLength 8). Run2 spans x[88,144); run3 starts at 144.
-    const state = singleParagraph("dsajidosja idoajs  dsajiodj");
+    //
+    // Pinned to white-space:normal: this fixture's run geometry (the
+    // collapsed double space, run2 absorbing the source spaces, x=144 clamp)
+    // is the COLLAPSE rendering. The editor body default is now pre-wrap
+    // (preserves both spaces), so this collapse-dependent fixture opts back
+    // into `normal`.
+    const state = singleParagraph("dsajidosja idoajs  dsajiodj", "normal");
     const { layout, shaper } = pipeline(state, 800);
 
     // offset 18: the collapsed-away second space. Lives in run2's tail; the
