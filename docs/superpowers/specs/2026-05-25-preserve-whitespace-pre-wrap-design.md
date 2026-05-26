@@ -51,8 +51,11 @@ spaces = one breakable unit). The just-landed `Token.sourceLength` second pass i
 1. **Leading / orphan spaces must RENDER under pre-wrap.** The wrap-unit grouper currently SKIPS
    orphan leading-space tokens (correct for `normal` where they collapse away; this is the #308
    gap). Under a preserving white-space, leading spaces at a line/paragraph start must become a
-   rendered run owning their state offsets. Task 3 makes the grouper preserve leading/orphan spaces
-   when `whiteSpace` preserves (pre / pre-wrap / pre-line per-line) — closing #308 for these modes.
+   rendered run owning their state offsets. The grouper preserves leading/orphan spaces when
+   `whiteSpace` preserves — `preservesWhitespace(ws)` = `pre` / `pre-wrap` / `break-spaces` ONLY.
+   `pre-line` is NOT preserving here: it collapses INTERIOR whitespace like `normal` (only `\n`
+   survives, via LINE_BREAK), so its leading/interior spaces still collapse. Closes #308 for the
+   preserving modes.
 2. **Trailing-space hang at a soft wrap.** At the wrap decision (`currentWidth + unit.totalWidth >
    lineInlineSize`), a unit's trailing preserved-space tokens must be excluded from the overflow
    comparison (use the unit's WORD-only width for the fit test) while still being rendered (full unit

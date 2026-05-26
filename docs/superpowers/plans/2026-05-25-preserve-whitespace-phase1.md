@@ -39,7 +39,9 @@ interior, and trailing spaces — and emit `LINE_BREAK` between segments. Single
   is out of scope). Empty segments (e.g. leading `\n`) emit no word token, just the surrounding
   `LINE_BREAK`s.
 
-- [ ] **Step 1 — failing tests** (`text-tokenize.test.ts`): `tokenize("a  b", "pre-wrap")` →
+- [ ] **Step 1 — failing tests** (`text-tokenize.test.ts`): **REPLACE** the existing `pre-wrap` tests
+  (~lines 86-93) that assert the OLD single-token behavior (`tokenize("a   b","pre-wrap")` → `["a   b"]`)
+  — delete those assertions, don't keep them alongside. New cases: `tokenize("a  b", "pre-wrap")` →
   `["a"," "," ","b"]`; `tokenize("  a", "pre-wrap")` → `[" "," ","a"]`; `tokenize("a  ", "pre-wrap")` →
   `["a"," "," "]`; `tokenize("a\nb", "pre-wrap")` → `["a", LINE_BREAK, "b"]`; `tokenize("a b",
   "pre-wrap")` → `["a"," ","b"]` (single-space parity with normal). Import `LINE_BREAK` from the module.
@@ -61,11 +63,16 @@ line's `inlineOffsetStart..End` covers them and the caret can sit among them).
 
 - Gate the change on whether the active `whiteSpace` preserves whitespace (derive from the token's /
   parent's `computedStyle.whiteSpace`; add a small helper `preservesWhitespace(ws)` = ws is `pre` /
-  `pre-wrap` / `break-spaces` — NOT `normal`/`nowrap`/`pre-line`-collapsed-interior). For preserving
-  modes, emit leading/orphan space tokens as a standalone space-run `WrapUnit` (rendered, breakable
-  after) instead of skipping. Keep the skip for `normal`/`nowrap` (unchanged behavior).
+  `pre-wrap` / `break-spaces` — NOT `normal`/`nowrap`/`pre-line` (pre-line collapses INTERIOR
+  whitespace like normal; it only preserves `\n` via LINE_BREAK)). For preserving modes, emit
+  leading/orphan space tokens as a standalone space-run `WrapUnit` (rendered, breakable after) instead
+  of skipping. Keep the skip for `normal`/`nowrap`/`pre-line` (unchanged behavior).
 - The space-run unit's `sourceLength`/`offsetLength` already flow from Task-1's tokens (each space = 1
-  state char). Verify the line offset accumulator includes them.
+  state char). **The space-run `WrapUnit` MUST be added to `units[]` at the grouper level** (where the
+  orphan-skip currently lives), so the greedy wrap loop's `pushUnit()` advances `cursorOffset` by the
+  unit's `unitOffsetContribution` (closing #308). Do NOT emit it inside `buildLineChildrenForAncestorLevel`
+  or anywhere that bypasses `pushUnit` — that would break the line offset accounting. Verify the
+  resulting line `inlineOffsetStart..End` covers the leading spaces.
 
 - [ ] **Step 1 — failing tests** (`ifc.test.ts`, explicit `white-space: pre-wrap` in the cascaded
   fixture, NOT relying on the default): a paragraph `"  abc"` lays out with a leading 2-space run
@@ -80,23 +87,42 @@ line's `inlineOffsetStart..End` covers them and the caret can sit among them).
 ## Task 3: flip the editor body default to `pre-wrap` + pin collapse tests to explicit `normal`
 
 **Files:** `packages/core/src/components/document.ts` (add `whiteSpace: "pre-wrap"` to the root
-ElementBox style); the collapse tests that currently rely on the default `normal`:
-`packages/core/src/cursor/hit-test.test.ts`, `cursor-position.test.ts`, `line-flatten.test.ts`, and any
-`ifc.test.ts` collapse cases — set `white-space: "normal"` EXPLICITLY in those fixtures so they keep
-testing the still-valid collapse path.
+ElementBox style); the collapse tests that reach the doc through the `render()`→`documentComponent`
+pipeline (so they inherit the new default and need pinning to explicit `normal`).
 
+**IMPORTANT — only tests that render THROUGH the document component are affected.** Tests that build
+the layout tree from RAW `createElementBox(...)` (inheriting `INITIAL_COMPUTED_STYLE.whiteSpace ===
+"normal"` directly) are NOT affected by the document-default flip and need NO change. Per the
+plan-review:
+- **PIN (these use the `singleParagraph`/`render()` pipeline → inherit the new pre-wrap default):**
+  - `cursor-position.test.ts` — the test `"offset inside a collapsed inter-word whitespace tail clamps
+    to the run's right edge"` (~line 116; multi-space `"dsajidosja idoajs  dsajiodj"`). Its pixel
+    assertions (r18.x=144, etc.) depend on collapse → pin the paragraph fixture to explicit
+    `white-space: "normal"`. (The `"abc  "` trailing-space tests do NOT need pinning — under pre-wrap
+    `"abc  "` still renders 5 units × 8px ⇒ x=40 holds.)
+  - `hit-test.test.ts` — within the `"collapsed-whitespace offset drift"` describe block, pin ONLY the
+    two multi-space tests: `"click at rendered start of word3 resolves to STATE offset 19"` (~line 450)
+    and `"selectWord at the resolved offset selects word3 [19,27)"` (~line 461). The third test
+    (`"single-space sentence ... no regression"`, ~line 474) uses single spaces and is UNAFFECTED — do
+    NOT pin it.
+- **DO NOT pin (built via raw `createElementBox`, not the document component ⇒ unaffected):**
+  `line-flatten.test.ts` `collectLineLeaves` "collapsed attribution" (`"idoajs  dsajiodj"`); the
+  `ifc.test.ts` collapse/hyphen cases. The plan-review confirmed these inherit `normal` from
+  `INITIAL_COMPUTED_STYLE` regardless of the document change. If any unexpectedly fails, STOP and
+  report (it would mean an unexpected pipeline path), don't blindly pin.
 - `document.ts`: `createElementBox(view.id, { display: "block", whiteSpace: "pre-wrap" }, childRenderNodes)`.
-  Confirm via the cascade that descendants inherit it (whiteSpace `inherits: true`).
-- Sweep the multi-space collapse tests: any test that builds text with multiple spaces through the
-  render pipeline AND asserts collapse now needs the paragraph/doc fixture to set `white-space: normal`
-  explicitly (the offset-drift fix's tests: hit-test "double-space drift", cursor-position "collapsed
-  tail", line-flatten "collapsed attribution"). Pin them; their assertions stay byte-identical under
-  explicit `normal`.
+  Confirm via the cascade that descendants inherit it (whiteSpace `inherits: true`, property-meta.ts:57).
+- After the flip, run the FULL suite and pin EXACTLY the tests that fail BECAUSE OF collapse-dependence
+  (expected: the 3 named above). Their assertions stay byte-identical under explicit `normal`. Report
+  each pinned test + confirm no OTHER test changed value (if one does and it isn't collapse-related,
+  STOP — that's an unexpected regression).
 
 - [ ] **Step 1 — failing test** (`hit-test.test.ts` or a new integration test, default doc — NO
-  explicit white-space): render `"a  b"` through the default pipeline; assert BOTH spaces render (e.g.
-  `selectWord` on `b` returns `b`'s span, and the line content width reflects 2 spaces, not 1). This
-  fails today (collapse) and after the default flip passes.
+  explicit white-space): render `"a  b"` through the default pipeline (8px/char mock shaper). Assert a
+  GEOMETRY value, not just structure: the paragraph's line `inlineOffsetEnd === 4` (all 4 state chars
+  owned) AND the line's rendered content width === 32px (`a`8 + `  `16 + `b`8) — vs 24px under collapse.
+  Also `selectWord` at the click on `b` returns `b`'s span. This fails today (collapse → width 24,
+  offsetEnd would mis-account) and passes after the default flip.
 - [ ] **Step 2** run → fail.
 - [ ] **Step 3** add `whiteSpace: "pre-wrap"` to `document.ts`; run the FULL core + dom suites; pin
   every now-failing collapse test to explicit `white-space: "normal"` (these failures are EXPECTED —
