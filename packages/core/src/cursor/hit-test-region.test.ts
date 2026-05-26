@@ -221,6 +221,32 @@ function planWithEntries(
   };
 }
 
+/**
+ * Locate page 0's PageBox in a positioned tree and read its content-area edges
+ * (#332). `positioned` is the materializeAll BlockBox whose children are
+ * PageBoxes; scan for pageIndex 0. The body content area is page-local
+ * [effectiveTopInset, blockSize − effectiveBottomInset]; the margins outside
+ * that band are the header/footer zones.
+ */
+function pageContentEdges(positioned: LayoutBox): {
+  contentTop: number;
+  contentBottom: number;
+  blockSize: number;
+} {
+  const root = positioned;
+  const children = root.type === "block" ? root.children : [];
+  for (const c of children) {
+    if (c.type === "page" && c.pageIndex === 0) {
+      return {
+        contentTop: c.effectiveTopInset,
+        contentBottom: c.blockSize - c.effectiveBottomInset,
+        blockSize: c.blockSize,
+      };
+    }
+  }
+  throw new Error("pageContentEdges: page 0 not found in positioned tree");
+}
+
 /** Geometry helper: the body band's bottom and the footer band's top on page 0. */
 function bodyAndFooterGeometry(state: State, positioned: LayoutBox) {
   const idx = getLineIndex(positioned);
@@ -367,6 +393,168 @@ describe("#331 — body-tail click clamps to body, footer band enters footer", (
     expect(idx.all.length).toBe(2); // both lines are body lines; no slots.
     const last = idx.all[idx.all.length - 1];
     // Click well below the last body line.
+    const y = last.absoluteY + last.line.blockSize + 200;
+    const pos = resolvePositionFromPixel(state, positioned, shaper, 1000, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    expect(resolved.kind).toBe("block");
+    expect(pos.blockId).toBe("bp1");
+    expect(pos.offset).toBe(lastBodyText.length);
+  });
+});
+
+describe("#332 — full top/bottom MARGIN is the header/footer zone (not just slot text)", () => {
+  it("precondition: a real GAP exists between the header text and the body content area", () => {
+    const { state, positioned } = buildDoc({
+      bodyParas: ["body one", "body two"],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const edges = pageContentEdges(positioned);
+    expect(g.headerLines.length).toBe(1);
+    // The header text bottom is strictly ABOVE the body content-area top, with a
+    // visible gap — this is the margin region the bug mis-classifies as body.
+    expect(edges.contentTop).toBeGreaterThan(g.headerBottom + 1);
+    // The body's first line sits at the content-area top (page-local origin).
+    expect(g.bodyMinY).toBeGreaterThanOrEqual(edges.contentTop - 0.5);
+  });
+
+  it("CASE 1 (THE BUG): header-gap click (below header text, in the top margin) → header", () => {
+    // y strictly in [maxHeaderLineBottom, contentTop): the empty top-margin band
+    // below the header text. On the OLD line-extent band logic this falls through
+    // to the BODY (RED). With the content-area edges it resolves to the HEADER.
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", "body two"],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const edges = pageContentEdges(positioned);
+    const header = g.headerLines[0];
+    // A y in the gap below the header text, above the body content area.
+    const y = (g.headerBottom + edges.contentTop) / 2;
+    expect(y).toBeGreaterThan(g.headerBottom);
+    expect(y).toBeLessThan(edges.contentTop);
+    // x over where the header TEXT is (so we'd land on the header line once the
+    // region is correctly chosen).
+    const x = header.absoluteX + SHAPER_CHAR_W * 2;
+
+    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    // RED on the pre-#332 code: this resolves to a BODY block ("bp0", kind
+    // "block"). GREEN: the header body block, kind "templateContent".
+    expect(resolved.kind).toBe("templateContent");
+    expect(pos.blockId).toBe(HEADER_P1);
+  });
+
+  it("CASE 2: header-text click → header (no-regression)", () => {
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", "body two"],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const header = g.headerLines[0];
+    const y = header.absoluteY + header.line.blockSize / 2;
+    const x = header.absoluteX + SHAPER_CHAR_W * 2;
+    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    expect(resolved.kind).toBe("templateContent");
+    expect(pos.blockId).toBe(HEADER_P1);
+  });
+
+  it("CASE 3: body empty-tail click → END of last body block (#331 preserved under new geometry)", () => {
+    const lastBodyText = "body two";
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", lastBodyText],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const edges = pageContentEdges(positioned);
+    // y below the last body line but still inside the body content area.
+    const y = (g.bodyMaxBottom + edges.contentBottom) / 2;
+    expect(y).toBeGreaterThan(g.bodyMaxBottom);
+    expect(y).toBeLessThan(edges.contentBottom);
+    const pos = resolvePositionFromPixel(state, positioned, shaper, 1000, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    expect(resolved.kind).toBe("block");
+    expect(pos.blockId).toBe("bp1");
+    expect(pos.offset).toBe(lastBodyText.length);
+  });
+
+  it("CASE 4: footer-band click BELOW the footer text → footer (full bottom margin is footer zone)", () => {
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", "body two"],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const edges = pageContentEdges(positioned);
+    const footer = g.footerLines[0];
+    const footerBottom = footer.absoluteY + footer.line.blockSize;
+    // y at/below contentBottom AND below the footer TEXT (the footer is shorter
+    // than the bottom margin, so there's a gap below it that must still → footer).
+    const y = Math.max(edges.contentBottom + 1, footerBottom + 1);
+    expect(y).toBeGreaterThanOrEqual(edges.contentBottom);
+    expect(y).toBeGreaterThan(footerBottom);
+    expect(y).toBeLessThan(edges.blockSize);
+    const x = footer.absoluteX + SHAPER_CHAR_W * 2;
+    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    expect(resolved.kind).toBe("templateContent");
+    expect(pos.blockId).toBe(FOOTER_P1);
+  });
+
+  it("CASE 5: body-line click → that body line (unchanged)", () => {
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", "body two"],
+      headerPara: "the header",
+      footerPara: "the footer",
+    });
+    const g = bodyAndFooterGeometry(state, positioned);
+    const first = g.bodyLines[0];
+    const y = first.absoluteY + first.line.blockSize / 2;
+    const x = first.absoluteX + SHAPER_CHAR_W * 1 + 1;
+    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    const resolved = resolveBlock(state, pos.blockId);
+    expect(resolved).not.toBeNull();
+    if (resolved === null) return;
+    expect(resolved.kind).toBe("block");
+    expect(pos.blockId).toBe("bp0");
+    expect(pos.offset).toBe(1);
+  });
+
+  it("CASE 6 (no-regression no-slot doc): body-tail click clamps to last line", () => {
+    const lastBodyText = "body two";
+    const { state, positioned, shaper } = buildDoc({
+      bodyParas: ["body one", lastBodyText],
+    });
+    const idx = getLineIndex(positioned);
+    expect(idx.all.length).toBe(2);
+    const last = idx.all[idx.all.length - 1];
     const y = last.absoluteY + last.line.blockSize + 200;
     const pos = resolvePositionFromPixel(state, positioned, shaper, 1000, y, 0);
     expect(pos).not.toBeNull();

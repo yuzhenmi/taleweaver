@@ -2,6 +2,7 @@ import { resolveBlock, createPosition, selectionContextOf } from "../state";
 import type { State, Position } from "../state";
 import type { AbsoluteLineBox } from "./line-flatten";
 import type { LayoutBox } from "../layout/layout-node";
+import type { PageBox } from "../layout/page-box";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
@@ -77,15 +78,17 @@ export function resolvePositionFromPixel(
       : allLines;
     if (visible.length === 0) return null;
 
-    // 2b. Region-aware band partition (#331). Since C.2c T6 `visible` is
+    // 2b. Region-aware band partition (#331 / #332). Since C.2c T6 `visible` is
     // [header lines, body lines, footer lines] in ascending-y order. A click in
-    // the body's empty TAIL (below the last body line, above the footer band)
-    // must clamp to the BODY — only a click in the footer BAND enters the footer,
-    // and only a click in the header BAND enters the header (Google Docs). Without
-    // this, the step-3 nearest-y loop walks past the body lines and lands on the
-    // FOOTER line. We classify `visible` into a body set and slot bands by their
-    // selection context + geometry, then pick the band the click `y` falls in.
-    const region = pickRegionByBand(state, visible, y);
+    // the body's empty TAIL (below the last body line, above the footer zone)
+    // must clamp to the BODY — only a click in the footer ZONE enters the footer,
+    // and only a click in the header ZONE enters the header (Google Docs). The
+    // zones are the FULL top/bottom page margins (not just the slot text extents),
+    // read off the PageBox's content-area edges. Without this, the step-3
+    // nearest-y loop walks past the body lines and lands on a slot line. We
+    // classify `visible` into a body set and slot zones, then pick the zone the
+    // click `y` falls in.
+    const region = pickRegionByBand(state, layoutTree, pageIndex, visible, y);
 
     // 3. Pick target line by Y within the chosen band. `region` is a filtered
     // subset of the ascending-y `visible`, so it stays ascending-y ordered.
@@ -173,25 +176,65 @@ export function resolvePositionFromPixel(
 }
 
 /**
- * Region-aware band selection for hit-test step 3 (#331).
+ * Find the `PageBox` for `pageIndex` in a positioned layout tree, or `null` for
+ * a non-paginated tree (one with no page boxes). The materialized tree is a root
+ * `BlockBox` whose children are `PageBox`es; a non-paginated tree has no page at
+ * all. Defensively also matches when the root itself is the page, and recurses
+ * one level into a non-page container that wraps the pages.
+ */
+function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
+  if (root.type === "page") {
+    return root.pageIndex === pageIndex ? root : null;
+  }
+  if (root.type === "block" || root.type === "inline-block") {
+    for (const child of root.children) {
+      if (child.type === "page" && child.pageIndex === pageIndex) return child;
+    }
+    // One level deeper, for a wrapper that nests the page list.
+    for (const child of root.children) {
+      if (child.type === "block" || child.type === "inline-block") {
+        for (const grandchild of child.children) {
+          if (grandchild.type === "page" && grandchild.pageIndex === pageIndex) {
+            return grandchild;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Region-aware zone selection for hit-test step 3 (#331 / #332).
  *
  * Since C.2c T6 a page's flat line list is `[header lines, body lines, footer
  * lines]` in ascending-y order. The nearest-y line pick must run within the
- * click's GEOMETRIC BAND only, so a click in the body's empty TAIL (below the
- * last body line, above the footer band) clamps to the BODY rather than walking
- * past it into the footer. Only a click in the footer band enters the footer,
- * only a click in the header band enters the header (Google Docs). This is the
- * hit-test sibling of #327's nav/select-all context isolation, with the band
+ * click's GEOMETRIC ZONE only, so a click in the body's empty TAIL (below the
+ * last body line, above the footer zone) clamps to the BODY rather than walking
+ * past it into the footer. Only a click in the footer zone enters the footer,
+ * only a click in the header zone enters the header (Google Docs). This is the
+ * hit-test sibling of #327's nav/select-all context isolation, with the zone
  * chosen by the click `y` instead of a prior caret context.
+ *
+ * #332: the zones are the FULL top/bottom page MARGINS, not just the slot text
+ * extents. Within a `page` box the line walker resets coordinates to (0,0), so
+ * every `absoluteY` here is PAGE-LOCAL and the click `y` is compared in the same
+ * frame. The body content area is exactly `[effectiveTopInset, blockSize −
+ * effectiveBottomInset]` (read off the PageBox). A click above `contentTop`
+ * (anywhere in the top margin, incl. the gap below short header text) → header;
+ * at/below `contentBottom` (incl. the gap below short footer text) → footer;
+ * in between → body. The earlier version derived the zone boundaries from slot
+ * LINE extents, so a click in the top-margin gap below the header text fell
+ * through to the body.
  *
  * Classification uses `selectionContextOf`: a MAIN-body line's owner resolves to
  * `state.rootId`; a header/footer slot line's owner resolves to that slot body's
- * own ROOT id. Body lines define the body's y-extent; slot lines are sorted into
- * the header band (entirely above the body) or footer band (at/below the body
- * bottom). Runs per click/drag (not per keystroke), so the partition is fine.
+ * own ROOT id. Runs per click/drag (not per keystroke), so the partition is fine.
  */
 function pickRegionByBand(
   state: State,
+  layoutTree: LayoutBox,
+  pageIndex: number,
   visible: readonly AbsoluteLineBox[],
   y: number,
 ): readonly AbsoluteLineBox[] {
@@ -211,44 +254,38 @@ function pickRegionByBand(
   // the pre-#331 hot path for every header/footer-free doc.
   if (slotLines.length === 0) return visible;
 
-  // 3. Degenerate page with only slot lines (no body to clamp to): keep prior
+  // 3. Locate the PageBox to read its content-area edges. If it's missing (a
+  // non-paginated tree) or there's no body to clamp to (degenerate), keep prior
   // behavior over the full `visible` list.
+  const page = findPageBox(layoutTree, pageIndex);
+  if (page === null) return visible;
   if (bodyLines.length === 0) return visible;
 
-  // 4. Body y-extent, then classify each slot line into the header band (entirely
-  // above the body) or footer band (at/below the body bottom). A slot line that
-  // overlaps the body band (shouldn't occur for headers/footers) is left out of
-  // both bands so it can't capture the click.
-  let bodyMinY = Infinity;
-  let bodyMaxBottom = -Infinity;
-  for (const l of bodyLines) {
-    if (l.absoluteY < bodyMinY) bodyMinY = l.absoluteY;
-    const bottom = l.absoluteY + l.line.blockSize;
-    if (bottom > bodyMaxBottom) bodyMaxBottom = bottom;
-  }
-  const headerBand: AbsoluteLineBox[] = [];
-  const footerBand: AbsoluteLineBox[] = [];
-  let footerBandTop = Infinity;
-  let headerBandBottom = -Infinity;
+  // 4. The body content area (page-local). The full margins outside it are the
+  // header (above `contentTop`) / footer (at-or-below `contentBottom`) zones.
+  // Classify slot lines by which margin they sit in. A slot line that lands
+  // INSIDE the content area shouldn't occur (the growing slot shrinks the body
+  // to fit); leave any such line in neither set so it can't capture the click.
+  const contentTop = page.effectiveTopInset;
+  const contentBottom = page.blockSize - page.effectiveBottomInset;
+  const headerLines: AbsoluteLineBox[] = [];
+  const footerLines: AbsoluteLineBox[] = [];
   for (const l of slotLines) {
-    const top = l.absoluteY;
-    const bottom = l.absoluteY + l.line.blockSize;
-    if (bottom <= bodyMinY) {
-      headerBand.push(l);
-      if (bottom > headerBandBottom) headerBandBottom = bottom;
-    } else if (top >= bodyMaxBottom) {
-      footerBand.push(l);
-      if (top < footerBandTop) footerBandTop = top;
+    if (l.absoluteY < contentTop) {
+      headerLines.push(l);
+    } else if (l.absoluteY >= contentBottom) {
+      footerLines.push(l);
     }
   }
 
-  // 5. Choose the region by the click `y`. Footer band wins when the click is at
-  // or below the footer band's top; else the header band when above its bottom;
-  // else the body (which captures the empty body tail above the footer — the
-  // #331 fix). Each branch's region is non-empty (slot branches are gated on
-  // having such lines; the fallthrough is `bodyLines`, non-empty here).
-  if (footerBand.length > 0 && y >= footerBandTop) return footerBand;
-  if (headerBand.length > 0 && y < headerBandBottom) return headerBand;
+  // 5. Choose the region by the click `y` against the content-area edges. Footer
+  // zone wins when the click is at/below `contentBottom`; else the header zone
+  // when above `contentTop`; else the body (which captures the empty body tail
+  // inside the content area — the #331 fix). Each branch's region is non-empty
+  // (slot branches are gated on having such lines; the fallthrough is
+  // `bodyLines`, non-empty here).
+  if (footerLines.length > 0 && y >= contentBottom) return footerLines;
+  if (headerLines.length > 0 && y < contentTop) return headerLines;
   return bodyLines;
 }
 

@@ -18,6 +18,7 @@ describe("createPageBox", () => {
       0,                             // pageIndex
       816,                           // containingInlineSize
       null, null,                    // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     expect(page.type).toBe("page");
     expect(page.key).toBe("page-0");
@@ -52,6 +53,7 @@ describe("createPageBox", () => {
       1,                             // pageIndex
       816,                           // containingInlineSize
       null, null,                    // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     expect(page.type).toBe("page");
     expect(page.children).toHaveLength(1);
@@ -73,6 +75,7 @@ describe("createPageBox", () => {
       0,
       816,
       null, null,                    // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     // LTR is identity mapping for horizontal-tb
     expect(page.x).toBe(0);
@@ -97,6 +100,7 @@ describe("createPageBox", () => {
       0,
       containingInlineSize,
       null, null,                    // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     // RTL: inline-axis is mirrored
     const expectedX = containingInlineSize - inlineOffset - inlineSize;
@@ -119,6 +123,7 @@ describe("createPageBox", () => {
       0,
       816,
       null, null,                    // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     expect(page.headerSlot).toBeNull();
     expect(page.footerSlot).toBeNull();
@@ -149,6 +154,7 @@ describe("createPageBox", () => {
       0,
       816,
       header, footer,                // headerSlot, footerSlot
+      96, 96,                        // effectiveTopInset, effectiveBottomInset
     );
     expect(page.headerSlot).toBe(header);
     expect(page.footerSlot).toBe(footer);
@@ -156,5 +162,26 @@ describe("createPageBox", () => {
     expect(page.children).toHaveLength(0);
     // Slots are covered by the page's own freeze.
     expect(Object.isFrozen(page)).toBe(true);
+  });
+
+  it("round-trips the effectiveTopInset/effectiveBottomInset region edges (#332)", () => {
+    const cs = INITIAL_COMPUTED_STYLE;
+    const us = computeUsedStyle(cs, 816, "indefinite");
+    const page = createPageBox(
+      "page-insets",
+      0, 0,
+      816, 1056,
+      cs.writingMode, cs.direction,
+      cs, us,
+      [],
+      0,
+      816,
+      null, null,                    // headerSlot, footerSlot
+      72, 48,                        // effectiveTopInset, effectiveBottomInset
+    );
+    // The body content area is page-local [effectiveTopInset, blockSize − effectiveBottomInset].
+    expect(page.effectiveTopInset).toBe(72);
+    expect(page.effectiveBottomInset).toBe(48);
+    expect(page.blockSize - page.effectiveBottomInset).toBe(1056 - 48);
   });
 });

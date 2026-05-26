@@ -464,6 +464,11 @@ export function makeVirtualLayoutTree(
       pageIndex,
       effCfg.pageInlineSize,
       headerSlot, footerSlot,
+      // #332 region-classification edges: body content area is
+      // [effTopInset, pageBlockSize − effBottomInset]; the margins outside
+      // are the header/footer zones. On a #328 growing slot these exceed the
+      // raw margins; on a plain page they equal the page's content margins.
+      effTopInset, effBottomInset,
     );
   }
 

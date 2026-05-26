@@ -245,6 +245,10 @@ export function paginateRoot(
       pageConfig.pageInlineSize,
       // T1: header/footer slots default null (legacy positioned-paginate path).
       null, null,
+      // #332 region edges: this legacy path lays the body flush at the page
+      // content margins (no growing slot), so the body content area is exactly
+      // [margins.blockStart, pageBlockSize − margins.blockEnd].
+      margins.blockStart, margins.blockEnd,
     );
     pages.push(page);
 
@@ -300,6 +304,8 @@ export function paginateRoot(
       rootComputed, rootUsedStyle,
       [], 0, pageConfig.pageInlineSize,
       null, null,
+      // #332 region edges: empty defensive page uses the page content margins.
+      margins.blockStart, margins.blockEnd,
     ));
     pageIndex = 1;
   }

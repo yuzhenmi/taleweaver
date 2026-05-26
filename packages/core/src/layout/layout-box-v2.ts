@@ -565,6 +565,8 @@ function rebuildBoxWithOffsets(
         box.children, box.pageIndex, containingInlineSize,
         // Preserve the named header/footer slots across the reposition clone.
         box.headerSlot, box.footerSlot,
+        // Preserve the #332 region-classification edges across the clone.
+        box.effectiveTopInset, box.effectiveBottomInset,
       );
   }
 }

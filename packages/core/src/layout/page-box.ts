@@ -52,6 +52,19 @@ export interface PageBox {
    * footer is declared. Distinct named slot (see `headerSlot`).
    */
   readonly footerSlot: BlockBox | null;
+
+  /**
+   * Page-local top of the body content area = `effectiveTopInset`; bottom =
+   * `blockSize − effectiveBottomInset`. The full top/bottom margins OUTSIDE
+   * this band are the header/footer zones (#332): a click above
+   * `effectiveTopInset` belongs to the header, a click at/below
+   * `blockSize − effectiveBottomInset` belongs to the footer, anywhere in
+   * between is the body (including the body's empty tail below its last line).
+   * On a #328 growing slot these exceed the raw page margins; on a plain page
+   * they equal the page's content margins.
+   */
+  readonly effectiveTopInset: number;
+  readonly effectiveBottomInset: number;
 }
 
 /**
@@ -72,6 +85,8 @@ export function createPageBox(
   containingInlineSize: number,
   headerSlot: BlockBox | null,
   footerSlot: BlockBox | null,
+  effectiveTopInset: number,
+  effectiveBottomInset: number,
 ): PageBox {
   const phys = logicalToPhysical(
     { inlineOffset, blockOffset, inlineSize, blockSize },
@@ -89,5 +104,7 @@ export function createPageBox(
     pageIndex,
     headerSlot,
     footerSlot,
+    effectiveTopInset,
+    effectiveBottomInset,
   });
 }
