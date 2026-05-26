@@ -1,9 +1,10 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getTreeMap, getYBlock } from "./yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
+import { assertSameTree } from "./assert-same-tree";
 import { STATE_INTERNAL } from "./state-internal";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -57,11 +58,15 @@ export function mergeAdjacentBlocks(
     throw new Error(`mergeAdjacentBlocks: left and right are the same block "${leftId}"`);
   }
 
-  const left = getBlock(state, leftId);
-  if (left === null) {
+  // Resolve the reference (left) block ONCE to learn its owning tree (`kind`);
+  // every kind-routed write below targets that tree. `right` and the other
+  // neighbors are asserted to live in the same tree below.
+  const leftResolved = resolveBlock(state, leftId);
+  if (leftResolved === null) {
     throw new Error(`mergeAdjacentBlocks: left block "${leftId}" not found`);
   }
-  const right = getBlock(state, rightId);
+  const { block: left, kind } = leftResolved;
+  const right = resolveBlock(state, rightId)?.block ?? null;
   if (right === null) {
     throw new Error(`mergeAdjacentBlocks: right block "${rightId}" not found`);
   }
@@ -100,11 +105,26 @@ export function mergeAdjacentBlocks(
     );
   }
 
+  // The neighbor ids this op reads + rewires: right (deleted), right's old
+  // next sibling (its prevSiblingId flips to left), and the parent (its
+  // lastChildId may flip). All must live in the SAME tree as the reference
+  // (left) block — a cross-tree pointer would mean the kind-routed writes
+  // below corrupt state. (Dev-only; production no-op.)
+  assertSameTree(
+    state,
+    kind,
+    [rightId, right.nextSiblingId, parentId],
+    "mergeAdjacentBlocks",
+  );
+
   return applyOperation(state, () => {
     const doc = state[STATE_INTERNAL].doc;
-    const yBlocks = getBlocksMap(doc);
-    const yLeft = getYBlock(doc, leftId, "mergeAdjacentBlocks");
-    const yRight = getYBlock(doc, rightId, "mergeAdjacentBlocks");
+    // Route every map access to the reference (left) block's owning tree
+    // (`kind`): merging two header/footer-body paragraphs (templateContents)
+    // must delete `right` from templateContents, not the main `blocks` map.
+    const yTree = getTreeMap(doc, kind);
+    const yLeft = getYBlock(doc, leftId, "mergeAdjacentBlocks", kind);
+    const yRight = getYBlock(doc, rightId, "mergeAdjacentBlocks", kind);
     const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
     const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
 
@@ -126,7 +146,7 @@ export function mergeAdjacentBlocks(
     const rightNextId = (yRight.get("nextSiblingId") as BlockId | null) ?? null;
     yLeft.set("nextSiblingId", rightNextId);
     if (rightNextId !== null) {
-      getYBlock(doc, rightNextId, "mergeAdjacentBlocks").set(
+      getYBlock(doc, rightNextId, "mergeAdjacentBlocks", kind).set(
         "prevSiblingId",
         leftId,
       );
@@ -136,11 +156,11 @@ export function mergeAdjacentBlocks(
       // + adjacent-sibling + right.nextSibling===null). Unconditional
       // rewire matches the documented contract; an upstream invariant
       // violation would surface as a getYBlock throw.
-      const yParent = getYBlock(doc, parentId, "mergeAdjacentBlocks");
+      const yParent = getYBlock(doc, parentId, "mergeAdjacentBlocks", kind);
       yParent.set("lastChildId", leftId);
     }
 
-    // Delete right last (after reads of yRight are done).
-    yBlocks.delete(rightId);
+    // Delete right last (after reads of yRight are done) from the owning tree.
+    yTree.delete(rightId);
   });
 }

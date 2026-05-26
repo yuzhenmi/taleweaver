@@ -1,13 +1,14 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { Position } from "./block-position";
 import { inlineContentLength } from "./inline-content";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getTreeMap, getYBlock } from "./yjs-doc";
 import { buildYBlock, buildYInlineItem } from "./y-block";
 import { yMapAsObject, cloneInlineItem } from "./y-utils";
 import { assertNoIdCollision } from "./id-collision-check";
+import { assertSameTree } from "./assert-same-tree";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -50,10 +51,11 @@ export function splitBlockAtPosition(
   position: Position,
   allocator: IdAllocator,
 ): OperationResult {
-  const block = getBlock(state, position.blockId);
-  if (block === null) {
+  const resolved = resolveBlock(state, position.blockId);
+  if (resolved === null) {
     throw new Error(`splitBlockAtPosition: block "${position.blockId}" not found`);
   }
+  const { block, kind } = resolved;
   if (block.inlineContent === null || block.firstChildId !== null) {
     throw new Error(
       `splitBlockAtPosition: block "${position.blockId}" is a container, not a leaf`,
@@ -76,16 +78,28 @@ export function splitBlockAtPosition(
   const newBlockId = allocator.allocate();
   const parentId = block.parentId;
 
+  // The neighbor ids this op reads + rewires: the original's old next sibling
+  // (its prevSiblingId flips to the new block) and the parent (its lastChildId
+  // may flip). Both must live in the SAME tree as the reference block — a
+  // cross-tree pointer would mean the kind-routed writes below corrupt state.
+  // (Dev-only; production no-op.)
+  const originalNextIdPre = block.nextSiblingId;
+  assertSameTree(state, kind, [originalNextIdPre, parentId], "splitBlockAtPosition");
+
   return applyOperation(state, () => {
     const doc = state[STATE_INTERNAL].doc;
     // Dev-mode defense against allocator id collision (test allocators with
     // counter-based ids can collide with seeded state; production
-    // crypto.randomUUID effectively cannot). Without this, the yBlocks.set
-    // below would silently overwrite the existing block of the same id.
+    // crypto.randomUUID effectively cannot). Without this, the
+    // owning-map `set` below would silently overwrite the existing block of
+    // the same id. Checks all three trees (BlockIds share one namespace).
     assertNoIdCollision(doc, newBlockId, "splitBlockAtPosition");
 
-    const yBlocks = getBlocksMap(doc);
-    const yOriginal = getYBlock(doc, position.blockId, "splitBlockAtPosition");
+    // Route every map access to the reference block's owning tree (`kind`):
+    // a split inside a header/footer body (templateContents) must land the
+    // new sibling in templateContents, not the main `blocks` map.
+    const yTree = getTreeMap(doc, kind);
+    const yOriginal = getYBlock(doc, position.blockId, "splitBlockAtPosition", kind);
 
     // Split yOriginal's inlineContent: items in [0, offset) stay; items in
     // [offset, end) move to a new block. Straddling text items split.
@@ -106,11 +120,12 @@ export function splitBlockAtPosition(
     const newInlineContent = new Y.Array<Y.Map<unknown>>();
     if (suffixItems.length > 0) newInlineContent.push(suffixItems);
     newYBlock.set("inlineContent", newInlineContent);
-    yBlocks.set(newBlockId, newYBlock);
+    // New block inherits the reference block's map (`kind`).
+    yTree.set(newBlockId, newYBlock);
 
     // Re-wire sibling pointers around the insertion.
     if (originalNextId !== null) {
-      getYBlock(doc, originalNextId, "splitBlockAtPosition").set(
+      getYBlock(doc, originalNextId, "splitBlockAtPosition", kind).set(
         "prevSiblingId",
         newBlockId,
       );
@@ -118,7 +133,7 @@ export function splitBlockAtPosition(
     yOriginal.set("nextSiblingId", newBlockId);
 
     // Re-wire parent's lastChildId if original was the last child.
-    const yParent = getYBlock(doc, parentId, "splitBlockAtPosition");
+    const yParent = getYBlock(doc, parentId, "splitBlockAtPosition", kind);
     if (yParent.get("lastChildId") === position.blockId) {
       yParent.set("lastChildId", newBlockId);
     }

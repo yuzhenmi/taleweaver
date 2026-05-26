@@ -463,12 +463,17 @@ describe("replaceRange — error propagation", () => {
     expect(() => replaceRange(state, span, "X", {})).toThrow(/cross-parent spans are not supported/);
   });
 
-  it("propagates cross-context error (focus block not reachable from main tree)", () => {
-    // fn lives in embedContents (separate tree). replaceRange delegates to deleteRange,
-    // whose pre-normalize existence guard rejects the focus block because it isn't in
-    // state.blocks — the main-tree span cannot cross into embed-content territory.
-    // (Earlier the same intent was caught later by comparePositions' "no common ancestor"
-    // — both errors express the same invariant; only the guard site differs.)
+  it("propagates cross-context error (focus block in a different tree)", () => {
+    // fn lives in embedContents (separate tree); a span crossing trees
+    // (main → embedContents) must be refused — replaceRange composes deleteRange,
+    // which threads a single resolved `kind` that can only cover one tree. Since
+    // C.2c T7c, deleteRange's pre-normalize existence guard resolves the focus
+    // across ALL three trees (so a legitimate header/footer-body span passes), so
+    // `fn` is FOUND in embedContents and the cross-tree refusal now surfaces at
+    // `comparePositions`' "no common ancestor" check during normalization. (Before
+    // T7c the same intent was caught earlier by the getBlock-only existence guard's
+    // "focus block not found"; both errors express the same invariant — refuse
+    // cross-tree spans — only the guard site differs.)
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -480,7 +485,7 @@ describe("replaceRange — error propagation", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
-    expect(() => replaceRange(state, span, "X", {})).toThrow(/focus block "fn" not found/);
+    expect(() => replaceRange(state, span, "X", {})).toThrow(/have no common ancestor/);
   });
 
   it("propagates offset-out-of-range error", () => {

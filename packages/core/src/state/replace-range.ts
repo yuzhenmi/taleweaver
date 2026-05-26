@@ -170,14 +170,16 @@ export function replaceRange(
   const cursorOffset = normalized.anchor.offset;
   const anchorBlockId =
     deletePlan.mode === "same-block" ? deletePlan.blockId : deletePlan.anchorId;
-  // C.2c T7b: `planInsertTextFullReplace` now requires the anchor block's
-  // owning tree. replaceRange's map-agnostic wiring (resolving the anchor's
-  // kind, plus the multi-block new-block-inherits-map work) is C.2c T7c; until
-  // then this stays the main-tree default `"block"`, preserving byte-identical
-  // behavior for every current (main-tree) caller.
+  // C.2c T7c: thread the span's owning tree (`deletePlan.kind`, resolved by
+  // `planDeleteRange` via `resolveBlock`) into the insert plan so the
+  // composed `insertTextInTx` full-replace writes into the correct Y.Map. A
+  // replace inside a header/footer body (templateContents) now stays in that
+  // tree across BOTH phases. Main-tree spans resolve to `"block"` — the
+  // historical default — so every current caller is byte-identical. (Both
+  // phases share the same anchor block, hence the same `kind`.)
   const insertPlan = planInsertTextFullReplace(
     anchorBlockId,
-    "block",
+    deletePlan.kind,
     deletePlan.mergedItems,
     cursorOffset,
     text,

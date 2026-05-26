@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
@@ -10,10 +10,11 @@ import {
   splitInlineContentAtOffset,
   type InlineItem,
 } from "./inline-content";
-import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
+import { getEmbedContentsMap, getTreeMap, getYBlock, type BlockTreeKind } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
+import { assertSameTree } from "./assert-same-tree";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../cascade/attr-registry";
 
@@ -28,16 +29,28 @@ import type { AttrRegistry } from "../cascade/attr-registry";
  * prefix + suffix, with run-merging already applied. `embedContentIds`
  * is the set of embed-content subtree roots to cascade-delete from
  * `state.embedContents`.
+ *
+ * `kind` is the owning tree of the span's blocks (resolved once during
+ * planning via `resolveBlock`). `deleteRangeInTx` threads it to every
+ * block-level `getTreeMap` / `getYBlock` write so a span inside a
+ * header/footer body (templateContents) mutates that tree, not the main
+ * `blocks` map. Main-tree spans resolve to `"block"` — the historical
+ * default. NOTE: the embed-content cascade-delete writes always target the
+ * `embedContents` map regardless of `kind` — they delete embed BODIES
+ * referenced by dropped inline content, which are independent of the edited
+ * block's own tree.
  */
 export type DeleteRangePlan =
   | {
       readonly mode: "same-block";
+      readonly kind: BlockTreeKind;
       readonly blockId: BlockId;
       readonly mergedItems: ReadonlyArray<InlineItem>;
       readonly embedContentIds: ReadonlySet<BlockId>;
     }
   | {
       readonly mode: "cross-block";
+      readonly kind: BlockTreeKind;
       readonly anchorId: BlockId;
       readonly focusId: BlockId;
       readonly interveningIds: ReadonlyArray<BlockId>;
@@ -146,9 +159,11 @@ export function deleteRange(
  */
 export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
   if (plan.mode === "same-block") {
-    const yBlock = getYBlock(doc, plan.blockId, "deleteRange");
+    const yBlock = getYBlock(doc, plan.blockId, "deleteRange", plan.kind);
     yBlock.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
     if (plan.embedContentIds.size > 0) {
+      // Embed bodies always live in the embedContents map, independent of the
+      // edited block's own tree (`plan.kind`) — do NOT route these by kind.
       const yEmbeds = getEmbedContentsMap(doc);
       for (const id of plan.embedContentIds) {
         yEmbeds.delete(id);
@@ -157,9 +172,11 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
     return;
   }
 
-  // Cross-block.
-  const yBlocks = getBlocksMap(doc);
-  const yAnchor = getYBlock(doc, plan.anchorId, "deleteRange");
+  // Cross-block. Route block-level reads/writes/deletes to the span's owning
+  // tree (`plan.kind`) — a cross-block delete inside a header/footer body
+  // (templateContents) deletes the focus + intervening leaves from that tree.
+  const yTree = getTreeMap(doc, plan.kind);
+  const yAnchor = getYBlock(doc, plan.anchorId, "deleteRange", plan.kind);
 
   // Update anchor: new content + nextSiblingId rewired to focus's old next.
   yAnchor.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
@@ -168,12 +185,12 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
   // Rewire focus's old nextSibling, if any. Else update the parent's
   // lastChildId to anchor (focus was the parent's last child).
   if (plan.focusNextId !== null) {
-    getYBlock(doc, plan.focusNextId, "deleteRange").set(
+    getYBlock(doc, plan.focusNextId, "deleteRange", plan.kind).set(
       "prevSiblingId",
       plan.anchorId,
     );
   } else {
-    getYBlock(doc, plan.parentId, "deleteRange").set(
+    getYBlock(doc, plan.parentId, "deleteRange", plan.kind).set(
       "lastChildId",
       plan.anchorId,
     );
@@ -181,9 +198,9 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
 
   // Delete focus + all intervening leaves last (after reads of yAnchor /
   // sibling updates are done).
-  yBlocks.delete(plan.focusId);
+  yTree.delete(plan.focusId);
   for (const id of plan.interveningIds) {
-    yBlocks.delete(id);
+    yTree.delete(id);
   }
 
   // Cascade-delete embed-content subtrees referenced by the dropped
@@ -216,7 +233,10 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
  */
 export function assertDeleteRangeEndpoints(state: State, span: Span): void {
   const sameBlock = span.anchor.blockId === span.focus.blockId;
-  const rawAnchor = getBlock(state, span.anchor.blockId);
+  // Map-agnostic: resolve across all three trees so a span inside a
+  // header/footer body (templateContents) passes these guards rather than
+  // reporting a spurious "not found" (getBlock sees only the main tree).
+  const rawAnchor = resolveBlock(state, span.anchor.blockId)?.block ?? null;
   if (!rawAnchor) {
     throw new Error(
       sameBlock
@@ -232,7 +252,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
     );
   }
   if (!sameBlock) {
-    const rawFocus = getBlock(state, span.focus.blockId);
+    const rawFocus = resolveBlock(state, span.focus.blockId)?.block ?? null;
     if (!rawFocus) {
       throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
     }
@@ -279,10 +299,14 @@ export function planDeleteRange(
 
   // SAME-BLOCK case
   if (normalized.anchor.blockId === normalized.focus.blockId) {
-    const block = getBlock(state, normalized.anchor.blockId);
-    if (!block) {
+    // Map-agnostic: resolve across all three trees (a header/footer body lives
+    // in templateContents). `kind` is threaded onto the plan so
+    // `deleteRangeInTx` writes into the owning Y.Map.
+    const resolved = resolveBlock(state, normalized.anchor.blockId);
+    if (!resolved) {
       throw new Error(`deleteRange: block "${normalized.anchor.blockId}" not found`);
     }
+    const { block, kind } = resolved;
     if (!block.inlineContent || block.firstChildId !== null) {
       throw new Error(
         `deleteRange: block "${normalized.anchor.blockId}" is a container, not a leaf`,
@@ -335,6 +359,7 @@ export function planDeleteRange(
 
     return {
       mode: "same-block",
+      kind,
       blockId: block.id,
       mergedItems: merged,
       embedContentIds,
@@ -342,11 +367,16 @@ export function planDeleteRange(
   }
 
   // CROSS-BLOCK case
-  const anchorBlock = getBlock(state, normalized.anchor.blockId);
-  if (!anchorBlock) {
+  // Map-agnostic: resolve the anchor across all three trees and use its `kind`
+  // as the span's owning tree. The cross-parent refusal below guarantees both
+  // endpoints share a parent (so a single `kind` covers the whole span);
+  // `assertSameTree` re-verifies the focus + neighbors before any write.
+  const anchorResolved = resolveBlock(state, normalized.anchor.blockId);
+  if (!anchorResolved) {
     throw new Error(`deleteRange: anchor block "${normalized.anchor.blockId}" not found`);
   }
-  const focusBlock = getBlock(state, normalized.focus.blockId);
+  const { block: anchorBlock, kind } = anchorResolved;
+  const focusBlock = resolveBlock(state, normalized.focus.blockId)?.block ?? null;
   if (!focusBlock) {
     throw new Error(`deleteRange: focus block "${normalized.focus.blockId}" not found`);
   }
@@ -401,12 +431,12 @@ export function planDeleteRange(
   const interveningIds: BlockId[] = [];
   let cur: BlockId | null = anchorBlock.nextSiblingId;
   while (cur !== null && cur !== focusBlock.id) {
-    const node = getBlock(state, cur);
+    const node = resolveBlock(state, cur)?.block ?? null;
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
     }
     // Defensive (S-E6): the cross-block delete removes each intervening
-    // sibling via a flat `yBlocks.delete` — which would ORPHAN a container's
+    // sibling via a flat `yTree.delete` — which would ORPHAN a container's
     // subtree (its descendants are never visited or cascade-deleted). Refuse
     // a container in the intervening run rather than silently corrupt state;
     // action handlers must decompose such a span (the same stance as the
@@ -434,18 +464,29 @@ export function planDeleteRange(
   // last-child rewire branch.
   const focusNextId = focusBlock.nextSiblingId;
   if (focusNextId !== null) {
-    if (getBlock(state, focusNextId) === null) {
+    if (resolveBlock(state, focusNextId) === null) {
       throw new Error(
         `deleteRange: focus block's next sibling "${focusNextId}" not found`,
       );
     }
   } else {
-    if (getBlock(state, parentId) === null) {
+    if (resolveBlock(state, parentId) === null) {
       throw new Error(
         `deleteRange: parent "${parentId}" of anchor block not found`,
       );
     }
   }
+
+  // Dev-only single-tree invariant: every block this op deletes / rewires
+  // (focus, intervening leaves, focus's old next, the parent) must live in the
+  // same tree as the anchor (`kind`); otherwise the kind-routed writes below
+  // would corrupt state. Production no-op.
+  assertSameTree(
+    state,
+    kind,
+    [focusBlock.id, focusNextId, parentId, ...interveningIds],
+    "deleteRange",
+  );
 
   // Build merged anchor inline content (pure JS — Y materialization happens
   // inside the transaction via buildYInlineContent).
@@ -473,7 +514,7 @@ export function planDeleteRange(
     embedContentIds,
   );
   for (const id of interveningIds) {
-    const interveningBlock = getBlock(state, id);
+    const interveningBlock = resolveBlock(state, id)?.block ?? null;
     if (interveningBlock === null || interveningBlock.inlineContent === null) continue;
     collectEmbedContentSubtreeFromInlineContent(
       state,
@@ -489,6 +530,7 @@ export function planDeleteRange(
 
   return {
     mode: "cross-block",
+    kind,
     anchorId: anchorBlock.id,
     focusId: focusBlock.id,
     interveningIds,

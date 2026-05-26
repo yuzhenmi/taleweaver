@@ -775,11 +775,15 @@ describe("deleteRange — error cases", () => {
   });
 
   it("throws when the cross-block span endpoints are in different selection contexts", () => {
-    // p in doc; fn lives in embedContents (separate tree). deleteRange's pre-normalize
-    // existence guard rejects the focus block because it isn't in state.blocks —
-    // the main-tree span cannot cross into embed-content territory. (Earlier the same
-    // intent was caught later by comparePositions' "no common ancestor" — both errors
-    // express the same invariant; only the guard site differs.)
+    // p in doc; fn lives in embedContents (separate tree). A span crossing trees
+    // (main → embedContents) must be refused — a single resolved `kind` can only
+    // cover one tree. Since C.2c T7c, deleteRange's pre-normalize existence guard
+    // resolves the focus across ALL three trees (so a legitimate header/footer-body
+    // span passes); `fn` is therefore FOUND in embedContents, and the cross-tree
+    // refusal now surfaces at `comparePositions`' "no common ancestor" check during
+    // normalization. (Before T7c the same intent was caught earlier by the
+    // getBlock-only existence guard's "focus block not found"; both errors express
+    // the same invariant — refuse cross-tree spans — only the guard site differs.)
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -791,7 +795,7 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/focus block "fn" not found/);
+    expect(() => deleteRange(state, span)).toThrow(/have no common ancestor/);
   });
 
   it("throws when anchor offset is negative (same-block)", () => {
