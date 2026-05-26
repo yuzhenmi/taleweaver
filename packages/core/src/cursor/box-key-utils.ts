@@ -1,4 +1,4 @@
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 
 /**
  * Parsed result of a new-renderer inline-item box key.

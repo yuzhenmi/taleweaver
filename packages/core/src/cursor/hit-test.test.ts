@@ -17,8 +17,7 @@ import {
   text,
   embed,
 } from "../test-utils/state-builders";
-import type { State } from "../state/state";
-import type { BlockId } from "../state/block-id";
+import type { State, BlockId } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 
 function pipeline(

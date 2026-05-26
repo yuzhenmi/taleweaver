@@ -1,8 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock } from "../../state/state";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart } from "../../state/block-compare";
-import { deleteRange } from "../../state/delete-range";
+import { getBlock, createPosition, createSpan, spanStart, deleteRange } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";

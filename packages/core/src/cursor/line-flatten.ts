@@ -1,7 +1,6 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "../styles";
-import type { Position } from "../state/block-position";
-import type { BlockId } from "../state/block-id";
+import type { Position, BlockId } from "../state";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates

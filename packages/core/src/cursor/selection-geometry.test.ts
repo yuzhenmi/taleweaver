@@ -15,9 +15,8 @@ import {
   text,
   embed,
 } from "../test-utils/state-builders";
-import { createPosition, createSpan } from "../state/block-position";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
+import { createPosition, createSpan } from "../state";
+import type { BlockId, State } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 
 function pipeline(

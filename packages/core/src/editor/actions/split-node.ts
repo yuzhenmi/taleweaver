@@ -1,11 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import type { BlockId } from "../../state/block-id";
-import { getBlock } from "../../state/state";
-import { productionAllocator } from "../../state/block-id";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart } from "../../state/block-compare";
-import { deleteRange } from "../../state/delete-range";
-import { splitBlockAtPosition } from "../../state/split-block";
+import { getBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition } from "../../state";
+import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 

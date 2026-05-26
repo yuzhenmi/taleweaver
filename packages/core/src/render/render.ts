@@ -1,16 +1,5 @@
-import type { Block } from "../state/block";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
-import {
-  getBlock,
-  getEmbedContent,
-  getEmbedContentIds,
-  getTemplateContent,
-  getTemplateContentIds,
-  resolveBlock,
-} from "../state/state";
-import type { ReadonlyAttrs } from "../state/attrs";
-import type { InlineContent } from "../state/inline-content";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, resolveBlock } from "../state";
+import type { Block, BlockId, State, ReadonlyAttrs, InlineContent } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";

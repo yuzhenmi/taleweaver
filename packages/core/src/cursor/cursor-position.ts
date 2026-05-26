@@ -1,6 +1,5 @@
-import type { State } from "../state/state";
-import { getBlock } from "../state/state";
-import type { Position } from "../state/block-position";
+import { getBlock } from "../state";
+import type { State, Position } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";

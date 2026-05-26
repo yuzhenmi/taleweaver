@@ -31,11 +31,8 @@ import {
   inlineContent,
   text,
 } from "../test-utils/state-builders";
-import { createPosition } from "../state/block-position";
-import { getBlock } from "../state/state";
-import { inlineContentLength } from "../state/inline-content";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
+import { createPosition, getBlock, inlineContentLength } from "../state";
+import type { BlockId, State } from "../state";
 
 const SHAPER_CHAR_W = 8;
 const SHAPER_LINE_H = 16;

@@ -20,8 +20,8 @@ import {
   firstChildId,
   type EditorState,
 } from "./test-helpers";
-import { getBlock } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
+import { getBlock } from "../../state";
+import type { BlockId } from "../../state";
 
 /** Ordered list of the document root's direct children. */
 function rootChildren(editor: EditorState): BlockId[] {

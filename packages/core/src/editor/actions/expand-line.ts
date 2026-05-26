@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSpan } from "../../state/block-position";
+import { createSpan } from "../../state";
 import { moveToLine } from "../../cursor/line-navigation";
 
 export function handleExpandLine(

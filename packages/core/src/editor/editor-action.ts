@@ -1,5 +1,4 @@
-import type { Selection, Position } from "../state/block-position";
-import type { BlockInit } from "../state/block-init";
+import type { Selection, Position, BlockInit } from "../state";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }

@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { tableCellComponent } from "./table-cell";
 import type { ContainerBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
+import type { BlockId, State } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function containerView(): ContainerBlockView {

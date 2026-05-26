@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AttrInterpreter } from "./attr-registry";
 import { AttrRegistry, attrRegistry, createDefaultAttrRegistry } from "./attr-registry";
-import type { ReadonlyAttrs } from "../state/attrs";
+import type { ReadonlyAttrs } from "../state";
 
 describe("AttrInterpreter type", () => {
   it("can be implemented with the minimal required fields", () => {

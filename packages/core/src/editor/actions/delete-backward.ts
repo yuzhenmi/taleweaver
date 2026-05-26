@@ -1,13 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock } from "../../state/state";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart } from "../../state/block-compare";
-import { deleteRange } from "../../state/delete-range";
-import { mergeAdjacentBlocks } from "../../state/merge-blocks";
-import { mergeSectionWithPrevious } from "../../state/merge-section";
+import { getBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
-import { inlineContentLength } from "../../state/inline-content";
 import { rebuildTrees } from "./helpers";
 
 export function handleDeleteBackward(

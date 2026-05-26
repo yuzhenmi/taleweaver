@@ -1,4 +1,4 @@
-import type { Selection } from "../../state/block-position";
+import type { Selection } from "../../state";
 import type { EditorState } from "../editor-state";
 
 export function handleSetSelection(

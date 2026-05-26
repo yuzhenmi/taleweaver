@@ -18,10 +18,8 @@ import {
   createInitialEditorState,
   reduceEditor,
 } from "./test-helpers";
-import { getBlock } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
-import type { State } from "../../state/state";
-import type { BlockInit } from "../../state/block-init";
+import { getBlock } from "../../state";
+import type { BlockId, State, BlockInit } from "../../state";
 
 function lastChildOf(state: State, parentId: BlockId): BlockId {
   const parent = getBlock(state, parentId);

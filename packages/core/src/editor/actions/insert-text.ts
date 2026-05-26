@@ -1,9 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import type { OperationResult } from "../../state/state";
-import { insertText } from "../../state/insert-text";
-import { replaceRange } from "../../state/replace-range";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart } from "../../state/block-compare";
+import { insertText, replaceRange, createPosition, createSpan, spanStart } from "../../state";
+import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 

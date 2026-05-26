@@ -7,8 +7,8 @@ import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeRootContext } from "../layout/layout-context";
-import { createPosition } from "../state/block-position";
-import type { BlockId } from "../state/block-id";
+import { createPosition } from "../state";
+import type { BlockId } from "../state";
 import { collectLineBoxes, collectLineLeaves, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
 
 const shaper = createMockShaper(8, 16);

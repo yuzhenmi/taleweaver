@@ -1,8 +1,4 @@
-import type { TextItem, EmbedItem, InlineContent } from "../state/inline-content";
-import type { ReadonlyAttrs } from "../state/attrs";
-import type { BlockId } from "../state/block-id";
-import type { Block } from "../state/block";
-import type { State } from "../state/state";
+import type { TextItem, EmbedItem, InlineContent, ReadonlyAttrs, BlockId, Block, State } from "../state";
 import { buildStateFromBlocks } from "../state/build-state-from-blocks";
 
 const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});

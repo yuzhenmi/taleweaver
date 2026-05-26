@@ -37,7 +37,7 @@ import {
   inlineContent,
   text,
 } from "../../test-utils/state-builders";
-import { createHistory } from "../../state/history";
+import { createHistory } from "../../state";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";

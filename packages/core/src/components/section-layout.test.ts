@@ -18,7 +18,7 @@ import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "./component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import type { LayoutBox } from "../layout/layout-node";
-import type { State } from "../state/state";
+import type { State } from "../state";
 
 const shaper = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();

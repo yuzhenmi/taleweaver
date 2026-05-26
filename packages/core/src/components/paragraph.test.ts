@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { paragraphComponent } from "./paragraph";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
+import type { BlockId, State } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function leafView(overrides: Partial<LeafBlockView> = {}): LeafBlockView {

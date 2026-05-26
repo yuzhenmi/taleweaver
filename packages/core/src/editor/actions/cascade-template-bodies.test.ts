@@ -4,13 +4,11 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { createMockShaper } from "../../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { createHistory } from "../../state/history";
-import { createPosition, createSpan } from "../../state/block-position";
+import { createHistory, createPosition, createSpan } from "../../state";
+import type { State, BlockId } from "../../state";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
-import type { State } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 

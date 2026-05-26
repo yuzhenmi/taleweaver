@@ -1,7 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
-import { mergeBlockAttrs } from "../../state/merge-block-attrs";
+import { getBlock, mergeBlockAttrs } from "../../state";
+import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 /**

@@ -1,11 +1,5 @@
-import type { State } from "../state/state";
-import { getBlock } from "../state/state";
-import type { BlockId } from "../state/block-id";
-import type { Position, Span } from "../state/block-position";
-import { createPosition, createSpan } from "../state/block-position";
-import type { InlineContent } from "../state/inline-content";
-import { inlineContentLength, findItemAtOffset } from "../state/inline-content";
-import { nextBlockInDocOrder, prevBlockInDocOrder } from "../state/block-traversal";
+import { getBlock, createPosition, createSpan, inlineContentLength, findItemAtOffset, nextBlockInDocOrder, prevBlockInDocOrder } from "../state";
+import type { State, BlockId, Position, Span, InlineContent } from "../state";
 import {
   nextGraphemeBoundary,
   prevGraphemeBoundary,

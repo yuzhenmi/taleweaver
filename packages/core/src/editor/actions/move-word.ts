@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import { createSpan } from "../../state/block-position";
+import { createSpan } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 
 export function handleMoveWord(

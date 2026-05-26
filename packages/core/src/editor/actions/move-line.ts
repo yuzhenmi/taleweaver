@@ -1,6 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSpan } from "../../state/block-position";
-import { spanStart, spanEnd } from "../../state/block-compare";
+import { createSpan, spanStart, spanEnd } from "../../state";
 import { moveToLine } from "../../cursor/line-navigation";
 import { isCollapsed } from "../../cursor/selection";
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { moveByCharacter, moveByWord, selectWord, expandSelection } from "./cursor-ops";
 import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
-import { createPosition } from "../state/block-position";
-import type { BlockId } from "../state/block-id";
+import { createPosition } from "../state";
+import type { BlockId } from "../state";
 
 describe("moveByCharacter (new) — within text", () => {
   it("advances forward by one ASCII grapheme", () => {

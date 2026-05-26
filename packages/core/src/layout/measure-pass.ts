@@ -12,7 +12,7 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
 
 import type { RenderNode, ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import type { BreakToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";

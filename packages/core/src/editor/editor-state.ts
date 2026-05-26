@@ -1,18 +1,11 @@
-import { createEmptyDocument } from "../state/initial-state";
-import { History, createHistory } from "../state/history";
-import { type State, getBlock } from "../state/state";
-import {
-  createPosition,
-  createSpan,
-  type Selection,
-} from "../state/block-position";
+import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan } from "../state";
+import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode, ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { PageConfig } from "../layout/page-config";

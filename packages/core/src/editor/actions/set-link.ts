@@ -1,7 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart, spanEnd } from "../../state/block-compare";
-import { applyAttrsToRange } from "../../state/apply-attrs";
+import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 

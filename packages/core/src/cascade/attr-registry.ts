@@ -1,5 +1,5 @@
 import type { Style } from "../styles";
-import type { ReadonlyAttrs } from "../state/attrs";
+import type { ReadonlyAttrs } from "../state";
 import { registerBuiltinAttrs } from "./builtin-attrs";
 
 /**

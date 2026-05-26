@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE, type ComputedStyle } from "../styles";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import { computeUsedStyle } from "./used-style";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,

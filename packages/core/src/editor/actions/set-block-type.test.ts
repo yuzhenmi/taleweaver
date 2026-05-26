@@ -17,10 +17,9 @@ import {
   firstChildId,
 } from "./test-helpers";
 import type { EditorState } from "../editor-state";
-import { getBlock } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
+import { getBlock, createHistory } from "../../state";
+import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { createHistory } from "../../state/history";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";

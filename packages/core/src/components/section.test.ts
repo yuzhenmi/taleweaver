@@ -3,7 +3,7 @@ import { createDefaultComponentRegistry } from "./component-registry";
 import { sectionComponent } from "./section";
 import type { ContainerBlockView, RenderContext } from "../render/block-view";
 import type { BlockView } from "../render/block-view";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 
 // A fully-typed minimal ContainerBlockView fixture — no `any`/`as never`.

@@ -17,13 +17,14 @@ export type {
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 
-// State (Y.Doc-backed)
+// State (Y.Doc-backed) — re-exported through the `state/` barrel
+// (`./state/index.ts`), the intra-core API contract for the document model.
 export type {
   State,
   OperationResult,
   ResolvedBlock,
   ResolvedBlockKind,
-} from "./state/state";
+} from "./state";
 export {
   createState,
   applyOperation,
@@ -33,76 +34,76 @@ export {
   getTemplateContent,
   getBlockFromEither,
   resolveBlock,
-} from "./state/state";
-export { createEmptyDocument } from "./state/initial-state";
-export type { Block } from "./state/block";
-export type { BlockId, IdAllocator } from "./state/block-id";
+} from "./state";
+export { createEmptyDocument } from "./state";
+export type { Block } from "./state";
+export type { BlockId, IdAllocator } from "./state";
 export {
   productionAllocator,
   createTestAllocator,
-} from "./state/block-id";
+} from "./state";
 export type {
   InlineContent,
   InlineItem,
   TextItem,
   EmbedItem,
-} from "./state/inline-content";
+} from "./state";
 export {
   inlineContentLength,
   findItemAtOffset,
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
-} from "./state/inline-content";
-export type { ReadonlyAttrs } from "./state/attrs";
+} from "./state";
+export type { ReadonlyAttrs } from "./state";
 export {
   deepValueEqual,
   attrsEqual,
   mergeAttrs,
-} from "./state/attrs";
+} from "./state";
 export type {
   Position,
   Span,
   Selection,
-} from "./state/block-position";
+} from "./state";
 export {
   createPosition,
   createSpan,
   positionsEqual,
   comparePositionsWithinBlock,
-} from "./state/block-position";
+} from "./state";
 export {
   compareBlocksInDocOrder,
   comparePositions,
   spanStart,
   spanEnd,
   selectionContextOf,
-} from "./state/block-compare";
+} from "./state";
 export {
   nextBlockInDocOrder,
   prevBlockInDocOrder,
   ancestorChain,
   firstLeafBlock,
   lastLeafBlock,
-} from "./state/block-traversal";
-export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state/span-iteration";
+} from "./state";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state";
 
 // Layer 3 ops
-export { insertText } from "./state/insert-text";
-export { deleteRange } from "./state/delete-range";
-export { replaceRange } from "./state/replace-range";
-export { splitBlockAtPosition } from "./state/split-block";
-export { insertBlock } from "./state/insert-block";
-export type { InsertBlockArgs } from "./state/insert-block";
-export { removeBlock } from "./state/remove-block";
-export { mergeAdjacentBlocks } from "./state/merge-blocks";
-export { setBlockType } from "./state/set-block-type";
-export { setBlockAttrs } from "./state/set-block-attrs";
-export { mergeBlockAttrs } from "./state/merge-block-attrs";
-export { applyAttrsToRange } from "./state/apply-attrs";
-export { clonePastedSubtree } from "./state/clone-pasted-subtree";
-export type { ClonedSubtree } from "./state/clone-pasted-subtree";
-export { extractText, builtinEmbedSerializer } from "./state/extract-text";
-export type { EmbedSerializer } from "./state/extract-text";
+export { insertText } from "./state";
+export { deleteRange } from "./state";
+export { replaceRange } from "./state";
+export { splitBlockAtPosition } from "./state";
+export { insertBlock } from "./state";
+export type { InsertBlockArgs } from "./state";
+export { removeBlock } from "./state";
+export { mergeAdjacentBlocks } from "./state";
+export { setBlockType } from "./state";
+export { setBlockAttrs } from "./state";
+export { mergeBlockAttrs } from "./state";
+export { applyAttrsToRange } from "./state";
+export { clonePastedSubtree } from "./state";
+export type { ClonedSubtree } from "./state";
+export { extractText, builtinEmbedSerializer } from "./state";
+export type { EmbedSerializer } from "./state";
 
 // History (Y.UndoManager-backed)
 export {
@@ -110,7 +111,7 @@ export {
   createHistory,
   type SelectionEntry,
   type UndoRedoResult,
-} from "./state/history";
+} from "./state";
 
 // Cascade
 export { cascadePass, composeComputed, resolveLength } from "./cascade";
@@ -221,7 +222,7 @@ export {
 } from "./editor/editor-state";
 
 // Public input shape for the INSERT_NODE action payload.
-export type { BlockInit } from "./state/block-init";
+export type { BlockInit } from "./state";
 
 // Performance tracing
 export type { PerfReport } from "./perf/perf-trace";

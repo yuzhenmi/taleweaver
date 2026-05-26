@@ -1,17 +1,10 @@
-import type { State } from "../../state/state";
-import { getBlock } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
+import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder } from "../../state";
+import type { State, BlockId } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import type { ElementBox } from "../../render/render-node";
-import {
-  firstLeafBlock,
-  lastLeafBlock,
-  nextBlockInDocOrder,
-  prevBlockInDocOrder,
-} from "../../state/block-traversal";
 
 /**
  * Re-run the render + cascade + layout pipeline for the editor's

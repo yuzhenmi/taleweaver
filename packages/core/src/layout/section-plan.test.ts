@@ -9,7 +9,7 @@ import type { SectionPlan } from "./section-plan";
 import { createElementBox } from "../render/render-node";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import type { PageConfig } from "./page-config";
 
 // A doc-wide PageConfig for buildSectionPlan's 2nd argument. 800px block-size

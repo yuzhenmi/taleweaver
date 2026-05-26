@@ -1,7 +1,5 @@
-import type { State } from "../state/state";
-import { getBlock } from "../state/state";
-import type { Position } from "../state/block-position";
-import { createPosition } from "../state/block-position";
+import { getBlock, createPosition } from "../state";
+import type { State, Position } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";

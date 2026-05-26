@@ -1,11 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import type { State } from "../../state/state";
-import type { Span } from "../../state/block-position";
-import { createPosition, createSpan } from "../../state/block-position";
-import { spanStart, spanEnd } from "../../state/block-compare";
-import { iterateSpan } from "../../state/span-iteration";
-import { findItemAtOffset } from "../../state/inline-content";
-import { applyAttrsToRange } from "../../state/apply-attrs";
+import { createPosition, createSpan, spanStart, spanEnd, iterateSpan, findItemAtOffset, applyAttrsToRange } from "../../state";
+import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 

@@ -16,8 +16,7 @@ import {
 } from "../editor/editor-state";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { getBlock } from "../state/state";
-import { createPosition, createSpan } from "../state/block-position";
+import { getBlock, createPosition, createSpan } from "../state";
 
 const PAGE: PageConfig = {
   pageInlineSize: 600,

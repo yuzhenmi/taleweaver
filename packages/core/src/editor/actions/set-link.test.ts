@@ -10,7 +10,7 @@ import {
   createSpan,
   type EditorConfig,
 } from "../../index";
-import type { TextItem } from "../../state/inline-content";
+import type { TextItem } from "../../state";
 
 function makeConfig(): EditorConfig {
   return {

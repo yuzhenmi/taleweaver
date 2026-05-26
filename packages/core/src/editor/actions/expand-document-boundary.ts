@@ -1,7 +1,5 @@
 import type { EditorState } from "../editor-state";
-import { getBlock } from "../../state/state";
-import { createPosition, createSpan } from "../../state/block-position";
-import { inlineContentLength } from "../../state/inline-content";
+import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
 import { findFirstContentBlock, findLastContentBlock } from "./helpers";
 
 export function handleExpandDocumentBoundary(

@@ -19,7 +19,7 @@ import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { Style } from "../../styles";
-import type { BlockId } from "../../state/block-id";
+import type { BlockId } from "../../state";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { createMockShaper } from "../mock-shaper";
 import { flattenContents } from "../group-children";

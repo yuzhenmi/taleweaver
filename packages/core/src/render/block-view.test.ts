@@ -5,9 +5,7 @@ import type {
   LeafBlockView,
   RenderContext,
 } from "./block-view";
-import type { BlockId } from "../state/block-id";
-import type { InlineContent } from "../state/inline-content";
-import type { State } from "../state/state";
+import type { BlockId, InlineContent, State } from "../state";
 import type { ComputedStyle } from "../styles";
 
 describe("block-view (types)", () => {

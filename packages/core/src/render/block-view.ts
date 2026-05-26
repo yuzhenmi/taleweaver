@@ -1,7 +1,4 @@
-import type { BlockId } from "../state/block-id";
-import type { ReadonlyAttrs } from "../state/attrs";
-import type { InlineContent } from "../state/inline-content";
-import type { State } from "../state/state";
+import type { BlockId, ReadonlyAttrs, InlineContent, State } from "../state";
 import type { ComputedStyle } from "../styles";
 
 /**

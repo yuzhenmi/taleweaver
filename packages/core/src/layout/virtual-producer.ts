@@ -19,7 +19,7 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase3.md
 
 import type { ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";

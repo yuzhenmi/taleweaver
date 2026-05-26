@@ -19,10 +19,8 @@
 import { describe, it, expect } from "vitest";
 import { config, reduceEditor } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
-import { getBlock } from "../state/state";
-import type { State } from "../state/state";
-import { firstLeafBlock } from "../state/block-traversal";
-import type { BlockId } from "../state/block-id";
+import { getBlock, firstLeafBlock, createHistory } from "../state";
+import type { State, BlockId } from "../state";
 import { resolvePositionedTree } from "../layout/positioned-tree";
 import type { LayoutBox } from "../layout/layout-node";
 import {
@@ -31,7 +29,6 @@ import {
   inlineContent,
   text,
 } from "../test-utils/state-builders";
-import { createHistory } from "../state/history";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";

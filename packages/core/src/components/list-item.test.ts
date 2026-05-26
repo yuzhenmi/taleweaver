@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { listItemComponent } from "./list-item";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
-import type { State } from "../state/state";
+import type { BlockId, State } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function leafView(): LeafBlockView {

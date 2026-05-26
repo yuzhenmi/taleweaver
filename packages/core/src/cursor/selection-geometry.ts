@@ -1,12 +1,10 @@
-import type { State } from "../state/state";
-import type { Span } from "../state/block-position";
-import { positionsEqual } from "../state/block-position";
+import { positionsEqual, spanStart, spanEnd } from "../state";
+import type { State, Span } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import type { ComputedStyle } from "../styles";
-import { spanStart, spanEnd } from "../state/block-compare";
 import { resolvePixelPosition, type PixelPosition } from "./cursor-position";
 import {
   collectLineLeaves,

@@ -1,8 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock } from "../../state/state";
-import { productionAllocator } from "../../state/block-id";
-import { createPosition, createSpan } from "../../state/block-position";
-import { applySectionBreak } from "../../state/section-break";
+import { getBlock, productionAllocator, createPosition, createSpan, applySectionBreak } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 /**

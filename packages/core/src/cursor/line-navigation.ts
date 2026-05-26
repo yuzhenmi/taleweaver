@@ -1,14 +1,10 @@
-import type { State } from "../state/state";
-import { getBlock } from "../state/state";
-import type { Position } from "../state/block-position";
-import { createPosition } from "../state/block-position";
+import { getBlock, createPosition, firstLeafBlock, lastLeafBlock, inlineContentLength } from "../state";
+import type { State, Position } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { firstLeafBlock, lastLeafBlock } from "../state/block-traversal";
-import { inlineContentLength } from "../state/inline-content";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import {

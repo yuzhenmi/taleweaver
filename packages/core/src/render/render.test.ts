@@ -9,8 +9,8 @@ import type {
 } from "../components/component-definition";
 import type { RenderNode, ElementBox } from "./render-node";
 import { createElementBox } from "./render-node";
-import type { BlockId } from "../state/block-id";
-import { createEmptyDocument } from "../state/initial-state";
+import { createEmptyDocument } from "../state";
+import type { BlockId } from "../state";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 const documentComponent: ContainerComponentDefinition = {

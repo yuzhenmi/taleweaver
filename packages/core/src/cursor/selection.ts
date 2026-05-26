@@ -15,10 +15,10 @@
  * `state/block-position`, `spanStart` / `spanEnd` from
  * `state/block-compare`, and `positionsEqual` from `state/block-position`.
  */
-import type { Selection } from "../state/block-position";
-import { positionsEqual } from "../state/block-position";
+import { positionsEqual } from "../state";
+import type { Selection } from "../state";
 
-export type { Selection } from "../state/block-position";
+export type { Selection } from "../state";
 
 /** A collapsed span (a cursor — anchor === focus, no selected range). */
 export function isCollapsed(span: Selection): boolean {

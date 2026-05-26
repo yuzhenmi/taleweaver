@@ -8,12 +8,8 @@
 import { createMockShaper } from "../../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { getBlock } from "../../state/state";
-import type { State } from "../../state/state";
-import type { BlockId } from "../../state/block-id";
-import type { Selection } from "../../state/block-position";
-import { createPosition, createSpan } from "../../state/block-position";
-import { inlineContentLength } from "../../state/inline-content";
+import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
+import type { State, BlockId, Selection } from "../../state";
 import {
   createInitialEditorState,
   reduceEditor,
@@ -91,4 +87,4 @@ export {
   type EditorState,
 } from "../editor-state";
 export { createPosition, createSpan };
-export type { Selection } from "../../state/block-position";
+export type { Selection } from "../../state";

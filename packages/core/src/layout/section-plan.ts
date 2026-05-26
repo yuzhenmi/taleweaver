@@ -16,8 +16,8 @@
  * before the flattened child that begins a new section.
  */
 import type { RenderNode, ElementBox } from "../render/render-node";
-import type { BlockId } from "../state/block-id";
-import { coerceBlockId } from "../state/block-id";
+import { coerceBlockId } from "../state";
+import type { BlockId } from "../state";
 import type { PageConfig } from "./page-config";
 import { flattenContents } from "./group-children";
 import { resolveSectionPageConfig } from "./section-page-config";

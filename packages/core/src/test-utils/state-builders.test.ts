@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildBlock, buildState, text, embed, inlineContent } from "./state-builders";
-import { getBlock, getEmbedContent } from "../state/state";
-import type { BlockId } from "../state/block-id";
+import { getBlock, getEmbedContent } from "../state";
+import type { BlockId } from "../state";
 
 describe("state-builders (Y.Doc-backed)", () => {
   it("text() builds a TextItem with attrs", () => {

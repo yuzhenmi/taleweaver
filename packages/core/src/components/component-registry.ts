@@ -1,5 +1,5 @@
 import type { ComponentDefinition } from "./component-definition";
-import type { BlockKind, BlockKindResolver } from "../state/block-kinds";
+import type { BlockKind, BlockKindResolver } from "../state";
 import { documentComponent } from "./document";
 import { sectionComponent } from "./section";
 import { paragraphComponent } from "./paragraph";

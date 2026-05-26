@@ -1,14 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import type { BlockInit } from "../../state/block-init";
-import type { Position } from "../../state/block-position";
-import type { State } from "../../state/state";
-import type { BlockId, IdAllocator } from "../../state/block-id";
-import { productionAllocator } from "../../state/block-id";
-import { getBlock } from "../../state/state";
-import { insertBlock } from "../../state/insert-block";
-import type { InlineContent } from "../../state/inline-content";
-import type { BlockKindResolver } from "../../state/block-kinds";
-import { blockKindOf } from "../../state/block-kinds";
+import { productionAllocator, getBlock, insertBlock, blockKindOf } from "../../state";
+import type { BlockInit, Position, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 interface InsertNodeFold {

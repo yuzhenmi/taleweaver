@@ -23,7 +23,7 @@ import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
-import type { BlockId } from "../../state/block-id";
+import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";

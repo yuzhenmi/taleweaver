@@ -1,7 +1,7 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
-import type { BlockId } from "../state/block-id";
+import type { BlockId } from "../state";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 export type { PageBox } from "./page-box";
