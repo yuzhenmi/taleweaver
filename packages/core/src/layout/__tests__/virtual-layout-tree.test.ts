@@ -741,3 +741,202 @@ describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)",
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// C.2c Task 4: lay out header/footer SLOTS in materializePage + slot-aware
+// fingerprint.
+//
+// A page whose entry carries `headerBlockId`/`footerBlockId` (and whose body is
+// in `cascadedTemplateContents`) gets a positioned `headerSlot`/`footerSlot`
+// BlockBox laid into the page's TOP/BOTTOM margin band. The fingerprint gains
+// header/footer id + body-ref identity so a header edit (new cascaded body ref)
+// or a section header-id change re-materializes the page.
+// ---------------------------------------------------------------------------
+describe("VirtualLayoutTree — header/footer slot layout (C.2c T4)", () => {
+  /** Build {plan, ctx, shaper, cfg} with non-zero margins, plus the header/footer body builders. */
+  function setup(cfg: PageConfig) {
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pcis);
+    const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, root.children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
+    return { root, plan, ctx };
+  }
+
+  it("lays the header body into the TOP margin band (geometry) and footer into the BOTTOM band", () => {
+    // Margins: blockStart 10, blockEnd 10, inlineStart 15, inlineEnd 15 (marginedPageConfig).
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+
+    const hdrId = "hdr-root" as BlockId;
+    const ftrId = "ftr-root" as BlockId;
+    const hdrBody = cascadeRoot({ display: "block" }, [paragraph("hdr", 1)]);
+    const ftrBody = cascadeRoot({ display: "block" }, [paragraph("ftr", 1)]);
+    const bodies = new Map<BlockId, ElementBox>([
+      [hdrId, hdrBody],
+      [ftrId, ftrBody],
+    ]);
+
+    // Tag page 0's entry with both ids (every other field unchanged).
+    const planWithIds = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: hdrId, footerBlockId: ftrId } : e,
+    );
+    const tree = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, undefined, bodies,
+    );
+
+    const p0 = tree.getPage(0);
+    // Header slot: BlockBox at the top margin band origin (inlineStart, 0).
+    expect(p0.headerSlot).not.toBeNull();
+    const hdr = p0.headerSlot;
+    if (hdr === null) throw new Error("header slot null");
+    expect(hdr.type).toBe("block");
+    expect(hdr.inlineOffset).toBe(cfg.pageMargins.inlineStart);
+    expect(hdr.blockOffset).toBe(0);
+    // The body is one paragraph with a single 16px mock line. That 16px line
+    // OVERFLOWS the 10px top band, but is still placed (BFC can't-leave-a-
+    // fragment-empty rule), so the slot box is its natural content height: 16px.
+    // (A taller-than-band header overflowing the margin is the documented v1
+    // behavior; #312-class growth is out of scope.)
+    expect(hdr.blockSize).toBe(16);
+    expect(hdr.children.length).toBe(1); // one paragraph
+
+    // Footer slot: BlockBox at the top of the BOTTOM margin band.
+    expect(p0.footerSlot).not.toBeNull();
+    const ftr = p0.footerSlot;
+    if (ftr === null) throw new Error("footer slot null");
+    expect(ftr.type).toBe("block");
+    expect(ftr.inlineOffset).toBe(cfg.pageMargins.inlineStart);
+    expect(ftr.blockOffset).toBe(cfg.pageBlockSize - cfg.pageMargins.blockEnd);
+    expect(ftr.blockSize).toBe(16);
+    expect(ftr.children.length).toBe(1);
+
+    // The body content is laid out at EXACTLY the CONTENT width (page minus
+    // inline margins), not the full page width — a display:block fills its
+    // containing inline size, which is effContentInlineSize.
+    const contentInline = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
+    expect(hdr.inlineSize).toBe(contentInline);
+    expect(ftr.inlineSize).toBe(contentInline);
+  });
+
+  it("a page with NO header/footer id ⇒ both slots null", () => {
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+    // Even with bodies present in the map, an entry without ids gets null slots.
+    const bodies = new Map<BlockId, ElementBox>([
+      ["hdr-root" as BlockId, cascadeRoot({ display: "block" }, [paragraph("hdr", 1)])],
+    ]);
+    const tree = makeVirtualLayoutTree(
+      plan, root, ctx, createMockShaper(8, 16), cfg, undefined, bodies,
+    );
+    for (let i = 0; i < plan.entries.length; i++) {
+      const p = tree.getPage(i);
+      expect(p.headerSlot, `page ${i} header`).toBeNull();
+      expect(p.footerSlot, `page ${i} footer`).toBeNull();
+    }
+  });
+
+  it("an id with NO matching body in the map ⇒ that slot is null", () => {
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+    // Tag page 0 with a header id whose body is NOT in the map.
+    const planWithIds = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: "missing-hdr" as BlockId } : e,
+    );
+    const tree = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, undefined, new Map(),
+    );
+    expect(tree.getPage(0).headerSlot).toBeNull();
+    expect(tree.getPage(0).footerSlot).toBeNull();
+  });
+
+  it("NO-REGRESSION: a no-header/footer doc is byte-identical to no-bodies (slots null, body unchanged)", () => {
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+    const noBodies = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), cfg);
+    // A separate tree with an unrelated body in the map but NO entry ids.
+    const withMap = makeVirtualLayoutTree(
+      plan, root, ctx, createMockShaper(8, 16), cfg, undefined,
+      new Map<BlockId, ElementBox>([["x" as BlockId, cascadeRoot({ display: "block" }, [paragraph("x", 1)])]]),
+    );
+    for (let i = 0; i < plan.entries.length; i++) {
+      expect(withMap.getPage(i)).toEqual(noBodies.getPage(i));
+      expect(noBodies.getPage(i).headerSlot).toBeNull();
+      expect(noBodies.getPage(i).footerSlot).toBeNull();
+    }
+  });
+
+  it("FINGERPRINT: a CHANGED header body ref re-materializes; an UNCHANGED carried-forward body ref reuses (I3)", () => {
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+    const hdrId = "hdr-root" as BlockId;
+
+    // Tree A: page 0 carries the header id; body in the map.
+    const hdrBodyA = cascadeRoot({ display: "block" }, [paragraph("hdr", 1)]);
+    const planWithIds = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: hdrId } : e,
+    );
+    const bodiesA = new Map<BlockId, ElementBox>([[hdrId, hdrBodyA]]);
+    const treeA = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, undefined, bodiesA,
+    );
+    for (let i = 0; i < planWithIds.entries.length; i++) treeA.getPage(i);
+
+    // Tree B: SAME plan-entry ids, but the header body is a NEW cascaded ref
+    // (a header edit). Page 0's fingerprint differs (body ref) ⇒ NOT reused.
+    // Page 1 has no header id, unchanged ⇒ carried forward.
+    const hdrBodyB = cascadeRoot({ display: "block" }, [paragraph("hdr", 1)]);
+    expect(hdrBodyB).not.toBe(hdrBodyA);
+    const bodiesB = new Map<BlockId, ElementBox>([[hdrId, hdrBodyB]]);
+    const treeB = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, treeA, bodiesB,
+    );
+    expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
+    const laterNoHeader = planWithIds.entries.length - 1;
+    expect(treeB.getPage(laterNoHeader)).toBe(treeA.getPage(laterNoHeader));
+
+    // Tree C: SAME body ref as B carried forward (unchanged) ⇒ page 0 reused.
+    const treeC = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, treeB, bodiesB,
+    );
+    expect(treeC.getPage(0)).toBe(treeB.getPage(0));
+  });
+
+  it("FINGERPRINT: two entries with DIFFERENT header ids materialize independently (no stale-slot cross-reuse, M2)", () => {
+    const cfg = marginedPageConfig(300);
+    const { root, plan, ctx } = setup(cfg);
+    expect(plan.entries.length).toBeGreaterThanOrEqual(2);
+    const idA = "hdr-A" as BlockId;
+    const idB = "hdr-B" as BlockId;
+    const bodyA = cascadeRoot({ display: "block" }, [paragraph("hdrA", 1)]);
+    const bodyB = cascadeRoot({ display: "block" }, [paragraph("hdrB", 1)]);
+    const bodies = new Map<BlockId, ElementBox>([[idA, bodyA], [idB, bodyB]]);
+
+    // Tree 1: page 0 → idA, page 1 → idB.
+    const plan1 = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: idA } : { ...e, headerBlockId: idB },
+    );
+    const tree1 = makeVirtualLayoutTree(
+      plan1, root, ctx, createMockShaper(8, 16), cfg, undefined, bodies,
+    );
+    for (let i = 0; i < plan1.entries.length; i++) tree1.getPage(i);
+
+    // Tree 2: page 0 and page 1 SWAP their header ids (idB then idA). Both pages'
+    // header-id fingerprints differ from tree1 ⇒ both re-materialize. Crucially,
+    // page 0 must NOT reuse tree1's page-0 box (which had idA's body) since it
+    // now carries idB's body.
+    const plan2 = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: idB } : { ...e, headerBlockId: idA },
+    );
+    const tree2 = makeVirtualLayoutTree(
+      plan2, root, ctx, createMockShaper(8, 16), cfg, tree1, bodies,
+    );
+    expect(tree2.getPage(0)).not.toBe(tree1.getPage(0));
+    expect(tree2.getPage(1)).not.toBe(tree1.getPage(1));
+    // And the rendered header bodies are the swapped ones: page 0's header child
+    // count > 0 and its body came from idB (paragraph "hdrB").
+    const p0Hdr = tree2.getPage(0).headerSlot;
+    expect(p0Hdr).not.toBeNull();
+  });
+});

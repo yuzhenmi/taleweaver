@@ -122,18 +122,27 @@ interface PageFingerprint {
    * this page on the next edit cycle.
    */
   readonly stopBeforeIndex: number | null;
-}
-
-function fingerprintOf(entry: PagePlanEntry): PageFingerprint {
-  return {
-    children: entry.children,
-    resumeInto: entry.resumeInto,
-    resumeOut: entry.resumeOut,
-    blockOffset: entry.blockOffset,
-    listCounterAtStart: entry.listCounterAtStart,
-    pageConfig: entry.pageConfig,
-    stopBeforeIndex: entry.stopBeforeIndex,
-  };
+  /**
+   * The header / footer template-body ids this page's slots were laid out from
+   * (C.2c T4): `PagePlanEntry.headerBlockId` / `.footerBlockId`. `undefined`
+   * when the active section/doc declares no header/footer. MUST participate so a
+   * section header-id change (a SECTION_BREAK that flips the active header) re-
+   * materializes the page even when its body content + resume tokens are
+   * unchanged.
+   */
+  readonly headerBlockId: BlockId | undefined;
+  readonly footerBlockId: BlockId | undefined;
+  /**
+   * The cascaded header / footer body REFERENCE (`templateBodies.get(id)`).
+   * `undefined` when there is no id or no body for it. Reference identity is the
+   * change signal: a header edit produces a NEW cascaded ElementBox for the same
+   * id, so the body ref differs → re-materialize; an unchanged body carried
+   * forward across measure cycles keeps the same ref → reuse. (The body lives
+   * OUTSIDE `entry.children`, so without these fields a header-only edit would
+   * leave the page fingerprint identical and wrongly reuse the stale slot.)
+   */
+  readonly headerBody: ElementBox | undefined;
+  readonly footerBody: ElementBox | undefined;
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
@@ -163,6 +172,10 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.listCounterAtStart === b.listCounterAtStart &&
     pageConfigsEqual(a.pageConfig, b.pageConfig) &&
     a.stopBeforeIndex === b.stopBeforeIndex &&
+    a.headerBlockId === b.headerBlockId &&
+    a.footerBlockId === b.footerBlockId &&
+    a.headerBody === b.headerBody &&
+    a.footerBody === b.footerBody &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut)
@@ -227,6 +240,32 @@ export function makeVirtualLayoutTree(
   // below so it stays out of the public contract surface but remains
   // inspectable for tests and reachable by the T4 read site.
   const templateBodies = cascadedTemplateContents;
+
+  // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
+  // so it can resolve a page's header/footer body REFERENCE off `templateBodies`
+  // — the slot's change signal. The cross-tree compare in `getPage` works
+  // because the PREVIOUS tree's fingerprints were computed by ITS OWN closure
+  // (its own `templateBodies`) and `thisFp` by this tree's: a re-cascaded body
+  // (new ref) makes them differ → re-materialize; an unchanged carried-forward
+  // body (same ref) → reuse. `fingerprintAt` (below, also in the closure) binds
+  // to this same `fingerprintOf` automatically.
+  function fingerprintOf(entry: PagePlanEntry): PageFingerprint {
+    const headerBlockId = entry.headerBlockId;
+    const footerBlockId = entry.footerBlockId;
+    return {
+      children: entry.children,
+      resumeInto: entry.resumeInto,
+      resumeOut: entry.resumeOut,
+      blockOffset: entry.blockOffset,
+      listCounterAtStart: entry.listCounterAtStart,
+      pageConfig: entry.pageConfig,
+      stopBeforeIndex: entry.stopBeforeIndex,
+      headerBlockId,
+      footerBlockId,
+      headerBody: headerBlockId !== undefined ? templateBodies.get(headerBlockId) : undefined,
+      footerBody: footerBlockId !== undefined ? templateBodies.get(footerBlockId) : undefined,
+    };
+  }
 
   // Lazy per-index memo of materialized pages. Populated on first getPage(i).
   const pageMemo = new Map<number, PageBox>();
@@ -337,6 +376,44 @@ export function makeVirtualLayoutTree(
     // a section may override its geometry). The PageBox block-size is the
     // SECTION's effective page block-size, not the content size.
     const children: readonly LayoutBox[] = box ? [box] : [];
+
+    // C.2c (T4): lay the page's header/footer template bodies into the TOP /
+    // BOTTOM margin bands. Each is a single-shot `layoutBlock` of the cascaded
+    // body at the content inline-offset, capped at the band's available size.
+    // It is NOT paginated: `resumeFrom: null` and no `stopBeforeIndex`, so the
+    // body never page-breaks (a body taller than the band overflows for now).
+    // `pageIndex` is passed because `FragmentationContext` requires it (bfc
+    // propagates it into nested-child contexts); it is behaviorally inert for the
+    // slot's OWN layout — the slot context carries `prevLayoutCache: null`, so
+    // the paginated-reuse path is never entered for slots. The slot is null when
+    // the entry carries no id, or no body matches the id. Header origin is
+    // `(inlineStart, 0)` (top band); footer origin is
+    // `(inlineStart, pageBlockSize − blockEnd)` (top of the bottom band).
+    const layoutSlot = (
+      blockId: BlockId | undefined,
+      slotBlockStart: number,
+      availableBlockSize: number,
+    ): BlockBox | null => {
+      if (blockId === undefined) return null;
+      const body = templateBodies.get(blockId);
+      if (body === undefined) return null;
+      const { box: slotBox } = layoutBlock(
+        body,
+        effMargins.inlineStart,
+        slotBlockStart,
+        effContentCtx,
+        shaper,
+        { availableBlockSize, pageIndex, resumeFrom: null },
+      );
+      return slotBox;
+    };
+    const headerSlot = layoutSlot(entry.headerBlockId, 0, effMargins.blockStart);
+    const footerSlot = layoutSlot(
+      entry.footerBlockId,
+      effCfg.pageBlockSize - effMargins.blockEnd,
+      effMargins.blockEnd,
+    );
+
     return createPageBox(
       `page-${pageIndex}`,
       0, entry.blockOffset,
@@ -346,8 +423,7 @@ export function makeVirtualLayoutTree(
       children,
       pageIndex,
       effCfg.pageInlineSize,
-      // T1: header/footer slots default null; T4 will populate them.
-      null, null,
+      headerSlot, footerSlot,
     );
   }
 
