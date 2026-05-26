@@ -5,9 +5,11 @@ import {
   createYDoc,
   getMetaMap,
   runTransaction,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
 } from "./yjs-doc";
+import {
+  getEmbedContentRootIds,
+  getTemplateContentRootIds,
+} from "./root-id-cache";
 import {
   createSnapshotCache,
   createOverlayCache,
@@ -177,12 +179,14 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
  * on a particular sort.
  */
 export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
-  for (const id of getEmbedContentsMap(
-    state[STATE_INTERNAL].doc,
-  ).keys() as IterableIterator<BlockId>) {
-    const block = getEmbedContent(state, id);
-    if (block !== null && block.parentId === null) yield id;
-  }
+  // Yields from the doc-keyed root-id cache (#317): the common render path,
+  // including the per-keystroke incremental path, no longer scans the whole
+  // embedContents map (roots + body children). The cache recomputes its root
+  // set lazily, only after a key add/remove fires the map's `observe`
+  // handler (a rare event relative to keystrokes), so this is O(1) per
+  // keystroke for footnote-heavy docs. The #313 root-only contract is
+  // preserved by the cache, which records only `parentId === null` keys.
+  yield* getEmbedContentRootIds(state[STATE_INTERNAL].doc);
 }
 
 /**
@@ -199,12 +203,10 @@ export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
 export function* getTemplateContentIds(
   state: State,
 ): IterableIterator<BlockId> {
-  for (const id of getTemplateContentsMap(
-    state[STATE_INTERNAL].doc,
-  ).keys() as IterableIterator<BlockId>) {
-    const block = getTemplateContent(state, id);
-    if (block !== null && block.parentId === null) yield id;
-  }
+  // Yields from the doc-keyed root-id cache (#317); mirrors
+  // `getEmbedContentIds`. See that accessor for the cache rationale and the
+  // #313 root-only contract preservation.
+  yield* getTemplateContentRootIds(state[STATE_INTERNAL].doc);
 }
 
 /**
