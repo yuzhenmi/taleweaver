@@ -13,12 +13,23 @@ import { STATE_INTERNAL } from "./state-internal";
 import { isDevMode } from "./dev-mode";
 
 /**
- * One entry on the undo / redo selection stacks: the pre-action and
- * post-action selections captured at commit time.
+ * One entry on the undo / redo stacks: the pre-action and post-action
+ * selections captured at commit time.
  *
- * The stacks hold the SAME shape: when an entry moves from undo→redo
- * (via `undo()`) or redo→undo (via `redo()`), the pair travels intact
- * so both directions of traversal can return the correct side.
+ * A `SelectionEntry` does NOT live in its own parallel array. Instead it is
+ * welded onto the `Y.UndoManager` StackItem it belongs to via the item's
+ * `.meta` map (Yjs's documented "save/restore metadata like selection range"
+ * channel — see `StackItem.meta`). Binding it to the live item means it
+ * CANNOT index-desync from the Yjs stack regardless of how Yjs reshuffles the
+ * items (redo-clear on a new edit, group merge, depth-cap trim, etc.).
+ *
+ * `commit()` writes the pair onto the just-closed undo item. `undo()` /
+ * `redo()` read it back off the popped item, then RE-WELD it onto the
+ * opposite stack's new top item: Yjs does NOT copy `.meta` across undo↔redo —
+ * each direction creates a brand-new StackItem on the opposite stack with an
+ * empty `.meta` (empirically verified). The re-weld in `undo`/`redo` keeps the
+ * entry bound to whichever live item currently represents this action, so the
+ * cycle stays sound across arbitrarily many undo↔redo flips.
  */
 export interface SelectionEntry {
   readonly before: Selection | null;
@@ -40,13 +51,44 @@ export interface UndoRedoResult {
 }
 
 /**
+ * A Yjs undo/redo StackItem. Yjs's index barrel does not re-export the
+ * `StackItem` class, so we derive its type structurally from the return type
+ * of `UndoManager.undo()` (`StackItem | null`). This stays correct across
+ * Yjs 13.x without naming an unexported symbol.
+ */
+type YStackItem = NonNullable<ReturnType<Y.UndoManager["undo"]>>;
+
+/**
+ * Module-private key under which a `SelectionEntry` is stored on a
+ * `Y.UndoManager` StackItem's `.meta` map. A symbol (not a string) keeps the
+ * key from ever colliding with any future meta writer's key.
+ */
+const SEL_KEY: unique symbol = Symbol("taleweaver.history.selectionEntry");
+
+/**
+ * Read the `SelectionEntry` welded onto a StackItem's `.meta`. Returns null
+ * if absent — which, in correct operation, never happens: `commit()` writes
+ * the entry onto every item it produces. A null here means a tracked edit
+ * fired without a matching `commit` (the dev assertion in `undo`/`redo`
+ * surfaces it).
+ */
+function readSelectionEntry(item: YStackItem): SelectionEntry | null {
+  const entry = item.meta.get(SEL_KEY);
+  return entry === undefined ? null : (entry as SelectionEntry);
+}
+
+/**
  * Yjs-backed history wrapper. Mutable internal state — instances live
  * alongside an `EditorState`-like container and produce fresh State
  * references on undo/redo (so consumers can use `oldState !== newState`
  * to detect changes).
  *
- * Selection is per-client local state (not in Y.Doc); tracked separately
- * in the per-entry pairs and returned on undo/redo for the caller to apply.
+ * Selection is per-client local state (not in Y.Doc); the before/after pair
+ * is welded onto the owning `Y.UndoManager` StackItem via its `.meta` map
+ * (see `SelectionEntry`), so it stays bound to the live item and can never
+ * desync from the Yjs stack. There is no parallel selection array. (Yjs does
+ * not copy `.meta` across undo↔redo, so `undo`/`redo` re-weld it onto the
+ * opposite stack's new item — see `SelectionEntry`.)
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
  * with the blocks map, the embedContents map, and the templateContents map
@@ -56,6 +98,11 @@ export interface UndoRedoResult {
  * `createYDoc`, never reassigned). Because that single field never
  * changes after document construction, there is nothing to undo and no
  * observable behavior gap.
+ *
+ * (Distinct concept: the doc's meta Y.Map above is unrelated to the
+ * `StackItem.meta` map used here to carry `SelectionEntry`. The former is a
+ * Y type inside the document; the latter is plain client-local metadata on
+ * a Yjs undo StackItem. Don't conflate them.)
  *
  * If a future caller adds a new meta-map writer, they MUST consider
  * undoability explicitly. Either (a) the new field is also genuinely
@@ -73,8 +120,9 @@ export interface UndoRedoResult {
  * `stopCapturing()` does NOT increment `undoManager.undoStack.length`.
  * Yjs skips no-op groups. Consequence: action handlers MUST short-circuit
  * BEFORE calling `commit` on a no-op operation (e.g., check
- * `opResult.dirtyIds.size === 0`). The dev-mode write-time assertion in
- * `commit` catches accidental violations of this contract.
+ * `opResult.dirtyIds.size === 0`). A no-op commit has literally no StackItem
+ * to attach the SelectionEntry to — the dev-mode write-time assertion in
+ * `commit` catches accidental violations.
  *
  * ## Multi-transaction grouping
  *
@@ -84,17 +132,20 @@ export interface UndoRedoResult {
  * handlers may compose multiple internal ops (each its own
  * `doc.transact`), and they collapse to one undo entry at the action
  * boundary marked by `commit`. Under `captureTimeout: 0` Yjs would split
- * every transaction into its own undo group, breaking the alignment
- * invariant for any handler that chains ops.
+ * every transaction into its own undo group. Because the SelectionEntry is
+ * written AT commit onto the (then-merged) top-of-undoStack item — NOT in a
+ * `stack-item-added` handler — the grouping is transparent to selection
+ * storage: a multi-`transact` action fires `-added` then `-updated`, but at
+ * commit time exactly one merged item exists to receive the entry.
  *
  * ## Undo-depth cap
  *
  * Y.UndoManager has no built-in maxDepth, so `commit` trims the OLDEST
- * entries from both the undo stack and the aligned selection stack once
- * `maxDepth` (default `DEFAULT_MAX_UNDO_DEPTH`) is exceeded — bounding
- * long-session memory at the cost of making the most distant history
- * non-undoable. The lockstep front-trim preserves the alignment invariant.
- * See `commit`.
+ * entries from the undo stack once `maxDepth` (default
+ * `DEFAULT_MAX_UNDO_DEPTH`) is exceeded — bounding long-session memory at
+ * the cost of making the most distant history non-undoable. Each trimmed
+ * item carries its own `.meta` (and thus its SelectionEntry) away with it;
+ * there is no second structure to keep in lockstep. See `commit`.
  */
 /**
  * Default cap on undo-stack depth. `Y.UndoManager` has no built-in maxDepth;
@@ -109,26 +160,6 @@ export class History {
   private readonly undoManager: Y.UndoManager;
   private readonly maxDepth: number;
   private currentState: State;
-  /**
-   * Selection-entry stack aligned 1:1 with `undoManager.undoStack`.
-   * Each entry stores BOTH the pre-action and post-action selection so
-   * `undo()` can return `before` and `redo()` (after the entry has
-   * traveled to the redo stack) can return `after`.
-   *
-   * Alignment invariant: `commit()` is the ONLY caller of
-   * `stopCapturing()`. Because `captureTimeout: Number.MAX_SAFE_INTEGER`
-   * disables time-based group closure, every transaction since the prior
-   * `commit()` merges into one undo group, and `commit()` closes it.
-   * Therefore each call to `commit()` corresponds 1:1 with one UndoManager
-   * undo-stack entry — provided the action mutated tracked types (Yjs
-   * skips no-op groups, so handlers must short-circuit when
-   * `opResult.dirtyIds.size === 0`). Hence
-   * `undoSelectionStack.length === undoManager.undoStack.length` holds
-   * after every `commit()`. The same invariant holds for redo.
-   */
-  private readonly undoSelectionStack: SelectionEntry[] = [];
-  /** Selection-entry stack aligned 1:1 with `undoManager.redoStack`. */
-  private readonly redoSelectionStack: SelectionEntry[] = [];
 
   constructor(state: State, maxDepth: number = DEFAULT_MAX_UNDO_DEPTH) {
     if (maxDepth < 1) {
@@ -153,8 +184,7 @@ export class History {
         //
         // We do NOT use `captureTimeout: 0`. That config would split every
         // `doc.transact` into its own undo entry, breaking action-level
-        // grouping and the `undoSelectionStack.length === undoStack.length`
-        // alignment invariant for any handler that composes ops.
+        // grouping (each `applyOperation` would become its own undo step).
         captureTimeout: Number.MAX_SAFE_INTEGER,
         // Only track transactions with our default origin (null). Future
         // non-undoable mutations (e.g., remote collab edits) can opt OUT
@@ -166,25 +196,29 @@ export class History {
 
   /**
    * Record an undo entry. Updates the wrapper's notion of current state,
-   * closes the current Y.UndoManager capture group, records the
-   * before/after selection pair, and clears the redo stack.
+   * closes the current Y.UndoManager capture group, and welds the
+   * before/after selection pair onto the just-closed StackItem's `.meta`.
+   *
+   * Yjs clears its own redo stack on any new tracked edit (in its
+   * `afterTransaction` handler, BEFORE this `commit` runs), so there is
+   * nothing for `commit` to clear — the redo entries (and their `.meta`)
+   * are already gone.
    *
    * **Contract:** callers MUST NOT invoke `commit` on a no-op operation
    * (`opResult.dirtyIds.size === 0`). Yjs skips no-op groups (verified
    * empirically — see the class-level docstring above for the
-   * captureTimeout discussion); calling `commit` anyway would push a
-   * selection entry without a matching `undoStack` entry and break
-   * alignment. The dev-mode assertion below catches this.
+   * captureTimeout discussion); there would be no StackItem to attach the
+   * SelectionEntry to. The dev-mode assertion below catches this.
    */
   commit(opResult: OperationResult, selections: SelectionEntry): void {
     // Pre-condition, checked BEFORE any mutation so a misuse throws without
-    // leaving the wrapper half-updated (currentState advanced / selection
-    // pushed). `dirtyIds.size === 0` is exactly the forbidden no-op: Yjs
-    // records no undo group for it, so pushing a selection entry would
-    // misalign the stacks. (Sound today because every action handler surfaces
-    // its full change set via the FINAL OperationResult it commits; a future
-    // compound action whose last op has an empty dirty set must propagate a
-    // merged dirty set.) Dev-only — compiled out of production.
+    // leaving the wrapper half-updated (currentState advanced). `dirtyIds.size
+    // === 0` is exactly the forbidden no-op: Yjs records no undo group for it,
+    // so there'd be no item to receive the SelectionEntry. (Sound today because
+    // every action handler surfaces its full change set via the FINAL
+    // OperationResult it commits; a future compound action whose last op has an
+    // empty dirty set must propagate a merged dirty set.) Dev-only — compiled
+    // out of production.
     if (isDevMode() && opResult.dirtyIds.size === 0) {
       throw new Error(
         `History.commit: refusing to commit a no-op operation (dirtyIds empty); ` +
@@ -192,30 +226,35 @@ export class History {
       );
     }
     this.currentState = opResult.state;
+    // Close the current capture group. After this, the top of `undoStack` is
+    // the merged StackItem produced by this action's transaction(s).
     this.undoManager.stopCapturing();
-    this.undoSelectionStack.push(selections);
-    this.redoSelectionStack.length = 0;
+    // Weld the selection pair onto that item's `.meta`. It is now bound to
+    // the live undo item and can never desync from the Yjs stack. (`undo` /
+    // `redo` re-weld it onto the opposite stack's new item as the action
+    // flips direction — Yjs does not copy `.meta` across undo↔redo.)
+    const top =
+      this.undoManager.undoStack[this.undoManager.undoStack.length - 1];
+    if (top === undefined) {
+      // The action mutated tracked types (dirtyIds non-empty) yet produced no
+      // undo StackItem — should be impossible. Surface loudly rather than
+      // silently dropping the selection.
+      throw new Error(
+        `History.commit: no undo StackItem to attach selection to after ` +
+          `stopCapturing (dirtyIds=${opResult.dirtyIds.size}). ` +
+          `A tracked mutation should always produce a StackItem.`,
+      );
+    }
+    top.meta.set(SEL_KEY, selections);
     // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack
-    // exceeds the cap drop the OLDEST entries from both the UndoManager's
-    // undoStack and our aligned selection stack IN LOCKSTEP — an equal splice
-    // preserves the `undoSelectionStack.length === undoStack.length`
-    // invariant. The trimmed-away history simply becomes non-undoable; this
-    // bounds long-session memory (each StackItem retains DeleteSets).
+    // exceeds the cap drop the OLDEST entries from the undoStack. Each trimmed
+    // StackItem carries its own `.meta` (and thus its SelectionEntry) away
+    // automatically — there is no parallel array to keep in lockstep. The
+    // trimmed-away history simply becomes non-undoable; this bounds
+    // long-session memory (each StackItem retains DeleteSets).
     const excess = this.undoManager.undoStack.length - this.maxDepth;
     if (excess > 0) {
       this.undoManager.undoStack.splice(0, excess);
-      this.undoSelectionStack.splice(0, excess);
-    }
-    if (isDevMode()) {
-      if (this.undoSelectionStack.length !== this.undoManager.undoStack.length) {
-        throw new Error(
-          `History.commit: stack alignment broken ` +
-            `(undoSelectionStack=${this.undoSelectionStack.length}, ` +
-            `undoStack=${this.undoManager.undoStack.length}). ` +
-            `Did a handler call commit on a no-op operation? ` +
-            `Handlers must short-circuit when opResult.dirtyIds.size === 0.`,
-        );
-      }
     }
   }
 
@@ -230,53 +269,72 @@ export class History {
   /**
    * Pop the latest undo entry: mutate Y.Doc back, mint a fresh State,
    * and return the pre-action selection so the caller can restore it.
-   * The popped entry travels intact to the redo stack so a subsequent
-   * `redo()` can return its `after` side. Returns null if nothing to undo.
+   * Y.UndoManager creates a fresh StackItem on the redo stack; we re-weld
+   * this action's `SelectionEntry` onto it (Yjs does not copy `.meta`) so a
+   * subsequent `redo()` can read the `after` side. Returns null if nothing
+   * to undo.
    *
-   * **Error recovery (T33):** the whole body is wrapped in try/catch.
-   * Step order is `undoManager.undo` → `freshState` → stack mutations.
-   * If either of the first two throws, the selection stacks remain
-   * untouched, so stack alignment is preserved and a retry has the
-   * correct shape (note: `undoManager.undo` may have mutated the Y.Doc
-   * before throwing — that part is non-recoverable, but the wrapper's
-   * accounting stays consistent). Caller sees a wrapped error
-   * identifying the failure as history-internal.
+   * **Error recovery (T33):** the whole body is wrapped in try/catch. The
+   * only state-mutating step is `undoManager.undo()` (inside
+   * `captureDirtyIds`) and `freshState`. If either throws, the wrapper's
+   * `currentState` is left unchanged (it is only reassigned after both
+   * succeed), so a retry is sound. With the selection welded to the Yjs
+   * item there is no parallel-array mutation to order or unwind — strictly
+   * simpler and safer than the old two-array dance. Caller sees a wrapped
+   * error identifying the failure as history-internal.
    */
   undo(): UndoRedoResult | null {
-    if (isDevMode()) {
-      if (this.undoSelectionStack.length !== this.undoManager.undoStack.length) {
-        throw new Error(
-          `History.undo: stack misalignment ` +
-            `(undoSelectionStack=${this.undoSelectionStack.length}, ` +
-            `undoStack=${this.undoManager.undoStack.length}). ` +
-            `An op fired without calling history.commit, ` +
-            `or a no-op commit was issued without short-circuit.`,
-        );
-      }
-    }
     if (!this.canUndo()) return null;
-    // Peek selection BEFORE any mutation.
-    const entry = this.undoSelectionStack[this.undoSelectionStack.length - 1];
-    if (entry === undefined) return null;
     try {
       const doc = this.currentState[STATE_INTERNAL].doc;
-      // Capture dirty ids from the UndoManager's internal transaction
-      // so the editor's incremental render pipeline can rebuild only the
-      // reversed blocks (S-A3).
-      const dirtyIds = captureDirtyIds(doc, () => this.undoManager.undo());
-      // Construct the new state BEFORE mutating stacks. Passing dirtyIds
+      // Capture dirty ids from the UndoManager's internal transaction so the
+      // editor's incremental render pipeline can rebuild only the reversed
+      // blocks (S-A3). `undoManager.undo()` returns the popped StackItem; we
+      // read its `.meta` AFTER the closure returns (orthogonal to the dirtyId
+      // channel — no ordering hazard).
+      let poppedItem: YStackItem | null = null;
+      const dirtyIds = captureDirtyIds(doc, () => {
+        poppedItem = this.undoManager.undo();
+      });
+      // canUndo() was true, so undo() popped a real item.
+      if (poppedItem === null) {
+        throw new Error(
+          `History.undo: Y.UndoManager.undo() returned no StackItem despite ` +
+            `canUndo()===true.`,
+        );
+      }
+      const entry = readSelectionEntry(poppedItem);
+      if (isDevMode() && entry === null) {
+        throw new Error(
+          `History.undo: popped StackItem carries no SelectionEntry in .meta. ` +
+            `A tracked edit was committed without History.commit (or commit ` +
+            `failed to attach the selection).`,
+        );
+      }
+      // Carry the entry onto the freshly-created REDO StackItem so a
+      // subsequent redo() can read `after`. Yjs does NOT copy `.meta` across
+      // undo↔redo — it creates a brand-new StackItem on the opposite stack
+      // (empirically verified; the popped item keeps its meta but the new
+      // redo item starts empty). Re-welding here keeps the selection bound to
+      // the live item, so there is still no parallel array and no desync.
+      if (entry !== null) {
+        this.carryEntryToTop(this.undoManager.redoStack, entry);
+      }
+      // Construct the new state BEFORE updating currentState. Passing dirtyIds
       // builds the new state's cache as an overlay on the prior cache —
-      // unchanged blocks stay warm via fall-through (S-A2 + S-A3).
-      // If freshState throws (theoretical OOM), stacks remain untouched
-      // and a retry is sound.
+      // unchanged blocks stay warm via fall-through (S-A2 + S-A3). If
+      // freshState throws (theoretical OOM), currentState is untouched and a
+      // retry is sound.
       const newState = freshState(this.currentState, dirtyIds);
-      this.undoSelectionStack.pop();
-      this.redoSelectionStack.push(entry);
       this.currentState = newState;
-      return { state: newState, selection: entry.before, dirtyIds };
+      return {
+        state: newState,
+        selection: entry === null ? null : entry.before,
+        dirtyIds,
+      };
     } catch (err) {
       // Any throw above leaves the Y.Doc possibly mutated (if undoManager.undo
-      // ran) but the selection stacks untouched. Surface a wrapped error.
+      // ran) but `currentState` untouched. Surface a wrapped error.
       throw new Error(
         `History.undo: failed mid-operation, history may be inconsistent: ${err}`,
       );
@@ -285,41 +343,71 @@ export class History {
 
   /**
    * Re-apply the most recently undone entry. Returns the post-action
-   * selection so the caller can restore it. The entry travels back
-   * to the undo stack so the cycle can continue.
+   * selection so the caller can restore it. Y.UndoManager creates a fresh
+   * StackItem on the undo stack; we re-weld this action's `SelectionEntry`
+   * onto it (mirror of `undo()`) so the cycle can continue. Returns null if
+   * nothing to redo.
    *
-   * **Error recovery (T33):** mirrored from `undo()` — try/catch wraps
-   * the whole body so a Yjs throw or `freshState` allocation failure
-   * does not leave the stacks half-mutated.
+   * **Error recovery (T33):** mirrored from `undo()` — try/catch wraps the
+   * whole body so a Yjs throw or `freshState` allocation failure does not
+   * advance `currentState`.
    */
   redo(): UndoRedoResult | null {
-    if (isDevMode()) {
-      if (this.redoSelectionStack.length !== this.undoManager.redoStack.length) {
-        throw new Error(
-          `History.redo: stack misalignment ` +
-            `(redoSelectionStack=${this.redoSelectionStack.length}, ` +
-            `redoStack=${this.undoManager.redoStack.length}). ` +
-            `An op fired without calling history.commit, ` +
-            `or a no-op commit was issued without short-circuit.`,
-        );
-      }
-    }
     if (!this.canRedo()) return null;
-    const entry = this.redoSelectionStack[this.redoSelectionStack.length - 1];
-    if (entry === undefined) return null;
     try {
       const doc = this.currentState[STATE_INTERNAL].doc;
-      const dirtyIds = captureDirtyIds(doc, () => this.undoManager.redo());
-      // Construct the new state BEFORE mutating stacks (mirrors undo()).
+      let poppedItem: YStackItem | null = null;
+      const dirtyIds = captureDirtyIds(doc, () => {
+        poppedItem = this.undoManager.redo();
+      });
+      if (poppedItem === null) {
+        throw new Error(
+          `History.redo: Y.UndoManager.redo() returned no StackItem despite ` +
+            `canRedo()===true.`,
+        );
+      }
+      const entry = readSelectionEntry(poppedItem);
+      if (isDevMode() && entry === null) {
+        throw new Error(
+          `History.redo: popped StackItem carries no SelectionEntry in .meta. ` +
+            `A tracked edit was committed without History.commit (or commit ` +
+            `failed to attach the selection).`,
+        );
+      }
+      // Carry the entry back onto the freshly-created UNDO StackItem so a
+      // subsequent undo() can read `before` again (mirror of undo()'s carry;
+      // see that method for why Yjs needs this re-weld).
+      if (entry !== null) {
+        this.carryEntryToTop(this.undoManager.undoStack, entry);
+      }
       const newState = freshState(this.currentState, dirtyIds);
-      this.redoSelectionStack.pop();
-      this.undoSelectionStack.push(entry);
       this.currentState = newState;
-      return { state: newState, selection: entry.after, dirtyIds };
+      return {
+        state: newState,
+        selection: entry === null ? null : entry.after,
+        dirtyIds,
+      };
     } catch (err) {
       throw new Error(
         `History.redo: failed mid-operation, history may be inconsistent: ${err}`,
       );
+    }
+  }
+
+  /**
+   * Weld `entry` onto the `.meta` of the StackItem currently on top of
+   * `stack` (the opposite stack's freshly-created item produced by the
+   * just-completed undo/redo reversal). No-op if the stack is empty — which
+   * happens for a full undo of a max-depth window etc.; the item simply isn't
+   * re-pushable so there is nothing to carry.
+   */
+  private carryEntryToTop(
+    stack: readonly YStackItem[],
+    entry: SelectionEntry,
+  ): void {
+    const top = stack[stack.length - 1];
+    if (top !== undefined) {
+      top.meta.set(SEL_KEY, entry);
     }
   }
 }

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { createHistory } from "./history";
-import type { SelectionEntry } from "./history";
 import { createEmptyDocument } from "./initial-state";
 import { setBlockAttrs } from "./set-block-attrs";
 import { applyOperation, getBlock } from "./state";
@@ -18,10 +17,10 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // transactions that mutated tracked types are recorded.
   //
   // Consequence: action handlers MUST short-circuit BEFORE calling
-  // `history.commit` on no-op operations. Otherwise the
-  // `undoSelectionStack` would push an entry while `undoStack` stayed
-  // flat, breaking the alignment invariant. The write-time assertion
-  // in `History.commit` catches this if a handler forgets the guard.
+  // `history.commit` on no-op operations. With no StackItem created, there
+  // is nothing for `commit` to attach the SelectionEntry to (the entry now
+  // lives on `StackItem.meta`, not in a parallel array). The write-time
+  // assertion in `History.commit` catches this if a handler forgets the guard.
   it("empty transaction does not produce an undoStack entry", () => {
     const doc = new Y.Doc();
     const map = doc.getMap("blocks");
@@ -409,46 +408,19 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
   });
 
-  it("undo() read-time alignment assertion fires on manual desync (T2)", () => {
-    // T2 read-time defense-in-depth: if the selection stack and the
-    // Y.UndoManager undo stack ever desync (e.g., because an op fired
-    // without a corresponding history.commit), the assertion at the top
-    // of undo() catches it before any state read or mutation.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-
-    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
-    // Manually push an entry onto the selection stack without firing
-    // a Y.Doc transaction — synthesizes the desync condition.
-    (
-      history as unknown as { undoSelectionStack: SelectionEntry[] }
-    ).undoSelectionStack.push({ before: sel, after: sel });
-
-    expect(() => history.undo()).toThrow(/stack misalignment/);
-  });
-
-  it("redo() read-time alignment assertion fires on manual desync (T2)", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-
-    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
-    (
-      history as unknown as { redoSelectionStack: SelectionEntry[] }
-    ).redoSelectionStack.push({ before: sel, after: sel });
-
-    expect(() => history.redo()).toThrow(/stack misalignment/);
-  });
-
-  it("undo() error-recovery: if undoManager.undo throws, stacks are not mutated (T33)", () => {
-    // Monkey-patch undoManager.undo to throw. Cleanup happens in two
+  it("undo() error-recovery: if undoManager.undo throws, history stays consistent and a retry round-trips (T33)", () => {
+    // Monkey-patch undoManager.undo to throw ONCE. Cleanup happens in two
     // layers: captureDirtyIds (which wraps undoManager.undo) detaches
     // its afterTransaction listener in its own `finally`; the outer
     // History.undo() body's try/catch (per plan §T33 step 33.2) catches
-    // the rethrown error and surfaces a wrapped message. On any throw
-    // the selection stacks MUST remain untouched so a subsequent retry
-    // has correct alignment.
+    // the rethrown error and surfaces a wrapped message. On any throw the
+    // Yjs stacks must remain untouched (undo never mutated them since it
+    // threw before popping) so a subsequent retry succeeds normally.
+    //
+    // S-F2: selection now lives on the popped StackItem's `.meta`, so there
+    // is no parallel array to verify; the surviving contract is observed
+    // through behavior — canUndo() stays true and the retried undo returns
+    // the correct `before` selection.
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
@@ -458,25 +430,29 @@ describe("history (Y.UndoManager wrapper)", () => {
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
 
-    type StacksView = {
-      undoSelectionStack: SelectionEntry[];
-      redoSelectionStack: SelectionEntry[];
-      undoManager: { undo: () => void };
-    };
-    const internals = history as unknown as StacksView;
-    const undoStackBefore = internals.undoSelectionStack.slice();
-    const redoStackBefore = internals.redoSelectionStack.slice();
+    type UndoView = { undoManager: { undo: () => unknown } };
+    const internals = history as unknown as UndoView;
+    const realUndo = internals.undoManager.undo.bind(internals.undoManager);
     internals.undoManager.undo = () => {
       throw new Error("simulated Yjs failure");
     };
 
     expect(() => history.undo()).toThrow(/failed mid-operation/);
-    // Stacks are NOT mutated despite the throw.
-    expect(internals.undoSelectionStack).toEqual(undoStackBefore);
-    expect(internals.redoSelectionStack).toEqual(redoStackBefore);
+    // The Yjs undo stack is untouched (undo threw before popping), so a
+    // retry can still undo.
+    expect(history.canUndo()).toBe(true);
+
+    // Restore the real undo and retry: it round-trips with the correct
+    // `before` selection — proving no desync was introduced.
+    internals.undoManager.undo = realUndo;
+    const retried = history.undo();
+    expect(retried).not.toBeNull();
+    if (retried === null) throw new Error("expected retry undo to succeed");
+    expect(retried.selection).toEqual(before);
+    expect(getBlock(retried.state, child.id)?.attrs.bold).toBeUndefined();
   });
 
-  it("redo() error-recovery: if undoManager.redo throws, stacks are not mutated (T33)", () => {
+  it("redo() error-recovery: if undoManager.redo throws, history stays consistent and a retry round-trips (T33)", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
@@ -488,21 +464,79 @@ describe("history (Y.UndoManager wrapper)", () => {
     // Move the entry onto the redo stack so the redo() path is exercised.
     history.undo();
 
-    type StacksView = {
-      undoSelectionStack: SelectionEntry[];
-      redoSelectionStack: SelectionEntry[];
-      undoManager: { redo: () => void };
-    };
-    const internals = history as unknown as StacksView;
-    const undoStackBefore = internals.undoSelectionStack.slice();
-    const redoStackBefore = internals.redoSelectionStack.slice();
+    type RedoView = { undoManager: { redo: () => unknown } };
+    const internals = history as unknown as RedoView;
+    const realRedo = internals.undoManager.redo.bind(internals.undoManager);
     internals.undoManager.redo = () => {
       throw new Error("simulated Yjs failure");
     };
 
     expect(() => history.redo()).toThrow(/failed mid-operation/);
-    expect(internals.undoSelectionStack).toEqual(undoStackBefore);
-    expect(internals.redoSelectionStack).toEqual(redoStackBefore);
+    expect(history.canRedo()).toBe(true);
+
+    internals.undoManager.redo = realRedo;
+    const retried = history.redo();
+    expect(retried).not.toBeNull();
+    if (retried === null) throw new Error("expected retry redo to succeed");
+    expect(retried.selection).toEqual(after);
+    expect(getBlock(retried.state, child.id)?.attrs.bold).toBe(true);
+  });
+
+  it("mutate-then-throw-before-commit leaves history desync-free; undo/redo behave (#318)", () => {
+    // S-F2 regression. The paste.ts multi-line path runs `applyOperation`
+    // (mutating the doc — Yjs creates an undo StackItem AND clears its own
+    // redoStack in its afterTransaction handler) and then can throw on a
+    // "contractually impossible" invariant guard BEFORE reaching
+    // history.commit. Under the old parallel-array model that left the
+    // redo selection stack desynced from Yjs's redoStack and tripped a
+    // spurious dev alignment assertion. With the selection welded to the
+    // StackItem's `.meta`, there is no second array to desync.
+    //
+    // Construct the scenario directly: commit a real action (so a redo
+    // entry can exist), undo it (now canRedo() is true and Yjs holds a
+    // redo StackItem with its `.meta`), then perform a tracked mutation
+    // WITHOUT calling commit (simulating the handler that mutated then
+    // threw). Yjs's afterTransaction clears its redoStack on that new
+    // tracked edit. canRedo() must now be false (the real Yjs stack is the
+    // source of truth) and undo/redo must still return correct selections.
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+
+    const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
+    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    history.commit(r1, { before, after });
+
+    // Undo → entry travels to redo; Yjs holds a redo StackItem.
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    expect(history.canRedo()).toBe(true);
+
+    // Now mutate the doc through a tracked transaction but DO NOT commit —
+    // this is the "applyOperation then throw before commit" shape. Yjs's
+    // afterTransaction handler clears its own redoStack on this edit.
+    applyOperation(state0, () => {
+      getYBlock(state0[STATE_INTERNAL].doc, child.id, "test").set(
+        "attrs",
+        new Y.Map<unknown>(),
+      );
+    });
+
+    // No spurious assertion. canRedo() reflects Yjs's now-cleared redoStack.
+    expect(history.canRedo()).toBe(false);
+    expect(history.redo()).toBeNull();
+
+    // And a fresh commit + undo still round-trips with the correct
+    // before-selection read off the new StackItem's `.meta`.
+    const sel2Before = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
+    const sel2After = createSpan(createPosition(child.id, 3), createPosition(child.id, 3));
+    const r2 = setBlockAttrs(state0, child.id, { italic: true });
+    history.commit(r2, { before: sel2Before, after: sel2After });
+    const u2 = history.undo();
+    expect(u2).not.toBeNull();
+    if (u2 === null) throw new Error("expected undo to succeed");
+    expect(u2.selection).toEqual(sel2Before);
   });
 
   it("commit on a no-op opResult is rejected by the pre-mutation guard (handlers must short-circuit)", () => {
@@ -574,6 +608,57 @@ describe("history undo-depth cap (#234)", () => {
     // window starts at the v:2→v:3 group, so v:2 is its floor — no further back.
     expect(history.canUndo()).toBe(false);
     expect(history.undo()).toBeNull();
+  });
+
+  it("front-trim under the .meta model returns the correct per-entry before-selection at the trim boundary (#318)", () => {
+    // S-F2: with the selection welded to the StackItem's `.meta`, the
+    // maxDepth front-trim (`undoManager.undoStack.splice(0, excess)`)
+    // carries each trimmed item's selection away automatically — no
+    // parallel array to splice in lockstep. This test gives every commit a
+    // DISTINCT before/after pair (unlike commitV's aliased pair) so we can
+    // prove the surviving items still carry their OWN selection after trim.
+    let state = createEmptyDocument();
+    const childId = firstChildOf(state);
+    const history = createHistory(state, 2);
+
+    const mkSel = (off: number) =>
+      createSpan(createPosition(childId, off), createPosition(childId, off));
+
+    // Four commits with distinct before/after selections; cap = 2 trims the
+    // two oldest groups (v:1, v:2), retaining the v:2→v:3 and v:3→v:4 groups.
+    const commits = [
+      { v: 1, before: mkSel(0), after: mkSel(1) },
+      { v: 2, before: mkSel(1), after: mkSel(2) },
+      { v: 3, before: mkSel(2), after: mkSel(3) },
+      { v: 4, before: mkSel(3), after: mkSel(4) },
+    ];
+    for (const c of commits) {
+      const r = setBlockAttrs(state, childId, { v: c.v });
+      history.commit(r, { before: c.before, after: c.after });
+      state = r.state;
+    }
+
+    // Undo the v:3→v:4 group: returns its OWN before-selection (offset 3).
+    const u1 = history.undo();
+    if (u1 === null) throw new Error("expected undo 1");
+    expect(u1.selection).toEqual(mkSel(3));
+
+    // Undo the v:2→v:3 group: returns its before-selection (offset 2).
+    const u2 = history.undo();
+    if (u2 === null) throw new Error("expected undo 2");
+    expect(u2.selection).toEqual(mkSel(2));
+
+    // The two oldest groups were trimmed; their `.meta` rode away with them.
+    expect(history.canUndo()).toBe(false);
+    expect(history.undo()).toBeNull();
+
+    // Redo back up: each returns its OWN after-selection.
+    const r1 = history.redo();
+    if (r1 === null) throw new Error("expected redo 1");
+    expect(r1.selection).toEqual(mkSel(3));
+    const r2 = history.redo();
+    if (r2 === null) throw new Error("expected redo 2");
+    expect(r2.selection).toEqual(mkSel(4));
   });
 
   it("cap=1 retains only the most recent group", () => {
