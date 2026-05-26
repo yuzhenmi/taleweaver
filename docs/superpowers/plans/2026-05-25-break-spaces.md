@@ -36,27 +36,48 @@ pre-wrap tokenizer). `break-spaces` reuses the pre-wrap tokenizer (word + per-sp
 ### T1: add `break-spaces` to the whitespace model + make it per-token wrap units + flip the editor default
 **Files:** `packages/core/src/styles/` (the `WhiteSpace` union — likely `style.ts`); `packages/core/src/layout/text-tokenize.ts`; `packages/core/src/layout/ifc.ts` (the wrap-unit grouper + `preservesWhitespace` + `canWrap`); `packages/core/src/components/document.ts`; `packages/core/src/components/paragraph.ts` (`VALID_WHITE_SPACES`); tests.
 
-1. **`WhiteSpace` union:** add `"break-spaces"`. (Confirm `whiteSpace` stays `inherits: true` in
-   property-meta.ts; the initial value stays `"normal"`.)
-2. **Tokenizer:** add a `case "break-spaces":` to `tokenize` that produces the SAME tokens as
-   `pre-wrap` (word tokens + one `" "` per space char, `LINE_BREAK` between `\n` segments). Cleanest:
-   fall through / share the `pre-wrap` branch body.
-3. **`preservesWhitespace(ws)`** (ifc.ts): include `break-spaces` (so leading/orphan spaces render via
-   the Phase-1-T2 path and nothing collapses) → `pre | pre-wrap | break-spaces`.
-4. **`canWrap`:** `break-spaces` WRAPS (like `pre-wrap`/`normal`, unlike `pre`/`nowrap`). Wherever
-   `canWrap` is derived from `whiteSpace`, add `break-spaces` to the wrapping set.
-5. **The wrap-unit grouper (the core change):** when the active `whiteSpace` is `break-spaces`, emit
-   ONE wrap unit PER TOKEN — do NOT slurp trailing spaces into the word unit (so each space is an
-   independent break point + width-taker). Leave the slurp behavior for `pre-wrap`/`normal` unchanged.
-   (Implementation: gate the trailing-space-slurp loop on `!isBreakSpaces`; a lone space then forms its
-   own single-token unit — confirm a single-space unit flows through `buildLineWithFragments` as a
-   normal text-run, like the Phase-1-T2 space-run unit does.) Each space unit's
-   `trailingWhitespaceWidth` is moot now (the reverted hang is gone) — do NOT reintroduce the hang;
-   the wrap test uses `unit.totalWidth` as normal.
+1. **`WhiteSpace` union** (`styles/style.ts` ~25): add `"break-spaces"`. (Confirm `whiteSpace` stays
+   `inherits: true` in property-meta.ts; initial value stays `"normal"`.) Then grep for any EXHAUSTIVE
+   `switch`/`satisfies never` over `WhiteSpace` and add the arm (the tokenizer `default: throw` is the
+   main one — see #2).
+2. **Tokenizer** (`text-tokenize.ts`): add `case "break-spaces":` as a FALL-THROUGH to the `pre-wrap`
+   branch body (word tokens + one `" "` per space char, `LINE_BREAK` between `\n` segments). ⚠ The
+   `default:` arm THROWS at runtime — adding `break-spaces` to the union WITHOUT this case is a silent
+   TS pass + hard runtime crash on any break-spaces layout. The break-spaces TDD fixtures catch it, but
+   add the case deliberately.
+3. **`preservesWhitespace(ws)`** (ifc.ts): include `break-spaces` → `pre | pre-wrap | break-spaces` (so
+   nothing collapses).
+4. **`canWrap`** (ifc.ts ~448): the current formula is `ws !== "nowrap" && ws !== "pre"`, which ALREADY
+   wraps for `break-spaces` — **NO code change needed**; just confirm (optionally a comment). Do NOT
+   convert to an allowlist.
+5. **The wrap-unit grouper (the core change — BOTH slurp paths).** Derive `isBreakSpaces` from the SAME
+   whiteSpace source each branch already reads (the leading/orphan branch reads `tok.style.whiteSpace`
+   at ~529 — use that, so an inline element's own mode is honored consistently). Under `break-spaces`,
+   emit ONE wrap unit PER SPACE TOKEN in **both** grouper branches:
+   - **(a) non-space (trailing-slurp) branch** (~567-586): gate the trailing-space slurp on
+     `!isBreakSpaces` — under break-spaces the word emits alone (advance past the word only).
+   - **(b) leading/orphan space branch** (~511-554, the Phase-1-T2 space-run path): ⚠ plan-review C2 —
+     this path ALSO slurps a run of consecutive same-sourceKey spaces into ONE unit. Under break-spaces
+     that would re-bundle the trailing spaces (word emits alone → its following spaces hit THIS branch →
+     get slurped) and reproduce the caret-off-page bug. So gate the leading/orphan slurp on
+     `!isBreakSpaces` too: when `isBreakSpaces`, emit exactly ONE unit for the single current space
+     token `tok` and advance `i` by 1. (For `pre`/`pre-wrap` keep the space-run bundling; for
+     `normal`/`nowrap` keep the existing skip.)
+   - A single-space unit flows through `buildLineWithFragments` as a normal text-run (confirm). The
+     reverted hang stays gone — the wrap test uses `unit.totalWidth`; a 1-glyph space unit only
+     force-places past the edge if `lineInlineSize < one-space-width` (degenerate) ⇒ caret stays
+     on-page. Leave `pre-wrap`/`normal` byte-identical.
 6. **Editor default:** `document.ts` `whiteSpace: "pre-wrap"` → `"break-spaces"`. Update the doc comment
-   (the body default is now break-spaces — Google-Docs trailing-space behavior).
-7. **`paragraph.ts` `VALID_WHITE_SPACES`:** add `"break-spaces"` so a per-paragraph attr override can
-   select it.
+   (body default is now break-spaces = Google-Docs trailing-space behavior; the old "Google-Docs/Word"
+   claim for pre-wrap was aspirational).
+7. **`paragraph.ts` `VALID_WHITE_SPACES`:** add `"break-spaces"` (⚠ `ReadonlySet<WhiteSpace>` does NOT
+   force this — omission silently makes the per-paragraph `whiteSpace:"break-spaces"` attr fall back to
+   inherit; add it deliberately).
+8. **Blast-radius audit (plan-review C1):** grep for tests that render through the DOCUMENT DEFAULT
+   (no explicit `white-space` pin) AND assert line counts / offsets / x-positions on text with TRAILING
+   spaces — confirm each is unaffected by the pre-wrap→break-spaces grouper change or update it. (The
+   known default-pipeline tests use interior-space `"a  b"` or explicit modes ⇒ expected safe; CONFIRM,
+   don't assume. Phase-1 collapse-pins use explicit `normal` ⇒ unaffected.)
 
 **TDD (write FIRST — `ifc.test.ts` + a default-pipeline test; 8px/char mock shaper; explicit
 `white-space: break-spaces` in the IFC fixtures, default pipeline for the document test):**
@@ -65,9 +86,14 @@ pre-wrap tokenizer). `break-spaces` reuses the pre-wrap tokenizer (word + per-sp
   spaces on line 2 (≥2 lines); assert the LAST space's position (line 2) is within the page width
   (its x + its width ≤ lineInlineSize, i.e. no glyph past the edge), and `"ab cd"` is intact on line 1
   (NOT split). Contrast: this is what the reverted hang got wrong (spaces past the edge).
-- **Word not split early:** `"ab cd   "` where `"ab cd"` fits → `"ab cd"` together on line 1 (the
-  trailing spaces that fit stay; any overflow wraps). Assert `"ab"` and `"cd"` are on the SAME line
-  (the reverted Phase-1/-2 quirk split them).
+- **Word not split early (precise width — this discriminates from pre-wrap's slurped unit):**
+  `"ab cd   "` at containing inline-size **40px** (`"ab cd"` = 5×8 = 40 fits exactly; `"ab cd "` = 48
+  does NOT). Assert `"ab"` and `"cd"` are on the SAME line (line 1). Under the old slurped
+  `["cd"," "," "," "]` unit this overflowed and hopped `"cd"` to line 2 — the bug. Under per-token
+  units `"cd"` (16px) fits after `"ab "`(24px) = 40 ≤ 40, stays; the trailing spaces wrap.
+  This bullet + the trailing-spaces-wrap bullet together are the load-bearing C2 guards — if the
+  leading/orphan slurp (5b) is NOT gated, the trailing-space run bundles and the caret-on-page
+  assertion below fails.
 - **Interior single-space wrap unchanged:** `"aaaa bbbb cccc"` at a 2-word width → wraps at the
   interior space exactly as `normal`/today (no regression in word wrapping).
 - **Multiple + leading spaces still render** (break-spaces preserves): `"  a   b"` → all spaces render
