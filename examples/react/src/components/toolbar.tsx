@@ -10,6 +10,8 @@ import {
   ChevronDown,
   SeparatorHorizontal,
   RectangleHorizontal,
+  PanelTop,
+  PanelBottom,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -236,6 +238,23 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Toggle section orientation"
         icon={RectangleHorizontal}
         onAction={() => dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" })}
+      />
+
+      <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
+
+      {/* Insert a header / footer (one per document). Creates a one-paragraph
+          template body that repeats in the page margin on every page, and
+          places the caret in it so you can type immediately. Re-clicking moves
+          the caret back into the existing header/footer (no duplicate). */}
+      <ToolbarButton
+        label="Insert header"
+        icon={PanelTop}
+        onAction={() => dispatch({ type: "INSERT_HEADER" })}
+      />
+      <ToolbarButton
+        label="Insert footer"
+        icon={PanelBottom}
+        onAction={() => dispatch({ type: "INSERT_FOOTER" })}
       />
     </div>
   );

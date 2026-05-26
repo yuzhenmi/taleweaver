@@ -28,3 +28,4 @@ export { handlePaste } from "./paste";
 export { handleInsertNode } from "./insert-node";
 export { handleSectionBreak } from "./section-break";
 export { handleToggleSectionLandscape } from "./toggle-section-landscape";
+export { handleInsertHeaderFooter } from "./insert-header-footer";

@@ -42,6 +42,7 @@ import {
   handleInsertNode,
   handleSectionBreak,
   handleToggleSectionLandscape,
+  handleInsertHeaderFooter,
 } from "./actions";
 
 import { cascadeTemplateContents } from "./actions/helpers";
@@ -258,6 +259,12 @@ export function reduceEditor(
       break;
     case "TOGGLE_SECTION_LANDSCAPE":
       result = handleToggleSectionLandscape(editor, config);
+      break;
+    case "INSERT_HEADER":
+      result = handleInsertHeaderFooter(editor, "header", config);
+      break;
+    case "INSERT_FOOTER":
+      result = handleInsertHeaderFooter(editor, "footer", config);
       break;
     default: {
       action satisfies never;
