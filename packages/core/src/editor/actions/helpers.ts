@@ -2,9 +2,10 @@ import type { State } from "../../state/state";
 import { getBlock } from "../../state/state";
 import type { BlockId } from "../../state/block-id";
 import type { EditorState, EditorConfig } from "../editor-state";
-import { render } from "../../render/render";
+import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
+import type { ElementBox } from "../../render/render-node";
 import {
   firstLeafBlock,
   lastLeafBlock,
@@ -56,6 +57,18 @@ export function rebuildTrees(
     ? cascadePassIncremental(rendered.root, prevRenderOutput.root, prevCascaded)
     : cascadePass(rendered.root);
 
+  // C.2c: cascade EVERY header/footer template body, mirroring the main-root
+  // cascade above. Incremental → reuse an unchanged body's prior cascaded tree
+  // by reference (gated on `dirtyIds`); full → cascade each body fresh. The
+  // resulting map is threaded into the layout pass so `materializePage` can
+  // lay the bodies into each page's header/footer slot (T4 consumes it).
+  const cascadedTemplateContents = cascadeTemplateContents(
+    rendered,
+    dirtyIds !== undefined ? prevRenderOutput : null,
+    dirtyIds !== undefined ? oldEditor.cascadedTemplateContents : null,
+    dirtyIds,
+  );
+
   const layout = layoutTreeIncremental(
     cascadedRoot,
     dirtyIds !== undefined ? prevCascaded : null,
@@ -63,6 +76,7 @@ export function rebuildTrees(
     newEditor.containerWidth,
     config.measurer,
     config.pageConfig,
+    cascadedTemplateContents,
   );
 
   return {
@@ -70,9 +84,78 @@ export function rebuildTrees(
     renderTree: rendered.root,
     renderOutput: rendered,
     cascadedRoot,
+    cascadedTemplateContents,
     layoutTree: layout,
   };
 }
+
+/**
+ * Cascade every header/footer template body in `rendered.templateContents`,
+ * returning a `Map<BlockId, ElementBox>` keyed by each body's root BlockId.
+ * Each value is the body root after cascade (populated `computedStyle`), ready
+ * for slot layout.
+ *
+ * **Cascade ALL bodies** (not just plan-referenced ones) — simplest, and
+ * removes any dependency on the section-plan header/footer threading.
+ *
+ * **Incremental reuse (R-D-style), keyed off render-node identity.** The
+ * incremental renderer (`renderIncremental`) already returns the SAME body
+ * RenderNode by reference when nothing in that body's subtree changed, and a
+ * FRESH node when any descendant changed (its invalidation set covers
+ * ancestors + descendants of `dirtyIds`). So the robust "did this body change?"
+ * signal is render-node reference equality against the prior render output —
+ * NOT a membership check on the body's ROOT id (a dirty leaf deep in the body
+ * leaves the root id absent from `dirtyIds`). When the body's RenderNode is
+ * ref-equal to prev's AND we have its prior cascaded tree, reuse that cascaded
+ * tree by reference (paint-cache + layout warmth, and the ref-stability the
+ * next layout pass keys off). Otherwise re-cascade — incrementally
+ * (`cascadePassIncremental`, which still reuses unchanged INNER subtrees by
+ * ref) when a prior body + prior cascaded body exist, else a full `cascadePass`.
+ *
+ * The body root is always a block-level container/leaf, so `cascadePass` /
+ * `cascadePassIncremental` return an `ElementBox`; we narrow on `type` rather
+ * than blind-cast so a non-element body (impossible today) surfaces loudly.
+ */
+function cascadeTemplateContents(
+  rendered: RenderOutput,
+  prevRenderOutput: RenderOutput | null,
+  prevCascaded: ReadonlyMap<BlockId, ElementBox> | null,
+  dirtyIds?: ReadonlySet<BlockId>,
+): ReadonlyMap<BlockId, ElementBox> {
+  const out = new Map<BlockId, ElementBox>();
+  for (const [id, body] of rendered.templateContents) {
+    const prevBody = prevRenderOutput?.templateContents.get(id) ?? null;
+    const prevCascadedBody = prevCascaded?.get(id) ?? null;
+
+    // Incremental reuse: the renderer hands back the SAME body RenderNode when
+    // the body's whole subtree is unchanged → reuse its cascaded tree by ref.
+    if (
+      dirtyIds !== undefined &&
+      prevBody !== null &&
+      prevCascadedBody !== null &&
+      body === prevBody
+    ) {
+      out.set(id, prevCascadedBody);
+      continue;
+    }
+
+    // Re-cascade: incremental when a prior body + prior cascaded body exist
+    // (reuses unchanged inner subtrees by ref), else a full cascade.
+    const cascaded =
+      dirtyIds !== undefined && prevBody !== null && prevCascadedBody !== null
+        ? cascadePassIncremental(body, prevBody, prevCascadedBody)
+        : cascadePass(body);
+    if (cascaded.type !== "element") {
+      throw new Error(
+        `cascadeTemplateContents: template body "${id}" cascaded to a non-element node`,
+      );
+    }
+    out.set(id, cascaded);
+  }
+  return out;
+}
+
+export { cascadeTemplateContents };
 
 /**
  * Find the first content-bearing leaf block in the document (the first

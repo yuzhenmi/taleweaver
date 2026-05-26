@@ -91,6 +91,7 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
       renderTree: rendered.root,
       renderOutput: rendered,
       cascadedRoot,
+      cascadedTemplateContents: new Map(),
       layoutTree: layout,
       containerWidth: config.containerWidth,
       targetX: null,

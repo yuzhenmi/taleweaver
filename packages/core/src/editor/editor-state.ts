@@ -11,7 +11,8 @@ import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
-import type { RenderNode } from "../render/render-node";
+import type { RenderNode, ElementBox } from "../render/render-node";
+import type { BlockId } from "../state/block-id";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { PageConfig } from "../layout/page-config";
@@ -50,6 +51,8 @@ import {
   handleToggleSectionLandscape,
 } from "./actions";
 
+import { cascadeTemplateContents } from "./actions/helpers";
+
 // Re-export helpers that are part of the public API.
 export { findFirstContentBlock, findLastContentBlock } from "./actions";
 
@@ -79,6 +82,18 @@ export interface EditorState {
    * render set up.
    */
   readonly cascadedRoot: RenderNode;
+  /**
+   * Cascaded header/footer template bodies (C.2c), keyed by the template
+   * body's root BlockId — one entry per `renderOutput.templateContents`
+   * entry. Each value is the body root after `cascadePass` (so it carries
+   * a populated `computedStyle`, ready for slot layout). Empty for docs with
+   * no header/footer bodies. Stored so the next reducer cycle can reuse an
+   * unchanged body's cascaded tree by reference (the incremental path keys
+   * reuse off `dirtyIds`), and threaded into the layout pass so
+   * `materializePage` can lay the bodies into each page's header/footer slot
+   * (T4 consumes it; T3 only makes it available).
+   */
+  readonly cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>;
   /**
    * The layout result. In paginated mode (the common word-processor case) this
    * is a `VirtualLayoutTree` — a `PagePlan` plus lazily-materialized
@@ -119,6 +134,14 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   // Cascade explicitly so we can store the cascaded tree on
   // EditorState for the next cycle's `cascadePassIncremental`.
   const cascadedRoot = cascadePass(rendered.root);
+  // C.2c: full-cascade every header/footer template body (no prev → full
+  // cascade each). Empty for the standard empty document (no template bodies).
+  const cascadedTemplateContents = cascadeTemplateContents(
+    rendered,
+    null,
+    null,
+    undefined,
+  );
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,
@@ -133,6 +156,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     renderTree: rendered.root,
     renderOutput: rendered,
     cascadedRoot,
+    cascadedTemplateContents,
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,

@@ -19,6 +19,7 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase3.md
 
 import type { ElementBox } from "../render/render-node";
+import type { BlockId } from "../state/block-id";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
@@ -43,6 +44,10 @@ import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-
  * @param pageConfig pagination parameters.
  * @param prevTree the prior `VirtualLayoutTree` for the carry-forward memo, or
  *   `undefined` when there is none (first build / prior layout was positioned).
+ * @param cascadedTemplateContents cascaded header/footer template bodies (C.2c),
+ *   keyed by body root BlockId; threaded into `makeVirtualLayoutTree`'s closure
+ *   so `materializePage` can lay them into each page's header/footer slot (T4
+ *   consumes it). Defaults to an empty map (no header/footer bodies).
  */
 export function buildVirtualPaginatedTree(
   cascadedRoot: ElementBox,
@@ -50,6 +55,7 @@ export function buildVirtualPaginatedTree(
   shaper: TextShaper,
   pageConfig: PageConfig,
   prevTree?: VirtualLayoutTree,
+  cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentInlineSize =
@@ -78,5 +84,7 @@ export function buildVirtualPaginatedTree(
   const plan = measurePass(
     metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan,
   );
-  return makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, pageConfig, prevTree);
+  return makeVirtualLayoutTree(
+    plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
+  );
 }

@@ -276,6 +276,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
       renderTree: rendered.root,
       renderOutput: rendered,
       cascadedRoot,
+      cascadedTemplateContents: new Map(),
       layoutTree: layout,
       containerWidth: config.containerWidth,
       targetX: null,

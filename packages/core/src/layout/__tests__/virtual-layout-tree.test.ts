@@ -23,6 +23,7 @@ import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
+import type { BlockId } from "../../state/block-id";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
@@ -292,6 +293,7 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
     const keys = Object.keys(tree);
     expect(keys).not.toContain("__peekMaterializedPage");
     expect(keys).not.toContain("__fingerprintAt");
+    expect(keys).not.toContain("__cascadedTemplateContents");
   });
 });
 
@@ -670,5 +672,72 @@ describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
     // Page 0's margins changed (even though content-block-size is identical) ⇒
     // NOT reused: its PageBox height and BFC offset differ.
     expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C.2c Task 3: cascaded header/footer template-body map threading
+//
+// `makeVirtualLayoutTree` accepts a `cascadedTemplateContents` map and STORES
+// it in its closure (exposed as the non-enumerable `__cascadedTemplateContents`
+// hook). T3 only stores it — `materializePage` does NOT read it yet (T4), so
+// passing a map must NOT change any page output.
+// ---------------------------------------------------------------------------
+describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)", () => {
+  type WithHook = {
+    readonly __cascadedTemplateContents?: ReadonlyMap<BlockId, ElementBox>;
+  };
+
+  it("stores the passed cascadedTemplateContents map (by reference)", () => {
+    const pageConfig = noMarginPageConfig(300);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const pageContentInlineSize = pageConfig.pageInlineSize;
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+
+    const hdrBody = cascadeRoot({ display: "block" }, [paragraph("hdr", 1)]);
+    const bodies = new Map<BlockId, ElementBox>([["hdr-root" as BlockId, hdrBody]]);
+
+    const tree = makeVirtualLayoutTree(
+      plan, root, ctx, createMockShaper(8, 16), pageConfig, undefined, bodies,
+    );
+    expect((tree as WithHook).__cascadedTemplateContents).toBe(bodies);
+  });
+
+  it("defaults to an empty map when omitted", () => {
+    const pageConfig = noMarginPageConfig(300);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const { tree } = buildPlanAndTree(root, pageConfig);
+    const hook = (tree as WithHook).__cascadedTemplateContents;
+    expect(hook).toBeDefined();
+    expect(hook?.size).toBe(0);
+  });
+
+  it("no-regression: passing a body map does NOT change getPage output (T3 stores only)", () => {
+    const pageConfig = marginedPageConfig(300);
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const pageContentInlineSize =
+      pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+
+    const withoutBodies = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
+    const hdrBody = cascadeRoot({ display: "block" }, [paragraph("hdr", 2)]);
+    const bodies = new Map<BlockId, ElementBox>([["hdr-root" as BlockId, hdrBody]]);
+    const withBodies = makeVirtualLayoutTree(
+      plan, root, ctx, createMockShaper(8, 16), pageConfig, undefined, bodies,
+    );
+
+    // Every page is byte-identical (the header/footer slots are still null in T3).
+    for (let i = 0; i < plan.entries.length; i++) {
+      expect(withBodies.getPage(i)).toEqual(withoutBodies.getPage(i));
+      expect(withBodies.getPage(i).headerSlot).toBeNull();
+      expect(withBodies.getPage(i).footerSlot).toBeNull();
+    }
   });
 });

@@ -16,6 +16,10 @@ import { paginateRoot } from "./paginate";
 import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
+import type { BlockId } from "../state/block-id";
+
+/** Empty cascaded-template-body map default (no header/footer bodies). */
+const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 
 /**
  * Incremental layout entry point.
@@ -36,6 +40,12 @@ export function layoutTreeIncremental(
   containerWidth: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   pageConfig?: PageConfig,
+  // C.2c: cascaded header/footer template bodies (from `rebuildTrees`),
+  // threaded to the virtual producer → `makeVirtualLayoutTree` closure so
+  // `materializePage` can lay them into each page's header/footer slot (T4
+  // consumes it). Optional, defaulting to an empty map: the many non-editor
+  // callers (tests, the resize path) pass no bodies and stay byte-identical.
+  cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_TEMPLATE_CONTENTS,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTreeIncremental");
   try {
@@ -103,7 +113,7 @@ export function layoutTreeIncremental(
         // rides `resolvePositionedTree`'s `materializeAll()` bridge. The prior
         // VirtualLayoutTree (when there was one) threads through as the
         // carry-forward memo so unchanged pages reuse their PageBox by ref.
-        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual);
+        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents);
       } else {
         // Unsupported-feature fallback: legacy positioned page tree.
         // paginateRoot drives layoutBlock per page; pass rootCtx so the

@@ -21,6 +21,7 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase2.md
 
 import type { ElementBox } from "../render/render-node";
+import type { BlockId } from "../state/block-id";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
@@ -177,6 +178,11 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
  * @param prevTree optional prior tree for carry-forward memo: an unchanged page
  *   (same fingerprint) whose prior PageBox was materialized is returned by
  *   reference, preserving paint-cache + LineIndex warmth.
+ * @param cascadedTemplateContents cascaded header/footer template bodies (C.2c),
+ *   keyed by body root BlockId. Captured in the closure so `materializePage`
+ *   can resolve a page's header/footer body and lay it into the page's slot.
+ *   T3 only STORES it (no read site yet); T4 consumes it. Defaults to an empty
+ *   map so a no-header/footer doc is byte-identical.
  */
 export function makeVirtualLayoutTree(
   plan: PagePlan,
@@ -185,6 +191,7 @@ export function makeVirtualLayoutTree(
   shaper: TextShaper,
   pageConfig: PageConfig,
   prevTree?: VirtualLayoutTree,
+  cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -212,6 +219,14 @@ export function makeVirtualLayoutTree(
   const rootComputed: ComputedStyle = cascadedRoot.computedStyle;
   const rootUsedStyle: UsedStyle = computeUsedStyle(rootComputed, pageConfig.pageInlineSize, "indefinite");
   const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageContentInlineSize };
+
+  // C.2c (T3): the cascaded header/footer template bodies, captured in the
+  // closure keyed by body root BlockId. `materializePage` will resolve a page's
+  // header/footer body from this map and lay it into the page's slot (T4
+  // consumes it; T3 only stores + exposes it). Exposed as a non-enumerable hook
+  // below so it stays out of the public contract surface but remains
+  // inspectable for tests and reachable by the T4 read site.
+  const templateBodies = cascadedTemplateContents;
 
   // Lazy per-index memo of materialized pages. Populated on first getPage(i).
   const pageMemo = new Map<number, PageBox>();
@@ -405,6 +420,10 @@ export function makeVirtualLayoutTree(
     value: fingerprintAt,
     enumerable: false,
   });
+  Object.defineProperty(tree, "__cascadedTemplateContents", {
+    value: templateBodies,
+    enumerable: false,
+  });
   Object.freeze(tree);
   return tree;
 }
@@ -419,4 +438,11 @@ interface VirtualLayoutTreeInternal extends VirtualLayoutTree {
   readonly __peekMaterializedPage?: (pageIndex: number) => PageBox | undefined;
   /** This tree's fingerprint for `pageIndex` (uses this tree's geometry), or undefined if out of range. */
   readonly __fingerprintAt?: (pageIndex: number) => PageFingerprint | undefined;
+  /**
+   * The cascaded header/footer template bodies this tree was built with (C.2c),
+   * keyed by body root BlockId. T3 stores it here (no read site yet); T4's
+   * `materializePage` consumes it to lay bodies into each page's slot. Exposed
+   * for test inspection of the threading.
+   */
+  readonly __cascadedTemplateContents?: ReadonlyMap<BlockId, ElementBox>;
 }

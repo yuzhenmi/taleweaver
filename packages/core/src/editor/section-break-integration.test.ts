@@ -104,6 +104,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     renderTree: rendered.root,
     renderOutput: rendered,
     cascadedRoot,
+    cascadedTemplateContents: new Map(),
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,
