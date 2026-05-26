@@ -107,9 +107,11 @@ sites + the float-loop inner check) (+ tests `ifc.test.ts`).
   union yet.
 - Hyphenation × hang interaction refinement.
 
-## Status
-- [ ] T1 — trailing-whitespace hang in the wrap decision (incl. float-loop inner check). **This is all
-  of Phase 2** (Task 2 descoped to follow-up #312 — textAlign isn't implemented).
+## Status — PHASE 2 COMPLETE (browser-verify owed)
+- [x] T1 — trailing-whitespace hang in the wrap decision (incl. float-loop inner check). Commit `84ba1b5`.
+  **This is all of Phase 2** (Task 2 / alignment hang descoped to follow-up #312 — textAlign isn't
+  implemented in layout/paint). Reviewer-approved (mechanism CSS-verified twice); full core 1672 green;
+  normal/nowrap/pre-line byte-identical.
 
 ## Browser-verify (user, after Phase 2)
 A long line ending in many spaces no longer wraps early (trailing spaces hang past the content edge).
