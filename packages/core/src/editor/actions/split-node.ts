@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition, selectionContextOf } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -15,6 +15,15 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal — see delete-backward. The
+    // expanded-selection branch first deletes the span (deleteRange would throw
+    // "no common ancestor" on a cross-tree span), so refuse before that.
+    if (
+      selectionContextOf(editor.state, selection.anchor.blockId) !==
+      selectionContextOf(editor.state, selection.focus.blockId)
+    ) {
+      return editor;
+    }
     // resolveBlock (main → embed → template) so a header/footer caret resolves;
     // main-tree byte-identical (resolveBlock's first arm is getBlock).
     const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;

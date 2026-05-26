@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength, selectionContextOf } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -12,6 +12,19 @@ export function handleDeleteBackward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal. A header/footer body is an
+    // isolated editing context; a span whose anchor and focus resolve to
+    // different roots (main body → header body, constructable via a drag) is
+    // unsupported by the span ops (deleteRange would throw "no common
+    // ancestor"). No-op rather than attempt a cross-tree delete. This is the
+    // intentional, uniform signal — independent of the parentId-mismatch guard
+    // below, which only happens to catch SOME cross-context cases.
+    if (
+      selectionContextOf(editor.state, selection.anchor.blockId) !==
+      selectionContextOf(editor.state, selection.focus.blockId)
+    ) {
+      return editor;
+    }
     // resolveBlock (main → embed → template) so a header/footer caret resolves;
     // for a main-tree id behavior is byte-identical (resolveBlock's first arm is
     // getBlock). T7a/render precedent.

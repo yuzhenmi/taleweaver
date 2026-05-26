@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength, selectionContextOf } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -12,6 +12,16 @@ export function handleDeleteForward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal — see delete-backward for the
+    // rationale. A span straddling the main body and a header/footer body is
+    // unsupported by the span ops; no-op rather than attempt a cross-tree
+    // delete.
+    if (
+      selectionContextOf(editor.state, selection.anchor.blockId) !==
+      selectionContextOf(editor.state, selection.focus.blockId)
+    ) {
+      return editor;
+    }
     // resolveBlock (main → embed → template) so a header/footer caret resolves;
     // main-tree byte-identical (resolveBlock's first arm is getBlock).
     const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;

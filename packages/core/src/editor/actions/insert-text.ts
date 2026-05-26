@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { insertText, replaceRange, createPosition, createSpan, spanStart } from "../../state";
+import { insertText, replaceRange, createPosition, createSpan, spanStart, selectionContextOf } from "../../state";
 import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -15,6 +15,17 @@ export function handleInsertText(
   let newCursorBlockId;
   let newCursorOffset;
   if (!isCollapsed(selectionBefore)) {
+    // C.2c §6: cross-CONTEXT selection refusal. A header/footer body is an
+    // isolated editing context; a span whose anchor and focus resolve to
+    // different roots (e.g. main body → header body, constructable via a drag)
+    // is unsupported by the span ops (replaceRange's spanStart would throw "no
+    // common ancestor"). No-op rather than attempt a cross-tree replace.
+    if (
+      selectionContextOf(editor.state, selectionBefore.anchor.blockId) !==
+      selectionContextOf(editor.state, selectionBefore.focus.blockId)
+    ) {
+      return editor;
+    }
     const start = spanStart(editor.state, selectionBefore);
     result = replaceRange(editor.state, selectionBefore, text, {});
     newCursorBlockId = start.blockId;
