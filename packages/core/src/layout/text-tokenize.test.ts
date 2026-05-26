@@ -84,11 +84,47 @@ describe("tokenize (whiteSpace: pre)", () => {
 });
 
 describe("tokenize (whiteSpace: pre-wrap)", () => {
-  it("preserves whitespace runs", () => {
-    expect(tokenize("a   b", "pre-wrap")).toEqual(["a   b"]);
+  it("preserves interior whitespace as one space token per char (wrappable)", () => {
+    expect(tokenize("a  b", "pre-wrap")).toEqual(["a", " ", " ", "b"]);
+  });
+  it("preserves leading whitespace", () => {
+    expect(tokenize("  a", "pre-wrap")).toEqual([" ", " ", "a"]);
+  });
+  it("preserves trailing whitespace", () => {
+    expect(tokenize("a  ", "pre-wrap")).toEqual(["a", " ", " "]);
   });
   it("emits LINE_BREAK at newlines", () => {
     expect(tokenize("a\nb", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("interior single space (no leading/trailing) is byte-identical to normal", () => {
+    // Scoped parity: matches `normal` ONLY for interior single spaces with no
+    // leading/trailing whitespace. Leading/trailing whitespace cases above
+    // (e.g. "  a", "a  ") intentionally DIFFER from normal.
+    expect(tokenize("a b", "pre-wrap")).toEqual(["a", " ", "b"]);
+    expect(tokenize("a b", "normal")).toEqual(["a", " ", "b"]);
+  });
+  it("preserves leading spaces in a later segment", () => {
+    expect(tokenize("x\n  y", "pre-wrap")).toEqual(["x", LINE_BREAK, " ", " ", "y"]);
+  });
+  it("all-spaces input emits one space token per char", () => {
+    expect(tokenize("   ", "pre-wrap")).toEqual([" ", " ", " "]);
+  });
+  it("empty string returns empty array", () => {
+    expect(tokenize("", "pre-wrap")).toEqual([]);
+  });
+  it("a lone newline emits a single LINE_BREAK (two empty segments)", () => {
+    // "\n".split("\n") === ["", ""]: two empty segments produce no word/space
+    // tokens, and one LINE_BREAK separates them.
+    expect(tokenize("\n", "pre-wrap")).toEqual([LINE_BREAK]);
+  });
+  it("consecutive newlines produce consecutive LINE_BREAKs (no empty-segment token)", () => {
+    // pre-wrap emits NO token for an empty middle segment, so "a\n\nb" yields
+    // back-to-back LINE_BREAKs. This DIFFERS from the `pre` branch (which
+    // pushes a "" token for the blank middle line) but renders an identical
+    // blank line — see the layout-parity test below: the second consecutive
+    // LINE_BREAK triggers an empty-units flushLine, so the blank line is
+    // present in both modes. (Bug #168: blank lines must render visibly.)
+    expect(tokenize("a\n\nb", "pre-wrap")).toEqual(["a", LINE_BREAK, LINE_BREAK, "b"]);
   });
 });
 

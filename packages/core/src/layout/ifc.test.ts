@@ -209,6 +209,33 @@ describe("IFC whiteSpace handling", () => {
     // Wrap from "long text here" + a hard break + "second" should produce >= 2 lines
     expect(lineBoxes.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("blank middle line renders identically under pre and pre-wrap (#168)", () => {
+    // "a\n\nb" has a blank middle line. The `pre` tokenizer emits a "" token
+    // for that empty segment; the `pre-wrap` tokenizer emits NO token (just
+    // back-to-back LINE_BREAKs). This test proves that difference is invisible
+    // at layout: the second consecutive LINE_BREAK triggers an empty-units
+    // flushLine, so a blank line box is emitted in BOTH modes. Therefore
+    // pre-wrap does NOT need the empty-segment token to render the blank line.
+    const lineCount = (ws: "pre" | "pre-wrap"): number => {
+      const tree = cascadePass(
+        createElementBox("p", { display: "block", whiteSpace: ws }, [
+          createTextBox("t", {}, "a\n\nb"),
+        ]),
+      );
+      if (tree.type !== "element") throw new Error("?");
+      const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+      if (r.box === null) throw new Error("layoutBlock returned null box");
+      const out = r.box;
+      if (out.type !== "block") throw new Error("?");
+      return out.children.filter(c => c.type === "line").length;
+    };
+    const preLines = lineCount("pre");
+    const preWrapLines = lineCount("pre-wrap");
+    // Three lines: "a", the blank middle line, and "b".
+    expect(preLines).toBe(3);
+    expect(preWrapLines).toBe(preLines);
+  });
 });
 
 describe("IFC — first-class inline boxes", () => {

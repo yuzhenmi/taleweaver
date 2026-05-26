@@ -62,11 +62,36 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       return out;
     }
     case "pre-wrap": {
-      // Same as pre — IFC will wrap at word boundaries.
+      // Preserve every space (leading, interior, trailing) while still
+      // producing word/space tokens the IFC can wrap at word boundaries.
+      // Split on \n into segments, emitting LINE_BREAK between them; within
+      // each segment, accumulate maximal non-whitespace runs into word
+      // tokens and emit ONE normalized " " token per whitespace char.
+      // For INTERIOR single spaces with no leading/trailing whitespace
+      // (e.g. "a b") this matches the `normal` branch's output exactly, so
+      // such fixtures are unaffected; but unlike `normal`, this branch
+      // PRESERVES leading/trailing whitespace that `normal` would trim and
+      // does NOT collapse runs of interior whitespace (each char becomes its
+      // own " " token, e.g. " a" → [" ","a"] vs normal ["a"]). (Tab/NBSP
+      // width fidelity is out of scope for Phase 1.)
       const segments = text.split("\n");
       const out: string[] = [];
       for (let i = 0; i < segments.length; i++) {
-        out.push(segments[i]);
+        const segment = segments[i];
+        let word = "";
+        for (let c = 0; c < segment.length; c++) {
+          const ch = segment[c];
+          if (/\s/.test(ch)) {
+            if (word !== "") {
+              out.push(word);
+              word = "";
+            }
+            out.push(" ");
+          } else {
+            word += ch;
+          }
+        }
+        if (word !== "") out.push(word);
         if (i < segments.length - 1) out.push(LINE_BREAK);
       }
       return out;
