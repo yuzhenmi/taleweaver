@@ -1,0 +1,210 @@
+/**
+ * The `state/` module barrel — the intra-core API contract.
+ *
+ * This file IS the surface that sibling core modules (render, cascade,
+ * layout, cursor, editor, components) and the cross-package
+ * `packages/core/src/index.ts` are meant to import from. It re-exports the
+ * three-layer API of the document model — types & access primitives, pure
+ * utilities, state-mutating operations — plus the boot helper.
+ *
+ * The barrel uses explicit named `export { ... } from` re-exports (never
+ * `export *`) so the surface is reviewable symbol-by-symbol and so the
+ * infrastructure files below are PROVABLY excluded.
+ *
+ * Excluded by design (state-module-private infrastructure — NOT re-exported
+ * here, so consumers outside `state/` cannot reach them through the barrel):
+ *   - `state-internal`        — the `STATE_INTERNAL` symbol gating State's
+ *                               underlying Y.Doc + snapshot cache. Its
+ *                               containment is the whole Yjs encapsulation;
+ *                               re-exporting it would open the breach.
+ *   - `yjs-doc` / `y-block` / `y-utils` — Y.Doc construction + the
+ *                               read/write helpers between Block snapshots
+ *                               and the inner Y.Map entries.
+ *   - `snapshot`              — per-State snapshot cache.
+ *   - `dev-mode`              — `isDevMode()` gate for invariant assertions.
+ *   - `id-collision-check`    — UUID-collision defense.
+ *   - `build-state-from-blocks` — internal fixture builder (the public
+ *                               `buildState` test-util delegates here).
+ *   - `root-id-cache`         — `getEmbedContentRootIds` / `getTemplateContentRootIds`
+ *                               take a raw `Y.Doc`, so they're infra; the
+ *                               consumer-facing accessors are
+ *                               `getEmbedContentIds` / `getTemplateContentIds`
+ *                               (Layer 1, on `state`).
+ *   - `block-schema`          — `BLOCK_FIELDS` / `BlockFieldSpec` is the
+ *                               shared read/write-path schema, consumed only
+ *                               by `snapshot.ts` and `y-block.ts`. It's a
+ *                               write-path internal seam, not a consumer API.
+ */
+
+// ─────────────────────────────────────────────────────────────────────────
+// Layer 1 — types and access primitives
+//
+// Yjs-free value types plus the narrow O(1) snapshot accessors. `State`'s
+// only public field is `rootId`; the underlying Y.Doc + snapshot cache live
+// behind the non-exported STATE_INTERNAL symbol (deliberately absent above).
+// ─────────────────────────────────────────────────────────────────────────
+
+// State container, transaction runner, snapshot accessors.
+export type {
+  State,
+  OperationResult,
+  ResolvedBlock,
+  ResolvedBlockKind,
+} from "./state";
+export {
+  createState,
+  applyOperation,
+  freshState,
+  getBlock,
+  getEmbedContent,
+  getTemplateContent,
+  getBlockFromEither,
+  resolveBlock,
+  getEmbedContentIds,
+  getTemplateContentIds,
+} from "./state";
+
+// Block snapshot type and the insert-time partial-block shape.
+export type { Block } from "./block";
+export type { BlockInit } from "./block-init";
+
+// Block identity and allocation.
+export type { BlockId, IdAllocator } from "./block-id";
+export {
+  coerceBlockId,
+  productionAllocator,
+  createTestAllocator,
+} from "./block-id";
+
+// Positions, spans, selections + pure builders / comparisons.
+export type { Position, Span, Selection } from "./block-position";
+export {
+  createPosition,
+  createSpan,
+  positionsEqual,
+  comparePositionsWithinBlock,
+} from "./block-position";
+
+// Inline content: items + pure normalization / offset helpers.
+export type {
+  InlineContent,
+  InlineItem,
+  TextItem,
+  EmbedItem,
+} from "./inline-content";
+export {
+  inlineContentLength,
+  findItemAtOffset,
+  mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
+} from "./inline-content";
+
+// Open-schema attribute values + equality / merge helpers.
+export type { ReadonlyAttrs } from "./attrs";
+export { deepValueEqual, attrsEqual, mergeAttrs } from "./attrs";
+
+// Block-shape taxonomy + the resolver the component registry implements.
+export type { BlockKind, BlockKindResolver } from "./block-kinds";
+export { blockKindOf } from "./block-kinds";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Layer 2 — pure read-only utilities
+//
+// Traversal, document-order comparison, span iteration, text extraction.
+// Consumed both by Layer 3 internally and by external read paths (cursor,
+// render, editor geometry queries).
+// ─────────────────────────────────────────────────────────────────────────
+
+// Block-tree traversal.
+export {
+  nextBlockInDocOrder,
+  prevBlockInDocOrder,
+  ancestorChain,
+  firstLeafBlock,
+  lastLeafBlock,
+} from "./block-traversal";
+
+// Document-order comparison + span endpoints + selection-context lookup.
+export {
+  compareBlocksInDocOrder,
+  comparePositions,
+  spanStart,
+  spanEnd,
+  selectionContextOf,
+} from "./block-compare";
+
+// Span normalization + per-leaf / per-block iteration.
+export type { BlockRange } from "./span-iteration";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
+
+// Flatten a span to plain text (clipboard, find/replace, a11y).
+export type { EmbedSerializer } from "./extract-text";
+export { extractText, builtinEmbedSerializer } from "./extract-text";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Layer 3 — state-mutating operations + history
+//
+// The audited write surface. Every op takes a State + args and returns an
+// OperationResult (new state + dirtyIds). Editor action handlers are the
+// sole external callers; each composes one or more ops then records a
+// single undo entry via History.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Inline-content edits.
+export { insertText } from "./insert-text";
+export { deleteRange } from "./delete-range";
+export { replaceRange } from "./replace-range";
+export { applyAttrsToRange } from "./apply-attrs";
+
+// Block-structural edits.
+export { splitBlockAtPosition } from "./split-block";
+export { mergeAdjacentBlocks } from "./merge-blocks";
+export type { InsertBlockArgs } from "./insert-block";
+export { insertBlock } from "./insert-block";
+export type { SiblingBlockInit } from "./insert-blocks-after";
+export { insertBlocksAfter } from "./insert-blocks-after";
+export { removeBlock } from "./remove-block";
+
+// Block-attribute + type edits.
+export { setBlockAttrs } from "./set-block-attrs";
+export { mergeBlockAttrs } from "./merge-block-attrs";
+export { setBlockType } from "./set-block-type";
+
+// Section structure (flat never-nested `section` blocks).
+export { reparentChildren } from "./reparent-children";
+export type { SectionBreakResult } from "./section-break";
+export { applySectionBreak } from "./section-break";
+export { mergeSectionWithPrevious } from "./merge-section";
+
+// History (Y.UndoManager-backed undo/redo with aligned selection stacks).
+export type { SelectionEntry, UndoRedoResult } from "./history";
+export { History, createHistory } from "./history";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────────────────
+
+export type { CreateEmptyDocumentArgs } from "./initial-state";
+export { createEmptyDocument } from "./initial-state";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Internal seam — NOT for general consumers
+//
+// `clonePastedSubtree` is a paste helper (returns a plain snapshot map, does
+// NOT mutate State) and the reparent pure-core (`computeReparentWrites`,
+// `planReparentChildren`, `reparentChildrenInTx`, `BlockFieldWrite`,
+// `ReparentPlan`) is the write-list machinery shared by `reparentChildren` /
+// `applySectionBreak`. They live behind this comment so the consumer-facing
+// op surface above stays clean. The public `reparentChildren` /
+// `applySectionBreak` ops are the supported entry points; reach for these
+// only from state-module-internal callers (e.g. the paste action helper).
+// ─────────────────────────────────────────────────────────────────────────
+
+export type { ClonedSubtree } from "./clone-pasted-subtree";
+export { clonePastedSubtree } from "./clone-pasted-subtree";
+export type { BlockFieldWrite, ReparentPlan } from "./reparent-children";
+export {
+  computeReparentWrites,
+  planReparentChildren,
+  reparentChildrenInTx,
+} from "./reparent-children";
