@@ -121,5 +121,8 @@ tests `render.test.ts`.
   the full-render path renders each top-level map entry as its OWN standalone subtree, so
   a body child that is also a top-level entry yields two distinct RenderNodes sharing a
   key. `indexRenderNodesByKey` now merges with "descendant occurrences overwrite, root
-  occurrences don't" (order-independent) so the in-body-child node wins. Awaiting reviewer
-  gate before commit.
+  occurrences don't" (order-independent) so the in-body-child node wins.
+
+**#285 COMPLETE** — T1 `876b33d`, T2 `c99bd94`; both reviewer-approved; full core 1681 /
+dom 149 green; closes #221. Follow-up #313 (full-render emits spurious non-root content
+entries — C.2c must consume only body roots).
