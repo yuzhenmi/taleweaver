@@ -174,13 +174,13 @@ Independent code-reviewer gate, then controller commits. Final phase-level revie
 S-F diff before resuming C.2c.
 
 ## Status
-- [ ] Cycle A (#267 + #319)
-- [ ] Cycle B (#317)
-- [ ] Cycle C (#318)
-- [ ] Cycle D1 (#321 — create barrel)
-- [ ] Cycle D2 (#321 — migrate ~42 consumers)
-- [ ] Cycle E (#320)
-- [ ] Phase review
+- [x] Cycle A (#267 + #319) — committed. setBlockType no-op short-circuit + dead-export removal (test retargeted to overlay path). Reviewer: APPROVED.
+- [x] Cycle B (#317) — committed. Root-id cache via Y.Map observer riding the doc; recompute-counter perf test; undo/redo invalidation covered. Reviewer: APPROVED.
+- [x] Cycle C (#318) — committed. SelectionEntry on StackItem.meta (write-at-commit/read-at-pop + carryEntryToTop re-weld since Yjs doesn't auto-carry); parallel arrays + length-alignment assertions removed; maxDepth trim kept. Reviewer: APPROVED (re-weld traced against Yjs source).
+- [x] Cycle D1 (#321 — barrel) — committed. state/index.ts grouped by layer, named exports only, infra excluded; encapsulation test hardened to assert the symbol VALUE. Reviewer: APPROVED.
+- [x] Cycle D2 (#321 — migrate ~85 consumers) — committed. Import-path-only; cross-package surface byte-identical (192 names). Reviewer: APPROVED.
+- [x] Cycle E (#320) — doc re-sync (1.1-state.md three-tree + barrel + .meta history + root-id cache + new ops; coherence on 1.2-render.md + overview.md). Reviewer: APPROVED WITH CHANGES (render pseudocode return-shape + getTemplateContentsMap bullet) — both applied.
+- [ ] Phase review — pending (whole-diff reviewer over the cumulative S-F change before resuming C.2c).
 
 ## Plan-review resolutions (2026-05-26, APPROVED WITH CHANGES)
 - **B (Critical):** invalidation keyed on the embed/template map KEY-SET change via a per-`Y.Doc`
