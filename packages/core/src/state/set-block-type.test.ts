@@ -51,6 +51,39 @@ describe("setBlockType", () => {
     expect([...result.dirtyIds]).toEqual(["p"]);
   });
 
+  // --- Same-type no-op short-circuit (#267) ---
+
+  it("same-type call returns the literal input state and empty dirtyIds (no-op)", () => {
+    const state = fixture();
+    const result = setBlockType(state, "p" as BlockId, "paragraph", resolver);
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("genuine cross-type change still mutates (new state ref + dirty id)", () => {
+    const state = fixture();
+    const result = setBlockType(state, "p" as BlockId, "heading", resolver);
+    expect(result.state).not.toBe(state);
+    expect(result.dirtyIds.has("p" as BlockId)).toBe(true);
+    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("heading");
+  });
+
+  it("same-type call on an UNREGISTERED type still throws (short-circuit must not swallow the guard)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),
+        buildBlock({ id: "x", type: "no-such-type", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    // type === block.type ("no-such-type") but the type is unregistered;
+    // the existence + registration guards run BEFORE the no-op short-circuit,
+    // so this must still throw rather than silently short-circuit.
+    expect(() => setBlockType(state, "x" as BlockId, "no-such-type", resolver)).toThrow(
+      /existing block's type "no-such-type" is not registered/,
+    );
+  });
+
   it("throws when the block does not exist", () => {
     const state = fixture();
     expect(() => setBlockType(state, "missing" as BlockId, "heading", resolver)).toThrow(/not found/);

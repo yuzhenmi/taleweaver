@@ -9,8 +9,6 @@ import {
 import {
   getBlockSnapshot,
   getTemplateContentSnapshot,
-  invalidateSnapshot,
-  invalidateAll,
   createSnapshotCache,
   createOverlayCache,
   compactCache,
@@ -81,15 +79,24 @@ describe("snapshot", () => {
       expect(a).toBe(b);
     });
 
-    it("produces a fresh snapshot after invalidation", () => {
+    it("produces a fresh snapshot after invalidation (via the production overlay path)", () => {
+      // Production drives invalidation through createOverlayCache: a new
+      // State minted by applyOperation/freshState carries an overlay whose
+      // `invalidated` set contains the dirty ids. The next read of an
+      // invalidated id skips fall-through and re-snapshots from the Y.Doc.
       const doc = createYDoc();
       seedParagraphBlock(doc, "p1", "hello");
-      const cache = createSnapshotCache();
-      const a = getBlockSnapshot(doc, "p1" as BlockId, cache);
-      invalidateSnapshot(cache, "p1" as BlockId);
-      const b = getBlockSnapshot(doc, "p1" as BlockId, cache);
+      const base = createSnapshotCache();
+      const a = getBlockSnapshot(doc, "p1" as BlockId, base);
+      // Mint a fresh overlay with "p1" in the dirty set (the production
+      // post-mutation handoff), then read through it.
+      const overlay = createOverlayCache(base, new Set(["p1" as BlockId]));
+      const b = getBlockSnapshot(doc, "p1" as BlockId, overlay);
       expect(a).not.toBe(b);
       expect(b!.id).toBe("p1");
+      // Equal value (the Y.Doc was unchanged) — a fresh frozen ref, not the
+      // stale cached one.
+      expect(b!.type).toBe(a!.type);
     });
 
     it("snapshot inlineContent reflects underlying Y.Text content", () => {
@@ -350,42 +357,6 @@ describe("snapshot", () => {
       expect(l2.snapshots.block.get("p1" as BlockId)).toBe(rootSnap);
     });
 
-    it("invalidateAll causes reads to re-snapshot for previously-cached ids", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
-      const base = createSnapshotCache();
-      const beforeP1 = getBlockSnapshot(doc, "p1" as BlockId, base);
-      const overlay = createOverlayCache(base, new Set());
-      // Promote p1 into the overlay.
-      getBlockSnapshot(doc, "p1" as BlockId, overlay);
-      // Now mutate underlying Y.Doc and invalidate everything on the
-      // overlay — subsequent reads must come from a fresh Y.Doc snapshot.
-      runTransaction(doc, () => {
-        const yBlock = getBlocksMap(doc).get("p1");
-        if (yBlock === undefined) throw new Error("p1 vanished");
-        yBlock.set("type", "heading");
-      });
-      invalidateAll(overlay);
-      const afterP1 = getBlockSnapshot(doc, "p1" as BlockId, overlay);
-      expect(afterP1).not.toBe(beforeP1);
-      expect(afterP1?.type).toBe("heading");
-      // Base is untouched; reading there still returns the original snap.
-      expect(base.snapshots.block.get("p1" as BlockId)).toBe(beforeP1);
-    });
-
-    it("invalidateAll does not affect ids that were never cached anywhere", () => {
-      // Pre-positioned API correctness: ids known only to Y.Doc (never
-      // materialized in any cache layer) should read correctly after
-      // invalidateAll, since invalidation only blocks fall-through for
-      // ids the chain knows about.
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
-      const cache = createOverlayCache(createSnapshotCache(), new Set());
-      invalidateAll(cache);
-      const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
-      expect(snap).not.toBeNull();
-      expect(snap?.type).toBe("paragraph");
-    });
   });
 
   // C.2a-T3: the templateContents dimension mirrors embedContents exactly.
@@ -412,19 +383,21 @@ describe("snapshot", () => {
       ).toBeNull();
     });
 
-    it("(b) produces a fresh snapshot after invalidation reflecting a Y.Doc mutation", () => {
+    it("(b) produces a fresh snapshot after invalidation reflecting a Y.Doc mutation (via the production overlay path)", () => {
       const doc = createYDoc();
       seedTemplateBlock(doc, "tmplP", "header");
-      const cache = createSnapshotCache();
-      const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      const base = createSnapshotCache();
+      const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, base);
       // Mutate the underlying template body Y.Map — `a` is now stale.
       runTransaction(doc, () => {
         const yBlock = getTemplateContentsMap(doc).get("tmplP");
         if (yBlock === undefined) throw new Error("tmplP vanished");
         yBlock.set("type", "heading");
       });
-      invalidateSnapshot(cache, "tmplP" as BlockId);
-      const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
+      // Production handoff: a fresh overlay with the mutated id in its dirty
+      // set forces a re-snapshot on the next read.
+      const overlay = createOverlayCache(base, new Set(["tmplP" as BlockId]));
+      const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
       expect(b).not.toBe(a);
       expect(b!.id).toBe("tmplP");
       expect(b!.type).toBe("heading");
@@ -477,25 +450,5 @@ describe("snapshot", () => {
       getSpy.mockRestore();
     });
 
-    it("invalidateAll causes template reads to re-snapshot for previously-cached ids", () => {
-      const doc = createYDoc();
-      seedTemplateBlock(doc, "tmplP", "header");
-      const base = createSnapshotCache();
-      const before = getTemplateContentSnapshot(doc, "tmplP" as BlockId, base);
-      const overlay = createOverlayCache(base, new Set());
-      // Promote tmplP into the overlay.
-      getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
-      runTransaction(doc, () => {
-        const yBlock = getTemplateContentsMap(doc).get("tmplP");
-        if (yBlock === undefined) throw new Error("tmplP vanished");
-        yBlock.set("type", "heading");
-      });
-      invalidateAll(overlay);
-      const after = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
-      expect(after).not.toBe(before);
-      expect(after?.type).toBe("heading");
-      // Base untouched (per-State view stability).
-      expect(base.snapshots.template.get("tmplP" as BlockId)).toBe(before);
-    });
   });
 });

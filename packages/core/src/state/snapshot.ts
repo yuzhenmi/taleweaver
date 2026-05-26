@@ -176,38 +176,6 @@ export function compactCache(
 }
 
 /**
- * Evict the snapshot for `id` at this layer AND mark it invalidated so any
- * base fall-through cannot resurrect a stale entry. The id can live in at
- * most one tree (global uniqueness), so deleting from all three maps is a
- * cheap O(1) miss in the other two and spares callers from naming the tree.
- */
-export function invalidateSnapshot(cache: SnapshotCache, id: BlockId): void {
-  for (const kind of TREE_KINDS) cache.snapshots[kind].delete(id);
-  cache.invalidated.add(id);
-}
-
-/**
- * Clear every entry from this layer's maps and invalidate every key known
- * to the base chain. After this call, reads on this layer re-snapshot from
- * the Y.Doc for any id encountered, since both the layer and (via
- * invalidation) the base are excluded.
- */
-export function invalidateAll(cache: SnapshotCache): void {
-  for (const kind of TREE_KINDS) cache.snapshots[kind].clear();
-  // Walk the base chain to seed invalidation entries for every id the
-  // chain knows about, so fall-through cannot resurrect a base hit.
-  for (
-    let layer: SnapshotCache | null = cache.base;
-    layer !== null;
-    layer = layer.base
-  ) {
-    for (const kind of TREE_KINDS) {
-      for (const id of layer.snapshots[kind].keys()) cache.invalidated.add(id);
-    }
-  }
-}
-
-/**
  * Iterative chain walk used by the read functions. Returns the resolved
  * Block (own-hit or base-hit) and the list of layers visited during the
  * descent, so the caller can promote the entry into each on a fresh Y.Doc

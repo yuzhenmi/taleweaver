@@ -27,6 +27,16 @@ import { STATE_INTERNAL } from "./state-internal";
  * insert (which lets them construct the new shape's structural fields
  * correctly) rather than calling setBlockType.
  *
+ * No-op short-circuit (matches `setBlockAttrs` / `mergeBlockAttrs`): when
+ * the requested `type` equals the block's existing type we skip the Y.Map
+ * write and return the LITERAL input `state` reference with an empty
+ * `dirtyIds`, so callers can use `result.state === state` as an O(1) "did
+ * anything change?" guard. Without it, a same-value `Y.Map.set("type", …)`
+ * fires a spurious change event that dirties the block and cascades into
+ * re-render/re-layout. The short-circuit is positioned AFTER the existence
+ * and registration/cross-kind guards, so a same-type call on a missing,
+ * unregistered, or shape-invalid block still throws exactly as before.
+ *
  * The `resolver` parameter is REQUIRED: the function cannot operate
  * without knowing the taxonomy. Callers supply a `BlockKindResolver`
  * (typically the editor's `ComponentRegistry`).
@@ -58,6 +68,13 @@ export function setBlockType(
         `new type "${type}" is ${newKind}. ` +
         `Compose remove + insert instead of changing kind.`,
     );
+  }
+  if (type === block.type) {
+    // No-op: requested type already in place. Return the input state
+    // reference unchanged (identity-preserving "did anything change?"
+    // contract); placed after the guards above so a same-type call on a
+    // missing/unregistered/shape-invalid block still throws.
+    return { state, dirtyIds: new Set() };
   }
   return applyOperation(state, () => {
     const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockType");
