@@ -107,11 +107,28 @@ sites + the float-loop inner check) (+ tests `ifc.test.ts`).
   union yet.
 - Hyphenation × hang interaction refinement.
 
-## Status — PHASE 2 COMPLETE (browser-verify owed)
-- [x] T1 — trailing-whitespace hang in the wrap decision (incl. float-loop inner check). Commit `84ba1b5`.
-  **This is all of Phase 2** (Task 2 / alignment hang descoped to follow-up #312 — textAlign isn't
-  implemented in layout/paint). Reviewer-approved (mechanism CSS-verified twice); full core 1672 green;
-  normal/nowrap/pre-line byte-identical.
+## Status — REVERTED (the hang was the WRONG behavior)
+- [x] ~~T1 — trailing-whitespace hang~~ Commit `84ba1b5` — **REVERTED in `6e4f4eb`.**
+
+**Why reverted (user browser-verify, 2026-05-25):** the CSS `pre-wrap` "hang" lets trailing spaces
+render PAST the page edge, so the CARET goes beyond the page when you type trailing spaces. That is
+NOT word-processor behavior. The plan/spec mislabeled `pre-wrap` as "Google Docs" — **Google Docs (and
+Word) actually behave like CSS `break-spaces`:** trailing spaces TAKE WIDTH and WRAP to the next line,
+so the caret stays on-page. The hang (pre-wrap) is a browser convention; per principle 7 (word
+processors are the reference for editing behavior), the editor must NOT hang.
+
+**Current behavior after revert = the pre-Phase-2 state (what the user approved as "Good so far"):**
+trailing spaces count toward the wrap decision and the word+trailing-spaces wrap unit is atomic, so
+typed trailing spaces wrap to the next line (caret on-page) in normal use. Residual quirks: (a) a word
+ending exactly at the margin can hop to the next line when you type a trailing space after it (the
+atomic word+space unit no longer fits); (b) a pathological >1-line run of trailing spaces glued to one
+word can still overflow. Full Google-Docs fidelity requires `break-spaces` (trailing spaces as
+independently-wrappable, width-taking units) — tracked as the proper replacement.
+
+**Proper fix (replaces this plan): implement `break-spaces`** — trailing/preserved spaces take width
+AND are independently wrappable (break onto subsequent lines), so the caret never leaves the page and
+words aren't split early. Needs `break-spaces` added to the `WhiteSpace` union + the tokenizer/wrap to
+treat preserved spaces as breakable width-taking units. Separate plan, awaiting user go-ahead.
 
 ## Browser-verify (user, after Phase 2)
 A long line ending in many spaces no longer wraps early (trailing spaces hang past the content edge).
