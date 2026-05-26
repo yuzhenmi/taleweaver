@@ -48,7 +48,7 @@ const emptyAncestorStyles: readonly ComputedStyle[] = [];
 
 /**
  * True for the white-space modes that PRESERVE leading/interior/trailing
- * whitespace verbatim (`pre`, `pre-wrap`, and the future `break-spaces`).
+ * whitespace verbatim (`pre`, `pre-wrap`, `break-spaces`).
  * `normal`/`nowrap` collapse all whitespace; `pre-line` collapses INTERIOR
  * whitespace like `normal` and only preserves `\n` (via LINE_BREAK) — so
  * neither is "preserving" for the purpose of rendering orphan/leading spaces.
@@ -58,9 +58,10 @@ const emptyAncestorStyles: readonly ComputedStyle[] = [];
  * dropped (collapsing modes).
  */
 export function preservesWhitespace(ws: WhiteSpace): boolean {
-  // When `break-spaces` is implemented, add it to the `WhiteSpace` union and
-  // include it here (it also preserves leading/interior/trailing whitespace).
-  return ws === "pre" || ws === "pre-wrap";
+  // `break-spaces` preserves leading/interior/trailing whitespace like
+  // `pre`/`pre-wrap` (nothing collapses). It differs only in the IFC grouper
+  // (one wrap unit per space token) — not in collapse behavior.
+  return ws === "pre" || ws === "pre-wrap" || ws === "break-spaces";
 }
 
 interface Token {
@@ -445,6 +446,10 @@ export function layoutInlineContent(
   // behavior; "balance" / "pretty" / "stable" are reserved for future work
   // (Knuth-Plass-style optimal wrap; not yet implemented). They are treated as
   // "wrap" by default.
+  // `break-spaces` is a wrapping mode: the formula `ws !== "nowrap" && ws !== "pre"`
+  // already returns true for it (no allowlist needed). The per-token grouping
+  // below (gated on `isBreakSpaces`) is what makes preserved spaces wrap
+  // independently to the next line.
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
   const floatEnv = ctx.floatEnv;
@@ -494,6 +499,11 @@ export function layoutInlineContent(
   let i = 0;
   while (i < tokens.length) {
     const tok = tokens[i];
+    // `break-spaces` mode → one wrap unit per token (each word + each space its
+    // own unit). Derived per-token from `tok.style.whiteSpace` (the same source
+    // the leading/orphan space branch reads), so an inline element carrying its
+    // own white-space value is honored consistently across both grouper paths.
+    const isBreakSpaces = tok.style.whiteSpace === "break-spaces";
     if (tok.isLineBreak) {
       units.push({
         tokens: [tok],
@@ -527,6 +537,28 @@ export function layoutInlineContent(
       // `unitOffsetContribution`, so the line's `inlineOffsetStart..End` covers
       // the leading spaces (closing #308 for preserving modes).
       if (preservesWhitespace(tok.style.whiteSpace)) {
+        // Under `break-spaces` every preserved space is its OWN wrap unit so a
+        // run of spaces can wrap independently across lines (CSS Text 3: a
+        // soft-wrap opportunity after every preserved space, incl. at line
+        // end). Emitting a single-glyph unit here (instead of slurping the run)
+        // is load-bearing: the greedy loop wraps an overflowing space to the
+        // next line, and a 1-glyph space unit can never force-place past the
+        // page edge — so the caret stays on-page (#314). For `pre`/`pre-wrap`
+        // keep the run bundling.
+        if (isBreakSpaces) {
+          units.push({
+            tokens: [tok],
+            totalWidth: tok.width,
+            sourceKey: tok.sourceKey,
+            isLineBreak: false,
+            inlineAncestors: tok.inlineAncestors,
+            inlineAncestorStyles: tok.inlineAncestorStyles,
+            tokenStartIdx: i,
+            tokenEndIdx: i,
+          });
+          i++;
+          continue;
+        }
         const spaceRun: Token[] = [tok];
         let w = tok.width;
         const runStartIdx = i;
@@ -564,14 +596,24 @@ export function layoutInlineContent(
     // iteration, losing their offset contribution and stranding the
     // cursor at the position past only the first trailing space (the
     // user-perceived "cursor stuck after typing a second space" bug).
+    //
+    // EXCEPT under `break-spaces`: the word emits ALONE (no trailing-space
+    // slurp) so each following space becomes its own wrap unit via the
+    // leading/orphan branch above. This is what lets an overflowing space
+    // wrap to the next line while the word stays intact on the current line
+    // (#314 — never split the word early, never push a glyph past the edge).
+    // The spaces' offset contribution is preserved because that branch emits
+    // them (closing the trailing-space offset gap for break-spaces).
     const unit: Token[] = [tok];
     let w = tok.width;
     const unitStartIdx = i;
     let j = i + 1;
-    while (j < tokens.length && tokens[j].isSpace && tokens[j].sourceKey === tok.sourceKey) {
-      unit.push(tokens[j]);
-      w += tokens[j].width;
-      j++;
+    if (!isBreakSpaces) {
+      while (j < tokens.length && tokens[j].isSpace && tokens[j].sourceKey === tok.sourceKey) {
+        unit.push(tokens[j]);
+        w += tokens[j].width;
+        j++;
+      }
     }
     i = j;
     units.push({

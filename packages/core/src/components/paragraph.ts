@@ -8,6 +8,7 @@ const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
   "pre",
   "pre-wrap",
   "pre-line",
+  "break-spaces",
 ]);
 
 /**
@@ -20,7 +21,7 @@ const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
  * layout for a block-level property.
  *
  * Returns the validated `WhiteSpace`, or `undefined` to leave the property
- * unset so it inherits the cascaded value (the document root's `pre-wrap`,
+ * unset so it inherits the cascaded value (the document root's `break-spaces`,
  * see `components/document.ts`).
  */
 function whiteSpaceFromAttrs(value: unknown): WhiteSpace | undefined {
@@ -37,8 +38,8 @@ function whiteSpaceFromAttrs(value: unknown): WhiteSpace | undefined {
  *
  * Default structural style: `display: block` + `marginBlockEnd: 0.5em`
  * for inter-paragraph spacing. An authored `whiteSpace` attr overrides the
- * inherited document default (`pre-wrap`) — e.g. `"normal"` to collapse, or
- * `"pre"` for a code-style block — baked onto the ElementBox `style` so it
+ * inherited document default (`break-spaces`) — e.g. `"normal"` to collapse,
+ * or `"pre"` for a code-style block — baked onto the ElementBox `style` so it
  * reaches the layout cascade.
  */
 export const paragraphComponent: LeafComponentDefinition = {

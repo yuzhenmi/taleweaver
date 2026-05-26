@@ -128,6 +128,28 @@ describe("tokenize (whiteSpace: pre-wrap)", () => {
   });
 });
 
+describe("tokenize (whiteSpace: break-spaces)", () => {
+  // `break-spaces` reuses the `pre-wrap` tokenization verbatim (the modes
+  // differ only in the IFC wrap-unit grouper). These cases lock in the
+  // fall-through so the union member never silently hits the `default:` throw.
+  it("preserves interior spaces (same as pre-wrap)", () => {
+    expect(tokenize("a  b", "break-spaces")).toEqual(["a", " ", " ", "b"]);
+  });
+  it("preserves leading spaces", () => {
+    expect(tokenize("  a", "break-spaces")).toEqual([" ", " ", "a"]);
+  });
+  it("preserves trailing spaces (one token per char)", () => {
+    expect(tokenize("a  ", "break-spaces")).toEqual(["a", " ", " "]);
+  });
+  it("emits LINE_BREAK at newlines", () => {
+    expect(tokenize("x\n  y", "break-spaces")).toEqual(["x", LINE_BREAK, " ", " ", "y"]);
+  });
+  it("matches pre-wrap output exactly for a mixed string", () => {
+    const mixed = "  ab cd   \nef ";
+    expect(tokenize(mixed, "break-spaces")).toEqual(tokenize(mixed, "pre-wrap"));
+  });
+});
+
 describe("tokenize (whiteSpace: pre-line)", () => {
   it("collapses whitespace runs to single space", () => {
     expect(tokenize("a   b", "pre-line")).toEqual(["a", " ", "b"]);

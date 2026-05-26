@@ -42,7 +42,7 @@ function pipeline(
  *
  * `whiteSpace` (optional): when provided, pins the paragraph's
  * `white-space` (via the `whiteSpace` attr interpreter) instead of
- * inheriting the document root's default (`pre-wrap`). Collapse-dependent
+ * inheriting the document root's default (`break-spaces`). Collapse-dependent
  * fixtures pass `"normal"` so their pixel/offset assertions stay valid.
  */
 function singleParagraph(textContent: string, whiteSpace?: string): State {
@@ -131,7 +131,7 @@ describe("resolvePixelPosition (new)", () => {
     //
     // Pinned to white-space:normal: this fixture's run geometry (the
     // collapsed double space, run2 absorbing the source spaces, x=144 clamp)
-    // is the COLLAPSE rendering. The editor body default is now pre-wrap
+    // is the COLLAPSE rendering. The editor body default is now break-spaces
     // (preserves both spaces), so this collapse-dependent fixture opts back
     // into `normal`.
     const state = singleParagraph("dsajidosja idoajs  dsajiodj", "normal");

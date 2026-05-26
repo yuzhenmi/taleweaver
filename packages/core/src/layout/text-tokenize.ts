@@ -5,7 +5,8 @@ export const LINE_BREAK = " ";
 
 /**
  * Split a string into tokens (words and inter-word spaces) according to white-space mode.
- * Plan 1 supports only "normal". Plans 2+ add nowrap, pre, pre-wrap, pre-line.
+ * Plan 1 supports only "normal". Plans 2+ add nowrap, pre, pre-wrap, pre-line,
+ * and break-spaces (which reuses the pre-wrap tokenization).
  */
 export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
   if (text === "") return [];
@@ -61,7 +62,15 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       }
       return out;
     }
-    case "pre-wrap": {
+    case "pre-wrap":
+    // `break-spaces` shares the `pre-wrap` tokenization exactly: word tokens +
+    // one normalized " " token per whitespace char, with LINE_BREAK between
+    // `\n` segments. The two modes differ only in the IFC wrap-unit grouper —
+    // `break-spaces` emits ONE wrap unit per space token (so a run of preserved
+    // spaces can wrap across lines) rather than slurping spaces into the
+    // preceding word's unit. The offset model (1 state char per space,
+    // sourceLength 1) is identical, so no tokenizer divergence is needed.
+    case "break-spaces": {
       // Preserve every space (leading, interior, trailing) while still
       // producing word/space tokens the IFC can wrap at word boundaries.
       // Split on \n into segments, emitting LINE_BREAK between them; within

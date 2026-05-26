@@ -120,4 +120,13 @@ pre-wrap tokenizer). `break-spaces` reuses the pre-wrap tokenizer (word + per-sp
   — out of scope.
 
 ## Status
-- [ ] T1 — break-spaces model + per-token wrap units + editor default flip.
+- [x] T1 — break-spaces model + per-token wrap units + editor default flip.
+  Implemented 2026-05-25 (pending reviewer gate + commit by controller). WhiteSpace
+  union + tokenizer fall-through + preservesWhitespace + grouper (both slurp branches
+  gated on per-token isBreakSpaces) + document.ts default + paragraph.ts VALID_WHITE_SPACES.
+  TDD: 7 new ifc.test.ts cases (incl. caret-on-page guard) + 1 default-pipeline + 5
+  tokenizer fall-through cases. Full core (1682 pass) + dom (149 pass) green; core +
+  examples/react build clean. Blast-radius audit: default-pipeline trailing/interior-space
+  fixtures (cursor-position #242 abc /abc  , hit-test "a  b") unaffected — interior single
+  spaces wrap identically and short trailing-space fixtures fit on one line; stale
+  `pre-wrap`-default comments in those test files updated to `break-spaces`.

@@ -379,6 +379,160 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
   });
 });
 
+describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
+  // Collect a line's text-run leaves (recursing into inline boxes) in visual
+  // order: { x, width, text, offsetLength }. Under break-spaces text-runs are
+  // direct line children (no inline elements in these fixtures), so `x` is
+  // line-relative and the line itself is at inlineOffset 0 — so the
+  // page-edge check is `x + width <= lineInlineSize`.
+  function leavesOf(line: import("./layout-box-v2").LineBox) {
+    const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out;
+  }
+
+  function linesOf(text: string, width: number) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    return { lines, lineInlineSize: width };
+  }
+
+  it("trailing spaces WRAP (caret on-page) and the word is NOT split", () => {
+    // "ab cd        " (8 trailing spaces) at 40px. "ab cd" = 5×8 = 40 fits;
+    // the trailing spaces overflow and wrap onto subsequent lines.
+    const { lines, lineInlineSize } = linesOf("ab cd        ", 40);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    // "ab cd" is intact on line 1 (NOT split early).
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text.startsWith("ab cd")).toBe(true);
+    expect(/ab\s+cd/.test(line1Text)).toBe(true);
+
+    // CARET-ON-PAGE GUARD: every rendered glyph on EVERY line (including
+    // every wrapped trailing space) ends at or before the page edge. This is
+    // exactly what the reverted pre-wrap "hang" violated (spaces past the edge).
+    for (const line of lines) {
+      for (const leaf of leavesOf(line)) {
+        expect(leaf.x + leaf.width).toBeLessThanOrEqual(lineInlineSize);
+      }
+    }
+  });
+
+  it("word is not split early: 'ab cd   ' at 40px keeps 'ab' and 'cd' on line 1", () => {
+    // "ab cd" = 40 fits exactly; "ab cd " = 48 does NOT. Under per-token wrap
+    // units "cd" (16px) fits after "ab " (24px) = 40 ≤ 40 and stays; the
+    // trailing spaces wrap. Under the OLD slurped ["cd"," "," "," "] unit this
+    // overflowed and hopped "cd" to line 2 (the bug).
+    const { lines } = linesOf("ab cd   ", 40);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text.includes("ab")).toBe(true);
+    expect(line1Text.includes("cd")).toBe(true);
+    // Both words on the SAME (first) line.
+    expect(/ab\s+cd/.test(line1Text)).toBe(true);
+  });
+
+  it("a run of spaces longer than a line wraps across multiple lines, none past the edge", () => {
+    // 20 spaces at 40px (fits 5 spaces/line) → flows across several lines.
+    const { lines, lineInlineSize } = linesOf("                    ", 40);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) {
+      for (const leaf of leavesOf(line)) {
+        expect(leaf.x + leaf.width).toBeLessThanOrEqual(lineInlineSize);
+      }
+    }
+    // All 20 space chars are owned across the lines (offset continuity below
+    // covers the per-line invariant; here confirm the total).
+    const lastLine = lines[lines.length - 1];
+    expect(lastLine.inlineOffsetEnd).toBe(20);
+  });
+
+  it("interior single-space wrap is unchanged vs normal word-wrap", () => {
+    // "aaaa bbbb cccc" at a 2-word width (~72px fits "aaaa bbbb" = 9×8=72).
+    const { lines } = linesOf("aaaa bbbb cccc", 72);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    // Wraps at the interior space: "aaaa bbbb" on line 1, "cccc" on line 2.
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("").trimEnd();
+    expect(line1Text).toBe("aaaa bbbb");
+    const line2Text = leavesOf(lines[1]).map(l => l.text).join("").trim();
+    expect(line2Text).toBe("cccc");
+  });
+
+  it("multiple + leading spaces render; line owns all state offsets", () => {
+    // "  a   b": 2 leading + "a" + 3 interior + "b" = 7 chars, all rendered.
+    const { lines } = linesOf("  a   b", 500);
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(7);
+    const leaves = leavesOf(line);
+    // First leaf is the 2 leading spaces, anchored at x=0.
+    expect(leaves[0].x).toBe(0);
+    expect(/^\s+$/.test(leaves[0].text)).toBe(true);
+    // "a" starts at x=16 (after 2 leading spaces).
+    const aLeaf = leaves.find(l => l.text.includes("a"));
+    expect(aLeaf?.x).toBe(16);
+    // Total rendered + offset accounts for all 7 chars.
+    const totalOffset = leaves.reduce((s, l) => s + l.offsetLength, 0);
+    expect(totalOffset).toBe(7);
+  });
+
+  it("offset continuity: nextLine.inlineOffsetStart === prevLine.inlineOffsetEnd across a space-driven wrap", () => {
+    const { lines } = linesOf("ab cd        ", 40);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (let i = 1; i < lines.length; i++) {
+      expect(lines[i].inlineOffsetStart).toBe(lines[i - 1].inlineOffsetEnd);
+    }
+    // The last line ends at the full content length (5 + 8 = 13).
+    expect(lines[lines.length - 1].inlineOffsetEnd).toBe(13);
+  });
+});
+
+describe("IFC — default pipeline now break-spaces (#314)", () => {
+  it("interior spaces still render under the document default", () => {
+    // No explicit white-space pin → document root default (now break-spaces).
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block", whiteSpace: "break-spaces" }, [
+        createElementBox("p", { display: "block" }, [
+          createTextBox("t", {}, "a  b"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    // Find the line within the nested paragraph block.
+    const lines: import("./layout-box-v2").LineBox[] = [];
+    const collect = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "line") lines.push(b);
+        else if (b.type === "block") collect(b.children);
+      }
+    };
+    collect(out.children);
+    expect(lines).toHaveLength(1);
+    // "a" + 2 spaces + "b" = 4 chars, all preserved.
+    expect(lines[0].inlineOffsetEnd).toBe(4);
+  });
+});
+
 describe("IFC — first-class inline boxes", () => {
   it("produces an InlineBox for a display:inline child", () => {
     const tree = cascadePass(

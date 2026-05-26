@@ -22,7 +22,7 @@ export type FontStyle = "normal" | "italic" | "oblique";
 
 export type TextDecoration = "none" | "underline" | "line-through";
 
-export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line";
+export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces";
 
 export type VerticalAlign = "baseline" | "top" | "middle" | "bottom";
 

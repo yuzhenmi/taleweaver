@@ -38,7 +38,7 @@ function pipeline(
 
 // `whiteSpace` (optional): when provided, pins the paragraph's
 // `white-space` (via the `whiteSpace` attr interpreter) instead of
-// inheriting the document root's default (`pre-wrap`). Collapse-dependent
+// inheriting the document root's default (`break-spaces`). Collapse-dependent
 // fixtures pass `"normal"` so their pixel/offset assertions stay valid.
 function singleParagraph(textContent: string, whiteSpace?: string): State {
   return buildState({
@@ -443,8 +443,8 @@ describe("resolvePositionFromPixel (new)", () => {
   });
 });
 
-describe("editor default white-space: pre-wrap (multiple spaces render)", () => {
-  // Under the editor's default white-space (now `pre-wrap`, set on the
+describe("editor default white-space: break-spaces (multiple spaces render)", () => {
+  // Under the editor's default white-space (now `break-spaces`, set on the
   // document root and inherited), a paragraph that contains two interior
   // spaces preserves BOTH — they don't collapse to one. This is a GEOMETRY
   // assertion through the real render→layout pipeline with the default doc
@@ -475,7 +475,7 @@ describe("editor default white-space: pre-wrap (multiple spaces render)", () => 
   it("selectWord on 'b' after the two spaces selects just 'b' [3,4)", () => {
     const state = singleParagraph("a  b");
     const { layout, shaper } = pipeline(state);
-    // "b" is the 4th rendered glyph: under pre-wrap both interior spaces
+    // "b" is the 4th rendered glyph: under break-spaces both interior spaces
     // render, so "b" lives at x ∈ [24, 32). Click at x=25 (just inside the
     // start of "b") → state offset 3. Under collapse "b" would sit at x=16
     // and this click would land in the (collapsed) space tail instead.
@@ -506,7 +506,7 @@ describe("collapsed-whitespace offset drift (double-click third word after doubl
   it("click at rendered start of word3 resolves to STATE offset 19", () => {
     // Pinned to white-space:normal: this fixture's rendered geometry
     // (x=144 for word3) is the COLLAPSE rendering. The editor body default
-    // is now pre-wrap (preserves the double space), so collapse-dependent
+    // is now break-spaces (preserves the double space), so collapse-dependent
     // assertions must opt back into `normal`.
     const state = singleParagraph(SENTENCE, "normal");
     const { layout, shaper } = pipeline(state);
