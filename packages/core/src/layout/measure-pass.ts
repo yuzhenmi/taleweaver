@@ -198,6 +198,16 @@ export interface PagePlan {
    * page the block does not occupy.
    */
   pageSpanOfBlock(blockKey: string): { readonly first: number; readonly last: number } | null;
+  /**
+   * Header/footer SLOT body root id → the FIRST page whose slot renders that
+   * body; `-1` if the id is no page's header/footer (e.g. a normal main-tree
+   * block, or an unused template body). The SAME body renders identically into
+   * EVERY page's slot, so this deliberately reports the FIRST carrier — the
+   * deterministic instance a slot caret resolves to (C.2c T6). Per-page caret
+   * instances are a tracked follow-up (#323). Built from each entry's
+   * `headerBlockId` / `footerBlockId`; empty when no page declares either.
+   */
+  pageIndexOfTemplateBlock(blockId: BlockId): number;
 }
 
 /**
@@ -618,6 +628,22 @@ export function measurePass(
   const totalBlockSize =
     lastEntry === undefined ? 0 : lastEntry.blockOffset + lastEntry.pageConfig.pageBlockSize;
 
+  // Header/footer SLOT body id → FIRST page carrying it (C.2c T6). Built from
+  // the final entries (both the re-fit and reuse branches stamp
+  // `headerBlockId` / `footerBlockId`), so it is path-independent. We keep the
+  // FIRST page only: the same body renders into every page's slot, and a slot
+  // caret resolves to that first instance (#323). `set`-only-if-absent
+  // preserves the first carrier when a later page repeats the id.
+  const templateBlockToPage = new Map<string, number>();
+  for (const e of entries) {
+    if (e.headerBlockId !== undefined && !templateBlockToPage.has(e.headerBlockId)) {
+      templateBlockToPage.set(e.headerBlockId, e.pageIndex);
+    }
+    if (e.footerBlockId !== undefined && !templateBlockToPage.has(e.footerBlockId)) {
+      templateBlockToPage.set(e.footerBlockId, e.pageIndex);
+    }
+  }
+
   return {
     entries,
     sectionPlan,
@@ -633,6 +659,9 @@ export function measurePass(
     pageSpanOfBlock(blockKey: string): { readonly first: number; readonly last: number } | null {
       const span = blockToSpan.get(blockKey);
       return span === undefined ? null : { first: span.first, last: span.last };
+    },
+    pageIndexOfTemplateBlock(blockId: BlockId): number {
+      return templateBlockToPage.get(blockId) ?? -1;
     },
   };
 }

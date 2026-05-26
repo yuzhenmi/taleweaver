@@ -86,6 +86,7 @@ function planWithEntries(
     pageIndexAtBlockOffset,
     pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
     pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
+    pageIndexOfTemplateBlock: base.pageIndexOfTemplateBlock.bind(base),
   };
 }
 
@@ -420,6 +421,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
       pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
       pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
+      pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
     };
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
@@ -464,6 +466,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
       pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
       pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
+      pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
     };
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);

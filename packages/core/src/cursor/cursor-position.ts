@@ -1,4 +1,4 @@
-import { getBlock } from "../state";
+import { resolveBlock } from "../state";
 import type { State, Position } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
@@ -54,7 +54,9 @@ function defaultPixelPosition(): PixelPosition {
  *
  * Algorithm (LineBox-canonical; see
  * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
- *   1. `getBlock(state, position.blockId)`. Returns null on miss.
+ *   1. `resolveBlock(state, position.blockId)` (checks main / embed /
+ *      template trees, so a header/footer slot body block resolves too).
+ *      Returns null on miss.
  *   2. Walk every LineBox; pick the one whose
  *      `(ownerBlockId, inlineOffsetStart..inlineOffsetEnd)` contains
  *      the position. Soft-wrap preference: at an exact boundary
@@ -89,7 +91,11 @@ export function resolvePixelPosition(
 ): PixelPosition | null {
   const t = markStart("cursor.cursor-position");
   try {
-    if (getBlock(state, position.blockId) === null) return null;
+    // `resolveBlock` (not `getBlock`) so a caret in a HEADER/FOOTER slot
+    // (C.2c T6) is not rejected here: a slot body block lives in the
+    // `templateContents` tree, which `getBlock` (main map only) misses.
+    // `resolveBlock` checks all three trees (main / embed / template).
+    if (resolveBlock(state, position.blockId) === null) return null;
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
       ? adaptShaperToMeasurer(shaperOrMeasurer)
@@ -151,9 +157,37 @@ function resolveInVirtualTree(
   const endPage = plan.pageIndexOfBlock(position.blockId);
 
   if (endPage < 0) {
-    // Block not mapped by the plan (nested / non-top-level). Fall back to the
-    // bridge: materialize the whole positioned tree and resolve there. Correct,
-    // and off the flat-document hot path the plan always maps.
+    // Header/footer SLOT fast path (C.2c T6). A slot body block lives in the
+    // `templateContents` tree, not the main document flow, so `pageIndexOfBlock`
+    // can't map it (it's never a top-level body child). Resolve it WITHOUT
+    // materializing the whole document: `pageIndexOfTemplateBlock` maps the slot
+    // ROOT id to the FIRST page carrying that slot, so we materialize exactly
+    // that page and resolve against its slot lines (which change (1) put into
+    // the page's `byBlock` index). The first-instance limitation — the same body
+    // renders into every page's slot but a slot caret can't encode which page —
+    // is the tracked follow-up #323; first page is the deterministic choice.
+    //
+    // Only the slot ROOT id is mapped. A slot DESCENDANT block id (a non-root
+    // block inside a multi-block header body) is NOT in the map and falls
+    // through to the materializeAll bridge below — still correct (change (1)
+    // also feeds the materialized index), just slow. T8 bodies are
+    // single-paragraph roots (`blockId === root`), so the fast path covers the
+    // common case.
+    const slotPage = plan.pageIndexOfTemplateBlock(position.blockId);
+    if (slotPage >= 0) {
+      const page = tree.getPage(slotPage);
+      const slotLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
+      if (slotLines.length > 0) {
+        return resolvePositionInOwnLines(slotLines, position, measurer);
+      }
+      // The id mapped to a page but produced no own-lines there (e.g. its slot
+      // body was empty / had no IFC). Fall through to the bridge below.
+    }
+
+    // Block not mapped by the plan (nested / non-top-level body block, or a slot
+    // DESCENDANT id). Fall back to the bridge: materialize the whole positioned
+    // tree and resolve there. Correct, and off the flat-document hot path the
+    // plan always maps.
     const positioned = tree.materializeAll();
     const ownLines = getLineIndex(positioned).byBlock.get(position.blockId) ?? [];
     if (ownLines.length === 0) {
@@ -348,8 +382,20 @@ function findBlockBaseline(
   pageIndex: number = 0,
 ): PixelPosition | null {
   if (box.type === "page") {
+    // Visit header/footer SLOTS too (C.2c T6) so the defensive baseline walk
+    // reaches a slot-DESCENDANT block id (the rare multi-block-header case that
+    // the `pageIndexOfTemplateBlock` fast path does not cover and which falls to
+    // the materializeAll bridge). Page-local origin, same pageIndex.
+    if (box.headerSlot !== null) {
+      const found = findBlockBaseline(box.headerSlot, blockId, 0, 0, box.pageIndex);
+      if (found !== null) return found;
+    }
     for (const child of box.children) {
       const found = findBlockBaseline(child, blockId, 0, 0, box.pageIndex);
+      if (found !== null) return found;
+    }
+    if (box.footerSlot !== null) {
+      const found = findBlockBaseline(box.footerSlot, blockId, 0, 0, box.pageIndex);
       if (found !== null) return found;
     }
     return null;

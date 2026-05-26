@@ -1,4 +1,4 @@
-import { getBlock, createPosition } from "../state";
+import { resolveBlock, createPosition } from "../state";
 import type { State, Position } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -95,8 +95,13 @@ export function resolvePositionFromPixel(
     }
     const targetLine = visible[targetIdx];
     const ownerBlockId = targetLine.line.ownerBlockId;
-    // Defensive: ensure the picked line's owning block exists in state.
-    if (getBlock(state, ownerBlockId) === null) return null;
+    // Defensive: ensure the picked line's owning block exists in state. Use
+    // `resolveBlock` (not `getBlock`) so a click in a HEADER/FOOTER slot
+    // (C.2c T6) resolves: a slot's body block lives in the `templateContents`
+    // map, not the main `blocks` map — `getBlock` only checks main, so it would
+    // reject the slot line. `resolveBlock` checks all three trees (main /
+    // embed / template).
+    if (resolveBlock(state, ownerBlockId) === null) return null;
 
     // 4-5. Collect leaves within the picked line.
     const leaves = collectLineLeaves(targetLine.line, targetLine.absoluteX);

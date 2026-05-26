@@ -60,9 +60,21 @@ export function collectLineBoxes(
 ): void {
   if (box.type === "text-run" || box.type === "marker") return;
   if (box.type === "page") {
+    // Header/footer SLOTS (C.2c T6) are page-local BlockBoxes laid into the top
+    // / bottom margin bands, kept OUT of `box.children` as distinct named
+    // fields. Walk them too so their lines enter the flat list AND
+    // `getLineIndex(page).byBlock` — feeding hit-test, cursor-position, and
+    // selection-geometry for slot content. Slot block ids are globally unique
+    // (templateContents lives in its own map), so they never collide with body
+    // ids in `byBlock`. Header BEFORE the body children (it paints above),
+    // footer AFTER (below). Origin is the page-content frame `(0, 0)` — the
+    // slot's own `(x, y)` (set by `materializePage` to the band origin) is
+    // applied as the slot box is descended.
+    if (box.headerSlot) collectLineBoxes(box.headerSlot, 0, 0, out, box.pageIndex);
     for (const child of box.children) {
       collectLineBoxes(child, 0, 0, out, box.pageIndex);
     }
+    if (box.footerSlot) collectLineBoxes(box.footerSlot, 0, 0, out, box.pageIndex);
     return;
   }
   const absX = parentX + box.x;
