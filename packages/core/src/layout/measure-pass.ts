@@ -116,6 +116,16 @@ export interface PagePlanEntry {
    * positioning would refill the leftover room with the next section's blocks.
    */
   readonly stopBeforeIndex: number | null;
+  /**
+   * The id of the `templateContents` body that lays out into THIS page's HEADER
+   * slot (C.2c): the active section's (or doc-root implicit section's)
+   * `headerBlockId`, from `sectionStateAt` at the page's first flattened child.
+   * `undefined` when the active section/doc declares no header. The measure pass
+   * only TAGS it here — a later task reads it to lay the body into the slot.
+   */
+  readonly headerBlockId?: BlockId;
+  /** The footer-slot body id for THIS page; symmetric to `headerBlockId` (C.2c). */
+  readonly footerBlockId?: BlockId;
 }
 
 /** The document's full pagination plan. */
@@ -346,6 +356,11 @@ export function measurePass(
     // page), else increment.
     const st = sectionStateAt(sectionPlan, startIndex);
     const activeSectionId = st.activeSectionId;
+    // The active section's (or implicit doc-root section's) header/footer body
+    // ids for THIS page (C.2c), computed alongside `st` so BOTH the reuse and
+    // re-fit branches stamp the same value. `undefined` when none is declared.
+    const headerBlockId = st.headerBlockId;
+    const footerBlockId = st.footerBlockId;
 
     // --- Effective per-page geometry (C.2b-2). ---
     // The active section's boundary `pageConfig` if it overrides the doc-wide
@@ -447,6 +462,12 @@ export function measurePass(
           // proves `nextBoundaryIndex` is unchanged, so the prior fit is still
           // valid under this cap.
           stopBeforeIndex: st.nextBoundaryIndex ?? null,
+          // Header/footer body ids for THIS page (C.2c) — stamped from the
+          // CURRENT `st` on the reuse path too (M1), not the prior entry: the
+          // page's owning section is the running `st`, which already accounts for
+          // any section-id change a SECTION_BREAK introduced.
+          headerBlockId,
+          footerBlockId,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -554,6 +575,9 @@ export function measurePass(
       // The SAME cap (`st.nextBoundaryIndex`) passed to `fitOnePage` above — so
       // the positioning pass reproduces this page's fit exactly.
       stopBeforeIndex: st.nextBoundaryIndex ?? null,
+      // Header/footer body ids for THIS page (C.2c), from the CURRENT `st`.
+      headerBlockId,
+      footerBlockId,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the

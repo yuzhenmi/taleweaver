@@ -286,6 +286,95 @@ describe("buildSectionPlan — per-section pageConfig", () => {
   });
 });
 
+// --- buildSectionPlan: per-section header/footer ids (C.2c T2) ---------------
+//
+// A section may carry `headerBlockId` / `footerBlockId` in its attrs (the ids of
+// the templateContents bodies that lay out into each page's header/footer slot).
+// The section component stamps them RAW into metadata (like the geometry attrs);
+// `makeSectionBoundary` carries them onto the boundary, and the doc-root box's
+// own metadata feeds the implicit/leading boundary (a section-less doc with a
+// doc-root header).
+
+describe("buildSectionPlan — per-section header/footer ids", () => {
+  it("a section WITH headerBlockId / footerBlockId → boundary carries them", () => {
+    const root = docRoot([
+      para("p1"),
+      section("sec", [para("a")], { headerBlockId: "hdr", footerBlockId: "ftr" }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary).toBeDefined();
+    expect(secBoundary?.headerBlockId).toBe("hdr");
+    expect(secBoundary?.footerBlockId).toBe("ftr");
+  });
+
+  it("a section with NO header/footer attrs → both undefined", () => {
+    const root = docRoot([para("p1"), section("sec", [para("a")])]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary).toBeDefined();
+    expect(secBoundary?.headerBlockId).toBeUndefined();
+    expect(secBoundary?.footerBlockId).toBeUndefined();
+  });
+
+  it("a non-string header/footer value → coerced to undefined", () => {
+    const root = docRoot([
+      section("sec", [para("a")], { headerBlockId: 42, footerBlockId: { x: 1 } }),
+    ]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(secBoundary?.headerBlockId).toBeUndefined();
+    expect(secBoundary?.footerBlockId).toBeUndefined();
+  });
+
+  it("doc-root metadata header/footer ids → the implicit/leading boundary carries them (section-less doc)", () => {
+    // A section-less doc whose ROOT box carries the header/footer ids (the
+    // implicit-section default lives on the doc root). buildSectionPlan reads
+    // them off `cascadedRoot.metadata` onto the implicit `{0,null}` boundary.
+    const root = withComputed(
+      createElementBox("doc", { display: "block" }, [para("p1"), para("p2")], {
+        headerBlockId: "docHdr",
+        footerBlockId: "docFtr",
+      }),
+      "block",
+    );
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    expect(plan.boundaries.length).toBe(1);
+    const implicit = plan.boundaries[0];
+    expect(implicit.sectionId).toBeNull();
+    expect(implicit.headerBlockId).toBe("docHdr");
+    expect(implicit.footerBlockId).toBe("docFtr");
+  });
+
+  it("doc-root ids feed the LEADING implicit boundary even with a trailing section", () => {
+    // [p1, section(...)] → boundaries [{0,null},{1,sec}]. The doc-root ids land on
+    // the implicit leading boundary; the section's own (absent) ids stay undefined.
+    const root = withComputed(
+      createElementBox(
+        "doc",
+        { display: "block" },
+        [para("p1"), section("sec", [para("a")])],
+        { headerBlockId: "docHdr" },
+      ),
+      "block",
+    );
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const implicit = plan.boundaries.find((b) => b.sectionId === null);
+    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
+    expect(implicit?.headerBlockId).toBe("docHdr");
+    expect(implicit?.footerBlockId).toBeUndefined();
+    expect(secBoundary?.headerBlockId).toBeUndefined();
+  });
+
+  it("doc-root with NO header/footer metadata → implicit boundary undefined", () => {
+    const root = docRoot([para("p1")]);
+    const plan = buildSectionPlan(root, DOC_WIDE);
+    const implicit = plan.boundaries[0];
+    expect(implicit.headerBlockId).toBeUndefined();
+    expect(implicit.footerBlockId).toBeUndefined();
+  });
+});
+
 // --- sectionStateAt ----------------------------------------------------------
 
 describe("sectionStateAt", () => {
@@ -384,5 +473,55 @@ describe("sectionStateAt — pageConfig", () => {
   it("IMPLICIT_SECTION_PLAN never surfaces a pageConfig", () => {
     expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 0).pageConfig).toBeUndefined();
     expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 99).pageConfig).toBeUndefined();
+  });
+});
+
+// --- sectionStateAt: header/footer surfacing (C.2c T2) -----------------------
+//
+// The measure pass tags each page with the active section's header/footer body
+// ids (so a later task lays them into the page slots). `sectionStateAt` must
+// surface the active boundary's `headerBlockId`/`footerBlockId` (undefined when
+// the active boundary carries none).
+
+describe("sectionStateAt — header/footer ids", () => {
+  // plan: [{0,null, docHdr}, {1,sec, hdr/ftr}, {4,sec2}]
+  const plan: SectionPlan = {
+    boundaries: [
+      { startFlattenedIndex: 0, sectionId: null, headerBlockId: "docHdr" as BlockId },
+      {
+        startFlattenedIndex: 1,
+        sectionId: "sec" as BlockId,
+        headerBlockId: "hdr" as BlockId,
+        footerBlockId: "ftr" as BlockId,
+      },
+      { startFlattenedIndex: 4, sectionId: "sec2" as BlockId },
+    ],
+  };
+
+  it("active boundary WITH header/footer ids → surfaced", () => {
+    const at1 = sectionStateAt(plan, 1);
+    expect(at1.headerBlockId).toBe("hdr");
+    expect(at1.footerBlockId).toBe("ftr");
+    // between boundaries → still the active (sec) boundary's ids.
+    const at3 = sectionStateAt(plan, 3);
+    expect(at3.headerBlockId).toBe("hdr");
+    expect(at3.footerBlockId).toBe("ftr");
+  });
+
+  it("implicit leading boundary's header id is surfaced at index 0", () => {
+    const at0 = sectionStateAt(plan, 0);
+    expect(at0.headerBlockId).toBe("docHdr");
+    expect(at0.footerBlockId).toBeUndefined();
+  });
+
+  it("active boundary WITHOUT header/footer ids → undefined", () => {
+    const at4 = sectionStateAt(plan, 4);
+    expect(at4.headerBlockId).toBeUndefined();
+    expect(at4.footerBlockId).toBeUndefined();
+  });
+
+  it("IMPLICIT_SECTION_PLAN never surfaces header/footer ids", () => {
+    expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 0).headerBlockId).toBeUndefined();
+    expect(sectionStateAt(IMPLICIT_SECTION_PLAN, 0).footerBlockId).toBeUndefined();
   });
 });

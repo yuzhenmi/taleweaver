@@ -17,6 +17,7 @@
  */
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { BlockId } from "../state/block-id";
+import { coerceBlockId } from "../state/block-id";
 import type { PageConfig } from "./page-config";
 import { flattenContents } from "./group-children";
 import { resolveSectionPageConfig } from "./section-page-config";
@@ -33,6 +34,18 @@ export interface SectionBoundary {
    * so consumers (T2's measure pass) fall back to docWide when this is absent.
    */
   readonly pageConfig?: PageConfig;
+  /**
+   * The id of the `templateContents` body that lays out into this section's
+   * pages' HEADER slot (C.2c). For a real section, the section's `headerBlockId`
+   * attr (stamped raw into the section box metadata, coerced here); for the
+   * implicit/leading boundary, the DOC-ROOT box's `headerBlockId` metadata.
+   * `undefined` when the section/doc declares no header. The measure pass tags
+   * each page with the active boundary's value so a later task lays the body
+   * into the slot — T2 only carries the id, no layout yet.
+   */
+  readonly headerBlockId?: BlockId;
+  /** The footer-slot body id; symmetric to `headerBlockId` (C.2c). */
+  readonly footerBlockId?: BlockId;
 }
 
 export interface SectionPlan {
@@ -51,6 +64,14 @@ export interface SectionStateAt {
    * leading boundary); the measure pass applies the `?? docWide` fallback.
    */
   readonly pageConfig?: PageConfig;
+  /**
+   * The active boundary's header-slot body id (C.2c), or `undefined` when the
+   * active section/doc declares no header. The measure pass stamps it onto each
+   * page so a later task lays the templateContents body into the header slot.
+   */
+  readonly headerBlockId?: BlockId;
+  /** The active boundary's footer-slot body id; symmetric (C.2c). */
+  readonly footerBlockId?: BlockId;
 }
 
 /**
@@ -97,6 +118,11 @@ export function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
  * geometry from the section's metadata over `docWide`. The `pageConfig` field
  * is stamped ONLY when the resolved config differs from `docWide`; an equal
  * (or no-override) config leaves it `undefined`, keeping the common case inert.
+ *
+ * Header/footer body ids (C.2c) are read RAW off the section box metadata and
+ * coerced (string ⇒ BlockId, else `undefined`); they are independent of the
+ * geometry-override gate — a section may carry a header without overriding its
+ * page geometry. An `undefined` id key is simply absent on the boundary.
  */
 function makeSectionBoundary(
   startFlattenedIndex: number,
@@ -105,10 +131,17 @@ function makeSectionBoundary(
 ): SectionBoundary {
   const cfg = resolveSectionPageConfig(docWide, sectionBox.metadata);
   const sectionId = sectionBox.key as BlockId;
-  if (pageConfigsEqual(cfg, docWide)) {
-    return { startFlattenedIndex, sectionId };
-  }
-  return { startFlattenedIndex, sectionId, pageConfig: cfg };
+  const headerBlockId = coerceBlockId(sectionBox.metadata?.headerBlockId);
+  const footerBlockId = coerceBlockId(sectionBox.metadata?.footerBlockId);
+  return {
+    startFlattenedIndex,
+    sectionId,
+    // Stamp `pageConfig` only when the override differs from docWide (the
+    // no-override path stays inert); the spread keeps the field absent otherwise.
+    ...(pageConfigsEqual(cfg, docWide) ? {} : { pageConfig: cfg }),
+    ...(headerBlockId !== undefined ? { headerBlockId } : {}),
+    ...(footerBlockId !== undefined ? { footerBlockId } : {}),
+  };
 }
 
 /**
@@ -127,7 +160,10 @@ function makeSectionBoundary(
  *
  * After the walk, if no boundary sits at index 0 (the first child is not a
  * section), PREPEND the implicit `{ 0, null }` boundary (no `pageConfig`). A
- * section-less doc thus yields exactly `[{ 0, null }]`.
+ * section-less doc thus yields exactly `[{ 0, null }]`. The implicit/leading
+ * boundary takes its header/footer body ids from the DOC-ROOT box's own
+ * metadata (C.2c — the implicit-section default lives on the doc root), so a
+ * section-less doc with a doc-root header flows it to that boundary.
  *
  * INVARIANT (I-2): the returned `boundaries` are sorted with STRICTLY increasing
  * `startFlattenedIndex` — the de-dup guarantees no two entries share an index.
@@ -136,6 +172,14 @@ export function buildSectionPlan(
   cascadedRoot: ElementBox,
   docWide: PageConfig,
 ): SectionPlan {
+  // Doc-root header/footer body ids (C.2c, I1): the implicit/leading section's
+  // default, read RAW off the doc-root box metadata and coerced. The doc-root
+  // box IS `cascadedRoot`. Computed before the children loop so it is available
+  // when the implicit boundary is prepended below — independent of whether the
+  // doc has any real sections.
+  const docHeaderBlockId = coerceBlockId(cascadedRoot.metadata?.headerBlockId);
+  const docFooterBlockId = coerceBlockId(cascadedRoot.metadata?.footerBlockId);
+
   // Mutable accumulator; the de-dup needs to overwrite the last-pushed boundary
   // when a coincident index recurs, so we build with a plain array.
   const boundaries: SectionBoundary[] = [];
@@ -160,9 +204,16 @@ export function buildSectionPlan(
   }
 
   // Implicit leading section: if nothing opened at index 0, the doc begins with
-  // a section-less run.
+  // a section-less run. Its header/footer body ids come from the doc root (I1) —
+  // an explicit section starting at index 0 instead owns page 0 with its OWN
+  // ids, so this branch (and the doc-root default) does not apply there.
   if (boundaries.length === 0 || boundaries[0].startFlattenedIndex !== 0) {
-    boundaries.unshift({ startFlattenedIndex: 0, sectionId: null });
+    boundaries.unshift({
+      startFlattenedIndex: 0,
+      sectionId: null,
+      ...(docHeaderBlockId !== undefined ? { headerBlockId: docHeaderBlockId } : {}),
+      ...(docFooterBlockId !== undefined ? { footerBlockId: docFooterBlockId } : {}),
+    });
   }
 
   return { boundaries };
@@ -199,5 +250,10 @@ export function sectionStateAt(plan: SectionPlan, index: number): SectionStateAt
     // Surface the active boundary's geometry override (C.2b-2); `undefined`
     // when it carries none ⇒ the measure pass falls back to docWide.
     pageConfig: active.pageConfig,
+    // Surface the active boundary's header/footer body ids (C.2c); `undefined`
+    // when the active section/doc declares none. The measure pass stamps these
+    // onto each page so a later task lays the body into the slot.
+    headerBlockId: active.headerBlockId,
+    footerBlockId: active.footerBlockId,
   };
 }

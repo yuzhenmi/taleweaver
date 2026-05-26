@@ -28,5 +28,10 @@ export const sectionComponent: ContainerComponentDefinition = {
       pageBlockSize: view.attrs.pageBlockSize,
       pageMargins: view.attrs.pageMargins,
       pageGap: view.attrs.pageGap,
+      // Per-section header/footer body ids (C.2c). Stamped RAW (no AttrRegistry
+      // interpreter) exactly as the geometry keys above; `section-plan`'s
+      // `makeSectionBoundary` coerces them (string ⇒ BlockId, else undefined).
+      headerBlockId: view.attrs.headerBlockId,
+      footerBlockId: view.attrs.footerBlockId,
     }),
 };

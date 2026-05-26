@@ -27,5 +27,16 @@ export const documentComponent: ContainerComponentDefinition = {
       view.id,
       { display: "block", whiteSpace: "break-spaces" },
       childRenderNodes,
+      // The implicit-section default header/footer body ids (C.2c). A
+      // section-less document (or the leading section-less run) takes its
+      // header/footer from the doc root's own attrs; `section-plan`'s
+      // `buildSectionPlan` reads these off `cascadedRoot.metadata` onto the
+      // implicit/leading boundary. Stamped RAW (no AttrRegistry interpreter),
+      // mirroring how the section component stamps per-section ids; the plan
+      // coerces them (string ⇒ BlockId, else undefined).
+      {
+        headerBlockId: view.attrs.headerBlockId,
+        footerBlockId: view.attrs.footerBlockId,
+      },
     ),
 };

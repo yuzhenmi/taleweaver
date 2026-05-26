@@ -477,15 +477,31 @@ function sPara(key: string, text = "x"): ElementBox {
   ]);
 }
 
-/** A section: display:contents + the `{ blockType: "section" }` marker. */
-function sSection(key: string, children: readonly RenderNode[]): ElementBox {
+/**
+ * A section: display:contents + the `{ blockType: "section" }` marker. Optional
+ * `extraMetadata` models per-section header/footer ids (C.2c T2), stamped RAW
+ * exactly as the section component stamps `view.attrs.headerBlockId` etc.
+ */
+function sSection(
+  key: string,
+  children: readonly RenderNode[],
+  extraMetadata?: Record<string, unknown>,
+): ElementBox {
   return createElementBox(key, { display: "contents" } as Style, children, {
     blockType: "section",
+    ...extraMetadata,
   });
 }
 
-function sDoc(children: readonly RenderNode[]): ElementBox {
-  return createElementBox("doc", { display: "block" } as Style, children);
+/**
+ * A doc-root block. Optional `metadata` models the implicit-section default
+ * header/footer ids the document component stamps from its own attrs (C.2c T2).
+ */
+function sDoc(
+  children: readonly RenderNode[],
+  metadata?: Record<string, unknown>,
+): ElementBox {
+  return createElementBox("doc", { display: "block" } as Style, children, metadata);
 }
 
 function sCascade(root: ElementBox): ElementBox {
@@ -698,6 +714,136 @@ describe("measurePass — section page breaks", () => {
     expect(plan.pageIndexOfBlock("b")).toBe(1);
     expect(plan.entries.map((e) => e.activeSectionId)).toEqual([null, "s"]);
     expect(plan.entries.map((e) => e.sectionPageIndex)).toEqual([0, 0]);
+  });
+});
+
+// ===========================================================================
+// Per-section header/footer body ids (C.2c T2). The measure pass tags each page
+// with the active section's `headerBlockId`/`footerBlockId` (from
+// `sectionStateAt`) — carried so a later task lays the templateContents body
+// into the page's header/footer slot. No layout yet — T2 only threads the ids.
+// Both the re-fit path AND the carry-forward reuse path must stamp them (M1).
+// ===========================================================================
+
+describe("measurePass — per-section header/footer ids", () => {
+  it("a section with a header id → its pages' PagePlanEntry.headerBlockId set", () => {
+    // s1 (no header) spans 2 pages; s2 carries a header id and spans 1 page.
+    const render = sDoc([
+      sSection("s1", [sPara("a0"), sPara("a1"), sPara("a2"), sPara("a3")]),
+      sSection("s2", [sPara("b0"), sPara("b1")], { headerBlockId: "hdr2" }),
+    ]);
+    const { plan } = sectionPlanFrom(render);
+
+    expect(plan.entries.length).toBe(3);
+    expect(plan.entries.map((e) => e.activeSectionId)).toEqual(["s1", "s1", "s2"]);
+    // s1's two pages carry no header id; s2's page carries "hdr2".
+    expect(plan.entries.map((e) => e.headerBlockId)).toEqual([undefined, undefined, "hdr2"]);
+    // No footer ids anywhere.
+    expect(plan.entries.every((e) => e.footerBlockId === undefined)).toBe(true);
+  });
+
+  it("doc-root default header id → implicit-section pages carry it", () => {
+    // A section-less doc whose ROOT carries a header id (the implicit-section
+    // default). buildSectionPlan reads it off cascadedRoot.metadata onto the
+    // implicit boundary; every page (all implicit-section) carries it.
+    const render = sDoc(
+      Array.from({ length: 7 }, (_, i) => sPara(`p${i}`)),
+      { headerBlockId: "docHdr", footerBlockId: "docFtr" },
+    );
+    const { plan } = sectionPlanFrom(render);
+
+    expect(plan.entries.length).toBeGreaterThan(1);
+    expect(plan.entries.every((e) => e.activeSectionId === null)).toBe(true);
+    expect(plan.entries.every((e) => e.headerBlockId === "docHdr")).toBe(true);
+    expect(plan.entries.every((e) => e.footerBlockId === "docFtr")).toBe(true);
+  });
+
+  it("per-section: section 2 has a header, section 1 doesn't → correct per page", () => {
+    // s1 (header "hdr1", footer "ftr1") spans 1 page; s2 (no header/footer)
+    // spans 1 page. Each page reflects ITS section's ids.
+    const render = sDoc([
+      sSection("s1", [sPara("a0"), sPara("a1"), sPara("a2")], {
+        headerBlockId: "hdr1",
+        footerBlockId: "ftr1",
+      }),
+      sSection("s2", [sPara("b0"), sPara("b1")]),
+    ]);
+    const { plan } = sectionPlanFrom(render);
+
+    expect(plan.entries.length).toBe(2);
+    expect(plan.entries.map((e) => e.activeSectionId)).toEqual(["s1", "s2"]);
+    expect(plan.entries.map((e) => e.headerBlockId)).toEqual(["hdr1", undefined]);
+    expect(plan.entries.map((e) => e.footerBlockId)).toEqual(["ftr1", undefined]);
+  });
+
+  it("no header/footer attrs → entries byte-identical to today (undefined ids, no regression)", () => {
+    // A plain 2-section doc with NO header/footer attrs anywhere. Every entry's
+    // header/footer id is undefined and the rest of the plan is unchanged.
+    const render = sDoc([
+      sSection("s1", [sPara("a0"), sPara("a1"), sPara("a2")]),
+      sSection("s2", [sPara("b0"), sPara("b1")]),
+    ]);
+    const { plan } = sectionPlanFrom(render);
+
+    expect(plan.entries.every((e) => e.headerBlockId === undefined)).toBe(true);
+    expect(plan.entries.every((e) => e.footerBlockId === undefined)).toBe(true);
+  });
+
+  it("carry-forward REUSE path stamps the active section's header/footer ids (M1)", () => {
+    // Two 4-para sections (each spans 2 pages: 4×16=64 > 48). s1 has a header
+    // "hdr1"; s2 has a footer "ftr2". A body edit to s2's LAST block lets s1's
+    // pages REUSE (0/few fitOnePage calls), and the reuse path must still stamp
+    // s1's header id onto the reused pages (M1 — the reuse path, not just refit).
+    const s1Node = sSection("s1", [sPara("a0"), sPara("a1"), sPara("a2"), sPara("a3")], {
+      headerBlockId: "hdr1",
+    });
+    const b0 = sPara("b0");
+    const b1 = sPara("b1");
+    const b2 = sPara("b2");
+    const render0 = sDoc([
+      s1Node,
+      sSection("s2", [b0, b1, b2, sPara("b3")], { footerBlockId: "ftr2" }),
+    ]);
+    const cascaded0 = sCascade(render0);
+    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const sectionPlan0 = buildSectionPlan(cascaded0, SECTION_PAGE);
+    const plan1 = measurePass(
+      metas0, SECTION_PAGE, sectionPlan0, flattenContents(cascaded0.children),
+    );
+    expect(plan1.entries.length).toBe(4);
+    expect(plan1.entries.map((e) => e.headerBlockId)).toEqual([
+      "hdr1", "hdr1", undefined, undefined,
+    ]);
+    expect(plan1.entries.map((e) => e.footerBlockId)).toEqual([
+      undefined, undefined, "ftr2", "ftr2",
+    ]);
+
+    // Edit ONLY s2's b3; reuse s1Node + b0/b1/b2 by reference so s1's pages reuse.
+    const render1 = sDoc([
+      s1Node,
+      sSection("s2", [b0, b1, b2, sPara("b3", "EDITED")], { footerBlockId: "ftr2" }),
+    ]);
+    const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
+    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const sectionPlan1 = buildSectionPlan(cascaded1, SECTION_PAGE);
+
+    __resetFitOnePageCallCountForTest();
+    const plan2 = measurePass(
+      metas1, SECTION_PAGE, sectionPlan1, flattenContents(cascaded1.children), plan1,
+    );
+    const fitCalls = __getFitOnePageCallCountForTest();
+
+    // Reuse engaged: s1's pages did NOT re-fit (fewer than 4 fitOnePage calls).
+    expect(fitCalls).toBeGreaterThan(0);
+    expect(fitCalls).toBeLessThanOrEqual(2);
+    // The header/footer ids survive the reuse path identically (M1).
+    expect(plan2.entries.length).toBe(4);
+    expect(plan2.entries.map((e) => e.headerBlockId)).toEqual([
+      "hdr1", "hdr1", undefined, undefined,
+    ]);
+    expect(plan2.entries.map((e) => e.footerBlockId)).toEqual([
+      undefined, undefined, "ftr2", "ftr2",
+    ]);
   });
 });
 
