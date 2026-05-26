@@ -27,35 +27,54 @@ so a single combined `prevByKey` across the three trees has no key collisions.
 
 ---
 
-## Task 1 — Gap A: multi-tree invalidation walk (CORRECTNESS; closes #221)
+## Task 1 — Gap A: make ALL render block-tree walks multi-tree (CORRECTNESS; closes #221)
 
-**Files:** `packages/core/src/render/render.ts` (`computeInvalidatedBlocks`, `addDescendantsToInvalidated`);
-tests `render.test.ts`.
+**Files:** `packages/core/src/render/render.ts`; tests `render.test.ts`.
 
-- In `computeInvalidatedBlocks`, replace the ancestor-chain block lookup `getBlock(state, cursor) ??
-  getBlock(prevState, cursor)` with the multi-tree `resolveBlock(state, cursor)?.block ??
-  resolveBlock(prevState, cursor)?.block`. The walk then climbs `parentId` THROUGH the embed/template
-  body and ADDS the body-root id to `invalidated` (so the reuse loop re-renders it). Confirm the walk
-  terminates correctly (body root's `parentId` is null or the registry root — verify it doesn't loop;
-  keep the existing cycle/step guard if present).
-- In `addDescendantsToInvalidated`, replace its `getBlock(state, id)` with `resolveBlock(state, id)?.block`
-  (and prevState fallback if it uses one) so descendants of a dirty embed/template block are walked too.
-- Import `resolveBlock` from the state barrel. No change to the container-body reuse loop itself — once
-  the body root is correctly in `invalidated`, the existing `!invalidated.has(id)` branch re-renders it.
+**The unifying fix:** EVERYWHERE the render module walks the block tree by id (parentId / childId /
+nextSiblingId), use `resolveBlock(state, id)?.block` instead of `getBlock(state, id)`. `resolveBlock`'s
+FIRST arm is `getBlock` (state.ts:157), so main-tree behavior is byte-identical; the extra arms
+(embed, template) make body-internal walks work. The plan-review found that fixing only the
+invalidation walk is INSUFFICIENT — once the body root is invalidated, the body RE-RENDER then fetches
+children via main-tree-only `getBlock` and THROWS for multi-level container bodies. So swap ALL of
+these call sites (verify exact lines — approximate):
+
+1. **`computeInvalidatedBlocks`** (~687): ancestor walk `getBlock(state,cursor) ?? getBlock(prevState,cursor)`
+   → `resolveBlock(state,cursor)?.block ?? resolveBlock(prevState,cursor)?.block`. The walk then climbs
+   parentId THROUGH the body and ADDS the body-root id to `invalidated`. Terminates when parentId is
+   null / resolveBlock returns null (registry root not a block) → stop. Keep any existing cycle/step guard.
+2. **`addDescendantsToInvalidated`** — BOTH `getBlock` calls (~705 the id fetch AND ~713 the
+   `child`/nextSibling-advance fetch). Both → `resolveBlock(...)?.block`.
+3. **`renderBlockIncremental`** child iteration — the child-fetch (~619) AND the sibling-advance
+   (~637) `getBlock(state, childId)` → `resolveBlock(state, childId)?.block`. (This is the second
+   barrier the plan-review caught: without it, re-rendering a multi-level body throws.)
+4. **`renderBlock`** (full-render path) child iteration — the same two sites (~265, ~281). (Same latent
+   bug on the full path; multi-level bodies have never been full-rendered in tests.)
+
+- Null-guard: where a swapped site previously threw "not found" on null, keep a throw with a message
+  like "block <id> not found in any tree" (don't silently `break`/skip — a missing child is a real
+  corruption). Match the existing throw/guard style at each site.
+- Import `resolveBlock` from the state barrel. No change to the container-body reuse loop — once the
+  body root is in `invalidated`, the existing `!invalidated.has(id)` branch re-renders it.
 
 **TDD (write FIRST — `render.test.ts`, real `render()` then `renderIncremental` with dirtyIds):**
-- **Multi-level template body, dirty CHILD (the bug):** a template body = container root `tpl-body`
-  with child paragraphs `tpl-p1`,`tpl-p2`. Full render; then mutate `tpl-p1`'s text, `renderIncremental`
-  with `dirtyIds={tpl-p1}`. Assert the new `templateContents.get("tpl-body")` REFLECTS the change (NOT
-  the stale node) — e.g. the re-rendered p1's text matches the new state. This FAILS today (stale body
-  reused).
-- **Same for a multi-level EMBED body** (dirty child → change reflected).
+- **Multi-level template body, dirty CHILD (the bug):** template body = a `kind: "container"` root
+  `tpl-body` with child paragraphs `tpl-p1`,`tpl-p2` — **all three registered in the `templateContents`
+  array** (children live in the templateContents Y.Map, NOT the main blocks map; `tpl-body` MUST be a
+  CONTAINER component so the child-iteration path runs — the existing single-level test uses a leaf and
+  won't exercise the bug). Full render; mutate `tpl-p1`'s text; `renderIncremental` with
+  `dirtyIds={tpl-p1}`. Assert `templateContents.get("tpl-body")` REFLECTS the change (re-rendered p1
+  text matches new state). FAILS today (stale body reused) — and would THROW with only the
+  invalidation-walk swap, proving sites 3/4 are needed.
+- **Same for a multi-level EMBED container body** (dirty child → change reflected).
+- **FULL-RENDER multi-level body (no prev):** a `render()` (not incremental) of a multi-level container
+  template/embed body produces the children correctly — pins the full-path sites (4) too.
 - **Unchanged OTHER body reused by ref:** a second template/embed body not in dirtyIds is returned
-  reference-equal to the prev render (no spurious rebuild).
-- **#221 ancestor reach:** assert that after a dirty grandchild (root → child → grandchild) the body
-  root is invalidated and the change propagates.
-- **NO-REGRESSION:** the existing single-level body test (dirty body root) still passes; main-tree
-  incremental behavior unchanged (dirty main block → only it + ancestors/descendants invalidated).
+  reference-equal to the prev render.
+- **#221 grandchild ancestor reach:** root → child → grandchild; dirty grandchild → body root
+  invalidated → change propagates.
+- **NO-REGRESSION:** existing single-level body test still passes; main-tree incremental + full render
+  unchanged (resolveBlock's getBlock-first arm ⇒ identical for main-tree ids).
 
 ## Task 2 — Gap B: fine-grained reuse within a re-rendered body (EFFICIENCY)
 
