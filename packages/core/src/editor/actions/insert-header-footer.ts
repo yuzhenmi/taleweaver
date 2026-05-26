@@ -13,20 +13,25 @@ import { rebuildTrees } from "./helpers";
 /**
  * `INSERT_HEADER` / `INSERT_FOOTER` handler — the C.2c browser-verify vehicle.
  *
- * Creates a one-paragraph header/footer template body, links it on the
- * DOCUMENT ROOT (the implicit section, `state.rootId`), and places a collapsed
- * caret at the start of the new body so the user can immediately type. Once the
- * caret is in the body, the (map-agnostic, T7) edit ops mutate templateContents
- * — type "Hi" and it repeats on every page.
+ * Creates a header/footer template body (a `template-body` CONTAINER holding
+ * one empty paragraph), links the CONTAINER on the DOCUMENT ROOT (the implicit
+ * section, `state.rootId`), and places a collapsed caret at the start of the
+ * body's PARAGRAPH child so the user can immediately type. Once the caret is in
+ * the paragraph, the (map-agnostic, T7) edit ops mutate templateContents — type
+ * "Hi" and it repeats on every page; press Enter and a new sibling paragraph is
+ * added UNDER the container (the slot renders both lines, #326).
  *
  * **Idempotency (Google Docs: one header / one footer per document).** If the
  * doc-root already links an EXISTING template body for this region, we do NOT
- * create a duplicate: we simply move the caret into the existing body (offset 0
- * of its root) and return, never calling `history.commit` (no state change). A
- * dangling link (attr set but the body absent — shouldn't happen) is treated as
- * "no existing body" and a fresh one is created.
+ * create a duplicate: we move the caret into the existing body's FIRST
+ * paragraph child (offset 0) and return, never calling `history.commit` (no
+ * state change). A dangling link (attr set but the body absent — shouldn't
+ * happen) is treated as "no existing body" and a fresh one is created. A body
+ * with no resolvable first child (shouldn't happen) falls back to the container
+ * root.
  *
- * Selection-after on the CREATE path: a collapsed caret at `{ bodyRootId, 0 }`.
+ * Selection-after on the CREATE path: a collapsed caret at the paragraph child,
+ * `{ firstParagraphId, 0 }`.
  */
 export function handleInsertHeaderFooter(
   editor: EditorState,
@@ -37,26 +42,31 @@ export function handleInsertHeaderFooter(
   const attrKey = region === "header" ? "headerBlockId" : "footerBlockId";
 
   // Idempotency: if the doc-root already links an existing body for this
-  // region, place the caret in it (or no-op if already there) and return.
+  // region, place the caret in its FIRST paragraph child (the editable line)
+  // and return. The link points at the CONTAINER root; resolve its
+  // `firstChildId` to find the editable paragraph.
   const section = getBlock(editor.state, sectionBlockId);
   const existingId = section?.attrs[attrKey];
-  if (
-    typeof existingId === "string" &&
-    getTemplateContent(editor.state, existingId as BlockId) !== null
-  ) {
-    const cursor = createPosition(existingId as BlockId, 0);
-    const selectionAfter = createSpan(cursor, cursor);
-    return { ...editor, selection: selectionAfter };
+  if (typeof existingId === "string") {
+    const existingBody = getTemplateContent(editor.state, existingId as BlockId);
+    if (existingBody !== null) {
+      // Caret into the first paragraph child; fall back to the container root
+      // only if (unexpectedly) it has no child.
+      const caretId = existingBody.firstChildId ?? (existingId as BlockId);
+      const cursor = createPosition(caretId, 0);
+      const selectionAfter = createSpan(cursor, cursor);
+      return { ...editor, selection: selectionAfter };
+    }
   }
 
-  // Create + link a fresh one-paragraph body, atomically.
+  // Create + link a fresh body (container + paragraph child), atomically.
   const result = insertTemplateBody(
     editor.state,
     { region, sectionBlockId },
     productionAllocator,
   );
 
-  const cursor = createPosition(result.bodyRootId, 0);
+  const cursor = createPosition(result.firstParagraphId, 0);
   const selectionAfter = createSpan(cursor, cursor);
 
   editor.history.commit(

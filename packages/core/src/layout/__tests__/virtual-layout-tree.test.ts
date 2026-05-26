@@ -823,6 +823,46 @@ describe("VirtualLayoutTree — header/footer slot layout (C.2c T4)", () => {
     expect(ftr.inlineSize).toBe(contentInline);
   });
 
+  it("#326: a CONTAINER header body with TWO paragraph children renders BOTH lines in the slot", () => {
+    // After Enter in a header, the body is a container holding two paragraph
+    // children. The slot lays out the container root via its BFC, so BOTH
+    // paragraphs become children of the headerSlot box (two lines render).
+    // A 50px top band fits both 16px mock lines (32px total) without the
+    // band-overflow short-circuit the 10px-band single-paragraph test documents.
+    const cfg: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 300,
+      pageMargins: { blockStart: 50, blockEnd: 50, inlineStart: 15, inlineEnd: 15 },
+      pageGap: 20,
+    };
+    const { root, plan, ctx } = setup(cfg);
+
+    const hdrId = "hdr-root" as BlockId;
+    // A container root (the `template-body` shape) with two paragraph children.
+    const hdrBody = cascadeRoot({ display: "block" }, [
+      paragraph("h0", 1),
+      paragraph("h1", 1),
+    ]);
+    const bodies = new Map<BlockId, ElementBox>([[hdrId, hdrBody]]);
+    const planWithIds = planWithEntries(plan, (e) =>
+      e.pageIndex === 0 ? { ...e, headerBlockId: hdrId } : e,
+    );
+    const tree = makeVirtualLayoutTree(
+      planWithIds, root, ctx, createMockShaper(8, 16), cfg, undefined, bodies,
+    );
+
+    const hdr = tree.getPage(0).headerSlot;
+    expect(hdr).not.toBeNull();
+    if (hdr === null) throw new Error("header slot null");
+    // BOTH paragraphs laid out under the slot box (two lines).
+    expect(hdr.children.length).toBe(2);
+    // Each is a 16px mock line; the second sits below the first.
+    expect(hdr.children[0]?.blockOffset).toBe(0);
+    expect(hdr.children[1]?.blockOffset).toBe(16);
+    // The slot box's natural content height is the sum of the two lines.
+    expect(hdr.blockSize).toBe(32);
+  });
+
   it("a page with NO header/footer id ⇒ both slots null", () => {
     const cfg = marginedPageConfig(300);
     const { root, plan, ctx } = setup(cfg);

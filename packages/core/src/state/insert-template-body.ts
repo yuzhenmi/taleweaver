@@ -23,10 +23,14 @@ export interface InsertTemplateBodyArgs {
 
 /**
  * Result of `insertTemplateBody`. Extends `OperationResult` with the new
- * template body's ROOT id (the caret target for the create→type chain).
+ * template body's CONTAINER ROOT id (`bodyRootId` — the id the section's
+ * `headerBlockId` / `footerBlockId` links to, and the one root the slot lays
+ * out) and the id of its FIRST (and only) paragraph CHILD (`firstParagraphId`
+ * — the editable caret target for the create→type chain).
  */
 export interface InsertTemplateBodyResult extends OperationResult {
   readonly bodyRootId: BlockId;
+  readonly firstParagraphId: BlockId;
 }
 
 /** `region → section attr key`. */
@@ -36,23 +40,34 @@ const REGION_ATTR_KEY: Record<TemplateRegion, "headerBlockId" | "footerBlockId">
 };
 
 /**
- * Create a one-paragraph template body and link it onto a section, atomically
- * (ONE `applyOperation` transaction).
+ * Create a template body (a CONTAINER root holding one empty paragraph child)
+ * and link it onto a section, atomically (ONE `applyOperation` transaction).
  *
- * Two writes, one transaction:
- *  1. A fresh one-paragraph body ROOT block (`type: "paragraph"`,
- *     `parentId: null` — a tree root in templateContents, NOT a child; empty
- *     `inlineContent`) is materialized into the `templateContent` tree. Its
- *     null `parentId` makes the #313 root-only iterators (`getTemplateContentIds`)
- *     pick it up so the render path lays it out.
- *  2. The link attr (`headerBlockId` / `footerBlockId`) on `sectionBlockId` is
- *     MERGED to the new body root id — mirroring `mergeBlockAttrs`' attr-merge
+ * The body is a `template-body` CONTAINER, not a single `paragraph` root,
+ * because a header/footer is multi-line (Google Docs): pressing Enter splits
+ * the child paragraph into two sibling paragraphs UNDER the container, and the
+ * page slot (`materializePage`) — which lays out the ONE linked root's subtree
+ * via its BFC — renders every line. A single `paragraph` root would split into
+ * a SECOND `parentId: null` root the slot never renders (the "Enter does
+ * nothing" bug, #326) and a spurious extra `getTemplateContentIds` entry.
+ *
+ * Writes, one transaction:
+ *  1. A fresh `template-body` CONTAINER root (`parentId: null` — a tree root in
+ *     templateContents, NOT a child; `inlineContent: null` — it's a container)
+ *     whose `firstChildId`/`lastChildId` point at the paragraph child below.
+ *     Its null `parentId` makes the #313 root-only iterator
+ *     (`getTemplateContentIds`) pick up EXACTLY this one root, so the render
+ *     path lays out the body once.
+ *  2. A fresh `paragraph` CHILD (`parentId: <container>`, empty `inlineContent`,
+ *     no siblings, no children) — the editable line the caret lands in.
+ *  3. The link attr (`headerBlockId` / `footerBlockId`) on `sectionBlockId` is
+ *     MERGED to the CONTAINER root id — mirroring `mergeBlockAttrs`' attr-merge
  *     so only the one key is touched (other section attrs, e.g. per-section
  *     page geometry, are preserved). The section block lives in the MAIN tree.
  *
- * `dirtyIds` covers BOTH the new body root (a fresh templateContents key) and
- * the section block (its `attrs` Y.Map changed) — `captureDirtyIds` tracks all
- * three top-level maps automatically.
+ * `dirtyIds` covers the new container root, the new paragraph child (both fresh
+ * templateContents keys) AND the section block (its `attrs` Y.Map changed) —
+ * `captureDirtyIds` tracks all three top-level maps automatically.
  *
  * Throws if `sectionBlockId` does not resolve to a block in the main tree.
  *
@@ -85,23 +100,43 @@ export function insertTemplateBody(
   // `mergeBlockAttrs` does): set only the one region key onto the existing bag.
   const attrKey = REGION_ATTR_KEY[region];
 
-  // Allocate the body root id OUTSIDE applyOperation so a retry (if added
-  // later) doesn't burn through multiple ids.
+  // Allocate BOTH ids OUTSIDE applyOperation so a retry (if added later)
+  // doesn't burn through multiple ids: the CONTAINER root and its paragraph
+  // child.
   const bodyRootId = allocator.allocate();
+  const firstParagraphId = allocator.allocate();
 
   const result = applyOperation(state, () => {
     const doc = state[STATE_INTERNAL].doc;
     // Dev-mode defense against allocator id collision (counter-based test
     // allocators can collide with seeded state). Checks all three trees.
     assertNoIdCollision(doc, bodyRootId, "insertTemplateBody");
+    assertNoIdCollision(doc, firstParagraphId, "insertTemplateBody");
 
-    // (1) Materialize the one-paragraph body root into the templateContents tree.
-    getTreeMap(doc, "templateContent").set(
+    const templateTree = getTreeMap(doc, "templateContent");
+
+    // (1) Materialize the CONTAINER body root into the templateContents tree.
+    templateTree.set(
       bodyRootId,
+      buildYBlock({
+        type: "template-body",
+        attrs: {},
+        parentId: null,
+        prevSiblingId: null,
+        nextSiblingId: null,
+        firstChildId: firstParagraphId,
+        lastChildId: firstParagraphId,
+        inlineContent: null,
+      }),
+    );
+
+    // (2) Materialize the empty paragraph CHILD under the container.
+    templateTree.set(
+      firstParagraphId,
       buildYBlock({
         type: "paragraph",
         attrs: {},
-        parentId: null,
+        parentId: bodyRootId,
         prevSiblingId: null,
         nextSiblingId: null,
         firstChildId: null,
@@ -110,7 +145,7 @@ export function insertTemplateBody(
       }),
     );
 
-    // (2) Merge the link attr onto the section block (main tree). Re-read the
+    // (3) Merge the link attr onto the section block (main tree). Re-read the
     // section's CURRENT attrs from the snapshot via `resolved.block.attrs`
     // (a frozen pre-tx snapshot) and merge the single region key, mirroring
     // `mergeBlockAttrs`.
@@ -121,5 +156,10 @@ export function insertTemplateBody(
     ySection.set("attrs", buildYAttrs(merged));
   });
 
-  return { state: result.state, dirtyIds: result.dirtyIds, bodyRootId };
+  return {
+    state: result.state,
+    dirtyIds: result.dirtyIds,
+    bodyRootId,
+    firstParagraphId,
+  };
 }

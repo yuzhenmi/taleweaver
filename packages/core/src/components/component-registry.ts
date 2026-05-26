@@ -2,6 +2,7 @@ import type { ComponentDefinition } from "./component-definition";
 import type { BlockKind, BlockKindResolver } from "../state";
 import { documentComponent } from "./document";
 import { sectionComponent } from "./section";
+import { templateBodyComponent } from "./template-body";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
 import { listComponent } from "./list";
@@ -76,6 +77,7 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   // Containers
   reg.register(documentComponent);
   reg.register(sectionComponent);
+  reg.register(templateBodyComponent);
   reg.register(listComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);

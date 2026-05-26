@@ -9,6 +9,7 @@ export {
 } from "./component-registry";
 
 export { documentComponent } from "./document";
+export { templateBodyComponent } from "./template-body";
 export { paragraphComponent } from "./paragraph";
 export { headingComponent } from "./heading";
 export { listComponent } from "./list";
