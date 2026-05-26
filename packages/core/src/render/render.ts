@@ -463,7 +463,32 @@ function renderIncremental(
   if (dirtyIds.size === 0) return prev;
 
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
-  const prevByKey = indexRenderNodesByKey(prev.root);
+  // Index the main tree PLUS every prev embed-content and template-content
+  // body tree into ONE combined map, so a dirty body re-rendered via
+  // renderBlockIncremental can reuse its UNCHANGED children by reference.
+  // Without the body trees, body-internal nodes were never indexed and every
+  // unchanged sibling was rebuilt fresh (defeating the O(1)-per-keystroke goal
+  // for header/footer/footnote bodies).
+  //
+  // Key collisions ARE possible across these trees even though block ids are
+  // unique at the STATE level: a body child block can ALSO be enumerated as
+  // its own top-level embed/template-content entry (the full-render path
+  // renders every map entry as a standalone subtree). The same block then
+  // produces two distinct RenderNodes — one standalone-root, one in-body-child
+  // — sharing a key. We want the IN-BODY-CHILD occurrence to win, so that
+  // re-rendering the parent body reuses exactly the subtree the body had
+  // before. The merge rule below ("descendant occurrences overwrite, root
+  // occurrences don't overwrite") resolves this deterministically regardless
+  // of Y.Map iteration order. Indexed once here (not per-body-render) to stay
+  // allocation-reasonable.
+  const prevByKey = new Map<string, RenderNode>();
+  indexRenderNodesByKey(prev.root, prevByKey);
+  for (const bodyNode of prev.embedContents.values()) {
+    indexRenderNodesByKey(bodyNode, prevByKey);
+  }
+  for (const bodyNode of prev.templateContents.values()) {
+    indexRenderNodesByKey(bodyNode, prevByKey);
+  }
 
   const context: RenderContext = {
     state,
@@ -732,21 +757,37 @@ function addDescendantsToInvalidated(
 }
 
 /**
- * Build a map from RenderNode `key` to RenderNode. Block-level
- * RenderNodes' keys are the block id (per the component-dispatch
- * contract); inline RenderNodes' keys are `${blockId}/inline/${i}`.
- * The incremental renderer only looks up by block id, but indexing
- * everything keeps the helper simple and lets future consumers reuse
- * inline-level nodes too.
+ * Index every RenderNode in `root`'s subtree into `out`, keyed by
+ * RenderNode `key`. Block-level RenderNodes' keys are the block id (per the
+ * component-dispatch contract); inline RenderNodes' keys are
+ * `${blockId}/inline/${i}`. The incremental renderer only looks up by block
+ * id, but indexing everything keeps the helper simple and lets future
+ * consumers reuse inline-level nodes too.
+ *
+ * `out` is passed in so multiple trees (main root + each embed/template body)
+ * can be folded into ONE combined map. Collision rule: the SUBTREE ROOT does
+ * NOT overwrite an existing entry, but DESCENDANTS always overwrite. This
+ * matters because the same block can appear both as its own top-level
+ * embed/template-content entry (a standalone-root RenderNode) and as a child
+ * inside another body (an in-body-child RenderNode). The in-body-child
+ * occurrence is the one we want to reuse — so a descendant always wins, and a
+ * root never clobbers a descendant already indexed by another tree. The rule
+ * is order-independent: whichever tree is indexed first, the descendant
+ * occurrence ends up in the map.
  */
-function indexRenderNodesByKey(root: RenderNode): Map<string, RenderNode> {
-  const out = new Map<string, RenderNode>();
-  walk(root);
-  return out;
-  function walk(node: RenderNode): void {
-    out.set(node.key, node);
+function indexRenderNodesByKey(
+  root: RenderNode,
+  out: Map<string, RenderNode>,
+): void {
+  walk(root, true);
+  function walk(node: RenderNode, isRoot: boolean): void {
+    // Root: only set if absent (don't clobber a descendant from another tree).
+    // Descendant: always set (a true in-body child wins over a standalone root).
+    if (!isRoot || !out.has(node.key)) {
+      out.set(node.key, node);
+    }
     if (node.type === "element") {
-      for (const child of node.children) walk(child);
+      for (const child of node.children) walk(child, false);
     }
   }
 }

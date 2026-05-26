@@ -1093,4 +1093,138 @@ describe("render — #285 multi-level embed/template container bodies", () => {
     const leafNode = body !== undefined ? findByKey(body, "g-leaf") : undefined;
     expect(firstText(leafNode)).toBe("grand EDITED");
   });
+
+  // ── Gap B (efficiency): fine-grained sibling reuse WITHIN a re-rendered body ─
+  // When a dirty body is re-rendered via renderBlockIncremental, its unchanged
+  // siblings must be looked up in prevByKey and reused by reference. Pre-T2
+  // prevByKey was built only from prev.root, so body-internal nodes were never
+  // indexed → every unchanged sibling was rebuilt fresh (not O(1) per keystroke,
+  // the C.2c requirement).
+  it("incremental: unchanged sibling inside a dirty TEMPLATE body is reused by reference (fine-grained)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    const state1 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("p1 original")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("p2 original")]) }),
+      ],
+    });
+    const prev = render(state1, reg, attrs);
+
+    // Only tpl-p1 changes; tpl-p2 is untouched.
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("p1 EDITED")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("p2 original")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["tpl-p1" as BlockId]),
+    });
+
+    const prevBody = prev.templateContents.get("tpl-body" as BlockId);
+    const outBody = out.templateContents.get("tpl-body" as BlockId);
+    expect(prevBody).toBeDefined();
+    expect(outBody).toBeDefined();
+    const prevP2 = prevBody !== undefined ? findByKey(prevBody, "tpl-p2") : undefined;
+    const outP2 = outBody !== undefined ? findByKey(outBody, "tpl-p2") : undefined;
+    const prevP1 = prevBody !== undefined ? findByKey(prevBody, "tpl-p1") : undefined;
+    const outP1 = outBody !== undefined ? findByKey(outBody, "tpl-p1") : undefined;
+    // tpl-p2 unchanged → reused by reference from prev (FAILS pre-T2: rebuilt).
+    expect(outP2).toBe(prevP2);
+    // tpl-p1 changed → re-rendered fresh.
+    expect(outP1).not.toBe(prevP1);
+  });
+
+  it("incremental: unchanged sibling inside a dirty EMBED body is reused by reference (fine-grained)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    const state1 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("e1 original")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("e2 original")]) }),
+      ],
+    });
+    const prev = render(state1, reg, attrs);
+
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("e1 EDITED")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("e2 original")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["emb-p1" as BlockId]),
+    });
+
+    const prevBody = prev.embedContents.get("emb-body" as BlockId);
+    const outBody = out.embedContents.get("emb-body" as BlockId);
+    expect(prevBody).toBeDefined();
+    expect(outBody).toBeDefined();
+    const prevP2 = prevBody !== undefined ? findByKey(prevBody, "emb-p2") : undefined;
+    const outP2 = outBody !== undefined ? findByKey(outBody, "emb-p2") : undefined;
+    const prevP1 = prevBody !== undefined ? findByKey(prevBody, "emb-p1") : undefined;
+    const outP1 = outBody !== undefined ? findByKey(outBody, "emb-p1") : undefined;
+    // emb-p2 unchanged → reused by reference from prev (FAILS pre-T2: rebuilt).
+    expect(outP2).toBe(prevP2);
+    // emb-p1 changed → re-rendered fresh.
+    expect(outP1).not.toBe(prevP1);
+  });
+
+  // ── NO-REGRESSION: main-tree fine-grained reuse unaffected by Gap-B change ──
+  it("incremental: main-tree unchanged sibling still reused by reference (no regression)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    const mainBlocks = () => [
+      buildBlock({ id: "doc", type: "document", firstChildId: "m-p1", lastChildId: "m-p2" }),
+      buildBlock({ id: "m-p1", type: "paragraph", parentId: "doc", nextSiblingId: "m-p2", inlineContent: inlineContent([text("main p1 original")]) }),
+      buildBlock({ id: "m-p2", type: "paragraph", parentId: "doc", prevSiblingId: "m-p1", inlineContent: inlineContent([text("main p2 stable")]) }),
+    ];
+    const state1 = buildState({ rootId: "doc", blocks: mainBlocks() });
+    const prev = render(state1, reg, attrs);
+
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "m-p1", lastChildId: "m-p2" }),
+        buildBlock({ id: "m-p1", type: "paragraph", parentId: "doc", nextSiblingId: "m-p2", inlineContent: inlineContent([text("main p1 EDITED")]) }),
+        buildBlock({ id: "m-p2", type: "paragraph", parentId: "doc", prevSiblingId: "m-p1", inlineContent: inlineContent([text("main p2 stable")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["m-p1" as BlockId]),
+    });
+
+    const prevP2 = findByKey(prev.root, "m-p2");
+    const outP2 = findByKey(out.root, "m-p2");
+    const prevP1 = findByKey(prev.root, "m-p1");
+    const outP1 = findByKey(out.root, "m-p1");
+    // m-p2 unchanged → reused by reference (already passes; confirms no regression).
+    expect(outP2).toBe(prevP2);
+    expect(outP1).not.toBe(prevP1);
+  });
 });

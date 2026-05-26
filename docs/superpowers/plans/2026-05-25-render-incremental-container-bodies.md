@@ -104,7 +104,22 @@ tests `render.test.ts`.
   incremental-render foundation it needs.
 - Deeper embed-in-embed / template-in-embed nesting beyond what the tests cover — note if the walk
   needs depth handling; the resolveBlock walk should be depth-agnostic, but add a test if cheap.
+- **#313 (surfaced in T2 review — C.2c hazard, MUST be addressed before C.2c):**
+  `getTemplateContentIds`/`getEmbedContentIds` return `.keys()` of the flat content Y.Map = body ROOTS
+  AND their CHILDREN, so the full-render loop renders each child as a SPURIOUS standalone top-level
+  `RenderOutput.templateContents`/`embedContents` entry (with `parentComputed=null` — wrong cascade
+  context, and wasteful). T2's descendant-wins `prevByKey` merge handles the resulting key collision
+  correctly (the in-body occurrence — computed with the right parent context — wins), so this is not a
+  T2 correctness bug. But C.2c must consume only body ROOTS, not iterate all entries. Fix: those
+  accessors (or C.2c) should restrict to root ids (`parentId === null` within the content map).
 
 ## Status
-- [ ] T1 — multi-tree invalidation walk (correctness; closes #221).
-- [ ] T2 — combined prevByKey for fine-grained body reuse (efficiency).
+- [x] T1 — multi-tree invalidation walk (correctness; closes #221). Committed (2bda910 era).
+- [x] T2 — combined prevByKey for fine-grained body reuse (efficiency). Implemented;
+  build + full core (1681 pass) + dom (149 pass) green. NOTE: required a stronger merge
+  rule than the plan assumed — the plan said "no key collisions across the 3 maps", but
+  the full-render path renders each top-level map entry as its OWN standalone subtree, so
+  a body child that is also a top-level entry yields two distinct RenderNodes sharing a
+  key. `indexRenderNodesByKey` now merges with "descendant occurrences overwrite, root
+  occurrences don't" (order-independent) so the in-body-child node wins. Awaiting reviewer
+  gate before commit.
