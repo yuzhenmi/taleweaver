@@ -131,6 +131,44 @@ template bodies. Tests.
 - **BROWSER smoke (user):** click Insert header, type → header appears on every page; click into it,
   edit; scroll (repeats per page); undo.
 
+## Plan-review resolutions (2026-05-26) — fold into the named tasks
+- **C1 (T3/T4 threading chain — DECIDED):** the cascaded-template-body map flows
+  `rebuildTrees` (cascade bodies) → pass into `layoutTreeIncremental` → `buildVirtualPaginatedTree`
+  (`virtual-producer.ts:81`) → `makeVirtualLayoutTree` closure → `materializePage`. Add the
+  `cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>` param to `buildVirtualPaginatedTree` +
+  `makeVirtualLayoutTree` (the only production callers of the latter). `materializePage` reads it from
+  the closure. Enumerate + change ALL three call sites.
+- **C2 (full-rebuild auto-cascade — DECIDED):** `layoutTreeIncremental` (~59-62) auto-cascades only the
+  main root. T3 cascades ALL `templateContents` bodies wherever the main root is cascaded (both the
+  `rebuildTrees` incremental entry AND the full path), and passes the resulting map down the C1 chain.
+  Cascade ALL bodies (not just plan-referenced ones) — simpler, removes the T2→T3 dependency.
+- **I1 (implicit-section doc-root metadata — DECIDED):** in `buildSectionPlan`, BEFORE the
+  `cascadedRoot.children` section-box loop, read `cascadedRoot.metadata?.headerBlockId`/`footerBlockId`
+  and set them on the implicit/leading boundary (the doc-root box is `cascadedRoot` itself).
+- **I3 (fingerprint body-ref — DECIDED):** do NOT store the `ElementBox` in `PagePlanEntry` (keep the
+  measure pass pure). Instead `fingerprintOf` becomes a closure inside `makeVirtualLayoutTree` (it
+  already lives there post-C.2b-2) that, given `entry.headerBlockId`/`footerBlockId`, looks up the
+  cascaded body ref from `cascadedTemplateContents` and includes BOTH ids AND the body-ref identity in
+  the fingerprint (+ `fingerprintsEqual` compares them) — so a header edit (new cascaded body ref) or a
+  section's header id change re-materializes the affected pages. Mirror the stopBeforeIndex discipline
+  (interface + builder + equality).
+- **C4 (T7 write-site enumeration — GATED):** T7 gets its OWN plan-review that produces a table: each
+  cursor-driven op → read sites → WRITE sites → change. Confirmed the ops directly reference the owning
+  map, not just `getYBlock`'s kind: `split-block.ts` (`getBlocksMap` + new-block `yBlocks.set` +
+  parent/sibling rewires), `merge-blocks.ts` (`getBlocksMap`), `delete-range.ts` (`getBlocksMap`),
+  `set-block-attrs.ts` (`getYBlock` default kind), `insert-text.ts` (`getBlock` + `getYBlock`). T7 must
+  make each WRITE site map-agnostic (resolve the owning map from the block id), not just the validation
+  read. T7 may SPLIT per-op if too large.
+- **Smaller explicit callouts:** I4 — T6 changes the exact line `hit-test.ts:101`
+  `getBlock(...)===null` → `resolveBlock(...)===null`. I5 — T5's `walkAndDetectChanges` must visit the
+  slot fields in the `"page"` arm (`"children" in box` does NOT cover named slot fields). I6 — T8 hard-
+  depends on T7 (a caret placed in a freshly-created header body needs the map-agnostic write path for
+  the next keystroke). I7 — T6 scope INCLUDES selection-geometry: confirm/extend its `collectLineBoxes`
+  use so a selection into a header produces correct rects (its own test). M1 — T2 stamps
+  `headerBlockId`/`footerBlockId` on PagePlanEntry in BOTH the measure-pass reuse path AND the re-fit
+  path. M2 — T4 TDD: pages of DIFFERENT sections with different header ids get different fingerprints →
+  re-materialize independently (no stale-slot reuse).
+
 ## Status
 - [ ] T1 PageBox slots · [ ] T2 attrs→plan · [ ] T3 cascade gap · [ ] T4 slot layout · [ ] T5 paint ·
   [ ] T6 hit-test/caret · [ ] T7 editing-into-slot · [ ] T8 action+toolbar
