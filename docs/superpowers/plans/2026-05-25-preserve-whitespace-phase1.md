@@ -143,10 +143,18 @@ plan-review:
   interim; full fidelity in Phase 2.
 - `break-spaces`, code-block `pre`, tab-stop expansion, NBSP/tab width fidelity.
 
-## Status
-- [ ] T1 — pre-wrap tokenizer (word + per-space).
-- [ ] T2 — IFC leading/orphan-space render under preserving modes.
-- [ ] T3 — flip editor default + pin collapse tests.
+## Status — PHASE 1 COMPLETE (browser-verify owed)
+- [x] T1 — pre-wrap tokenizer (word + per-space). Commit `0ea4e43`.
+- [x] T2 — IFC leading/orphan-space render under preserving modes (closes #308 for pre/pre-wrap). Commit `db0c4e7`.
+- [x] T3 — flip editor default to pre-wrap + per-paragraph whiteSpace attr override + pin 3 collapse tests. Commit `b6ef907`.
+
+All reviewer-approved; full core 1666 / dom 149 / react build green. Multiple
+spaces now render and wrap in the editor. Follow-ups: #310 (block-level
+attr→layout gap, surfaced in T3), #308 (leading/all-whitespace offset gap —
+closed for pre/pre-wrap by T2, still open for normal/pre-line). Phase 2
+(trailing-space hang at a soft wrap) is a separate plan — interim, trailing
+spaces still count toward the wrap-width decision (a long line with many
+trailing spaces may wrap slightly early).
 
 ## Browser-verify (user, after Phase 1)
 Type leading spaces, interior multiple spaces, trailing spaces; all render; the paragraph still wraps;
