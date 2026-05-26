@@ -99,6 +99,23 @@ export interface EditorState {
   readonly layoutTree: LayoutBox | VirtualLayoutTree;
   readonly containerWidth: number;
   readonly targetX: number | null;
+  /**
+   * NON-undoable view state (#323): which page's header/footer SLOT instance the
+   * caret is visually on. A header/footer body is ONE shared `templateContents`
+   * subtree rendered into EVERY page's slot, so a slot caret `Position` is
+   * page-AMBIGUOUS; this records the page the user is editing so caret-render
+   * resolves on that page (via `getPage(hint)`, O(1)) instead of always pinning
+   * to the body's first carrying page. `undefined` for a body caret /
+   * single-page doc.
+   *
+   * Lifecycle (the OPPOSITE model from `targetX`, which is centrally cleared in
+   * `reduceEditor`): set by `SET_SELECTION` (the controller passes the clicked
+   * page), PRESERVED through other handlers by their `{...editor}` spread, and
+   * cleared EXPLICITLY only by undo/redo (post-restore page is ambiguous) and a
+   * body `SET_SELECTION` (which passes no hint). It is view state — never stored
+   * in `History`, never part of `Position` / `Selection`.
+   */
+  readonly caretPageHint?: number;
 }
 
 export interface EditorConfig {
@@ -157,6 +174,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,
+    caretPageHint: undefined,
   };
 }
 
@@ -199,7 +217,7 @@ export function reduceEditor(
       result = handleSetContainerWidth(editor, action.width, config);
       break;
     case "SET_SELECTION":
-      result = handleSetSelection(editor, action.selection);
+      result = handleSetSelection(editor, action.selection, action.caretPageHint);
       break;
     case "EXPAND_SELECTION":
       result = handleExpandSelection(editor, action.direction);

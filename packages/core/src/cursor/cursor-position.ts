@@ -1,6 +1,7 @@
-import { resolveBlock } from "../state";
-import type { State, Position } from "../state";
+import { resolveBlock, selectionContextOf } from "../state";
+import type { State, Position, BlockId } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
+import type { PagePlan } from "../layout/measure-pass";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -88,6 +89,11 @@ export function resolvePixelPosition(
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   shaperOrMeasurer: TextShaper | TextMeasurer,
+  // #323: which page's header/footer SLOT instance to resolve a template-block
+  // caret on. `undefined` → the body's first carrying page (the deterministic
+  // default). Ignored for a normal main-tree caret (the plan maps it to its own
+  // page). View state — see `EditorState.caretPageHint`.
+  caretPageHint?: number,
 ): PixelPosition | null {
   const t = markStart("cursor.cursor-position");
   try {
@@ -102,7 +108,7 @@ export function resolvePixelPosition(
       : shaperOrMeasurer;
 
     if (layoutTree.type === "virtual-root") {
-      return resolveInVirtualTree(layoutTree, position, measurer);
+      return resolveInVirtualTree(layoutTree, position, measurer, state, caretPageHint);
     }
 
     // Positioned-tree path (unchanged): O(1) lookup via the cached
@@ -152,42 +158,48 @@ function resolveInVirtualTree(
   tree: VirtualLayoutTree,
   position: Position,
   measurer: TextMeasurer,
+  state: State,
+  caretPageHint?: number,
 ): PixelPosition | null {
   const plan = tree.plan;
   const endPage = plan.pageIndexOfBlock(position.blockId);
 
   if (endPage < 0) {
-    // Header/footer SLOT fast path (C.2c T6). A slot body block lives in the
-    // `templateContents` tree, not the main document flow, so `pageIndexOfBlock`
-    // can't map it (it's never a top-level body child). Resolve it WITHOUT
-    // materializing the whole document: `pageIndexOfTemplateBlock` maps the slot
-    // ROOT id to the FIRST page carrying that slot, so we materialize exactly
-    // that page and resolve against its slot lines (which change (1) put into
-    // the page's `byBlock` index). The first-instance limitation — the same body
-    // renders into every page's slot but a slot caret can't encode which page —
-    // is the tracked follow-up #323; first page is the deterministic choice.
-    //
-    // Only the slot ROOT id is mapped. A slot DESCENDANT block id (a non-root
-    // block inside a multi-block header body) is NOT in the map and falls
-    // through to the materializeAll bridge below — still correct (change (1)
-    // also feeds the materialized index), just slow. T8 bodies are
-    // single-paragraph roots (`blockId === root`), so the fast path covers the
-    // common case.
-    const slotPage = plan.pageIndexOfTemplateBlock(position.blockId);
-    if (slotPage >= 0) {
-      const page = tree.getPage(slotPage);
-      const slotLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
-      if (slotLines.length > 0) {
-        return resolvePositionInOwnLines(slotLines, position, measurer);
+    // Header/footer SLOT fast path (C.2c T6, #323). A slot body block lives in
+    // the `templateContents` tree, not the main document flow, so
+    // `pageIndexOfBlock` can't map it (it's never a top-level body child).
+    // Resolve it WITHOUT materializing the whole document: pick the page whose
+    // slot the caret is visually on (the `caretPageHint`, or the body's first
+    // carrying page by default), materialize ONLY that page, and resolve
+    // against its slot lines (which change (1) put into the page's `byBlock`
+    // index). #323 resolves the prior first-instance limitation by threading
+    // the page hint; the descendant parent-walk inside `resolveTemplateBlockPage`
+    // covers the #326 container-body case (caret in the body's paragraph CHILD,
+    // not the slot ROOT id).
+    const resolvedPage = resolveTemplateBlockPage(state, plan, position.blockId, caretPageHint);
+    if (resolvedPage >= 0) {
+      const onResolved = resolveSlotOnPage(tree, resolvedPage, position, measurer);
+      if (onResolved !== null) return onResolved;
+
+      // I1 STALE-FALLBACK: the hinted page exists but its slot doesn't carry
+      // this body (e.g. a section without this header/footer) — `resolveSlotOnPage`
+      // found neither slot lines nor a slot box there. Don't pin a blank caret on
+      // it; recompute the page WITHOUT the hint (the template-root default
+      // carrying page) and retry on it.
+      if (caretPageHint !== undefined) {
+        const defaultPage = resolveTemplateBlockPage(state, plan, position.blockId, undefined);
+        if (defaultPage >= 0 && defaultPage !== resolvedPage) {
+          const onDefault = resolveSlotOnPage(tree, defaultPage, position, measurer);
+          if (onDefault !== null) return onDefault;
+        }
       }
-      // The id mapped to a page but produced no own-lines there (e.g. its slot
-      // body was empty / had no IFC). Fall through to the bridge below.
+      // Neither the resolved nor the default carrying page produced a result.
+      // Fall through to the bridge below.
     }
 
-    // Block not mapped by the plan (nested / non-top-level body block, or a slot
-    // DESCENDANT id). Fall back to the bridge: materialize the whole positioned
-    // tree and resolve there. Correct, and off the flat-document hot path the
-    // plan always maps.
+    // Block not mapped by the plan AND not a resolvable template block. Fall
+    // back to the bridge: materialize the whole positioned tree and resolve
+    // there. Correct, and off the flat-document hot path the plan always maps.
     const positioned = tree.materializeAll();
     const ownLines = getLineIndex(positioned).byBlock.get(position.blockId) ?? [];
     if (ownLines.length === 0) {
@@ -256,6 +268,86 @@ function resolveInVirtualTree(
   }
 
   return resolvePositionInOwnLines(ownLines, position, measurer);
+}
+
+/**
+ * Resolve which PAGE a header/footer template-block caret should render on
+ * (#323). A header/footer body is ONE shared `templateContents` subtree rendered
+ * into EVERY page's slot, so a slot caret `Position` alone is page-ambiguous;
+ * this picks the page using the (view-state) `caretPageHint`, defaulting to the
+ * body's first carrying page.
+ *
+ * Resolution order:
+ *   1. `pageIndexOfTemplateBlock(blockId)` — the slot-ROOT fast path (the
+ *      `position.blockId` IS the body root, e.g. a single-paragraph T8 body).
+ *   2. DESCENDANT walk (#326 container body): the caret is in the body's
+ *      paragraph CHILD, not the slot root, so step 1 missed. Walk to the
+ *      template tree's root via `selectionContextOf` and map THAT root. (Skip
+ *      when the walk lands on `state.rootId` — that means the block is in the
+ *      MAIN body, not a template, and is not a template caret at all.)
+ *   3. Prefer the `caretPageHint` over the default first page when it is a valid
+ *      in-range page index (the controller passed the page the user is editing).
+ *
+ * Returns the chosen page index, or -1 when `blockId` is not a template block at
+ * all (no fast-path map entry and the descendant walk reaches the main root).
+ *
+ * Exported so line-navigation reuses the SAME resolution (the I1 empty-slot
+ * fallback lives in each caller, since it needs the materialized page's lines).
+ */
+export function resolveTemplateBlockPage(
+  state: State,
+  plan: PagePlan,
+  blockId: BlockId,
+  caretPageHint: number | undefined,
+): number {
+  // 1. Slot-ROOT fast path.
+  let page = plan.pageIndexOfTemplateBlock(blockId);
+
+  // 2. DESCENDANT → body root via the parentId walk (#326 container body).
+  if (page < 0) {
+    const root = selectionContextOf(state, blockId);
+    if (root !== null && root !== state.rootId) {
+      page = plan.pageIndexOfTemplateBlock(root);
+    }
+  }
+
+  if (page < 0) return -1;
+
+  // 3. Prefer a valid in-range hint over the default first carrying page.
+  if (
+    caretPageHint !== undefined &&
+    caretPageHint >= 0 &&
+    caretPageHint < plan.entries.length
+  ) {
+    return caretPageHint;
+  }
+  return page;
+}
+
+/**
+ * Resolve a template-block caret against ONE page's materialized slot (#323).
+ * Returns the PixelPosition if `pageIndex`'s slot carries `position.blockId`
+ * (either as own LineBoxes — the editable paragraph case — OR as a slot-box the
+ * baseline walk finds — the container-root case), else `null` (the page doesn't
+ * carry this body → caller applies the I1 fallback / bridge). Materializes only
+ * `pageIndex` (one `getPage`), never `materializeAll`.
+ */
+function resolveSlotOnPage(
+  tree: VirtualLayoutTree,
+  pageIndex: number,
+  position: Position,
+  measurer: TextMeasurer,
+): PixelPosition | null {
+  const page = tree.getPage(pageIndex);
+  const slotLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
+  if (slotLines.length > 0) {
+    return resolvePositionInOwnLines(slotLines, position, measurer);
+  }
+  // No own-lines (e.g. the #326 CONTAINER root carries no IFC itself — its
+  // paragraph child does). If the page nonetheless carries the body's box, pin
+  // the caret to its top-left baseline ON THIS PAGE. `findBlockBaseline` walks
+  // the page's header/footer slots too, so a slot-root id resolves here.
+  return findBlockBaseline(page, position.blockId);
 }
 
 /**

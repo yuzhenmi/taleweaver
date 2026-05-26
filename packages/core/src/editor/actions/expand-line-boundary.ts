@@ -13,6 +13,8 @@ export function handleExpandLineBoundary(
     editor.layoutTree,
     config.measurer,
     boundary,
+    // #323/C1: shift+Home/End on a header/footer resolves on the editing page.
+    editor.caretPageHint,
   );
   if (pos === null) return editor;
   return {

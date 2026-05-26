@@ -13,6 +13,8 @@ export function handleMoveLineBoundary(
     editor.layoutTree,
     config.measurer,
     boundary,
+    // #323/C1: Home/End on a header/footer resolves on the editing page.
+    editor.caretPageHint,
   );
   if (pos === null) return editor;
   return { ...editor, selection: createSpan(pos, pos) };

@@ -15,8 +15,13 @@ export function handleUndo(
   // on an empty set, but the assumption is documented here so a future
   // reader doesn't add a defensive fall-back that would silently lose
   // the optimization.
+  // #323: clear the non-undoable `caretPageHint`. After an undo the restored
+  // selection may put the caret anywhere (and on a different page count); a
+  // stale pre-undo slot hint would render the caret on the wrong page's slot.
+  // The body `{ ...editor }` spread would otherwise INHERIT it, so clear it
+  // explicitly. `rebuildTrees` spreads `...newEditor` and never reintroduces it.
   return rebuildTrees(
-    { ...editor, state: result.state, selection },
+    { ...editor, state: result.state, selection, caretPageHint: undefined },
     editor,
     config,
     result.dirtyIds,

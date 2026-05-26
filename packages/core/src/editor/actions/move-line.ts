@@ -24,6 +24,8 @@ export function handleMoveLine(
     config.measurer,
     direction,
     editor.targetX,
+    // #323/C1: keep a header/footer caret on the page it's editing.
+    editor.caretPageHint,
   );
   if (result === null) return editor;
   return {

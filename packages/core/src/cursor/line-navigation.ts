@@ -12,7 +12,7 @@ import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { resolvePixelPosition } from "./cursor-position";
+import { resolvePixelPosition, resolveTemplateBlockPage } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import {
   getLineIndex,
@@ -52,6 +52,11 @@ export function moveToLine(
   shaperOrMeasurer: TextShaper | TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
+  // #323: which page's header/footer SLOT instance the caret is on (view state).
+  // Threaded into the virtual-tree per-page resolution so a template-block
+  // line-move stays on the page the user is editing (instead of jumping to the
+  // body's first carrying page). `undefined` for a body caret / single-page.
+  caretPageHint?: number,
 ): { position: Position; targetX: number } | null {
   const t = markStart("cursor.line-navigation.moveToLine");
   try {
@@ -60,7 +65,7 @@ export function moveToLine(
       : shaperOrMeasurer;
 
     if (layoutTree.type === "virtual-root") {
-      return moveToLineVirtual(state, position, layoutTree, measurer, direction, targetX);
+      return moveToLineVirtual(state, position, layoutTree, measurer, direction, targetX, caretPageHint);
     }
     return moveToLineInPositioned(state, position, layoutTree, measurer, direction, targetX);
   } finally {
@@ -190,18 +195,59 @@ function moveToLineVirtual(
   measurer: TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
+  caretPageHint?: number,
 ): { position: Position; targetX: number } | null {
   const plan = tree.plan;
   const endPage = plan.pageIndexOfBlock(position.blockId);
   const span = plan.pageSpanOfBlock(position.blockId);
-  if (endPage < 0 || (span !== null && span.first !== span.last)) {
+
+  // #323: a header/footer SLOT (template) block isn't in `pageIndexOfBlock`
+  // (it's never a top-level body child). Resolve it per-page on the HINTED page
+  // (with the I1 empty-slot fallback) so a footer line-move stays O(1) on the
+  // page the user is editing instead of falling to `materializeAll`. The footer
+  // is single-line within its isolated slot context, so Up/Down is a no-op (the
+  // #327 context filter), but it must run on the right page.
+  if (endPage < 0) {
+    const templatePage = resolveTemplateBlockPageWithLines(state, tree, position.blockId, caretPageHint);
+    if (templatePage < 0) {
+      // Not a template block we can resolve (or its slot produced no lines):
+      // fall back to the bridge. Off the hot path.
+      return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+    }
+    return moveToLineOnPage(state, position, tree, measurer, direction, targetX, templatePage);
+  }
+
+  if (span !== null && span.first !== span.last) {
     return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
   }
 
   const currentPixel = resolvePixelPosition(state, position, tree, measurer);
   if (currentPixel === null) return null;
+  return moveToLineOnPage(state, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
+}
+
+/**
+ * The per-page line-move body, shared by the main-body path (page = the caret's
+ * own page) and the #323 template path (page = the resolved header/footer SLOT
+ * page). `p` is the page the caret is currently on; the same context-filtered
+ * adjacent-line walk runs, with the slot-context no-op rule and the body
+ * adjacent-page continuation. The caret's X is measured on page `p` (passed as
+ * the hint so a template caret measures against its OWN slot instance, not the
+ * first-page default).
+ */
+function moveToLineOnPage(
+  state: State,
+  position: Position,
+  tree: VirtualLayoutTree,
+  measurer: TextMeasurer,
+  direction: "up" | "down",
+  targetX: number | null,
+  p: number,
+): { position: Position; targetX: number } | null {
+  const plan = tree.plan;
+  const currentPixel = resolvePixelPosition(state, position, tree, measurer, p);
+  if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
-  const p = currentPixel.pageIndex;
 
   // #327: constrain candidate lines to the caret's selection context — never
   // cross the body↔header/footer (slot) boundary. The header/footer slot lines
@@ -247,6 +293,35 @@ function moveToLineVirtual(
     return resolveTargetLine(state, tree.getPage(p + 1), measurer, x, next[0]);
   }
   return endOfDocument(state, x);
+}
+
+/**
+ * #323 helper for line-nav: resolve which PAGE a header/footer template-block
+ * caret is on, then VERIFY the chosen page actually carries the block's lines —
+ * applying the I1 empty-slot fallback (a hint at a page whose slot lacks this
+ * body recomputes WITHOUT the hint). Returns the page that carries the block's
+ * lines, or -1 if none does (the caller falls back to the bridge). Never calls
+ * `materializeAll` — only `getPage` of the candidate page(s).
+ */
+function resolveTemplateBlockPageWithLines(
+  state: State,
+  tree: VirtualLayoutTree,
+  blockId: BlockId,
+  caretPageHint: number | undefined,
+): number {
+  const page = resolveTemplateBlockPage(state, tree.plan, blockId, caretPageHint);
+  if (page < 0) return -1;
+  if (getLineIndex(tree.getPage(page)).byBlock.get(blockId)?.length) return page;
+  if (caretPageHint !== undefined) {
+    // I1 STALE-FALLBACK: the hinted page's slot doesn't carry this body. Retry
+    // on the template-root default carrying page (no hint).
+    const defaultPage = resolveTemplateBlockPage(state, tree.plan, blockId, undefined);
+    if (defaultPage >= 0 && defaultPage !== page &&
+        getLineIndex(tree.getPage(defaultPage)).byBlock.get(blockId)?.length) {
+      return defaultPage;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -303,19 +378,29 @@ function endOfDocument(state: State, x: number): { position: Position; targetX: 
  * algorithm over `materializeAll()` (rare; off the hot path).
  */
 export function moveToLineBoundary(
-  _state: State,
+  state: State,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   _shaperOrMeasurer: TextShaper | TextMeasurer,
   boundary: "start" | "end",
+  // #323: which page's header/footer SLOT instance the caret is on (view state).
+  caretPageHint?: number,
 ): Position | null {
   const t = markStart("cursor.line-navigation.moveToLineBoundary");
   try {
     if (layoutTree.type === "virtual-root") {
       const plan = layoutTree.plan;
-      const p = plan.pageIndexOfBlock(position.blockId);
+      let p = plan.pageIndexOfBlock(position.blockId);
       const span = plan.pageSpanOfBlock(position.blockId);
-      if (p < 0 || (span !== null && span.first !== span.last)) {
+      if (p < 0) {
+        // #323: a header/footer SLOT (template) block — resolve its page on the
+        // HINTED page (with the I1 empty-slot fallback) instead of falling to
+        // materializeAll. Home/End stays inside the slot context (one LineBox).
+        p = resolveTemplateBlockPageWithLines(state, layoutTree, position.blockId, caretPageHint);
+        if (p < 0) {
+          return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
+        }
+      } else if (span !== null && span.first !== span.last) {
         return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
       }
       const pageLines = getLineIndex(layoutTree.getPage(p)).all;

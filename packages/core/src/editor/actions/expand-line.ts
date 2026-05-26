@@ -14,6 +14,8 @@ export function handleExpandLine(
     config.measurer,
     direction,
     editor.targetX,
+    // #323/C1: shift+Up/Down must stay on the editing page too.
+    editor.caretPageHint,
   );
   if (result === null) return editor;
   return {
