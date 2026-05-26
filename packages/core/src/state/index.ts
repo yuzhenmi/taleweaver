@@ -176,6 +176,14 @@ export type { SectionBreakResult } from "./section-break";
 export { applySectionBreak } from "./section-break";
 export { mergeSectionWithPrevious } from "./merge-section";
 
+// Header/footer template bodies (C.2c). Creates + links a one-paragraph body.
+export type {
+  TemplateRegion,
+  InsertTemplateBodyArgs,
+  InsertTemplateBodyResult,
+} from "./insert-template-body";
+export { insertTemplateBody } from "./insert-template-body";
+
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult } from "./history";
 export { History, createHistory } from "./history";
