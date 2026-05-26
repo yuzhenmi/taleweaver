@@ -17,14 +17,15 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   if (block === null) return null;
   if (block.firstChildId) return block.firstChildId;
   let cursor = block;
-  // Cycle-detection bound: main-tree size only. Embed-content blocks
-  // (in state.embedContents) have parentId === null per the data model —
-  // they're a separate tree, never reachable via main-tree parent/child/
-  // sibling traversal (parentId chain, nextSiblingId, firstChildId).
-  // Adding embedContents.size here would loosen the bound without making
-  // this traversal handle anything new — wrong direction. If a future
-  // schema makes embed-content blocks reachable via main-tree traversal,
-  // this bound must be widened then.
+  // Cycle-detection bound: main-tree size only. Embed/template body ROOTS
+  // (in state.embedContents / templateContents) have parentId === null;
+  // their CHILDREN carry a parentId pointing within the same body (since
+  // C.2c multi-level bodies). Either way those trees are separate, never
+  // reachable via main-tree parent/child/sibling traversal (parentId chain,
+  // nextSiblingId, firstChildId). Adding embedContents.size here would
+  // loosen the bound without making this traversal handle anything new —
+  // wrong direction. If a future schema makes embed/template-content blocks
+  // reachable via main-tree traversal, this bound must be widened then.
   const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
   let steps = 0;
   while (true) {

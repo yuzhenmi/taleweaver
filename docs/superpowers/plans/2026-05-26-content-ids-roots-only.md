@@ -57,4 +57,12 @@ need confirming.
   iteration). Reviewer gate, then commit.
 
 ## Status
-- [ ] T1 — accessors yield roots only + docstrings + comment + tests.
+- [x] T1 — accessors yield roots only + docstrings + comment + tests.
+  - `state.ts`: both accessors converted to generators filtering `block.parentId === null`
+    (resolve via `getEmbedContent`/`getTemplateContent`, no `!`); docstrings rewritten.
+  - `block-traversal.ts`: cycle-bound comment refined (roots null, children carry parentId).
+  - Tests: `state.test.ts` accessor blocks replaced (multi-level → root-only, single-level leaf,
+    two sibling roots, empty); `render.test.ts` #313 root-only entry-count tests added (size===1,
+    children undefined as top-level, present in-body). RED confirmed before fix, GREEN after.
+  - Verify: core build clean; full core (1693 pass / 4 skip) + dom (149 pass) green;
+    examples/react builds. No unexpected test changes. NOT committed (reviewer gate pending).

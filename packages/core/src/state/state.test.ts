@@ -469,7 +469,58 @@ describe("getBlockFromEither", () => {
 });
 
 describe("getEmbedContentIds", () => {
-  it("yields all embed-content block ids", () => {
+  // #313: a multi-level embed body has a ROOT (parentId === null) plus
+  // CHILD blocks (parentId pointing at the root) registered in the SAME
+  // embedContents Y.Map. The accessor must yield ONLY the root — the
+  // children are reached via the root's child chain during render. If it
+  // yielded the children too, the render loop would emit each child as a
+  // spurious standalone top-level RenderOutput.embedContents entry.
+  it("yields ONLY the root id of a multi-level embed body (not its children)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      embedContents: [
+        buildBlock({
+          id: "emb-root",
+          type: "body-container",
+          firstChildId: "c1",
+          lastChildId: "c2",
+        }),
+        buildBlock({
+          id: "c1",
+          type: "paragraph",
+          parentId: "emb-root",
+          nextSiblingId: "c2",
+          inlineContent: inlineContent([text("first")]),
+        }),
+        buildBlock({
+          id: "c2",
+          type: "paragraph",
+          parentId: "emb-root",
+          prevSiblingId: "c1",
+          inlineContent: inlineContent([text("second")]),
+        }),
+      ],
+    });
+    expect(Array.from(getEmbedContentIds(state))).toEqual(["emb-root"]);
+  });
+
+  it("yields a single-level leaf body root (parentId === null, no children)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      embedContents: [
+        buildBlock({
+          id: "fn-leaf",
+          type: "paragraph",
+          inlineContent: inlineContent([text("leaf")]),
+        }),
+      ],
+    });
+    expect(Array.from(getEmbedContentIds(state))).toEqual(["fn-leaf"]);
+  });
+
+  it("yields both roots when two sibling-root bodies exist (both parentId null)", () => {
     const state = buildState({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
@@ -487,7 +538,6 @@ describe("getEmbedContentIds", () => {
       ],
     });
     const ids = Array.from(getEmbedContentIds(state));
-    // Order matches Y.Map insertion order; both ids must be present.
     expect(ids.sort()).toEqual(["fn-1", "fn-2"]);
   });
 
@@ -524,7 +574,54 @@ describe("getTemplateContent", () => {
 });
 
 describe("getTemplateContentIds", () => {
-  it("yields all template-content block ids", () => {
+  // #313: same root-only contract as getEmbedContentIds, over the
+  // templateContents (header/footer body) Y.Map.
+  it("yields ONLY the root id of a multi-level template body (not its children)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      templateContents: [
+        buildBlock({
+          id: "tpl-root",
+          type: "header-body",
+          firstChildId: "h1",
+          lastChildId: "h2",
+        }),
+        buildBlock({
+          id: "h1",
+          type: "paragraph",
+          parentId: "tpl-root",
+          nextSiblingId: "h2",
+          inlineContent: inlineContent([text("first")]),
+        }),
+        buildBlock({
+          id: "h2",
+          type: "paragraph",
+          parentId: "tpl-root",
+          prevSiblingId: "h1",
+          inlineContent: inlineContent([text("second")]),
+        }),
+      ],
+    });
+    expect(Array.from(getTemplateContentIds(state))).toEqual(["tpl-root"]);
+  });
+
+  it("yields a single-level leaf body root (parentId === null, no children)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      templateContents: [
+        buildBlock({
+          id: "tpl-leaf",
+          type: "header-body",
+          inlineContent: inlineContent([text("leaf")]),
+        }),
+      ],
+    });
+    expect(Array.from(getTemplateContentIds(state))).toEqual(["tpl-leaf"]);
+  });
+
+  it("yields both roots when two sibling-root bodies exist (both parentId null)", () => {
     const state = buildState({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
@@ -542,7 +639,6 @@ describe("getTemplateContentIds", () => {
       ],
     });
     const ids = Array.from(getTemplateContentIds(state));
-    // Order matches Y.Map insertion order; both ids must be present.
     expect(ids.sort()).toEqual(["tpl-1", "tpl-2"]);
   });
 

@@ -1227,4 +1227,56 @@ describe("render — #285 multi-level embed/template container bodies", () => {
     expect(outP2).toBe(prevP2);
     expect(outP1).not.toBe(prevP1);
   });
+
+  // ── #313: ROOT-ONLY top-level entries ───────────────────────────────────
+  // The render loops iterate getEmbedContentIds / getTemplateContentIds, which
+  // now yield only body ROOTS (parentId === null). A multi-level body's CHILD
+  // blocks must NOT appear as standalone top-level RenderOutput entries — they
+  // are reached via the root's child chain (rendered IN-BODY). Pre-#313 the
+  // accessors returned ALL map ids, so each child was also emitted as a
+  // spurious standalone entry with parentComputed=null (wrong cascade context).
+  it("full render: a multi-level TEMPLATE body emits ONLY the root entry; children are in-body, not standalone (#313)", () => {
+    const reg = bodyRegistry();
+    const state = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("alpha")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+    const out = render(state, reg, createDefaultAttrRegistry());
+    // Only the ROOT is a top-level entry.
+    expect(out.templateContents.size).toBe(1);
+    expect(out.templateContents.get("tpl-body" as BlockId)).toBeDefined();
+    // Children are NOT standalone top-level entries.
+    expect(out.templateContents.get("tpl-p1" as BlockId)).toBeUndefined();
+    expect(out.templateContents.get("tpl-p2" as BlockId)).toBeUndefined();
+    // But they ARE present IN-BODY under the root (regression-lock #285).
+    const body = out.templateContents.get("tpl-body" as BlockId);
+    expect(firstText(findByKey(body as RenderNode, "tpl-p1"))).toBe("alpha");
+    expect(firstText(findByKey(body as RenderNode, "tpl-p2"))).toBe("beta");
+  });
+
+  it("full render: a multi-level EMBED body emits ONLY the root entry; children are in-body, not standalone (#313)", () => {
+    const reg = bodyRegistry();
+    const state = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("alpha")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+    const out = render(state, reg, createDefaultAttrRegistry());
+    expect(out.embedContents.size).toBe(1);
+    expect(out.embedContents.get("emb-body" as BlockId)).toBeDefined();
+    expect(out.embedContents.get("emb-p1" as BlockId)).toBeUndefined();
+    expect(out.embedContents.get("emb-p2" as BlockId)).toBeUndefined();
+    const body = out.embedContents.get("emb-body" as BlockId);
+    expect(firstText(findByKey(body as RenderNode, "emb-p1"))).toBe("alpha");
+    expect(firstText(findByKey(body as RenderNode, "emb-p2"))).toBe("beta");
+  });
 });

@@ -164,34 +164,47 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
 }
 
 /**
- * Yield every BlockId currently present in the embed-contents tree
- * (footnote bodies, etc.). Narrow accessor exposed for the render module
- * so it can iterate embed subtrees without reaching into Y.Doc directly.
+ * Yield the ROOT BlockId of each registered embed-content body (footnote
+ * bodies, etc.) — blocks with `parentId === null` in the embedContents
+ * Y.Map. Body CHILDREN (the descendant blocks of a multi-level body) are
+ * reached via the root's child chain during render, NOT enumerated here.
+ * Narrowing to roots prevents spurious non-root `RenderOutput.embedContents`
+ * entries (#313): a child rendered as a standalone top-level entry would
+ * have no parent computed style (wrong cascade context) and duplicate the
+ * in-body render under its root.
  *
  * Order is the underlying Y.Map iteration order; callers must not rely
  * on a particular sort.
  */
-export function getEmbedContentIds(state: State): IterableIterator<BlockId> {
-  return getEmbedContentsMap(
+export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
+  for (const id of getEmbedContentsMap(
     state[STATE_INTERNAL].doc,
-  ).keys() as IterableIterator<BlockId>;
+  ).keys() as IterableIterator<BlockId>) {
+    const block = getEmbedContent(state, id);
+    if (block !== null && block.parentId === null) yield id;
+  }
 }
 
 /**
- * Yield every BlockId currently present in the template-contents tree
- * (header/footer template bodies). Narrow accessor mirroring
- * `getEmbedContentIds`; exposed for the render module so it can iterate
- * template subtrees without reaching into Y.Doc directly.
+ * Yield the ROOT BlockId of each registered template-content body
+ * (header/footer template bodies) — blocks with `parentId === null` in the
+ * templateContents Y.Map. Mirrors `getEmbedContentIds`: body CHILDREN are
+ * reached via the root's child chain during render, NOT enumerated here —
+ * this prevents spurious non-root `RenderOutput.templateContents` entries
+ * (#313).
  *
  * Order is the underlying Y.Map iteration order; callers must not rely
  * on a particular sort.
  */
-export function getTemplateContentIds(
+export function* getTemplateContentIds(
   state: State,
 ): IterableIterator<BlockId> {
-  return getTemplateContentsMap(
+  for (const id of getTemplateContentsMap(
     state[STATE_INTERNAL].doc,
-  ).keys() as IterableIterator<BlockId>;
+  ).keys() as IterableIterator<BlockId>) {
+    const block = getTemplateContent(state, id);
+    if (block !== null && block.parentId === null) yield id;
+  }
 }
 
 /**
