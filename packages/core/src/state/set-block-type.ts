@@ -1,5 +1,5 @@
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getYBlock } from "./yjs-doc";
 import type { BlockKindResolver } from "./block-kinds";
@@ -47,10 +47,11 @@ export function setBlockType(
   type: string,
   resolver: BlockKindResolver,
 ): OperationResult {
-  const block = getBlock(state, blockId);
-  if (block === null) {
+  const resolved = resolveBlock(state, blockId);
+  if (resolved === null) {
     throw new Error(`setBlockType: block "${blockId}" not found`);
   }
+  const { block, kind } = resolved;
   const oldKind = blockKindOf(block.type, resolver);
   if (oldKind === null) {
     throw new Error(
@@ -77,7 +78,7 @@ export function setBlockType(
     return { state, dirtyIds: new Set() };
   }
   return applyOperation(state, () => {
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockType");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockType", kind);
     yBlock.set("type", type);
   });
 }

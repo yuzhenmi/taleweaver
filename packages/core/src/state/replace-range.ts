@@ -170,8 +170,14 @@ export function replaceRange(
   const cursorOffset = normalized.anchor.offset;
   const anchorBlockId =
     deletePlan.mode === "same-block" ? deletePlan.blockId : deletePlan.anchorId;
+  // C.2c T7b: `planInsertTextFullReplace` now requires the anchor block's
+  // owning tree. replaceRange's map-agnostic wiring (resolving the anchor's
+  // kind, plus the multi-block new-block-inherits-map work) is C.2c T7c; until
+  // then this stays the main-tree default `"block"`, preserving byte-identical
+  // behavior for every current (main-tree) caller.
   const insertPlan = planInsertTextFullReplace(
     anchorBlockId,
+    "block",
     deletePlan.mergedItems,
     cursorOffset,
     text,

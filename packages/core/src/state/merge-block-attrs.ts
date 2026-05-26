@@ -1,5 +1,5 @@
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual, mergeAttrs } from "./attrs";
@@ -30,16 +30,17 @@ export function mergeBlockAttrs(
   blockId: BlockId,
   incoming: ReadonlyAttrs,
 ): OperationResult {
-  const block = getBlock(state, blockId);
-  if (block === null) {
+  const resolved = resolveBlock(state, blockId);
+  if (resolved === null) {
     throw new Error(`mergeBlockAttrs: block "${blockId}" not found`);
   }
+  const { block, kind } = resolved;
   const merged = mergeAttrs(block.attrs, incoming);
   return applyOperation(state, () => {
     if (attrsEqual(block.attrs, merged)) {
       return;
     }
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "mergeBlockAttrs");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "mergeBlockAttrs", kind);
     yBlock.set("attrs", buildYAttrs(merged));
   });
 }

@@ -1,5 +1,5 @@
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual } from "./attrs";
@@ -30,15 +30,16 @@ export function setBlockAttrs(
   blockId: BlockId,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  const block = getBlock(state, blockId);
-  if (block === null) {
+  const resolved = resolveBlock(state, blockId);
+  if (resolved === null) {
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
+  const { block, kind } = resolved;
   return applyOperation(state, () => {
     if (attrsEqual(block.attrs, attrs)) {
       return;
     }
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs");
+    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs", kind);
     yBlock.set("attrs", buildYAttrs(attrs));
   });
 }

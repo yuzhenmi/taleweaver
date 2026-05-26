@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
@@ -13,7 +13,7 @@ import {
   findItemAtOffset,
   type InlineItem,
 } from "./inline-content";
-import { getYBlock } from "./yjs-doc";
+import { getYBlock, type BlockTreeKind } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -30,6 +30,12 @@ import type { AttrRegistry } from "../cascade/attr-registry";
  */
 export type InsertTextPlan = {
   readonly blockId: BlockId;
+  // The tree (main / embedContents / templateContents) the block lives in,
+  // resolved once during planning. `insertTextInTx` threads it to every
+  // `getYBlock` write so a caret inside a header/footer body (templateContents)
+  // mutates the OWNING map, not the hardcoded main map. Main-tree blocks
+  // resolve to `"block"`, the `getYBlock` default — byte-identical to before.
+  readonly kind: BlockTreeKind;
 } & (
   | {
       readonly mode: "in-place";
@@ -116,7 +122,7 @@ export function insertText(
  */
 export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
   if (plan.mode === "in-place") {
-    const yBlock = getYBlock(doc, plan.blockId, "insertText");
+    const yBlock = getYBlock(doc, plan.blockId, "insertText", plan.kind);
     const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
     const yItem = yItems.get(plan.itemIndex);
     const yText = yItem.get("text") as Y.Text;
@@ -124,7 +130,7 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
     return;
   }
 
-  const yBlock = getYBlock(doc, plan.blockId, "insertText");
+  const yBlock = getYBlock(doc, plan.blockId, "insertText", plan.kind);
   yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
 }
 
@@ -151,10 +157,11 @@ export function planInsertText(
   attrs: ReadonlyAttrs,
   registry?: AttrRegistry,
 ): InsertTextPlan {
-  const block = getBlock(state, position.blockId);
-  if (block === null) {
+  const resolved = resolveBlock(state, position.blockId);
+  if (resolved === null) {
     throw new Error(`insertText: block "${position.blockId}" not found`);
   }
+  const { block, kind } = resolved;
   if (block.inlineContent === null) {
     throw new Error(`insertText: block "${position.blockId}" is not a leaf (no inlineContent)`);
   }
@@ -166,7 +173,7 @@ export function planInsertText(
     );
   }
 
-  return planInsertTextOnItems(position.blockId, block.inlineContent.items, position.offset, text, attrs, registry);
+  return planInsertTextOnItems(position.blockId, kind, block.inlineContent.items, position.offset, text, attrs, registry);
 }
 
 /**
@@ -190,6 +197,7 @@ export function planInsertText(
  */
 function planInsertTextOnItems(
   blockId: BlockId,
+  kind: BlockTreeKind,
   items: ReadonlyArray<InlineItem>,
   offset: number,
   text: string,
@@ -211,6 +219,7 @@ function planInsertTextOnItems(
   if (inPlace !== null) {
     return {
       blockId,
+      kind,
       mode: "in-place",
       itemIndex: inPlace.itemIndex,
       within: inPlace.within,
@@ -228,6 +237,7 @@ function planInsertTextOnItems(
 
   return {
     blockId,
+    kind,
     mode: "full-replace",
     items: merged,
   };
@@ -244,9 +254,14 @@ function planInsertTextOnItems(
  * `replaceRange`, this is always true: the seam offset is
  * `normalized.anchor.offset` and `mergedItems` has length equal to
  * `anchor.offset + (focus block's length - focus.offset)` ≥ anchor.offset.
+ *
+ * `kind` is the tree the anchor block lives in (resolved by the caller via
+ * `resolveBlock`); threaded onto the plan so `insertTextInTx` writes into the
+ * owning Y.Map. Main-tree callers pass `"block"` (the `getYBlock` default).
  */
 export function planInsertTextFullReplace(
   blockId: BlockId,
+  kind: BlockTreeKind,
   items: ReadonlyArray<InlineItem>,
   offset: number,
   text: string,
@@ -259,6 +274,7 @@ export function planInsertTextFullReplace(
 
   return {
     blockId,
+    kind,
     mode: "full-replace",
     items: merged,
   };

@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
-import { applyOperation } from "./state";
+import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
@@ -89,7 +89,15 @@ export function applyAttrsToRange(
   return applyOperation(state, () => {
     for (const seg of segments) {
       if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-      const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange");
+      // C.2c T7b: resolve the OWNING tree per segment so a span inside a
+      // header/footer body (templateContents) mutates the right Y.Map. A span
+      // is confined to a single context (cross-context spans are refused by
+      // iterateSpan), so all segments share one kind; resolving per-seg is the
+      // simplest correct option. `?? "block"` is a defensive fallback (the
+      // segment block was just yielded by iterateSpan, so resolveBlock cannot
+      // return null in correct code) that keeps the main-tree default.
+      const kind = resolveBlock(state, seg.block.id)?.kind ?? "block";
+      const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange", kind);
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves
       applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);

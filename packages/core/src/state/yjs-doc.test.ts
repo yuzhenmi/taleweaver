@@ -6,6 +6,8 @@ import {
   getEmbedContentsMap,
   getTemplateContentsMap,
   getMetaMap,
+  getTreeMap,
+  allTreeBlockCount,
   getYBlock,
   runTransaction,
   __getWalkStepsForTest,
@@ -31,6 +33,42 @@ describe("yjs-doc", () => {
     it("leaves meta.rootId unset when not provided", () => {
       const doc = createYDoc();
       expect(getMetaMap(doc).get("rootId")).toBeUndefined();
+    });
+  });
+
+  describe("getTreeMap", () => {
+    it("returns the templateContents map for kind 'templateContent'", () => {
+      const doc = createYDoc();
+      expect(getTreeMap(doc, "templateContent")).toBe(getTemplateContentsMap(doc));
+    });
+
+    it("returns the embedContents map for kind 'embedContent'", () => {
+      const doc = createYDoc();
+      expect(getTreeMap(doc, "embedContent")).toBe(getEmbedContentsMap(doc));
+    });
+
+    it("returns the main blocks map for kind 'block'", () => {
+      const doc = createYDoc();
+      expect(getTreeMap(doc, "block")).toBe(getBlocksMap(doc));
+    });
+  });
+
+  describe("allTreeBlockCount", () => {
+    it("sums the sizes of all three tree maps", () => {
+      const doc = createYDoc();
+      getBlocksMap(doc).set("b1", new Y.Map());
+      getBlocksMap(doc).set("b2", new Y.Map());
+      getEmbedContentsMap(doc).set("e1", new Y.Map());
+      getTemplateContentsMap(doc).set("t1", new Y.Map());
+      getTemplateContentsMap(doc).set("t2", new Y.Map());
+      getTemplateContentsMap(doc).set("t3", new Y.Map());
+      // 2 main + 1 embed + 3 template = 6.
+      expect(allTreeBlockCount(doc)).toBe(6);
+    });
+
+    it("is zero for an empty doc", () => {
+      const doc = createYDoc();
+      expect(allTreeBlockCount(doc)).toBe(0);
     });
   });
 
