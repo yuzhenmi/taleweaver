@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -12,8 +12,10 @@ export function handleDeleteForward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
-    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    // resolveBlock (main → embed → template) so a header/footer caret resolves;
+    // main-tree byte-identical (resolveBlock's first arm is getBlock).
+    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
+    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
     if (anchorBlock === null || focusBlock === null) return editor;
     if (
       selection.anchor.blockId !== selection.focus.blockId &&
@@ -39,7 +41,7 @@ export function handleDeleteForward(
   }
 
   const pos = selection.focus;
-  const currentBlock = getBlock(editor.state, pos.blockId);
+  const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
   const currentLen =
     currentBlock.inlineContent === null
@@ -73,7 +75,7 @@ export function handleDeleteForward(
   if (nextPos.blockId === pos.blockId) {
     return editor;
   }
-  const nextBlock = getBlock(editor.state, nextPos.blockId);
+  const nextBlock = resolveBlock(editor.state, nextPos.blockId)?.block ?? null;
   if (nextBlock === null) return editor;
 
   // Section-boundary forward delete: the cursor is at the END of a flat
@@ -84,7 +86,12 @@ export function handleDeleteForward(
   // behavior: a second Delete then merges them via the same-parent path
   // below).
   if (currentBlock.parentId !== null) {
-    const section = getBlock(editor.state, currentBlock.parentId);
+    // resolveBlock so a header/footer caret's parent (body root, in
+    // templateContents) resolves — but the section-merge is gated to doc-root
+    // `section`s (`section.parentId === editor.state.rootId`), so a header body
+    // root cannot satisfy the guard and the branch SKIPS (header forward-delete
+    // falls through to the normal same-parent merge). Main-tree byte-identical.
+    const section = resolveBlock(editor.state, currentBlock.parentId)?.block ?? null;
     if (
       section !== null &&
       section.type === "section" &&
@@ -92,7 +99,7 @@ export function handleDeleteForward(
       section.lastChildId === currentBlock.id &&
       section.nextSiblingId !== null
     ) {
-      const nextSection = getBlock(editor.state, section.nextSiblingId);
+      const nextSection = resolveBlock(editor.state, section.nextSiblingId)?.block ?? null;
       if (nextSection !== null && nextSection.type === "section") {
         const result = mergeSectionWithPrevious(editor.state, nextSection.id);
         if (result.state === editor.state) return editor;

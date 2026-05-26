@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -15,8 +15,10 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
-    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    // resolveBlock (main → embed → template) so a header/footer caret resolves;
+    // main-tree byte-identical (resolveBlock's first arm is getBlock).
+    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
+    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
     if (anchorBlock === null || focusBlock === null) return editor;
     if (
       selection.anchor.blockId !== selection.focus.blockId &&
@@ -36,7 +38,7 @@ export function handleSplitNode(
   }
 
   const pos = current.selection.focus;
-  const block = getBlock(current.state, pos.blockId);
+  const block = resolveBlock(current.state, pos.blockId)?.block ?? null;
   if (block === null) return editor;
 
   // Split is only meaningful on leaf blocks under a non-null parent.
@@ -67,7 +69,7 @@ export function handleSplitNode(
   // primitives were no-ops, so returning editor is correct.
   if (splitResult.state === editor.state) return editor;
 
-  const updatedOriginal = getBlock(splitResult.state, pos.blockId);
+  const updatedOriginal = resolveBlock(splitResult.state, pos.blockId)?.block ?? null;
   if (updatedOriginal === null) return editor;
   const newBlockId = updatedOriginal.nextSiblingId;
   if (newBlockId === null) return editor;

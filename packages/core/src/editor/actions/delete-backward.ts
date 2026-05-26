@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -12,8 +12,11 @@ export function handleDeleteBackward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
-    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    // resolveBlock (main → embed → template) so a header/footer caret resolves;
+    // for a main-tree id behavior is byte-identical (resolveBlock's first arm is
+    // getBlock). T7a/render precedent.
+    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
+    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
     if (anchorBlock === null || focusBlock === null) return editor;
     // deleteRange throws on cross-parent — skip with no-op if so.
     if (
@@ -64,7 +67,7 @@ export function handleDeleteBackward(
   }
 
   // pos.offset === 0: cross-block backspace.
-  const currentBlock = getBlock(editor.state, pos.blockId);
+  const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
   const prevPos = moveByCharacter(editor.state, pos, "backward");
   if (prevPos.blockId === pos.blockId) {
@@ -72,7 +75,7 @@ export function handleDeleteBackward(
     // prev content block) — no-op.
     return editor;
   }
-  const prevBlock = getBlock(editor.state, prevPos.blockId);
+  const prevBlock = resolveBlock(editor.state, prevPos.blockId)?.block ?? null;
   if (prevBlock === null) return editor;
 
   // Section-boundary backspace: the cursor is at the START of a flat doc-root
@@ -83,7 +86,14 @@ export function handleDeleteBackward(
   // Google Docs behavior: a second Backspace then merges them via the
   // same-parent path below).
   if (currentBlock.parentId !== null) {
-    const section = getBlock(editor.state, currentBlock.parentId);
+    // resolveBlock so a header/footer caret's parent (the body root, in
+    // templateContents) resolves — but the section-merge below is gated to
+    // doc-root `section`s (`section.parentId === editor.state.rootId`), so a
+    // header body root (whose parent is null / not the doc root) cannot
+    // satisfy the guard and the branch SKIPS: a header backspace falls through
+    // to the normal same-parent merge path. Main-tree behavior byte-identical
+    // (resolveBlock's first arm is getBlock).
+    const section = resolveBlock(editor.state, currentBlock.parentId)?.block ?? null;
     if (
       section !== null &&
       section.type === "section" &&
