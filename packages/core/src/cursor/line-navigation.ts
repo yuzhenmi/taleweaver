@@ -1,5 +1,12 @@
-import { getBlock, createPosition, firstLeafBlock, lastLeafBlock, inlineContentLength } from "../state";
-import type { State, Position } from "../state";
+import {
+  getBlock,
+  createPosition,
+  firstLeafBlock,
+  lastLeafBlock,
+  inlineContentLength,
+  selectionContextOf,
+} from "../state";
+import type { State, Position, BlockId } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
@@ -62,11 +69,61 @@ export function moveToLine(
 }
 
 /**
+ * Context filter (#327): line-navigation must stay inside the caret's
+ * SELECTION CONTEXT — the page BODY and a header/footer SLOT are isolated
+ * editing contexts (Google Docs convention: arrow keys never carry the caret
+ * across the body↔header boundary; you CLICK into a header to edit it).
+ *
+ * C.2c T6 made the per-page `LineIndex.all` include the header/footer slot
+ * lines, so without this filter ArrowUp from the body's top line would find the
+ * header's line (geometrically above) and move into it. Each candidate line is
+ * kept only if `selectionContextOf(state, line.ownerBlockId)` EQUALS the
+ * caret's context.
+ *
+ * Perf: `selectionContextOf` walks parentId to the tree root (O(depth)). The
+ * returned closure MEMOIZES per `ownerBlockId` (a `Map`) so each block's context
+ * resolves once per `moveToLine` call, not once per line. For the common
+ * main-only page (no header/footer slot lines) the filter still SCANS the lines
+ * once (O(unique-blocks × depth), memoized) but, finding every line already in
+ * the caret's context, returns the SAME array reference unchanged — so no new
+ * array is allocated and line order is byte-identical to the pre-#327 hot path
+ * (it is allocation-free, not walk-free).
+ */
+function makeContextFilter(
+  state: State,
+  caretContext: BlockId | null,
+): (lines: readonly AbsoluteLineBox[]) => readonly AbsoluteLineBox[] {
+  const memo = new Map<BlockId, BlockId | null>();
+  const ctxOf = (blockId: BlockId): BlockId | null => {
+    const cached = memo.get(blockId);
+    if (cached !== undefined) return cached;
+    const ctx = selectionContextOf(state, blockId);
+    memo.set(blockId, ctx);
+    return ctx;
+  };
+  return (lines) => {
+    // Fast-path probe: if every line already shares the caret's context (the
+    // common main-only / single-context page), return the array unchanged so no
+    // new array is allocated and order is byte-identical.
+    let allSame = true;
+    for (const lb of lines) {
+      if (ctxOf(lb.line.ownerBlockId) !== caretContext) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return lines;
+    return lines.filter((lb) => ctxOf(lb.line.ownerBlockId) === caretContext);
+  };
+}
+
+/**
  * Positioned-tree line move (algorithm LineBox-canonical):
  *   1. Resolve current position to a PixelPosition for the initial X.
  *   2. Use the WeakMap-cached doc-wide `LineIndex` (L-PERF-D) and find
  *      the current line via `findLineForPosition`.
- *   3. Pick the previous / next entry in the flat list.
+ *   3. Pick the previous / next entry in the flat list (CONTEXT-FILTERED
+ *      per #327 — only same-context lines are candidates).
  *   4. Resolve the target X on the adjacent line's Y via
  *      `resolvePositionFromPixel`.
  * Also the fallback the virtual path delegates to (over `materializeAll()`)
@@ -84,7 +141,9 @@ function moveToLineInPositioned(
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
 
-  const lines = getLineIndex(layoutTree).all;
+  const caretContext = selectionContextOf(state, position.blockId);
+  const filter = makeContextFilter(state, caretContext);
+  const lines = filter(getLineIndex(layoutTree).all);
   if (lines.length === 0) return null;
 
   const currentLineIdx = findLineForPosition(lines, position);
@@ -92,14 +151,17 @@ function moveToLineInPositioned(
 
   if (direction === "up") {
     if (currentLineIdx === 0) {
-      return startOfDocument(state, x);
+      // No same-context line above. In the main body this is the top of the
+      // document; for an isolated slot context (header/footer) there is no
+      // document boundary to fall to, so stay put (no-op).
+      return caretContext === state.rootId ? startOfDocument(state, x) : null;
     }
     return resolveTargetLine(state, layoutTree, measurer, x, lines[currentLineIdx - 1]);
   }
 
   // direction === "down"
   if (currentLineIdx === lines.length - 1) {
-    return endOfDocument(state, x);
+    return caretContext === state.rootId ? endOfDocument(state, x) : null;
   }
   return resolveTargetLine(state, layoutTree, measurer, x, lines[currentLineIdx + 1]);
 }
@@ -141,7 +203,14 @@ function moveToLineVirtual(
   const x = targetX ?? currentPixel.x;
   const p = currentPixel.pageIndex;
 
-  const pageLines = getLineIndex(tree.getPage(p)).all;
+  // #327: constrain candidate lines to the caret's selection context — never
+  // cross the body↔header/footer (slot) boundary. The header/footer slot lines
+  // live in the SAME per-page index as the body lines (C.2c T6), so an
+  // unfiltered ArrowUp from a page's top body line would step into the header.
+  const caretContext = selectionContextOf(state, position.blockId);
+  const filter = makeContextFilter(state, caretContext);
+
+  const pageLines = filter(getLineIndex(tree.getPage(p)).all);
   const idx = findLineForPosition(pageLines, position);
   if (idx < 0) {
     return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
@@ -151,8 +220,11 @@ function moveToLineVirtual(
     if (idx > 0) {
       return resolveTargetLine(state, tree.getPage(p), measurer, x, pageLines[idx - 1]);
     }
+    // For an isolated slot context (header/footer) there is no adjacent-page
+    // continuation and no document boundary to fall to — stay put (no-op).
+    if (caretContext !== state.rootId) return null;
     if (p > 0) {
-      const prev = getLineIndex(tree.getPage(p - 1)).all;
+      const prev = filter(getLineIndex(tree.getPage(p - 1)).all);
       if (prev.length === 0) {
         return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
       }
@@ -166,8 +238,9 @@ function moveToLineVirtual(
   if (idx < pageLines.length - 1) {
     return resolveTargetLine(state, tree.getPage(p), measurer, x, pageLines[idx + 1]);
   }
+  if (caretContext !== state.rootId) return null;
   if (p < plan.entries.length - 1) {
-    const next = getLineIndex(tree.getPage(p + 1)).all;
+    const next = filter(getLineIndex(tree.getPage(p + 1)).all);
     if (next.length === 0) {
       return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
     }
