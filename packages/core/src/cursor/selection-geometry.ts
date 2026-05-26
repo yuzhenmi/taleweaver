@@ -1,4 +1,4 @@
-import { positionsEqual, spanStart, spanEnd } from "../state";
+import { positionsEqual, spanStart, spanEnd, selectionContextOf } from "../state";
 import type { State, Span } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -10,6 +10,7 @@ import {
   collectLineLeaves,
   findLineForPosition,
   getLineIndex,
+  makeContextFilter,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
@@ -76,7 +77,17 @@ export function computeSelectionRects(
     // L-PERF-D: shared with cursor-position + line-navigation via the
     // WeakMap-cached LineIndex; only the first consumer per layout
     // cycle pays the collectLineBoxes walk.
-    const allLines = getLineIndex(layoutTree).all;
+    //
+    // Context isolation (#327 companion): C.2c T6 made `.all` include the
+    // header/footer SLOT lines, so for a body span (start→end across pages) the
+    // index range would otherwise enclose the interleaved slot lines between
+    // pages. Filter candidate lines to the SELECTION's context (anchor and focus
+    // share a context — cross-context spans are unsupported) so a body span emits
+    // no header/footer rects and a header/footer span emits no body rects. A
+    // main-only doc shares one context → the filter returns the array unchanged
+    // (byte-identical, allocation-free).
+    const filter = makeContextFilter(state, selectionContextOf(state, start.blockId));
+    const allLines = filter(getLineIndex(layoutTree).all);
     if (allLines.length === 0) return [];
 
     const startLineIdx = findLineForPosition(allLines, start);
@@ -131,7 +142,13 @@ export function computeSelectionRectsForPage(
     const start = spanStart(state, span);
     const end = spanEnd(state, span);
 
-    const pageLines = getLineIndex(pageBox).all;
+    // Context isolation (#327 companion): on a page carrying both body and
+    // header/footer slot lines, the per-page index interleaves them ([header,
+    // body, footer]). Filter to the SELECTION's context so a body span's lo..hi
+    // range can't include this page's slot lines (and vice-versa). Single-context
+    // page → array returned unchanged (byte-identical, allocation-free).
+    const filter = makeContextFilter(state, selectionContextOf(state, start.blockId));
+    const pageLines = filter(getLineIndex(pageBox).all);
     if (pageLines.length === 0) return [];
 
     // Lines on this page within the selection. On the start page the range

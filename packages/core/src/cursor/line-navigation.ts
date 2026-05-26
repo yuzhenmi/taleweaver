@@ -17,6 +17,7 @@ import { resolvePositionFromPixel } from "./hit-test";
 import {
   getLineIndex,
   findLineForPosition,
+  makeContextFilter,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { markStart, markEnd } from "../perf/perf-trace";
@@ -71,55 +72,6 @@ export function moveToLine(
   } finally {
     markEnd("cursor.line-navigation.moveToLine", t);
   }
-}
-
-/**
- * Context filter (#327): line-navigation must stay inside the caret's
- * SELECTION CONTEXT — the page BODY and a header/footer SLOT are isolated
- * editing contexts (Google Docs convention: arrow keys never carry the caret
- * across the body↔header boundary; you CLICK into a header to edit it).
- *
- * C.2c T6 made the per-page `LineIndex.all` include the header/footer slot
- * lines, so without this filter ArrowUp from the body's top line would find the
- * header's line (geometrically above) and move into it. Each candidate line is
- * kept only if `selectionContextOf(state, line.ownerBlockId)` EQUALS the
- * caret's context.
- *
- * Perf: `selectionContextOf` walks parentId to the tree root (O(depth)). The
- * returned closure MEMOIZES per `ownerBlockId` (a `Map`) so each block's context
- * resolves once per `moveToLine` call, not once per line. For the common
- * main-only page (no header/footer slot lines) the filter still SCANS the lines
- * once (O(unique-blocks × depth), memoized) but, finding every line already in
- * the caret's context, returns the SAME array reference unchanged — so no new
- * array is allocated and line order is byte-identical to the pre-#327 hot path
- * (it is allocation-free, not walk-free).
- */
-function makeContextFilter(
-  state: State,
-  caretContext: BlockId | null,
-): (lines: readonly AbsoluteLineBox[]) => readonly AbsoluteLineBox[] {
-  const memo = new Map<BlockId, BlockId | null>();
-  const ctxOf = (blockId: BlockId): BlockId | null => {
-    const cached = memo.get(blockId);
-    if (cached !== undefined) return cached;
-    const ctx = selectionContextOf(state, blockId);
-    memo.set(blockId, ctx);
-    return ctx;
-  };
-  return (lines) => {
-    // Fast-path probe: if every line already shares the caret's context (the
-    // common main-only / single-context page), return the array unchanged so no
-    // new array is allocated and order is byte-identical.
-    let allSame = true;
-    for (const lb of lines) {
-      if (ctxOf(lb.line.ownerBlockId) !== caretContext) {
-        allSame = false;
-        break;
-      }
-    }
-    if (allSame) return lines;
-    return lines.filter((lb) => ctxOf(lb.line.ownerBlockId) === caretContext);
-  };
 }
 
 /**

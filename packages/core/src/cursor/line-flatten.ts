@@ -1,6 +1,7 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "../styles";
-import type { Position, BlockId } from "../state";
+import type { Position, BlockId, State } from "../state";
+import { selectionContextOf } from "../state";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -145,6 +146,61 @@ export function getLineIndex(root: LayoutBox): LineIndex {
   const index: LineIndex = { all, byBlock };
   _lineIndexCache.set(root, index);
   return index;
+}
+
+/**
+ * Context filter (#327): constrain a flat line list to ONE editing context —
+ * the page BODY and a header/footer SLOT are isolated editing contexts (Google
+ * Docs convention: arrow keys never carry the caret across the body↔header
+ * boundary; you CLICK into a header to edit it; SELECT_ALL highlights only the
+ * context the caret is in).
+ *
+ * C.2c T6 made the per-page `LineIndex.all` include the header/footer slot lines
+ * (in doc order each page is `[header lines, body lines, footer lines]`), so an
+ * unfiltered consumer — line-navigation (#327) and selection-geometry — would
+ * leak across the boundary: ArrowUp from the body's top line would step into the
+ * header; a body select-all's rects would bleed into the interleaved
+ * header/footer slot bands between pages. Each candidate line is kept only if
+ * `selectionContextOf(state, line.ownerBlockId)` EQUALS `context`.
+ *
+ * Perf: `selectionContextOf` walks parentId to the tree root (O(depth)). The
+ * returned closure MEMOIZES per `ownerBlockId` (a `Map`) so each block's context
+ * resolves once per call, not once per line. For the common main-only page (no
+ * header/footer slot lines) the filter still SCANS the lines once (O(unique
+ * blocks × depth), memoized) but, finding every line already in `context`,
+ * returns the SAME array reference unchanged — so no new array is allocated and
+ * line order is byte-identical to the pre-#327 hot path (allocation-free, not
+ * walk-free).
+ *
+ * Shared by `line-navigation.ts` (#327) and `selection-geometry.ts` (this
+ * change) so both consumers apply identical isolation.
+ */
+export function makeContextFilter(
+  state: State,
+  context: BlockId | null,
+): (lines: readonly AbsoluteLineBox[]) => readonly AbsoluteLineBox[] {
+  const memo = new Map<BlockId, BlockId | null>();
+  const ctxOf = (blockId: BlockId): BlockId | null => {
+    const cached = memo.get(blockId);
+    if (cached !== undefined) return cached;
+    const ctx = selectionContextOf(state, blockId);
+    memo.set(blockId, ctx);
+    return ctx;
+  };
+  return (lines) => {
+    // Fast-path probe: if every line already shares `context` (the common
+    // main-only / single-context page), return the array unchanged so no new
+    // array is allocated and order is byte-identical.
+    let allSame = true;
+    for (const lb of lines) {
+      if (ctxOf(lb.line.ownerBlockId) !== context) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return lines;
+    return lines.filter((lb) => ctxOf(lb.line.ownerBlockId) === context);
+  };
 }
 
 /**
