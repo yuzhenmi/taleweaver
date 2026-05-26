@@ -574,12 +574,16 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
     }
-    // C.2c (T5): paint the header/footer slots. They are NAMED fields (not in
-    // `box.children`), positioned in PAGE-LOCAL coords (header at block-offset 0
-    // in the top margin band; footer at `pageBlockSize − blockEnd` in the bottom
-    // band). They carry their own page-local x/y, so paint each like a child
-    // using the same page-local origin. Painted after children — they live in
-    // the margins and never overlap body content.
+    // C.2c (T5) + #328: paint the header/footer slots. They are NAMED fields
+    // (not in `box.children`), positioned in PAGE-LOCAL coords (header at
+    // block-offset 0, growing DOWN from the page top; footer anchored at
+    // `pageBlockSize − effectiveBottomInset`, growing UP so it ends at the page
+    // bottom). Each is laid at its NATURAL height; a header/footer taller than
+    // its margin band GROWS the page's effective inset, which pushes the body
+    // content down/up so the slot and body never overlap (the grow-and-push is
+    // computed in the layout pass — the renderer just paints the slot box at the
+    // page-local x/y it carries). Painted after children, using the same
+    // page-local origin.
     if (box.headerSlot !== null) {
       paintBox(ctx, box.headerSlot, absX, absY, visibleTop, visibleBottom, state);
     }

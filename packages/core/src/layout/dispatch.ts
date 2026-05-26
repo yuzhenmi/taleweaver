@@ -3,6 +3,7 @@ import type { LayoutBox } from "./layout-box-v2";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";
+import type { BlockId } from "../state";
 import { isTextShaper, measurerToShaper } from "./text-measurer";
 import { layoutBlock } from "./bfc";
 import { layoutTable } from "./table-fc";
@@ -14,6 +15,9 @@ import { paginateRoot } from "./paginate";
 import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
+
+/** Empty cascaded-template-body map default (no header/footer bodies). */
+const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -28,6 +32,13 @@ export function layoutTree(
   containerInlineSize: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   pageConfig?: PageConfig,
+  // C.2c + #328: cascaded header/footer template bodies. The full-build /
+  // RESIZE path must thread these (NOT default to empty) so a tall-header doc
+  // re-paginates with the GROWN insets — otherwise a window resize would
+  // re-lay the body as if the header fit the margin (body jumps up, header
+  // re-clipped). Defaults to an empty map for the many non-editor callers
+  // (tests, table-root paths) that have no header/footer bodies.
+  cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_TEMPLATE_CONTENTS,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
   try {
@@ -62,7 +73,9 @@ export function layoutTree(
         // build — e.g. the resize path — so there is no carry-forward memo.
         result = measurePassUnsupported(layoutRoot)
           ? paginateRoot(layoutRoot, ctx, shaper, pageConfig)
-          : buildVirtualPaginatedTree(layoutRoot, ctx, shaper, pageConfig);
+          : buildVirtualPaginatedTree(
+              layoutRoot, ctx, shaper, pageConfig, undefined, cascadedTemplateContents,
+            );
       } else {
         // Non-block root with pagination: layout without pagination for now.
         if (cs.display === "table") {

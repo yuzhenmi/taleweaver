@@ -126,6 +126,23 @@ export interface PagePlanEntry {
   readonly headerBlockId?: BlockId;
   /** The footer-slot body id for THIS page; symmetric to `headerBlockId` (C.2c). */
   readonly footerBlockId?: BlockId;
+  /**
+   * The EFFECTIVE top inset for THIS page (#328 growing slot): `max(effective
+   * page-margin blockStart, header body NATURAL height)`. The body content area
+   * begins at this offset, so a header taller than its margin band PUSHES the
+   * body down rather than overflowing into it. Equals the effective page
+   * margin's `blockStart` when there is no header (or the header fits the
+   * margin) — keeping the no-slot path byte-identical. Drives the fit's content
+   * block-size, the materialized body origin, and the per-entry reuse gate.
+   */
+  readonly effectiveTopInset: number;
+  /**
+   * The EFFECTIVE bottom inset for THIS page (#328): `max(effective page-margin
+   * blockEnd, footer body NATURAL height)`. The body content area ends at
+   * `pageBlockSize − effectiveBottomInset`; the footer grows UPWARD. Symmetric
+   * to `effectiveTopInset`.
+   */
+  readonly effectiveBottomInset: number;
 }
 
 /** The document's full pagination plan. */
@@ -211,6 +228,21 @@ export interface PagePlan {
 }
 
 /**
+ * Per-section effective slot insets (#328 growing slot). Keyed by the section's
+ * `activeSectionId` (the value `sectionStateAt` returns; `null` for the implicit
+ * section-less leading run) — NOT the header/footer body id. Each value is the
+ * section's `{ top, bottom }` content inset, already `max`'d against the raw
+ * page margins: `top = max(margin.blockStart, headerHeight)`,
+ * `bottom = max(margin.blockEnd, footerHeight)`. The producer computes these by
+ * laying out each section's cascaded header/footer body at that section's own
+ * effective content inline-size (so a landscape section's header wraps at its
+ * own width). When a section is ABSENT from this map — or the map is omitted
+ * entirely — `measurePass` falls back to the raw effective page margins, so a
+ * doc with no header/footer is byte-identical.
+ */
+export type SlotInsets = ReadonlyMap<BlockId | null, { readonly top: number; readonly bottom: number }>;
+
+/**
  * Compute the `PagePlan` for a document from its top-level block metas. Pure;
  * allocation-free apart from the plan structure itself.
  *
@@ -253,6 +285,9 @@ export function measurePass(
   sectionPlan: SectionPlan,
   rootChildren?: readonly RenderNode[],
   prevPlan?: PagePlan,
+  // Per-section effective slot insets (#328). Absent/missing for a section ⇒
+  // fall back to the section's raw effective page margins ⇒ byte-identical.
+  slotInsets?: SlotInsets,
 ): PagePlan {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -380,8 +415,30 @@ export function measurePass(
     // doc with no override every page resolves to `pageConfig`, so the content
     // size equals the doc-wide `pageContentBlockSize` and the path is inert.
     const effCfg = st.pageConfig ?? pageConfig;
-    const effContentBlockSize =
-      effCfg.pageBlockSize - effCfg.pageMargins.blockStart - effCfg.pageMargins.blockEnd;
+    // Effective slot insets for THIS page's active section (#328 growing slot).
+    // The producer keys `slotInsets` by `activeSectionId`; when absent (no
+    // header/footer for the section, or the map was omitted) we fall back to the
+    // section's RAW effective page margins — which keeps the no-slot path
+    // byte-identical (`max(margin, 0) = margin` reduces to the raw margin).
+    const sectionInsets = slotInsets?.get(activeSectionId ?? null);
+    const effTop = sectionInsets?.top ?? effCfg.pageMargins.blockStart;
+    const effBottom = sectionInsets?.bottom ?? effCfg.pageMargins.blockEnd;
+    // This page's effective content block-size: the page height minus the
+    // GROWN insets (header pushes the body down, footer pushes it up), NOT the
+    // raw margins. For a no-slot page this equals the raw-margin content size.
+    const effContentBlockSize = effCfg.pageBlockSize - effTop - effBottom;
+    // Degenerate guard (#328): a header/footer taller than the whole page leaves
+    // no room for body content → fitOnePage would never advance (caught only by
+    // the maxPages bound, with a misleading "failed to advance" error). Throw a
+    // clear diagnostic instead. Proper Google-Docs-style header-growth CAPPING
+    // (cap the slot so the body keeps a minimum area) is follow-up #329.
+    if (effContentBlockSize <= 0) {
+      throw new Error(
+        `measurePass: header/footer insets (top=${effTop}, bottom=${effBottom}) leave no ` +
+          `body content area within pageBlockSize=${effCfg.pageBlockSize} for section ` +
+          `"${activeSectionId ?? "implicit"}" — the slot is taller than the page (see #329).`,
+      );
+    }
     if (pageIndex === 0 || activeSectionId !== currentActiveSectionId) {
       currentSectionPageIndex = 0;
     } else {
@@ -443,6 +500,17 @@ export function measurePass(
         // correctly shifts every later page's offset while unchanged-fit pages
         // keep their children/resumeOut.
         pageConfigsEqual(effCfg, reusable.pageConfig) &&
+        // Effective slot insets (#328): the prior page's fit depends on its
+        // content block-size, which the GROWN insets determine. Reuse is sound
+        // ONLY when THIS page's effective insets equal the prior entry's. This
+        // is what re-paginates the affected section's pages when a header/footer
+        // height changes (e.g. growing the header drops lines/page): the body
+        // refs are unchanged so the other gate fields all match, but the insets
+        // differ, forcing a re-fit. The coarse doc-wide `pageContentBlockSize`
+        // guard stays raw-margin-based (C3) and does NOT catch this — header
+        // height re-pagination is this per-entry gate's job.
+        effTop === reusable.effectiveTopInset &&
+        effBottom === reusable.effectiveBottomInset &&
         canReusePage(rootChildren, startIndex, metas.length, reusable, prevNext)
       ) {
         const reusedSliceEnd =
@@ -478,6 +546,13 @@ export function measurePass(
           // any section-id change a SECTION_BREAK introduced.
           headerBlockId,
           footerBlockId,
+          // Effective slot insets for THIS page (#328), stamped from the CURRENT
+          // `slotInsets` (via `effTop`/`effBottom`) on the reuse path too — the
+          // reuse gate above proved they equal the prior entry's, so this is
+          // identical, but stamping the current values keeps the source of truth
+          // consistent across both branches (I1).
+          effectiveTopInset: effTop,
+          effectiveBottomInset: effBottom,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -588,6 +663,11 @@ export function measurePass(
       // Header/footer body ids for THIS page (C.2c), from the CURRENT `st`.
       headerBlockId,
       footerBlockId,
+      // Effective slot insets for THIS page (#328) — the SAME `effTop`/`effBottom`
+      // whose content block-size shaped the fit above. The materialize pass reads
+      // these to position the body origin + the footer slot.
+      effectiveTopInset: effTop,
+      effectiveBottomInset: effBottom,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the

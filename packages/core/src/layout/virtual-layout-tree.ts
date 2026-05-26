@@ -143,6 +143,19 @@ interface PageFingerprint {
    */
   readonly headerBody: ElementBox | undefined;
   readonly footerBody: ElementBox | undefined;
+  /**
+   * The effective slot insets this page was POSITIONED with (#328 growing slot):
+   * `PagePlanEntry.effectiveTopInset` / `.effectiveBottomInset`. DEFENSIVE-
+   * REDUNDANT today — the insets are a pure function of the header/footer body
+   * refs + the page geometry, both of which already participate in the
+   * fingerprint, so a body-height change always flips `headerBody` / `footerBody`
+   * / `pageConfig` too. Included so the fingerprint stays correct if a future
+   * inset source (e.g. an explicit per-section inset attr independent of the body
+   * height) is added, and so it is not deleted as dead. Two pages with identical
+   * body refs + geometry have identical insets ⇒ this never blocks a valid reuse.
+   */
+  readonly effectiveTopInset: number;
+  readonly effectiveBottomInset: number;
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
@@ -176,6 +189,8 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.footerBlockId === b.footerBlockId &&
     a.headerBody === b.headerBody &&
     a.footerBody === b.footerBody &&
+    a.effectiveTopInset === b.effectiveTopInset &&
+    a.effectiveBottomInset === b.effectiveBottomInset &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut)
@@ -264,6 +279,8 @@ export function makeVirtualLayoutTree(
       footerBlockId,
       headerBody: headerBlockId !== undefined ? templateBodies.get(headerBlockId) : undefined,
       footerBody: footerBlockId !== undefined ? templateBodies.get(footerBlockId) : undefined,
+      effectiveTopInset: entry.effectiveTopInset,
+      effectiveBottomInset: entry.effectiveBottomInset,
     };
   }
 
@@ -320,8 +337,24 @@ export function makeVirtualLayoutTree(
     // equal the closure-captured ones.
     const effCfg = entry.pageConfig;
     const effMargins = effCfg.pageMargins;
+    // Effective slot insets for THIS page (#328 growing slot): the body content
+    // area is `[effectiveTopInset, pageBlockSize − effectiveBottomInset]` — the
+    // header grows the top inset, the footer grows the bottom one. For a no-slot
+    // page the insets equal the raw margins (the measure pass's `?? margin`
+    // fallback), so the values below reduce to the raw-margin content area.
+    const effTopInset = entry.effectiveTopInset;
+    const effBottomInset = entry.effectiveBottomInset;
     const effContentBlockSize =
-      effCfg.pageBlockSize - effMargins.blockStart - effMargins.blockEnd;
+      effCfg.pageBlockSize - effTopInset - effBottomInset;
+    // Degenerate guard (#328), mirroring measurePass: a slot taller than the page
+    // leaves no body area. measurePass throws first in the normal flow; this is
+    // defense-in-depth for a directly-built plan. (Google-Docs growth-capping: #329.)
+    if (effContentBlockSize <= 0) {
+      throw new Error(
+        `materializePage: header/footer insets (top=${effTopInset}, bottom=${effBottomInset}) ` +
+          `leave no body content area within pageBlockSize=${effCfg.pageBlockSize} (see #329).`,
+      );
+    }
     const effContentInlineSize =
       effCfg.pageInlineSize - effMargins.inlineStart - effMargins.inlineEnd;
 
@@ -356,7 +389,10 @@ export function makeVirtualLayoutTree(
     const { box } = layoutBlock(
       cascadedRoot,
       effMargins.inlineStart,
-      effMargins.blockStart,
+      // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
+      // header has grown `effectiveTopInset` past `blockStart`, pushing the body
+      // down. For a no-slot page this equals `effMargins.blockStart`.
+      effTopInset,
       effContentCtx,
       shaper,
       {
@@ -377,22 +413,27 @@ export function makeVirtualLayoutTree(
     // SECTION's effective page block-size, not the content size.
     const children: readonly LayoutBox[] = box ? [box] : [];
 
-    // C.2c (T4): lay the page's header/footer template bodies into the TOP /
-    // BOTTOM margin bands. Each is a single-shot `layoutBlock` of the cascaded
-    // body at the content inline-offset, capped at the band's available size.
-    // It is NOT paginated: `resumeFrom: null` and no `stopBeforeIndex`, so the
-    // body never page-breaks (a body taller than the band overflows for now).
-    // `pageIndex` is passed because `FragmentationContext` requires it (bfc
-    // propagates it into nested-child contexts); it is behaviorally inert for the
-    // slot's OWN layout — the slot context carries `prevLayoutCache: null`, so
-    // the paginated-reuse path is never entered for slots. The slot is null when
-    // the entry carries no id, or no body matches the id. Header origin is
-    // `(inlineStart, 0)` (top band); footer origin is
-    // `(inlineStart, pageBlockSize − blockEnd)` (top of the bottom band).
+    // C.2c (T4) + #328 (growing slot): lay the page's header/footer template
+    // bodies at their NATURAL height — never clipped. Each is a single-shot
+    // `layoutBlock` of the cascaded body at the content inline-offset, with
+    // `availableBlockSize: MAX_SAFE_INTEGER` so the body lays out fully (no
+    // clip, no page-break). A header taller than its margin band GROWS the top
+    // inset (`effectiveTopInset`) and PUSHES the body content down (computed in
+    // the producer's `computeSlotInsets`, threaded via the entry); the footer
+    // grows the bottom inset and is anchored so it ends at the page bottom.
+    // (I4: passing MAX_SAFE_INTEGER is safe — bfc/ifc use `availableBlockSize`
+    // only in subtractions + one fit comparison, never to size the box.)
+    // It is NOT paginated: `resumeFrom: null` and no `stopBeforeIndex`. `pageIndex`
+    // is passed because `FragmentationContext` requires it; it is behaviorally
+    // inert for the slot's OWN layout (the slot context carries
+    // `prevLayoutCache: null`, so the paginated-reuse path is never entered). The
+    // slot is null when the entry carries no id, or no body matches the id.
+    // Header origin is `(inlineStart, 0)` (slot grows DOWN from the page top);
+    // footer origin is `(inlineStart, pageBlockSize − effectiveBottomInset)` so
+    // a natural-height footer ends exactly at the page bottom (slot grows UP).
     const layoutSlot = (
       blockId: BlockId | undefined,
       slotBlockStart: number,
-      availableBlockSize: number,
     ): BlockBox | null => {
       if (blockId === undefined) return null;
       const body = templateBodies.get(blockId);
@@ -403,15 +444,14 @@ export function makeVirtualLayoutTree(
         slotBlockStart,
         effContentCtx,
         shaper,
-        { availableBlockSize, pageIndex, resumeFrom: null },
+        { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
       );
       return slotBox;
     };
-    const headerSlot = layoutSlot(entry.headerBlockId, 0, effMargins.blockStart);
+    const headerSlot = layoutSlot(entry.headerBlockId, 0);
     const footerSlot = layoutSlot(
       entry.footerBlockId,
-      effCfg.pageBlockSize - effMargins.blockEnd,
-      effMargins.blockEnd,
+      effCfg.pageBlockSize - effBottomInset,
     );
 
     return createPageBox(

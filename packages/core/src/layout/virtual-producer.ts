@@ -24,9 +24,10 @@ import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
-import { measurePass } from "./measure-pass";
-import { buildSectionPlan } from "./section-plan";
+import { measurePass, type SlotInsets } from "./measure-pass";
+import { buildSectionPlan, type SectionPlan } from "./section-plan";
 import { flattenContents } from "./group-children";
+import { layoutBlock } from "./bfc";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**
@@ -81,10 +82,115 @@ export function buildVirtualPaginatedTree(
   // yields `[{0, null}]` ⇒ no breaks ⇒ unchanged pagination. `prevTree?.plan`
   // carries the prior `sectionPlan` (now a required field) for the reuse gate.
   const sectionPlan = buildSectionPlan(cascadedRoot, pageConfig);
+  // Per-section effective slot insets (#328 growing slot): lay each section's
+  // cascaded header/footer body at that section's own effective content
+  // inline-size, take its NATURAL (uncapped) height, and `max` against the raw
+  // page margins. A header taller than its margin band thus PUSHES the body down
+  // (and the footer pushes up). A section with no header/footer (the common
+  // case) leaves the map absent for it ⇒ `measurePass` falls back to raw
+  // margins ⇒ byte-identical pagination.
+  const slotInsets = computeSlotInsets(
+    sectionPlan, pageConfig, ctx, shaper, cascadedTemplateContents,
+  );
   const plan = measurePass(
-    metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan,
+    metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan, slotInsets,
   );
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
   );
+}
+
+/**
+ * Compute each section's effective slot insets (#328 growing slot), keyed by the
+ * section's id (`null` for the implicit leading run) — the SAME key
+ * `sectionStateAt` returns and `measurePass` looks up. For every section boundary
+ * that declares a header and/or footer body present in `cascadedTemplateContents`:
+ *
+ *   - Lay the body out at THAT section's effective content inline-size (derived
+ *     from the boundary's `pageConfig ?? docWidePageConfig` — so a landscape
+ *     section's header wraps at its own width — minus the inline margins), with
+ *     `availableBlockSize: MAX_SAFE_INTEGER` so the body is laid at its NATURAL
+ *     height (never page-broken, never clipped). Read `.box?.blockSize ?? 0`.
+ *   - `top = max(margin.blockStart, headerHeight)`,
+ *     `bottom = max(margin.blockEnd, footerHeight)`.
+ *
+ * A boundary whose top and bottom both reduce to the raw margins (no header/
+ * footer body) is OMITTED from the map — `measurePass`'s `?? margin` fallback
+ * handles it identically, and omitting keeps the no-slot path allocation-light.
+ *
+ * **Memo (perf):** a `WeakMap<bodyRef, Map<inlineSize, blockSize>>` caches a
+ * body's laid-out height per inline-size. The incremental cascade returns the
+ * SAME body `ElementBox` ref when the body is unchanged, so a main-body keystroke
+ * is a pure cache hit (0 layouts); only a header/footer edit (new body ref) pays
+ * one layout. A fresh per-cycle WeakMap is sufficient since it bounds work to ≤1
+ * layout per distinct (body, inlineSize) pair per cycle.
+ */
+function computeSlotInsets(
+  sectionPlan: SectionPlan,
+  docWide: PageConfig,
+  ctx: LayoutContext,
+  shaper: TextShaper,
+  cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>,
+): SlotInsets {
+  // No bodies at all ⇒ no section can grow a slot ⇒ skip the work entirely and
+  // let measurePass fall back to raw margins for every section.
+  if (cascadedTemplateContents.size === 0) return new Map();
+
+  // Per-cycle memo: body ref → (effective content inline-size → natural height).
+  const heightMemo = new WeakMap<ElementBox, Map<number, number>>();
+  const naturalHeight = (body: ElementBox, effContentInlineSize: number): number => {
+    let perInline = heightMemo.get(body);
+    if (perInline === undefined) {
+      perInline = new Map();
+      heightMemo.set(body, perInline);
+    }
+    const cached = perInline.get(effContentInlineSize);
+    if (cached !== undefined) return cached;
+    // Build the section's content LayoutContext exactly as `materializePage`
+    // does (containingInlineSize = the content area). Lay the body at its
+    // natural height (no clip, no page-break).
+    const sectionContentCtx: LayoutContext = { ...ctx, containingInlineSize: effContentInlineSize };
+    const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, {
+      availableBlockSize: Number.MAX_SAFE_INTEGER,
+      pageIndex: 0,
+      resumeFrom: null,
+    });
+    const height = box?.blockSize ?? 0;
+    perInline.set(effContentInlineSize, height);
+    return height;
+  };
+
+  const insets = new Map<BlockId | null, { top: number; bottom: number }>();
+  for (const boundary of sectionPlan.boundaries) {
+    const effCfg = boundary.pageConfig ?? docWide;
+    const effContentInlineSize =
+      effCfg.pageInlineSize - effCfg.pageMargins.inlineStart - effCfg.pageMargins.inlineEnd;
+
+    const headerBody =
+      boundary.headerBlockId !== undefined
+        ? cascadedTemplateContents.get(boundary.headerBlockId)
+        : undefined;
+    const footerBody =
+      boundary.footerBlockId !== undefined
+        ? cascadedTemplateContents.get(boundary.footerBlockId)
+        : undefined;
+
+    const headerHeight = headerBody !== undefined ? naturalHeight(headerBody, effContentInlineSize) : 0;
+    const footerHeight = footerBody !== undefined ? naturalHeight(footerBody, effContentInlineSize) : 0;
+
+    const top = Math.max(effCfg.pageMargins.blockStart, headerHeight);
+    const bottom = Math.max(effCfg.pageMargins.blockEnd, footerHeight);
+
+    // Omit a boundary whose insets both reduce to the raw margins — the
+    // measurePass fallback produces the identical values, so storing them is
+    // redundant (and keeps the no-slot path map small).
+    if (top === effCfg.pageMargins.blockStart && bottom === effCfg.pageMargins.blockEnd) {
+      continue;
+    }
+    // Key by the section's id (NOT the body id) — the value `sectionStateAt`
+    // returns as `activeSectionId` and `measurePass` looks up. `null` for the
+    // implicit leading run.
+    insets.set(boundary.sectionId, { top, bottom });
+  }
+  return insets;
 }

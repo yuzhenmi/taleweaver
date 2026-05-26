@@ -141,6 +141,9 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     config.containerWidth,
     config.measurer,
     config.pageConfig,
+    // #328 (C1): thread the cascaded header/footer bodies through the initial
+    // full build so a seeded tall-header doc paginates with the GROWN insets.
+    cascadedTemplateContents,
   );
 
   return {

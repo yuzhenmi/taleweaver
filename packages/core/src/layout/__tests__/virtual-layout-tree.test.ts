@@ -51,10 +51,19 @@ function planWithEntries(
   let running = 0;
   const entries: PagePlanEntry[] = base.entries.map((e) => {
     const o = override(e);
+    // Keep the no-slot insets CONSISTENT with the (possibly overridden)
+    // pageConfig margins (#328): when an override swaps `pageConfig` (e.g. a
+    // taller/margined section) but doesn't itself set the insets, the insets
+    // must track the new margins — exactly as `blockSize`/`blockOffset` do —
+    // otherwise the synthetic entry carries the stale base margins. An override
+    // that explicitly grows the insets (a header/footer taller than the margin)
+    // is preserved via `o`'s values where they exceed the margins.
     const withOffset: PagePlanEntry = {
       ...o,
       blockOffset: running,
       blockSize: o.pageConfig.pageBlockSize,
+      effectiveTopInset: Math.max(o.effectiveTopInset, o.pageConfig.pageMargins.blockStart),
+      effectiveBottomInset: Math.max(o.effectiveBottomInset, o.pageConfig.pageMargins.blockEnd),
     };
     running += o.pageConfig.pageBlockSize + o.pageConfig.pageGap;
     return withOffset;
@@ -797,11 +806,13 @@ describe("VirtualLayoutTree — header/footer slot layout (C.2c T4)", () => {
     expect(hdr.type).toBe("block");
     expect(hdr.inlineOffset).toBe(cfg.pageMargins.inlineStart);
     expect(hdr.blockOffset).toBe(0);
-    // The body is one paragraph with a single 16px mock line. That 16px line
-    // OVERFLOWS the 10px top band, but is still placed (BFC can't-leave-a-
-    // fragment-empty rule), so the slot box is its natural content height: 16px.
-    // (A taller-than-band header overflowing the margin is the documented v1
-    // behavior; #312-class growth is out of scope.)
+    // The body is one paragraph with a single 16px mock line. The slot is laid
+    // at its NATURAL height (uncapped, #328) ⇒ 16px — never clipped to the 10px
+    // band. (This synthetic entry's `effectiveTopInset` is the raw margin 10
+    // because the plan was built without per-section `slotInsets`; in production
+    // the producer's `computeSlotInsets` would grow the inset to 16 and push the
+    // body down. This test isolates the SLOT-layout geometry; the body-push /
+    // grow-the-inset behavior is covered end-to-end in growing-slot.test.ts.)
     expect(hdr.blockSize).toBe(16);
     expect(hdr.children.length).toBe(1); // one paragraph
 
