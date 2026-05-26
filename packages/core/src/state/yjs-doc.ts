@@ -45,6 +45,33 @@ const TREE_MAP_GETTERS = {
 
 export type BlockTreeKind = keyof typeof TREE_MAP_GETTERS;
 
+// Type-level cross-check that `BlockTreeKind` (the set of trees identified
+// here) stays in lockstep with `ResolvedBlockKind` (state.ts) — both must be
+// exactly `"block" | "embedContent" | "templateContent"`. These two unions are
+// produced independently (this one from `TREE_MAP_GETTERS`' keys; the other
+// hand-written in state.ts), so without a tripwire one could grow a tree the
+// other doesn't know about. The mutual `extends` assignments below fail to
+// compile if either union gains/loses a member relative to the other. (A direct
+// `import type { ResolvedBlockKind }` would create a yjs-doc → state import
+// cycle; instead we restate the literal union here and let the assertions catch
+// drift in BOTH directions — if `ResolvedBlockKind` changes, its own assertion
+// against this literal fails; see state.ts.)
+type _BlockTreeKindMatchesLiteral = BlockTreeKind extends "block" | "embedContent" | "templateContent" ? true : never;
+type _LiteralMatchesBlockTreeKind = "block" | "embedContent" | "templateContent" extends BlockTreeKind ? true : never;
+const _blockTreeKindCrossCheck: [_BlockTreeKindMatchesLiteral, _LiteralMatchesBlockTreeKind] = [true, true];
+void _blockTreeKindCrossCheck;
+
+/**
+ * The single top-level block-tree map owning blocks of the given `kind`.
+ * Mirror of `getYBlock`'s `kind` dispatch at the map level: lets a Layer-3 op
+ * route a write to the correct map once it knows a resolved block's tree
+ * provenance (via `resolveBlock(...).kind`), without naming the three maps
+ * individually.
+ */
+export function getTreeMap(doc: Y.Doc, kind: BlockTreeKind): Y.Map<Y.Map<unknown>> {
+  return TREE_MAP_GETTERS[kind](doc);
+}
+
 /**
  * All top-level block-tree maps for `doc`, in the stable order of
  * `TREE_MAP_GETTERS`. Used by `captureDirtyIds` (the changed-key event scan
@@ -52,6 +79,20 @@ export type BlockTreeKind = keyof typeof TREE_MAP_GETTERS;
  */
 export function getTreeMaps(doc: Y.Doc): Y.Map<Y.Map<unknown>>[] {
   return Object.values(TREE_MAP_GETTERS).map((get) => get(doc));
+}
+
+/**
+ * Total block count across ALL three trees (main `blocks`, `embedContents`,
+ * `templateContents`). This is the widened cycle-detection bound for the
+ * map-agnostic traversal/compare/span helpers: a deep template or embed body
+ * subtree can hold more blocks than the main map alone, so a main-map-sized
+ * bound (`getBlocksMap(doc).size`) would under-bound a legitimate walk through
+ * such a body and spuriously throw "cycle detected". Summing all three keeps
+ * the bound a safe upper limit on the number of distinct blocks any single
+ * traversal could visit.
+ */
+export function allTreeBlockCount(doc: Y.Doc): number {
+  return getTreeMaps(doc).reduce((n, m) => n + m.size, 0);
 }
 
 /**

@@ -139,6 +139,18 @@ export function getBlockFromEither(state: State, id: BlockId): Block | null {
  */
 export type ResolvedBlockKind = "block" | "embedContent" | "templateContent";
 
+// Type-level cross-check that `ResolvedBlockKind` stays in lockstep with
+// yjs-doc's `BlockTreeKind` (the keys of `TREE_MAP_GETTERS`). Both must be
+// exactly `"block" | "embedContent" | "templateContent"`. We restate the
+// literal union here (rather than importing `BlockTreeKind`, which would create
+// a state → yjs-doc → state import cycle) and assert mutual assignability with
+// the same literal yjs-doc asserts against — so if either union drifts, one of
+// the two files fails to compile. See yjs-doc.ts `_blockTreeKindCrossCheck`.
+type _ResolvedBlockKindMatchesLiteral = ResolvedBlockKind extends "block" | "embedContent" | "templateContent" ? true : never;
+type _LiteralMatchesResolvedBlockKind = "block" | "embedContent" | "templateContent" extends ResolvedBlockKind ? true : never;
+const _resolvedBlockKindCrossCheck: [_ResolvedBlockKindMatchesLiteral, _LiteralMatchesResolvedBlockKind] = [true, true];
+void _resolvedBlockKindCrossCheck;
+
 /** A block plus the tree it was resolved from. See `resolveBlock`. */
 export interface ResolvedBlock {
   readonly block: Block;

@@ -1,12 +1,12 @@
 import type { State } from "./state";
-import { getBlock } from "./state";
+import { resolveBlock } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
 import type { Block } from "./block";
 import { inlineContentLength } from "./inline-content";
 import { nextBlockInDocOrder } from "./block-traversal";
-import { getBlocksMap } from "./yjs-doc";
+import { allTreeBlockCount } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -57,8 +57,8 @@ export interface BlockRange {
 export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // Pre-normalize precondition checks (validate raw endpoints before
   // normalizeSpan does cross-block compare, which itself requires same-context).
-  const anchorBlockRaw = getBlock(state, span.anchor.blockId);
-  const focusBlockRaw = getBlock(state, span.focus.blockId);
+  const anchorBlockRaw = resolveBlock(state, span.anchor.blockId)?.block ?? null;
+  const focusBlockRaw = resolveBlock(state, span.focus.blockId)?.block ?? null;
   if (anchorBlockRaw === null) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
   if (focusBlockRaw === null) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
   if (!anchorBlockRaw.inlineContent) {
@@ -79,14 +79,14 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   const normalized = normalizeSpan(state, span);
 
   if (normalized.anchor.blockId === normalized.focus.blockId) {
-    const block = getBlock(state, normalized.anchor.blockId);
+    const block = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
     if (block === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
     yield { block, rangeStart: normalized.anchor.offset, rangeEnd: normalized.focus.offset };
     return;
   }
 
-  const anchorBlock = getBlock(state, normalized.anchor.blockId);
-  const focusBlock = getBlock(state, normalized.focus.blockId);
+  const anchorBlock = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
+  const focusBlock = resolveBlock(state, normalized.focus.blockId)?.block ?? null;
   if (anchorBlock === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
   if (focusBlock === null) throw new Error(`iterateSpan: block "${normalized.focus.blockId}" not found`);
 
@@ -105,9 +105,9 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // p1.nextSiblingId === p2 and p2.nextSiblingId === p1). The outer
   // counter here catches that cross-call case and surfaces a contextual
   // error that names the anchor + focus block IDs — useful for debugging
-  // corrupt block trees. Bound source: getBlocksMap().size, same as the
-  // inner guards in block-traversal.ts.
-  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+  // corrupt block trees. Bound source: allTreeBlockCount(), same as the
+  // inner guards in block-traversal.ts (map-agnostic since C.2c T7a).
+  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
   let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
@@ -116,7 +116,7 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
         `iterateSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
       );
     }
-    const current = getBlock(state, currentId);
+    const current = resolveBlock(state, currentId)?.block ?? null;
     if (current !== null && current.inlineContent) {
       yield {
         block: current,
@@ -156,10 +156,10 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
 export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> {
   // Pre-normalize precondition checks (must validate before normalizeSpan
   // runs cross-block compare, which itself requires same-context).
-  if (getBlock(state, span.anchor.blockId) === null) {
+  if (resolveBlock(state, span.anchor.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: anchor block "${span.anchor.blockId}" not found`);
   }
-  if (getBlock(state, span.focus.blockId) === null) {
+  if (resolveBlock(state, span.focus.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: focus block "${span.focus.blockId}" not found`);
   }
   const anchorCtx = selectionContextOf(state, span.anchor.blockId);
@@ -173,7 +173,7 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
 
   const normalized = normalizeSpan(state, span);
 
-  const anchorBlock = getBlock(state, normalized.anchor.blockId);
+  const anchorBlock = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
   if (anchorBlock === null) throw new Error(`iterateBlocksInSpan: block "${normalized.anchor.blockId}" not found`);
   yield anchorBlock;
 
@@ -182,7 +182,7 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
   // Outer cycle/step guard: see iterateSpan above for rationale.
   // Catches sibling-level cycles that span multiple nextBlockInDocOrder
   // calls (which the per-call inner guard cannot see).
-  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
   let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId) {
@@ -191,7 +191,7 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
         `iterateBlocksInSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
       );
     }
-    const current = getBlock(state, currentId);
+    const current = resolveBlock(state, currentId)?.block ?? null;
     if (current !== null) yield current;
     if (currentId === normalized.focus.blockId) return;
     currentId = nextBlockInDocOrder(state, currentId);

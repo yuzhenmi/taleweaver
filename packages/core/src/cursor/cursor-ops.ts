@@ -1,4 +1,4 @@
-import { getBlock, createPosition, createSpan, inlineContentLength, findItemAtOffset, nextBlockInDocOrder, prevBlockInDocOrder } from "../state";
+import { resolveBlock, createPosition, createSpan, inlineContentLength, findItemAtOffset, nextBlockInDocOrder, prevBlockInDocOrder } from "../state";
 import type { State, BlockId, Position, Span, InlineContent } from "../state";
 import {
   nextGraphemeBoundary,
@@ -28,7 +28,7 @@ export function moveByCharacter(
   position: Position,
   direction: "forward" | "backward",
 ): Position {
-  const block = getBlock(state, position.blockId);
+  const block = resolveBlock(state, position.blockId)?.block ?? null;
   if (block === null) return position;
   const content: InlineContent = block.inlineContent ?? { items: [] };
   const total = inlineContentLength(content);
@@ -45,7 +45,7 @@ export function moveByCharacter(
   if (position.offset <= 0) {
     const prev = findPrevContentBlock(state, position.blockId);
     if (prev === null) return position;
-    const prevBlock = getBlock(state, prev);
+    const prevBlock = resolveBlock(state, prev)?.block ?? null;
     if (prevBlock === null) return position;
     const prevTotal = inlineContentLength(prevBlock.inlineContent ?? { items: [] });
     return createPosition(prev, prevTotal);
@@ -64,7 +64,7 @@ export function moveByCharacter(
 function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = nextBlockInDocOrder(state, blockId);
   while (cursor !== null) {
-    const block = getBlock(state, cursor);
+    const block = resolveBlock(state, cursor)?.block ?? null;
     if (block === null) return null;
     if (block.inlineContent !== null) return cursor;
     cursor = nextBlockInDocOrder(state, cursor);
@@ -79,7 +79,7 @@ function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
 function findPrevContentBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = prevBlockInDocOrder(state, blockId);
   while (cursor !== null) {
-    const block = getBlock(state, cursor);
+    const block = resolveBlock(state, cursor)?.block ?? null;
     if (block === null) return null;
     if (block.inlineContent !== null) return cursor;
     cursor = prevBlockInDocOrder(state, cursor);
@@ -145,7 +145,7 @@ export function moveByWord(
   position: Position,
   direction: "forward" | "backward",
 ): Position {
-  const block = getBlock(state, position.blockId);
+  const block = resolveBlock(state, position.blockId)?.block ?? null;
   if (block === null) return position;
   const content: InlineContent = block.inlineContent ?? { items: [] };
   const total = inlineContentLength(content);
@@ -162,7 +162,7 @@ export function moveByWord(
   if (position.offset <= 0) {
     const prev = findPrevContentBlock(state, position.blockId);
     if (prev === null) return position;
-    const prevBlock = getBlock(state, prev);
+    const prevBlock = resolveBlock(state, prev)?.block ?? null;
     if (prevBlock === null) return position;
     const prevContent = prevBlock.inlineContent ?? { items: [] };
     const prevTotal = inlineContentLength(prevContent);
@@ -238,7 +238,7 @@ function advanceWordBackward(content: InlineContent, offset: number): number {
  * cross-block logic.)
  */
 export function selectWord(state: State, position: Position): Span {
-  const block = getBlock(state, position.blockId);
+  const block = resolveBlock(state, position.blockId)?.block ?? null;
   if (block === null) return createSpan(position, position);
   const content = block.inlineContent ?? { items: [] };
   const { itemIndex, withinItem } = findItemAtOffset(content, position.offset);

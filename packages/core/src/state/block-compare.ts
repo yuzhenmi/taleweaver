@@ -1,8 +1,9 @@
 import type { BlockId } from "./block-id";
-import { getBlock, type State } from "./state";
+import type { Block } from "./block";
+import { resolveBlock, type State } from "./state";
 import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
-import { getBlocksMap } from "./yjs-doc";
+import { allTreeBlockCount } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -58,14 +59,14 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
   // chainA[i] and chainB[j] are different children of the LCA (which is chainA[i+1] === chainB[j+1]).
   // Walk the LCA's child linked list to see which child comes first.
   const lcaId = chainA[i + 1];
-  const lca = getBlock(state, lcaId);
+  const lca = resolveBlock(state, lcaId)?.block ?? null;
   if (lca === null) throw new Error(`compareBlocksInDocOrder: LCA "${lcaId}" not found`);
 
   let cursor: BlockId | null = lca.firstChildId;
   while (cursor) {
     if (cursor === chainA[i]) return -1;
     if (cursor === chainB[j]) return 1;
-    const block = getBlock(state, cursor);
+    const block = resolveBlock(state, cursor)?.block ?? null;
     cursor = block !== null ? block.nextSiblingId : null;
   }
 
@@ -117,25 +118,33 @@ export function spanEnd(state: State, span: Span): Position {
  * Cross-context spans are not supported.
  *
  * Implementation: walk parentId until null; return the topmost block id.
- * For Phase 2, this is always state.rootId because embed-content sub-trees
- * (with parentId === null) don't exist yet. Future phases will introduce
- * such sub-trees; this function will then correctly return their own root
- * ids as separate contexts.
+ * For a main-document block this is `state.rootId`. For a block inside an
+ * embed body (footnote body) or a template body (header/footer body) — which
+ * live in the embedContents / templateContents trees with their own
+ * `parentId === null` ROOT — this returns that BODY's root, NOT the main
+ * `state.rootId`. The walk resolves blocks via `resolveBlock` (all three
+ * trees), so it follows the parentId chain WITHIN whichever tree the block
+ * lives in until it reaches that tree's root.
  *
- * Returns null if blockId does not exist.
+ * This is the load-bearing cross-context signal: a span whose anchor and focus
+ * land in different contexts (e.g. main body → header body) has different
+ * `selectionContextOf` results, which the span ops use to refuse the
+ * selection. Cross-context spans are not supported in the data model.
+ *
+ * Returns null if blockId does not exist in any tree.
  */
 export function selectionContextOf(state: State, blockId: BlockId): BlockId | null {
-  let cursor = getBlock(state, blockId);
+  let cursor: Block | null = resolveBlock(state, blockId)?.block ?? null;
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts
-  // for the rationale on why this uses main-tree size only (not embedContents).
-  const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+  // for the rationale on why this uses the all-tree block count.
+  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
   let steps = 0;
   while (cursor.parentId) {
     if (++steps > maxSteps) {
       throw new Error(`selectionContextOf: cycle detected in block tree (visited >${maxSteps} blocks)`);
     }
-    const parent = getBlock(state, cursor.parentId);
+    const parent: Block | null = resolveBlock(state, cursor.parentId)?.block ?? null;
     if (parent === null) break;
     cursor = parent;
   }
