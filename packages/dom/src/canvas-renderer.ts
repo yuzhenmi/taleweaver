@@ -407,6 +407,19 @@ function walkAndDetectChanges(
       walkAndDetectChanges(child, absX, absY, cache, dirty, false);
     }
   }
+  // C.2c (T5): a page's header/footer slots are NAMED fields, NOT in
+  // `box.children`, so the `"children" in box` recursion above never reaches
+  // them. Walk them explicitly so a slot's content/geometry change marks its
+  // region dirty for repaint (plan-review I5). Page-local origin matches the
+  // children's (absX/absY); the slot box carries its own page-local x/y.
+  if (box.type === "page") {
+    if (box.headerSlot !== null) {
+      walkAndDetectChanges(box.headerSlot, absX, absY, cache, dirty, false);
+    }
+    if (box.footerSlot !== null) {
+      walkAndDetectChanges(box.footerSlot, absX, absY, cache, dirty, false);
+    }
+  }
   } finally {
     markEnd("paint.walk", t);
   }
@@ -560,6 +573,18 @@ function paintBox(
     // fallback was dead code masking a real rendering bug.
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    // C.2c (T5): paint the header/footer slots. They are NAMED fields (not in
+    // `box.children`), positioned in PAGE-LOCAL coords (header at block-offset 0
+    // in the top margin band; footer at `pageBlockSize − blockEnd` in the bottom
+    // band). They carry their own page-local x/y, so paint each like a child
+    // using the same page-local origin. Painted after children — they live in
+    // the margins and never overlap body content.
+    if (box.headerSlot !== null) {
+      paintBox(ctx, box.headerSlot, absX, absY, visibleTop, visibleBottom, state);
+    }
+    if (box.footerSlot !== null) {
+      paintBox(ctx, box.footerSlot, absX, absY, visibleTop, visibleBottom, state);
     }
     return;
   }
