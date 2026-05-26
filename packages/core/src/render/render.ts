@@ -7,6 +7,7 @@ import {
   getEmbedContentIds,
   getTemplateContent,
   getTemplateContentIds,
+  resolveBlock,
 } from "../state/state";
 import type { ReadonlyAttrs } from "../state/attrs";
 import type { InlineContent } from "../state/inline-content";
@@ -262,9 +263,13 @@ function renderBlock(
       const childRenderNodes: RenderNode[] = [];
       let childId = block.firstChildId;
       while (childId !== null) {
-        const child = getBlock(state, childId);
+        // Walk via resolveBlock (main → embed → template) so a container
+        // body nested in embedContents/templateContents resolves its
+        // children, which live in the same content Y.Map. For main-tree
+        // blocks resolveBlock's first arm is getBlock → identical.
+        const child = resolveBlock(state, childId)?.block ?? null;
         if (child === null) {
-          throw new Error(`render: child "${childId}" of "${block.id}" not found`);
+          throw new Error(`render: child "${childId}" of "${block.id}" not found in any tree`);
         }
         childRenderNodes.push(
           renderBlock(
@@ -616,9 +621,13 @@ function renderBlockIncremental(
       const childRenderNodes: RenderNode[] = [];
       let childId = block.firstChildId;
       while (childId !== null) {
-        const child = getBlock(state, childId);
+        // Walk via resolveBlock (main → embed → template) so a re-rendered
+        // container body nested in embedContents/templateContents resolves
+        // its children, which live in the same content Y.Map. For main-tree
+        // blocks resolveBlock's first arm is getBlock → identical.
+        const child = resolveBlock(state, childId)?.block ?? null;
         if (child === null) {
-          throw new Error(`render: child "${childId}" of "${block.id}" not found`);
+          throw new Error(`render: child "${childId}" of "${block.id}" not found in any tree`);
         }
         childRenderNodes.push(
           renderBlockIncremental(
@@ -680,11 +689,14 @@ function computeInvalidatedBlocks(
   const invalidated = new Set<BlockId>();
   for (const id of dirtyIds) {
     invalidated.add(id);
-    // Ancestors via parentId chain.
+    // Ancestors via parentId chain. resolveBlock (main → embed → template)
+    // so the walk climbs THROUGH a container body nested in
+    // embedContents/templateContents and reaches the body root — main-tree
+    // behavior is byte-identical (resolveBlock's first arm is getBlock).
     let cursor: BlockId = id;
     while (true) {
       const block =
-        getBlock(state, cursor) ?? getBlock(prevState, cursor);
+        resolveBlock(state, cursor)?.block ?? resolveBlock(prevState, cursor)?.block ?? null;
       if (block === null || block.parentId === null) break;
       const parentId = block.parentId;
       if (invalidated.has(parentId)) break;
@@ -702,7 +714,10 @@ function addDescendantsToInvalidated(
   id: BlockId,
   out: Set<BlockId>,
 ): void {
-  const block = getBlock(state, id);
+  // resolveBlock (main → embed → template) so descendants of a container
+  // body nested in embedContents/templateContents are reached — main-tree
+  // behavior is byte-identical (resolveBlock's first arm is getBlock).
+  const block = resolveBlock(state, id)?.block ?? null;
   if (block === null) return;
   let childId = block.firstChildId;
   while (childId !== null) {
@@ -710,7 +725,7 @@ function addDescendantsToInvalidated(
       out.add(childId);
       addDescendantsToInvalidated(state, childId, out);
     }
-    const child = getBlock(state, childId);
+    const child = resolveBlock(state, childId)?.block ?? null;
     if (child === null) break;
     childId = child.nextSiblingId;
   }

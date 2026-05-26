@@ -811,3 +811,286 @@ describe("render (incremental — R-D)", () => {
     expect(out2.root).not.toBe(out1.root);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #285 / closes #221: multi-level container bodies in embedContents /
+// templateContents. The render module walks the block tree by id
+// (parentId / firstChildId / nextSiblingId). Pre-fix it used
+// `getBlock(state, id)` everywhere, which reads ONLY the main `blocks`
+// Y.Map. Blocks nested INSIDE an embed/template container body live in the
+// embedContents/templateContents Y.Map, so every such walk returned null:
+//   - the invalidation ancestor walk broke immediately → the body root was
+//     never invalidated → the stale body was reused (edit silently
+//     swallowed);
+//   - and even once the body root IS invalidated, the body RE-RENDER's
+//     child iteration would throw "child not found" for the body's
+//     children.
+// The fix swaps every tree-walk site to `resolveBlock(state, id)?.block`
+// (resolveBlock's first arm is getBlock, so main-tree behavior is
+// byte-identical). These tests exercise MULTI-LEVEL bodies: the body root
+// is a `kind: "container"` component and its child blocks are registered
+// in the same content array (they live in the content Y.Map).
+// ---------------------------------------------------------------------------
+
+describe("render — #285 multi-level embed/template container bodies", () => {
+  // A container body root: dispatches its pre-rendered children.
+  const bodyContainerComponent: ContainerComponentDefinition = {
+    type: "body-container",
+    kind: "container",
+    render: (view, _ctx, children) =>
+      ({ type: "element", key: view.id, style: { display: "block" }, children } as RenderNode),
+  };
+  // A leaf paragraph used inside the body.
+  const bodyParaComponent: LeafComponentDefinition = {
+    type: "body-para",
+    kind: "leaf",
+    leafShape: "inline-bearing",
+    render: (view, _ctx, inlineChildren) =>
+      ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
+  };
+
+  function bodyRegistry() {
+    const reg = basicRegistry();
+    reg.register(bodyContainerComponent);
+    reg.register(bodyParaComponent);
+    return reg;
+  }
+
+  // Walk a RenderNode tree to find an element/text node by key.
+  function findByKey(node: RenderNode, key: string): RenderNode | undefined {
+    if (node.key === key) return node;
+    if (node.type === "element") {
+      for (const child of (node as ElementBox).children) {
+        const found = findByKey(child, key);
+        if (found !== undefined) return found;
+      }
+    }
+    return undefined;
+  }
+
+  // Read the text content of the first text descendant of a leaf-block
+  // RenderNode (the body paragraph wraps its text in inline children).
+  function firstText(node: RenderNode | undefined): string | undefined {
+    if (node === undefined) return undefined;
+    if (node.type === "text") return node.text;
+    if (node.type === "element") {
+      for (const child of (node as ElementBox).children) {
+        const t = firstText(child);
+        if (t !== undefined) return t;
+      }
+    }
+    return undefined;
+  }
+
+  function mainDoc() {
+    return [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+      buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
+    ];
+  }
+
+  // ── Multi-level TEMPLATE body, dirty CHILD (the core bug) ───────────────
+  it("incremental: dirty child inside a multi-level TEMPLATE container body re-renders (edit not swallowed)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    // tpl-body is a CONTAINER root with children tpl-p1 / tpl-p2. All three
+    // registered in templateContents → they live in the templateContents
+    // Y.Map, NOT the main blocks map.
+    const state1 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("p1 original")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("p2 original")]) }),
+      ],
+    });
+    const prev = render(state1, reg, attrs);
+
+    // New state: tpl-p1's text edited. dirtyIds names only the changed child
+    // (the state op produces the changed leaf id). The invalidation walk
+    // must climb tpl-p1 → tpl-body (through the template tree) so the body
+    // root re-renders.
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("p1 EDITED")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("p2 original")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["tpl-p1" as BlockId]),
+    });
+
+    const body = out.templateContents.get("tpl-body" as BlockId);
+    expect(body).toBeDefined();
+    // The re-rendered body must reflect the NEW tpl-p1 text. PRE-FIX this is
+    // "p1 original" (stale body reused wholesale) — edit silently swallowed.
+    const p1Node = body !== undefined ? findByKey(body, "tpl-p1") : undefined;
+    expect(firstText(p1Node)).toBe("p1 EDITED");
+    // tpl-p2 unchanged content still present.
+    const p2Node = body !== undefined ? findByKey(body, "tpl-p2") : undefined;
+    expect(firstText(p2Node)).toBe("p2 original");
+  });
+
+  // ── Multi-level EMBED body, dirty CHILD ─────────────────────────────────
+  it("incremental: dirty child inside a multi-level EMBED container body re-renders (edit not swallowed)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    const state1 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("e1 original")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("e2 original")]) }),
+      ],
+    });
+    const prev = render(state1, reg, attrs);
+
+    const state2 = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("e1 EDITED")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("e2 original")]) }),
+      ],
+    });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["emb-p1" as BlockId]),
+    });
+
+    const body = out.embedContents.get("emb-body" as BlockId);
+    expect(body).toBeDefined();
+    const p1Node = body !== undefined ? findByKey(body, "emb-p1") : undefined;
+    expect(firstText(p1Node)).toBe("e1 EDITED");
+    const p2Node = body !== undefined ? findByKey(body, "emb-p2") : undefined;
+    expect(firstText(p2Node)).toBe("e2 original");
+  });
+
+  // ── FULL-RENDER multi-level body (pins the renderBlock full-path sites) ──
+  it("full render: multi-level TEMPLATE container body produces both children correctly", () => {
+    const reg = bodyRegistry();
+    const state = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      templateContents: [
+        buildBlock({ id: "tpl-body", type: "body-container", firstChildId: "tpl-p1", lastChildId: "tpl-p2" }),
+        buildBlock({ id: "tpl-p1", type: "body-para", parentId: "tpl-body", nextSiblingId: "tpl-p2", inlineContent: inlineContent([text("alpha")]) }),
+        buildBlock({ id: "tpl-p2", type: "body-para", parentId: "tpl-body", prevSiblingId: "tpl-p1", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+    // PRE-FIX: renderBlock's container child-iteration calls getBlock(state,
+    // "tpl-p1") → null (child lives in templateContents) → throws
+    // "child ... not found". Post-fix the body renders with both children.
+    const out = render(state, reg, createDefaultAttrRegistry());
+    const body = out.templateContents.get("tpl-body" as BlockId);
+    expect(body).toBeDefined();
+    if (body === undefined || body.type !== "element") throw new Error("expected body element");
+    expect((body as ElementBox).children).toHaveLength(2);
+    expect(firstText(findByKey(body, "tpl-p1"))).toBe("alpha");
+    expect(firstText(findByKey(body, "tpl-p2"))).toBe("beta");
+  });
+
+  it("full render: multi-level EMBED container body produces both children correctly", () => {
+    const reg = bodyRegistry();
+    const state = buildState({
+      rootId: "doc",
+      blocks: mainDoc(),
+      embedContents: [
+        buildBlock({ id: "emb-body", type: "body-container", firstChildId: "emb-p1", lastChildId: "emb-p2" }),
+        buildBlock({ id: "emb-p1", type: "body-para", parentId: "emb-body", nextSiblingId: "emb-p2", inlineContent: inlineContent([text("alpha")]) }),
+        buildBlock({ id: "emb-p2", type: "body-para", parentId: "emb-body", prevSiblingId: "emb-p1", inlineContent: inlineContent([text("beta")]) }),
+      ],
+    });
+    const out = render(state, reg, createDefaultAttrRegistry());
+    const body = out.embedContents.get("emb-body" as BlockId);
+    expect(body).toBeDefined();
+    if (body === undefined || body.type !== "element") throw new Error("expected body element");
+    expect((body as ElementBox).children).toHaveLength(2);
+    expect(firstText(findByKey(body, "emb-p1"))).toBe("alpha");
+    expect(firstText(findByKey(body, "emb-p2"))).toBe("beta");
+  });
+
+  // ── Unchanged OTHER body reused by ref ──────────────────────────────────
+  it("incremental: a multi-level body not in dirtyIds is reused by reference", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    // Two multi-level template bodies; only the first's child is dirty.
+    const bodies1 = [
+      buildBlock({ id: "tpl-a", type: "body-container", firstChildId: "a-p1", lastChildId: "a-p1" }),
+      buildBlock({ id: "a-p1", type: "body-para", parentId: "tpl-a", inlineContent: inlineContent([text("a original")]) }),
+      buildBlock({ id: "tpl-b", type: "body-container", firstChildId: "b-p1", lastChildId: "b-p1" }),
+      buildBlock({ id: "b-p1", type: "body-para", parentId: "tpl-b", inlineContent: inlineContent([text("b stable")]) }),
+    ];
+    const state1 = buildState({ rootId: "doc", blocks: mainDoc(), templateContents: bodies1 });
+    const prev = render(state1, reg, attrs);
+
+    const bodies2 = [
+      buildBlock({ id: "tpl-a", type: "body-container", firstChildId: "a-p1", lastChildId: "a-p1" }),
+      buildBlock({ id: "a-p1", type: "body-para", parentId: "tpl-a", inlineContent: inlineContent([text("a EDITED")]) }),
+      buildBlock({ id: "tpl-b", type: "body-container", firstChildId: "b-p1", lastChildId: "b-p1" }),
+      buildBlock({ id: "b-p1", type: "body-para", parentId: "tpl-b", inlineContent: inlineContent([text("b stable")]) }),
+    ];
+    const state2 = buildState({ rootId: "doc", blocks: mainDoc(), templateContents: bodies2 });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds: new Set(["a-p1" as BlockId]),
+    });
+
+    // tpl-b not in the invalidation set → reused by reference from prev.
+    expect(out.templateContents.get("tpl-b" as BlockId)).toBe(prev.templateContents.get("tpl-b" as BlockId));
+    // tpl-a was invalidated (its child changed) → fresh node.
+    expect(out.templateContents.get("tpl-a" as BlockId)).not.toBe(prev.templateContents.get("tpl-a" as BlockId));
+  });
+
+  // ── #221 grandchild ancestor reach ──────────────────────────────────────
+  it("incremental: dirty GRANDCHILD inside a nested container body propagates to the body root (#221)", () => {
+    const reg = bodyRegistry();
+    const attrs = createDefaultAttrRegistry();
+
+    // root container → child container → grandchild paragraph, all in
+    // templateContents.
+    const bodies1 = [
+      buildBlock({ id: "g-root", type: "body-container", firstChildId: "g-mid", lastChildId: "g-mid" }),
+      buildBlock({ id: "g-mid", type: "body-container", parentId: "g-root", firstChildId: "g-leaf", lastChildId: "g-leaf" }),
+      buildBlock({ id: "g-leaf", type: "body-para", parentId: "g-mid", inlineContent: inlineContent([text("grand original")]) }),
+    ];
+    const state1 = buildState({ rootId: "doc", blocks: mainDoc(), templateContents: bodies1 });
+    const prev = render(state1, reg, attrs);
+
+    const bodies2 = [
+      buildBlock({ id: "g-root", type: "body-container", firstChildId: "g-mid", lastChildId: "g-mid" }),
+      buildBlock({ id: "g-mid", type: "body-container", parentId: "g-root", firstChildId: "g-leaf", lastChildId: "g-leaf" }),
+      buildBlock({ id: "g-leaf", type: "body-para", parentId: "g-mid", inlineContent: inlineContent([text("grand EDITED")]) }),
+    ];
+    const state2 = buildState({ rootId: "doc", blocks: mainDoc(), templateContents: bodies2 });
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      // Only the grandchild is named dirty; the ancestor walk must climb
+      // g-leaf → g-mid → g-root through the template tree.
+      dirtyIds: new Set(["g-leaf" as BlockId]),
+    });
+
+    const body = out.templateContents.get("g-root" as BlockId);
+    expect(body).toBeDefined();
+    const leafNode = body !== undefined ? findByKey(body, "g-leaf") : undefined;
+    expect(firstText(leafNode)).toBe("grand EDITED");
+  });
+});
