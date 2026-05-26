@@ -1,6 +1,6 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
-import type { ComputedStyle } from "../styles";
+import type { ComputedStyle, WhiteSpace } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
 import type { BlockId } from "../state/block-id";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box-v2";
@@ -45,6 +45,23 @@ function sourceBlockIdOf(parentKey: string): BlockId {
  */
 const emptyAncestors: readonly string[] = [];
 const emptyAncestorStyles: readonly ComputedStyle[] = [];
+
+/**
+ * True for the white-space modes that PRESERVE leading/interior/trailing
+ * whitespace verbatim (`pre`, `pre-wrap`, and the future `break-spaces`).
+ * `normal`/`nowrap` collapse all whitespace; `pre-line` collapses INTERIOR
+ * whitespace like `normal` and only preserves `\n` (via LINE_BREAK) — so
+ * neither is "preserving" for the purpose of rendering orphan/leading spaces.
+ *
+ * Used by the IFC wrap-unit grouper to decide whether leading/orphan space
+ * tokens become a rendered space-run wrap unit (preserving modes) or are
+ * dropped (collapsing modes).
+ */
+export function preservesWhitespace(ws: WhiteSpace): boolean {
+  // When `break-spaces` is implemented, add it to the `WhiteSpace` union and
+  // include it here (it also preserves leading/interior/trailing whitespace).
+  return ws === "pre" || ws === "pre-wrap";
+}
 
 interface Token {
   /** Stable identifier for this token. Format: "{sourceKey}:{offset}" for text tokens
@@ -492,7 +509,51 @@ export function layoutInlineContent(
       continue;
     }
     if (tok.isSpace) {
-      // Orphan leading space — skip
+      // Leading/orphan space token (no preceding non-space unit slurped it).
+      // Under a COLLAPSING white-space (`normal`/`nowrap`/`pre-line`) such a
+      // space collapses away at line/segment start, so we skip it — its
+      // `sourceLength` was already absorbed by the preceding token's
+      // look-ahead span (see `collectInlineTokens`). Under a PRESERVING
+      // white-space (`pre`/`pre-wrap`/`break-spaces`) the space must RENDER
+      // and OWN its state offset, so emit the run of consecutive
+      // leading/orphan space tokens of the same `sourceKey` (which implies the
+      // same inline-ancestor stack, since the tokenizer emits one source
+      // text-node per inline-ancestor boundary — so equal `sourceKey` ⇒ equal
+      // ancestors) as a standalone space-run WrapUnit. This matches the
+      // non-space unit grouper, which also slurps on `sourceKey` alone.
+      // Adding it to `units[]` here (rather than via any
+      // path that bypasses `pushUnit`) is load-bearing: the greedy wrap loop's
+      // `pushUnit` advances `cursorOffset` by the unit's
+      // `unitOffsetContribution`, so the line's `inlineOffsetStart..End` covers
+      // the leading spaces (closing #308 for preserving modes).
+      if (preservesWhitespace(tok.style.whiteSpace)) {
+        const spaceRun: Token[] = [tok];
+        let w = tok.width;
+        const runStartIdx = i;
+        let j = i + 1;
+        while (
+          j < tokens.length &&
+          tokens[j].isSpace &&
+          tokens[j].sourceKey === tok.sourceKey
+        ) {
+          spaceRun.push(tokens[j]);
+          w += tokens[j].width;
+          j++;
+        }
+        i = j;
+        units.push({
+          tokens: spaceRun,
+          totalWidth: w,
+          sourceKey: tok.sourceKey,
+          isLineBreak: false,
+          inlineAncestors: tok.inlineAncestors,
+          inlineAncestorStyles: tok.inlineAncestorStyles,
+          tokenStartIdx: runStartIdx,
+          tokenEndIdx: i - 1,
+        });
+        continue;
+      }
+      // Collapsing mode — skip the orphan leading space.
       i++;
       continue;
     }

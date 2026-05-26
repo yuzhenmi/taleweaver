@@ -238,6 +238,147 @@ describe("IFC whiteSpace handling", () => {
   });
 });
 
+describe("IFC — leading/orphan spaces under preserving white-space (#308)", () => {
+  // Helper: collect a line's text-run leaves (recursing into inline boxes) in
+  // visual order, returning { x, text, offsetLength } for geometry assertions.
+  function textRunLeaves(line: import("./layout-box-v2").LineBox) {
+    const out: { x: number; text: string; offsetLength: number }[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, text: b.text, offsetLength: b.offsetLength });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out;
+  }
+
+  it("'  abc' under pre-wrap renders the 2 leading spaces; 'abc' starts at x=16, line owns all 5 chars", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-wrap" }, [
+        createTextBox("t", {}, "  abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("?");
+
+    // The line OWNS all 5 state chars (2 leading spaces + "abc"); leading
+    // spaces are NOT dropped.
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(5);
+
+    // GEOMETRY: the first leaf renders the leading spaces (starting at x=0),
+    // and "abc" starts at x=16 (2 spaces × 8px), not x=0.
+    const leaves = textRunLeaves(line);
+    // First leaf renders only spaces, anchored at x=0.
+    expect(leaves[0].x).toBe(0);
+    expect(/^\s+$/.test(leaves[0].text)).toBe(true);
+    // The "abc" text run starts at x=16.
+    const abcLeaf = leaves.find(l => l.text.includes("abc"));
+    expect(abcLeaf).toBeDefined();
+    expect(abcLeaf?.x).toBe(16);
+
+    // Sum of offsetLengths across leaves accounts for all 5 chars.
+    const totalOffset = leaves.reduce((s, l) => s + l.offsetLength, 0);
+    expect(totalOffset).toBe(5);
+  });
+
+  it("a paragraph that is ONLY spaces '   ' under pre-wrap owns 3 chars, content width 24px", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-wrap" }, [
+        createTextBox("t", {}, "   "),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("?");
+
+    // Line owns all 3 space chars.
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(3);
+
+    // Rendered content width = 3 spaces × 8px = 24px.
+    const leaves = textRunLeaves(line);
+    const contentWidth = leaves.reduce((s, l) => s + l.text.length * 8, 0);
+    expect(contentWidth).toBe(24);
+    const totalOffset = leaves.reduce((s, l) => s + l.offsetLength, 0);
+    expect(totalOffset).toBe(3);
+  });
+
+  it("leading spaces after a forced break 'x\\n  y' render on line 2; offsets contiguous across lines", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-wrap" }, [
+        createTextBox("t", {}, "x\n  y"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(2);
+    const line1 = lines[0];
+    const line2 = lines[1];
+    if (line1.type !== "line" || line2.type !== "line") throw new Error("?");
+
+    // Line 1: "x" + the forced break = offsets [0, 2) ("x" + "\n").
+    expect(line1.inlineOffsetStart).toBe(0);
+    expect(line1.inlineOffsetEnd).toBe(2);
+
+    // Line 2: leading "  " then "y" = offsets [2, 5).
+    expect(line2.inlineOffsetStart).toBe(line1.inlineOffsetEnd);
+    expect(line2.inlineOffsetEnd).toBe(5);
+
+    // GEOMETRY: "y" starts at x=16 on line 2 (after 2 leading spaces).
+    const leaves2 = textRunLeaves(line2);
+    expect(leaves2[0].x).toBe(0);
+    expect(/^\s+$/.test(leaves2[0].text)).toBe(true);
+    const yLeaf = leaves2.find(l => l.text.includes("y"));
+    expect(yLeaf).toBeDefined();
+    expect(yLeaf?.x).toBe(16);
+  });
+
+  it("NO-REGRESSION: '  abc' under white-space:normal STILL drops leading spaces (content starts x=0)", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "normal" }, [
+        createTextBox("t", {}, "  abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("?");
+
+    // Under normal, leading spaces collapse away: the first (and only) leaf
+    // is "abc" anchored at x=0.
+    const leaves = textRunLeaves(line);
+    expect(leaves[0].x).toBe(0);
+    expect(leaves[0].text).toBe("abc");
+    // No leading space-run leaf rendered before "abc".
+    expect(leaves.filter(l => /^\s+$/.test(l.text))).toHaveLength(0);
+  });
+});
+
 describe("IFC — first-class inline boxes", () => {
   it("produces an InlineBox for a display:inline child", () => {
     const tree = cascadePass(
