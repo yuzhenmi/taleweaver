@@ -58,7 +58,10 @@ function firstChildId(editor: EditorState): BlockId {
 const CURSOR = { x: 0, y: 0, height: 16 };
 
 function welcomeY(fills: FillText[]): number {
-  const hit = fills.find((f) => f.text.includes("Welcome"));
+  // #330: text paints one fillText PER CLUSTER (per code unit), so "Welcome"
+  // is drawn as W,e,l,c,o,m,e — all on the same line (same y). The first
+  // cluster ("W") carries that line's y. (The seeded doc has no other "W".)
+  const hit = fills.find((f) => f.text === "W");
   if (hit === undefined) throw new Error("'Welcome' was not painted");
   return hit.y;
 }

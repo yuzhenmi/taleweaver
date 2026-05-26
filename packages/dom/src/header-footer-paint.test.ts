@@ -231,9 +231,13 @@ describe("C.2c T5: paint header/footer slots", () => {
 
     paintPage(ctx, page, [], noCursor, noCursorState);
 
-    const headerFill = ctx._fills.find((f) => f.text === "HEADER");
-    const footerFill = ctx._fills.find((f) => f.text === "FOOTER");
-    const bodyFill = ctx._fills.find((f) => f.text === "BODY");
+    // #330: text paints one fillText PER CLUSTER (per code unit), not one per
+    // run. Each word's first cluster carries the run's baseline y, which is what
+    // these geometry assertions exercise. The first fill of "HEADER" is "H",
+    // of "FOOTER" is "F", of "BODY" is "B".
+    const headerFill = ctx._fills.find((f) => f.text === "H");
+    const footerFill = ctx._fills.find((f) => f.text === "F");
+    const bodyFill = ctx._fills.find((f) => f.text === "B");
 
     // All three painted.
     expect(headerFill).toBeDefined();
@@ -258,8 +262,10 @@ describe("C.2c T5: paint header/footer slots", () => {
 
     paintPage(ctx, page, [], noCursor, noCursorState);
 
-    const texts = ctx._fills.map((f) => f.text);
-    expect(texts).toEqual(["BODY"]);
+    // #330: only the body paints (no slots) — but now one fillText per cluster,
+    // so the fills spell out "BODY" letter-by-letter rather than in one call.
+    const painted = ctx._fills.map((f) => f.text).join("");
+    expect(painted).toBe("BODY");
   });
 });
 

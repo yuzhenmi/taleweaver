@@ -8,6 +8,7 @@ import type {
   FontMetrics,
 } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
+import { segmentClusters } from "./text-clusters";
 
 /**
  * Canvas-based TextShaper. Default backend bundled with `@taleweaver/dom`.
@@ -69,18 +70,22 @@ export function createCanvasShaper(
     const clusters: Cluster[] = [];
     let max = 0;
     let total = 0;
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
+    // Segment via the shared helper so the renderer (which paints each cluster
+    // at the matching cumulative advance, #330) can never diverge from how the
+    // shaper measured. v1 clusters are single code units.
+    let start = 0;
+    for (const c of segmentClusters(text)) {
       const w = ctx.measureText(c).width;
       clusters.push({
-        start: i,
-        end: i + 1,
+        start,
+        end: start + c.length,
         inlineAdvance: w,
         isLigature: false,
         glyphs: [c.charCodeAt(0)],
       });
       total += w;
       if (w > max) max = w;
+      start += c.length;
     }
 
     const breakOpportunities: BreakOpportunity[] = [];

@@ -1,6 +1,7 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
 import { markStart, markEnd } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
+import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
 import type { PaintCache, Rect } from "./paint-cache";
@@ -459,7 +460,22 @@ function paintBox(
     // us.lineHeight directly produces halfLeading = (1.2 - 16) / 2 = -7.4
     // and paints text ~9px above the line top.
     const halfLeading = (box.height - fontSize) / 2;
-    ctx.fillText(box.text, absX, absY + halfLeading);
+    const baselineY = absY + halfLeading;
+    // #330: paint cluster-by-cluster at the SAME cumulative advances the shaper
+    // measured (`Σ ctx.measureText(cluster).width`), instead of one
+    // `fillText(box.text)` that the browser would lay out with native kerning.
+    // The caret / hit-test / layout all SUM these per-cluster advances; a single
+    // kerned whole-run draw drifts the painted glyphs from the measured caret
+    // (worst at a long token's tail). `ctx.font` is already set from `cs` above,
+    // so `measureText` here measures against the SAME font the shaper used →
+    // painted glyph origins == summed advances == caret x by construction.
+    // (Trades whole-string kerning for caret accuracy — correct for a word
+    // processor; real cluster-shaping/HarfBuzz restores both later.)
+    let clusterX = absX;
+    for (const cluster of segmentClusters(box.text)) {
+      ctx.fillText(cluster, clusterX, baselineY);
+      clusterX += ctx.measureText(cluster).width;
+    }
     if (cs.textDecoration === "underline") {
       const ulY = absY + halfLeading + fontSize + 1;
       ctx.fillRect(absX, ulY, box.width, 1);
