@@ -1513,6 +1513,210 @@ describe("createEditorController", () => {
     });
   });
 
+  // ── #323 Cycle B: per-page caret hint wiring ───────────────────────────────
+  //
+  // A click into a header/footer slot must (1) carry the clicked page index as
+  // `caretPageHint` on the dispatched SET_SELECTION, and (2) thread the
+  // EditorState's `caretPageHint` into ALL THREE `resolvePixelPosition` calls
+  // (caret + selection-rect endpoints), so the caret AND the highlight resolve
+  // on the page the user clicked — not the template block's default first page.
+  describe("per-page caret hint (#323 Cycle B)", () => {
+    function makePaginatedContainer(dispatch = vi.fn()) {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // Make container coords deterministic for resolveMouseToLayout.
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      return { container, ctrl, dispatch };
+    }
+
+    it("single click on page 1 dispatches SET_SELECTION with caretPageHint === 1", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // clientY 150 → page 1 (slotHeight = pageHeight 100 + gap 24 = 124).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("single click on page 0 dispatches caretPageHint === 0 (body click harmless)", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // clientY 10 → page 0.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 0 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("double-click (word) carries the clicked page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 2, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("triple-click (paragraph) carries the clicked page as caretPageHint", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Triple-click needs a real blockId so the dispatch fires (the
+      // resolvePositionFromPixel mock's "mock-block" id is not in state).
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 3, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click (extend) carries the clicked page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // Plant an anchor with a first click on page 0.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      // The controller reads its anchor from the EditorState; feed back a
+      // collapsed selection at the real paragraph so the shift-click extends.
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          selection: core.createSpan(
+            core.createPosition(realParagraphId, 0),
+            core.createPosition(realParagraphId, 0),
+          ),
+        }),
+      );
+      dispatch.mockClear();
+      // Shift-click on page 1.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, shiftKey: true, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("drag (mousemove) carries the FOCUS page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // Mousedown on page 0 starts the drag.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+      // Drag to page 1 — the hint must track the drag point (page 1).
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 10, clientY: 150, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretPageHint into the CARET resolvePixelPosition call", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
+      // The caret (focus) resolve is the first resolvePixelPosition call.
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      // Signature: (state, position, layoutTree, measurer, caretPageHint).
+      expect(caretCall[4]).toBe(1);
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretPageHint into BOTH selection-rect endpoint resolves (I2)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      // Non-collapsed, non-spanning selection (pageSpanOfBlock → null in the
+      // spy tree) → controller resolves selStart + selEnd via resolvePixelPosition.
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          caretPageHint: 1,
+          selection: core.createSpan(
+            core.createPosition(realParagraphId, 0),
+            core.createPosition(realParagraphId, 3),
+          ),
+        }),
+      );
+      const calls = vi.mocked(core.resolvePixelPosition).mock.calls;
+      // 3 calls: caret(focus) + selStart + selEnd — all must carry the hint.
+      expect(calls.length).toBe(3);
+      expect(calls[0][4]).toBe(1); // caret
+      expect(calls[1][4]).toBe(1); // selStart
+      expect(calls[2][4]).toBe(1); // selEnd
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("NO-REGRESSION: with no hint, resolvePixelPosition gets undefined (single-page body)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions());
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState());
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      expect(caretCall[4]).toBeUndefined();
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
   describe("clipboard", () => {
     it("copies text on copy event", () => {
       const container = document.createElement("div");

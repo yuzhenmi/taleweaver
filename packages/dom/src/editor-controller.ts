@@ -841,6 +841,7 @@ export function createEditorController(
             createPosition(pos.blockId, 0),
             createPosition(pos.blockId, length),
           ),
+          caretPageHint: coords.pageIndex,
         });
       }
       return;
@@ -849,7 +850,7 @@ export function createEditorController(
     // Double-click: select word
     if (e.detail === 2) {
       const wordSel = selectWord(state.state, pos);
-      dispatch({ type: "SET_SELECTION", selection: wordSel });
+      dispatch({ type: "SET_SELECTION", selection: wordSel, caretPageHint: coords.pageIndex });
       return;
     }
 
@@ -858,6 +859,7 @@ export function createEditorController(
       dispatch({
         type: "SET_SELECTION",
         selection: createSpan(state.selection.anchor, pos),
+        caretPageHint: coords.pageIndex,
       });
       return;
     }
@@ -868,6 +870,7 @@ export function createEditorController(
     dispatch({
       type: "SET_SELECTION",
       selection: createSpan(pos, pos),
+      caretPageHint: coords.pageIndex,
     });
   }
 
@@ -890,9 +893,12 @@ export function createEditorController(
       coords.pageIndex,
     );
     if (pos) {
+      // The drag hint tracks the FOCUS page (the current drag point) so the
+      // caret resolves on the page under the pointer.
       dispatch({
         type: "SET_SELECTION",
         selection: createSpan(dragAnchor, pos),
+        caretPageHint: coords.pageIndex,
       });
     }
   }
@@ -1028,6 +1034,7 @@ export function createEditorController(
       state.selection.focus,
       layoutTree,
       measurer,
+      state.caretPageHint,
     );
     cursorPos = resolved ?? {
       x: 0,
@@ -1067,8 +1074,8 @@ export function createEditorController(
             ? computeSelectionRects(state.state, state.selection, positioned, measurer)
             : [];
         } else {
-          selStart = resolvePixelPosition(state.state, start, layoutTree, measurer);
-          selEnd = resolvePixelPosition(state.state, end, layoutTree, measurer);
+          selStart = resolvePixelPosition(state.state, start, layoutTree, measurer, state.caretPageHint);
+          selEnd = resolvePixelPosition(state.state, end, layoutTree, measurer, state.caretPageHint);
           // rects computed per-page in paintPages from selStart/selEnd
         }
       } else {
