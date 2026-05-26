@@ -331,6 +331,8 @@ export function makeVirtualLayoutTree(
       children,
       pageIndex,
       effCfg.pageInlineSize,
+      // T1: header/footer slots default null; T4 will populate them.
+      null, null,
     );
   }
 

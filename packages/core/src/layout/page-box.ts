@@ -1,7 +1,7 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox, BlockBox } from "./layout-box-v2";
 
 /**
  * A page in a paginated layout. Holds the children that fit on one page.
@@ -38,6 +38,20 @@ export interface PageBox {
 
   /** 0-based index of this page in the document's page sequence. */
   readonly pageIndex: number;
+
+  /**
+   * The header body laid out into this page's top margin, or null when the
+   * active section (or document root) declares no header. Kept OUT of
+   * `children` as a distinct named slot so paint, line-collection, and
+   * fingerprinting treat it separately from body content.
+   */
+  readonly headerSlot: BlockBox | null;
+
+  /**
+   * The footer body laid out into this page's bottom margin, or null when no
+   * footer is declared. Distinct named slot (see `headerSlot`).
+   */
+  readonly footerSlot: BlockBox | null;
 }
 
 /**
@@ -56,6 +70,8 @@ export function createPageBox(
   children: readonly LayoutBox[],
   pageIndex: number,
   containingInlineSize: number,
+  headerSlot: BlockBox | null,
+  footerSlot: BlockBox | null,
 ): PageBox {
   const phys = logicalToPhysical(
     { inlineOffset, blockOffset, inlineSize, blockSize },
@@ -71,5 +87,7 @@ export function createPageBox(
     usedStyle:     Object.freeze({ ...usedStyle }),
     children: Object.freeze([...children]),
     pageIndex,
+    headerSlot,
+    footerSlot,
   });
 }

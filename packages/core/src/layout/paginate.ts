@@ -243,6 +243,8 @@ export function paginateRoot(
       placedChildren,
       pageIndex,
       pageConfig.pageInlineSize,
+      // T1: header/footer slots default null (legacy positioned-paginate path).
+      null, null,
     );
     pages.push(page);
 
@@ -297,6 +299,7 @@ export function paginateRoot(
       ctx.writingMode, ctx.direction,
       rootComputed, rootUsedStyle,
       [], 0, pageConfig.pageInlineSize,
+      null, null,
     ));
     pageIndex = 1;
   }

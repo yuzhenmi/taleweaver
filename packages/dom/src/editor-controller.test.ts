@@ -130,6 +130,8 @@ function buildPaginatedLayoutTree(
         [],
         i,
         width,
+        null,
+        null,
       ),
     );
   }
@@ -196,7 +198,7 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
 
   const makePage = (i: number) =>
     core.createPageBox(`page-${i}`, 0, entries[i].blockOffset, width, pageHeight,
-      cs.writingMode, cs.direction, cs, us, [], i, width);
+      cs.writingMode, cs.direction, cs, us, [], i, width, null, null);
 
   const getPage = vi.fn((i: number) => makePage(i));
   const materializeAll = vi.fn(() => {
@@ -288,6 +290,7 @@ function makeSpyVirtualTreeWithGeom(
     return core.createPageBox(
       `page-${i}`, 0, offsets[i], pageWidths[i], pageHeights[i],
       cs.writingMode, cs.direction, cs, us, [], i, pageWidths[i],
+      null, null,
     );
   };
 

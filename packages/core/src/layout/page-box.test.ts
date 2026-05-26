@@ -17,6 +17,7 @@ describe("createPageBox", () => {
       [],                            // children
       0,                             // pageIndex
       816,                           // containingInlineSize
+      null, null,                    // headerSlot, footerSlot
     );
     expect(page.type).toBe("page");
     expect(page.key).toBe("page-0");
@@ -50,6 +51,7 @@ describe("createPageBox", () => {
       [child],                       // children
       1,                             // pageIndex
       816,                           // containingInlineSize
+      null, null,                    // headerSlot, footerSlot
     );
     expect(page.type).toBe("page");
     expect(page.children).toHaveLength(1);
@@ -70,6 +72,7 @@ describe("createPageBox", () => {
       [],
       0,
       816,
+      null, null,                    // headerSlot, footerSlot
     );
     // LTR is identity mapping for horizontal-tb
     expect(page.x).toBe(0);
@@ -93,6 +96,7 @@ describe("createPageBox", () => {
       [],
       0,
       containingInlineSize,
+      null, null,                    // headerSlot, footerSlot
     );
     // RTL: inline-axis is mirrored
     const expectedX = containingInlineSize - inlineOffset - inlineSize;
@@ -100,5 +104,57 @@ describe("createPageBox", () => {
     expect(page.y).toBe(0);
     expect(page.width).toBe(inlineSize);
     expect(page.height).toBe(1056);
+  });
+
+  it("defaults headerSlot/footerSlot to null when passed null", () => {
+    const cs = INITIAL_COMPUTED_STYLE;
+    const us = computeUsedStyle(cs, 816, "indefinite");
+    const page = createPageBox(
+      "page-null-slots",
+      0, 0,
+      816, 1056,
+      cs.writingMode, cs.direction,
+      cs, us,
+      [],
+      0,
+      816,
+      null, null,                    // headerSlot, footerSlot
+    );
+    expect(page.headerSlot).toBeNull();
+    expect(page.footerSlot).toBeNull();
+    // Slots are not promoted into children — they're distinct named fields.
+    expect(page.children).toHaveLength(0);
+  });
+
+  it("stores the headerSlot/footerSlot BlockBoxes passed to it", () => {
+    const cs = INITIAL_COMPUTED_STYLE;
+    const us = computeUsedStyle(cs, 816, "indefinite");
+    const header = createBlockBox(
+      "header-body", 0, 0, 816, 36,
+      cs.writingMode, cs.direction, cs, us,
+      [], 816,
+    );
+    const footer = createBlockBox(
+      "footer-body", 0, 1020, 816, 36,
+      cs.writingMode, cs.direction, cs, us,
+      [], 816,
+    );
+    const page = createPageBox(
+      "page-slots",
+      0, 0,
+      816, 1056,
+      cs.writingMode, cs.direction,
+      cs, us,
+      [],
+      0,
+      816,
+      header, footer,                // headerSlot, footerSlot
+    );
+    expect(page.headerSlot).toBe(header);
+    expect(page.footerSlot).toBe(footer);
+    // Named slots are kept out of children (paint/line-collection treat them distinctly).
+    expect(page.children).toHaveLength(0);
+    // Slots are covered by the page's own freeze.
+    expect(Object.isFrozen(page)).toBe(true);
   });
 });
