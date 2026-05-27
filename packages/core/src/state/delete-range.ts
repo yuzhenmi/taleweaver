@@ -102,6 +102,13 @@ export type DeleteRangePlan =
  * references that survive the operation are NOT cascade-deleted. Mirrors
  * the same invariant `removeBlock` upholds; see `embed-content-cascade.ts`.
  *
+ * Cost: a same-block delete is O(1) block-writes (one anchor-block
+ * inlineContent rewrite). A cross-block delete is O(K) in K = the blocks
+ * the span covers — the focus block plus every intervening leaf are
+ * deleted from the owning tree map, all within the single `applyOperation`
+ * transaction. K is the selection width, not the document size (a typical
+ * edit spans one or two blocks).
+ *
  * Composition: see `deleteRangeInTx` for the in-transaction primitive
  * used by `replaceRange` to compose delete + insert in a single Y.Doc
  * transaction (T12 atomicity).
