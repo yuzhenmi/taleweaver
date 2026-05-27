@@ -348,8 +348,11 @@ describe("IFC alignment — justify (P3)", () => {
     const N = 1;
     const gap = W - 9 * CHAR_W; // 16
     expect(interior.width).toBe(natural + gap / N); // 24
-    // Trailing space NOT stretched.
-    expect(trailing.width).toBe(natural); // 8
+    // Trailing space NOT stretched, AND #338 P2 clamps it to width 0 at the
+    // filled content edge (it sits exactly at lineInlineSize → clampedWidth =
+    // max(0, min(8, W − W)) = 0). It stays on-page (no glyph past the edge); its
+    // 1 state offset is unchanged.
+    expect(trailing.width).toBe(0);
     // The "bbbb" run shifted right by the widening (its x reflects the wider
     // interior space): "aaaa"(0..32) + interior(32..56) → "bbbb" at x=56.
     const bbbb = runs.find(r => r.text === "bbbb");
@@ -388,17 +391,23 @@ describe("IFC alignment — justify (P3)", () => {
     expect(runs[0].width).toBe(5 * CHAR_W); // 40 — unchanged
   });
 
-  it("Case 5: trailing spaces are NOT stretched (only interior widen; trailing hangs)", () => {
-    // Same as Case 2's line 0: trailing space after "bbbb" keeps natural width
-    // and hangs past the filled content edge.
+  it("Case 5: trailing spaces are NOT stretched, and clamp to the filled content edge (#338 P2 on-page)", () => {
+    // Same as Case 2's line 0: the trailing space after "bbbb" is NOT stretched
+    // by justify (only interior spaces widen). It hangs at the filled content
+    // edge — and #338 P2 clamps its physical width to 0 at the edge so nothing
+    // draws past it (the on-page guarantee). Its box start sits exactly at the
+    // edge (x === W).
     const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
     const line0 = lines[0];
     const runs = textRuns(line0);
     const trailing = runs[runs.length - 1];
     expect(trailing.text).toBe(" ");
-    expect(trailing.width).toBe(CHAR_W); // natural — not stretched
-    // It hangs at the filled edge (x === W), past the last glyph.
+    // Clamped: width 0 at the edge (not the natural 8 → no glyph past the edge).
+    expect(trailing.width).toBe(0);
+    // It hangs at the filled edge (x === W), past the last glyph; with width 0
+    // the box's right edge is exactly W (on-page).
     expect(line0.x + trailing.x).toBe(W);
+    expect(line0.x + trailing.x + trailing.width).toBe(W);
   });
 
   it("Case 6 (behavior): widened spacing flows to box.x (what caret/hit-test read)", () => {

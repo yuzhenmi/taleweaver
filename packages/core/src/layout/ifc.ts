@@ -1609,9 +1609,28 @@ function buildLineChildrenForAncestorLevel(
         const runKey = `${unit.sourceKey}:${runIdx}`;
 
         const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize, "indefinite");
+
+        // #338 P2 — clamp a HUNG SPACE box's physical geometry to the line
+        // content edge (`lineInlineSize`, line-relative). A trailing/interior
+        // space that hangs past the edge (P1) must not draw, position the caret,
+        // or extend selection past it. Clamp ONLY space boxes — a word/inline
+        // unit that overflows (a force-placed unbreakable word wider than the
+        // line) legitimately overflows per CSS and must NOT be clipped. The clamp
+        // is physical only: `offsetLength` (state span) is unchanged, and the
+        // running `cursorInlineOffset` advances by the NATURAL `unitWidth` below
+        // (so a following word still wraps and stacked past-edge spaces each pin
+        // to the edge with width 0). A straddling space draws partial width up to
+        // the edge.
+        const isSpaceBox = firstTok.isSpace;
+        const writeInlineOffset = isSpaceBox
+          ? Math.min(cursorInlineOffset, lineInlineSize)
+          : cursorInlineOffset;
+        const writeWidth = isSpaceBox
+          ? Math.max(0, Math.min(unitWidth, lineInlineSize - cursorInlineOffset))
+          : unitWidth;
         out.push(createTextRunBox(
           runKey,
-          cursorInlineOffset, 0, unitWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
+          writeInlineOffset, 0, writeWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
           offsetLength,
           /* containingInlineSize */ lineInlineSize,
         ));

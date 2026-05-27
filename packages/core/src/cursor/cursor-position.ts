@@ -428,7 +428,18 @@ function resolvePositionInOwnLines(
         const localChar = Math.min(localOffset, leaf.box.text.length);
         const prefix = leaf.box.text.slice(0, localChar);
         const xOffset = measurer.measureWidth(prefix, leaf.computedStyle);
-        return pixelPositionForLine(target, leaf.absoluteX + xOffset);
+        // #338 P2 — clamp the caret to the LEAF's own box right edge. For a
+        // CLAMPED hung space (IFC gave it width 0 at the line content edge),
+        // `measureWidth(" ")` still adds ~one glyph advance, which would land the
+        // caret PAST the edge (the reverted-Phase-2 off-page caret bug — the box
+        // clamp alone does NOT fix this). Clamping to `leaf.absoluteX +
+        // leaf.width` pins the caret to the (clamped) edge. For a normal word
+        // leaf `xOffset ≤ leaf.width`, so the clamp is a no-op; for a
+        // force-placed overflowing word leaf the box width spans the full word,
+        // so the caret correctly follows the glyph (still within the word).
+        const resolvedX = leaf.absoluteX + xOffset;
+        const leafRightEdge = leaf.absoluteX + leaf.width;
+        return pixelPositionForLine(target, Math.min(resolvedX, leafRightEdge));
       }
       // inline-block: localOffset is either 0 (leading edge) or 1 (trailing
       // edge — past the embed).

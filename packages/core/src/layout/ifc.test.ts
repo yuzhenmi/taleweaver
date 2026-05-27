@@ -599,6 +599,152 @@ describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its 
   });
 });
 
+describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to the content edge)", () => {
+  // Same break-spaces, 8px/char harness as the P1 hang block. The CLAMP is a
+  // physical-geometry clamp applied at box-build time: a SPACE box's
+  // inlineOffset is clamped to ≤ lineInlineSize and its width clamped so
+  // inlineOffset + width ≤ lineInlineSize (a fully-past-edge space → width 0 at
+  // the edge). Word/inline-block boxes are NEVER clamped.
+  function leavesOf(line: import("./layout-box-v2").LineBox) {
+    const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out;
+  }
+
+  function linesOf(text: string, width: number) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    return { lines, lineInlineSize: width };
+  }
+
+  const EPS = 1e-6;
+
+  it("large-N trailing spaces stay on-page: NO space box extends past the content edge", () => {
+    // "word" (4×8 = 32) + 40 trailing spaces at width 80. The 40 spaces HANG on
+    // one line (P1) but their natural inline positions run far past the 80px
+    // content edge. P2 clamps every space box so x + width ≤ 80.
+    const N = 40;
+    const { lines, lineInlineSize } = linesOf("word" + " ".repeat(N), 80);
+    expect(lines).toHaveLength(1);
+    const leaves = leavesOf(lines[0]);
+
+    // The WORD box is unchanged (starts at 0, full 32px width).
+    const wordLeaf = leaves.find(l => l.text.includes("word"));
+    expect(wordLeaf).toBeDefined();
+    expect(wordLeaf?.x).toBe(0);
+    expect(wordLeaf?.width).toBe(32);
+
+    // NO space box extends past the content edge (the load-bearing on-page guard).
+    const spaceLeaves = leaves.filter(l => /^\s+$/.test(l.text));
+    expect(spaceLeaves.length).toBeGreaterThan(0);
+    for (const sp of spaceLeaves) {
+      expect(sp.x).toBeLessThanOrEqual(lineInlineSize + EPS);
+      expect(sp.x + sp.width).toBeLessThanOrEqual(lineInlineSize + EPS);
+    }
+    // The line still owns all 44 source offsets (caret accounting intact).
+    expect(lines[0].inlineOffsetEnd).toBe(4 + N);
+  });
+
+  it("a straddling space renders with partial width up to the edge; fully-past spaces clamp to width 0 at the edge", () => {
+    // Width 36. "wor" would be 24; pick "word" (32) + spaces so that the FIRST
+    // hung space straddles the edge. "word" ends at 32; space #1 natural span is
+    // [32,40) → straddles 36 → clamps to x=32, width=4. Space #2 natural [40,48)
+    // → fully past → x=36, width=0. Space #3 [48,56) → x=36, width=0.
+    const { lines, lineInlineSize } = linesOf("word   ", 36);
+    expect(lines).toHaveLength(1);
+    const leaves = leavesOf(lines[0]);
+    const spaceLeaves = leaves.filter(l => /^\s+$/.test(l.text));
+    for (const sp of spaceLeaves) {
+      expect(sp.x + sp.width).toBeLessThanOrEqual(lineInlineSize + EPS);
+    }
+    // At least one space straddles (clamped width strictly between 0 and 8).
+    const straddling = spaceLeaves.find(sp => sp.width > 0 && sp.width < 8);
+    expect(straddling).toBeDefined();
+    expect(straddling?.x).toBe(32);
+    expect((straddling?.x ?? 0) + (straddling?.width ?? 0)).toBeCloseTo(36, 6);
+    // The fully-past spaces clamp to the edge with width 0.
+    const atEdge = spaceLeaves.filter(sp => sp.width === 0);
+    expect(atEdge.length).toBeGreaterThan(0);
+    for (const sp of atEdge) expect(sp.x).toBeCloseTo(36, 6);
+  });
+
+  it("a force-placed WORD wider than the line is NOT clamped (CSS overflow)", () => {
+    // A single unbreakable word "aaaaaaaaaa" (10×8 = 80) at width 40. It can't
+    // wrap (single unit, nothing before it), so it force-places and legitimately
+    // overflows. The clamp must NOT clip it — the word box keeps its full width.
+    const { lines } = linesOf("aaaaaaaaaa", 40);
+    expect(lines).toHaveLength(1);
+    const leaves = leavesOf(lines[0]);
+    const wordLeaf = leaves.find(l => l.text.includes("a"));
+    expect(wordLeaf).toBeDefined();
+    expect(wordLeaf?.x).toBe(0);
+    // Word retains its full 80px width (overflows the 40px line — NOT clamped).
+    expect(wordLeaf?.width).toBe(80);
+  });
+
+  it("following word still wraps after the clamp (P1 no-regression): 'word1   word2' → 2 lines", () => {
+    // The fit cursor advances by NATURAL space width even when boxes clamp, so a
+    // following word still wraps. (Same case as P1; re-asserted under the clamp.)
+    const { lines } = linesOf("word1   word2", 64);
+    expect(lines).toHaveLength(2);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text).toBe("word1   ");
+    const line2Text = leavesOf(lines[1]).map(l => l.text).join("");
+    expect(line2Text).toBe("word2");
+  });
+
+  it("centered line with trailing spaces: spaces clamp to the line content edge, no box off-page", () => {
+    // Centered paragraph "hi" + trailing spaces. The clamp composes with
+    // centering: line children are LINE-RELATIVE (start at 0), and the clamp edge
+    // for the hung spaces is the line's own content right boundary
+    // `lineInlineSize` (line-relative), per the plan-review resolution. No space
+    // box extends past lineInlineSize; the line is still ONE line; no crash.
+    // (The centered SHIFT for multi-space break-spaces is governed by the P3
+    // alignment trailing-space exclusion, NOT by this P2 clamp — out of scope
+    // here.)
+    const W = 80;
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces", textAlign: "center" }, [
+        createTextBox("t", {}, "hi" + " ".repeat(20)),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, W), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const leaves = leavesOf(lines[0]);
+    // "hi" sits at the line's local origin (line-relative x = 0).
+    const hiLeaf = leaves.find(l => l.text.includes("hi"));
+    expect(hiLeaf?.x).toBe(0);
+    // Every space box (line-relative) stays within the line content edge — the
+    // hung run clamps to lineInlineSize regardless of alignment.
+    const spaceLeaves = leaves.filter(l => /^\s+$/.test(l.text));
+    expect(spaceLeaves.length).toBeGreaterThan(0);
+    for (const sp of spaceLeaves) {
+      expect(sp.x + sp.width).toBeLessThanOrEqual(W + EPS);
+    }
+  });
+});
+
 describe("IFC — normal-mode wrap UNAFFECTED by the space-unit hang (#338 P1 no-regression)", () => {
   // Under white-space:normal a trailing space is SLURPED into the preceding
   // word's unit (NOT a standalone space unit), so `isSpaceUnit` is false and the
