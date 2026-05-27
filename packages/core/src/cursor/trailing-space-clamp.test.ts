@@ -26,6 +26,11 @@ import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
 import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
+import { createElementBox, createTextBox } from "../render/render-node";
+import { cascadePass } from "../cascade";
+import { layoutBlock } from "../layout/bfc";
+import { makeRootContext } from "../layout/layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { TextShaper } from "../layout/text-shaper";
 import {
   buildState,
@@ -195,5 +200,85 @@ describe("#338 P2 — trailing-space CLAMP: centered line composition (case 7)",
     // Caret stays within the centered line's content region.
     expect(pos.x).toBeGreaterThanOrEqual(lineLeft - EPS);
     expect(pos.x).toBeLessThanOrEqual(lineRight + EPS);
+  });
+});
+
+describe("#340 — caret on-page for trailing spaces INSIDE an inline element", () => {
+  // The editor's render path turns text marks into flat differently-styled runs,
+  // not nested inline elements, so this exercises the IFC + cursor path directly:
+  // build a layout whose paragraph contains a `display:inline` element wrapping a
+  // word + trailing spaces at the line edge, paired with a matching `State` (the
+  // block id "p" matches the element-box key, so the stamped LineBoxes'
+  // `ownerBlockId` resolves; the offset geometry is read off the layout, not the
+  // state). Before #340, the inner trailing-space box escaped the content-edge
+  // clamp, so its (and the caret's) physical position ran past the edge.
+  const CHAR_W = 8;
+  const LINE_H = 16;
+
+  // "aaaa" (32) + <em>"bbbb" (32) + 4 spaces</em> at content width 72.
+  // "aaaa"+"bbbb" = 64 fits; the em's 4 inner trailing spaces hang past 72.
+  const LEAD = "aaaa";
+  const EM = "bbbb    "; // 4 trailing spaces
+  const CONTENT_W = 72;
+  const TOTAL_OFFSET = LEAD.length + EM.length; // 4 + 8 = 12
+
+  function inlineLayout(): { layout: LayoutBox; shaper: TextShaper } {
+    const shaper = createMockShaper(CHAR_W, LINE_H);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t1", {}, LEAD),
+        createElementBox("em", { display: "inline" }, [
+          createTextBox("t2", {}, EM),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    return { layout: resolvePositionedTree(r.box), shaper };
+  }
+
+  // Minimal matching State: a paragraph "p" so `resolveBlock(state, "p")` passes.
+  function matchingState(): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(LEAD), text(EM)]),
+        }),
+      ],
+    });
+  }
+
+  it("LOAD-BEARING: caret for offsets inside the inline-wrapped trailing run stays ≤ the content edge (RED before #340)", () => {
+    const { layout, shaper } = inlineLayout();
+    const state = matchingState();
+    const lines = ownLines(layout);
+    expect(lines).toHaveLength(1);
+    const contentEdge = contentEdgeOf(layout);
+
+    // Offsets inside the em's trailing run: after "aaaabbbb" (offset 8) through
+    // the END (offset 12). Each caret x must be ≤ contentEdge — before #340 the
+    // inner space box escaped the clamp and the caret ran past it.
+    for (let offset = LEAD.length + 4; offset <= TOTAL_OFFSET; offset++) {
+      const pos = resolvePixelPosition(state, createPosition("p" as BlockId, offset), layout, shaper);
+      expect(pos).not.toBeNull();
+      if (pos === null) return;
+      expect(pos.x).toBeLessThanOrEqual(contentEdge + EPS);
+    }
+  });
+
+  it("the END offset (after all inline trailing spaces) resolves to the content edge", () => {
+    const { layout, shaper } = inlineLayout();
+    const state = matchingState();
+    const contentEdge = contentEdgeOf(layout);
+    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, TOTAL_OFFSET), layout, shaper);
+    expect(pos).not.toBeNull();
+    if (pos === null) return;
+    expect(pos.x).toBeCloseTo(contentEdge, 6);
   });
 });

@@ -1509,6 +1509,7 @@ function buildLineWithFragments(
   const lineBlockSizeTracker = { value: 0 };
   let children = buildLineChildrenForAncestorLevel(
     parentKey, lineIndex, units, 0, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
+    /* originInlineOffset */ 0,
   );
 
   // Append synthetic hyphen TextRunBox when this line ends at a hyphen break.
@@ -1553,6 +1554,16 @@ function buildLineWithFragments(
  * Walk wrap units at a given inline-ancestor depth. Units at this level (no deeper ancestor)
  * become TextRunBoxes; consecutive runs of units that share an ancestor at `depth` get
  * grouped into an InlineBox containing the recursive result.
+ *
+ * `originInlineOffset` is the accumulated PHYSICAL (line-relative) inline position
+ * where THIS build level begins. The top-level call passes 0 (its children are
+ * line-relative); a recursive call for an inline element passes the physical
+ * position where that element's box sits (so its inner children's frame is
+ * `originInlineOffset` from the line origin). The hung-SPACE clamp (#338 P2 / #340)
+ * compares the box's PHYSICAL position (`originInlineOffset + cursorInlineOffset`)
+ * against `lineInlineSize` — without the origin, a recursive call would compare an
+ * INNER-relative offset and miss a trailing space that hangs past the line content
+ * edge (#340: `<em>word   </em>` at the edge).
  */
 function buildLineChildrenForAncestorLevel(
   parentKey: string,
@@ -1564,6 +1575,7 @@ function buildLineChildrenForAncestorLevel(
   writingMode: WritingMode,
   direction: Direction,
   lineInlineSize: number,
+  originInlineOffset: number,
 ): LayoutBox[] {
   const out: LayoutBox[] = [];
   let cursorInlineOffset = 0;
@@ -1610,7 +1622,7 @@ function buildLineChildrenForAncestorLevel(
 
         const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize, "indefinite");
 
-        // #338 P2 — clamp a HUNG SPACE box's physical geometry to the line
+        // #338 P2 / #340 — clamp a HUNG SPACE box's physical geometry to the line
         // content edge (`lineInlineSize`, line-relative). A trailing/interior
         // space that hangs past the edge (P1) must not draw, position the caret,
         // or extend selection past it. Clamp ONLY space boxes — a word/inline
@@ -1621,12 +1633,22 @@ function buildLineChildrenForAncestorLevel(
         // (so a following word still wraps and stacked past-edge spaces each pin
         // to the edge with width 0). A straddling space draws partial width up to
         // the edge.
+        //
+        // #340: `cursorInlineOffset` is relative to THIS build level's frame,
+        // which for a recursive inline-element call is offset from the line origin
+        // by `originInlineOffset`. The clamp compares the PHYSICAL position
+        // `physBase = originInlineOffset + cursorInlineOffset` against
+        // `lineInlineSize`. The written `inlineOffset` stays PARENT-RELATIVE (so
+        // it composes with the enclosing InlineBox's own `x`); clamping it so
+        // `originInlineOffset + writeInlineOffset ≤ lineInlineSize` pins a
+        // fully-past-edge inner space to the physical content edge with width 0.
         const isSpaceBox = firstTok.isSpace;
+        const physBase = originInlineOffset + cursorInlineOffset;
         const writeInlineOffset = isSpaceBox
-          ? Math.min(cursorInlineOffset, lineInlineSize)
+          ? Math.min(cursorInlineOffset, Math.max(0, lineInlineSize - originInlineOffset))
           : cursorInlineOffset;
         const writeWidth = isSpaceBox
-          ? Math.max(0, Math.min(unitWidth, lineInlineSize - cursorInlineOffset))
+          ? Math.max(0, Math.min(unitWidth, lineInlineSize - physBase))
           : unitWidth;
         out.push(createTextRunBox(
           runKey,
@@ -1655,6 +1677,11 @@ function buildLineChildrenForAncestorLevel(
     const innerChildren = buildLineChildrenForAncestorLevel(
       parentKey, lineIndex, innerUnits, depth + 1,
       measurer, innerBlockSizeTracker, writingMode, direction, lineInlineSize,
+      // #340: the inline element's box sits at the PHYSICAL position
+      // `originInlineOffset + cursorInlineOffset` (this level's frame plus the
+      // accumulated offset before the box) — its inner children's clamp edge is
+      // measured from there.
+      /* originInlineOffset */ originInlineOffset + cursorInlineOffset,
     );
 
     const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.width, 0);
@@ -1669,6 +1696,14 @@ function buildLineChildrenForAncestorLevel(
       ancestorKey, // L-C: store explicitly; do not derive from box.key
       /* containingInlineSize */ lineInlineSize,
     ));
+    // `boxInlineSize` is the sum of the (possibly clamped) inner child widths, so
+    // this under-advances when an inline element's trailing spaces clamped to 0.
+    // Safe: a space is only clamped once its physical position reaches
+    // `lineInlineSize`, which means the greedy wrap loop's `currentWidth` (summed
+    // from NATURAL unit widths) is already ≥ `lineInlineSize` — so any following
+    // non-space unit overflows and wraps to the next line. Hence no content can
+    // follow a clamped inline trailing space on the SAME line, and the under-advance
+    // is never observable.
     cursorInlineOffset += boxInlineSize;
     i = j;
   }

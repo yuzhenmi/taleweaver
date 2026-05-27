@@ -745,6 +745,119 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
   });
 });
 
+describe("IFC — hung-space CLAMP inside an INLINE element (#340: clamp the PHYSICAL position, not the inner-relative one)", () => {
+  // #338 P2 clamped a hung SPACE box at the TOP inline level using its
+  // line-relative `cursorInlineOffset`. A space INSIDE a `display:inline`
+  // element (e.g. `<em>bbbb    </em>` at the line edge) is built by a RECURSIVE
+  // call that restarts `cursorInlineOffset` at 0, so its clamp compared an
+  // INNER-relative offset against `lineInlineSize` and MISSED — the inner space
+  // box (and the InlineBox enclosing it) extended physically past the content
+  // edge. #340 threads the PHYSICAL origin into the recursion so the clamp uses
+  // `originInlineOffset + cursorInlineOffset`.
+  //
+  // PHYSICAL collector: a nested text-run's `x` is RELATIVE to its parent
+  // InlineBox, so the physical line-relative position is the sum of the ancestor
+  // InlineBox `x`s plus the leaf `x`. (The flat-line `leavesOf` above reads
+  // `b.x` directly, which is only correct when there are no inline ancestors.)
+  function physicalLeavesOf(line: import("./layout-box-v2").LineBox) {
+    const out: { x: number; width: number; text: string; isSpace: boolean }[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[], originX: number) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") {
+          out.push({ x: originX + b.x, width: b.width, text: b.text, isSpace: /^\s+$/.test(b.text) });
+        } else if (b.type === "inline") {
+          walk(b.children, originX + b.x);
+        }
+      }
+    };
+    walk(line.children, 0);
+    out.sort((a, b) => a.x - b.x);
+    return out;
+  }
+
+  // Build a paragraph whose inline content is `[text("aaaa"), <inline em>"bbbb…"</inline>]`.
+  function inlineWrappedLines(leadWord: string, emText: string, width: number) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t1", {}, leadWord),
+        createElementBox("em", { display: "inline" }, [
+          createTextBox("t2", {}, emText),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    return { lines, lineInlineSize: width };
+  }
+
+  const EPS = 1e-6;
+
+  it("NO inner space box extends physically past the content edge (RED before #340)", () => {
+    // "aaaa" (32) + <em>"bbbb" (32) + 4 spaces</em> at width 72. "aaaa"+"bbbb"
+    // = 64 fits; the em's first inner space natural [64,72) ends at the edge;
+    // spaces #2-#4 are fully past 72. Before the fix the inner recursion clamped
+    // using the INNER-relative offset (e.g. space #2 at inner offset 40 vs
+    // lineInlineSize 72 → NOT clamped) so its physical box ran to 80/88/96.
+    const { lines, lineInlineSize } = inlineWrappedLines("aaaa", "bbbb    ", 72);
+    expect(lines).toHaveLength(1);
+    const contentEdge = lineInlineSize;
+
+    const leaves = physicalLeavesOf(lines[0]);
+    const spaceLeaves = leaves.filter(l => l.isSpace);
+    expect(spaceLeaves.length).toBeGreaterThan(0);
+    // The load-bearing guard: no SPACE box's physical right edge passes the line
+    // content edge.
+    for (const sp of spaceLeaves) {
+      expect(sp.x).toBeLessThanOrEqual(contentEdge + EPS);
+      expect(sp.x + sp.width).toBeLessThanOrEqual(contentEdge + EPS);
+    }
+    // The words are unchanged: "aaaa" at physical 0, "bbbb" at physical 32.
+    const aaaa = leaves.find(l => l.text === "aaaa");
+    expect(aaaa?.x).toBe(0);
+    const bbbb = leaves.find(l => l.text === "bbbb");
+    expect(bbbb?.x).toBe(32);
+  });
+
+  it("the enclosing InlineBox does not extend physically past the content edge", () => {
+    const { lines, lineInlineSize } = inlineWrappedLines("aaaa", "bbbb    ", 72);
+    expect(lines).toHaveLength(1);
+    const contentEdge = lineInlineSize;
+    // Find the InlineBox (the <em>) and assert its physical right edge ≤ edge.
+    const inlineBox = lines[0].children.find(c => c.type === "inline");
+    expect(inlineBox).toBeDefined();
+    if (!inlineBox || inlineBox.type !== "inline") throw new Error("?");
+    // The InlineBox's own `x` is line-relative (top level), so its physical right
+    // edge is `x + width`.
+    expect(inlineBox.x + inlineBox.width).toBeLessThanOrEqual(contentEdge + EPS);
+  });
+
+  it("interior inline spaces NOT past the edge keep natural width (not clamped)", () => {
+    // "aaaa" (32) + <em>"b c"</em> at a WIDE line (200). The single interior
+    // space inside the em is well within the edge → natural width 8, unclamped.
+    const { lines } = inlineWrappedLines("aaaa", "b c", 200);
+    expect(lines).toHaveLength(1);
+    const leaves = physicalLeavesOf(lines[0]);
+    const interiorSpace = leaves.find(l => l.isSpace);
+    expect(interiorSpace).toBeDefined();
+    expect(interiorSpace?.width).toBe(8); // natural, not clamped to 0
+  });
+
+  it("an inline element with NO trailing-edge space is byte-identical (words never clamped)", () => {
+    // `<em>bold</em>` mid-line: no space at the edge, so the fix is a no-op here.
+    const { lines } = inlineWrappedLines("aaaa", "bold", 200);
+    expect(lines).toHaveLength(1);
+    const leaves = physicalLeavesOf(lines[0]);
+    expect(leaves.find(l => l.text === "aaaa")?.x).toBe(0);
+    const bold = leaves.find(l => l.text === "bold");
+    expect(bold?.x).toBe(32);   // physical, right after "aaaa"
+    expect(bold?.width).toBe(32);
+  });
+});
+
 describe("IFC — normal-mode wrap UNAFFECTED by the space-unit hang (#338 P1 no-regression)", () => {
   // Under white-space:normal a trailing space is SLURPED into the preceding
   // word's unit (NOT a standalone space unit), so `isSpaceUnit` is false and the
