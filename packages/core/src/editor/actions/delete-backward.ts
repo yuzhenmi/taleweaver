@@ -1,8 +1,9 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength, selectionContextOf } from "../../state";
+import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -12,33 +13,12 @@ export function handleDeleteBackward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
-    // C.2c §6: cross-CONTEXT selection refusal. A header/footer body is an
-    // isolated editing context; a span whose anchor and focus resolve to
-    // different roots (main body → header body, constructable via a drag) is
-    // unsupported by the span ops (deleteRange would throw "no common
-    // ancestor"). No-op rather than attempt a cross-tree delete. This is the
-    // intentional, uniform signal — independent of the parentId-mismatch guard
-    // below, which only happens to catch SOME cross-context cases.
-    if (
-      selectionContextOf(editor.state, selection.anchor.blockId) !==
-      selectionContextOf(editor.state, selection.focus.blockId)
-    ) {
-      return editor;
-    }
-    // resolveBlock (main → embed → template) so a header/footer caret resolves;
-    // for a main-tree id behavior is byte-identical (resolveBlock's first arm is
-    // getBlock). T7a/render precedent.
-    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
-    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
-    if (anchorBlock === null || focusBlock === null) return editor;
-    // deleteRange throws on cross-parent — skip with no-op if so.
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return editor;
-    }
-    const start = spanStart(editor.state, selection);
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
     const result = deleteRange(editor.state, selection);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);

@@ -1,8 +1,9 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanStart, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength, selectionContextOf } from "../../state";
+import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -12,28 +13,12 @@ export function handleDeleteForward(
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
-    // C.2c §6: cross-CONTEXT selection refusal — see delete-backward for the
-    // rationale. A span straddling the main body and a header/footer body is
-    // unsupported by the span ops; no-op rather than attempt a cross-tree
-    // delete.
-    if (
-      selectionContextOf(editor.state, selection.anchor.blockId) !==
-      selectionContextOf(editor.state, selection.focus.blockId)
-    ) {
-      return editor;
-    }
-    // resolveBlock (main → embed → template) so a header/footer caret resolves;
-    // main-tree byte-identical (resolveBlock's first arm is getBlock).
-    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
-    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
-    if (anchorBlock === null || focusBlock === null) return editor;
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return editor;
-    }
-    const start = spanStart(editor.state, selection);
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
     const result = deleteRange(editor.state, selection);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);

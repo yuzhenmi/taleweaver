@@ -1,8 +1,9 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, splitBlockAtPosition, selectionContextOf } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleSplitNode(
   editor: EditorState,
@@ -15,27 +16,14 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
-    // C.2c §6: cross-CONTEXT selection refusal — see delete-backward. The
-    // expanded-selection branch first deletes the span (deleteRange would throw
-    // "no common ancestor" on a cross-tree span), so refuse before that.
-    if (
-      selectionContextOf(editor.state, selection.anchor.blockId) !==
-      selectionContextOf(editor.state, selection.focus.blockId)
-    ) {
-      return editor;
-    }
-    // resolveBlock (main → embed → template) so a header/footer caret resolves;
-    // main-tree byte-identical (resolveBlock's first arm is getBlock).
-    const anchorBlock = resolveBlock(editor.state, selection.anchor.blockId)?.block ?? null;
-    const focusBlock = resolveBlock(editor.state, selection.focus.blockId)?.block ?? null;
-    if (anchorBlock === null || focusBlock === null) return editor;
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return editor;
-    }
-    const start = spanStart(editor.state, selection);
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    // The expanded-selection branch first deletes the span (deleteRange would
+    // throw "no common ancestor" on a cross-tree span), so refuse before that.
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
     const deleteResult = deleteRange(editor.state, selection);
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     const collapsedCursor = createPosition(start.blockId, start.offset);
