@@ -3,7 +3,6 @@ import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { getYBlock } from "./yjs-doc";
 import type { BlockKindResolver } from "./block-kinds";
-import { blockKindOf } from "./block-kinds";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -52,13 +51,13 @@ export function setBlockType(
     throw new Error(`setBlockType: block "${blockId}" not found`);
   }
   const { block, kind } = resolved;
-  const oldKind = blockKindOf(block.type, resolver);
+  const oldKind = resolver.getBlockKind(block.type);
   if (oldKind === null) {
     throw new Error(
       `setBlockType: existing block's type "${block.type}" is not registered`,
     );
   }
-  const newKind = blockKindOf(type, resolver);
+  const newKind = resolver.getBlockKind(type);
   if (newKind === null) {
     throw new Error(`setBlockType: new type "${type}" is not registered`);
   }

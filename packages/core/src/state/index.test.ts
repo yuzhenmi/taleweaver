@@ -2,9 +2,10 @@
  * Barrel contract test for `state/index.ts`.
  *
  * Proves the barrel compiles and surfaces a representative symbol from each
- * layer (types/access, utilities, ops, history, boot, internal seam), and
- * — critically — that the state-module-private `STATE_INTERNAL` symbol is
- * NOT reachable through the barrel (the Yjs encapsulation must not leak).
+ * layer (types/access, utilities, ops, history, boot), and — critically —
+ * that the state-module-private `STATE_INTERNAL` symbol plus the internal
+ * write-list / clone machinery are NOT reachable through the barrel (the Yjs
+ * encapsulation and the public-op surface must not leak).
  */
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +28,6 @@ import {
   mergeAdjacentTextItems,
   attrsEqual,
   createTestAllocator,
-  blockKindOf,
   // Layer 2 — pure utilities
   nextBlockInDocOrder,
   compareBlocksInDocOrder,
@@ -45,9 +45,6 @@ import {
   History,
   // Boot
   createEmptyDocument,
-  // Internal seam (still reachable, but documented as not-for-general-use)
-  clonePastedSubtree,
-  computeReparentWrites,
 } from "./index";
 
 describe("state/index barrel — layer surface", () => {
@@ -59,7 +56,6 @@ describe("state/index barrel — layer surface", () => {
     expect(typeof mergeAdjacentTextItems).toBe("function");
     expect(typeof attrsEqual).toBe("function");
     expect(typeof createTestAllocator).toBe("function");
-    expect(typeof blockKindOf).toBe("function");
   });
 
   it("surfaces Layer 2 pure utilities", () => {
@@ -85,11 +81,6 @@ describe("state/index barrel — layer surface", () => {
 
   it("surfaces the boot helper", () => {
     expect(typeof createEmptyDocument).toBe("function");
-  });
-
-  it("surfaces the internal seam (clone + reparent write-list machinery)", () => {
-    expect(typeof clonePastedSubtree).toBe("function");
-    expect(typeof computeReparentWrites).toBe("function");
   });
 
   it("end-to-end: the barrel's symbols compose into a usable pipeline", () => {
@@ -144,6 +135,23 @@ describe("state/index barrel — encapsulation", () => {
       "BLOCK_FIELDS",
     ]) {
       expect(infra in barrel).toBe(false);
+    }
+  });
+
+  it("does NOT re-export the internal write-list / clone machinery or the blockKindOf wrapper", () => {
+    // SR2 #350/#351: the reparent write-list machinery and the paste-clone
+    // helper are state-module-internal (their only intra-core callers import
+    // them directly from their source files); `blockKindOf` was removed in
+    // favour of calling `resolver.getBlockKind(type)` directly. None of these
+    // belong on the barrel's public op surface.
+    for (const internal of [
+      "clonePastedSubtree",
+      "computeReparentWrites",
+      "planReparentChildren",
+      "reparentChildrenInTx",
+      "blockKindOf",
+    ]) {
+      expect(internal in barrel).toBe(false);
     }
   });
 });

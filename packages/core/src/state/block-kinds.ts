@@ -45,18 +45,10 @@ export type BlockKind = "inline-bearing-leaf" | "atomic-leaf" | "container";
  * state module free of component-type knowledge.
  */
 export interface BlockKindResolver {
+  /**
+   * Returns the block type's kind, or null for an unregistered type —
+   * callers MUST decide how to handle null (typically by throwing a
+   * "type 'X' is not registered" error at the action-handler boundary).
+   */
   getBlockKind(type: string): BlockKind | null;
-}
-
-/**
- * Look up a block type's kind via the resolver. Returns null for
- * unregistered types; callers MUST decide how to handle that case
- * (typically by throwing with a helpful "type 'X' is not registered"
- * message at the action-handler boundary).
- */
-export function blockKindOf(
-  type: string,
-  resolver: BlockKindResolver,
-): BlockKind | null {
-  return resolver.getBlockKind(type);
 }

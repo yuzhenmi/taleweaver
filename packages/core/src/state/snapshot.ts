@@ -12,6 +12,7 @@ import {
   getBlocksMap,
   getEmbedContentsMap,
   getTemplateContentsMap,
+  type BlockTreeKind,
 } from "./yjs-doc";
 import { assertNoNestedYTypes } from "./y-utils";
 import { BLOCK_FIELDS } from "./block-schema";
@@ -21,14 +22,22 @@ import { BLOCK_FIELDS } from "./block-schema";
  * globally unique across all three (the allocator never reuses an id;
  * `id-collision-check.ts` defends the vanishingly-rare `crypto.randomUUID`
  * collision), so an id lives in at most one tree.
+ *
+ * This is `yjs-doc`'s `BlockTreeKind` — the SINGLE discriminant for the three
+ * trees (`"block" | "embedContent" | "templateContent"`, the keys of
+ * `TREE_MAP_GETTERS`). The snapshot cache deliberately reuses it rather than
+ * defining a parallel `"block" | "embed" | "template"` enum, so adding a fourth
+ * tree is a one-place change and there is no name-mismatch to track.
  */
-export type TreeKind = "block" | "embed" | "template";
-
-const TREE_KINDS: readonly TreeKind[] = ["block", "embed", "template"];
+const TREE_KINDS: readonly BlockTreeKind[] = [
+  "block",
+  "embedContent",
+  "templateContent",
+];
 
 /** Build an empty per-tree snapshot-map record. */
-function emptySnapshots(): Record<TreeKind, Map<BlockId, Block>> {
-  return { block: new Map(), embed: new Map(), template: new Map() };
+function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
+  return { block: new Map(), embedContent: new Map(), templateContent: new Map() };
 }
 
 /**
@@ -38,7 +47,7 @@ function emptySnapshots(): Record<TreeKind, Map<BlockId, Block>> {
  * O(dirtyIds.size) instead of O(N_cached).
  *
  * **Per-tree snapshot maps, ONE invalidation set.** Snapshots are kept in
- * a per-`TreeKind` map record because the three accessors are
+ * a per-`BlockTreeKind` map record because the three accessors are
  * tree-specific: `getBlockSnapshot(embedId)` must return `null` (the id is
  * not in the main tree) even though that same id resolves under
  * `getEmbedContentSnapshot` — and `resolveBlock` relies on that precedence.
@@ -48,7 +57,7 @@ function emptySnapshots(): Record<TreeKind, Map<BlockId, Block>> {
  * from the accessor's own tree Y.Map is correct regardless of which tree it
  * lives in (an over-broad invalidation at worst forces one extra Y.Doc read
  * that returns the same data — never wrong data). Adding a 4th tree means
- * extending `TreeKind` / `TREE_KINDS`; the per-op code is already a loop.
+ * extending `BlockTreeKind` / `TREE_KINDS`; the per-op code is already a loop.
  *
  * **Read fall-through (S-A2).** A read first checks this layer's
  * `snapshots[kind]` map. On miss it consults `invalidated` — ids the most
@@ -76,7 +85,7 @@ export interface SnapshotCache {
   /** Per-tree, per-layer block snapshots. Either freshly read on this
    *  layer, or promoted up from `base` by a prior read. Mutable maps to
    *  support promote-on-read amortization. */
-  readonly snapshots: Record<TreeKind, Map<BlockId, Block>>;
+  readonly snapshots: Record<BlockTreeKind, Map<BlockId, Block>>;
   /** Ids whose `base` entry is stale at this layer; reads of these skip
    *  fall-through and re-snapshot from the Y.Doc. One set across all trees
    *  (ids are globally unique).
@@ -201,7 +210,7 @@ export function compactCache(
 function walkChain(
   cache: SnapshotCache,
   id: BlockId,
-  kind: TreeKind,
+  kind: BlockTreeKind,
 ): { hit: Block | null; visited: SnapshotCache[] | null } {
   let visited: SnapshotCache[] | null = null;
   let layer: SnapshotCache | null = cache;
@@ -234,7 +243,7 @@ function promoteInto(
   visited: SnapshotCache[] | null,
   id: BlockId,
   snap: Block,
-  kind: TreeKind,
+  kind: BlockTreeKind,
 ): void {
   if (visited === null) return;
   for (const v of visited) v.snapshots[kind].set(id, snap);
@@ -250,7 +259,7 @@ function readSnapshot(
   doc: Y.Doc,
   id: BlockId,
   cache: SnapshotCache,
-  kind: TreeKind,
+  kind: BlockTreeKind,
   getYMap: (doc: Y.Doc) => Y.Map<Y.Map<unknown>>,
 ): Block | null {
   const { hit, visited } = walkChain(cache, id, kind);
@@ -279,7 +288,7 @@ export function getEmbedContentSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  return readSnapshot(doc, id, cache, "embed", getEmbedContentsMap);
+  return readSnapshot(doc, id, cache, "embedContent", getEmbedContentsMap);
 }
 
 export function getTemplateContentSnapshot(
@@ -287,7 +296,7 @@ export function getTemplateContentSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  return readSnapshot(doc, id, cache, "template", getTemplateContentsMap);
+  return readSnapshot(doc, id, cache, "templateContent", getTemplateContentsMap);
 }
 
 /**

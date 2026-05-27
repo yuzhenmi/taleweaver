@@ -104,8 +104,9 @@ export type { ReadonlyAttrs } from "./attrs";
 export { deepValueEqual, attrsEqual, mergeAttrs } from "./attrs";
 
 // Block-shape taxonomy + the resolver the component registry implements.
+// Callers ask "what kind is this type?" via the resolver directly
+// (`resolver.getBlockKind(type)`); there is no separate free function.
 export type { BlockKind, BlockKindResolver } from "./block-kinds";
-export { blockKindOf } from "./block-kinds";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 2 — pure read-only utilities
@@ -195,24 +196,10 @@ export { History, createHistory } from "./history";
 export type { CreateEmptyDocumentArgs } from "./initial-state";
 export { createEmptyDocument } from "./initial-state";
 
-// ─────────────────────────────────────────────────────────────────────────
-// Internal seam — NOT for general consumers
-//
-// `clonePastedSubtree` is a paste helper (returns a plain snapshot map, does
-// NOT mutate State) and the reparent pure-core (`computeReparentWrites`,
+// NOTE: the reparent write-list machinery (`computeReparentWrites`,
 // `planReparentChildren`, `reparentChildrenInTx`, `BlockFieldWrite`,
-// `ReparentPlan`) is the write-list machinery shared by `reparentChildren` /
-// `applySectionBreak`. They live behind this comment so the consumer-facing
-// op surface above stays clean. The public `reparentChildren` /
-// `applySectionBreak` ops are the supported entry points; reach for these
-// only from state-module-internal callers (e.g. the paste action helper).
-// ─────────────────────────────────────────────────────────────────────────
-
-export type { ClonedSubtree } from "./clone-pasted-subtree";
-export { clonePastedSubtree } from "./clone-pasted-subtree";
-export type { BlockFieldWrite, ReparentPlan } from "./reparent-children";
-export {
-  computeReparentWrites,
-  planReparentChildren,
-  reparentChildrenInTx,
-} from "./reparent-children";
+// `ReparentPlan`) and the paste helper `clonePastedSubtree` / `ClonedSubtree`
+// are deliberately NOT re-exported here. They are state-module-internal: the
+// only intra-core callers (`section-break`, `merge-section`) import them
+// directly from `./reparent-children`, keeping the barrel's public op surface
+// to the supported entry points (`reparentChildren`, `applySectionBreak`).

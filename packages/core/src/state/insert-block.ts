@@ -7,7 +7,6 @@ import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
-import { blockKindOf } from "./block-kinds";
 import type { BlockKindResolver } from "./block-kinds";
 
 export interface InsertBlockArgs {
@@ -61,7 +60,7 @@ export function insertBlock(
   // Pre-condition (outside the transaction): when a resolver is supplied,
   // refuse to insert a child block under a non-container parent.
   if (resolver !== undefined) {
-    const parentKind = blockKindOf(parent.type, resolver);
+    const parentKind = resolver.getBlockKind(parent.type);
     if (parentKind !== "container") {
       throw new Error(
         `insertBlock: parent "${parentId}" (type "${parent.type}") is not a container (kind "${parentKind}"); cannot insert a child block under a non-container`,

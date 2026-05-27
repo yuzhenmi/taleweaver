@@ -100,8 +100,6 @@ export { setBlockType } from "./state";
 export { setBlockAttrs } from "./state";
 export { mergeBlockAttrs } from "./state";
 export { applyAttrsToRange } from "./state";
-export { clonePastedSubtree } from "./state";
-export type { ClonedSubtree } from "./state";
 export { extractText, builtinEmbedSerializer } from "./state";
 export type { EmbedSerializer } from "./state";
 

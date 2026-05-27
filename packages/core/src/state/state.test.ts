@@ -171,8 +171,8 @@ describe("applyOperation", () => {
     // tree (the overlay-starts-empty property is what the whole carry-forward
     // correctness argument rests on, so assert all three sub-maps).
     expect(newCache.snapshots.block.size).toBe(0);
-    expect(newCache.snapshots.embed.size).toBe(0);
-    expect(newCache.snapshots.template.size).toBe(0);
+    expect(newCache.snapshots.embedContent.size).toBe(0);
+    expect(newCache.snapshots.templateContent.size).toBe(0);
     // The dirty block is invalidated on this layer so reads don't fall
     // through to the stale base entry.
     expect(newCache.invalidated.has("b0" as BlockId)).toBe(true);

@@ -18,8 +18,9 @@ import type { InlineContent } from "./inline-content";
  *     `children` carries the BlockInit subtree; `inlineContent` MUST be
  *     null or undefined.
  *
- * The INSERT_NODE handler dispatches on `blockKindOf(type)` and validates
- * that the inlineContent / children fields match the kind; mismatches throw.
+ * The INSERT_NODE handler dispatches on `resolver.getBlockKind(type)` and
+ * validates that the inlineContent / children fields match the kind;
+ * mismatches throw.
  */
 export interface BlockInit {
   readonly type: string;

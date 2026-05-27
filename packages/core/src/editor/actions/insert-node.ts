@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { productionAllocator, getBlock, insertBlock, blockKindOf } from "../../state";
+import { productionAllocator, getBlock, insertBlock } from "../../state";
 import type { BlockInit, Position, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
 import { rebuildTrees } from "./helpers";
 
@@ -10,7 +10,7 @@ interface InsertNodeFold {
 
 /**
  * Insert a `BlockInit` (and its descendants) under `parentId` as the last
- * child. Dispatches on `blockKindOf(init.type)`:
+ * child. Dispatches on `resolver.getBlockKind(init.type)`:
  *
  *   - inline-bearing-leaf (paragraph, heading, list-item): use
  *     `init.inlineContent` directly. `init.children` MUST be undefined or
@@ -29,7 +29,7 @@ function insertBlockInitAt(
   resolver: BlockKindResolver,
   accumulatedDirtyIds: Set<BlockId>,
 ): InsertNodeFold {
-  const kind = blockKindOf(init.type, resolver);
+  const kind = resolver.getBlockKind(init.type);
   if (kind === null) {
     throw new Error(`INSERT_NODE: type "${init.type}" is not registered`);
   }
