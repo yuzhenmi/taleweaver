@@ -1,5 +1,7 @@
 import type { LeafComponentDefinition } from "./component-definition";
+import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
+import { textAlignFromAttrs } from "./leaf-style-attrs";
 
 /**
  * Heading font sizes by level (h1 — h6), in px. Matches legacy
@@ -19,7 +21,9 @@ function levelFromAttrs(level: unknown): 1 | 2 | 3 | 4 | 5 | 6 {
 /**
  * Heading: a leaf block carrying inline content + a `level` attr (1–6).
  * Per-level fontSize is set; bold + level-relative margin defaults match
- * legacy behavior.
+ * legacy behavior. An authored `textAlign` attr is forwarded onto the
+ * ElementBox `style` so it reaches the layout cascade (see
+ * `leaf-style-attrs.ts`).
  */
 export const headingComponent: LeafComponentDefinition = {
   type: "heading",
@@ -27,12 +31,15 @@ export const headingComponent: LeafComponentDefinition = {
   leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
-    return createElementBox(view.id, {
+    const textAlign = textAlignFromAttrs(view.attrs.textAlign);
+    const style: Style = {
       display: "block",
       fontWeight: "bold",
       fontSize: HEADING_FONT_SIZES[level],
       marginBlockStart: { unit: "em", value: 0.67 },
       marginBlockEnd: { unit: "em", value: 0.67 },
-    }, inlineRenderNodes);
+      ...(textAlign !== undefined ? { textAlign } : {}),
+    };
+    return createElementBox(view.id, style, inlineRenderNodes);
   },
 };

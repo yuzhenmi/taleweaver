@@ -45,4 +45,22 @@ describe("headingComponent (new)", () => {
     const el = node as ElementBox;
     expect(el.style.fontSize).toBe(HEADING_FONT_SIZES[1]);
   });
+
+  it("forwards a valid textAlign attr onto the ElementBox style", () => {
+    const view = leafView({ level: 1, textAlign: "end" });
+    const el = headingComponent.render(view, stubCtx(), []) as ElementBox;
+    expect(el.style.textAlign).toBe("end");
+  });
+
+  it("does NOT forward an invalid textAlign attr", () => {
+    const view = leafView({ level: 1, textAlign: "bogus" });
+    const el = headingComponent.render(view, stubCtx(), []) as ElementBox;
+    expect(el.style.textAlign).toBeUndefined();
+  });
+
+  it("does NOT set textAlign when the attr is absent", () => {
+    const view = leafView({ level: 1 });
+    const el = headingComponent.render(view, stubCtx(), []) as ElementBox;
+    expect("textAlign" in el.style).toBe(false);
+  });
 });

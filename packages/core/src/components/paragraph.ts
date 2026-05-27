@@ -1,6 +1,7 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style, WhiteSpace } from "../styles";
 import { createElementBox } from "../render/render-node";
+import { textAlignFromAttrs } from "./leaf-style-attrs";
 
 const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
   "normal",
@@ -40,7 +41,8 @@ function whiteSpaceFromAttrs(value: unknown): WhiteSpace | undefined {
  * for inter-paragraph spacing. An authored `whiteSpace` attr overrides the
  * inherited document default (`break-spaces`) — e.g. `"normal"` to collapse,
  * or `"pre"` for a code-style block — baked onto the ElementBox `style` so it
- * reaches the layout cascade.
+ * reaches the layout cascade. An authored `textAlign` attr is forwarded the
+ * same way (see `leaf-style-attrs.ts`).
  */
 export const paragraphComponent: LeafComponentDefinition = {
   type: "paragraph",
@@ -48,10 +50,12 @@ export const paragraphComponent: LeafComponentDefinition = {
   leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) => {
     const whiteSpace = whiteSpaceFromAttrs(view.attrs.whiteSpace);
+    const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const style: Style = {
       display: "block",
       marginBlockEnd: { unit: "em", value: 0.5 },
       ...(whiteSpace !== undefined ? { whiteSpace } : {}),
+      ...(textAlign !== undefined ? { textAlign } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },

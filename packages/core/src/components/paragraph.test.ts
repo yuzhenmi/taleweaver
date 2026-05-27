@@ -51,4 +51,31 @@ describe("paragraphComponent (new)", () => {
     expect(el.children).toHaveLength(1);
     expect((el.children[0] as TextBox).text).toBe("hello");
   });
+
+  it("forwards a valid textAlign attr onto the ElementBox style", () => {
+    const view = leafView({ attrs: Object.freeze({ textAlign: "center" }) });
+    const el = paragraphComponent.render(view, stubCtx(), []) as ElementBox;
+    expect(el.style.textAlign).toBe("center");
+  });
+
+  it.each(["start", "end", "center", "justify"] as const)(
+    "round-trips the %s keyword",
+    (value) => {
+      const view = leafView({ attrs: Object.freeze({ textAlign: value }) });
+      const el = paragraphComponent.render(view, stubCtx(), []) as ElementBox;
+      expect(el.style.textAlign).toBe(value);
+    },
+  );
+
+  it("does NOT forward an invalid textAlign attr", () => {
+    const view = leafView({ attrs: Object.freeze({ textAlign: "bogus" }) });
+    const el = paragraphComponent.render(view, stubCtx(), []) as ElementBox;
+    expect(el.style.textAlign).toBeUndefined();
+  });
+
+  it("does NOT set textAlign when the attr is absent", () => {
+    const view = leafView();
+    const el = paragraphComponent.render(view, stubCtx(), []) as ElementBox;
+    expect("textAlign" in el.style).toBe(false);
+  });
 });

@@ -60,9 +60,17 @@ function asLength(value: unknown): Length | null {
 }
 
 const VALID_TEXT_ALIGNS = ["start", "end", "center", "justify"] as const;
-type TextAlign = (typeof VALID_TEXT_ALIGNS)[number];
+export type TextAlign = (typeof VALID_TEXT_ALIGNS)[number];
 
-function isTextAlign(value: unknown): value is TextAlign {
+/**
+ * Type guard for the logical `textAlign` keywords (`"start" | "end" |
+ * "center" | "justify"`). Shared between the `textAlignInterpreter` (the
+ * generic attr→Style path) and the inline-bearing-leaf components, which
+ * synthesize `textAlign` onto their ElementBox `style` directly so the
+ * value reaches the layout cascade (the components/builtin-attrs
+ * "component-set" convention — see `components/paragraph.ts`).
+ */
+export function isTextAlign(value: unknown): value is TextAlign {
   return (
     typeof value === "string" &&
     (VALID_TEXT_ALIGNS as readonly string[]).includes(value)
