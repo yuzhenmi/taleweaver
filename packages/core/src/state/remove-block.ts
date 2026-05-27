@@ -21,9 +21,19 @@ import { STATE_INTERNAL } from "./state-internal";
  *
  * Returns OperationResult with dirtyIds containing:
  *   - every id in the deleted subtree (the named block + all descendants)
- *   - the parent's id (firstChildId / lastChildId may have changed)
+ *   - the parent's id ONLY when its firstChildId or lastChildId actually
+ *     changed (i.e. a BOUNDARY removal: the named block was the first and/or
+ *     last child). A MIDDLE removal leaves the parent's boundaries unchanged,
+ *     so the parent is NOT in dirtyIds (mirrors insertBlock). The parent
+ *     still re-renders via render's computeInvalidatedBlocks ancestor-walk:
+ *     the deleted child ∈ dirtyIds resolves through prevState → its parent is
+ *     invalidated.
  *   - the previous sibling's id (its nextSiblingId is rewired) — if exists
  *   - the next sibling's id (its prevSiblingId is rewired) — if exists
+ *
+ * Shared dirtyIds contract with insertBlock: a block is in `dirtyIds` iff its
+ * OWN fields changed; child-membership changes propagate through render's
+ * ancestor walk.
  *
  * Render consumers must drop their cached render nodes for ids in
  * dirtyIds that are NOT in result.state.blocks (they were deleted).
@@ -111,18 +121,32 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
       );
     }
 
-    // Always write both keys on the parent — preserves the explicit
-    // contract that parentId is always in dirtyIds (asserted by the
-    // middle-child removal test). Yjs's same-value `.set` happens to
-    // fire change events too, but we don't want the contract coupled
-    // to that internal Yjs detail.
-    const yParent = getYBlock(doc, parentId, "removeBlock");
-    const newFirstChildId =
-      yParent.get("firstChildId") === blockId ? block.nextSiblingId : yParent.get("firstChildId");
-    const newLastChildId =
-      yParent.get("lastChildId") === blockId ? block.prevSiblingId : yParent.get("lastChildId");
-    yParent.set("firstChildId", newFirstChildId);
-    yParent.set("lastChildId", newLastChildId);
+    // Update the parent's firstChildId / lastChildId only when the removed
+    // block sat at a boundary. Writing same-value to a Y.Map still fires a
+    // change event, which would land the parent in dirtyIds and trigger an
+    // unnecessary re-paint. A MIDDLE removal touches neither boundary, so we
+    // skip the parent entirely — it stays OUT of dirtyIds. The parent still
+    // re-renders correctly on a middle removal via render's
+    // computeInvalidatedBlocks ancestor-walk: the deleted child IS in
+    // dirtyIds (part of the deleted subtree), and the walk resolves each
+    // dirty id through prevState when it's gone from the new state, so the
+    // deleted child's parent gets added to the invalidation set regardless of
+    // whether removeBlock writes the parent here.
+    //
+    // Shared contract with insertBlock: a block is in `dirtyIds` iff its OWN
+    // fields changed; child-membership changes propagate through render's
+    // ancestor walk.
+    const removingFirstChild = parent.firstChildId === blockId;
+    const removingLastChild = parent.lastChildId === blockId;
+    if (removingFirstChild || removingLastChild) {
+      const yParent = getYBlock(doc, parentId, "removeBlock");
+      if (removingFirstChild) {
+        yParent.set("firstChildId", block.nextSiblingId);
+      }
+      if (removingLastChild) {
+        yParent.set("lastChildId", block.prevSiblingId);
+      }
+    }
 
     // Delete every id in the subtree from the blocks map.
     for (const id of subtreeIds) {

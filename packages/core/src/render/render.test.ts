@@ -810,6 +810,68 @@ describe("render (incremental — R-D)", () => {
     expect(out2).not.toBe(out1);
     expect(out2.root).not.toBe(out1.root);
   });
+
+  // S-B3 regression guard: removeBlock no longer dirties the parent on a
+  // MIDDLE removal (it only writes a parent boundary pointer when that
+  // boundary actually changes). This test proves the parent STILL re-renders
+  // via render's computeInvalidatedBlocks ancestor-walk — the deleted child is
+  // in dirtyIds, the walk resolves it through prevState, and its parent gets
+  // added to the invalidation set — EVEN THOUGH the parent id is NOT in
+  // dirtyIds. This is the safety net for the dirtyIds-contract change.
+  it("middle removeBlock re-renders the parent via ancestor-walk even though parent ∉ dirtyIds", async () => {
+    const reg = basicRegistry();
+    const attrs = createDefaultAttrRegistry();
+    const state1 = threeParagraphState();
+    const prev = render(state1, reg, attrs);
+
+    const { removeBlock } = await import("../state/remove-block");
+    // Remove the MIDDLE child p2.
+    const { state: state2, dirtyIds } = removeBlock(state1, "p2" as BlockId);
+
+    // Make the point explicit: the parent (doc) is NOT in dirtyIds for a
+    // middle removal under the new contract.
+    expect(dirtyIds.has("doc" as BlockId)).toBe(false);
+    // The deleted child IS in dirtyIds (part of the deleted subtree).
+    expect(dirtyIds.has("p2" as BlockId)).toBe(true);
+
+    const out = render(state2, reg, attrs, {
+      prev,
+      prevState: state1,
+      dirtyIds,
+    });
+
+    function findChild(root: RenderNode, key: string): RenderNode | undefined {
+      if (root.type !== "element") return undefined;
+      for (const c of (root as ElementBox).children) {
+        if (c.key === key) return c;
+        if (c.type === "element") {
+          const found = findChild(c, key);
+          if (found !== undefined) return found;
+        }
+      }
+      return undefined;
+    }
+
+    // out.root / prev.root ARE the parent (the "doc" container) RenderNode.
+    const prevDoc = prev.root;
+    const outDoc = out.root;
+    expect(prevDoc.key).toBe("doc");
+    expect(outDoc.key).toBe("doc");
+    // The parent's RenderNode was REBUILT — different object identity than
+    // prev's parent node — despite parent ∉ dirtyIds.
+    expect(outDoc).not.toBe(prevDoc);
+
+    // The rebuilt parent's children no longer include a node for the removed
+    // child b (p2); a (p1) and c (p3) remain.
+    expect(findChild(out.root, "p1")).toBeDefined();
+    expect(findChild(out.root, "p3")).toBeDefined();
+    expect(findChild(out.root, "p2")).toBeUndefined();
+
+    // And p1 / p3 (untouched siblings beyond the rewired link) are still
+    // present as the parent's direct children.
+    const outDocChildren = (outDoc as ElementBox).children;
+    expect(outDocChildren.map((c) => c.key).sort()).toEqual(["p1", "p3"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

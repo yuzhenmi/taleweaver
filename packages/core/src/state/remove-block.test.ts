@@ -37,10 +37,17 @@ describe("removeBlock — middle child", () => {
     expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p3");
   });
 
-  it("returns dirtyIds for removed block + parent + adjacent siblings", () => {
+  it("returns dirtyIds for removed block + adjacent siblings, NOT the parent (middle removal leaves the parent's boundaries unchanged)", () => {
     const state = fixture();
     const result = removeBlock(state, "p2" as BlockId);
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "doc", "p1", "p3"]));
+    // New contract (mirrors insertBlock): a block is in dirtyIds iff its OWN
+    // fields changed. A middle removal rewires only the two adjacent siblings;
+    // the parent's firstChildId/lastChildId are untouched, so the parent is
+    // NOT dirtied here. The parent still re-renders via render's
+    // computeInvalidatedBlocks ancestor-walk (the deleted child ∈ dirtyIds
+    // resolves through prevState → its parent is invalidated).
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "p1", "p3"]));
+    expect(result.dirtyIds.has("doc" as BlockId)).toBe(false);
   });
 });
 
@@ -120,6 +127,15 @@ describe("removeBlock — first child", () => {
     expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p3");
     expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBeNull();
   });
+
+  it("includes the parent in dirtyIds (firstChildId changed) — boundary removal", () => {
+    const state = fixture();
+    const result = removeBlock(state, "p1" as BlockId);
+    // p1 (deleted), p2 (next sibling — prevSiblingId rewired), doc (parent —
+    // firstChildId changed). No prev sibling.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
+    expect(result.dirtyIds.has("doc" as BlockId)).toBe(true);
+  });
 });
 
 describe("removeBlock — last child", () => {
@@ -142,6 +158,15 @@ describe("removeBlock — last child", () => {
     expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
     expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBeNull();
   });
+
+  it("includes the parent in dirtyIds (lastChildId changed) — boundary removal", () => {
+    const state = fixture();
+    const result = removeBlock(state, "p3" as BlockId);
+    // p3 (deleted), p2 (prev sibling — nextSiblingId rewired), doc (parent —
+    // lastChildId changed). No next sibling.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p2", "doc"]));
+    expect(result.dirtyIds.has("doc" as BlockId)).toBe(true);
+  });
 });
 
 describe("removeBlock — only child", () => {
@@ -160,7 +185,9 @@ describe("removeBlock — only child", () => {
     const result = removeBlock(state, "p1" as BlockId);
     expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBeNull();
     expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBeNull();
+    // Both firstChildId and lastChildId change → parent is dirtied. No siblings.
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "doc"]));
+    expect(result.dirtyIds.has("doc" as BlockId)).toBe(true);
   });
 });
 
