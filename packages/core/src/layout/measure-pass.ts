@@ -45,6 +45,18 @@ import {
  */
 const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
 
+/**
+ * Local copy of the dev-mode flag (mirrors `layout-box-v2.ts`'s
+ * `isDevModeForBox`): the layout module avoids importing the state module's
+ * `dev-mode.ts` to keep the layer's dependency graph clean. Reads `process.env`
+ * defensively because the engine compiles for browsers (no `process` global).
+ * Used only to gate the slot-cap invariant assert below.
+ */
+function isDevModeForMeasurePass(): boolean {
+  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
+  return proc?.env?.NODE_ENV !== "production";
+}
+
 let _fitOnePageCallCount = 0;
 
 /** Test-only: number of `fitOnePage` calls from `measurePass` since last reset. */
@@ -427,16 +439,19 @@ export function measurePass(
     // GROWN insets (header pushes the body down, footer pushes it up), NOT the
     // raw margins. For a no-slot page this equals the raw-margin content size.
     const effContentBlockSize = effCfg.pageBlockSize - effTop - effBottom;
-    // Degenerate guard (#328): a header/footer taller than the whole page leaves
-    // no room for body content → fitOnePage would never advance (caught only by
-    // the maxPages bound, with a misleading "failed to advance" error). Throw a
-    // clear diagnostic instead. Proper Google-Docs-style header-growth CAPPING
-    // (cap the slot so the body keeps a minimum area) is follow-up #329.
-    if (effContentBlockSize <= 0) {
+    // Slot-cap invariant (#329): the producer's `computeSlotInsets` pre-caps the
+    // per-section insets so the body content area always retains ≥ minBody. This
+    // branch is therefore UNREACHABLE for producer-built plans; it is kept as a
+    // dev-only invariant assert (not a hard prod throw) so a future regression
+    // that lets an uncapped inset through surfaces loudly in tests/dev without
+    // crashing production layout. (Degenerate doc-wide margins — independent of
+    // the slot cap — are caught by the coarse guard above, which DOES throw.)
+    if (isDevModeForMeasurePass() && effContentBlockSize <= 0) {
       throw new Error(
         `measurePass: header/footer insets (top=${effTop}, bottom=${effBottom}) leave no ` +
           `body content area within pageBlockSize=${effCfg.pageBlockSize} for section ` +
-          `"${activeSectionId ?? "implicit"}" — the slot is taller than the page (see #329).`,
+          `"${activeSectionId ?? "implicit"}" — the slot should have been capped by the ` +
+          `producer (see #329).`,
       );
     }
     if (pageIndex === 0 || activeSectionId !== currentActiveSectionId) {

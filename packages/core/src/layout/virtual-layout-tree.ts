@@ -179,6 +179,18 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
   return true;
 }
 
+/**
+ * Local copy of the dev-mode flag (mirrors `layout-box-v2.ts`'s
+ * `isDevModeForBox`): the layout module avoids importing the state module's
+ * `dev-mode.ts` to keep the layer's dependency graph clean. Reads `process.env`
+ * defensively because the engine compiles for browsers (no `process` global).
+ * Used only to gate the slot-cap invariant assert in `materializePage`.
+ */
+function isDevModeForVirtualLayout(): boolean {
+  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
+  return proc?.env?.NODE_ENV !== "production";
+}
+
 function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
   return (
     a.blockOffset === b.blockOffset &&
@@ -346,13 +358,17 @@ export function makeVirtualLayoutTree(
     const effBottomInset = entry.effectiveBottomInset;
     const effContentBlockSize =
       effCfg.pageBlockSize - effTopInset - effBottomInset;
-    // Degenerate guard (#328), mirroring measurePass: a slot taller than the page
-    // leaves no body area. measurePass throws first in the normal flow; this is
-    // defense-in-depth for a directly-built plan. (Google-Docs growth-capping: #329.)
-    if (effContentBlockSize <= 0) {
+    // Slot-cap invariant (#329), mirroring measurePass: the producer's
+    // `computeSlotInsets` pre-caps the per-section insets so the body content
+    // area always retains ≥ minBody. This branch is therefore UNREACHABLE for
+    // producer-built plans; it is kept as a dev-only invariant assert (not a
+    // hard prod throw) because a DIRECTLY-built plan bypasses the producer cap —
+    // the invariant stays visible in tests/dev without crashing production.
+    if (isDevModeForVirtualLayout() && effContentBlockSize <= 0) {
       throw new Error(
         `materializePage: header/footer insets (top=${effTopInset}, bottom=${effBottomInset}) ` +
-          `leave no body content area within pageBlockSize=${effCfg.pageBlockSize} (see #329).`,
+          `leave no body content area within pageBlockSize=${effCfg.pageBlockSize} — the slot ` +
+          `should have been capped by the producer (see #329).`,
       );
     }
     const effContentInlineSize =

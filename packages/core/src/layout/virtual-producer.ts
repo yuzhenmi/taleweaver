@@ -28,6 +28,8 @@ import { measurePass, type SlotInsets } from "./measure-pass";
 import { buildSectionPlan, type SectionPlan } from "./section-plan";
 import { flattenContents } from "./group-children";
 import { layoutBlock } from "./bfc";
+import { adaptShaperToMeasurer } from "./text-measurer";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**
@@ -89,8 +91,18 @@ export function buildVirtualPaginatedTree(
   // (and the footer pushes up). A section with no header/footer (the common
   // case) leaves the map absent for it ⇒ `measurePass` falls back to raw
   // margins ⇒ byte-identical pagination.
+  // Growth cap (#329): the body content area must always retain a MINIMUM
+  // block size so a header/footer taller than the page cannot drive it ≤ 0
+  // (which would otherwise CRASH the pipeline). The minimum is one body-root
+  // line-height — measured ONCE here so `computeSlotInsets` stays pure
+  // arithmetic. `cascadedRoot.computedStyle` is non-null by contract (callers
+  // gate on `cascadedRoot.computedStyle?.display === "block"`); default to
+  // `INITIAL_COMPUTED_STYLE` rather than risk a non-null assertion.
+  const minBodyPx = adaptShaperToMeasurer(shaper).measureHeight(
+    cascadedRoot.computedStyle ?? INITIAL_COMPUTED_STYLE,
+  );
   const slotInsets = computeSlotInsets(
-    sectionPlan, pageConfig, ctx, shaper, cascadedTemplateContents,
+    sectionPlan, pageConfig, ctx, shaper, cascadedTemplateContents, minBodyPx,
   );
   const plan = measurePass(
     metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan, slotInsets,
@@ -118,6 +130,20 @@ export function buildVirtualPaginatedTree(
  * footer body) is OMITTED from the map — `measurePass`'s `?? margin` fallback
  * handles it identically, and omitting keeps the no-slot path allocation-light.
  *
+ * **Growth cap (#329):** after computing the uncapped `top`/`bottom`, the slot
+ * growth is capped so the body content area retains a MINIMUM block size
+ * (`minBodyPx`, one body-root line-height) — a header/footer taller than the
+ * page can no longer drive the body ≤ 0 (which would CRASH the pipeline).
+ * `minBody` is clamped to the page's own usable band (`pageBlockSize −
+ * marginTop − marginBottom`) so a degenerate page (margins alone exceeding the
+ * page) still yields a non-negative budget — but that DEGENERATE-margins case
+ * is independently caught by the doc-wide coarse guard, not softened here. When
+ * a cap fires, the GROWTH-BEYOND-MARGIN is reduced PROPORTIONALLY (margins are
+ * the floor; never capped below them), so a lone tall slot gets the whole
+ * budget and a both-tall page splits it. The over-tall slot's body still lays
+ * at its NATURAL height (the cap touches only the insets / body origin), so its
+ * content visually OVERLAPS the body band (accepted v1; clean clip deferred).
+ *
  * **Memo (perf):** a `WeakMap<bodyRef, Map<inlineSize, blockSize>>` caches a
  * body's laid-out height per inline-size. The incremental cascade returns the
  * SAME body `ElementBox` ref when the body is unchanged, so a main-body keystroke
@@ -131,6 +157,7 @@ function computeSlotInsets(
   ctx: LayoutContext,
   shaper: TextShaper,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>,
+  minBodyPx: number,
 ): SlotInsets {
   // No bodies at all ⇒ no section can grow a slot ⇒ skip the work entirely and
   // let measurePass fall back to raw margins for every section.
@@ -178,13 +205,40 @@ function computeSlotInsets(
     const headerHeight = headerBody !== undefined ? naturalHeight(headerBody, effContentInlineSize) : 0;
     const footerHeight = footerBody !== undefined ? naturalHeight(footerBody, effContentInlineSize) : 0;
 
-    const top = Math.max(effCfg.pageMargins.blockStart, headerHeight);
-    const bottom = Math.max(effCfg.pageMargins.blockEnd, footerHeight);
+    const marginTop = effCfg.pageMargins.blockStart;
+    const marginBottom = effCfg.pageMargins.blockEnd;
+    let top = Math.max(marginTop, headerHeight);
+    let bottom = Math.max(marginBottom, footerHeight);
+
+    // Growth cap (#329): keep the body content area ≥ minBody so a header/footer
+    // taller than the page never drives it ≤ 0 (which would crash the pipeline).
+    // Clamp minBody to this boundary's usable band so a degenerate page (margins
+    // alone ≥ pageBlockSize) still yields a non-negative budget; that degenerate
+    // case is independently caught by the doc-wide coarse guard, not here.
+    const minBody = Math.max(0, Math.min(minBodyPx, effCfg.pageBlockSize - marginTop - marginBottom));
+    const maxInsetSum = effCfg.pageBlockSize - minBody;
+    if (top + bottom > maxInsetSum) {
+      // Cap the GROWTH-BEYOND-MARGIN proportionally — margins are the floor and
+      // are never reduced. A lone tall slot gets the whole budget; a both-tall
+      // page splits it in proportion to each slot's growth.
+      const growthTop = top - marginTop;
+      const growthBottom = bottom - marginBottom;
+      const growth = growthTop + growthBottom;
+      const budget = Math.max(0, maxInsetSum - marginTop - marginBottom);
+      // GUARD the divide: when growth is 0 there is no growth to redistribute
+      // (and 0/0 would be NaN), so leave top/bottom at the margins.
+      if (growth > 0) {
+        top = marginTop + (growthTop * budget) / growth;
+        bottom = marginBottom + (growthBottom * budget) / growth;
+      }
+    }
 
     // Omit a boundary whose insets both reduce to the raw margins — the
     // measurePass fallback produces the identical values, so storing them is
-    // redundant (and keeps the no-slot path map small).
-    if (top === effCfg.pageMargins.blockStart && bottom === effCfg.pageMargins.blockEnd) {
+    // redundant (and keeps the no-slot path map small). A capped boundary won't
+    // equal margins (it grew past them, then shrank to a value strictly above
+    // its margin while the budget remains), so it is still stored — correct.
+    if (top === marginTop && bottom === marginBottom) {
       continue;
     }
     // Key by the section's id (NOT the body id) — the value `sectionStateAt`
