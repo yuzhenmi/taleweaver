@@ -6,6 +6,8 @@ import { layoutTree } from "../layout/dispatch";
 import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { computeUsedStyle } from "../layout/used-style";
+import { createLineBox, createTextRunBox } from "../layout/layout-box-v2";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state";
 import type { BlockId } from "../state";
@@ -446,5 +448,84 @@ describe("collectLineLeaves — offsetContribution = state span (collapsed white
     const total = leaves.reduce((s, l) => s + l.offsetContribution, 0);
     expect(total).toBe(lines[0].line.inlineOffsetEnd - lines[0].line.inlineOffsetStart);
     expect(total).toBe("idoajs  dsajiodj".length);
+  });
+});
+
+describe("collectLineLeaves — no double-count of the line's own x (alignment offset)", () => {
+  const cs = INITIAL_COMPUTED_STYLE;
+  const us = computeUsedStyle(cs, 200, "indefinite");
+
+  /**
+   * Build a LineBox whose own physical `x` is `lineX` (e.g. an alignment
+   * offset for a centered/right line) holding text-run children at the given
+   * relative inline offsets. For `horizontal-tb`/`ltr` the physical `x` equals
+   * the logical `inlineOffset`, so passing `inlineOffset = lineX` produces
+   * `line.x === lineX` and a child with `inlineOffset = relX` has `child.x ===
+   * relX`. The line's ABSOLUTE x (what `collectLineLeaves` is GIVEN) is `lineX`
+   * itself in these fixtures (the line's parent block sits at document x 0).
+   */
+  function buildLine(
+    lineX: number,
+    children: ReadonlyArray<{ key: string; relX: number; width: number; text: string }>,
+  ) {
+    const runs = children.map((c) =>
+      createTextRunBox(c.key, c.relX, 0, c.width, 16, "horizontal-tb", "ltr", cs, us, c.text, c.text.length, 200),
+    );
+    // line spans the full container width; its own physical x is `lineX`.
+    return createLineBox(
+      "line", lineX, 0, 200 - lineX, 16, "horizontal-tb", "ltr", cs, us,
+      runs, 16, 200, "owner" as BlockId, 0,
+      children.reduce((s, c) => s + c.text.length, 0), true,
+    );
+  }
+
+  it("nonzero line.x: leaves resolve to lineAbsX + childRelX, NOT lineAbsX + line.x + childRelX", () => {
+    // A centered/aligned line: its own physical x is 50. The caller passes the
+    // line's ABSOLUTE x (= 50, block at doc x 0). The first child sits at
+    // relative x 0 (width 40), the second at relative x 40.
+    const line = buildLine(50, [
+      { key: "a", relX: 0, width: 40, text: "abcde" },
+      { key: "b", relX: 40, width: 40, text: "fghij" },
+    ]);
+    expect(line.x).toBe(50); // physical x === alignment offset
+
+    const leaves = collectLineLeaves(line, 50);
+    expect(leaves).toHaveLength(2);
+    // First child: lineAbsX + relX = 50 + 0 = 50. BUG returned 100 (50 + 50 + 0).
+    expect(leaves[0].absoluteX).toBe(50);
+    // Second child: 50 + 40 = 90. BUG returned 140 (50 + 50 + 40).
+    expect(leaves[1].absoluteX).toBe(90);
+  });
+
+  it("line.x === 0 (start-aligned): leaves resolve to the passed lineAbsX (no-regression guard)", () => {
+    // Start-aligned line: own x is 0. The double-count is masked here
+    // (lineAbsX + 0 === lineAbsX) — assert it stays byte-identical.
+    const line = buildLine(0, [
+      { key: "a", relX: 0, width: 40, text: "abcde" },
+      { key: "b", relX: 40, width: 40, text: "fghij" },
+    ]);
+    expect(line.x).toBe(0);
+
+    const leaves = collectLineLeaves(line, 0);
+    expect(leaves).toHaveLength(2);
+    expect(leaves[0].absoluteX).toBe(0);
+    expect(leaves[1].absoluteX).toBe(40);
+  });
+
+  it("nonzero line.x with a nonzero block origin: leaves track lineAbsX (not lineAbsX + line.x)", () => {
+    // Generalize: the line's parent block is NOT at doc x 0. The caller still
+    // passes the line's ABSOLUTE x (block origin + line.x). Here line.x is the
+    // alignment offset 30; the absolute x the caller passes is 130 (block at
+    // doc x 100). Leaves must land at 130 / 170, never +30 again.
+    const line = buildLine(30, [
+      { key: "a", relX: 0, width: 40, text: "abcde" },
+      { key: "b", relX: 40, width: 40, text: "fghij" },
+    ]);
+    expect(line.x).toBe(30);
+
+    const lineAbsX = 130; // block at doc x 100, line.x 30
+    const leaves = collectLineLeaves(line, lineAbsX);
+    expect(leaves[0].absoluteX).toBe(130);
+    expect(leaves[1].absoluteX).toBe(170);
   });
 });

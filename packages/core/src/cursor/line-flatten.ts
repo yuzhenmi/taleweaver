@@ -256,7 +256,20 @@ export type LineLeaf =
  */
 export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
   const out: LineLeaf[] = [];
-  collectLeavesRec(line, lineAbsX, out);
+  // Contract mismatch: `collectLineLeaves` is GIVEN the line's ABSOLUTE x
+  // (`lineAbsX` = blockAbsX + line.x; the callers read it straight off the
+  // `AbsoluteLineBox`). But `collectLeavesRec`'s `line`/`inline` branch expects
+  // the PARENT-frame x and re-adds the box's own `.x` (`absX = parentX +
+  // box.x`). So we hand it the parent-frame x (`lineAbsX - line.x`); the
+  // recursion re-adds `line.x` exactly once, yielding `lineAbsX` for the line
+  // and `lineAbsX + childRelX` for its children. Subtracting the LineBox's own
+  // physical `.x` (the alignment offset for a centered/right line) is what kills
+  // the double-count that over-shifted the caret/selection/hit-test on aligned
+  // lines. For start-aligned content `line.x === 0`, so `lineAbsX - 0 ===
+  // lineAbsX` and the result is byte-identical. Works in both writing
+  // directions because `box.x` IS the physical coordinate, so `lineAbsX -
+  // line.x + line.x === lineAbsX` regardless of LTR/RTL.
+  collectLeavesRec(line, lineAbsX - line.x, out);
   return out;
 }
 
