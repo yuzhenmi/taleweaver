@@ -81,6 +81,7 @@ function insertBlockInitAt(
       inlineContent,
     },
     allocator,
+    resolver,
   );
   for (const id of insertResult.dirtyIds) accumulatedDirtyIds.add(id);
   let cur = insertResult.state;

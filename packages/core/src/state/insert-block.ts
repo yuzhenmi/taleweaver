@@ -7,6 +7,8 @@ import { getBlocksMap, getYBlock } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
+import { blockKindOf } from "./block-kinds";
+import type { BlockKindResolver } from "./block-kinds";
 
 export interface InsertBlockArgs {
   type: string;
@@ -29,6 +31,13 @@ export interface InsertBlockArgs {
  *
  * Throws if `parentId` does not exist, or if `beforeSiblingId` is
  * non-null and is not actually a child of `parentId`.
+ *
+ * When `resolver` is provided, also validates that the parent is a
+ * container block (a block-child may only be inserted under a container).
+ * Inserting under a leaf (paragraph / image) would create an invalid tree
+ * shape; the guard throws before any mutation. When `resolver` is omitted
+ * the check is skipped (backward-compatible with callers that lack the
+ * component registry).
  */
 export function insertBlock(
   state: State,
@@ -36,10 +45,22 @@ export function insertBlock(
   beforeSiblingId: BlockId | null,
   args: InsertBlockArgs,
   allocator: IdAllocator,
+  resolver?: BlockKindResolver,
 ): OperationResult {
   const parent = getBlock(state, parentId);
   if (!parent) {
     throw new Error(`insertBlock: parent "${parentId}" not found`);
+  }
+
+  // Pre-condition (outside the transaction): when a resolver is supplied,
+  // refuse to insert a child block under a non-container parent.
+  if (resolver !== undefined) {
+    const parentKind = blockKindOf(parent.type, resolver);
+    if (parentKind !== "container") {
+      throw new Error(
+        `insertBlock: parent "${parentId}" (type "${parent.type}") is not a container (kind "${parentKind}"); cannot insert a child block under a non-container`,
+      );
+    }
   }
 
   // Determine prev / next siblings.

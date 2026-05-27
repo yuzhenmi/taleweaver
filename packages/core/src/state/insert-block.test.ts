@@ -4,6 +4,24 @@ import { getBlock } from "./state";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import { createTestAllocator } from "./block-id";
 import type { BlockId } from "./block-id";
+import type { BlockKind, BlockKindResolver } from "./block-kinds";
+
+// Narrow BlockKindResolver covering the built-in taxonomy (mirrors the one in
+// set-block-type.test.ts / map-agnostic-ops.test.ts). State ops depend only on
+// the BlockKindResolver shape — they don't need the full component registry.
+const TYPE_KINDS: Record<string, BlockKind> = {
+  document: "container",
+  section: "container",
+  list: "container",
+  paragraph: "inline-bearing-leaf",
+  heading: "inline-bearing-leaf",
+  "list-item": "inline-bearing-leaf",
+  image: "atomic-leaf",
+  "horizontal-line": "atomic-leaf",
+};
+const resolver: BlockKindResolver = {
+  getBlockKind: (t) => TYPE_KINDS[t] ?? null,
+};
 
 describe("insertBlock — between siblings", () => {
   // doc > [p1, p2]  →  doc > [p1, NEW, p2]
@@ -182,6 +200,94 @@ describe("insertBlock — error cases", () => {
     expect(() =>
       insertBlock(state, "doc" as BlockId, "missing-sibling" as BlockId, { type: "paragraph" }, allocator),
     ).toThrow(/beforeSibling.*not found/);
+  });
+
+  it("throws when a resolver is provided and the parent is a leaf (not a container)", () => {
+    // doc > [p1]; attempt to insert a child block UNDER the paragraph p1.
+    // Without the resolver this would silently create an invalid tree shape
+    // (a block-child under an inline-bearing leaf).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(
+        state,
+        "p1" as BlockId,
+        null,
+        { type: "paragraph", inlineContent: inlineContent([]) },
+        allocator,
+        resolver,
+      ),
+    ).toThrow(/is not a container/);
+  });
+
+  it("throws when a resolver is provided and the parent's type is unregistered (kind resolves to null)", () => {
+    // doc > [mystery]; the "mystery" type is absent from the resolver map, so
+    // blockKindOf returns null. A null kind is NOT a container, so the guard
+    // must fire (rather than treating the unknown type as insertable-into).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "mystery", lastChildId: "mystery" }),
+        buildBlock({ id: "mystery", type: "mystery", parentId: "doc" }),
+      ],
+    });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(
+        state,
+        "mystery" as BlockId,
+        null,
+        { type: "paragraph", inlineContent: inlineContent([]) },
+        allocator,
+        resolver,
+      ),
+    ).toThrow(/is not a container \(kind "null"\)/);
+  });
+
+  it("succeeds when a resolver is provided and the parent IS a container", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [buildBlock({ id: "doc", type: "document" })],
+    });
+    const allocator = createTestAllocator("new");
+    const result = insertBlock(
+      state,
+      "doc" as BlockId,
+      null,
+      { type: "paragraph", inlineContent: inlineContent([]) },
+      allocator,
+      resolver,
+    );
+    const newId = "new-0" as BlockId;
+    expect(getBlock(result.state, newId)?.parentId).toBe("doc");
+  });
+
+  it("does NOT throw on a leaf parent when no resolver is provided (back-compat)", () => {
+    // Identical fixture to the resolver-leaf case, but with no resolver arg:
+    // the kind guard is skipped entirely and the insert proceeds as before.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const allocator = createTestAllocator("new");
+    expect(() =>
+      insertBlock(
+        state,
+        "p1" as BlockId,
+        null,
+        { type: "paragraph", inlineContent: inlineContent([]) },
+        allocator,
+      ),
+    ).not.toThrow();
   });
 
   it("throws when the allocator returns a colliding id (already exists in blocks)", () => {
