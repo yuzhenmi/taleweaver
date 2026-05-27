@@ -86,17 +86,23 @@ export function applyAttrsToRange(
   // with their original messages, before any Y.Doc mutation happens.
   const segments = Array.from(iterateSpan(state, span));
 
+  // C.2c T7b: resolve the OWNING tree so a span inside a header/footer body
+  // (templateContents) mutates the right Y.Map. A span is confined to a single
+  // selection context (cross-context spans are refused by iterateSpan), so all
+  // segments share one kind — resolve it ONCE, here, from the first segment.
+  // Resolving BEFORE opening the transaction keeps the applier read-free,
+  // matching the plan/apply pattern the rest of Layer 3 uses (deleteRange,
+  // reparentChildren). `?? "block"` is a defensive fallback (segments were just
+  // yielded by iterateSpan, so resolveBlock cannot return null in correct code)
+  // that keeps the main-tree default.
+  const kind =
+    segments.length > 0
+      ? resolveBlock(state, segments[0].block.id)?.kind ?? "block"
+      : "block";
+
   return applyOperation(state, () => {
     for (const seg of segments) {
       if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-      // C.2c T7b: resolve the OWNING tree per segment so a span inside a
-      // header/footer body (templateContents) mutates the right Y.Map. A span
-      // is confined to a single context (cross-context spans are refused by
-      // iterateSpan), so all segments share one kind; resolving per-seg is the
-      // simplest correct option. `?? "block"` is a defensive fallback (the
-      // segment block was just yielded by iterateSpan, so resolveBlock cannot
-      // return null in correct code) that keeps the main-tree default.
-      const kind = resolveBlock(state, seg.block.id)?.kind ?? "block";
       const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange", kind);
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves

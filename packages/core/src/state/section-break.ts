@@ -2,7 +2,7 @@ import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { Position } from "./block-position";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getBlocksMap, getYBlock, allTreeBlockCount } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import {
   computeReparentWrites,
@@ -109,7 +109,11 @@ export function applySectionBreak(
     let cur: BlockId | null = container.firstChildId;
     let reachedBoundary = false;
     let guard = 0;
-    const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+    // Cycle bound: total blocks across all three trees (`allTreeBlockCount`),
+    // matching every other cycle-guarded traversal. A main-map-sized bound
+    // (`getBlocksMap(doc).size`) under-bounds a walk that could legitimately
+    // exceed the main map — see yjs-doc.ts `allTreeBlockCount` rationale.
+    const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
     while (cur !== null) {
       if (++guard > maxSteps) {
         throw new Error(

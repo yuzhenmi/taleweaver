@@ -38,6 +38,10 @@ export interface SiblingBlockInit {
  *
  * Throws if `afterBlockId` does not exist, or if it is the root (null
  * parent — the root cannot have siblings).
+ *
+ * TREE SCOPE: operates on the MAIN `blocks` tree only (like `insertBlock`,
+ * unlike the inline ops). All current callers insert into the main document
+ * tree; an embed/template-content variant would need `kind` routing.
  */
 export function insertBlocksAfter(
   state: State,

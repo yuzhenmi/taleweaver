@@ -1,7 +1,7 @@
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getBlocksMap, getYBlock, allTreeBlockCount } from "./yjs-doc";
 import {
   computeReparentWrites,
   reparentChildrenInTx,
@@ -67,13 +67,14 @@ export function mergeSectionWithPrevious(
   }
 
   // --- Step C: capture pre-tx pointers (one pass over the snapshot) ---
-  // Walk the section's child run [first .. last], cycle-guarded by the live
-  // block count + 1 (same bound `applySectionBreak` uses).
+  // Walk the section's child run [first .. last], cycle-guarded by the total
+  // all-tree block count + 1 (same bound `applySectionBreak` and every other
+  // cycle-guarded traversal use; see yjs-doc.ts `allTreeBlockCount`).
   const movedChildren: BlockId[] = [];
   {
     let cur: BlockId | null = section.firstChildId;
     let guard = 0;
-    const maxSteps = getBlocksMap(state[STATE_INTERNAL].doc).size + 1;
+    const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
     while (cur !== null) {
       if (++guard > maxSteps) {
         throw new Error(

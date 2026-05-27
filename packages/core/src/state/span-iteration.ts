@@ -1,13 +1,11 @@
 import type { State } from "./state";
-import { resolveBlock } from "./state";
+import { resolveBlock, blockCount } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
 import type { Block } from "./block";
 import { inlineContentLength } from "./inline-content";
 import { nextBlockInDocOrder } from "./block-traversal";
-import { allTreeBlockCount } from "./yjs-doc";
-import { STATE_INTERNAL } from "./state-internal";
 
 /**
  * Normalize a span so anchor comes before focus in document order.
@@ -105,9 +103,9 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // p1.nextSiblingId === p2 and p2.nextSiblingId === p1). The outer
   // counter here catches that cross-call case and surfaces a contextual
   // error that names the anchor + focus block IDs — useful for debugging
-  // corrupt block trees. Bound source: allTreeBlockCount(), same as the
-  // inner guards in block-traversal.ts (map-agnostic since C.2c T7a).
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  // corrupt block trees. Bound source: blockCount(), same as the inner
+  // guards in block-traversal.ts (map-agnostic since C.2c T7a).
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
@@ -182,7 +180,7 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
   // Outer cycle/step guard: see iterateSpan above for rationale.
   // Catches sibling-level cycles that span multiple nextBlockInDocOrder
   // calls (which the per-call inner guard cannot see).
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId) {

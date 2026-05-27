@@ -10,10 +10,11 @@ import {
   getTemplateContent,
   getTemplateContentIds,
   resolveBlock,
+  blockCount,
 } from "./state";
 import { createEmptyDocument } from "./initial-state";
 import { chainDepth } from "./snapshot";
-import { runTransaction, getBlocksMap, getMetaMap } from "./yjs-doc";
+import { runTransaction, getBlocksMap, getMetaMap, allTreeBlockCount } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
@@ -722,5 +723,39 @@ describe("resolveBlock", () => {
     const resolved = resolveBlock(state, "dup" as BlockId);
     expect(resolved?.kind).toBe("block");
     expect(resolved?.block.type).toBe("paragraph");
+  });
+});
+
+describe("blockCount", () => {
+  it("counts the blocks of an empty document", () => {
+    // createEmptyDocument seeds a `document` container + one `paragraph` child.
+    const state = createEmptyDocument();
+    expect(blockCount(state)).toBe(2);
+  });
+
+  it("sums blocks across ALL THREE trees, not just the main map", () => {
+    // This is the property that makes blockCount a safe cycle-detection bound
+    // for traversals that legitimately walk WITHIN an embed/template body: a
+    // main-map-only count would under-bound such a walk. 2 main + 1 embed +
+    // 1 template = 4.
+    const state = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "root" }),
+      ],
+      embedContents: [buildBlock({ id: "fn", type: "fn-body" })],
+      templateContents: [buildBlock({ id: "hdr", type: "header-body" })],
+    });
+    expect(blockCount(state)).toBe(4);
+  });
+
+  it("delegates to allTreeBlockCount (same value, Y.Doc hidden behind Layer 1)", () => {
+    const state = buildState({
+      rootId: "root",
+      blocks: [buildBlock({ id: "root", type: "document" })],
+      embedContents: [buildBlock({ id: "fn", type: "fn-body" })],
+    });
+    expect(blockCount(state)).toBe(allTreeBlockCount(state[STATE_INTERNAL].doc));
   });
 });

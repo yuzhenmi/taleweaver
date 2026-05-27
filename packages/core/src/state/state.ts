@@ -5,6 +5,7 @@ import {
   createYDoc,
   getMetaMap,
   runTransaction,
+  allTreeBlockCount,
 } from "./yjs-doc";
 import {
   getEmbedContentRootIds,
@@ -175,6 +176,22 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
   const t = getTemplateContent(state, id);
   if (t !== null) return { block: t, kind: "templateContent" };
   return null;
+}
+
+/**
+ * Total number of blocks across all three trees (main `blocks`,
+ * `embedContents`, `templateContents`).
+ *
+ * Exists as a Layer-1 accessor so Layer-2 utilities (`block-traversal`,
+ * `block-compare`, `span-iteration`) can size their cycle-detection bounds
+ * WITHOUT reaching through `STATE_INTERNAL` to the raw `Y.Doc` themselves —
+ * keeping the Y.Doc fully behind Layer 1. A doc-order traversal can legitimately
+ * walk WITHIN an embed/template body subtree, so the bound must cover every
+ * tree's blocks, not just the main map. Not re-exported from the barrel; it is
+ * a state-module-internal helper consumed via direct sibling import.
+ */
+export function blockCount(state: State): number {
+  return allTreeBlockCount(state[STATE_INTERNAL].doc);
 }
 
 /**

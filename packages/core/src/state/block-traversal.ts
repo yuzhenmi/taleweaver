@@ -1,8 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, type State } from "./state";
-import { allTreeBlockCount } from "./yjs-doc";
-import { STATE_INTERNAL } from "./state-internal";
+import { resolveBlock, blockCount, type State } from "./state";
 
 /**
  * Walk to the next block in document order:
@@ -19,15 +17,15 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   if (block.firstChildId) return block.firstChildId;
   let cursor = block;
   // Cycle-detection bound: total block count across all three trees (main
-  // `blocks`, `embedContents`, `templateContents`) via `allTreeBlockCount`.
-  // Since C.2c T7a this helper is map-agnostic (it resolves blocks via
-  // `resolveBlock`, which checks all three trees), so a walk WITHIN an embed
-  // or template body subtree (a header/footer body, footnote body) is a
-  // legitimate traversal — its depth is bounded by that body's block count,
+  // `blocks`, `embedContents`, `templateContents`) via the `blockCount`
+  // Layer-1 accessor. Since C.2c T7a this helper is map-agnostic (it resolves
+  // blocks via `resolveBlock`, which checks all three trees), so a walk WITHIN
+  // an embed or template body subtree (a header/footer body, footnote body) is
+  // a legitimate traversal — its depth is bounded by that body's block count,
   // not the main map's. A main-map-sized bound would under-bound such a walk
   // and spuriously throw. Summing all three is a safe upper limit on the
   // distinct blocks any single doc-order traversal can visit.
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   while (true) {
     if (++steps > maxSteps) {
@@ -60,7 +58,7 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     if (cursor === null) return null;
     // Cycle-detection bound: see nextBlockInDocOrder for the rationale
     // on why this uses the all-tree block count.
-    const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+    const maxSteps = blockCount(state) + 1;
     let steps = 0;
     while (cursor.lastChildId) {
       if (++steps > maxSteps) {
@@ -88,7 +86,7 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   let current: BlockId | null = blockId;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   while (current) {
     if (++steps > maxSteps) {
@@ -117,7 +115,7 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   while (cursor.firstChildId) {
     if (++steps > maxSteps) {
@@ -140,7 +138,7 @@ export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = allTreeBlockCount(state[STATE_INTERNAL].doc) + 1;
+  const maxSteps = blockCount(state) + 1;
   let steps = 0;
   while (cursor.lastChildId) {
     if (++steps > maxSteps) {

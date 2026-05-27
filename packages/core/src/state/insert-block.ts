@@ -38,6 +38,12 @@ export interface InsertBlockArgs {
  * shape; the guard throws before any mutation. When `resolver` is omitted
  * the check is skipped (backward-compatible with callers that lack the
  * component registry).
+ *
+ * TREE SCOPE: operates on the MAIN `blocks` tree only (unlike the inline ops,
+ * which route to the owning tree via `resolveBlock`). All current callers
+ * insert into the main document tree. Inserting a structural block into an
+ * embed/template-content body (e.g. a list inside a header) would need a
+ * `kind`-routed variant; do not call this for those trees as-is.
  */
 export function insertBlock(
   state: State,
