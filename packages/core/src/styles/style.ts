@@ -26,6 +26,8 @@ export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" |
 
 export type VerticalAlign = "baseline" | "top" | "middle" | "bottom";
 
+export type TextAlign = "start" | "end" | "center" | "justify";
+
 export type Float = "none" | "inline-start" | "inline-end";
 export type Clear = "none" | "inline-start" | "inline-end" | "both";
 
@@ -104,7 +106,7 @@ export interface Style {
   readonly verticalAlign?: VerticalAlign;
 
   // Text — typography (Plan 3.C reservations; consumers in Plan 3.G + Plan 4)
-  readonly textAlign?:           "start" | "end" | "center" | "justify";
+  readonly textAlign?:           TextAlign;
   readonly textIndent?:          Length;
   readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   readonly hyphens?:             "none" | "manual" | "auto";

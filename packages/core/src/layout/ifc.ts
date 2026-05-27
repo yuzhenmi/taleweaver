@@ -19,6 +19,7 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
 import { flattenContents } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
+import { computeAlignmentOffset } from "./ifc-align";
 
 /**
  * Derive the SOURCE block id from an IFC parent's render-node key.
@@ -147,6 +148,32 @@ interface HyphenBreak {
   inlineAncestors: readonly string[];
   inlineAncestorStyles: readonly ComputedStyle[];
   sourceKey: string;
+}
+
+/**
+ * Width of the run of TRAILING whitespace at the end of a line's accumulated
+ * units, in laid-out pixels. Used to exclude trailing spaces from the visible
+ * content width for alignment (a centered line centers its glyphs, not its
+ * trailing spaces).
+ *
+ * Only the LAST unit can carry trailing spaces: in collapsing white-space modes
+ * the trailing space is merged into the final word's unit (a trailing `isSpace`
+ * token after the word token); in `break-spaces` (#314) each space is its own
+ * unit, so the last unit IS a space-run whose tokens are all `isSpace`. Walking
+ * the last unit's tokens backward and summing the run of trailing `isSpace`
+ * token widths covers both. A line-break unit carries zero-width tokens, so it
+ * contributes nothing.
+ */
+function trailingSpaceWidthOf(units: readonly WrapUnit[]): number {
+  if (units.length === 0) return 0;
+  const last = units[units.length - 1];
+  let w = 0;
+  for (let i = last.tokens.length - 1; i >= 0; i--) {
+    const tok = last.tokens[i];
+    if (!tok.isSpace) break;
+    w += tok.width;
+  }
+  return w;
 }
 
 /**
@@ -437,6 +464,16 @@ export function layoutInlineContent(
   const availableInlineSize = ctx.containingInlineSize;
   const writingMode = ctx.writingMode;
   const direction = ctx.direction;
+  // P2 (#312): the block's resolved text alignment. Each flushed line (and the
+  // empty-paragraph strut) shifts its LOGICAL inline start by a logical delta
+  // from `computeAlignmentOffset`; `logicalToPhysical` (in the box factory)
+  // resolves the physical edge. Because the line's children are positioned
+  // relative to the line, shifting the line's inline start shifts the whole
+  // line — so paint / caret / hit-test / selection geometry, all of which
+  // consume the laid-out `box.x`, follow for free. JUSTIFY falls back to start
+  // in P2. (RTL end/center line-box geometry is deferred — see ifc-align.ts and
+  // ifc-align.test.ts; start under RTL is a no-op logical shift, no regression.)
+  const textAlign = parentCs.textAlign;
 
   // Derive a legacy measurer for height-only calls (line height, marker text, etc.)
   const measurer = adaptShaperToMeasurer(shaper);
@@ -473,7 +510,16 @@ export function layoutInlineContent(
   // without fragmentation and contains all lines. We must re-run the fit-check
   // to produce the correct partial box and breakToken for this fragment.
   const prevState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
-  if (prevState !== undefined && prevState.availableInlineSize === availableInlineSize) {
+  // P2 (#312): the cached lines bake in their alignment offset (each LineBox's
+  // `x` is already aligned). A change to ONLY `textAlign` or `direction` —
+  // tokens + availableInlineSize unchanged — must re-lay the lines, not return
+  // the stale (differently-aligned) ones. Gate the hit on alignment too.
+  if (
+    prevState !== undefined &&
+    prevState.availableInlineSize === availableInlineSize &&
+    prevState.textAlign === textAlign &&
+    prevState.direction === direction
+  ) {
     if (findChangePoint(prevState.tokens, tokens) === -1) {
       const tHit = markStart("ifc.cache.hit");
       try {
@@ -781,6 +827,16 @@ export function layoutInlineContent(
     lineInlineSize: number,
     hyphen: HyphenBreak | null,
   ): LineBox {
+    // P2 (#312): apply the alignment offset. The line's children are positioned
+    // RELATIVE to the line, so shifting `lineInlineCursor` shifts the whole
+    // line. Centering must use the VISIBLE width — exclude trailing whitespace
+    // (the merged trailing-space tokens in collapsing modes, and the standalone
+    // space unit in break-spaces #314 — in both, the last unit's trailing
+    // tokens are the spaces). Walk the last unit's tokens backward summing the
+    // run of trailing `isSpace` token widths.
+    const contentWidth = currentWidth - trailingSpaceWidthOf(currentUnits);
+    lineInlineCursor += computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
+
     // Empty flush (no units pushed): anchor line offsets at the
     // current cursor. Both start and end are the same offset — the
     // line covers zero characters.
@@ -852,11 +908,15 @@ export function layoutInlineContent(
   // line box to attach to.
   if (units.length === 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    // P2 (#312): a strut (empty paragraph) has zero content width, so the gap
+    // is the full line. A centered empty paragraph → caret at center; right →
+    // caret at the right edge.
+    const strutInlineCursor = lineInlineCursor + computeAlignmentOffset(lineInlineSize, 0, textAlign, direction);
     const strutBlockSize = measurer.measureHeight(parentCs);
     const strutUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
     const strutLine = createLineBox(
       `${parent.key}-l${lineIndex++}`,
-      lineInlineCursor,
+      strutInlineCursor,
       lineBlockOffset,
       lineInlineSize,
       strutBlockSize,
@@ -1035,6 +1095,8 @@ export function layoutInlineContent(
       tokens,
       lines: resultLines,
       availableInlineSize,
+      textAlign,
+      direction,
     });
   }
 

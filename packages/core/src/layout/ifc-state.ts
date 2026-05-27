@@ -1,5 +1,7 @@
 import type { LineBox } from "./layout-box-v2";
 import type { Token } from "./ifc";
+import type { TextAlign } from "../styles";
+import type { Direction } from "../styles/writing-mode";
 
 /**
  * Snapshot of an IFC's wrap output for one paragraph (or anonymous block run).
@@ -13,6 +15,15 @@ export interface IFCState {
   readonly tokens: readonly Token[];
   readonly lines: readonly LineBox[];
   readonly availableInlineSize: number;
+  /**
+   * The block's resolved `textAlign` + inline base `direction` at the time the
+   * lines were laid out. The cached lines bake in their alignment offset (each
+   * LineBox's `inlineOffset`/`x` already reflects the aligned position), so a
+   * subsequent layout that changed ONLY the alignment must NOT reuse them. The
+   * cache-hit gate compares these in addition to tokens + availableInlineSize.
+   */
+  readonly textAlign: TextAlign;
+  readonly direction: Direction;
 }
 
 /**

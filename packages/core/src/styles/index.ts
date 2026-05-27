@@ -7,7 +7,7 @@ export type { Color } from "./color";
 export type {
   Style,
   Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
-  WhiteSpace, VerticalAlign, Float, Clear,
+  WhiteSpace, VerticalAlign, TextAlign, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";

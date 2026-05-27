@@ -212,6 +212,8 @@ describe("rewrapIncremental", () => {
     meta.set(prevLine, { startTokenIdx: 0, endTokenIdx: 1 });
     const prev: IFCState = {
       tokens,
+      textAlign: "start",
+      direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
     };
@@ -228,6 +230,8 @@ describe("rewrapIncremental", () => {
     meta.set(prevLine, { startTokenIdx: 0, endTokenIdx: 0 });
     const prev: IFCState = {
       tokens,
+      textAlign: "start",
+      direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
     };
@@ -262,6 +266,8 @@ describe("rewrapIncremental", () => {
     meta.set(prevLine, { startTokenIdx: 0, endTokenIdx: 1 });
     const prev: IFCState = {
       tokens: prevTokens,
+      textAlign: "start",
+      direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
     };
@@ -303,6 +309,8 @@ describe("rewrapIncremental", () => {
     meta.set(line1, { startTokenIdx: 2, endTokenIdx: 3 });
     const prev: IFCState = {
       tokens: prevTokens,
+      textAlign: "start",
+      direction: "ltr",
       lines: [line0, line1],
       availableInlineSize: 100,
     };
@@ -352,6 +360,8 @@ describe("rewrapIncremental", () => {
     meta.set(line2, { startTokenIdx: 4, endTokenIdx: 5 });
     const prev: IFCState = {
       tokens: prevTokens,
+      textAlign: "start",
+      direction: "ltr",
       lines: [line0, line1, line2],
       availableInlineSize: 100,
     };

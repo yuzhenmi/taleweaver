@@ -1,6 +1,6 @@
 import type {
   Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
-  WhiteSpace, VerticalAlign, Float, Clear,
+  WhiteSpace, VerticalAlign, TextAlign, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
@@ -64,7 +64,7 @@ export interface ComputedStyle {
   verticalAlign: VerticalAlign;
 
   // Text typography
-  textAlign:           "start" | "end" | "center" | "justify";
+  textAlign:           TextAlign;
   textIndent:          ComputedLength;
   textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   hyphens:             "none" | "manual" | "auto";

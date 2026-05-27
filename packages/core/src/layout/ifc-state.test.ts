@@ -3,7 +3,7 @@ import { createIFCStateCache, type IFCState } from "./ifc-state";
 
 describe("IFCStateCache", () => {
   function makeState(): IFCState {
-    return { tokens: [], lines: [], availableInlineSize: 500 };
+    return { tokens: [], lines: [], availableInlineSize: 500, textAlign: "start", direction: "ltr" };
   }
 
   it("get returns undefined for missing keys", () => {
