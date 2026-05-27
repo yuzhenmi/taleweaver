@@ -43,6 +43,7 @@ import {
   handleSectionBreak,
   handleToggleSectionLandscape,
   handleInsertHeaderFooter,
+  handleSetTextAlign,
 } from "./actions";
 
 import { cascadeTemplateContents } from "./actions/helpers";
@@ -286,6 +287,9 @@ export function reduceEditor(
       break;
     case "INSERT_FOOTER":
       result = handleInsertHeaderFooter(editor, "footer", config);
+      break;
+    case "SET_TEXT_ALIGN":
+      result = handleSetTextAlign(editor, action.align, config);
       break;
     default: {
       action satisfies never;

@@ -1,4 +1,5 @@
 import type { Selection, Position, BlockInit } from "../state";
+import type { TextAlign } from "../styles/style";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -31,4 +32,5 @@ export type EditorAction =
   | { type: "SECTION_BREAK" }
   | { type: "TOGGLE_SECTION_LANDSCAPE" }
   | { type: "INSERT_HEADER" }
-  | { type: "INSERT_FOOTER" };
+  | { type: "INSERT_FOOTER" }
+  | { type: "SET_TEXT_ALIGN"; align: TextAlign };

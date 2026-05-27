@@ -12,6 +12,10 @@ import {
   RectangleHorizontal,
   PanelTop,
   PanelBottom,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -205,6 +209,37 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         icon={Underline}
         pressed={fmt.underline}
         onAction={() => dispatch({ type: "TOGGLE_STYLE", style: "underline" })}
+      />
+
+      <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
+
+      {/* Text alignment. The active button reflects the focus block's current
+          alignment ("start" when unset). Each dispatches SET_TEXT_ALIGN, which
+          sets the per-block textAlign attr (paragraphs only — section/list
+          containers are never aligned). */}
+      <ToolbarToggle
+        label="Align left"
+        icon={AlignLeft}
+        pressed={fmt.textAlign === "start"}
+        onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "start" })}
+      />
+      <ToolbarToggle
+        label="Align center"
+        icon={AlignCenter}
+        pressed={fmt.textAlign === "center"}
+        onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "center" })}
+      />
+      <ToolbarToggle
+        label="Align right"
+        icon={AlignRight}
+        pressed={fmt.textAlign === "end"}
+        onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "end" })}
+      />
+      <ToolbarToggle
+        label="Justify"
+        icon={AlignJustify}
+        pressed={fmt.textAlign === "justify"}
+        onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "justify" })}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />

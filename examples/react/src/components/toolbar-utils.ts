@@ -11,6 +11,12 @@ export interface FormatState {
   underline: boolean;
   blockType: string;
   headingLevel: number | null;
+  /**
+   * The focus block's effective text alignment ("start" when the block carries
+   * no `textAlign` attr — the CSS initial value). Drives the active state of the
+   * alignment toolbar buttons.
+   */
+  textAlign: "start" | "center" | "end" | "justify";
   canUndo: boolean;
   canRedo: boolean;
 }
@@ -90,11 +96,18 @@ export function getFormatState(editor: EditorState): FormatState {
   const focusBlock = getBlock(state, selection.focus.blockId);
   let blockType = "paragraph";
   let headingLevel: number | null = null;
+  // Alignment defaults to "start" (the CSS initial textAlign) when the focus
+  // block carries no `textAlign` attr.
+  let textAlign: FormatState["textAlign"] = "start";
   if (focusBlock) {
     blockType = focusBlock.type;
     if (focusBlock.type === "heading") {
       const level = focusBlock.attrs.level;
       if (typeof level === "number") headingLevel = level;
+    }
+    const align = focusBlock.attrs.textAlign;
+    if (align === "start" || align === "center" || align === "end" || align === "justify") {
+      textAlign = align;
     }
   }
 
@@ -116,6 +129,7 @@ export function getFormatState(editor: EditorState): FormatState {
     underline,
     blockType,
     headingLevel,
+    textAlign,
     canUndo: history.canUndo(),
     canRedo: history.canRedo(),
   };
