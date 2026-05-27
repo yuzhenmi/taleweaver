@@ -8,11 +8,17 @@ import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 import { makeRootContext } from "./layout-context";
 import type { LineBox } from "./layout-box-v2";
-import { computeAlignmentOffset } from "./ifc-align";
+import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
+import type { TextRunBox } from "./layout-box-v2";
 
 const CHAR_W = 8;
 const LINE_H = 16;
 const shaper = createMockShaper(CHAR_W, LINE_H);
+
+/** Text-run children of a line (the visible glyph runs), in inline order. */
+function textRuns(line: LineBox): TextRunBox[] {
+  return line.children.filter((c): c is TextRunBox => c.type === "text-run");
+}
 
 /**
  * Lay out a single paragraph with the given block style + text in a container
@@ -239,5 +245,193 @@ describe("IFC alignment — wrap-cache invalidation on textAlign change (I-4)", 
     const l2 = r2.box.children.filter((c): c is LineBox => c.type === "line");
     // RE-ALIGNED, not stale: center → (200 − 40)/2 = 80.
     expect(l2[0].x).toBe((W - CONTENT) / 2);
+  });
+});
+
+describe("computeJustifyExpansions (pure helper)", () => {
+  it("returns [] for zero interior spaces", () => {
+    expect(computeJustifyExpansions(40, 0)).toEqual([]);
+  });
+
+  it("distributes gap equally when it divides evenly", () => {
+    // gap 12 across 3 spaces → 4 each.
+    expect(computeJustifyExpansions(12, 3)).toEqual([4, 4, 4]);
+  });
+
+  it("distributes a non-divisible remainder so the sum is exact", () => {
+    // gap 10 across 3 spaces → base 3 (=floor(10/3)), remainder 1 → first
+    // space gets the extra: [4, 3, 3]. Sum === 10 exactly (no drift).
+    const exp = computeJustifyExpansions(10, 3);
+    expect(exp).toHaveLength(3);
+    expect(exp.reduce((s, e) => s + e, 0)).toBe(10);
+    // Remainder lands on the leading spaces.
+    expect(exp[0]).toBeGreaterThanOrEqual(exp[2]);
+  });
+
+  it("clamps a negative gap to zero expansion", () => {
+    expect(computeJustifyExpansions(-5, 2)).toEqual([0, 0]);
+  });
+
+  it("fractional near-integer-multiple gap sums EXACTLY (no epsilon over-count)", () => {
+    // A gap that is a hair under an exact integer multiple of spaceCount. The
+    // old `floor(residual + 1e-9)` remainder count rounded the residual UP to a
+    // whole 2, handing +1 to BOTH spaces ([8, 8] = 16) — over-counting past the
+    // 15.999... input. The reconciliation step folds the exact residual into the
+    // first space so the sum is the input gap to the last bit.
+    const gap = 16.0 - 0.0000000000000018; // 15.999999999999998
+    const exp = computeJustifyExpansions(gap, 2);
+    expect(exp).toHaveLength(2);
+    // EXACT: residual after reconciliation is zero (toBe / no toBeCloseTo).
+    expect(exp.reduce((s, e) => s + e, 0)).toBe(gap);
+    expect(gap - exp.reduce((s, e) => s + e, 0)).toBe(0);
+    // Remainder still lands on the leading space: out[0] >= out[last].
+    expect(exp[0]).toBeGreaterThanOrEqual(exp[1]);
+  });
+
+  it("normal fractional gap sums EXACTLY with leading-spaces-get-more ordering", () => {
+    // gap 10.5 across 3 spaces → base 3, the 1.5 residual folds into the first
+    // space: [4.5, 3, 3]. Sum === 10.5 exactly.
+    const exp = computeJustifyExpansions(10.5, 3);
+    expect(exp).toHaveLength(3);
+    expect(exp.reduce((s, e) => s + e, 0)).toBe(10.5);
+    // Leading space absorbs the residual → out[0] >= the trailing ones.
+    expect(exp[0]).toBeGreaterThanOrEqual(exp[1]);
+    expect(exp[1]).toBeGreaterThanOrEqual(exp[2]);
+  });
+});
+
+describe("IFC alignment — justify (P3)", () => {
+  // Mock shaper: CHAR_W=8. Width 88 → 11 chars/line max.
+  // "aaaa bbbb cccc dddd" with whiteSpace:"normal":
+  //   units = [aaaa·][bbbb·][cccc·][dddd]  (· = slurped trailing space)
+  //   line 0: "aaaa·" (40) + "bbbb·" (40) = 80 ≤ 88 → fits; +"cccc·" overflows.
+  //           ⇒ line 0 = "aaaa bbbb " (NON-LAST line).
+  //   line 1: "cccc·" (40) + "dddd" (32) = 72 ≤ 88 → LAST line.
+  //
+  // W=88 (not 80) is deliberate: under START the merged "bbbb " run (incl. its
+  // trailing space) ends at 80, SHORT of 88 — so Case 1 is genuinely RED before
+  // justify. (At W=80 the trailing space would coincidentally land at the edge.)
+  const W = 88;
+  const TEXT = "aaaa bbbb cccc dddd";
+
+  /** The last text-run that is NOT a pure-whitespace (trailing) run. */
+  function lastGlyphRun(line: LineBox): TextRunBox {
+    const runs = textRuns(line);
+    for (let i = runs.length - 1; i >= 0; i--) {
+      if (runs[i].text.trim().length > 0) return runs[i];
+    }
+    return runs[runs.length - 1];
+  }
+
+  it("Case 1: justified NON-LAST line fills the width (last glyph right edge === lineInlineSize)", () => {
+    const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0 = lines[0];
+    const lastRun = lastGlyphRun(line0);
+    // RED before impl: justify==start → last glyph run ("bbbb ", merged) ends
+    // at 80, short of 88.
+    expect(line0.x + lastRun.x + lastRun.width).toBe(W);
+  });
+
+  it("Case 2: interior spaces widened equally (each = natural + gap/N), runs shift", () => {
+    const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    const line0 = lines[0];
+    const runs = textRuns(line0);
+    // Expected layout on line 0 (after the trailing space is split into its
+    // own run): ["aaaa"][" "(interior)]["bbbb"][" "(trailing)].
+    // content = 9 glyphs × 8 = 72; gap = 88 − 72 = 16; N(interior)=1 → +16.
+    const interiorSpaces = runs.filter(r => r.text === " ");
+    expect(interiorSpaces.length).toBeGreaterThanOrEqual(2); // 1 interior + 1 trailing
+    const interior = interiorSpaces[0]; // first space = interior
+    const trailing = interiorSpaces[interiorSpaces.length - 1]; // last = trailing
+    const natural = CHAR_W; // 8
+    const N = 1;
+    const gap = W - 9 * CHAR_W; // 16
+    expect(interior.width).toBe(natural + gap / N); // 24
+    // Trailing space NOT stretched.
+    expect(trailing.width).toBe(natural); // 8
+    // The "bbbb" run shifted right by the widening (its x reflects the wider
+    // interior space): "aaaa"(0..32) + interior(32..56) → "bbbb" at x=56.
+    const bbbb = runs.find(r => r.text === "bbbb");
+    if (!bbbb) throw new Error("expected a 'bbbb' run");
+    expect(bbbb.x).toBe(4 * CHAR_W + (natural + gap / N)); // 32 + 24 = 56
+  });
+
+  it("Case 3: LAST line is NOT justified (start-aligned, ends short)", () => {
+    const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    const last = lines[lines.length - 1];
+    // Last line = "cccc dddd": 9 visible glyphs × 8 = 72, no widening.
+    const lastRun = lastGlyphRun(last);
+    // RED-guard: a wrongly-justified last line would push "dddd" to x=88.
+    expect(last.x + lastRun.x + lastRun.width).toBe(72);
+    expect(last.x + lastRun.x + lastRun.width).toBeLessThan(W);
+    // The last line is NOT justified → no split: the word+space stays merged
+    // ("cccc " = 40px), there is no standalone widened single-space run.
+    const runs = textRuns(last);
+    expect(runs.map(r => r.text)).toEqual(["cccc ", "dddd"]);
+    expect(runs[0].width).toBe(5 * CHAR_W); // "cccc " = 40, space natural
+  });
+
+  it("Case 4: single-token line (no interior space) is NOT stretched", () => {
+    // Width 40, text "wxyz uv": units [wxyz·][uv]. line0 "wxyz·"(40)≤40 fits,
+    // +"uv"(16)=56 >40 → wrap. line0 = "wxyz " — ONE word + a TRAILING space,
+    // NO interior space. A justify line with no interior space must NOT stretch
+    // (start-aligned), and must NOT split the trailing space out.
+    const lines = layoutPara("wxyz uv", 40, { textAlign: "justify", whiteSpace: "normal" });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0 = lines[0];
+    // No interior space → no split, no widening: the run stays merged "wxyz "
+    // at start (x=0, width 40 incl. the natural trailing space).
+    expect(line0.x).toBe(0);
+    const runs = textRuns(line0);
+    expect(runs.map(r => r.text)).toEqual(["wxyz "]);
+    expect(runs[0].width).toBe(5 * CHAR_W); // 40 — unchanged
+  });
+
+  it("Case 5: trailing spaces are NOT stretched (only interior widen; trailing hangs)", () => {
+    // Same as Case 2's line 0: trailing space after "bbbb" keeps natural width
+    // and hangs past the filled content edge.
+    const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    const line0 = lines[0];
+    const runs = textRuns(line0);
+    const trailing = runs[runs.length - 1];
+    expect(trailing.text).toBe(" ");
+    expect(trailing.width).toBe(CHAR_W); // natural — not stretched
+    // It hangs at the filled edge (x === W), past the last glyph.
+    expect(line0.x + trailing.x).toBe(W);
+  });
+
+  it("Case 6 (behavior): widened spacing flows to box.x (what caret/hit-test read)", () => {
+    // cursor-position resolves an in-run caret as `leaf.absoluteX +
+    // measureWidth(prefix)`, and an at-boundary caret as the NEXT leaf's
+    // absoluteX. hit-test picks a leaf by `x ∈ [leaf.absoluteX, +width)`.
+    // Both consume `box.x`. Assert the widened geometry lives in box.x:
+    //   - the interior space box spans [32, 56) (widened by gap/N = 24),
+    //   - the next word ("bbbb") box.x === 56 (so a caret BEFORE "bbbb" lands
+    //     at the widened x, and a hit-test at x∈[32,56) lands inside the space).
+    const lines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    const line0 = lines[0];
+    const runs = textRuns(line0);
+    const interior = runs.find(r => r.text === " ");
+    const bbbb = runs.find(r => r.text === "bbbb");
+    if (!interior || !bbbb) throw new Error("expected interior space + 'bbbb' run");
+    // Interior space occupies the widened span; "bbbb" begins at its right edge.
+    expect(interior.x).toBe(4 * CHAR_W);              // 32
+    expect(interior.x + interior.width).toBe(bbbb.x); // 56 — contiguous
+    expect(bbbb.x).toBe(56);                          // shifted by the widening
+  });
+
+  it("no-regression: non-justify content is byte-identical (start: merged word+space runs, no split)", () => {
+    const start = layoutPara(TEXT, W, { textAlign: "start", whiteSpace: "normal" });
+    expect(start[0].x).toBe(0);
+    // Under start alignment the trailing space stays MERGED into the word run
+    // (no justify split): line 0 = ["aaaa "]["bbbb "], each 40px wide, no
+    // standalone single-space run.
+    const runs = textRuns(start[0]);
+    expect(runs.map(r => r.text)).toEqual(["aaaa ", "bbbb "]);
+    expect(runs[0].x).toBe(0);
+    expect(runs[0].width).toBe(5 * CHAR_W); // "aaaa " = 40
+    expect(runs[1].x).toBe(5 * CHAR_W);     // 40
+    expect(runs[1].width).toBe(5 * CHAR_W); // 40
   });
 });

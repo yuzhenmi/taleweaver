@@ -19,7 +19,7 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
 import { flattenContents } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
-import { computeAlignmentOffset } from "./ifc-align";
+import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
 
 /**
  * Derive the SOURCE block id from an IFC parent's render-node key.
@@ -174,6 +174,128 @@ function trailingSpaceWidthOf(units: readonly WrapUnit[]): number {
     w += tok.width;
   }
   return w;
+}
+
+/**
+ * Build a single-token WrapUnit cloned from `from`, carrying just `token`.
+ * Used by `justifyUnits` to split a word+trailing-space unit into separate
+ * word and space units (so the SPACE becomes its own positioned TextRunBox
+ * whose width can be widened independently — caret/hit-test then read the
+ * widened geometry via `box.x`). Ancestors / sourceKey / token-range metadata
+ * are inherited from the source unit; `totalWidth` tracks `token.width`.
+ */
+function singleTokenUnit(from: WrapUnit, token: Token, tokenIdx: number): WrapUnit {
+  return {
+    tokens: [token],
+    totalWidth: token.width,
+    sourceKey: from.sourceKey,
+    isLineBreak: false,
+    inlineAncestors: from.inlineAncestors,
+    inlineAncestorStyles: from.inlineAncestorStyles,
+    tokenStartIdx: tokenIdx,
+    tokenEndIdx: tokenIdx,
+  };
+}
+
+/**
+ * P3 — JUSTIFY a line's units (CSS Text 3 §7.3): widen the INTERIOR inter-word
+ * spaces so the last non-trailing glyph's right edge reaches `lineInlineSize`,
+ * WITHOUT shifting the line (its inline-start stays at the float-start).
+ *
+ * Algorithm:
+ *   1. FLATTEN: split every unit into per-token units so each space token
+ *      becomes its own unit. (A normal word unit is `[word, space*]`; the word
+ *      stays a unit, each trailing space becomes its own space unit. Pure-space
+ *      units — break-spaces, leading runs — split into one unit per space.)
+ *      This makes each space individually positionable/widenable. Cloning
+ *      (never mutating) the shared `units` is load-bearing: the wrap-cache
+ *      reuses the original units across re-layouts.
+ *   2. CLASSIFY interior spaces: a space unit is INTERIOR iff it lies strictly
+ *      between the first and last NON-space (word/inline-block) units on the
+ *      line — i.e. it has content on both sides. Leading and trailing space
+ *      runs are excluded (trailing spaces hang; leading spaces are not stretched).
+ *   3. DISTRIBUTE `gap = max(0, lineInlineSize − contentWidth)` equally across
+ *      the N interior spaces (exact remainder via `computeJustifyExpansions`),
+ *      widening each interior space token's `width` (clone) and its unit's
+ *      `totalWidth`. The child-builder's `cursorInlineOffset` running-sum then
+ *      shifts every subsequent run by the widened amount automatically.
+ *
+ * Returns the ORIGINAL `units` unchanged (same reference) when justify does not
+ * apply (no interior space, or `gap <= 0`) so the non-justify path stays
+ * byte-identical.
+ *
+ * @param units          the line's accumulated wrap units (not mutated).
+ * @param lineInlineSize the available inline width of the line.
+ * @param contentWidth   visible content width (trailing whitespace excluded) —
+ *                       the SAME value P2 uses for alignment.
+ */
+function justifyUnits(
+  units: readonly WrapUnit[],
+  lineInlineSize: number,
+  contentWidth: number,
+): readonly WrapUnit[] {
+  const gap = lineInlineSize - contentWidth;
+  if (gap <= 0 || units.length === 0) return units;
+
+  // 1. Flatten to per-token units (words stay whole; spaces become singletons).
+  const flat: WrapUnit[] = [];
+  for (const unit of units) {
+    // A unit's tokens are `[word?, space*]` (word units) or `[space]`/`[space*]`
+    // (pure-space units). Emit the leading non-space token (if any) as a word
+    // unit, then each space token as its own unit. Inline-block / line-break
+    // units carry a single non-space token and pass through unchanged.
+    let spawnedSpace = false;
+    for (let k = 0; k < unit.tokens.length; k++) {
+      const tok = unit.tokens[k];
+      if (tok.isSpace) {
+        flat.push(singleTokenUnit(unit, tok, unit.tokenStartIdx + k));
+        spawnedSpace = true;
+      } else if (k === 0 && unit.tokens.length === 1) {
+        // Sole non-space token — pass the original unit through untouched.
+        flat.push(unit);
+      } else {
+        // Leading word token of a `[word, space*]` unit: emit a word-only unit.
+        flat.push(singleTokenUnit(unit, tok, unit.tokenStartIdx + k));
+      }
+    }
+    // Defensive: a unit with zero tokens shouldn't exist, but keep it stable.
+    if (unit.tokens.length === 0 && !spawnedSpace) flat.push(unit);
+  }
+
+  // 2. Find the first/last non-space units; interior spaces lie strictly between.
+  const isSpaceUnit = (u: WrapUnit): boolean =>
+    u.tokens.length > 0 && u.tokens.every(t => t.isSpace);
+  let firstWordIdx = -1;
+  let lastWordIdx = -1;
+  for (let i = 0; i < flat.length; i++) {
+    if (!isSpaceUnit(flat[i])) {
+      if (firstWordIdx < 0) firstWordIdx = i;
+      lastWordIdx = i;
+    }
+  }
+  if (firstWordIdx < 0) return units; // no content (all spaces) — nothing to justify.
+
+  const interiorIdxs: number[] = [];
+  for (let i = firstWordIdx + 1; i < lastWordIdx; i++) {
+    if (isSpaceUnit(flat[i])) interiorIdxs.push(i);
+  }
+  if (interiorIdxs.length === 0) return units; // single token / no interior space.
+
+  // 3. Distribute the gap; widen each interior space token (clone, never mutate).
+  const expansions = computeJustifyExpansions(gap, interiorIdxs.length);
+  for (let e = 0; e < interiorIdxs.length; e++) {
+    const idx = interiorIdxs[e];
+    const add = expansions[e];
+    if (add === 0) continue;
+    const su = flat[idx];
+    const widened = su.tokens.map(t => ({ ...t, width: t.width + add }));
+    flat[idx] = {
+      ...su,
+      tokens: widened,
+      totalWidth: su.totalWidth + add,
+    };
+  }
+  return flat;
 }
 
 /**
@@ -826,6 +948,17 @@ export function layoutInlineContent(
     lineInlineCursor: number,
     lineInlineSize: number,
     hyphen: HyphenBreak | null,
+    // P3 (#312): set on the FINAL flush (the last/only line of the paragraph)
+    // and on a hard-LINE_BREAK-terminated flush. Neither is justified
+    // (CSS Text 3 §7.3); both fall through to start-alignment. Soft-wrap and
+    // hyphen-split flushes leave this `false` (more content follows → justify).
+    //
+    // Why an explicit flag rather than inspecting the unit queue: at a
+    // soft-wrap flush the overflowing unit has already been dequeued (`uqi`
+    // points past it) but has NOT yet been placed — it forms the NEXT line —
+    // so a queue-position test would mis-classify a wrap-before-the-last-word
+    // line as "last". The caller knows which flush is terminal; it tells us.
+    noJustify: boolean = false,
   ): LineBox {
     // P2 (#312): apply the alignment offset. The line's children are positioned
     // RELATIVE to the line, so shifting `lineInlineCursor` shifts the whole
@@ -837,13 +970,22 @@ export function layoutInlineContent(
     const contentWidth = currentWidth - trailingSpaceWidthOf(currentUnits);
     lineInlineCursor += computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
 
+    // P3 (#312): JUSTIFY widens interior inter-word spaces (it does NOT shift
+    // the line — `computeAlignmentOffset` returns 0 for justify). A line is
+    // justified iff textAlign==="justify" AND it is NOT the last/only line of
+    // the paragraph AND NOT hard-break-terminated (`noJustify` covers both).
+    let buildUnits: readonly WrapUnit[] = currentUnits;
+    if (textAlign === "justify" && !noJustify) {
+      buildUnits = justifyUnits(currentUnits, lineInlineSize, contentWidth);
+    }
+
     // Empty flush (no units pushed): anchor line offsets at the
     // current cursor. Both start and end are the same offset — the
     // line covers zero characters.
     const startOff = currentLineStartOffset >= 0 ? currentLineStartOffset : cursorOffset;
     const line = buildLineWithFragments(
       parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
-      currentUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
+      buildUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
       hyphen, shaper,
       sourceBlockIdOf(parent.key), // ownerBlockId (see strut-line comment)
       startOff,              // inlineOffsetStart
@@ -965,7 +1107,8 @@ export function layoutInlineContent(
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
       if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
       cursorOffset += unitOffsetContribution(unit);
-      flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+      // Hard-break-terminated line is NOT justified (P3, CSS Text 3 §7.3).
+      flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
       continue;
     }
 
@@ -1036,7 +1179,8 @@ export function layoutInlineContent(
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-    flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+    // Final flush — the last/only line of the paragraph is NOT justified (P3).
+    flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
   }
 
   const result = assignFragmentEdges(lines);
@@ -1318,7 +1462,7 @@ function buildLineWithFragments(
   lineInlineCursor: number,
   lineBlockOffset: number,
   lineInlineSize: number,
-  units: WrapUnit[],
+  units: readonly WrapUnit[],
   parentCs: ComputedStyle,
   measurer: TextMeasurer,
   writingMode: WritingMode,
@@ -1382,7 +1526,7 @@ function buildLineWithFragments(
 function buildLineChildrenForAncestorLevel(
   parentKey: string,
   lineIndex: number,
-  units: WrapUnit[],
+  units: readonly WrapUnit[],
   depth: number,
   measurer: TextMeasurer,
   lineBlockSizeTracker: { value: number },
