@@ -154,24 +154,40 @@ interface HyphenBreak {
  * Width of the run of TRAILING whitespace at the end of a line's accumulated
  * units, in laid-out pixels. Used to exclude trailing spaces from the visible
  * content width for alignment (a centered line centers its glyphs, not its
- * trailing spaces).
+ * trailing spaces; a right-aligned line places its last GLYPH at the edge; a
+ * justified line distributes the gap measured from the trailing-excluded edge).
  *
- * Only the LAST unit can carry trailing spaces: in collapsing white-space modes
- * the trailing space is merged into the final word's unit (a trailing `isSpace`
- * token after the word token); in `break-spaces` (#314) each space is its own
- * unit, so the last unit IS a space-run whose tokens are all `isSpace`. Walking
- * the last unit's tokens backward and summing the run of trailing `isSpace`
- * token widths covers both. A line-break unit carries zero-width tokens, so it
- * contributes nothing.
+ * The trailing whitespace can span MULTIPLE units, so we sum the trailing RUN
+ * of space units — walking from the END, accumulating each unit's trailing
+ * `isSpace` token widths, and continuing to the previous unit only while the
+ * current unit was ENTIRELY trailing spaces (no non-space token reached). This
+ * covers every white-space mode:
+ *   - `normal`/`pre-wrap`: the trailing space(s) are SLURPED into the final
+ *     word's unit (`[word, space*]`) → we sum that one unit's trailing spaces
+ *     then stop at the word token.
+ *   - `break-spaces` (#314, the editor default): each preserved space is its
+ *     OWN single-glyph unit, so a line ending in N trailing spaces has N
+ *     standalone space units → we sum all N then stop at the preceding word
+ *     unit (#339 — before this, only the last unit's space was excluded).
+ *   - a line-break / zero-width sentinel unit carries a non-space token, which
+ *     stops the walk (it contributes nothing).
+ * An empty-tokens unit (degenerate — shouldn't occur) also stops the walk.
+ * Allocation-free.
  */
 function trailingSpaceWidthOf(units: readonly WrapUnit[]): number {
-  if (units.length === 0) return 0;
-  const last = units[units.length - 1];
   let w = 0;
-  for (let i = last.tokens.length - 1; i >= 0; i--) {
-    const tok = last.tokens[i];
-    if (!tok.isSpace) break;
-    w += tok.width;
+  for (let u = units.length - 1; u >= 0; u--) {
+    const unit = units[u];
+    let sawNonSpace = false;
+    for (let i = unit.tokens.length - 1; i >= 0; i--) {
+      if (unit.tokens[i].isSpace) {
+        w += unit.tokens[i].width;
+      } else {
+        sawNonSpace = true;
+        break;
+      }
+    }
+    if (sawNonSpace || unit.tokens.length === 0) break;
   }
   return w;
 }
@@ -983,9 +999,8 @@ export function layoutInlineContent(
     // RELATIVE to the line, so shifting `lineInlineCursor` shifts the whole
     // line. Centering must use the VISIBLE width — exclude trailing whitespace
     // (the merged trailing-space tokens in collapsing modes, and the standalone
-    // space unit in break-spaces #314 — in both, the last unit's trailing
-    // tokens are the spaces). Walk the last unit's tokens backward summing the
-    // run of trailing `isSpace` token widths.
+    // space units in break-spaces #314/#339 — `trailingSpaceWidthOf` sums the
+    // full trailing RUN of space units across both shapes).
     const contentWidth = currentWidth - trailingSpaceWidthOf(currentUnits);
     lineInlineCursor += computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
 

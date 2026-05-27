@@ -132,6 +132,88 @@ describe("IFC alignment — trailing-space exclusion", () => {
   });
 });
 
+describe("IFC alignment — break-spaces multi-trailing-space exclusion (#339)", () => {
+  // Under `break-spaces` (the editor default) each trailing space is its OWN
+  // wrap unit, so a line ending in N trailing spaces has N standalone space
+  // units after the word unit. `trailingSpaceWidthOf` must sum the trailing RUN
+  // of space units, not just the last unit. Before the fix it excluded only the
+  // LAST unit's trailing space (1 of N) → centered/right/justified lines shifted
+  // off by (N−1) spaces of content over-count.
+  const W = 200;
+  const WORD_W = "word".length * CHAR_W; // 32 (visible content)
+
+  it("center: 3 trailing spaces fully excluded (RED before — only 1 was excluded)", () => {
+    // "word   " — 4 visible chars + 3 trailing spaces. Centered by the visible
+    // 32px only. Correct x = (200 − 32)/2 = 84. Before the fix only 1 trailing
+    // space was excluded → contentWidth 56 → x = (200 − 56)/2 = 72 (too small by
+    // (2 spaces)/2 = 8px = 1 char).
+    const lines = layoutPara("word   ", W, { textAlign: "center", whiteSpace: "break-spaces" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+  });
+
+  it("end (ltr): 3 trailing spaces fully excluded", () => {
+    // Right-aligned: x = available − visibleContentWidth = 200 − 32 = 168.
+    const lines = layoutPara("word   ", W, { textAlign: "end", whiteSpace: "break-spaces" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe(W - WORD_W); // 168
+  });
+
+  it("justify NON-LAST line: interior space widened by the FULL-trailing-exclusion gap", () => {
+    // break-spaces "aa bb   cc" at W=72.
+    //   tokens: aa(16) ·(8) bb(16) ·(8) ·(8) ·(8) cc(16)
+    //   units (each its own under break-spaces):
+    //     [aa][·][bb][·][·][·][cc]
+    //   Spaces never trigger a wrap (#338 hang); only words do. After pushing
+    //   aa·bb·· · (currentWidth = 64 ≤ 72) the word "cc" overflows (64+16=80>72)
+    //   → wrap. So line 0 = "aa bb   " (NON-LAST → justified), line 1 = "cc".
+    //
+    //   contentWidth = currentWidth − trailingSpaceWidthOf
+    //     correct: 64 − 24 (all 3 trailing spaces) = 40 → gap = 72 − 40 = 32.
+    //     buggy:   64 − 8  (only the last space)   = 56 → gap = 72 − 56 = 16.
+    //   1 interior space (between aa and bb) absorbs the whole gap:
+    //     correct interior width = 8 + 32 = 40; buggy = 8 + 16 = 24.
+    const Wj = 72;
+    const lines = layoutPara("aa bb   cc", Wj, { textAlign: "justify", whiteSpace: "break-spaces" });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0 = lines[0];
+    const runs = textRuns(line0);
+    // The interior space is the FIRST single-space run (between aa and bb); the
+    // trailing spaces clamp to 0 at the content edge (#338 P2), so the first " "
+    // run with non-zero width is the widened interior one.
+    const spaceRuns = runs.filter(r => r.text === " ");
+    const interior = spaceRuns[0];
+    expect(interior.width).toBe(CHAR_W + (Wj - 40)); // 8 + 32 = 40
+    // "bb" reaches the filled content edge: aa(16) + interior(40) + bb(16) = 72.
+    const bb = runs.find(r => r.text === "bb");
+    if (!bb) throw new Error("expected a 'bb' run");
+    expect(line0.x + bb.x + bb.width).toBe(Wj); // 72 — last glyph at the edge
+  });
+
+  it("no-regression: break-spaces ONE trailing space centered (unchanged)", () => {
+    // "word " — 1 trailing space. Both old and new exclude exactly that one
+    // space → x = (200 − 32)/2 = 84, unchanged.
+    const lines = layoutPara("word ", W, { textAlign: "center", whiteSpace: "break-spaces" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+  });
+
+  it("no-regression: break-spaces NO trailing space centered uses full width", () => {
+    const lines = layoutPara("word", W, { textAlign: "center", whiteSpace: "break-spaces" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+  });
+
+  it("no-regression: normal-mode single slurped trailing space centered (unchanged)", () => {
+    // Under `normal` the trailing space is SLURPED into the word's unit
+    // ([word, space]); the new walk sums that one space then stops at the word —
+    // identical to before. "word " centered by visible 32px → x = 84.
+    const lines = layoutPara("word ", W, { textAlign: "center", whiteSpace: "normal" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+  });
+});
+
 describe("IFC alignment — strut (empty paragraph)", () => {
   const W = 200;
 
