@@ -50,6 +50,16 @@ export interface LeafComponentDefinition {
   readonly type: string;
   readonly kind: "leaf";
   readonly leafShape: "inline-bearing" | "atomic";
+  /**
+   * The block type for the NEW (empty) block created by pressing Enter at the
+   * END of a block of this type — the "style for the following paragraph"
+   * convention (Word / Google Docs). A heading declares `"paragraph"`, so
+   * Enter-at-end-of-heading yields a Normal paragraph rather than another
+   * heading. Omitted → the new block inherits this type (the default split
+   * behavior). Applies ONLY to an Enter at the block's end; a mid-text split
+   * keeps both halves as this type. Must name a registered inline-bearing leaf.
+   */
+  readonly splitFollowOnType?: string;
   render(
     view: LeafBlockView,
     context: RenderContext,

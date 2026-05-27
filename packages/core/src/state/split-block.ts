@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, resolveBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
+import type { ReadonlyAttrs } from "./attrs";
 import type { Position } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { getTreeMap, getYBlock } from "./yjs-doc";
@@ -24,6 +25,13 @@ import { STATE_INTERNAL } from "./state-internal";
  * original block's id; its nextSiblingId is the original block's
  * previous nextSiblingId. Its inlineContent is items in
  * [offset, length).
+ *
+ * `newBlockInit` overrides the NEW block's `type` / `attrs` (each field
+ * independently; omitted fields inherit from the original). Used by the editor
+ * to implement "style for the following paragraph" — e.g. Enter at the END of a
+ * heading makes the new (empty) block a `paragraph` with fresh attrs rather than
+ * another heading. This op stays mechanical: it sets whatever type/attrs it is
+ * given; the caller is responsible for passing a shape-compatible leaf type.
  *
  * Returns OperationResult with dirtyIds containing:
  *   - the original block's id (content + nextSiblingId changed)
@@ -50,6 +58,7 @@ export function splitBlockAtPosition(
   state: State,
   position: Position,
   allocator: IdAllocator,
+  newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): OperationResult {
   const resolved = resolveBlock(state, position.blockId);
   if (resolved === null) {
@@ -105,11 +114,15 @@ export function splitBlockAtPosition(
     // [offset, end) move to a new block. Straddling text items split.
     const suffixItems = splitInlineContent(yOriginal, position.offset);
 
-    // Build new block. Inherits type + attrs; prev = original, next = original.next.
+    // Build new block. type/attrs come from `newBlockInit` when provided, else
+    // inherit from the original. prev = original, next = original.next.
     const originalNextId = (yOriginal.get("nextSiblingId") as BlockId | null) ?? null;
+    const newType = newBlockInit?.type ?? (yOriginal.get("type") as string);
+    const newAttrs =
+      newBlockInit?.attrs ?? yMapAsObject(yOriginal.get("attrs") as Y.Map<unknown>);
     const newYBlock = buildYBlock({
-      type: yOriginal.get("type") as string,
-      attrs: yMapAsObject(yOriginal.get("attrs") as Y.Map<unknown>),
+      type: newType,
+      attrs: newAttrs,
       parentId,
       prevSiblingId: position.blockId,
       nextSiblingId: originalNextId,

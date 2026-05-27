@@ -584,3 +584,56 @@ describe("splitBlockAtPosition — error cases", () => {
     ).toThrow(/allocator returned a colliding id "collide-0"/);
   });
 });
+
+describe("splitBlockAtPosition — newBlockInit override (#236)", () => {
+  // doc > [h1("Title")] — a heading with a level attr.
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
+        buildBlock({
+          id: "h",
+          type: "heading",
+          attrs: { level: 1 },
+          parentId: "doc",
+          inlineContent: inlineContent([text("Title")]),
+        }),
+      ],
+    });
+
+  it("new (suffix) block uses the override type + attrs; original is unchanged", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("n");
+    // Split at the END (offset 5): suffix is empty; override it to a paragraph.
+    const result = splitBlockAtPosition(
+      state,
+      createPosition("h" as BlockId, 5),
+      allocator,
+      { type: "paragraph", attrs: {} },
+    );
+
+    // Original keeps its type, attrs, and content.
+    const original = getBlock(result.state, "h" as BlockId);
+    expect(original?.type).toBe("heading");
+    expect(original?.attrs).toEqual({ level: 1 });
+    expect(original?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "Title" });
+
+    // New block takes the override — NOT the heading's type/attrs.
+    const created = getBlock(result.state, "n-0" as BlockId);
+    expect(created?.type).toBe("paragraph");
+    expect(created?.attrs).toEqual({});
+    expect(created?.inlineContent?.items ?? []).toHaveLength(0);
+    expect(created?.parentId).toBe("doc");
+    expect(created?.prevSiblingId).toBe("h");
+  });
+
+  it("without an override, the new block inherits the original's type + attrs", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("n");
+    const result = splitBlockAtPosition(state, createPosition("h" as BlockId, 5), allocator);
+    const created = getBlock(result.state, "n-0" as BlockId);
+    expect(created?.type).toBe("heading");
+    expect(created?.attrs).toEqual({ level: 1 });
+  });
+});

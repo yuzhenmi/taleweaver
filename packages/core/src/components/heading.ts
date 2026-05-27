@@ -29,6 +29,9 @@ export const headingComponent: LeafComponentDefinition = {
   type: "heading",
   kind: "leaf",
   leafShape: "inline-bearing",
+  // "Style for the following paragraph": Enter at the END of a heading creates
+  // a Normal paragraph below, not another heading (Word / Google Docs).
+  splitFollowOnType: "paragraph",
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);

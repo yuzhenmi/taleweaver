@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -43,10 +43,26 @@ export function handleSplitNode(
     return current === editor ? editor : current;
   }
 
+  // "Style for the following paragraph" (Word / Google Docs): pressing Enter at
+  // the END of a block whose component declares a `splitFollowOnType` (e.g. a
+  // heading) makes the NEW (empty) block that type — a heading is followed by a
+  // Normal paragraph. The gate is END-only: at the end the new block is the
+  // empty suffix, so overriding ITS type is exactly right; a mid/start split's
+  // suffix carries content, so overriding would wrongly demote it — both halves
+  // keep the original type there. Fresh attrs `{}` so the new paragraph does not
+  // inherit heading attrs (e.g. `level`).
+  const atEnd = pos.offset === inlineContentLength(block.inlineContent);
+  const def = config.componentRegistry.get(block.type);
+  const followOnType =
+    atEnd && def !== undefined && def.kind === "leaf" ? def.splitFollowOnType : undefined;
+  const newBlockInit =
+    followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
+
   const splitResult = splitBlockAtPosition(
     current.state,
     pos,
     productionAllocator,
+    newBlockInit,
   );
   for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
