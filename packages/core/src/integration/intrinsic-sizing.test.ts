@@ -202,10 +202,13 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     expect(ibBox?.inlineSize).toBe(200);
   });
 
-  it("inline-block with auto inlineSize uses maxContent even when content is wider than container", () => {
-    // 80 chars × 10px = 800px maxContent; no soft-break opportunities (no spaces).
-    // Container is only 500px wide.
-    // The IFC for inline-blocks does NOT clamp to available: inlineSizePx = intrinsic.maxContent.
+  it("inline-block with auto inlineSize shrinks-to-fit: clamps to available when below maxContent (CSS Sizing 3 §10.3.5)", () => {
+    // 80 chars × 10px = 800px maxContent. Container is only 500px wide.
+    // The mock shaper reports a single-char min-cluster (10px), so min-content
+    // is 10px (well below the 500px available).
+    // Shrink-to-fit = min(maxContent, max(minContent, available))
+    //               = min(800, max(10, 500)) = min(800, 500) = 500.
+    // The inline-block clamps DOWN to the available 500px container width.
     const ib = createElementBox(
       "ib",
       { display: "inline-block", inlineSize: "auto" },
@@ -220,8 +223,8 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const out = r7.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
-    // 800px — uses maxContent directly, no clamping to the 500px container.
-    expect(ibBox?.inlineSize).toBe(800);
+    // 500px — clamped to the available container width (shrink-to-fit).
+    expect(ibBox?.inlineSize).toBe(500);
   });
 
   it("nested inline-block: outer and inner both shrink to their content maxContent", () => {

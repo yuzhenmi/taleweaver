@@ -521,13 +521,43 @@ function collectInlineTokens(
       collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
+      // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
+      //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
       let inlineSizePx: number;
       if (typeof cs.inlineSize === "number") {
         inlineSizePx = cs.inlineSize;
+      } else if (typeof cs.inlineSize === "object") {
+        // percent (the only ComputedLength object shape — see length.ts): a
+        // DEFINITE size resolved against the containing block's inline size
+        // (the IFC content area = available), mirroring used-style.ts's
+        // (value/100)*containingInlineSize. NOT shrink-to-fit: it is not
+        // clamped to max-content nor floored at min-content. The external
+        // collectTokens / rewrap path passes parentCtx === null (no
+        // containing-width context) → fall back to max-content.
+        inlineSizePx = parentCtx !== null
+          ? (cs.inlineSize.value / 100) * parentCtx.containingInlineSize
+          : computeIntrinsicSizes(child, shaper, intrinsicCache).maxContent;
       } else {
-        // auto: use max-content (shrink-to-fit in an IFC means content width).
+        // Now genuinely exhaustive: "auto" | "min-content" | "max-content" | "fit-content".
+        // Compute intrinsic sizes once, then resolve per CSS Sizing 3:
+        //   max-content → max-content unconditionally;
+        //   min-content → min-content unconditionally;
+        //   fit-content / auto → shrink-to-fit clamp (§10.3.5).
         const intrinsic = computeIntrinsicSizes(child, shaper, intrinsicCache);
-        inlineSizePx = intrinsic.maxContent;
+        if (cs.inlineSize === "min-content") {
+          inlineSizePx = intrinsic.minContent;
+        } else if (cs.inlineSize === "max-content") {
+          inlineSizePx = intrinsic.maxContent;
+        } else {
+          // "auto" | "fit-content": shrink-to-fit = min(maxContent, max(minContent, available)) — §10.3.5.
+          // (fit-content == shrink-to-fit; auto in an IFC resolves the same way.) `available` is the
+          // containing block's available inline size (the IFC content area = parentCtx.containingInlineSize).
+          // The external collectTokens / rewrap path passes parentCtx === null (no available-width
+          // context) → fall back to max-content (unchanged).
+          inlineSizePx = parentCtx !== null
+            ? Math.min(intrinsic.maxContent, Math.max(intrinsic.minContent, parentCtx.containingInlineSize))
+            : intrinsic.maxContent;
+        }
       }
 
       // Lay out at resolved inlineSize. When a parent context is in scope

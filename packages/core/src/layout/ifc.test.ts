@@ -4,6 +4,7 @@ import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutInlineContent, collectTokens } from "./ifc";
 import { layoutBlock } from "./bfc";
+import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
 import type { ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
@@ -1992,5 +1993,205 @@ describe("layoutInlineContent — offsetLength (state-correct line offsets acros
     }
     // Cumulative coverage reaches the full state length.
     expect(lines[lines.length - 1].inlineOffsetEnd).toBe(text.length);
+  });
+});
+
+describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)", () => {
+  // Auto-sized inline-block width = min(maxContent, max(minContent, available)).
+  // Shrink to the available IFC content width, but never below min-content
+  // (the longest unbreakable run). To make min/max-content DIFFER
+  // deterministically we use a word-aware shaper: a run's min-content is the
+  // widest whitespace-delimited word; its max-content is the full phrase laid
+  // out on one line (no wrap). All widths are 8px/char.
+  const CW = 8;
+  function wordAwareShaper(): TextShaper {
+    const base = createMockShaper(CW, 16);
+    return {
+      measureFontMetrics: base.measureFontMetrics,
+      shape(text: string, style, baseDirection): ShapedRun {
+        const run = base.shape(text, style, baseDirection);
+        // Longest whitespace-delimited word → min-content input. (The default
+        // mock reports a single char; we want a meaningful min floor.)
+        const longestWord = text.length === 0
+          ? 0
+          : Math.max(0, ...text.split(/\s+/).map(w => w.length * CW));
+        return {
+          ...run,
+          minClusterInlineSize: longestWord,
+          // unbreakableRunInlineSize stays the full text width = max-content.
+        };
+      },
+    };
+  }
+
+  // Phrase "aaaa bb cc": longest word "aaaa" = 4*8 = 32 (min-content);
+  // full phrase "aaaa bb cc" = 10*8 = 80 (max-content). So minContent=32 < 80.
+  const PHRASE = "aaaa bb cc";
+  const MIN_CONTENT = 4 * CW;          // 32 — longest word "aaaa"
+  const MAX_CONTENT = PHRASE.length * CW; // 80 — full phrase incl. spaces
+
+  function resolvedInlineBlockWidth(
+    containingInlineSize: number,
+    inlineSize?: "min-content" | "max-content" | "fit-content" | { unit: "percent"; value: number },
+  ): number {
+    const shp = wordAwareShaper();
+    // inline-block with no explicit inlineSize → auto shrink-to-fit; or an
+    // explicit intrinsic-sizing keyword / percent length when provided.
+    const ibStyle = inlineSize === undefined
+      ? { display: "inline-block" as const, blockSize: 16 }
+      : { display: "inline-block" as const, blockSize: 16, inlineSize };
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", ibStyle, [
+          createTextBox("ibt", {}, PHRASE),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    // layoutBlock → layoutInlineContent provides a non-null parentCtx to
+    // collectInlineTokens (the production path that applies the clamp).
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize), shp);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    if (r.box.type !== "block") throw new Error("?");
+    const line = r.box.children.find(c => c.type === "line");
+    if (line?.type !== "line") throw new Error("no line");
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("no inline-block");
+    return ib.width;
+  }
+
+  // Sanity: confirm the fixture's intrinsic min/max are what we think.
+  it("fixture: min-content (longest word) < max-content (full phrase)", () => {
+    const shp = wordAwareShaper();
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", { display: "inline-block", blockSize: 16 }, [
+          createTextBox("ibt", {}, PHRASE),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const cache = makeRootContext(INITIAL_COMPUTED_STYLE, 500).intrinsicCache;
+    const ib = (tree.children[0]);
+    const sizes = computeIntrinsicSizes(ib, shp, cache);
+    expect(sizes.minContent).toBe(MIN_CONTENT);
+    expect(sizes.maxContent).toBe(MAX_CONTENT);
+    expect(sizes.minContent).toBeLessThan(sizes.maxContent);
+  });
+
+  it("1. clamps to available when maxContent > available (the fix)", () => {
+    // available between min (32) and max (80) → clamp down to available.
+    const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
+    const w = resolvedInlineBlockWidth(available);
+    expect(w).toBe(available);            // clamped to available
+    expect(w).toBeGreaterThanOrEqual(MIN_CONTENT); // never below min-content
+    expect(w).toBeLessThan(MAX_CONTENT);  // strictly narrower than raw max-content
+  });
+
+  it("2. keeps max-content when maxContent < available (unchanged)", () => {
+    // available wider than max-content → min(maxContent, available) = maxContent.
+    const w = resolvedInlineBlockWidth(MAX_CONTENT + 40);
+    expect(w).toBe(MAX_CONTENT);
+  });
+
+  it("3. floors at min-content when minContent > available (overflow, CSS-correct)", () => {
+    // available narrower than min-content → max(minContent, available) = minContent,
+    // and min(maxContent, minContent) = minContent. It overflows the IFC; correct.
+    const available = MIN_CONTENT - 16; // 16 < MIN_CONTENT (32)
+    const w = resolvedInlineBlockWidth(available);
+    expect(w).toBe(MIN_CONTENT);   // floored at min-content, NOT clamped to available
+    expect(w).toBeGreaterThan(available);
+  });
+
+  it("4. explicit numeric inlineSize is unchanged by the clamp", () => {
+    const shp = wordAwareShaper();
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        // explicit inlineSize wider than the tiny available width — the clamp
+        // must NOT touch the explicit-size arm.
+        createElementBox("ib", { display: "inline-block", inlineSize: 70, blockSize: 16 }, [
+          createTextBox("ibt", {}, PHRASE),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shp);
+    if (r.box === null || r.box.type !== "block") throw new Error("?");
+    const line = r.box.children.find(c => c.type === "line");
+    if (line?.type !== "line") throw new Error("no line");
+    const ib = line.children.find(c => c.type === "inline-block");
+    if (ib?.type !== "inline-block") throw new Error("no inline-block");
+    expect(ib.width).toBe(70);
+  });
+
+  it("5. NO-REGRESSION: external collectTokens path (parentCtx null) keeps max-content", () => {
+    const shp = wordAwareShaper();
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createElementBox("ib", { display: "inline-block", blockSize: 16 }, [
+          createTextBox("ibt", {}, PHRASE),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    // collectTokens passes parentCtx === null → falls back to max-content,
+    // unaffected by available width (no available-width context on this path).
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40); // narrower than max-content
+    const tokens = collectTokens(tree, shp, "ltr", ctx.intrinsicCache);
+    const ibTok = tokens.find(t => t.inlineBlock !== undefined);
+    expect(ibTok).toBeDefined();
+    expect(ibTok?.width).toBe(MAX_CONTENT); // unchanged on the null-ctx path
+  });
+
+  // --- Explicit intrinsic-sizing keywords (CSS Sizing 3): the shrink-to-fit
+  // clamp must ONLY apply to "auto" and "fit-content". "min-content" resolves
+  // to min-content unconditionally; "max-content" to max-content uncond.
+
+  it('6. inlineSize: "max-content" keeps max-content even when available < maxContent (NOT clamped)', () => {
+    // available between min (32) and max (80) — the auto/fit-content arm would
+    // clamp to available; max-content must ignore available entirely.
+    const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
+    const w = resolvedInlineBlockWidth(available, "max-content");
+    expect(w).toBe(MAX_CONTENT); // unconditional max-content, NOT clamped to available
+  });
+
+  it('6b. inlineSize: "max-content" keeps max-content when available is far below max', () => {
+    const available = MIN_CONTENT - 8; // 24 < MIN_CONTENT (32) < MAX_CONTENT
+    const w = resolvedInlineBlockWidth(available, "max-content");
+    expect(w).toBe(MAX_CONTENT);
+  });
+
+  it('7. inlineSize: "min-content" keeps min-content even when available > minContent (NOT grown)', () => {
+    // available wider than min-content — the auto/fit-content arm gives
+    // max(minContent, available) = available; min-content must ignore available.
+    const available = MAX_CONTENT + 40; // far wider than minContent
+    const w = resolvedInlineBlockWidth(available, "min-content");
+    expect(w).toBe(MIN_CONTENT); // unconditional min-content, NOT grown to available
+  });
+
+  it('8. inlineSize: "fit-content" behaves like auto (shrink-to-fit clamp)', () => {
+    // available between min and max → min(maxContent, max(minContent, available)) = available.
+    const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
+    expect(resolvedInlineBlockWidth(available, "fit-content")).toBe(available);
+    // available wider than max → maxContent.
+    expect(resolvedInlineBlockWidth(MAX_CONTENT + 40, "fit-content")).toBe(MAX_CONTENT);
+    // available narrower than min → floored at min-content.
+    expect(resolvedInlineBlockWidth(MIN_CONTENT - 16, "fit-content")).toBe(MIN_CONTENT);
+  });
+
+  // --- Percent inlineSize (a DEFINITE size, NOT shrink-to-fit). Percent
+  // resolves against the containing block's inline size (the IFC content
+  // area = available); it is NOT clamped to max-content and NOT floored at
+  // min-content. See used-style.ts percent resolution: (value/100)*available.
+
+  it('9. inlineSize: 50% resolves to a DEFINITE 0.5 * available (NOT shrink-to-fit, NOT clamped to maxContent)', () => {
+    const available = 56; // 0.5*56 = 28: differs from maxContent (80) AND the
+                          // auto/fit-content clamp result (min(80,max(32,56))=56).
+    const w = resolvedInlineBlockWidth(available, { unit: "percent", value: 50 });
+    expect(w).toBe(28);                 // definite: 0.5 * available
+    expect(w).not.toBe(MAX_CONTENT);    // NOT clamped to max-content
+    expect(w).not.toBe(available);      // NOT the shrink-to-fit clamp result
+    // 28 < MIN_CONTENT (32): a definite percent size is NOT floored at min-content.
+    expect(w).toBeLessThan(MIN_CONTENT);
   });
 });
