@@ -211,41 +211,52 @@ export class History {
    * SelectionEntry to. The dev-mode assertion below catches this.
    */
   commit(opResult: OperationResult, selections: SelectionEntry): void {
-    // Pre-condition, checked BEFORE any mutation so a misuse throws without
-    // leaving the wrapper half-updated (currentState advanced). `dirtyIds.size
-    // === 0` is exactly the forbidden no-op: Yjs records no undo group for it,
-    // so there'd be no item to receive the SelectionEntry. (Sound today because
-    // every action handler surfaces its full change set via the FINAL
-    // OperationResult it commits; a future compound action whose last op has an
-    // empty dirty set must propagate a merged dirty set.) Dev-only — compiled
-    // out of production.
-    if (isDevMode() && opResult.dirtyIds.size === 0) {
-      throw new Error(
-        `History.commit: refusing to commit a no-op operation (dirtyIds empty); ` +
-          `handlers must short-circuit when opResult.dirtyIds.size === 0.`,
-      );
+    // No-op guard, checked BEFORE any mutation. `dirtyIds.size === 0` is the
+    // forbidden no-op: Yjs records no undo group for it, so there is no fresh
+    // StackItem to receive the SelectionEntry — welding `selections` onto the
+    // existing top item would OVERWRITE the prior action's selection (or, on an
+    // empty stack, surface the "no StackItem" error below). Callers MUST
+    // short-circuit (every action handler checks `result.state === editor.state`
+    // first); this is the backstop. (Sound today because every handler surfaces
+    // its full change set via the FINAL OperationResult it commits; a future
+    // compound action whose last op has an empty dirty set must propagate a
+    // merged dirty set.)
+    //   - DEV: throw loudly so the caller bug is caught immediately.
+    //   - PROD: return safely — committing nothing is the correct outcome for a
+    //     no-op, and it advances nothing, so there is no corruption and no crash.
+    if (opResult.dirtyIds.size === 0) {
+      if (isDevMode()) {
+        throw new Error(
+          `History.commit: refusing to commit a no-op operation (dirtyIds empty); ` +
+            `handlers must short-circuit when opResult.dirtyIds.size === 0.`,
+        );
+      }
+      return;
     }
-    this.currentState = opResult.state;
     // Close the current capture group. After this, the top of `undoStack` is
     // the merged StackItem produced by this action's transaction(s).
     this.undoManager.stopCapturing();
-    // Weld the selection pair onto that item's `.meta`. It is now bound to
-    // the live undo item and can never desync from the Yjs stack. (`undo` /
-    // `redo` re-weld it onto the opposite stack's new item as the action
-    // flips direction — Yjs does not copy `.meta` across undo↔redo.)
+    // Locate that item BEFORE advancing `currentState`, so a mid-commit throw
+    // (the "impossible" no-item case) never leaves the wrapper half-updated.
     const top =
       this.undoManager.undoStack[this.undoManager.undoStack.length - 1];
     if (top === undefined) {
       // The action mutated tracked types (dirtyIds non-empty) yet produced no
       // undo StackItem — should be impossible. Surface loudly rather than
-      // silently dropping the selection.
+      // silently dropping the selection. `currentState` is NOT yet advanced.
       throw new Error(
         `History.commit: no undo StackItem to attach selection to after ` +
           `stopCapturing (dirtyIds=${opResult.dirtyIds.size}). ` +
           `A tracked mutation should always produce a StackItem.`,
       );
     }
+    // Weld the selection pair onto that item's `.meta`. It is now bound to
+    // the live undo item and can never desync from the Yjs stack. (`undo` /
+    // `redo` re-weld it onto the opposite stack's new item as the action
+    // flips direction — Yjs does not copy `.meta` across undo↔redo.)
     top.meta.set(SEL_KEY, selections);
+    // All bookkeeping succeeded — now advance the wrapper's current state.
+    this.currentState = opResult.state;
     // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack
     // exceeds the cap drop the OLDEST entries from the undoStack. Each trimmed
     // StackItem carries its own `.meta` (and thus its SelectionEntry) away
@@ -274,14 +285,25 @@ export class History {
    * subsequent `redo()` can read the `after` side. Returns null if nothing
    * to undo.
    *
-   * **Error recovery (T33):** the whole body is wrapped in try/catch. The
-   * only state-mutating step is `undoManager.undo()` (inside
-   * `captureDirtyIds`) and `freshState`. If either throws, the wrapper's
-   * `currentState` is left unchanged (it is only reassigned after both
-   * succeed), so a retry is sound. With the selection welded to the Yjs
-   * item there is no parallel-array mutation to order or unwind — strictly
-   * simpler and safer than the old two-array dance. Caller sees a wrapped
-   * error identifying the failure as history-internal.
+   * **Error recovery (T33):** the whole body is wrapped in try/catch, and
+   * `currentState` is reassigned only on full success (last statement before
+   * the return). The retriability of the wrapper depends on WHERE the throw
+   * lands relative to the Yjs reversal:
+   *   - A throw BEFORE `undoManager.undo()` mutates the Yjs stacks (i.e. inside
+   *     `captureDirtyIds` before the reversal applies) leaves BOTH the Y.Doc and
+   *     `currentState` unchanged → a retry is fully sound.
+   *   - A throw AFTER the reversal applied (only `freshState`, an allocation +
+   *     freeze, runs after it) leaves the Y.Doc already reversed and the redo
+   *     entry already re-welded, while `currentState` is stale → the wrapper is
+   *     NOT safely retriable (a blind retry would double-undo). The catch
+   *     surfaces this as "history may be inconsistent"; the caller must treat
+   *     history as such rather than retrying blindly. `freshState` is
+   *     allocation-only and realistically cannot throw, so this window is
+   *     theoretical — but the guarantee is the weaker of the two, not "always
+   *     retriable".
+   * With the selection welded to the Yjs item there is no parallel-array
+   * mutation to order or unwind. Caller sees a wrapped error identifying the
+   * failure as history-internal.
    */
   undo(): UndoRedoResult | null {
     if (!this.canUndo()) return null;
@@ -322,9 +344,11 @@ export class History {
       }
       // Construct the new state BEFORE updating currentState. Passing dirtyIds
       // builds the new state's cache as an overlay on the prior cache —
-      // unchanged blocks stay warm via fall-through (S-A2 + S-A3). If
-      // freshState throws (theoretical OOM), currentState is untouched and a
-      // retry is sound.
+      // unchanged blocks stay warm via fall-through (S-A2 + S-A3). NOTE: the
+      // Yjs reversal above has ALREADY applied at this point, so a freshState
+      // throw here leaves currentState stale relative to the Y.Doc — see the
+      // method docstring; this is the non-retriable window (theoretical, since
+      // freshState is allocation-only).
       const newState = freshState(this.currentState, dirtyIds);
       this.currentState = newState;
       return {
@@ -349,8 +373,11 @@ export class History {
    * nothing to redo.
    *
    * **Error recovery (T33):** mirrored from `undo()` — try/catch wraps the
-   * whole body so a Yjs throw or `freshState` allocation failure does not
-   * advance `currentState`.
+   * whole body and `currentState` advances only on full success. Same
+   * retriability split as `undo()`: a throw before the Yjs re-application is
+   * fully retriable; a `freshState` throw after it leaves `currentState` stale
+   * relative to the already-reapplied Y.Doc (non-retriable, theoretical). See
+   * `undo()`'s docstring for the full rationale.
    */
   redo(): UndoRedoResult | null {
     if (!this.canRedo()) return null;
@@ -397,18 +424,33 @@ export class History {
   /**
    * Weld `entry` onto the `.meta` of the StackItem currently on top of
    * `stack` (the opposite stack's freshly-created item produced by the
-   * just-completed undo/redo reversal). No-op if the stack is empty — which
-   * happens for a full undo of a max-depth window etc.; the item simply isn't
-   * re-pushable so there is nothing to carry.
+   * just-completed undo/redo reversal).
+   *
+   * Called only from `undo` / `redo`, AFTER a successful reversal: Y.UndoManager
+   * always pushes a fresh StackItem onto the opposite stack for the reversal, so
+   * `stack` is non-empty by construction here. An empty stack would mean Yjs
+   * stopped doing that — a behavioral regression. DEV: throw (caught + wrapped
+   * by undo/redo's outer try/catch as a "history may be inconsistent" error)
+   * to surface it on THIS reversal, rather than letting it resurface later as a
+   * misleading "popped StackItem carries no SelectionEntry" error on the NEXT
+   * undo/redo. PROD: skip silently — the selection round-trip degrades but the
+   * editor does not crash.
    */
   private carryEntryToTop(
     stack: readonly YStackItem[],
     entry: SelectionEntry,
   ): void {
     const top = stack[stack.length - 1];
-    if (top !== undefined) {
-      top.meta.set(SEL_KEY, entry);
+    if (top === undefined) {
+      if (isDevMode()) {
+        throw new Error(
+          `History.carryEntryToTop: opposite stack is empty after a successful ` +
+            `undo/redo — Y.UndoManager did not push the expected StackItem.`,
+        );
+      }
+      return;
     }
+    top.meta.set(SEL_KEY, entry);
   }
 }
 

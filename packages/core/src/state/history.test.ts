@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory } from "./history";
 import { createEmptyDocument } from "./initial-state";
@@ -557,6 +557,45 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(() =>
       history.commit(noopResult, { before: sel, after: sel }),
     ).toThrow(/no-op operation/);
+  });
+
+  it("PROD: a no-op commit returns safely without corrupting the prior item's selection (#264)", () => {
+    // In production the dev throw is compiled away; the guard must still
+    // protect the prior StackItem's selection. Without the production
+    // backstop, a no-op commit would weld THIS call's selection onto the
+    // previous action's top item (Yjs created no new item), silently
+    // corrupting it. The fix returns early instead.
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const state0 = createEmptyDocument();
+      const history = createHistory(state0);
+      const child = firstChild(state0);
+
+      // A real edit → commit with selection A.
+      const r1 = setBlockAttrs(state0, child.id, { testMark: "x" });
+      expect(r1.dirtyIds.size).toBeGreaterThan(0);
+      const selA = createSpan(
+        createPosition(child.id, 0),
+        createPosition(child.id, 0),
+      );
+      history.commit(r1, { before: selA, after: selA });
+
+      // A no-op commit in PRODUCTION must NOT throw and must NOT overwrite
+      // selA on the top StackItem.
+      const posB = createPosition(child.id, 1);
+      const selB = createSpan(posB, posB);
+      const noop = { state: r1.state, dirtyIds: new Set<BlockId>() };
+      expect(() =>
+        history.commit(noop, { before: selB, after: selB }),
+      ).not.toThrow();
+
+      // Undo returns selA (the real action's pre-selection), proving the
+      // no-op did not clobber it with selB.
+      const undone = history.undo();
+      expect(undone?.selection).toEqual(selA);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

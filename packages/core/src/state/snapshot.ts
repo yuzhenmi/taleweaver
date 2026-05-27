@@ -79,8 +79,18 @@ export interface SnapshotCache {
   readonly snapshots: Record<TreeKind, Map<BlockId, Block>>;
   /** Ids whose `base` entry is stale at this layer; reads of these skip
    *  fall-through and re-snapshot from the Y.Doc. One set across all trees
-   *  (ids are globally unique). */
-  readonly invalidated: Set<BlockId>;
+   *  (ids are globally unique).
+   *
+   *  IMMUTABLE after construction. `ReadonlySet` (not `Set`) is load-bearing:
+   *  `walkChain` checks the own `snapshots[kind]` hit BEFORE `invalidated`, and
+   *  `promoteInto` writes the fresh post-mutation snapshot into the very layer
+   *  whose `invalidated` stopped the chain. That promoted entry is correct ONLY
+   *  because `invalidated` never grows after this layer is built — every
+   *  invalidation for this layer is known at construction (`createOverlayCache`
+   *  seeds it from the producing transaction's `dirtyIds`). A post-construction
+   *  `.add` would make an already-promoted snapshot silently win over a newer
+   *  invalidation. The type forbids that at compile time. */
+  readonly invalidated: ReadonlySet<BlockId>;
   /** Underlying cache layer for fall-through reads, or null for a root
    *  cache produced by `createSnapshotCache` / `freshState`. */
   readonly base: SnapshotCache | null;
@@ -198,6 +208,12 @@ function walkChain(
   while (layer !== null) {
     const own = layer.snapshots[kind].get(id);
     if (own !== undefined) {
+      // Own-hit wins WITHOUT consulting `invalidated`. This is correct even
+      // when `id` is also in this layer's `invalidated`: such an entry can only
+      // have been written by `promoteInto` on a prior read (which carries the
+      // FRESH post-mutation snapshot up into the invalidation-stop layer), and
+      // `invalidated` is immutable after construction (see SnapshotCache field
+      // doc) — so the own entry is never staler than `invalidated` implies.
       return { hit: own, visited };
     }
     if (layer.invalidated.has(id)) {
