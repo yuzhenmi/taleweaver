@@ -1907,6 +1907,134 @@ describe("createEditorController", () => {
     });
   });
 
+  // ── #305 (C.2b-2 follow-up): scrollCursorIntoView per-page running-sum Y ───
+  //
+  // `scrollCursorIntoView` derives the cursor's document-y as
+  // `cursorSlot.top + cursorPos.y`, where `cursorSlot.top` is the per-page
+  // RUNNING-SUM `blockOffset` (a section may make later pages taller/wider with
+  // a different gap), NOT a uniform `pageIndex * (pageHeight + pageGap)`. These
+  // tests pin the resulting smooth-scroll TARGET to that running-sum geometry:
+  // the mixed-height fixture below makes the uniform formula give a different
+  // (wrong) answer, so a regression to `pageIndex*(H+gap)` would flip the
+  // asserted number.
+  describe("scrollCursorIntoView (per-page running-sum geometry, #305)", () => {
+    // page 0: 100 tall / 600 wide / gap 24 (doc-wide default).
+    // pages 1-2: 200 tall / 800 wide / gap 40 (a taller+wider section).
+    // Running-sum slot tops: [0, 124, 364]. Uniform `i*(100+24)` would give
+    // [0, 124, 248] — so page 2's top (364) differs from uniform (248) by 116.
+    function makeTallSectionTree() {
+      return makeSpyVirtualTreeWithGeom([100, 200, 200], [600, 800, 800], [24, 40, 40]);
+    }
+
+    // Build a controller whose detected scroll-parent is a scrollable <div>
+    // wrapping the container (overflowY:auto is picked up by detectScrollParent,
+    // which runs at construction — so the wrapper must exist BEFORE create).
+    function makeScrollableController(
+      scrollParentGeom: { scrollTop: number; clientHeight: number; rectTop: number },
+      containerRectTop: number,
+    ) {
+      const sp = document.createElement("div");
+      sp.style.overflowY = "auto";
+      document.body.appendChild(sp);
+      const container = document.createElement("div");
+      sp.appendChild(container);
+
+      // jsdom leaves layout metrics at 0; stub the ones the HTMLElement branch
+      // of scrollCursorIntoView reads. scrollTop is writable so smoothScrollTo
+      // (which assigns sp.scrollTop over rAF frames) lands the final target.
+      sp.scrollTop = scrollParentGeom.scrollTop;
+      Object.defineProperty(sp, "clientHeight", {
+        value: scrollParentGeom.clientHeight,
+        configurable: true,
+      });
+      sp.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: scrollParentGeom.rectTop, right: 800,
+        bottom: scrollParentGeom.rectTop + scrollParentGeom.clientHeight,
+        width: 800, height: scrollParentGeom.clientHeight, x: 0, y: 0, toJSON: () => {},
+      }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: containerRectTop, right: 800, bottom: containerRectTop + 564,
+        width: 800, height: 564, x: 0, y: 0, toJSON: () => {},
+      }));
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      return { sp, container, ctrl };
+    }
+
+    afterEach(() => {
+      vi.mocked(core.resolvePixelPosition).mockReturnValue(MOCK_PIXEL_POSITION);
+    });
+
+    it("cursor below the viewport scrolls down to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
+      // Scroll-parent fully at top (scrollTop 0), short viewport (clientHeight
+      // 200), container flush with the scroll-parent (both rect tops 0).
+      const { sp, container, ctrl } = makeScrollableController(
+        { scrollTop: 0, clientHeight: 200, rectTop: 0 },
+        0,
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      // Cursor on page 2, cursorPos.y = 20, height 16.
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // smoothScrollTo animates sp.scrollTop over SCROLL_DURATION (250ms);
+      // advance past it so easing reaches the final value exactly.
+      vi.advanceTimersByTime(400);
+
+      // Running-sum: offsets[2] = 364 (≠ uniform 2*(100+24) = 248).
+      expect(offsets[2]).toBe(364);
+      // cursorVisualY = 364 + 20 = 384. cursorInSp = 0 - 0 + 0 + 384 = 384.
+      // Below-viewport branch: 384 + 16(h) + 64(pad) = 464 > visBottom(0+200).
+      // target = cursorInSp + h + pad - clientHeight = 464 - 200 = 264.
+      const RUNNING_SUM_TARGET = 364 + 20 + 16 + 64 - 200; // 264
+      // A uniform `pageIndex*(H+gap)` (=248) would yield 248+20+16+64-200 = 148.
+      const UNIFORM_WRONG_TARGET = 248 + 20 + 16 + 64 - 200; // 148
+      expect(RUNNING_SUM_TARGET).not.toBe(UNIFORM_WRONG_TARGET);
+      expect(sp.scrollTop).toBeCloseTo(RUNNING_SUM_TARGET, 3);
+
+      ctrl.destroy();
+      document.body.removeChild(sp);
+    });
+
+    it("cursor above the viewport scrolls up to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
+      // Scroll-parent scrolled down to 500 with the container scrolled up by the
+      // same amount (rect top -500), so page 2 sits above the visible window.
+      const { sp, container, ctrl } = makeScrollableController(
+        { scrollTop: 500, clientHeight: 200, rectTop: 0 },
+        -500,
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      vi.advanceTimersByTime(400);
+
+      expect(offsets[2]).toBe(364);
+      // cursorVisualY = 364 + 20 = 384. cursorInSp = (-500) - 0 + 500 + 384 = 384.
+      // Above-viewport branch: cursorInSp(384) < visTop(500) + pad(64) = 564.
+      // target = max(0, cursorInSp - pad) = max(0, 384 - 64) = 320.
+      const RUNNING_SUM_TARGET = Math.max(0, 364 + 20 - 64); // 320
+      // Uniform 248 would give max(0, 248+20-64) = 204.
+      const UNIFORM_WRONG_TARGET = Math.max(0, 248 + 20 - 64); // 204
+      expect(RUNNING_SUM_TARGET).not.toBe(UNIFORM_WRONG_TARGET);
+      expect(sp.scrollTop).toBeCloseTo(RUNNING_SUM_TARGET, 3);
+
+      ctrl.destroy();
+      document.body.removeChild(sp);
+    });
+  });
+
   describe("textarea positioning", () => {
     it("positions textarea at cursor position on update", () => {
       const container = document.createElement("div");
