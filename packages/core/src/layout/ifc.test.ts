@@ -413,25 +413,23 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
     return { lines, lineInlineSize: width };
   }
 
-  it("trailing spaces WRAP (caret on-page) and the word is NOT split", () => {
-    // "ab cd        " (8 trailing spaces) at 40px. "ab cd" = 5×8 = 40 fits;
-    // the trailing spaces overflow and wrap onto subsequent lines.
-    const { lines, lineInlineSize } = linesOf("ab cd        ", 40);
-    expect(lines.length).toBeGreaterThanOrEqual(2);
+  it("trailing spaces HANG (#338 P1, supersedes wrap) and the word is NOT split", () => {
+    // "ab cd        " (8 trailing spaces) at 40px. "ab cd" = 5×8 = 40 fits.
+    // #338 P1: a space unit never triggers its own wrap, so the 8 trailing
+    // spaces HANG on line 1 (Google-Docs trailing-space behavior) — they do NOT
+    // wrap to subsequent lines. The whole paragraph is ONE line.
+    const { lines } = linesOf("ab cd        ", 40);
+    expect(lines).toHaveLength(1);
 
-    // "ab cd" is intact on line 1 (NOT split early).
+    // "ab cd" is intact on line 1 (NOT split early), and the line owns the full
+    // 13-char source span (5 word/inter-word chars + 8 trailing spaces).
     const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
     expect(line1Text.startsWith("ab cd")).toBe(true);
     expect(/ab\s+cd/.test(line1Text)).toBe(true);
+    expect(lines[0].inlineOffsetEnd).toBe(13);
 
-    // CARET-ON-PAGE GUARD: every rendered glyph on EVERY line (including
-    // every wrapped trailing space) ends at or before the page edge. This is
-    // exactly what the reverted pre-wrap "hang" violated (spaces past the edge).
-    for (const line of lines) {
-      for (const leaf of leavesOf(line)) {
-        expect(leaf.x + leaf.width).toBeLessThanOrEqual(lineInlineSize);
-      }
-    }
+    // NOTE: hung spaces may extend past the content edge under P1 — clamping the
+    // hung run to the content edge is P2 (#338). No on-page geometry asserted.
   });
 
   it("word is not split early: 'ab cd   ' at 40px keeps 'ab' and 'cd' on line 1", () => {
@@ -447,19 +445,16 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
     expect(/ab\s+cd/.test(line1Text)).toBe(true);
   });
 
-  it("a run of spaces longer than a line wraps across multiple lines, none past the edge", () => {
-    // 20 spaces at 40px (fits 5 spaces/line) → flows across several lines.
-    const { lines, lineInlineSize } = linesOf("                    ", 40);
-    expect(lines.length).toBeGreaterThanOrEqual(2);
-    for (const line of lines) {
-      for (const leaf of leavesOf(line)) {
-        expect(leaf.x + leaf.width).toBeLessThanOrEqual(lineInlineSize);
-      }
-    }
-    // All 20 space chars are owned across the lines (offset continuity below
-    // covers the per-line invariant; here confirm the total).
-    const lastLine = lines[lines.length - 1];
-    expect(lastLine.inlineOffsetEnd).toBe(20);
+  it("a run of spaces longer than a line all HANGS on one line (#338 P1, supersedes multi-line wrap)", () => {
+    // 20 spaces at 40px. #338 P1: a space unit never triggers its own wrap, so
+    // the whole run HANGS on a single line (a paragraph that is ONLY spaces has
+    // no word unit to wrap; every space is a space unit). All 20 chars are owned
+    // by the one line.
+    const { lines } = linesOf("                    ", 40);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].inlineOffsetStart).toBe(0);
+    expect(lines[0].inlineOffsetEnd).toBe(20);
+    // NOTE: the hung run extends past the content edge under P1 (clamping is P2).
   });
 
   it("interior single-space wrap is unchanged vs normal word-wrap", () => {
@@ -492,14 +487,139 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
     expect(totalOffset).toBe(7);
   });
 
-  it("offset continuity: nextLine.inlineOffsetStart === prevLine.inlineOffsetEnd across a space-driven wrap", () => {
-    const { lines } = linesOf("ab cd        ", 40);
-    expect(lines.length).toBeGreaterThanOrEqual(2);
+  it("offset continuity: nextLine.inlineOffsetStart === prevLine.inlineOffsetEnd across a hung-space-then-word wrap", () => {
+    // #338 P1: a trailing run of spaces HANGS on line 1; the FOLLOWING word
+    // wraps (it's a word unit) — so the offset boundary lands at the word break,
+    // not mid-space-run. Hung spaces stay with the preceding word on line 1.
+    // "ab cd      xy" at 40px: "ab cd"=40 + 6 spaces hang on line 1 (offset 11);
+    // "xy" wraps to line 2.
+    const { lines } = linesOf("ab cd      xy", 40);
+    expect(lines).toHaveLength(2);
     for (let i = 1; i < lines.length; i++) {
       expect(lines[i].inlineOffsetStart).toBe(lines[i - 1].inlineOffsetEnd);
     }
-    // The last line ends at the full content length (5 + 8 = 13).
+    // Line 1 owns "ab cd" + 6 hung spaces = 11 chars; line 2 owns "xy" → 13.
+    expect(lines[0].inlineOffsetEnd).toBe(11);
     expect(lines[lines.length - 1].inlineOffsetEnd).toBe(13);
+  });
+});
+
+describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its own wrap)", () => {
+  // Local copies of the #314 harness (break-spaces, 8px/char mock shaper).
+  function leavesOf(line: import("./layout-box-v2").LineBox) {
+    const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out;
+  }
+
+  function linesOf(text: string, width: number) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    return { lines, lineInlineSize: width };
+  }
+
+  it("lone trailing space HANGS: 'word ' at 36px keeps both word and space on line 1", () => {
+    // "word" = 4×8 = 32 ≤ 36 fits; "word " = 40 > 36 overflows by 8 (one space
+    // width). OLD per-token wrap: the overflowing space unit wrapped ALONE to
+    // line 2 (the lone-space-jumps bug → 2 lines). NEW: a space unit never
+    // triggers its own wrap, so it HANGS on line 1 → 1 line; the word stays put.
+    const { lines } = linesOf("word ", 36);
+    expect(lines).toHaveLength(1);
+    // The line owns all 5 source offsets (4 word chars + 1 trailing space).
+    expect(lines[0].inlineOffsetStart).toBe(0);
+    expect(lines[0].inlineOffsetEnd).toBe(5);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text).toBe("word ");
+  });
+
+  it("following word WRAPS, the hung spaces stay: 'word1   word2' wraps word2 to line 2, spaces stay on line 1", () => {
+    // "word1" = 5×8 = 40; +3 spaces = 64; "word2" = 40 ⇒ would be 104 total.
+    // Width 64 fits "word1   " (8 chars × 8 = 64) exactly; "word2" overflows
+    // (64 + 40 > 64) and — being a WORD unit — wraps to line 2. word1 is NOT
+    // hopped: it stays on line 1 with its 3 hung spaces.
+    const { lines } = linesOf("word1   word2", 64);
+    expect(lines).toHaveLength(2);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text).toBe("word1   ");
+    const line2Text = leavesOf(lines[1]).map(l => l.text).join("");
+    expect(line2Text).toBe("word2");
+  });
+
+  it("interior spaces still wrap the next WORD: 'aaaa   bb' at 52px → 2 lines, all 3 spaces on line 1", () => {
+    // The Phase-2-doc discriminating case. "aaaa" = 32; 3 spaces push to 56.
+    // At width 52: under OLD per-token wrap the 3rd space (48 + 8 = 56 > 52)
+    // wrapped ALONE to line 2, leaving only 2 spaces on line 1 (the lone-space
+    // jump). NEW: each space hangs (a space unit never wraps), so all 3 stay on
+    // line 1; the WORD "bb" then overflows (currentWidth past the edge) and is
+    // the unit that wraps to line 2.
+    const { lines } = linesOf("aaaa   bb", 52);
+    expect(lines).toHaveLength(2);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text).toBe("aaaa   "); // word + all 3 spaces hang on line 1
+    const line2Text = leavesOf(lines[1]).map(l => l.text).join("");
+    expect(line2Text).toBe("bb");
+  });
+
+  it("word never HOPS because of a trailing space (regression guard)", () => {
+    // A word that fits exactly at line end, then a trailing space that overflows.
+    // "abcd" = 32 = width; "abcd " = 40 > 32. The word must NOT move to line 2
+    // because of the trailing space — it stays, the space hangs after it.
+    const { lines } = linesOf("abcd ", 32);
+    expect(lines).toHaveLength(1);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("");
+    expect(line1Text).toBe("abcd ");
+    expect(lines[0].inlineOffsetEnd).toBe(5);
+  });
+
+  it("NO-REGRESSION: a multi-word paragraph wrapping purely on words is unchanged", () => {
+    // No trailing-space involvement: "aaaa bbbb cccc" at 72px wraps at the
+    // interior space exactly as today ("aaaa bbbb" / "cccc").
+    const { lines } = linesOf("aaaa bbbb cccc", 72);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line1Text = leavesOf(lines[0]).map(l => l.text).join("").trimEnd();
+    expect(line1Text).toBe("aaaa bbbb");
+    const line2Text = leavesOf(lines[1]).map(l => l.text).join("").trim();
+    expect(line2Text).toBe("cccc");
+  });
+});
+
+describe("IFC — normal-mode wrap UNAFFECTED by the space-unit hang (#338 P1 no-regression)", () => {
+  // Under white-space:normal a trailing space is SLURPED into the preceding
+  // word's unit (NOT a standalone space unit), so `isSpaceUnit` is false and the
+  // hang gate never fires — words wrap exactly as before.
+  it("normal-mode wrapping is byte-identical (trailing-space collapse unchanged)", () => {
+    // ifcOf uses white-space:normal (no pin). "hello world" at 50px: "hello"
+    // (40) fits, "world" wraps (the slurped "hello " unit + "world" word).
+    const lines = ifcOf("hello world", 50);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    if (lines[0].type !== "line") throw new Error("?");
+    if (lines[1].type !== "line") throw new Error("?");
+    const text0: string[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") text0.push(b.text);
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(lines[0].children);
+    // Collapsing mode: "hello" on line 1 (trailing space collapsed at wrap).
+    expect(text0.join("").trim()).toBe("hello");
   });
 });
 

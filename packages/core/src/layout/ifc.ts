@@ -177,6 +177,27 @@ function trailingSpaceWidthOf(units: readonly WrapUnit[]): number {
 }
 
 /**
+ * True iff every token in the unit is a space (and it has at least one token).
+ *
+ * Under preserving white-space modes that emit standalone space units
+ * (`break-spaces` tokenizes each preserved space as its own 1-glyph unit;
+ * `pre`/`pre-wrap` emit a space-run unit), a trailing or interior space at a
+ * soft-wrap boundary is its OWN wrap unit. Under COLLAPSING `normal` the
+ * trailing space is SLURPED into the preceding word's unit (so the unit is
+ * `[word, space*]` — NOT all-spaces), so this predicate is false there and the
+ * hang gate never fires — words wrap exactly as before.
+ *
+ * The greedy wrap loop uses this to HANG a space (#338): a space unit never
+ * triggers its own soft wrap (it stays on the current line even when it
+ * overflows, matching Google Docs' trailing-space-at-wrap behavior). A
+ * line-break unit carries non-space sentinel tokens, so it is never a space
+ * unit.
+ */
+function isSpaceUnit(unit: WrapUnit): boolean {
+  return unit.tokens.length > 0 && unit.tokens.every(t => t.isSpace);
+}
+
+/**
  * Build a single-token WrapUnit cloned from `from`, carrying just `token`.
  * Used by `justifyUnits` to split a word+trailing-space unit into separate
  * word and space units (so the SPACE becomes its own positioned TextRunBox
@@ -263,8 +284,6 @@ function justifyUnits(
   }
 
   // 2. Find the first/last non-space units; interior spaces lie strictly between.
-  const isSpaceUnit = (u: WrapUnit): boolean =>
-    u.tokens.length > 0 && u.tokens.every(t => t.isSpace);
   let firstWordIdx = -1;
   let lastWordIdx = -1;
   for (let i = 0; i < flat.length; i++) {
@@ -1115,7 +1134,19 @@ export function layoutInlineContent(
     // Soft wrap — only when canWrap is true
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
 
-    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
+    // #338 (trailing-space HANG, match Google Docs): a SPACE unit never
+    // triggers its own soft wrap. Only word / inline-block units wrap. When an
+    // overflowing unit is all-spaces (a standalone space unit emitted by
+    // `break-spaces`/`pre`/`pre-wrap`), skip the flush and fall through to
+    // `pushUnit` so the space HANGS on the current line — the word stays put and
+    // the lone space does not jump to the next line alone. `currentWidth` still
+    // advances by the full space width (via pushUnit), so a FOLLOWING word still
+    // wraps correctly (it hits this overflow→wrap branch with the advanced
+    // currentWidth). Under collapsing `normal` the trailing space is slurped
+    // into the word's unit, so `isSpaceUnit` is false there and words wrap as
+    // before. (P2/#338 will CLAMP the hung space to the content edge; for now it
+    // may extend past it.)
+    if (canWrap && !isSpaceUnit(unit) && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
       // Before flushing: try hyphen-split on the overflowing unit.
       const available = lineInlineSize - currentWidth;
       const split = tryHyphenSplit(unit, available);
