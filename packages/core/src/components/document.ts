@@ -8,16 +8,22 @@ import { createElementBox } from "../render/render-node";
  *
  * `whiteSpace: "break-spaces"` is the editor's body default — matching Google
  * Docs' trailing-space behavior. A word processor preserves every space the
- * user types (leading, interior runs, trailing) and wraps at word boundaries;
- * `break-spaces` additionally makes preserved spaces TAKE WIDTH and WRAP
- * independently to the next line (CSS Text 3: a soft-wrap opportunity after
- * every preserved space, incl. at line end). That keeps the caret on-page
- * after trailing spaces — unlike `pre-wrap`, which would hang trailing spaces
- * past the page edge. `whiteSpace` is an inherited property
- * (`property-meta.ts`), so declaring it once on the document root cascades to
- * all body text; the global CSS *initial* value stays `normal`. Per-component
- * overrides (e.g. a future code block that wants `pre`) set their own
- * `whiteSpace`.
+ * user types (leading, interior runs, trailing) and wraps at WORD boundaries.
+ * Trailing whitespace at a soft-wrap boundary HANGS (#338): a space unit never
+ * wraps to the next line on its own (only words wrap), and a hung space is
+ * CLAMPED to the line's content edge — its box geometry and the caret are
+ * pinned to the edge, so no number of trailing spaces pushes a glyph or the
+ * caret past the page edge. So a lone trailing space stays at the line end
+ * (the next word wraps), and N trailing spaces all collapse at the edge,
+ * on-page. This is an intentional, Google-Docs-matching deviation from literal
+ * CSS `break-spaces` (which would wrap each space to the next line) — settled
+ * by the word-processor convention over the browser convention for this
+ * editing-shape question. (It also supersedes the reverted `pre-wrap` "hang",
+ * which lacked the clamp and let the caret run off-page.) `whiteSpace` is an
+ * inherited property (`property-meta.ts`), so declaring it once on the document
+ * root cascades to all body text; the global CSS *initial* value stays
+ * `normal`. Per-component overrides (e.g. a future code block that wants `pre`)
+ * set their own `whiteSpace`.
  */
 export const documentComponent: ContainerComponentDefinition = {
   type: "document",
