@@ -35,6 +35,7 @@ import type { ComputedStyle, UsedStyle } from "../styles";
 import type { PagePlan, PagePlanEntry } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
+import { isDevMode } from "./dev-mode";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -177,18 +178,6 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
     if (a[i] !== b[i]) return false;
   }
   return true;
-}
-
-/**
- * Local copy of the dev-mode flag (mirrors `layout-box-v2.ts`'s
- * `isDevModeForBox`): the layout module avoids importing the state module's
- * `dev-mode.ts` to keep the layer's dependency graph clean. Reads `process.env`
- * defensively because the engine compiles for browsers (no `process` global).
- * Used only to gate the slot-cap invariant assert in `materializePage`.
- */
-function isDevModeForVirtualLayout(): boolean {
-  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
-  return proc?.env?.NODE_ENV !== "production";
 }
 
 function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
@@ -364,7 +353,7 @@ export function makeVirtualLayoutTree(
     // producer-built plans; it is kept as a dev-only invariant assert (not a
     // hard prod throw) because a DIRECTLY-built plan bypasses the producer cap —
     // the invariant stays visible in tests/dev without crashing production.
-    if (isDevModeForVirtualLayout() && effContentBlockSize <= 0) {
+    if (isDevMode() && effContentBlockSize <= 0) {
       throw new Error(
         `materializePage: header/footer insets (top=${effTopInset}, bottom=${effBottomInset}) ` +
           `leave no body content area within pageBlockSize=${effCfg.pageBlockSize} — the slot ` +

@@ -16,6 +16,7 @@ import type { BlockId } from "../state";
 import type { BreakToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
+import { isDevMode } from "./dev-mode";
 import type { PageConfig } from "./page-config";
 import {
   pageConfigsEqual,
@@ -44,18 +45,6 @@ import {
  * `pageIndex === 0` coupling (the first page always differs from the sentinel).
  */
 const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
-
-/**
- * Local copy of the dev-mode flag (mirrors `layout-box-v2.ts`'s
- * `isDevModeForBox`): the layout module avoids importing the state module's
- * `dev-mode.ts` to keep the layer's dependency graph clean. Reads `process.env`
- * defensively because the engine compiles for browsers (no `process` global).
- * Used only to gate the slot-cap invariant assert below.
- */
-function isDevModeForMeasurePass(): boolean {
-  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
-  return proc?.env?.NODE_ENV !== "production";
-}
 
 let _fitOnePageCallCount = 0;
 
@@ -446,7 +435,7 @@ export function measurePass(
     // that lets an uncapped inset through surfaces loudly in tests/dev without
     // crashing production layout. (Degenerate doc-wide margins — independent of
     // the slot cap — are caught by the coarse guard above, which DOES throw.)
-    if (isDevModeForMeasurePass() && effContentBlockSize <= 0) {
+    if (isDevMode() && effContentBlockSize <= 0) {
       throw new Error(
         `measurePass: header/footer insets (top=${effTop}, bottom=${effBottom}) leave no ` +
           `body content area within pageBlockSize=${effCfg.pageBlockSize} for section ` +

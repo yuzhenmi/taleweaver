@@ -4,6 +4,7 @@ import { logicalToPhysical } from "../styles/writing-mode";
 import type { BlockId } from "../state";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
+import { isDevMode } from "./dev-mode";
 export type { PageBox } from "./page-box";
 
 export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox | PageBox;
@@ -596,7 +597,7 @@ export function assertLayoutBoxConsistent(
   box: LayoutBox,
   containingInlineSize: number,
 ): void {
-  if (!isDevModeForBox()) return;
+  if (!isDevMode()) return;
   const expected = logicalToPhysical(
     {
       inlineOffset: box.inlineOffset,
@@ -620,16 +621,5 @@ export function assertLayoutBoxConsistent(
       `instead of the factory or withInlineOffset / withBlockOffset / withOffsets helpers.`,
     );
   }
-}
-
-/**
- * Local copy of the dev-mode flag. Imported lazily to avoid pulling the
- * state module into the layout-box module's dependency graph at module
- * eval — the check is read once per assertion call and is cheap.
- */
-function isDevModeForBox(): boolean {
-  const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
-    .process;
-  return proc?.env?.NODE_ENV !== "production";
 }
 
