@@ -208,4 +208,45 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
     const result = computeIntrinsicSizes(cascadePass(sec), shaper, createIntrinsicSizesCache());
     expect(result.maxContent).toBe(40); // "abcd" = 4 × 10
   });
+
+  // #266: table intrinsic sizing must flatten `display: contents` wrappers
+  // around rows / cells (e.g. a `section` wrapping table rows). The walk in
+  // computeTableIntrinsicSizes filters by `display === "table-row"` /
+  // "table-cell", which without a flatten step skips the contents wrapper
+  // entirely (producing 0/0). The pre-fix bug yields min=max=0 for the
+  // wrapped case; the post-fix result equals the un-wrapped equivalent.
+  it("table flattens a `display: contents` wrapper around rows (#266)", () => {
+    // cells: c1 = "abc" (max=30), c2 = "abcde" (max=50).
+    // Un-wrapped table: row [c1, c2] → colMaxes = [30, 50] → tableMax = 80.
+    const cellText = (id: string, s: string) =>
+      createElementBox(id, { display: "table-cell" }, [
+        createTextBox(`${id}t`, { display: "inline" }, s),
+      ]);
+    const unwrapped = createElementBox("t", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, [
+        cellText("c1", "abc"),
+        cellText("c2", "abcde"),
+      ]),
+    ]);
+    // Same table, but the row sits inside a `display: contents` wrapper
+    // (mirrors a `section` containing table rows in P1.C).
+    const wrapped = createElementBox("t", { display: "table" }, [
+      createElementBox("sec", { display: "contents" }, [
+        createElementBox("r", { display: "table-row" }, [
+          cellText("c1", "abc"),
+          cellText("c2", "abcde"),
+        ]),
+      ]),
+    ]);
+
+    const u = computeIntrinsicSizes(cascadePass(unwrapped), shaper, createIntrinsicSizesCache());
+    const w = computeIntrinsicSizes(cascadePass(wrapped), shaper, createIntrinsicSizesCache());
+
+    expect(u.minContent).toBe(20); // colMins = [10, 10]
+    expect(u.maxContent).toBe(80); // colMaxes = [30, 50]
+    // The pre-fix bug: w === { minContent: 0, maxContent: 0 } (the contents
+    // wrapper is filtered out by the display !== "table-row" check). The fix
+    // makes the wrapped case match the un-wrapped result exactly.
+    expect(w).toEqual(u);
+  });
 });

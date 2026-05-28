@@ -166,10 +166,15 @@ function computeTableIntrinsicSizes(
   const colMins: number[] = [];
   const colMaxes: number[] = [];
 
-  for (const row of node.children) {
+  // Both walks go through `flattenContents` so a `display: contents` wrapper
+  // (e.g. a `section` containing table rows in P1.C) is transparent here, just
+  // as it is in BFC / IFC layout and in the inline intrinsic path above. Without
+  // the flatten, the `display !== "table-row"` / "table-cell" filters would skip
+  // the contents wrapper and silently produce { min: 0, max: 0 }.
+  for (const row of flattenContents(node.children)) {
     if (row.type !== "element" || row.computedStyle?.display !== "table-row") continue;
     let colIdx = 0;
-    for (const cell of row.children) {
+    for (const cell of flattenContents(row.children)) {
       if (cell.type !== "element" || cell.computedStyle?.display !== "table-cell") continue;
       const cellSizes = computeIntrinsicSizes(cell, shaper, cache);
       colMins[colIdx] = Math.max(colMins[colIdx] ?? 0, cellSizes.minContent);
