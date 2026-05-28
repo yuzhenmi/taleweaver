@@ -3,6 +3,7 @@ import { setBlockAttrs } from "./set-block-attrs";
 import { getBlock } from "./state";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { AttrRegistry } from "../cascade/attr-registry";
 
 describe("setBlockAttrs", () => {
   const fixture = () =>
@@ -53,6 +54,71 @@ describe("setBlockAttrs", () => {
   it("a genuinely different bag still mutates and dirties the block (S-B1)", () => {
     const state = fixture();
     const result = setBlockAttrs(state, "p" as BlockId, { textAlign: "right" });
+    expect(result.state).not.toBe(state);
+    expect([...result.dirtyIds]).toEqual(["p"]);
+  });
+});
+
+describe("setBlockAttrs — AttrRegistry custom equality (#263)", () => {
+  // A `comment` interpreter whose equality ignores `timestamp` — two adjacent
+  // comments with the same id but different timestamps are considered EQUAL.
+  const commentRegistry = (() => {
+    const r = new AttrRegistry();
+    r.register({
+      attrKey: "comment",
+      toStyle: () => ({}),
+      equals: (a, b) =>
+        (a as { id: string }).id === (b as { id: string }).id,
+    });
+    return r;
+  })();
+
+  const fixtureWithComment = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          attrs: { comment: { id: "c1", timestamp: 1 } },
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+
+  it("with registry: a same-id comment + different timestamp is a NO-OP (state ref preserved)", () => {
+    const state = fixtureWithComment();
+    const result = setBlockAttrs(
+      state,
+      "p" as BlockId,
+      { comment: { id: "c1", timestamp: 2 } },
+      commentRegistry,
+    );
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("without registry: same-id + different timestamp mutates (default deep compare diverges)", () => {
+    const state = fixtureWithComment();
+    const result = setBlockAttrs(state, "p" as BlockId, {
+      comment: { id: "c1", timestamp: 2 },
+    });
+    // Discriminator: without the registry, deepValueEqual sees timestamps differ
+    // → not equal → mutation lands → state ref changes.
+    expect(result.state).not.toBe(state);
+    expect([...result.dirtyIds]).toEqual(["p"]);
+  });
+
+  it("with registry: a different-id comment still mutates (registry equality reports false)", () => {
+    const state = fixtureWithComment();
+    const result = setBlockAttrs(
+      state,
+      "p" as BlockId,
+      { comment: { id: "c2", timestamp: 1 } },
+      commentRegistry,
+    );
     expect(result.state).not.toBe(state);
     expect([...result.dirtyIds]).toEqual(["p"]);
   });

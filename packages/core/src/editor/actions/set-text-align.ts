@@ -43,7 +43,7 @@ export function handleSetTextAlign(
     // Defensive: skip a block that resolved into the target list but is now
     // missing (never expected — the ids come from the live state).
     if (getBlock(state, blockId) === null) continue;
-    const result = mergeBlockAttrs(state, blockId, { textAlign: align });
+    const result = mergeBlockAttrs(state, blockId, { textAlign: align }, config.attrRegistry);
     // No-op merge (block already has this alignment): same state ref → skip.
     if (result.state === state) continue;
     state = result.state;

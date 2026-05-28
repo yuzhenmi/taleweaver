@@ -3,6 +3,7 @@ import { mergeBlockAttrs } from "./merge-block-attrs";
 import { getBlock } from "./state";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { AttrRegistry } from "../cascade/attr-registry";
 
 describe("mergeBlockAttrs", () => {
   const fixture = (existingAttrs: Record<string, unknown> = {}) =>
@@ -91,5 +92,54 @@ describe("mergeBlockAttrs", () => {
     expect(() => mergeBlockAttrs(state, "missing" as BlockId, { bold: true })).toThrow(
       /not found/,
     );
+  });
+});
+
+describe("mergeBlockAttrs — AttrRegistry custom equality (#263)", () => {
+  const commentRegistry = (() => {
+    const r = new AttrRegistry();
+    r.register({
+      attrKey: "comment",
+      toStyle: () => ({}),
+      equals: (a, b) =>
+        (a as { id: string }).id === (b as { id: string }).id,
+    });
+    return r;
+  })();
+
+  const fixtureWithComment = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          attrs: { comment: { id: "c1", timestamp: 1 } },
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+
+  it("with registry: same-id comment + different timestamp is a NO-OP (state ref preserved)", () => {
+    const state = fixtureWithComment();
+    const result = mergeBlockAttrs(
+      state,
+      "p" as BlockId,
+      { comment: { id: "c1", timestamp: 2 } },
+      commentRegistry,
+    );
+    expect(result.state).toBe(state);
+    expect(result.dirtyIds.size).toBe(0);
+  });
+
+  it("without registry: same-id + different timestamp mutates (deep compare diverges)", () => {
+    const state = fixtureWithComment();
+    const result = mergeBlockAttrs(state, "p" as BlockId, {
+      comment: { id: "c1", timestamp: 2 },
+    });
+    expect(result.state).not.toBe(state);
+    expect([...result.dirtyIds]).toEqual(["p"]);
   });
 });

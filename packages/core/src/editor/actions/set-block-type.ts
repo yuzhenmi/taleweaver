@@ -29,7 +29,7 @@ export function handleSetBlockType(
   const newAttrs = target.type === blockType ? {} : properties;
 
   const typeResult = setBlockType(editor.state, targetId, newType, config.componentRegistry);
-  const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
+  const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs, config.attrRegistry);
 
   // Union dirtyIds across the chained ops so the renderer sees one
   // OperationResult that reflects both mutations.

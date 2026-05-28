@@ -49,7 +49,7 @@ export function handleToggleSectionLandscape(
         pageBlockSize: pageConfig.pageInlineSize,
       };
 
-  const result = mergeBlockAttrs(editor.state, sectionId, incoming);
+  const result = mergeBlockAttrs(editor.state, sectionId, incoming, config.attrRegistry);
 
   // T7 identity contract: a no-op merge returns the same state reference.
   if (result.state === editor.state) return editor;

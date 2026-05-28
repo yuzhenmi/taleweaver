@@ -6,6 +6,7 @@ import { attrsEqual, mergeAttrs } from "./attrs";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs } from "./y-block";
 import { STATE_INTERNAL } from "./state-internal";
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Merge attrs into a block's existing attrs.
@@ -23,12 +24,18 @@ import { STATE_INTERNAL } from "./state-internal";
  * would always produce a change record even when the new bag is
  * structurally identical.
  *
+ * `registry` is consulted by `attrsEqual` for per-key custom equality (an
+ * interpreter's `equals` overrides the default `deepValueEqual`); omitted →
+ * structural deep equality only. Mirrors `setBlockAttrs`. Editor callers pass
+ * `config.attrRegistry`.
+ *
  * Throws if the block does not exist.
  */
 export function mergeBlockAttrs(
   state: State,
   blockId: BlockId,
   incoming: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): OperationResult {
   const resolved = resolveBlock(state, blockId);
   if (resolved === null) {
@@ -37,7 +44,7 @@ export function mergeBlockAttrs(
   const { block, kind } = resolved;
   const merged = mergeAttrs(block.attrs, incoming);
   return applyOperation(state, () => {
-    if (attrsEqual(block.attrs, merged)) {
+    if (attrsEqual(block.attrs, merged, registry)) {
       return;
     }
     const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "mergeBlockAttrs", kind);

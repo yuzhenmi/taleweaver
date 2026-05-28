@@ -43,6 +43,7 @@ export function handleToggleList(
     typeResult.state,
     targetId,
     isListItem ? {} : { listType },
+    config.attrRegistry,
   );
 
   // Union dirtyIds across the chained ops.

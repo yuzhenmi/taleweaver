@@ -6,6 +6,7 @@ import { attrsEqual } from "./attrs";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs } from "./y-block";
 import { STATE_INTERNAL } from "./state-internal";
+import type { AttrRegistry } from "../cascade/attr-registry";
 
 /**
  * Replace a block's attrs with the given bag. Returns the new state and
@@ -18,10 +19,11 @@ import { STATE_INTERNAL } from "./state-internal";
  * Without this, a same-value `Y.Map.set("attrs", …)` fires a spurious change
  * event that dirties the block and cascades into re-render/re-layout.
  *
- * NOTE: `attrsEqual` here uses structural equality (no `AttrRegistry`
- * custom-equality interpreters), matching `mergeBlockAttrs`. Wiring the
- * registry through both is a tracked follow-up; it does not change behavior
- * for any currently-registered attribute type.
+ * `registry` is consulted by `attrsEqual` for per-key custom equality (an
+ * interpreter's `equals` overrides the default `deepValueEqual`) — e.g. a
+ * `comment` attr whose `timestamp` field shouldn't affect "did anything
+ * change?" decisions. Omitted → structural deep equality only. Callers from
+ * the editor pass `config.attrRegistry`.
  *
  * Throws if the block does not exist.
  */
@@ -29,6 +31,7 @@ export function setBlockAttrs(
   state: State,
   blockId: BlockId,
   attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
 ): OperationResult {
   const resolved = resolveBlock(state, blockId);
   if (resolved === null) {
@@ -36,7 +39,7 @@ export function setBlockAttrs(
   }
   const { block, kind } = resolved;
   return applyOperation(state, () => {
-    if (attrsEqual(block.attrs, attrs)) {
+    if (attrsEqual(block.attrs, attrs, registry)) {
       return;
     }
     const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs", kind);
