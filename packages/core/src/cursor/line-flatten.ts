@@ -262,13 +262,15 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
   // the PARENT-frame x and re-adds the box's own `.x` (`absX = parentX +
   // box.x`). So we hand it the parent-frame x (`lineAbsX - line.x`); the
   // recursion re-adds `line.x` exactly once, yielding `lineAbsX` for the line
-  // and `lineAbsX + childRelX` for its children. Subtracting the LineBox's own
-  // physical `.x` (the alignment offset for a centered/right line) is what kills
-  // the double-count that over-shifted the caret/selection/hit-test on aligned
-  // lines. For start-aligned content `line.x === 0`, so `lineAbsX - 0 ===
-  // lineAbsX` and the result is byte-identical. Works in both writing
-  // directions because `box.x` IS the physical coordinate, so `lineAbsX -
-  // line.x + line.x === lineAbsX` regardless of LTR/RTL.
+  // and `lineAbsX + childRelX` for its children. This is what kills the
+  // double-count that over-shifted the caret/selection/hit-test on lines whose
+  // `.x` is non-zero (#336 fix). Post-#333, `line.x` is the natural inline-start
+  // (typically 0; non-zero only for float-adjusted lines) — the alignment offset
+  // now rides on the children's `inlineOffset` instead of `line.x`, so the
+  // subtraction is a no-op for unfloated lines but still correct + load-bearing
+  // for the floated case. Works in both writing directions because `box.x` IS
+  // the physical coordinate, so `lineAbsX - line.x + line.x === lineAbsX`
+  // regardless of LTR/RTL.
   collectLeavesRec(line, lineAbsX - line.x, out);
   return out;
 }

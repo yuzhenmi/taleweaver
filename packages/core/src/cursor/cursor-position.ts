@@ -407,7 +407,10 @@ function resolvePositionInOwnLines(
 
   const leaves = collectLineLeaves(line, target.absoluteX);
   if (leaves.length === 0) {
-    // Empty (strut) line — caret at line origin.
+    // Defensive fallback: malformed line with no children. Under normal
+    // operation this is unreachable post-#333 — strut lines (empty paragraphs)
+    // carry a zero-width strut TextRunBox child as the empty-line caret anchor,
+    // so the leaf-walk below handles them.
     return pixelPositionForLine(target, target.absoluteX);
   }
 

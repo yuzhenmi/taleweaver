@@ -75,37 +75,47 @@ describe("computeAlignmentOffset (pure helper)", () => {
 
 describe("IFC alignment — single-line geometry", () => {
   // "hello" = 5 chars × 8px = 40px content; container 200px.
+  // Under the #333 full-width line-box model: `line.x === 0` always (the line
+  // spans the full available inline size so logicalToPhysical mirrors correctly
+  // under RTL). The alignment offset is carried on the CHILDREN's inlineOffset
+  // (text-run.x within the line). PHYSICAL content x = line.x + textRun.x.
   const W = 200;
   const CONTENT = "hello".length * CHAR_W; // 40
 
-  it("center: line.x === (available − content) / 2", () => {
+  it("center (ltr): line spans full width; text-run x === (available − content) / 2", () => {
     const lines = layoutPara("hello", W, { textAlign: "center" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - CONTENT) / 2); // 80
+    expect(lines[0].x).toBe(0);
+    expect(lines[0].width).toBe(W);
+    expect(textRuns(lines[0])[0].x).toBe((W - CONTENT) / 2); // 80
   });
 
-  it("end (ltr): line.x === available − content", () => {
+  it("end (ltr): line spans full width; text-run x === available − content", () => {
     const lines = layoutPara("hello", W, { textAlign: "end" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe(W - CONTENT); // 160
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe(W - CONTENT); // 160
   });
 
-  it("start (ltr): line.x === 0 (no regression)", () => {
+  it("start (ltr): line.x === 0, text-run x === 0 (no regression)", () => {
     const lines = layoutPara("hello", W, { textAlign: "start" });
     expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe(0);
   });
 
   it("default (no textAlign attr → initial 'start'): line.x === 0", () => {
     const lines = layoutPara("hello", W, {});
     expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe(0);
   });
 
-  it("justify in P2 behaves as start: line.x === 0", () => {
+  it("justify in P2 behaves as start: line.x === 0, text-run x === 0", () => {
     const lines = layoutPara("hello", W, { textAlign: "justify" });
     expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe(0);
   });
 });
 
@@ -121,14 +131,16 @@ describe("IFC alignment — trailing-space exclusion", () => {
     const lines = layoutPara("hi   ", W, { textAlign: "center", whiteSpace: "pre-wrap" });
     expect(lines).toHaveLength(1);
     // Centered by visible width only.
-    expect(lines[0].x).toBe((W - visible) / 2); // 92
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - visible) / 2); // 92
   });
 
   it("center of a no-trailing-space line uses full content width", () => {
     const content = "hi".length * CHAR_W; // 16
     const lines = layoutPara("hi", W, { textAlign: "center", whiteSpace: "pre-wrap" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - content) / 2); // 92
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - content) / 2); // 92
   });
 });
 
@@ -144,19 +156,20 @@ describe("IFC alignment — break-spaces multi-trailing-space exclusion (#339)",
 
   it("center: 3 trailing spaces fully excluded (RED before — only 1 was excluded)", () => {
     // "word   " — 4 visible chars + 3 trailing spaces. Centered by the visible
-    // 32px only. Correct x = (200 − 32)/2 = 84. Before the fix only 1 trailing
-    // space was excluded → contentWidth 56 → x = (200 − 56)/2 = 72 (too small by
-    // (2 spaces)/2 = 8px = 1 char).
+    // 32px only. Correct text-run x = (200 − 32)/2 = 84. Before #339 only 1
+    // trailing space was excluded → contentWidth 56 → x = (200 − 56)/2 = 72.
     const lines = layoutPara("word   ", W, { textAlign: "center", whiteSpace: "break-spaces" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - WORD_W) / 2); // 84
   });
 
   it("end (ltr): 3 trailing spaces fully excluded", () => {
-    // Right-aligned: x = available − visibleContentWidth = 200 − 32 = 168.
+    // Right-aligned: text-run x = available − visibleContentWidth = 200 − 32 = 168.
     const lines = layoutPara("word   ", W, { textAlign: "end", whiteSpace: "break-spaces" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe(W - WORD_W); // 168
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe(W - WORD_W); // 168
   });
 
   it("justify NON-LAST line: interior space widened by the FULL-trailing-exclusion gap", () => {
@@ -192,48 +205,65 @@ describe("IFC alignment — break-spaces multi-trailing-space exclusion (#339)",
 
   it("no-regression: break-spaces ONE trailing space centered (unchanged)", () => {
     // "word " — 1 trailing space. Both old and new exclude exactly that one
-    // space → x = (200 − 32)/2 = 84, unchanged.
+    // space → text-run x = (200 − 32)/2 = 84, unchanged.
     const lines = layoutPara("word ", W, { textAlign: "center", whiteSpace: "break-spaces" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - WORD_W) / 2); // 84
   });
 
   it("no-regression: break-spaces NO trailing space centered uses full width", () => {
     const lines = layoutPara("word", W, { textAlign: "center", whiteSpace: "break-spaces" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - WORD_W) / 2); // 84
   });
 
   it("no-regression: normal-mode single slurped trailing space centered (unchanged)", () => {
     // Under `normal` the trailing space is SLURPED into the word's unit
     // ([word, space]); the new walk sums that one space then stops at the word —
-    // identical to before. "word " centered by visible 32px → x = 84.
+    // identical to before. "word " centered by visible 32px → text-run x = 84.
     const lines = layoutPara("word ", W, { textAlign: "center", whiteSpace: "normal" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe((W - WORD_W) / 2); // 84
+    expect(lines[0].x).toBe(0);
+    expect(textRuns(lines[0])[0].x).toBe((W - WORD_W) / 2); // 84
   });
 });
 
 describe("IFC alignment — strut (empty paragraph)", () => {
   const W = 200;
 
-  it("center strut: line.x === available / 2 (caret centered)", () => {
+  // #333: an empty paragraph emits a LineBox spanning the full available
+  // inline size at the natural inline-start, plus a single zero-width STRUT
+  // child whose `inlineOffset` carries the alignment delta. Caret/selection
+  // consumers walk `line.children` (post-#172/#208 LineBox-canonical), so the
+  // strut leaf provides the empty-line caret anchor at the correct physical x.
+
+  it("center strut: line spans full width; strut child x === available / 2 (caret centered)", () => {
     const lines = layoutPara("", W, { textAlign: "center" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].children).toHaveLength(0); // strut has no content
-    expect(lines[0].x).toBe(W / 2); // 100
+    expect(lines[0].x).toBe(0);
+    expect(lines[0].children).toHaveLength(1); // one zero-width strut child
+    const strut = lines[0].children[0];
+    expect(strut.type).toBe("text-run");
+    expect(strut.width).toBe(0);
+    expect(strut.x).toBe(W / 2); // 100 — caret anchor
   });
 
-  it("end strut: line.x === available (caret at right edge)", () => {
+  it("end strut: line spans full width; strut child x === available (caret at right edge)", () => {
     const lines = layoutPara("", W, { textAlign: "end" });
     expect(lines).toHaveLength(1);
-    expect(lines[0].x).toBe(W); // 200
+    expect(lines[0].x).toBe(0);
+    expect(lines[0].children).toHaveLength(1);
+    expect(lines[0].children[0].x).toBe(W); // 200
   });
 
-  it("start strut: line.x === 0 (no regression)", () => {
+  it("start strut: line.x === 0; strut child x === 0 (no regression)", () => {
     const lines = layoutPara("", W, { textAlign: "start" });
     expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    expect(lines[0].children).toHaveLength(1);
+    expect(lines[0].children[0].x).toBe(0);
   });
 });
 
@@ -248,46 +278,74 @@ describe("IFC alignment — multi-line wrap", () => {
     const lines = layoutPara("aaaa bbbb cccc", W, { textAlign: "center", whiteSpace: "normal" });
     expect(lines).toHaveLength(2);
 
-    // Line 0: trailing space EXCLUDED → centered by visible 9 chars = 72px:
-    // (80 − 72)/2 = 4.
-    expect(lines[0].x).toBe((W - 9 * CHAR_W) / 2); // 4
+    // Both lines span the full inline size at the natural inline-start; their
+    // CONTENT is centered via the first text-run's x within each line.
+    expect(lines[0].x).toBe(0);
+    expect(lines[1].x).toBe(0);
 
-    // Line 1 ("cccc"): no trailing space → centered by full 32px: (80 − 32)/2 = 24.
-    expect(lines[1].x).toBe((W - 4 * CHAR_W) / 2); // 24
+    // Line 0: trailing space EXCLUDED → centered by visible 9 chars = 72px:
+    // text-run x = (80 − 72)/2 = 4.
+    const l0Run = textRuns(lines[0])[0];
+    expect(l0Run.x).toBe((W - 9 * CHAR_W) / 2); // 4
+
+    // Line 1 ("cccc"): no trailing space → centered by full 32px:
+    // text-run x = (80 − 32)/2 = 24.
+    const l1Run = textRuns(lines[1])[0];
+    expect(l1Run.x).toBe((W - 4 * CHAR_W) / 2); // 24
 
     // Independent per-line centering: a GLOBAL block shift would give both lines
-    // the same x. They differ because each is centered by its own width.
-    expect(lines[0].x).not.toBe(lines[1].x);
+    // the same content x. They differ because each is centered by its own width.
+    expect(l0Run.x).not.toBe(l1Run.x);
   });
 });
 
-describe("IFC alignment — RTL", () => {
-  // P2 aligns by shifting the line's LOGICAL inline start (`lineInlineCursor`)
-  // by a LOGICAL delta; `logicalToPhysical` resolves the physical edge.
-  //
-  // start (the default) → logical offset 0 → no line-box shift → byte-identical
-  // to today's RTL output. This is the load-bearing NO-REGRESSION case: applying
-  // the alignment pass must NOT move start-aligned RTL content (content is placed
-  // at the inline-end / right edge via the bidi child reorder, inside a
-  // full-width line box at x=0).
-  it("start under rtl is unchanged (no regression): line.x === 0", () => {
-    const W = 200;
+describe("IFC alignment — RTL (#333)", () => {
+  // Under the #333 full-width model the alignment offset rides on the
+  // CHILDREN's `inlineOffset` (not on the line itself). The line spans the full
+  // available inline size and `logicalToPhysical` mirrors the inline axis under
+  // RTL, so the physical position of content correctly inverts: RTL end →
+  // visual LEFT, RTL center → centered, RTL start → visual RIGHT.
+  const W = 200;
+  const CONTENT = "hello".length * CHAR_W; // 40
+  const GAP = W - CONTENT; // 160
+
+  it("start under rtl: content at visual right edge (no regression)", () => {
     const lines = layoutPara("hello", W, { textAlign: "start" }, "rtl");
     expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    // RTL start: alignmentOffset = 0; child's logical inlineOffset = 0,
+    // inlineSize = CONTENT. Physical x = lineInlineSize − 0 − CONTENT = GAP.
+    expect(textRuns(lines[0])[0].x).toBe(GAP); // 160 — visual right
   });
 
-  // end/center under RTL: the line BOX spans the full available inline size, so
-  // its physical `x` is mirrored as `containingInlineSize − inlineOffset −
-  // inlineSize`; a non-zero logical-cursor shift on a full-width box does NOT
-  // compose into a correct physical position (it lands off-canvas). Correct RTL
-  // end/center needs the line box sized/positioned to its content (or the offset
-  // applied to child positions after the bidi reorder) — a larger change than
-  // P2's line-shift, so it is DEFERRED to a follow-up (prompt allows this).
-  it.skip("end under rtl → left edge [DEFERRED: full-width RTL line-box geometry]", () => {
-    const W = 200;
+  it("end under rtl: content at visual LEFT edge", () => {
     const lines = layoutPara("hello", W, { textAlign: "end" }, "rtl");
+    expect(lines).toHaveLength(1);
     expect(lines[0].x).toBe(0);
+    // RTL end: alignmentOffset = GAP (logical end of the line). Child's logical
+    // inlineOffset = GAP, inlineSize = CONTENT. Physical x =
+    // lineInlineSize − GAP − CONTENT = W − GAP − CONTENT = 0 (visual LEFT).
+    expect(textRuns(lines[0])[0].x).toBe(0);
+  });
+
+  it("center under rtl: content centered", () => {
+    const lines = layoutPara("hello", W, { textAlign: "center" }, "rtl");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe(0);
+    // RTL center: alignmentOffset = GAP/2 = 80. Child's logical inlineOffset =
+    // GAP/2 = 80, inlineSize = CONTENT = 40. Physical x = W − 80 − 40 = 80
+    // (= GAP/2, the centered left edge).
+    expect(textRuns(lines[0])[0].x).toBe(GAP / 2); // 80
+  });
+
+  it("strut (empty rtl paragraph) end: strut child at visual LEFT (caret left)", () => {
+    const lines = layoutPara("", W, { textAlign: "end" }, "rtl");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe(0);
+    expect(lines[0].children).toHaveLength(1);
+    // RTL end strut: alignmentOffset = W. Strut.inlineOffset = W,
+    // inlineSize = 0. Physical x = W − W − 0 = 0 (visual left).
+    expect(lines[0].children[0].x).toBe(0);
   });
 });
 
@@ -312,6 +370,7 @@ describe("IFC alignment — wrap-cache invalidation on textAlign change (I-4)", 
     if (r1.box === null) throw new Error("null box");
     const l1 = r1.box.children.filter((c): c is LineBox => c.type === "line");
     expect(l1[0].x).toBe(0);
+    expect(textRuns(l1[0])[0].x).toBe(0); // start-aligned text-run at line origin
 
     // Pass 2: SAME key, SAME tokens, SAME width — only textAlign flips to
     // center. The cache entry for "p" exists; the fix must reject it because
@@ -325,8 +384,10 @@ describe("IFC alignment — wrap-cache invalidation on textAlign change (I-4)", 
     const r2 = layoutInlineContent(centerTree, 0, 0, ctx, shaper);
     if (r2.box === null) throw new Error("null box");
     const l2 = r2.box.children.filter((c): c is LineBox => c.type === "line");
-    // RE-ALIGNED, not stale: center → (200 − 40)/2 = 80.
-    expect(l2[0].x).toBe((W - CONTENT) / 2);
+    // RE-ALIGNED, not stale: under the #333 full-width model the line still
+    // spans the full width (x=0), but the text-run carries the centered offset.
+    expect(l2[0].x).toBe(0);
+    expect(textRuns(l2[0])[0].x).toBe((W - CONTENT) / 2); // 80
   });
 });
 

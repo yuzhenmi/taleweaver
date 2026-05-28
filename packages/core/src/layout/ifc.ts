@@ -697,10 +697,12 @@ export function layoutInlineContent(
   // without fragmentation and contains all lines. We must re-run the fit-check
   // to produce the correct partial box and breakToken for this fragment.
   const prevState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
-  // P2 (#312): the cached lines bake in their alignment offset (each LineBox's
-  // `x` is already aligned). A change to ONLY `textAlign` or `direction` —
-  // tokens + availableInlineSize unchanged — must re-lay the lines, not return
-  // the stale (differently-aligned) ones. Gate the hit on alignment too.
+  // P2 (#312) / #333: the cached lines bake in their alignment offset — each
+  // top-level child's `inlineOffset` carries the alignment delta (the line
+  // itself spans the full width at the natural inline-start). A change to ONLY
+  // `textAlign` or `direction` — tokens + availableInlineSize unchanged — must
+  // re-lay the lines, not return the stale (differently-aligned) ones. Gate the
+  // hit on alignment too.
   if (
     prevState !== undefined &&
     prevState.availableInlineSize === availableInlineSize &&
@@ -1025,14 +1027,17 @@ export function layoutInlineContent(
     // line as "last". The caller knows which flush is terminal; it tells us.
     noJustify: boolean = false,
   ): LineBox {
-    // P2 (#312): apply the alignment offset. The line's children are positioned
-    // RELATIVE to the line, so shifting `lineInlineCursor` shifts the whole
-    // line. Centering must use the VISIBLE width — exclude trailing whitespace
-    // (the merged trailing-space tokens in collapsing modes, and the standalone
-    // space units in break-spaces #314/#339 — `trailingSpaceWidthOf` sums the
-    // full trailing RUN of space units across both shapes).
+    // P2 (#312, #333): compute the alignment offset and apply it to the line's
+    // CHILDREN's origin (via `buildLineWithFragments`'s `alignmentOffset` arg).
+    // `lineInlineCursor` itself stays at the natural inline-start — the line
+    // box covers the full available inline size, so `logicalToPhysical` mirrors
+    // it correctly under RTL. Centering must use the VISIBLE width — exclude
+    // trailing whitespace (the merged trailing-space tokens in collapsing modes,
+    // and the standalone space units in break-spaces #314/#339 —
+    // `trailingSpaceWidthOf` sums the full trailing RUN of space units across
+    // both shapes).
     const contentWidth = currentWidth - trailingSpaceWidthOf(currentUnits);
-    lineInlineCursor += computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
+    const alignmentOffset = computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
 
     // P3 (#312): JUSTIFY widens interior inter-word spaces (it does NOT shift
     // the line — `computeAlignmentOffset` returns 0 for justify). A line is
@@ -1054,6 +1059,7 @@ export function layoutInlineContent(
       sourceBlockIdOf(parent.key), // ownerBlockId (see strut-line comment)
       startOff,              // inlineOffsetStart
       cursorOffset,          // inlineOffsetEnd
+      alignmentOffset,
     );
     if (currentLineStartTokenIdx >= 0) {
       lineMeta.set(line, {
@@ -1114,15 +1120,37 @@ export function layoutInlineContent(
   // line box to attach to.
   if (units.length === 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
-    // P2 (#312): a strut (empty paragraph) has zero content width, so the gap
-    // is the full line. A centered empty paragraph → caret at center; right →
-    // caret at the right edge.
-    const strutInlineCursor = lineInlineCursor + computeAlignmentOffset(lineInlineSize, 0, textAlign, direction);
+    // P2 (#312) / #333: a strut (empty paragraph) has zero content width, so
+    // the gap is the full line. The alignment is carried on a single zero-width
+    // STRUT CHILD inside the line — caret/selection consumers walk `line.children`
+    // (post-#172 / #208 LineBox-canonical), so the strut leaf naturally provides
+    // the empty-line caret anchor at the right physical position under either
+    // direction (LTR center → center; RTL center → center; LTR end → right;
+    // RTL end → left). The LINE itself spans the full inline size at the
+    // natural inline-start, so `logicalToPhysical` mirrors it correctly under
+    // RTL.
+    const strutAlignmentOffset = computeAlignmentOffset(lineInlineSize, 0, textAlign, direction);
     const strutBlockSize = measurer.measureHeight(parentCs);
     const strutUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+    const strutChild = createTextRunBox(
+      `${parent.key}-l${lineIndex}:strut`,
+      /* inlineOffset */ strutAlignmentOffset,
+      /* blockOffset */ 0,
+      /* inlineSize */ 0,
+      /* blockSize */ strutBlockSize,
+      writingMode,
+      direction,
+      parentCs,
+      strutUsedStyle,
+      /* text */ "",
+      // The strut owns ZERO state offsets — caret accounting treats it as a
+      // null-width anchor (offsetContribution 0 in `collectLineLeaves`).
+      /* offsetLength */ 0,
+      /* containingInlineSize */ lineInlineSize,
+    );
     const strutLine = createLineBox(
       `${parent.key}-l${lineIndex++}`,
-      strutInlineCursor,
+      lineInlineCursor,
       lineBlockOffset,
       lineInlineSize,
       strutBlockSize,
@@ -1130,7 +1158,7 @@ export function layoutInlineContent(
       direction,
       parentCs,
       strutUsedStyle,
-      [],
+      [strutChild],
       /* baseline */ strutBlockSize,
       /* containingInlineSize */ availableInlineSize,
       // IFC is dispatched for the leaf block running the inline-flow.
@@ -1549,12 +1577,25 @@ function buildLineWithFragments(
   ownerBlockId: BlockId,
   inlineOffsetStart: number,
   inlineOffsetEnd: number,
+  // #333: alignment offset applied to the children's line-relative origin so
+  // the LINE itself spans the full inline size (`lineInlineCursor` stays at
+  // the natural inline-start). `logicalToPhysical` then mirrors the line
+  // correctly under RTL — content lands at the right physical position for
+  // end/center under both directions. See the design doc:
+  // docs/superpowers/specs/2026-05-28-textalign-rtl-fullwidth-line-design.md.
+  alignmentOffset: number = 0,
 ): LineBox {
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
+  // `originInlineOffset = alignmentOffset` is the PHYSICAL position where this
+  // level's content begins within the line; `buildLineChildrenForAncestorLevel`
+  // uses it ONLY to compare a hung trailing space's PHYSICAL position against
+  // `lineInlineSize` for the #338/#340 clamp. Box-positioning (each child's
+  // own `inlineOffset` within the line) is still LEVEL-RELATIVE — see the
+  // post-build shift below.
   let children = buildLineChildrenForAncestorLevel(
     parentKey, lineIndex, units, 0, measurer, lineBlockSizeTracker, writingMode, direction, lineInlineSize,
-    /* originInlineOffset */ 0,
+    /* originInlineOffset */ alignmentOffset,
   );
 
   // Append synthetic hyphen TextRunBox when this line ends at a hyphen break.
@@ -1564,7 +1605,9 @@ function buildLineWithFragments(
     const hyphenBlockSize = hyphenRun.ascent + hyphenRun.descent + hyphenRun.lineGap;
     lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, hyphenBlockSize);
 
-    // Compute inline offset: sum of all existing children's sizes.
+    // Inline offset: sum of existing children's sizes (level-relative, like
+    // every other top-level child). The post-build shift below adds the
+    // alignment offset uniformly.
     const cursorInlineOffset = children.reduce((s, c) => s + c.inlineSize, 0);
     const hyphenUsedStyle = computeUsedStyle(hyphenBreak.style, lineInlineSize, "indefinite");
     const hyphenBox = createTextRunBox(
@@ -1582,6 +1625,21 @@ function buildLineWithFragments(
   }
 
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
+
+  // #333: shift every top-level child by `alignmentOffset` so the content sits
+  // at the right inline position within the (full-width) line. `buildLineChildren`
+  // packs children from `cursorInlineOffset=0` (level-relative); the shift
+  // applies once, uniformly, AT THE TOP LEVEL. Recursive levels (inside
+  // InlineBoxes) don't need shifting — their parent inline-box's inlineOffset
+  // already carries the alignment, and their own children stay parent-relative.
+  // logicalToPhysical re-derives each shifted box's physical x; under RTL the
+  // shift composes correctly with the inline-axis flip.
+  if (alignmentOffset !== 0) {
+    children = children.map(c =>
+      withInlineOffset(c, c.inlineOffset + alignmentOffset, lineInlineSize),
+    );
+  }
+
   const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize);
   const reordered = reorderLineForBidi(aligned, lineInlineSize);
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,

@@ -44,7 +44,12 @@ function firstLineX(editor: EditorState, blockId: BlockId): number {
   if (lines === undefined || lines.length === 0) {
     throw new Error(`no lines for block ${blockId}`);
   }
-  return lines[0].absoluteX;
+  // Under #333 the line itself spans full width at the natural inline-start
+  // and the alignment offset rides on the first child's `inlineOffset`. Return
+  // the CONTENT's absolute x — the visible left edge of the laid-out content —
+  // which is the value every alignment-geometry assertion below pins against.
+  const first = lines[0].line.children[0];
+  return first === undefined ? lines[0].absoluteX : lines[0].absoluteX + first.x;
 }
 
 describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {

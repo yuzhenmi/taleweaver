@@ -74,7 +74,11 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
     if (line.type !== "line") throw new Error("expected line box");
     // Mock shaper's measureHeight returns 16 (lineHeight = 16).
     expect(line.height).toBe(16);
-    expect(line.children).toHaveLength(0);
+    // Under #333 the strut line carries a single zero-width strut child as
+    // the empty-line caret anchor (replaces the prior `children: []` shape).
+    expect(line.children).toHaveLength(1);
+    expect(line.children[0].type).toBe("text-run");
+    expect(line.children[0].width).toBe(0);
     // Block's total block size = the strut line's height.
     expect(block.height).toBe(16);
   });
@@ -733,9 +737,11 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
     const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
     expect(lines).toHaveLength(1);
     const leaves = leavesOf(lines[0]);
-    // "hi" sits at the line's local origin (line-relative x = 0).
+    // Under #333 the alignment offset rides on the children's inlineOffset
+    // (the line spans full width). "hi" is centered within the line: x =
+    // (W − contentWidth) / 2 = (80 − 16) / 2 = 32.
     const hiLeaf = leaves.find(l => l.text.includes("hi"));
-    expect(hiLeaf?.x).toBe(0);
+    expect(hiLeaf?.x).toBe((W - 16) / 2);
     // Every space box (line-relative) stays within the line content edge — the
     // hung run clamps to lineInlineSize regardless of alignment.
     const spaceLeaves = leaves.filter(l => /^\s+$/.test(l.text));

@@ -83,11 +83,21 @@ function alignedParagraph(textContent: string, textAlign: string): State {
   });
 }
 
-/** Read the absolute x of the single centered/aligned LineBox for block "p". */
+/**
+ * Read the absolute x of the centered content's anchor — the first child of the
+ * single line for block "p". Under the #333 full-width line model the LINE
+ * spans `[0, available]` and the alignment offset rides on the children's
+ * `inlineOffset`, so the centered content's absolute x is the first child's
+ * absoluteX (line.absoluteX + child.x). This is what every caret/selection
+ * geometry assertion below pins against (was the line.absoluteX under the
+ * pre-#333 model — same numeric value, different intermediate).
+ */
 function alignedLineStart(layout: LayoutBox): number {
   const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
   expect(lines.length).toBe(1);
-  return lines[0].absoluteX;
+  const first = lines[0].line.children[0];
+  if (first === undefined) return lines[0].absoluteX;
+  return lines[0].absoluteX + first.x;
 }
 
 describe("textAlign caret/selection/hit-test geometry (no double-count of the line's alignment offset)", () => {
