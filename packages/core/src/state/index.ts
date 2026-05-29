@@ -58,7 +58,6 @@ export {
   getBlock,
   getEmbedContent,
   getTemplateContent,
-  getBlockFromEither,
   resolveBlock,
   getEmbedContentIds,
   getTemplateContentIds,

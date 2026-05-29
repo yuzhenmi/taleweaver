@@ -108,35 +108,11 @@ export function getTemplateContent(state: State, id: BlockId): Block | null {
 }
 
 /**
- * Read a frozen Block snapshot from either the main tree or the
- * embedContents tree. Used by Layer 3 ops that don't know in advance
- * which tree an id belongs to (paste walker, future cross-tree
- * references). Main tree takes precedence in the unlikely event of
- * an id collision.
- *
- * Does NOT search the templateContents tree — this is the original
- * two-tree shortcut. When an id may live in ANY of the three trees (or
- * the tree provenance is needed), use `resolveBlock` instead.
- *
- * Most ops should call `getBlock` or `getEmbedContent` directly — they
- * know which tree they operate on.
- *
- * Implemented on top of `resolveBlock` and narrowed to the two-tree subset:
- * the precedence (main → embed) is the same first two arms `resolveBlock`
- * walks, and a `templateContent` hit is treated as a miss here (returns
- * null) to preserve this accessor's historical two-tree contract.
- */
-export function getBlockFromEither(state: State, id: BlockId): Block | null {
-  const resolved = resolveBlock(state, id);
-  if (resolved === null || resolved.kind === "templateContent") return null;
-  return resolved.block;
-}
-
-/**
  * Identifies which of the three top-level trees a resolved block came
  * from. Consumers that need the tree provenance (e.g. so a downstream
  * write targets the correct Y.Map via `getYBlock`'s `kind` param) read
- * `kind`; consumers that only need the value can use `getBlockFromEither`.
+ * `kind`; consumers that only need the value can use
+ * `resolveBlock(state, id)?.block ?? null`.
  */
 export type ResolvedBlockKind = "block" | "embedContent" | "templateContent";
 
@@ -160,13 +136,13 @@ export interface ResolvedBlock {
 
 /**
  * Resolve a BlockId across all three trees (main, embedContents,
- * templateContents) and report which tree it came from. Unlike
- * `getBlockFromEither` (value-only, two trees), this returns the tree
- * provenance so a caller can route a follow-up write to the right Y.Map.
+ * templateContents) and report which tree it came from. The only
+ * unified accessor; consumers that need the tree provenance read
+ * `kind`, consumers that only need the value use
+ * `resolveBlock(state, id)?.block ?? null`.
  *
  * Precedence on id collision is main tree → embedContents →
- * templateContents, matching `getBlockFromEither`'s order. Returns null
- * if the id is absent from every tree.
+ * templateContents. Returns null if the id is absent from every tree.
  */
 export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
   const b = getBlock(state, id);

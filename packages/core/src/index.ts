@@ -32,7 +32,6 @@ export {
   getBlock,
   getEmbedContent,
   getTemplateContent,
-  getBlockFromEither,
   resolveBlock,
 } from "./state";
 export { createEmptyDocument } from "./state";

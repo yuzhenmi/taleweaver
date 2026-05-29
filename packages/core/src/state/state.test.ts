@@ -4,7 +4,6 @@ import {
   getBlock,
   applyOperation,
   freshState,
-  getBlockFromEither,
   getEmbedContent,
   getEmbedContentIds,
   getTemplateContent,
@@ -394,78 +393,6 @@ describe("applyOperation no-op invariant across ops", () => {
     const result = replaceRange(state, collapsed, "", {});
     expect(result.state).toBe(state);
     expect(result.dirtyIds.size).toBe(0);
-  });
-});
-
-describe("getBlockFromEither", () => {
-  it("returns blocks from the main tree", () => {
-    const state = buildState({
-      rootId: "root",
-      blocks: [buildBlock({ id: "root", type: "document" })],
-    });
-    const block = getBlockFromEither(state, "root" as BlockId);
-    expect(block?.type).toBe("document");
-  });
-
-  it("returns blocks from the embedContents map", () => {
-    const state = buildState({
-      rootId: "root",
-      blocks: [buildBlock({ id: "root", type: "document" })],
-      embedContents: [
-        buildBlock({
-          id: "fn-body-1",
-          type: "fn-body",
-          inlineContent: inlineContent([text("note")]),
-        }),
-      ],
-    });
-    const body = getBlockFromEither(state, "fn-body-1" as BlockId);
-    expect(body?.type).toBe("fn-body");
-  });
-
-  it("returns null when the id is in neither map", () => {
-    const state = buildState({
-      rootId: "root",
-      blocks: [buildBlock({ id: "root", type: "document" })],
-    });
-    expect(getBlockFromEither(state, "missing" as BlockId)).toBeNull();
-  });
-
-  it("returns null for an id that lives ONLY in the templateContents map (two-tree contract)", () => {
-    // getBlockFromEither is the two-tree (main + embed) accessor; a template-
-    // only id must read as a miss even though `resolveBlock` would find it.
-    const state = buildState({
-      rootId: "root",
-      blocks: [buildBlock({ id: "root", type: "document" })],
-      templateContents: [
-        buildBlock({
-          id: "tmpl-body-1",
-          type: "header-body",
-          inlineContent: inlineContent([text("hdr")]),
-        }),
-      ],
-    });
-    expect(getBlockFromEither(state, "tmpl-body-1" as BlockId)).toBeNull();
-    // ...but resolveBlock DOES find it (sanity: the id really is present).
-    expect(resolveBlock(state, "tmpl-body-1" as BlockId)?.kind).toBe(
-      "templateContent",
-    );
-  });
-
-  it("prefers the main tree if an id collision somehow exists (defensive)", () => {
-    // Allocator should prevent this, but if it ever happens we return the main-tree block.
-    const state = buildState({
-      rootId: "root",
-      blocks: [
-        buildBlock({ id: "root", type: "document" }),
-        buildBlock({ id: "dup-id", type: "paragraph", parentId: "root" }),
-      ],
-      embedContents: [
-        buildBlock({ id: "dup-id", type: "fn-body" }),
-      ],
-    });
-    const block = getBlockFromEither(state, "dup-id" as BlockId);
-    expect(block?.type).toBe("paragraph");
   });
 });
 

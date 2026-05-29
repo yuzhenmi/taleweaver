@@ -239,7 +239,7 @@ function collectTreeSubtreeIds(
  * Cycle defense: skip ids already classified into either set. If an id is
  * already in `treeIds` (id collision between the two trees — pathological
  * but defensively handled), we skip; the main-tree classification wins,
- * matching `getBlockFromEither` precedence.
+ * matching `resolveBlock`'s main → embedContents precedence.
  */
 function collectEmbedContentSubtreeIds(
   state: State,
