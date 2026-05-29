@@ -22,6 +22,26 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
         return text.length === 0 ? [] : Array(text.length).fill(" ");
       }
       const out: string[] = [];
+      // Emit ONE space token per LEADING-whitespace character (#308).
+      // Symmetric with the trailing-space handling below; without this, source
+      // offsets in [0, matchStart-of-first-word) are owned by no token and the
+      // IFC's per-line offset cursor (`cursorOffset` in ifc.ts) never advances
+      // over them. User-perceived symptom: caret at offsets 0..N-1 of "   word"
+      // falls past the line's `inlineOffsetEnd` and clamps; ArrowRight from
+      // offset 0 hops directly to offset N (the first word char) instead of
+      // walking the spaces one by one.
+      //
+      // Visual collapse of these tokens at line/segment start is handled by the
+      // IFC unit grouper (the leading/orphan-space branch emits them as
+      // ZERO-WIDTH wrap units under collapsing white-space, so they render
+      // invisibly but advance the offset cursor). Preserving the tokens here
+      // only fixes the OFFSET alignment.
+      let leadingCount = 0;
+      for (let i = 0; i < text.length && /\s/.test(text[i]); i++) {
+        leadingCount++;
+      }
+      for (let i = 0; i < leadingCount; i++) out.push(" ");
+
       const parts = trimmed.split(/\s+/);
       for (let i = 0; i < parts.length; i++) {
         out.push(parts[i]);

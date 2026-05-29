@@ -820,7 +820,41 @@ export function layoutInlineContent(
         });
         continue;
       }
-      // Collapsing mode — skip the orphan leading space.
+      // Collapsing mode — emit a ZERO-WIDTH unit so `pushUnit` advances
+      // `cursorOffset` by the token's `sourceLength` (closing #308 for
+      // collapsing modes). Symmetric with the preserving-mode emit above,
+      // but we CLONE the token with `width: 0` so:
+      //   - `pushUnit` advances the line's `currentWidth` by 0 (the
+      //     leading/orphan space is visually collapsed away).
+      //   - The downstream text-run leaf builder (which recomputes
+      //     `unitWidth = sum(t.width)`) emits a TextRunBox at `width: 0`,
+      //     `inlineOffset` at the current cursor position, so subsequent
+      //     leaves stack at the same x. Caret-position then falls within the
+      //     leaf's [absoluteX, absoluteX + 0] range and clamps to
+      //     absoluteX = 0 via the existing leaf-right-edge clamp (#338 P2).
+      //   - The token's `sourceLength` (1 source char per leading whitespace,
+      //     assigned by the lookahead pass in `collectInlineTokens`) flows
+      //     into `offsetLength = sum(t.sourceLength)`, so the leaf owns the
+      //     state offset and `line.inlineOffsetEnd` covers all source chars.
+      //
+      // Without this, source offsets in [0, matchStart-of-first-word) are
+      // owned by no unit; `cursorOffset` doesn't advance for them, and the
+      // caret accumulator (cursor-position.ts) sees a line that ends BEFORE
+      // those offsets — caret at offsets 0..N-1 of "   hello" falls past
+      // `line.inlineOffsetEnd` and clamps (#308). Same gap applies to an
+      // all-whitespace paragraph like "   " (today emits a strut line with
+      // inlineOffsetEnd=0; with the fix the line owns all 3 source chars).
+      const zeroWidthTok: Token = { ...tok, width: 0 };
+      units.push({
+        tokens: [zeroWidthTok],
+        totalWidth: 0,
+        sourceKey: tok.sourceKey,
+        isLineBreak: false,
+        inlineAncestors: tok.inlineAncestors,
+        inlineAncestorStyles: tok.inlineAncestorStyles,
+        tokenStartIdx: i,
+        tokenEndIdx: i,
+      });
       i++;
       continue;
     }

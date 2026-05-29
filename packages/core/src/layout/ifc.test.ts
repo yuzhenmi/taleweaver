@@ -358,7 +358,12 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
     expect(yLeaf?.x).toBe(16);
   });
 
-  it("NO-REGRESSION: '  abc' under white-space:normal STILL drops leading spaces (content starts x=0)", () => {
+  it("#308: '  abc' under white-space:normal — leading spaces collapse VISUALLY but the line owns all 5 source chars", () => {
+    // Under collapsing mode the leading spaces produce zero-width text-run
+    // leaves at x=0 (no rendered glyph width), so "abc" still starts at x=0.
+    // But the line owns ALL 5 source chars so the caret accumulator covers
+    // offsets 0..5. Without the fix, the line only owned [2, 5) and caret
+    // at offsets 0 and 1 fell past.
     const tree = cascadePass(
       createElementBox("p", { display: "block", whiteSpace: "normal" }, [
         createTextBox("t", {}, "  abc"),
@@ -374,13 +379,99 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
     const line = lines[0];
     if (line.type !== "line") throw new Error("?");
 
-    // Under normal, leading spaces collapse away: the first (and only) leaf
-    // is "abc" anchored at x=0.
+    // Line owns all 5 source chars.
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(5);
+
+    // Sum of leaves' offsetLength === 5 (the 2 leading-space leaves carry
+    // offsetLength 1 each, "abc" carries 3).
     const leaves = textRunLeaves(line);
-    expect(leaves[0].x).toBe(0);
-    expect(leaves[0].text).toBe("abc");
-    // No leading space-run leaf rendered before "abc".
-    expect(leaves.filter(l => /^\s+$/.test(l.text))).toHaveLength(0);
+    const totalOffset = leaves.reduce((s, l) => s + l.offsetLength, 0);
+    expect(totalOffset).toBe(5);
+
+    // The "abc" leaf starts at x=0 (leading spaces collapsed to width=0).
+    const abcLeaf = leaves.find(l => l.text === "abc");
+    expect(abcLeaf).toBeDefined();
+    expect(abcLeaf?.x).toBe(0);
+  });
+
+  it("#308: leading spaces inside <em> under white-space:normal — line still owns source offsets", () => {
+    // The em's text node starts with whitespace. Under collapsing mode those
+    // leading spaces are orphan to the em's sourceKey (no preceding non-space
+    // token in the same sourceKey). Today they're dropped — the em's text node
+    // ALSO contributes no source-offset coverage. With the fix, the em owns
+    // them as zero-width units.
+    //
+    // Fixture: <em>"   text"</em> (no surrounding text). Total source chars
+    // contributed by the em's text node = 7 (3 leading + 4 word).
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "normal" }, [
+        createElementBox("em", { display: "inline" }, [
+          createTextBox("t", {}, "   text"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("?");
+    if (r.box.type !== "block") throw new Error("?");
+    const lines = r.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(7);
+  });
+
+  it("NO-REGRESSION: '  abc' under white-space:normal — leading-space LEAVES exist " +
+     "but render at width=0 so 'abc' is visually at x=0", () => {
+    // Under collapsing mode #308 emits a zero-width text-run leaf per leading
+    // whitespace char (carrying offsetLength=1 so the caret accumulator
+    // covers the offset) — text="" or " " with width=0. The "abc" leaf still
+    // anchors at x=0 because the leading-space leaves contribute zero width
+    // to the cursor — the visual rendering is identical to the pre-fix state.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "normal" }, [
+        createTextBox("t", {}, "  abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const lines = out.children.filter(c => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("?");
+
+    // "abc" still starts at x=0 — leading-space leaves have width=0 so they
+    // don't push it.
+    const leaves = textRunLeaves(line);
+    const abcLeaf = leaves.find(l => l.text === "abc");
+    expect(abcLeaf).toBeDefined();
+    expect(abcLeaf?.x).toBe(0);
+
+    // Every whitespace-only leaf renders at width 0 (verified by the
+    // text-run's offsetLength being 1 with no visual width contribution; the
+    // visual contract is "leading spaces are invisible under collapsing
+    // mode").
+    const totalLeafWidth = leaves
+      .filter(l => /^\s+$/.test(l.text))
+      .reduce((s, l) => s + l.text.length * 8, 0);
+    // Mock shaper is 8px/char but under collapse the IFC must emit them with
+    // 0 unitWidth — we assert the rendered width here via the layout box,
+    // not the raw token sum.
+    // (Re-fetch leaves with width info from the layout boxes.)
+    const widths: number[] = [];
+    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run" && /^\s+$/.test(b.text)) widths.push(b.width);
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    for (const w of widths) expect(w).toBe(0);
+    expect(totalLeafWidth).toBeGreaterThan(0); // sanity: leaves exist
   });
 });
 
@@ -1959,6 +2050,42 @@ describe("collectTokens — sourceLength (collapsed-whitespace offset accounting
     }
     expect(Number.isFinite(tokens.reduce((s, t) => s + t.sourceLength, 0))).toBe(true);
   });
+
+  it("#308: leading whitespace under normal owns its source offsets (one " +
+     "sourceLength-1 token per leading char)", () => {
+    // "   hello" — 3 leading spaces then "hello". The tokenizer emits 3
+    // single-char " " tokens BEFORE "hello"; the lookahead-assigned
+    // sourceLength then gives each space 1 source char (next.matchStart=1,2,3)
+    // and "hello" gets 5. Sum = 8 = state length. Without the fix the
+    // tokenizer dropped the leading spaces and "hello" alone had
+    // sourceLength=5 (matchStart=3, lookahead=fullText.length-3=5) — the 3
+    // leading offsets were owned by no token.
+    const tokens = tokensOf("   hello");
+    expect(tokens.map(t => t.text)).toEqual([" ", " ", " ", "hello"]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 1, 5]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("   hello".length);
+  });
+
+  it("#308: all-whitespace under normal — 3 space tokens, each sourceLength 1", () => {
+    // "   " — defensive case (editor doesn't normally produce all-whitespace
+    // paragraphs, but it must still account for every source char).
+    const tokens = tokensOf("   ");
+    expect(tokens.map(t => t.text)).toEqual([" ", " ", " "]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 1]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe(3);
+  });
+
+  it("#308: leading + trailing whitespace under normal — symmetric coverage", () => {
+    // "  hi  " — 2 leading + "hi" + 2 trailing = 6 chars total. Token shape:
+    // [" "," ","hi"," "," "] with sourceLengths [1,1,2,1,1] — "hi"@2 absorbs
+    // no collapsed neighbor (next token is the first trailing space @4), so
+    // its sourceLength is next.matchStart(4) - "hi".matchStart(2) = 2 (matches
+    // text.length). Sum = 6.
+    const tokens = tokensOf("  hi  ");
+    expect(tokens.map(t => t.text)).toEqual([" ", " ", "hi", " ", " "]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 2, 1, 1]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("  hi  ".length);
+  });
 });
 
 describe("layoutInlineContent — offsetLength (state-correct line offsets across collapse)", () => {
@@ -1999,6 +2126,40 @@ describe("layoutInlineContent — offsetLength (state-correct line offsets acros
     }
     // Cumulative coverage reaches the full state length.
     expect(lines[lines.length - 1].inlineOffsetEnd).toBe(text.length);
+  });
+
+  it("#308: leading spaces under normal — line.inlineOffsetEnd covers ALL state chars", () => {
+    // "   hello" under normal: leading spaces collapse VISUALLY (text-runs
+    // emitted at width 0 at x=0) but the line OWNS all 8 source chars so the
+    // caret accumulator advances over offsets 0..8. Without the fix the line
+    // only owned offsets [3, 8) and caret at offsets 0..2 fell past and
+    // clamped.
+    const lines = ifcOf("   hello", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe("   hello".length);
+  });
+
+  it("#308: all-whitespace under normal — line owns 3 chars, contentless", () => {
+    // "   " under normal: all 3 spaces collapse visually (no rendered glyph
+    // width), but the line owns all 3 source chars. Today (before fix) every
+    // space is dropped as an "orphan leading space" so the line is a STRUT
+    // with inlineOffsetEnd=0 — caret at offset 1, 2, or 3 falls past it.
+    const lines = ifcOf("   ", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe(3);
+  });
+
+  it("#308: leading + word + trailing under normal — symmetric coverage", () => {
+    // "  hi  " → line owns [0, 6).
+    const lines = ifcOf("  hi  ", 200);
+    const line = lines[0];
+    if (line.type !== "line") throw new Error("expected line");
+    expect(line.inlineOffsetStart).toBe(0);
+    expect(line.inlineOffsetEnd).toBe("  hi  ".length);
   });
 });
 

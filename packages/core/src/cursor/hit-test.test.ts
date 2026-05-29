@@ -546,3 +546,79 @@ describe("collapsed-whitespace offset drift (double-click third word after doubl
     expect(span.focus.offset).toBe(26);
   });
 });
+
+describe("#308 — click at x=0 of a line with leading collapsed whitespace lands at offset 0", () => {
+  // Behavior-level regression: a paragraph "   hello" (3 leading spaces + word)
+  // under white-space:normal. Before the fix the IFC dropped the leading
+  // spaces from the line's offset accumulator (`line.inlineOffsetEnd = 5`
+  // instead of 8) — a click at x=0 of the line landed past the leading
+  // whitespace at offset 0 only because of accidental clamping, NOT because
+  // the layout-vs-state offset accounting was correct. Worse, the all-
+  // whitespace "   " case clamped to a strut with `inlineOffsetEnd = 0`, so
+  // a click on it could yield offset 0 only — there was no way to reach
+  // offsets 1, 2, 3 (the user pressing ArrowRight 3 times after typing "   "
+  // would each fall back to clamped offset 0). This test exercises the line
+  // OWNERSHIP contract: after the fix, the line owns ALL source chars, so
+  // ArrowRight / hit-test / cursor APIs see the full state offset range.
+  it("'   hello' under normal: click past end reaches offset 8 (was 5 pre-fix); click at x=0 lands at the rendered glyph (offset 3)", () => {
+    const state = singleParagraph("   hello", "normal");
+    const { layout, shaper } = pipeline(state);
+
+    // Click past the end: lands at offset 8 — the LINE OWNS all 8 source
+    // chars. Pre-fix, the leading 3 spaces were dropped from the offset
+    // accumulator so `line.inlineOffsetEnd` was 5 and clicks past the end
+    // clamped to offset 5 (unreachable: offsets 6, 7, 8). The PRIMARY #308
+    // contract is this: cursor APIs can REACH every source-char offset.
+    const rEnd = resolvePositionFromPixel(state, layout, shaper, 100, 0);
+    expect(rEnd).not.toBeNull();
+    if (rEnd === null) return;
+    expect(rEnd.blockId).toBe("p");
+    expect(rEnd.offset).toBe(8);
+
+    // Click at x=0: the leading-space leaves all stack at x=0 with width=0,
+    // and the "hello" leaf also starts at x=0 (collapsed leading spaces
+    // contribute zero advance). Hit-test picks the "hello" leaf for a
+    // click that lands within its x-range — offset 3 (start of the
+    // rendered glyph), matching Google Docs / Word UX where the caret lands
+    // at the visible character, not inside collapsed whitespace. The fact
+    // that an offset is REACHABLE (offsets 0, 1, 2 are walkable via
+    // ArrowLeft from offset 3) is the new contract; landing AT the rendered
+    // glyph for a click is the expected UX (collapsed whitespace is
+    // visually 0-width, so a click at x=0 picks the first visible char).
+    const r0 = resolvePositionFromPixel(state, layout, shaper, 0, 0);
+    expect(r0).not.toBeNull();
+    if (r0 === null) return;
+    expect(r0.blockId).toBe("p");
+    expect(r0.offset).toBe(3);
+  });
+
+  it("'   ' (all-whitespace) under normal: click past end clamps to offset 3 (was 0 strut bug)", () => {
+    // All-whitespace under collapsing mode: the line is contentless (every
+    // leaf has width=0) but owns 3 state chars. Before the fix the line was a
+    // strut with inlineOffsetEnd=0, so any cursor advance past offset 0
+    // crashed back to 0. After the fix, the line.inlineOffsetEnd is 3 and
+    // cursor APIs can reach the end offset.
+    //
+    // (Click at x=0 with stacked zero-width leaves is ambiguous — the
+    // hit-test's "last leaf wins at tie" picks an interior leaf, which is
+    // fine behavior; what matters is the line OWNS all 3 source chars so
+    // ArrowRight/ArrowLeft can WALK through them and END is reachable.)
+    const state = singleParagraph("   ", "normal");
+    const { layout, shaper } = pipeline(state);
+
+    // Click well past end of line — should clamp to the last position
+    // (offset 3), not offset 0 (the strut-line bug pre-fix).
+    const rEnd = resolvePositionFromPixel(state, layout, shaper, 100, 0);
+    expect(rEnd).not.toBeNull();
+    if (rEnd === null) return;
+    expect(rEnd.blockId).toBe("p");
+    expect(rEnd.offset).toBe(3);
+
+    // Defensive: a click on the line yields a valid offset in [0, 3].
+    const r0 = resolvePositionFromPixel(state, layout, shaper, 0, 0);
+    expect(r0).not.toBeNull();
+    if (r0 === null) return;
+    expect(r0.offset).toBeGreaterThanOrEqual(0);
+    expect(r0.offset).toBeLessThanOrEqual(3);
+  });
+});

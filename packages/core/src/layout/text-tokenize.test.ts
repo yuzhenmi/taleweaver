@@ -18,12 +18,14 @@ describe("tokenize (whiteSpace: normal)", () => {
     expect(tokenize("", "normal")).toEqual([]);
   });
 
-  it("strips leading whitespace but preserves one trailing-whitespace token per char", () => {
-    // The trailing tokens are needed so the IFC's per-line offset cursor
-    // covers the user-typed trailing spaces — cursors positioned past
-    // them (the common "type a space and the cursor should advance"
-    // case) need a non-collapsed offset to anchor on.
-    expect(tokenize("  hi  ", "normal")).toEqual(["hi", " ", " "]);
+  it("preserves one whitespace token per LEADING and TRAILING char (#308 + existing trailing)", () => {
+    // Both ends are mirrored: N leading whitespace chars → N " " tokens, the
+    // word, then M trailing whitespace chars → M " " tokens. The IFC's
+    // per-line offset cursor must cover EVERY user-typed source char (leading
+    // and trailing) — cursors positioned past either side need a non-collapsed
+    // offset to anchor on. Without the leading emit, caret at offsets 0..1 of
+    // "  hi  " falls past the line and clamps to x=0 (#308).
+    expect(tokenize("  hi  ", "normal")).toEqual([" ", " ", "hi", " ", " "]);
   });
 
   it("preserves trailing-whitespace token even when there's no inter-word space", () => {
@@ -50,6 +52,30 @@ describe("tokenize (whiteSpace: normal)", () => {
     // editor, but the tokenizer must still advance the offset cursor
     // over those characters or downstream consumers see a mismatch.
     expect(tokenize("   ", "normal")).toEqual([" ", " ", " "]);
+  });
+
+  it("emits one space token PER LEADING whitespace char before the first word (#308)", () => {
+    // Symmetric with the trailing-space handling above. Without this, source
+    // offsets in [0, matchStart-of-first-word) are owned by no token and the
+    // IFC's cursorOffset accumulator drops them — caret at offsets 0..2 of
+    // "   hello" falls past the line and clamps. Each leading whitespace char
+    // becomes its own " " token; the second-pass `sourceLength` lookahead in
+    // the IFC then attributes one source char per token.
+    expect(tokenize("   hello", "normal")).toEqual([" ", " ", " ", "hello"]);
+  });
+
+  it("emits leading + trailing space tokens together (#308 + existing trailing)", () => {
+    // "  hi  " → 2 leading + "hi" + inter? (no inter — already split by
+    // trimmed words) + 2 trailing = [" "," ","hi"," "," "]. Both ends covered.
+    expect(tokenize("  hi  ", "normal")).toEqual([" ", " ", "hi", " ", " "]);
+  });
+
+  it("emits leading spaces under nowrap (same branch as normal) (#308)", () => {
+    expect(tokenize("  hi", "nowrap")).toEqual([" ", " ", "hi"]);
+  });
+
+  it("single leading space + word + trailing spaces all emit (#308 boundary case)", () => {
+    expect(tokenize(" hi  ", "normal")).toEqual([" ", "hi", " ", " "]);
   });
 });
 

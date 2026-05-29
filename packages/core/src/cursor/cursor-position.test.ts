@@ -120,6 +120,50 @@ describe("resolvePixelPosition (new)", () => {
     expect(result.x).toBe(40); // 5 chars × 8px
   });
 
+  it("#308: caret at offsets inside LEADING whitespace under normal lands at x=0", () => {
+    // "   hello" under white-space: normal. Today (before fix), the leading
+    // spaces are dropped by the IFC's collapsing-mode skip — `line.inlineOffsetEnd`
+    // covers only [3, 8) and a caret at offset 0, 1, or 2 falls past the line
+    // start mapping and clamps to x=0 by accident (or wraps oddly). With
+    // the fix, offsets 0..2 land at x=0 BY CONSTRUCTION: each leading-space
+    // leaf has width=0 anchored at x=0, and the cursor-position leaf-right-edge
+    // clamp pins resolvedX to leaf.absoluteX (=0).
+    const state = singleParagraph("   hello", "normal");
+    const { layout, shaper } = pipeline(state, 800);
+    for (const off of [0, 1, 2]) {
+      const pos = createPosition("p" as BlockId, off);
+      const r = resolvePixelPosition(state, pos, layout, shaper);
+      expect(r).not.toBeNull();
+      if (r === null) return;
+      expect(r.x).toBe(0); // leading-space caret pinned at line start
+    }
+    // Offset 3: start of "h" — first non-whitespace glyph at x=0 (no glyph
+    // width yet rendered).
+    const r3 = resolvePixelPosition(state, createPosition("p" as BlockId, 3), layout, shaper);
+    expect(r3?.x).toBe(0);
+    // Offset 4: after "h" — x=8.
+    const r4 = resolvePixelPosition(state, createPosition("p" as BlockId, 4), layout, shaper);
+    expect(r4?.x).toBe(8);
+    // Offset 8: end of "hello" — x=40.
+    const r8 = resolvePixelPosition(state, createPosition("p" as BlockId, 8), layout, shaper);
+    expect(r8?.x).toBe(40);
+  });
+
+  it("#308: caret at every offset of an all-whitespace paragraph under normal lands at x=0", () => {
+    // "   " — three spaces, no word. Under normal the line collapses to a
+    // contentless line that nevertheless owns 3 source chars. Caret at 0, 1,
+    // 2, 3 all land at x=0 (no rendered glyph width).
+    const state = singleParagraph("   ", "normal");
+    const { layout, shaper } = pipeline(state, 800);
+    for (const off of [0, 1, 2, 3]) {
+      const pos = createPosition("p" as BlockId, off);
+      const r = resolvePixelPosition(state, pos, layout, shaper);
+      expect(r).not.toBeNull();
+      if (r === null) continue;
+      expect(r.x).toBe(0);
+    }
+  });
+
   it("offset inside a collapsed inter-word whitespace tail clamps to the run's right edge", () => {
     // "dsajidosja idoajs  dsajiodj" — double space between word2 and word3.
     // State offsets: dsajidosja=[0,10), space@10, idoajs=[11,17), space@17,
