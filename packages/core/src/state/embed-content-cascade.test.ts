@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { assertNoOrphanedEmbedContent } from "./embed-content-cascade";
-import { applyOperation, freshState, getBlock } from "./state";
+import { applyOperation, freshStateFromDoc, getBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { removeBlock } from "./remove-block";
 import { insertText } from "./insert-text";
@@ -423,7 +423,7 @@ describe("assertNoOrphanedEmbedContent", () => {
         embedContentsMap.delete("fn-body-1");
       });
       // Fresh state with full cache invalidation reflects the bypass write.
-      const badState = freshState(state);
+      const badState = freshStateFromDoc(state);
 
       // The invariant must fire on the bad state.
       expect(() =>

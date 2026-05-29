@@ -55,6 +55,7 @@ export {
   createState,
   applyOperation,
   freshState,
+  freshStateFromDoc,
   getBlock,
   getEmbedContent,
   getTemplateContent,

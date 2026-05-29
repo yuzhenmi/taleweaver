@@ -4,6 +4,7 @@ import {
   getBlock,
   applyOperation,
   freshState,
+  freshStateFromDoc,
   getEmbedContent,
   getEmbedContentIds,
   getTemplateContent,
@@ -106,9 +107,9 @@ describe("applyOperation", () => {
     expect(getBlock(result.state, "p1" as BlockId)?.type).toBe("heading");
   });
 
-  it("freshState returns a State referencing the same Y.Doc with a clean cache", () => {
+  it("freshStateFromDoc returns a State referencing the same Y.Doc with a clean cache", () => {
     const state = createState({ rootId: "root" as BlockId });
-    const next = freshState(state);
+    const next = freshStateFromDoc(state);
     expect(next[STATE_INTERNAL].doc).toBe(state[STATE_INTERNAL].doc);
     expect(next.rootId).toBe(state.rootId);
     expect(next[STATE_INTERNAL].snapshotCache).not.toBe(state[STATE_INTERNAL].snapshotCache);
@@ -163,8 +164,8 @@ describe("applyOperation", () => {
           }));
         }
       });
-      // freshState the cache so all ids are uncached, then warm.
-      const warm = freshState(state);
+      // freshStateFromDoc the cache so all ids are uncached, then warm.
+      const warm = freshStateFromDoc(state);
       for (let i = 0; i < NUM_BLOCKS; i++) {
         getBlock(warm, `b${i}` as BlockId);
       }

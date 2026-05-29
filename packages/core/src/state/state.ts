@@ -237,40 +237,72 @@ export interface OperationResult {
  * different snapshot cache, after Y.Doc was mutated outside of
  * `applyOperation` (e.g., `Y.UndoManager.undo` / `.redo`).
  *
- * When `dirtyIds` is provided, the new State's cache is an overlay on
- * top of `state`'s cache with `dirtyIds` invalidated. Sibling snapshots
- * (and any other unchanged block) stay warm via fall-through, so a
- * single-block undo on a hundred-page document doesn't force the
- * renderer to re-snapshot every block.
+ * The new State's cache is an overlay on top of `state`'s cache with
+ * `dirtyIds` invalidated. Sibling snapshots (and any other unchanged
+ * block) stay warm via fall-through, so a single-block undo on a
+ * hundred-page document doesn't force the renderer to re-snapshot every
+ * block.
  *
- * When `dirtyIds` is omitted, the new State gets a fully empty root
- * cache — appropriate when no dirty set is available (test fixtures,
- * external Y.Doc surgery whose effects aren't tracked).
+ * `dirtyIds` is REQUIRED. The production path (`History.undo` /
+ * `History.redo`) always has a captured dirty set from
+ * `captureDirtyIds`. Callers that don't have one — test fixtures,
+ * external Y.Doc surgery whose effects aren't tracked — must use
+ * `freshStateFromDoc(state)` (the escape hatch with no overlay
+ * continuity from the prior cache).
  *
- * **Chain-depth compaction (#273).** The `dirtyIds` branch compacts when the
- * input chain is too deep, mirroring `applyOperation`. Without this, a long
- * run of undo/redo (each `undo`/`redo` calls `freshState` with a dirty set)
- * would push overlay layers without ever flattening — re-introducing the
- * O(depth)-per-cold-read growth that `applyOperation`'s compaction exists to
- * prevent. Compaction is structurally equivalent (same live entries,
- * `dirtyIds` invalidated), just collapsed to one root layer.
+ * **Chain-depth compaction (#273).** Compacts when the input chain is
+ * too deep, mirroring `applyOperation`. Without this, a long run of
+ * undo/redo would push overlay layers without ever flattening —
+ * re-introducing the O(depth)-per-cold-read growth that
+ * `applyOperation`'s compaction exists to prevent. Compaction is
+ * structurally equivalent (same live entries, `dirtyIds` invalidated),
+ * just collapsed to one root layer.
  */
 export function freshState(
   state: State,
-  dirtyIds?: ReadonlySet<BlockId>,
+  dirtyIds: ReadonlySet<BlockId>,
 ): State {
   const { doc, snapshotCache } = state[STATE_INTERNAL];
   const newCache =
-    dirtyIds === undefined
-      ? createSnapshotCache()
-      : chainDepth(snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
-        ? compactCache(snapshotCache, dirtyIds)
-        : createOverlayCache(snapshotCache, dirtyIds);
+    chainDepth(snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
+      ? compactCache(snapshotCache, dirtyIds)
+      : createOverlayCache(snapshotCache, dirtyIds);
   return Object.freeze({
     rootId: state.rootId,
     [STATE_INTERNAL]: Object.freeze({
       doc,
       snapshotCache: newCache,
+    }),
+  }) as State;
+}
+
+/**
+ * Mint a fresh State referencing the same Y.Doc but with a completely
+ * empty snapshot cache — no overlay continuity from `state`'s prior
+ * cache. The next read on any block hits the live Y.Doc and snapshots
+ * it into the new (initially empty) cache.
+ *
+ * **Escape hatch only.** The production undo/redo path always uses
+ * `freshState(state, dirtyIds)` so unchanged blocks stay reference-equal
+ * across the cycle. Use `freshStateFromDoc` ONLY when there is no
+ * captured dirty set:
+ *   - Test fixtures that mutated the underlying Y.Doc directly.
+ *   - External Y.Doc surgery (e.g., the bypass-detection path in
+ *     `embed-content-cascade.test.ts`) whose effects aren't tracked
+ *     through `applyOperation` / `History`.
+ *
+ * Using this in production would defeat the per-State view-stability
+ * + structural-sharing properties of the snapshot cache. The split
+ * signature is deliberate — production callers can't accidentally
+ * reach for the escape hatch by omitting an argument.
+ */
+export function freshStateFromDoc(state: State): State {
+  const { doc } = state[STATE_INTERNAL];
+  return Object.freeze({
+    rootId: state.rootId,
+    [STATE_INTERNAL]: Object.freeze({
+      doc,
+      snapshotCache: createSnapshotCache(),
     }),
   }) as State;
 }
