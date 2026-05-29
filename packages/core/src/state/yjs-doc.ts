@@ -182,6 +182,59 @@ function getParentSubKey(cursor: AnyYType): BlockId | null {
 }
 
 /**
+ * Probe whether `doc` is currently executing inside a `Y.Doc.transact`
+ * callback. Yjs sets `doc._transaction` to the current `Y.Transaction`
+ * for the duration of `.transact(fn)` (including transactions opened
+ * internally by `Y.UndoManager.undo()` / `.redo()`) and clears it on
+ * return. `_transaction` is underscore-prefixed and not part of Y.Doc's
+ * public TS surface, but it is stable across Yjs 13.x (used by Yjs's own
+ * bindings like y-prosemirror) and the version is pinned to `~13.6.x`,
+ * with `yjs-version-guard.test.ts` as a tripwire.
+ *
+ * The `as unknown as { _transaction: unknown }` cast is the CLAUDE.md-
+ * compliant escape hatch for the internal field (no `as any`).
+ */
+function isInYjsTransaction(doc: Y.Doc): boolean {
+  const tx = (doc as unknown as { _transaction: unknown })._transaction;
+  return tx != null;
+}
+
+/**
+ * Guard for the state-module-internal `*InTx` family
+ * (`insertTextInTx`, `deleteRangeInTx`, `reparentChildrenInTx`).
+ *
+ * Those helpers MUST run inside an open Y.Doc transaction so that
+ * (a) their writes are atomic relative to peers and (b) their dirty
+ * Y types reach `runTransaction` / `captureDirtyIds`' `afterTransaction`
+ * listener — without an open transaction, the listener never fires and
+ * the dirty ids are silently dropped, leaving renderers with stale paint.
+ *
+ * Two failure modes are closed by this assert:
+ *   1. Caller forgets to wrap an `*InTx` helper in `runTransaction`
+ *      (or another `doc.transact`).
+ *   2. An `*InTx` helper calls `runTransaction` itself — Yjs merges the
+ *      inner `transact` into the outer one and only fires
+ *      `afterTransaction` once, after the inner listener has been
+ *      detached. (See the non-reentrancy note on `runTransaction` below.)
+ *      This guard catches case 1 directly; case 2 is documented as a
+ *      separate invariant on `runTransaction`.
+ *
+ * Throws in BOTH DEV and PROD: silent dirty-id loss is worse than a loud
+ * throw — the symptom is invisible (stale paint) until users notice.
+ *
+ * Exposed only via direct `./yjs-doc` imports inside the `state/`
+ * module; intentionally NOT re-exported from `state/index.ts`. The
+ * only legitimate call sites are the `*InTx` helpers themselves.
+ */
+export function requireInTransaction(doc: Y.Doc, opName: string): void {
+  if (!isInYjsTransaction(doc)) {
+    throw new Error(
+      `${opName}: must be called inside Y.Doc.transact (e.g. via runTransaction).`,
+    );
+  }
+}
+
+/**
  * Runs `fn` inside a Y.Doc transaction and returns the set of BlockIds
  * whose subtree was touched. A BlockId becomes dirty when:
  *   - any block-tree map (every map in `TREE_MAP_GETTERS` — currently

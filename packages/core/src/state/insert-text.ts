@@ -13,7 +13,7 @@ import {
   findItemAtOffset,
   type InlineItem,
 } from "./inline-content";
-import { getYBlock, type BlockTreeKind } from "./yjs-doc";
+import { getYBlock, requireInTransaction, type BlockTreeKind } from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -121,6 +121,7 @@ export function insertText(
  *     observe the post-delete pre-insert mid-state).
  */
 export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
+  requireInTransaction(doc, "insertText");
   if (plan.mode === "in-place") {
     const yBlock = getYBlock(doc, plan.blockId, "insertText", plan.kind);
     const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;

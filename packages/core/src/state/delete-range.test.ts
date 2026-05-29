@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { deleteRange } from "./delete-range";
+import { deleteRange, deleteRangeInTx, planDeleteRange } from "./delete-range";
 import { getBlock, getEmbedContent } from "./state";
+import { STATE_INTERNAL } from "./state-internal";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
@@ -833,5 +834,29 @@ describe("deleteRange — error cases", () => {
     });
     const span = createSpan(createPosition("p1" as BlockId, 999), createPosition("p2" as BlockId, 1));
     expect(() => deleteRange(state, span)).toThrow(/out of range/);
+  });
+});
+
+describe("deleteRangeInTx — transaction guard", () => {
+  it("throws when called outside any Y.Doc transaction", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
+    const plan = planDeleteRange(state, span);
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    expect(() => deleteRangeInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /deleteRange: must be called inside Y\.Doc\.transact/,
+    );
   });
 });

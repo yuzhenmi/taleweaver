@@ -10,6 +10,7 @@ import {
   allTreeBlockCount,
   getYBlock,
   runTransaction,
+  requireInTransaction,
   __getWalkStepsForTest,
   __resetWalkStepsForTest,
 } from "./yjs-doc";
@@ -285,6 +286,77 @@ describe("yjs-doc", () => {
         getTemplateContentsMap(doc).set("tmpl-1", yBody);
       });
       expect(getYBlock(doc, "tmpl-1" as BlockId, "test", "templateContent")).toBe(yBody);
+    });
+  });
+
+  describe("requireInTransaction", () => {
+    it("throws with opName when called outside any transaction", () => {
+      const doc = createYDoc();
+      expect(() => requireInTransaction(doc, "myOp")).toThrow(
+        /myOp: must be called inside Y\.Doc\.transact/,
+      );
+    });
+
+    it("does not throw inside doc.transact", () => {
+      const doc = createYDoc();
+      expect(() => {
+        doc.transact(() => {
+          requireInTransaction(doc, "myOp");
+        });
+      }).not.toThrow();
+    });
+
+    it("does not throw inside runTransaction", () => {
+      const doc = createYDoc();
+      expect(() => {
+        runTransaction(doc, () => {
+          requireInTransaction(doc, "myOp");
+        });
+      }).not.toThrow();
+    });
+
+    it("does not throw inside Y.UndoManager.undo (defensive)", () => {
+      // Y.UndoManager opens its own internal doc.transact for the inverse op,
+      // so `requireInTransaction` should pass when an *InTx helper is
+      // (hypothetically) reached from inside the undo reversal context.
+      const doc = createYDoc();
+      const blocks = getBlocksMap(doc);
+      const undoManager = new Y.UndoManager(blocks, { trackedOrigins: new Set([null]) });
+
+      // Make a tracked change so the undo manager has something to undo.
+      doc.transact(() => {
+        blocks.set("blk-1" as BlockId, new Y.Map());
+      });
+
+      let observedTxInside = false;
+      const listener = (_tx: Y.Transaction) => {
+        // While the undo runs Yjs has an open transaction → the assert passes.
+        if (!observedTxInside) {
+          try {
+            requireInTransaction(doc, "fromUndo");
+            observedTxInside = true;
+          } catch {
+            observedTxInside = false;
+          }
+        }
+      };
+      doc.on("beforeTransaction", listener);
+      try {
+        undoManager.undo();
+      } finally {
+        doc.off("beforeTransaction", listener);
+      }
+      expect(observedTxInside).toBe(true);
+    });
+
+    it("throws again after the transaction returns", () => {
+      const doc = createYDoc();
+      runTransaction(doc, () => {
+        requireInTransaction(doc, "myOp");
+      });
+      expect(() => requireInTransaction(doc, "myOp")).toThrow(
+        /myOp: must be called inside Y\.Doc\.transact/,
+      );
     });
   });
 });

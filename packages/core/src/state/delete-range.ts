@@ -10,7 +10,13 @@ import {
   splitInlineContentAtOffset,
   type InlineItem,
 } from "./inline-content";
-import { getEmbedContentsMap, getTreeMap, getYBlock, type BlockTreeKind } from "./yjs-doc";
+import {
+  getEmbedContentsMap,
+  getTreeMap,
+  getYBlock,
+  requireInTransaction,
+  type BlockTreeKind,
+} from "./yjs-doc";
 import { buildYInlineContent } from "./y-block";
 import { normalizeSpan } from "./span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
@@ -165,6 +171,7 @@ export function deleteRange(
  * until `applyOperation` mints a fresh State).
  */
 export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
+  requireInTransaction(doc, "deleteRange");
   if (plan.mode === "same-block") {
     const yBlock = getYBlock(doc, plan.blockId, "deleteRange", plan.kind);
     yBlock.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));

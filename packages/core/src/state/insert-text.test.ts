@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
-import { insertText } from "./insert-text";
+import { insertText, insertTextInTx, planInsertText } from "./insert-text";
 import { getBlock } from "./state";
 import { getYBlock } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
@@ -514,5 +514,26 @@ describe("insertText — error cases", () => {
     });
     // Inline-content length is 2; valid offsets are [0, 2]. Offset 3 is out of range.
     expect(() => insertText(state, createPosition("p" as BlockId, 3), "x", {})).toThrow(/out of range/);
+  });
+});
+
+describe("insertTextInTx — transaction guard", () => {
+  it("throws when called outside any Y.Doc transaction", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hi")]),
+        }),
+      ],
+    });
+    const plan = planInsertText(state, createPosition("p" as BlockId, 0), "X", {});
+    expect(() => insertTextInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /insertText: must be called inside Y\.Doc\.transact/,
+    );
   });
 });

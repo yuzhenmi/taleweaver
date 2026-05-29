@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   reparentChildren,
+  reparentChildrenInTx,
+  planReparentChildren,
   computeReparentWrites,
   type BlockFieldWrite,
 } from "./reparent-children";
 import { getBlock } from "./state";
+import { STATE_INTERNAL } from "./state-internal";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
@@ -494,5 +497,42 @@ describe("computeReparentWrites — pure unit tests", () => {
         beforeSiblingPrevId: null,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("reparentChildrenInTx — transaction guard", () => {
+  it("throws when called outside any Y.Doc transaction", () => {
+    // doc > [P > [c1], Q]; move c1 from P to Q.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
+        buildBlock({
+          id: "P",
+          type: "section",
+          parentId: "doc",
+          nextSiblingId: "Q",
+          firstChildId: "c1",
+          lastChildId: "c1",
+        }),
+        buildBlock({
+          id: "Q",
+          type: "section",
+          parentId: "doc",
+          prevSiblingId: "P",
+        }),
+        buildBlock({
+          id: "c1",
+          type: "paragraph",
+          parentId: "P",
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+    const plan = planReparentChildren(state, ["c1" as BlockId], "Q" as BlockId, null);
+    expect(plan.writes.length).toBeGreaterThan(0);
+    expect(() => reparentChildrenInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /reparentChildren: must be called inside Y\.Doc\.transact/,
+    );
   });
 });
