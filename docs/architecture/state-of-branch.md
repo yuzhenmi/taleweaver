@@ -47,9 +47,12 @@ incremental render/cascade/layout passes. `applyOperation` returns the input
 O(1) "did anything change?" guard. The old path-based `StateNode` immutable
 tree is fully removed.
 
-Known follow-ups (low urgency): an unbounded undo stack (no depth cap —
-state-design #234); the parent-dirty-on-child-removal contract relies on
-Yjs firing change events for same-value sets (#227).
+Known follow-ups (low urgency): `getBlockFromEither` (a historical
+two-tree shortcut) coexists with the three-tree `resolveBlock` on the
+public surface; deprecate (#360). `Y.Map.set(key, sameValue)` fires
+change events → scattered same-value-write guards in ops like
+`reparent-children.ts` self-move; consolidate via a `setIfChanged`
+Y-utils helper (#358).
 
 ### `components/` `[partial]`
 
