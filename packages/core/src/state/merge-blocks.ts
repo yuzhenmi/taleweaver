@@ -2,12 +2,41 @@ import * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { getTreeMap, getYBlock } from "./yjs-doc";
+import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "./yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "./y-utils";
 import { assertSameTree } from "./assert-same-tree";
 import { STATE_INTERNAL } from "./state-internal";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../cascade/attr-registry";
+
+/**
+ * Pre-computed mutation plan for `mergeAdjacentBlocksInTx`. Captures the
+ * fully-resolved write inputs:
+ *   - `leftId` / `rightId` — the two blocks being merged. Left wins.
+ *   - `kind` — the tree they live in; resolved at plan time from `resolveBlock`
+ *     so `inTx` doesn't have to re-resolve. Both blocks share the same tree
+ *     (block-tree invariant, dev-asserted via `assertSameTree`).
+ *   - `parentId` — the shared parent (guaranteed non-null by the planner;
+ *     adjacent siblings can't both be the root).
+ *   - `rightNextId` — right's old next sibling. Threaded to `inTx` so the
+ *     plan describes the post-mutation linkage (left.nextSiblingId becomes
+ *     rightNextId; if non-null, rightNext.prevSiblingId becomes leftId;
+ *     if null, parent.lastChildId becomes leftId).
+ *
+ * The plan is plain data — no Y types, no `State` references, no
+ * function-bearing objects. `AttrRegistry` (used by the seam-merge
+ * normalizer for custom per-key `equals` semantics) is NOT carried on the
+ * plan; it is passed as a separate argument to `mergeAdjacentBlocksInTx`
+ * (mirroring how `insertText` threads registry alongside, not inside, its
+ * plan).
+ */
+export interface MergeBlocksPlan {
+  readonly leftId: BlockId;
+  readonly rightId: BlockId;
+  readonly kind: BlockTreeKind;
+  readonly parentId: BlockId;
+  readonly rightNextId: BlockId | null;
+}
 
 /**
  * Merge two adjacent leaf siblings into one block.
@@ -47,6 +76,10 @@ import type { AttrRegistry } from "../cascade/attr-registry";
  * custom per-key `equals` (e.g. a `comment` interpreter that ignores
  * `timestamp`) opt into custom adjacent-item compare semantics across
  * the block seam. Omitted → deep-value compare.
+ *
+ * Composition: see `mergeAdjacentBlocksInTx` for the in-transaction primitive
+ * used to chain a merge with other `*InTx` ops inside a single Y.Doc
+ * transaction (one undo entry / one collab event).
  */
 export function mergeAdjacentBlocks(
   state: State,
@@ -54,12 +87,32 @@ export function mergeAdjacentBlocks(
   rightId: BlockId,
   registry?: AttrRegistry,
 ): OperationResult {
+  const plan = planMergeAdjacentBlocks(state, leftId, rightId);
+  return applyOperation(state, () => {
+    mergeAdjacentBlocksInTx(state[STATE_INTERNAL].doc, plan, registry);
+  });
+}
+
+/**
+ * Validate the requested merge against the pre-mutation `state` snapshot and
+ * produce a `MergeBlocksPlan`. Throws on every condition
+ * `mergeAdjacentBlocks`'s docstring lists.
+ *
+ * All validation reads happen here, BEFORE the surrounding `applyOperation`
+ * is opened. The plan captures everything `mergeAdjacentBlocksInTx` needs to
+ * run the mutations without further reads from `state`.
+ */
+export function planMergeAdjacentBlocks(
+  state: State,
+  leftId: BlockId,
+  rightId: BlockId,
+): MergeBlocksPlan {
   if (leftId === rightId) {
     throw new Error(`mergeAdjacentBlocks: left and right are the same block "${leftId}"`);
   }
 
   // Resolve the reference (left) block ONCE to learn its owning tree (`kind`);
-  // every kind-routed write below targets that tree. `right` and the other
+  // every kind-routed write in `inTx` targets that tree. `right` and the other
   // neighbors are asserted to live in the same tree below.
   const leftResolved = resolveBlock(state, leftId);
   if (leftResolved === null) {
@@ -109,7 +162,7 @@ export function mergeAdjacentBlocks(
   // next sibling (its prevSiblingId flips to left), and the parent (its
   // lastChildId may flip). All must live in the SAME tree as the reference
   // (left) block — a cross-tree pointer would mean the kind-routed writes
-  // below corrupt state. (Dev-only; production no-op.)
+  // in `inTx` corrupt state. (Dev-only; production no-op.)
   assertSameTree(
     state,
     kind,
@@ -117,50 +170,81 @@ export function mergeAdjacentBlocks(
     "mergeAdjacentBlocks",
   );
 
-  return applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
-    // Route every map access to the reference (left) block's owning tree
-    // (`kind`): merging two header/footer-body paragraphs (templateContents)
-    // must delete `right` from templateContents, not the main `blocks` map.
-    const yTree = getTreeMap(doc, kind);
-    const yLeft = getYBlock(doc, leftId, "mergeAdjacentBlocks", kind);
-    const yRight = getYBlock(doc, rightId, "mergeAdjacentBlocks", kind);
-    const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+  return {
+    leftId,
+    rightId,
+    kind,
+    parentId,
+    rightNextId: right.nextSiblingId,
+  };
+}
 
-    // Append clones of right's items to left. Yjs forbids re-parenting a Y
-    // type, so we clone — left keeps its existing items' Y.Text identity;
-    // only right's items get freshly materialized on the left side.
-    const cloned: Y.Map<unknown>[] = [];
-    for (let i = 0; i < yRightItems.length; i++) {
-      cloned.push(cloneInlineItem(yRightItems.get(i)));
-    }
-    if (cloned.length > 0) {
-      yLeftItems.push(cloned);
-      // Same-attrs merge pass to uphold the normalized inline-content invariant.
-      // Only needed when we actually appended items.
-      mergeAdjacentSameAttrsTextItems(yLeftItems, registry);
-    }
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `MergeBlocksPlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Used by:
+ *   - `mergeAdjacentBlocks` (thin wrapper that validates + plans + wraps
+ *     in `applyOperation`).
+ *   - Future composers needing to chain a block merge with another `*InTx`
+ *     op inside ONE Y.Doc transaction.
+ *
+ * Reads from the LIVE Y.Doc (the two blocks' inlineContent Y.Arrays) are
+ * unavoidable here — Yjs forbids re-parenting a Y type so right's items
+ * must be cloned onto left's array, which requires touching the live
+ * arrays. Those reads target the items being mutated, not the snapshot,
+ * so they remain composition-safe.
+ */
+export function mergeAdjacentBlocksInTx(
+  doc: Y.Doc,
+  plan: MergeBlocksPlan,
+  registry?: AttrRegistry,
+): void {
+  requireInTransaction(doc, "mergeAdjacentBlocks");
 
-    // Rewire siblings around right (right.next becomes left.next).
-    const rightNextId = (yRight.get("nextSiblingId") as BlockId | null) ?? null;
-    yLeft.set("nextSiblingId", rightNextId);
-    if (rightNextId !== null) {
-      getYBlock(doc, rightNextId, "mergeAdjacentBlocks", kind).set(
-        "prevSiblingId",
-        leftId,
-      );
-    } else {
-      // Right was the last child — rewire parent.lastChildId to left.
-      // Preconditions guarantee parent.lastChildId is rightId (same-parent
-      // + adjacent-sibling + right.nextSibling===null). Unconditional
-      // rewire matches the documented contract; an upstream invariant
-      // violation would surface as a getYBlock throw.
-      const yParent = getYBlock(doc, parentId, "mergeAdjacentBlocks", kind);
-      yParent.set("lastChildId", leftId);
-    }
+  // Route every map access to the reference (left) block's owning tree
+  // (`plan.kind`): merging two header/footer-body paragraphs
+  // (templateContents) must delete `right` from templateContents, not the
+  // main `blocks` map.
+  const yTree = getTreeMap(doc, plan.kind);
+  const yLeft = getYBlock(doc, plan.leftId, "mergeAdjacentBlocks", plan.kind);
+  const yRight = getYBlock(doc, plan.rightId, "mergeAdjacentBlocks", plan.kind);
+  const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+  const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
 
-    // Delete right last (after reads of yRight are done) from the owning tree.
-    yTree.delete(rightId);
-  });
+  // Append clones of right's items to left. Yjs forbids re-parenting a Y
+  // type, so we clone — left keeps its existing items' Y.Text identity;
+  // only right's items get freshly materialized on the left side.
+  const cloned: Y.Map<unknown>[] = [];
+  for (let i = 0; i < yRightItems.length; i++) {
+    cloned.push(cloneInlineItem(yRightItems.get(i)));
+  }
+  if (cloned.length > 0) {
+    yLeftItems.push(cloned);
+    // Same-attrs merge pass to uphold the normalized inline-content invariant.
+    // Only needed when we actually appended items.
+    mergeAdjacentSameAttrsTextItems(yLeftItems, registry);
+  }
+
+  // Rewire siblings around right (right.next becomes left.next).
+  yLeft.set("nextSiblingId", plan.rightNextId);
+  if (plan.rightNextId !== null) {
+    getYBlock(doc, plan.rightNextId, "mergeAdjacentBlocks", plan.kind).set(
+      "prevSiblingId",
+      plan.leftId,
+    );
+  } else {
+    // Right was the last child — rewire parent.lastChildId to left.
+    // Preconditions guarantee parent.lastChildId is rightId (same-parent
+    // + adjacent-sibling + right.nextSibling===null). Unconditional
+    // rewire matches the documented contract; an upstream invariant
+    // violation would surface as a getYBlock throw.
+    const yParent = getYBlock(doc, plan.parentId, "mergeAdjacentBlocks", plan.kind);
+    yParent.set("lastChildId", plan.leftId);
+  }
+
+  // Delete right last (after reads of yRight are done) from the owning tree.
+  yTree.delete(plan.rightId);
 }

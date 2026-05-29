@@ -1,9 +1,10 @@
+import type * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
 import type { InlineContent } from "./inline-content";
-import { getBlocksMap, getYBlock } from "./yjs-doc";
+import { getBlocksMap, getYBlock, requireInTransaction } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
@@ -13,6 +14,37 @@ export interface InsertBlockArgs {
   type: string;
   attrs?: ReadonlyAttrs;
   inlineContent?: InlineContent | null;
+}
+
+/**
+ * Pre-computed mutation plan for `insertBlockInTx`. Captures the
+ * fully-resolved write inputs:
+ *   - `parentId`, `newId` — the parent and the freshly-allocated new block id.
+ *   - `prevSiblingId` / `nextSiblingId` — the surrounding linked-list pointers,
+ *     resolved at plan time from the pre-mutation snapshot (`parent.lastChildId`
+ *     for append, `beforeSibling.prevSiblingId` for insert-before).
+ *   - `type` / `attrs` / `inlineContent` — the new block's initial shape, taken
+ *     verbatim from `InsertBlockArgs` (defaults applied at plan time).
+ *
+ * `inTx` infers the boundary-write decisions (whether to update
+ * `parent.firstChildId` / `parent.lastChildId`) from the null-ness of
+ * `prevSiblingId` / `nextSiblingId`: a `null` prev means the new block
+ * becomes the parent's new first child; a `null` next means it becomes the
+ * new last child. Mirrors the original `insertBlock` logic — equal-value
+ * writes are still avoided on middle inserts so `dirtyIds` doesn't grow
+ * spuriously.
+ *
+ * TREE SCOPE: operates on the MAIN `blocks` tree only (mirrors the public op).
+ * The plan does not carry a `kind` field for that reason.
+ */
+export interface InsertBlockPlan {
+  readonly parentId: BlockId;
+  readonly newId: BlockId;
+  readonly prevSiblingId: BlockId | null;
+  readonly nextSiblingId: BlockId | null;
+  readonly type: string;
+  readonly attrs: ReadonlyAttrs;
+  readonly inlineContent: InlineContent | null;
 }
 
 /**
@@ -43,6 +75,10 @@ export interface InsertBlockArgs {
  * insert into the main document tree. Inserting a structural block into an
  * embed/template-content body (e.g. a list inside a header) would need a
  * `kind`-routed variant; do not call this for those trees as-is.
+ *
+ * Composition: see `insertBlockInTx` for the in-transaction primitive that
+ * lets callers chain a structural insert with other `*InTx` ops inside a
+ * single Y.Doc transaction (one undo entry / one collab event).
  */
 export function insertBlock(
   state: State,
@@ -52,6 +88,30 @@ export function insertBlock(
   allocator: IdAllocator,
   resolver?: BlockKindResolver,
 ): OperationResult {
+  const plan = planInsertBlock(state, parentId, beforeSiblingId, args, allocator, resolver);
+  return applyOperation(state, () => {
+    insertBlockInTx(state[STATE_INTERNAL].doc, plan);
+  });
+}
+
+/**
+ * Validate the requested insertion against the pre-mutation `state` snapshot
+ * and produce an `InsertBlockPlan`. Throws on every condition `insertBlock`'s
+ * docstring lists.
+ *
+ * Allocates the new block id via `allocator` so the allocator is bumped exactly
+ * once even if the transaction body were ever made retryable.
+ *
+ * When `resolver` is provided, validates the parent is a container kind.
+ */
+export function planInsertBlock(
+  state: State,
+  parentId: BlockId,
+  beforeSiblingId: BlockId | null,
+  args: InsertBlockArgs,
+  allocator: IdAllocator,
+  resolver?: BlockKindResolver,
+): InsertBlockPlan {
   const parent = getBlock(state, parentId);
   if (!parent) {
     throw new Error(`insertBlock: parent "${parentId}" not found`);
@@ -68,7 +128,7 @@ export function insertBlock(
     }
   }
 
-  // Determine prev / next siblings.
+  // Determine prev / next siblings from the pre-mutation snapshot.
   let prevSiblingId: BlockId | null;
   let nextSiblingId: BlockId | null;
 
@@ -94,52 +154,84 @@ export function insertBlock(
   // is bumped exactly once even if the transaction body re-runs.
   const newId = allocator.allocate();
 
-  return applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
-    // Dev-mode defense against allocator id collision (test allocators with
-    // counter-based ids can collide with seeded state; production
-    // crypto.randomUUID effectively cannot). Without this, Y.Map.set below
-    // would silently overwrite the existing block of the same id.
-    assertNoIdCollision(doc, newId, "insertBlock");
+  return {
+    parentId,
+    newId,
+    prevSiblingId,
+    nextSiblingId,
+    type: args.type,
+    attrs: args.attrs ?? {},
+    inlineContent: args.inlineContent ?? null,
+  };
+}
 
-    // Add the new block to the blocks map with full linkage.
-    getBlocksMap(doc).set(
-      newId,
-      buildYBlock({
-        type: args.type,
-        attrs: args.attrs ?? {},
-        parentId,
-        prevSiblingId,
-        nextSiblingId,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: args.inlineContent ?? null,
-      }),
-    );
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `InsertBlockPlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Used by:
+ *   - `insertBlock` (thin wrapper that validates + plans + wraps in
+ *     `applyOperation`).
+ *   - Future composers (e.g., inserting a footnote anchor that materializes
+ *     an embed-content body atomically with the anchor's containing block)
+ *     that need to chain multiple `*InTx` calls inside ONE Y.Doc transaction.
+ *
+ * Mirrors the original public op's boundary-write discipline: the parent's
+ * `firstChildId` / `lastChildId` are written ONLY when actually changing
+ * (boundary insert), so middle inserts don't add the parent to `dirtyIds`.
+ *
+ * TREE SCOPE: writes to the main `blocks` map only. See the docstring on the
+ * public `insertBlock` for rationale and the plan's lack of a `kind` field.
+ */
+export function insertBlockInTx(doc: Y.Doc, plan: InsertBlockPlan): void {
+  requireInTransaction(doc, "insertBlock");
 
-    // Update prev sibling's nextSiblingId (if any) to point at the new block.
-    if (prevSiblingId !== null) {
-      const yPrev = getYBlock(doc, prevSiblingId, "insertBlock");
-      yPrev.set("nextSiblingId", newId);
+  // Dev-mode defense against allocator id collision (test allocators with
+  // counter-based ids can collide with seeded state; production
+  // crypto.randomUUID effectively cannot). Without this, Y.Map.set below
+  // would silently overwrite the existing block of the same id.
+  assertNoIdCollision(doc, plan.newId, "insertBlock");
+
+  // Add the new block to the blocks map with full linkage.
+  getBlocksMap(doc).set(
+    plan.newId,
+    buildYBlock({
+      type: plan.type,
+      attrs: plan.attrs,
+      parentId: plan.parentId,
+      prevSiblingId: plan.prevSiblingId,
+      nextSiblingId: plan.nextSiblingId,
+      firstChildId: null,
+      lastChildId: null,
+      inlineContent: plan.inlineContent,
+    }),
+  );
+
+  // Update prev sibling's nextSiblingId (if any) to point at the new block.
+  if (plan.prevSiblingId !== null) {
+    const yPrev = getYBlock(doc, plan.prevSiblingId, "insertBlock");
+    yPrev.set("nextSiblingId", plan.newId);
+  }
+
+  // Update next sibling's prevSiblingId (if any) to point at the new block.
+  if (plan.nextSiblingId !== null) {
+    const yNext = getYBlock(doc, plan.nextSiblingId, "insertBlock");
+    yNext.set("prevSiblingId", plan.newId);
+  }
+
+  // Update parent's firstChildId / lastChildId only when the new block sits at
+  // a boundary. Writing same-value to a Y.Map still fires a change event, which
+  // would cause the parent to land in dirtyIds and trigger an unnecessary
+  // re-paint.
+  if (plan.prevSiblingId === null || plan.nextSiblingId === null) {
+    const yParent = getYBlock(doc, plan.parentId, "insertBlock");
+    if (plan.prevSiblingId === null) {
+      yParent.set("firstChildId", plan.newId);
     }
-
-    // Update next sibling's prevSiblingId (if any) to point at the new block.
-    if (nextSiblingId !== null) {
-      const yNext = getYBlock(doc, nextSiblingId, "insertBlock");
-      yNext.set("prevSiblingId", newId);
+    if (plan.nextSiblingId === null) {
+      yParent.set("lastChildId", plan.newId);
     }
-
-    // Update parent's firstChildId / lastChildId only when the new block sits at a
-    // boundary. Writing same-value to a Y.Map still fires a change event, which would
-    // cause the parent to land in dirtyIds and trigger an unnecessary re-paint.
-    if (prevSiblingId === null || nextSiblingId === null) {
-      const yParent = getYBlock(doc, parentId, "insertBlock");
-      if (prevSiblingId === null) {
-        yParent.set("firstChildId", newId);
-      }
-      if (nextSiblingId === null) {
-        yParent.set("lastChildId", newId);
-      }
-    }
-  });
+  }
 }

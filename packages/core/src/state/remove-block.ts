@@ -1,9 +1,51 @@
+import type * as Y from "yjs";
 import type { State, OperationResult } from "./state";
 import { applyOperation, getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { getBlocksMap, getEmbedContentsMap, getYBlock } from "./yjs-doc";
+import { getBlocksMap, getEmbedContentsMap, getYBlock, requireInTransaction } from "./yjs-doc";
 import { collectEmbedContentSubtreeFromInlineContent } from "./embed-content-cascade";
 import { STATE_INTERNAL } from "./state-internal";
+
+/**
+ * Pre-computed mutation plan for `removeBlockInTx`. Captures the
+ * fully-resolved write inputs:
+ *   - `blockId` — the target block being removed.
+ *   - `parentId` — the target's parent (guaranteed non-null by the planner;
+ *     the root cannot be removed).
+ *   - `prevSiblingId` / `nextSiblingId` — the target's neighbors at plan
+ *     time. Threaded so `inTx` can rewire prev.nextSiblingId →
+ *     nextSiblingId and next.prevSiblingId → prevSiblingId without
+ *     re-reading the snapshot.
+ *   - `removingFirstChild` / `removingLastChild` — boundary flags, computed
+ *     from the pre-mutation `parent.firstChildId === blockId` /
+ *     `parent.lastChildId === blockId` comparisons. `inTx` writes
+ *     `parent.firstChildId` / `parent.lastChildId` ONLY when the
+ *     corresponding flag is true (mirrors the original op's
+ *     middle-removal short-circuit so dirtyIds stays minimal).
+ *   - `subtreeIds` — every id in the deleted subtree (the target + all
+ *     descendants), collected by walking the snapshot. `inTx` deletes
+ *     each from the main blocks map.
+ *   - `embedContentIds` — every embed-content body to cascade-delete,
+ *     collected by walking each subtree block's `inlineContent` for
+ *     `EmbedItem.properties.contentBlockId` references (recursively, via
+ *     `collectEmbedContentSubtreeFromInlineContent`).
+ *
+ * TREE SCOPE: operates on the MAIN `blocks` tree only (mirrors the public op).
+ * The embed-content cascade targets the `embedContents` map, which is
+ * independent of the main tree.
+ *
+ * The plan is plain data — no Y types in it.
+ */
+export interface RemoveBlockPlan {
+  readonly blockId: BlockId;
+  readonly parentId: BlockId;
+  readonly prevSiblingId: BlockId | null;
+  readonly nextSiblingId: BlockId | null;
+  readonly removingFirstChild: boolean;
+  readonly removingLastChild: boolean;
+  readonly subtreeIds: ReadonlySet<BlockId>;
+  readonly embedContentIds: ReadonlySet<BlockId>;
+}
 
 /**
  * Remove a block (and its entire subtree) from the document tree.
@@ -48,8 +90,28 @@ import { STATE_INTERNAL } from "./state-internal";
  * `replaceRange` transfer the focus block's inline content (including
  * embed anchors) into the anchor block, so they preserve embed
  * references rather than orphaning them.
+ *
+ * Composition: see `removeBlockInTx` for the in-transaction primitive that
+ * lets callers chain a removal with other `*InTx` ops inside a single Y.Doc
+ * transaction (one undo entry / one collab event).
  */
 export function removeBlock(state: State, blockId: BlockId): OperationResult {
+  const plan = planRemoveBlock(state, blockId);
+  return applyOperation(state, () => {
+    removeBlockInTx(state[STATE_INTERNAL].doc, plan);
+  });
+}
+
+/**
+ * Validate the requested removal against the pre-mutation `state` snapshot
+ * and produce a `RemoveBlockPlan`. Throws on every condition `removeBlock`'s
+ * docstring lists.
+ *
+ * Walks the subtree to collect every id to delete + every embed-content body
+ * to cascade-delete, ALL against the pre-mutation snapshot. `inTx` performs no
+ * further `state` / `getBlock` reads.
+ */
+export function planRemoveBlock(state: State, blockId: BlockId): RemoveBlockPlan {
   const block = getBlock(state, blockId);
   if (block === null) {
     throw new Error(`removeBlock: block "${blockId}" not found`);
@@ -78,81 +140,119 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
     throw new Error(`removeBlock: next sibling "${block.nextSiblingId}" not found`);
   }
 
-  return applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
-    const yBlocks = getBlocksMap(doc);
+  // Collect every id in the subtree (the block + all descendants).
+  // Cycle-defended via the visited set itself.
+  const subtreeIds = new Set<BlockId>();
+  collectSubtreeIds(state, blockId, subtreeIds);
 
-    // Collect every id in the subtree (the block + all descendants).
-    // Cycle-defended via the visited set itself.
-    const subtreeIds = new Set<BlockId>();
-    collectSubtreeIds(state, blockId, subtreeIds);
+  // Collect embed-content ids to cascade-delete: walk the removed
+  // subtree's inlineContent for EmbedItem.properties.contentBlockId
+  // references; recursively follow each via getEmbedContent.
+  const embedContentIds = new Set<BlockId>();
+  for (const id of subtreeIds) {
+    const subBlock = getBlock(state, id);
+    if (subBlock === null || subBlock.inlineContent === null) continue;
+    collectEmbedContentSubtreeFromInlineContent(
+      state,
+      subBlock.inlineContent,
+      embedContentIds,
+    );
+  }
 
-    // Collect embed-content ids to cascade-delete: walk the removed
-    // subtree's inlineContent for EmbedItem.properties.contentBlockId
-    // references; recursively follow each via getEmbedContent.
-    const embedContentIdsToDelete = new Set<BlockId>();
-    for (const id of subtreeIds) {
-      const subBlock = getBlock(state, id);
-      if (subBlock === null || subBlock.inlineContent === null) continue;
-      collectEmbedContentSubtreeFromInlineContent(
-        state,
-        subBlock.inlineContent,
-        embedContentIdsToDelete,
-      );
-    }
+  return {
+    blockId,
+    parentId,
+    prevSiblingId: block.prevSiblingId,
+    nextSiblingId: block.nextSiblingId,
+    removingFirstChild: parent.firstChildId === blockId,
+    removingLastChild: parent.lastChildId === blockId,
+    subtreeIds,
+    embedContentIds,
+  };
+}
+
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `RemoveBlockPlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Used by:
+ *   - `removeBlock` (thin wrapper that validates + plans + wraps in
+ *     `applyOperation`).
+ *   - Future composers needing to chain a removal with other `*InTx` ops
+ *     inside ONE Y.Doc transaction (one undo entry / one collab event).
+ *
+ * Mirrors the original public op's boundary-write discipline: the parent's
+ * `firstChildId` / `lastChildId` are written ONLY when the removed block
+ * was actually at a boundary (per `plan.removingFirstChild` /
+ * `plan.removingLastChild`), so middle removals don't add the parent to
+ * `dirtyIds`.
+ *
+ * TREE SCOPE: writes to the main `blocks` map only. Embed-content cascade
+ * targets the `embedContents` map (independent of the main tree). See the
+ * docstring on the public `removeBlock` for rationale.
+ */
+export function removeBlockInTx(doc: Y.Doc, plan: RemoveBlockPlan): void {
+  requireInTransaction(doc, "removeBlock");
+
+  const yBlocks = getBlocksMap(doc);
+
+  // Cascade-delete embed-content subtrees referenced by the deleted blocks.
+  // Done first so the dirty-id capture observes the deletes alongside the
+  // main-tree deletes within one transaction.
+  if (plan.embedContentIds.size > 0) {
     const yEmbeds = getEmbedContentsMap(doc);
-    for (const id of embedContentIdsToDelete) {
+    for (const id of plan.embedContentIds) {
       yEmbeds.delete(id);
     }
+  }
 
-    // Relink prev sibling's nextSiblingId → block's nextSiblingId.
-    if (block.prevSiblingId !== null) {
-      getYBlock(doc, block.prevSiblingId, "removeBlock").set(
-        "nextSiblingId",
-        block.nextSiblingId,
-      );
-    }
+  // Relink prev sibling's nextSiblingId → block's nextSiblingId.
+  if (plan.prevSiblingId !== null) {
+    getYBlock(doc, plan.prevSiblingId, "removeBlock").set(
+      "nextSiblingId",
+      plan.nextSiblingId,
+    );
+  }
 
-    // Relink next sibling's prevSiblingId → block's prevSiblingId.
-    if (block.nextSiblingId !== null) {
-      getYBlock(doc, block.nextSiblingId, "removeBlock").set(
-        "prevSiblingId",
-        block.prevSiblingId,
-      );
-    }
+  // Relink next sibling's prevSiblingId → block's prevSiblingId.
+  if (plan.nextSiblingId !== null) {
+    getYBlock(doc, plan.nextSiblingId, "removeBlock").set(
+      "prevSiblingId",
+      plan.prevSiblingId,
+    );
+  }
 
-    // Update the parent's firstChildId / lastChildId only when the removed
-    // block sat at a boundary. Writing same-value to a Y.Map still fires a
-    // change event, which would land the parent in dirtyIds and trigger an
-    // unnecessary re-paint. A MIDDLE removal touches neither boundary, so we
-    // skip the parent entirely — it stays OUT of dirtyIds. The parent still
-    // re-renders correctly on a middle removal via render's
-    // computeInvalidatedBlocks ancestor-walk: the deleted child IS in
-    // dirtyIds (part of the deleted subtree), and the walk resolves each
-    // dirty id through prevState when it's gone from the new state, so the
-    // deleted child's parent gets added to the invalidation set regardless of
-    // whether removeBlock writes the parent here.
-    //
-    // Shared contract with insertBlock: a block is in `dirtyIds` iff its OWN
-    // fields changed; child-membership changes propagate through render's
-    // ancestor walk.
-    const removingFirstChild = parent.firstChildId === blockId;
-    const removingLastChild = parent.lastChildId === blockId;
-    if (removingFirstChild || removingLastChild) {
-      const yParent = getYBlock(doc, parentId, "removeBlock");
-      if (removingFirstChild) {
-        yParent.set("firstChildId", block.nextSiblingId);
-      }
-      if (removingLastChild) {
-        yParent.set("lastChildId", block.prevSiblingId);
-      }
+  // Update the parent's firstChildId / lastChildId only when the removed
+  // block sat at a boundary. Writing same-value to a Y.Map still fires a
+  // change event, which would land the parent in dirtyIds and trigger an
+  // unnecessary re-paint. A MIDDLE removal touches neither boundary, so we
+  // skip the parent entirely — it stays OUT of dirtyIds. The parent still
+  // re-renders correctly on a middle removal via render's
+  // computeInvalidatedBlocks ancestor-walk: the deleted child IS in
+  // dirtyIds (part of the deleted subtree), and the walk resolves each
+  // dirty id through prevState when it's gone from the new state, so the
+  // deleted child's parent gets added to the invalidation set regardless of
+  // whether removeBlock writes the parent here.
+  //
+  // Shared contract with insertBlock: a block is in `dirtyIds` iff its OWN
+  // fields changed; child-membership changes propagate through render's
+  // ancestor walk.
+  if (plan.removingFirstChild || plan.removingLastChild) {
+    const yParent = getYBlock(doc, plan.parentId, "removeBlock");
+    if (plan.removingFirstChild) {
+      yParent.set("firstChildId", plan.nextSiblingId);
     }
+    if (plan.removingLastChild) {
+      yParent.set("lastChildId", plan.prevSiblingId);
+    }
+  }
 
-    // Delete every id in the subtree from the blocks map.
-    for (const id of subtreeIds) {
-      yBlocks.delete(id);
-    }
-  });
+  // Delete every id in the subtree from the blocks map.
+  for (const id of plan.subtreeIds) {
+    yBlocks.delete(id);
+  }
 }
 
 /**

@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { splitBlockAtPosition } from "./split-block";
-import { getBlock } from "./state";
+import {
+  splitBlockAtPosition,
+  splitBlockAtPositionInTx,
+  planSplitBlockAtPosition,
+} from "./split-block";
+import { planInsertText, insertTextInTx } from "./insert-text";
+import { applyOperation, getBlock } from "./state";
+import { STATE_INTERNAL } from "./state-internal";
+import { createHistory } from "./history";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
-import { createPosition } from "./block-position";
+import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 
 describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
@@ -635,5 +642,109 @@ describe("splitBlockAtPosition — newBlockInit override (#236)", () => {
     const created = getBlock(result.state, "n-0" as BlockId);
     expect(created?.type).toBe("heading");
     expect(created?.attrs).toEqual({ level: 1 });
+  });
+});
+
+describe("splitBlockAtPositionInTx — composability with insertTextInTx", () => {
+  // doc > [p("abcdef")]
+  // Compose two ops inside ONE applyOperation:
+  //   (1) split "abcdef" at offset 3 → original = "abc", new block = "def"
+  //   (2) insert "X" at the START of the original block (offset 0)
+  //
+  // Why offset 0 for step (2): the second `planInsertText` reads `state`,
+  // which is the PRE-MUTATION snapshot ("abcdef"). A plan that targets
+  // offset 0 picks the leading edge of items[0] = text("abcdef"), and the
+  // resulting in-place mutation (itemIndex=0, within=0) on the original
+  // block's Y.Text — which the split's inTx has already shortened to
+  // "abc" — produces a well-defined result ("Xabc") at any post-split
+  // length ≥ 0. If we instead read offset 5 from the pre-mutation
+  // snapshot (valid in "abcdef" but past the end of "abc" after the
+  // split), the in-place insertion would attempt to write past the
+  // shortened Y.Text's end. That is the design limit of plan/inTx: the
+  // SECOND plan must target a cursor position the FIRST mutation didn't
+  // invalidate. For positions the split DOES affect (e.g., the post-split
+  // cursor inside the new block), `replaceRange` is the precedent — its
+  // `planInsertTextFullReplace` works against the freshly-merged items
+  // array instead of the snapshot.
+  it("split + insertText composed in one applyOperation produce one undo entry", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("abcdef")]),
+        }),
+      ],
+    });
+    const allocator = createTestAllocator("new");
+    const history = createHistory(state);
+
+    // Plan BOTH ops against the same pre-mutation snapshot. The second
+    // planInsertText targets offset 0, which is unaffected by the split
+    // (see the rationale above the it()).
+    const splitPlan = planSplitBlockAtPosition(
+      state,
+      createPosition("p" as BlockId, 3),
+      allocator,
+    );
+    const insertPlan = planInsertText(
+      state,
+      createPosition("p" as BlockId, 0),
+      "X",
+      {},
+    );
+
+    const opResult = applyOperation(state, () => {
+      splitBlockAtPositionInTx(state[STATE_INTERNAL].doc, splitPlan);
+      insertTextInTx(state[STATE_INTERNAL].doc, insertPlan);
+    });
+    const sel = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 0),
+    );
+    history.commit(opResult, { before: sel, after: sel });
+
+    // Post-condition: original block carries "X" + the split's prefix; new
+    // block carries the split's suffix. Both effects landed in one
+    // transaction (one Y.Doc afterTransaction, one undo group).
+    const original = getBlock(opResult.state, "p" as BlockId);
+    expect(original?.inlineContent?.items).toHaveLength(1);
+    expect(original?.inlineContent?.items[0]).toMatchObject({
+      kind: "text",
+      text: "Xabc",
+    });
+    const newBlock = getBlock(opResult.state, "new-0" as BlockId);
+    expect(newBlock?.inlineContent?.items).toHaveLength(1);
+    expect(newBlock?.inlineContent?.items[0]).toMatchObject({
+      kind: "text",
+      text: "def",
+    });
+
+    // ONE undo entry: a single undo restores the ORIGINAL document.
+    expect(history.canUndo()).toBe(true);
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    if (undone === null) throw new Error("expected undo to succeed");
+
+    // After one undo: the original block has its original content; the new
+    // block is gone (the split is reversed); the parent's lastChildId is
+    // restored to the original block.
+    const restored = getBlock(undone.state, "p" as BlockId);
+    expect(restored?.inlineContent?.items).toHaveLength(1);
+    expect(restored?.inlineContent?.items[0]).toMatchObject({
+      kind: "text",
+      text: "abcdef",
+    });
+    expect(restored?.nextSiblingId).toBeNull();
+    expect(getBlock(undone.state, "new-0" as BlockId)).toBeNull();
+    const docBlock = getBlock(undone.state, "doc" as BlockId);
+    expect(docBlock?.firstChildId).toBe("p");
+    expect(docBlock?.lastChildId).toBe("p");
+
+    // No further undo step: the two ops collapsed into one entry.
+    expect(history.canUndo()).toBe(false);
   });
 });
