@@ -186,4 +186,26 @@ describe("tokenize (whiteSpace: pre-line)", () => {
   it("collapses whitespace within a line but breaks at newlines", () => {
     expect(tokenize("a   b\nc   d", "pre-line")).toEqual(["a", " ", "b", LINE_BREAK, "c", " ", "d"]);
   });
+  // #366 / #308-part-2: leading whitespace on the FIRST line emits orphan
+  // " " tokens (one per ws char) so source offsets in [0, matchStart-of-first-word)
+  // are owned. Non-first lines don't need a leading emit — their leading
+  // whitespace gets absorbed into the preceding LINE_BREAK's `sourceLength`
+  // via the IFC's second-pass lookahead.
+  it("first-line leading whitespace emits one orphan-space token per char (#366)", () => {
+    expect(tokenize("  a\nb", "pre-line")).toEqual([" ", " ", "a", LINE_BREAK, "b"]);
+  });
+  it("non-first-line leading whitespace is NOT emitted (absorbed by preceding LINE_BREAK)", () => {
+    expect(tokenize("a\n  b", "pre-line")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("first-line leading + non-first-line leading: only first-line gets orphan tokens (#366)", () => {
+    expect(tokenize("  a\n  b", "pre-line")).toEqual([" ", " ", "a", LINE_BREAK, "b"]);
+  });
+  it("all-whitespace first line emits orphan-space tokens then LINE_BREAK (#366)", () => {
+    expect(tokenize("   \nfoo", "pre-line")).toEqual([" ", " ", " ", LINE_BREAK, "foo"]);
+  });
+  it("single-line all-whitespace under pre-line emits orphan-space tokens", () => {
+    // No LINE_BREAK (only one line); the leading-emit fires for the first
+    // (and only) line, then `trimmed === ""` skips the parts loop.
+    expect(tokenize("   ", "pre-line")).toEqual([" ", " ", " "]);
+  });
 });

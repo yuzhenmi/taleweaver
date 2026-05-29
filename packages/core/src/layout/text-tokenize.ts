@@ -130,7 +130,24 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       const lines = text.split("\n");
       const out: string[] = [];
       for (let li = 0; li < lines.length; li++) {
-        const trimmed = lines[li].trim();
+        const line = lines[li];
+        const trimmed = line.trim();
+        // First-line leading whitespace (#366 / #308-part-2): the IFC's
+        // second-pass lookahead in `collectInlineTokens` absorbs the leading
+        // whitespace of NON-first line segments into the preceding LINE_BREAK
+        // token's `sourceLength` (LINE_BREAK.sourceLength = next.matchStart -
+        // LINE_BREAK.matchStart absorbs `\n` + the following leading-ws chars).
+        // Only the very FIRST line lacks a preceding LINE_BREAK and thus
+        // strands those source offsets. Emit one orphan " " token per leading
+        // whitespace char on the first line — symmetric with the
+        // `normal`/`nowrap` γ fix at the top of this function. The IFC
+        // grouper's collapsing-mode arm then renders each as a zero-width unit
+        // (no visible glyph) while `cursorOffset` advances over the source.
+        if (li === 0) {
+          for (let c = 0; c < line.length && /\s/.test(line[c]); c++) {
+            out.push(" ");
+          }
+        }
         if (trimmed !== "") {
           const parts = trimmed.split(/\s+/);
           for (let i = 0; i < parts.length; i++) {
