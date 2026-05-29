@@ -406,6 +406,94 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
   });
 });
 
+describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
+  it("applying attrs equal to existing returns empty dirtyIds (no spurious dirty)", () => {
+    // The pre-#358 bug: toggling bold over an already-bold range fired
+    // Y.Map.set("attrs", buildYAttrs(merged)) for each in-range item even
+    // when `merged` equaled the existing attrs — every block landed in
+    // dirtyIds and cascaded into spurious re-render/re-layout. Now the
+    // per-item attrsEqual guard skips the write when nothing would change.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello world", { bold: true })]),
+        }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 11),
+    );
+    const result = applyAttrsToRange(state, span, { bold: true });
+    expect(result.dirtyIds.size).toBe(0);
+    // applyOperation's no-op contract: result.state === state on empty dirtyIds.
+    expect(result.state).toBe(state);
+  });
+
+  it("applying attrs equal to existing on an embed returns empty dirtyIds", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            embed("image", { src: "x.png" }, { caption: "alt" }),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 1),
+    );
+    const result = applyAttrsToRange(state, span, { caption: "alt" });
+    expect(result.dirtyIds.size).toBe(0);
+    expect(result.state).toBe(state);
+  });
+
+  it("mixed range: skips items whose merged attrs are unchanged, dirties items that change", () => {
+    // Two text items in one block: "hello" is already bold; "world" is not.
+    // Toggling bold over the full range should ONLY rewrite the second item;
+    // the first item's per-item attrsEqual guard skips its write.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("hello", { bold: true }),
+            text(" world"),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 11),
+    );
+    const result = applyAttrsToRange(state, span, { bold: true });
+    // The block IS dirty (one item changed); but the per-item guard
+    // skipped the no-op write on "hello".
+    expect(result.dirtyIds.has("p" as BlockId)).toBe(true);
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    // mergeAdjacentSameAttrsTextItems collapses the two text items now
+    // that both carry `{ bold: true }`.
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ text: "hello world", attrs: { bold: true } });
+  });
+});
+
 describe("applyAttrsToRange — empty span no-op", () => {
   it("returns the original state with empty dirtyIds for a collapsed span", () => {
     const state = buildState({

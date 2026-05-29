@@ -4,7 +4,7 @@ import { applyOperation, resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Span } from "./block-position";
 import type { ReadonlyAttrs } from "./attrs";
-import { mergeAttrs } from "./attrs";
+import { mergeAttrs, attrsEqual } from "./attrs";
 import { iterateSpan } from "./span-iteration";
 import { getYBlock } from "./yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "./y-block";
@@ -106,7 +106,7 @@ export function applyAttrsToRange(
       const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange", kind);
       const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
       if (yItems === null) continue; // defensive — iterateSpan only yields leaves
-      applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs);
+      applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
       mergeAdjacentSameAttrsTextItems(yItems, registry);
     }
   });
@@ -129,6 +129,7 @@ function applyAttrsToBlockRange(
   start: number,
   end: number,
   newAttrs: ReadonlyAttrs,
+  registry: AttrRegistry | undefined,
 ): void {
   if (start === end) return;
 
@@ -154,7 +155,15 @@ function applyAttrsToBlockRange(
 
     if (kind === "embed") {
       // Embed is one cursor position; in-range → update attrs in place.
-      yItem.set("attrs", buildYAttrs(merged));
+      // No-op guard (#358): when `merged` equals the existing attrs (e.g.,
+      // toggleBold over an already-bold range), the Y.Map write would still
+      // fire a Yjs change event and dirty this block — cascading into
+      // unnecessary re-render and re-layout. Skip the write when nothing
+      // would change. (Matches setBlockAttrs's no-op guard for the single-
+      // block variant.)
+      if (!attrsEqual(existingAttrs, merged, registry)) {
+        yItem.set("attrs", buildYAttrs(merged));
+      }
       cursor = itemEnd;
       i++;
       continue;
@@ -165,7 +174,10 @@ function applyAttrsToBlockRange(
 
     if (localStart === 0 && localEnd === itemLen) {
       // Entire text item in range — update attrs in place (preserves Y.Text identity).
-      yItem.set("attrs", buildYAttrs(merged));
+      // Same no-op guard (#358) as the embed branch above.
+      if (!attrsEqual(existingAttrs, merged, registry)) {
+        yItem.set("attrs", buildYAttrs(merged));
+      }
       cursor = itemEnd;
       i++;
       continue;
