@@ -16,11 +16,12 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // `stopCapturing()` does NOT increment `undoStack.length`. Only
   // transactions that mutated tracked types are recorded.
   //
-  // Consequence: action handlers MUST short-circuit BEFORE calling
-  // `history.commit` on no-op operations. With no StackItem created, there
-  // is nothing for `commit` to attach the SelectionEntry to (the entry now
-  // lives on `StackItem.meta`, not in a parallel array). The write-time
-  // assertion in `History.commit` catches this if a handler forgets the guard.
+  // Consequence: `History.commit` silently drops a no-op opResult — there
+  // is no StackItem to attach the SelectionEntry to (the entry lives on
+  // `StackItem.meta`, not in a parallel array), so commit returns early
+  // before any mutation. Handlers conventionally short-circuit FIRST via
+  // the T7 identity contract (`result.state === editor.state`), but commit
+  // is itself no-op-safe.
   it("empty transaction does not produce an undoStack entry", () => {
     const doc = new Y.Doc();
     const map = doc.getMap("blocks");
@@ -59,7 +60,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
   });
 
-  it("commit refuses a no-op (empty dirtyIds) BEFORE mutating; stacks stay aligned (S-B2)", () => {
+  it("commit silently drops a no-op (empty dirtyIds) BEFORE mutating; stacks stay aligned (S-B2)", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
@@ -68,13 +69,13 @@ describe("history (Y.UndoManager wrapper)", () => {
 
     // Hand-built no-op result (empty dirtyIds), independent of S-B1's no-op path.
     const noop = { state: state0, dirtyIds: new Set<BlockId>() };
-    expect(() => history.commit(noop, { before, after })).toThrow(/no-op/);
+    expect(() => history.commit(noop, { before, after })).not.toThrow();
     expect(history.canUndo()).toBe(false);
 
-    // The rejected no-op must NOT have partially mutated (pushed a selection
-    // entry / advanced currentState): a subsequent REAL commit + undo round-trips
-    // cleanly. On the pre-fix code the no-op pushed an unmatched selection entry
-    // before throwing, so this real commit would trip the alignment assertion.
+    // The no-op must NOT have partially mutated (pushed a selection entry /
+    // advanced currentState): a subsequent REAL commit + undo round-trips
+    // cleanly. If the no-op had pushed an unmatched selection entry, this
+    // real commit would trip the alignment assertion.
     const real = setBlockAttrs(state0, child.id, { bold: true });
     history.commit(real, { before, after });
     expect(history.canUndo()).toBe(true);
@@ -539,13 +540,14 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(u2.selection).toEqual(sel2Before);
   });
 
-  it("commit on a no-op opResult is rejected by the pre-mutation guard (handlers must short-circuit)", () => {
-    // Documents the contract: action handlers must NOT call
-    // `history.commit` if `opResult.dirtyIds.size === 0` (Yjs skips
-    // no-op groups, so undoStack would not grow). The dev-mode
-    // pre-condition guard (S-B2) catches this BEFORE any mutation, so the
-    // wrapper is never left half-updated. (A post-mutation stack-alignment
-    // assertion remains as a belt-and-suspenders for other desync causes.)
+  it("DEV: commit on a no-op opResult silently returns and does not grow the undo stack", () => {
+    // No-op opResults (`dirtyIds.size === 0`) used to throw in dev mode as a
+    // belt-and-suspenders for the (since-codified) handler-level T7 identity
+    // short-circuit. That contract has been relaxed: commit silently drops the
+    // no-op in BOTH dev and prod — there is no StackItem produced by Yjs's
+    // no-op group, so there is nothing to record. The handler-side T7 guard
+    // (`result.state === editor.state`) remains the conventional first stop;
+    // commit is the safe backstop.
     const state0 = createEmptyDocument();
     const history = createHistory(state0);
     const child = firstChild(state0);
@@ -554,9 +556,49 @@ describe("history (Y.UndoManager wrapper)", () => {
     // passing an empty dirtyIds set.
     const noopResult = { state: state0, dirtyIds: new Set<BlockId>() };
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+
     expect(() =>
       history.commit(noopResult, { before: sel, after: sel }),
-    ).toThrow(/no-op operation/);
+    ).not.toThrow();
+
+    // No StackItem was produced — this is Yjs's documented no-op-group
+    // behavior, unchanged by the relaxed commit contract.
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(false);
+  });
+
+  it("DEV: a no-op commit (with NODE_ENV=development explicitly stubbed) returns safely and does not clobber the prior item's selection", () => {
+    // Mirror of the PROD test below, with NODE_ENV explicitly set to a
+    // development value to guarantee `isDevMode() === true`. With the
+    // paper "dev throws on no-op" contract removed, dev mode behaves
+    // identically to prod for the no-op-safe contract: silent return,
+    // no StackItem produced, prior selection untouched.
+    vi.stubEnv("NODE_ENV", "development");
+    try {
+      const state0 = createEmptyDocument();
+      const history = createHistory(state0);
+      const child = firstChild(state0);
+
+      const r1 = setBlockAttrs(state0, child.id, { testMark: "x" });
+      const selA = createSpan(
+        createPosition(child.id, 0),
+        createPosition(child.id, 0),
+      );
+      history.commit(r1, { before: selA, after: selA });
+
+      const posB = createPosition(child.id, 1);
+      const selB = createSpan(posB, posB);
+      const noop = { state: r1.state, dirtyIds: new Set<BlockId>() };
+      expect(() =>
+        history.commit(noop, { before: selB, after: selB }),
+      ).not.toThrow();
+
+      // Undo returns selA, proving the no-op did not clobber it with selB.
+      const undone = history.undo();
+      expect(undone?.selection).toEqual(selA);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("PROD: a no-op commit returns safely without corrupting the prior item's selection (#264)", () => {

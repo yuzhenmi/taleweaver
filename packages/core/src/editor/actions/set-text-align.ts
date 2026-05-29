@@ -51,7 +51,8 @@ export function handleSetTextAlign(
   }
 
   // T7 identity contract: nothing changed → return the input editor unchanged
-  // (history.commit's pre-condition forbids a no-op commit).
+  // (the editor module's "no change → same editor reference" invariant).
+  // (`history.commit` is itself no-op-safe.)
   if (state === editor.state) return editor;
 
   editor.history.commit(

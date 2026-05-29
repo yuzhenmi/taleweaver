@@ -118,11 +118,15 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  * Under both `captureTimeout: 0` AND `captureTimeout:
  * Number.MAX_SAFE_INTEGER`, an empty transaction followed by
  * `stopCapturing()` does NOT increment `undoManager.undoStack.length`.
- * Yjs skips no-op groups. Consequence: action handlers MUST short-circuit
- * BEFORE calling `commit` on a no-op operation (e.g., check
- * `opResult.dirtyIds.size === 0`). A no-op commit has literally no StackItem
- * to attach the SelectionEntry to — the dev-mode write-time assertion in
- * `commit` catches accidental violations.
+ * Yjs skips no-op groups, so a no-op `commit` would have no StackItem to
+ * attach the SelectionEntry to. Rather than impose a contract on callers,
+ * `commit` is itself no-op-safe: an `OperationResult` with empty
+ * `dirtyIds` is silently dropped (no StackItem produced, no selection
+ * recorded, `currentState` unchanged). Action handlers conventionally
+ * short-circuit FIRST via the T7 identity contract
+ * (`result.state === editor.state`) — that returns the SAME editor
+ * reference on no-ops, the editor module's invariant — but commit does
+ * not depend on it for soundness.
  *
  * ## Multi-transaction grouping
  *
@@ -204,33 +208,24 @@ export class History {
    * nothing for `commit` to clear — the redo entries (and their `.meta`)
    * are already gone.
    *
-   * **Contract:** callers MUST NOT invoke `commit` on a no-op operation
-   * (`opResult.dirtyIds.size === 0`). Yjs skips no-op groups (verified
-   * empirically — see the class-level docstring above for the
-   * captureTimeout discussion); there would be no StackItem to attach the
-   * SelectionEntry to. The dev-mode assertion below catches this.
+   * **No-ops are silently dropped.** An `OperationResult` with
+   * `dirtyIds.size === 0` produces no StackItem (Yjs skips no-op groups —
+   * see the class-level docstring), so there is nothing to weld the
+   * SelectionEntry onto and nothing to record. The early return below
+   * keeps the wrapper consistent in that case. Handlers conventionally
+   * short-circuit first via the T7 identity contract
+   * (`result.state === editor.state`), which is the editor module's
+   * same-reference-on-no-op invariant; commit's no-op safety is the
+   * backstop, not a substitute.
    */
   commit(opResult: OperationResult, selections: SelectionEntry): void {
-    // No-op guard, checked BEFORE any mutation. `dirtyIds.size === 0` is the
-    // forbidden no-op: Yjs records no undo group for it, so there is no fresh
-    // StackItem to receive the SelectionEntry — welding `selections` onto the
-    // existing top item would OVERWRITE the prior action's selection (or, on an
-    // empty stack, surface the "no StackItem" error below). Callers MUST
-    // short-circuit (every action handler checks `result.state === editor.state`
-    // first); this is the backstop. (Sound today because every handler surfaces
-    // its full change set via the FINAL OperationResult it commits; a future
-    // compound action whose last op has an empty dirty set must propagate a
-    // merged dirty set.)
-    //   - DEV: throw loudly so the caller bug is caught immediately.
-    //   - PROD: return safely — committing nothing is the correct outcome for a
-    //     no-op, and it advances nothing, so there is no corruption and no crash.
+    // No-op shortcut, checked BEFORE any mutation. With empty `dirtyIds`,
+    // Yjs records no undo group: there is no fresh StackItem to receive the
+    // SelectionEntry, so welding `selections` onto the (stale) top item would
+    // OVERWRITE the prior action's selection (or, on an empty stack, surface
+    // the "no StackItem" error below). Returning early is the safe and
+    // correct outcome — nothing happened, so we record nothing.
     if (opResult.dirtyIds.size === 0) {
-      if (isDevMode()) {
-        throw new Error(
-          `History.commit: refusing to commit a no-op operation (dirtyIds empty); ` +
-            `handlers must short-circuit when opResult.dirtyIds.size === 0.`,
-        );
-      }
       return;
     }
     // Close the current capture group. After this, the top of `undoStack` is

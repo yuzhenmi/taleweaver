@@ -12,9 +12,10 @@ import { rebuildTrees } from "./helpers";
  * No-op contract (Decision 5 / T7): breaking at the container's first
  * child would create an empty leading section. `applySectionBreak` returns
  * the input `state` reference unchanged in that case; this handler relies on
- * the T7 identity check (`result.state === editor.state`) to short-circuit
- * and return the original editor, so `history.commit` is never called on a
- * no-op (which the commit pre-condition forbids).
+ * the T7 identity check (`result.state === editor.state`) to return the
+ * SAME editor reference (the editor module's no-op invariant). Commit is
+ * itself no-op-safe; the T7 check is about identity preservation, not
+ * commit safety.
  */
 export function handleSectionBreak(
   editor: EditorState,

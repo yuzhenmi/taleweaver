@@ -18,8 +18,9 @@ import { rebuildTrees } from "./helpers";
  *    SECTION_BREAK has been made), so the doc-root child the focus sits under
  *    is not a `section`.
  *  - The merge is a no-op (`mergeBlockAttrs` returns the same state reference):
- *    the T7 identity guard short-circuits before `history.commit` (whose
- *    pre-condition forbids a no-op commit).
+ *    the T7 identity guard preserves the "no change → same editor reference"
+ *    invariant. (`history.commit` is itself no-op-safe; this guard is about
+ *    the identity invariant.)
  *
  * Selection is UNCHANGED: a geometry change does not move the cursor logically.
  */

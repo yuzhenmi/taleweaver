@@ -33,10 +33,11 @@ export function handleInsertText(
     newCursorOffset = focus.offset + text.length;
   }
 
-  // No-op short-circuit: Yjs skips no-op groups, so committing here
-  // would break the History stack-alignment invariant. Use the T7
-  // result.state === editor.state identity contract (cheaper than
-  // dirtyIds.size === 0 and semantically aligned with state-module).
+  // T7 identity contract: a no-op op returns the same state reference,
+  // so the editor module's "no change → same editor reference" invariant
+  // requires the early return here. `history.commit` is itself no-op-safe
+  // (it silently drops empty `dirtyIds`), so this short-circuit is about
+  // the identity invariant, not commit safety.
   if (result.state === editor.state) return editor;
 
   const newCursor = createPosition(newCursorBlockId, newCursorOffset);

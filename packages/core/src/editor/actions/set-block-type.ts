@@ -37,9 +37,9 @@ export function handleSetBlockType(
     ...typeResult.dirtyIds,
     ...attrsResult.dirtyIds,
   ]);
-  // No-op short-circuit: match the codebase pattern (T7 identity
-  // contract — state-equality is the authoritative signal, not
-  // dirtyIds.size).
+  // T7 identity contract: state-equality is the authoritative no-op
+  // signal across the editor module, preserving the "no change → same
+  // editor reference" invariant. (`history.commit` is itself no-op-safe.)
   if (attrsResult.state === editor.state) return editor;
 
   editor.history.commit(

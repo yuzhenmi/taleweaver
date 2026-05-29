@@ -195,6 +195,23 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     expect(again).toBe(editor);
   });
 
+  it("no-op in dev mode: dispatching a no-op SET_TEXT_ALIGN does not throw (relaxed commit contract)", () => {
+    // Behavior-level regression for the 2026-05-29 commit-contract relaxation:
+    // `history.commit` used to throw in dev when given an opResult with empty
+    // dirtyIds, as a belt-and-suspenders for handler-side short-circuiting.
+    // The belt has been removed (handlers still short-circuit via the T7
+    // identity contract; commit is also no-op-safe). This guards against a
+    // regression where some path could ever invoke commit on a no-op and
+    // surface a hard error to end users.
+    const initial = createInitialEditorState(config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+
+    expect(() =>
+      reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config),
+    ).not.toThrow();
+  });
+
   it("all four keywords dispatch and set the attr", () => {
     const initial = createInitialEditorState(config);
     const base = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
