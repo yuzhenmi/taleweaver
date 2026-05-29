@@ -22,6 +22,8 @@ import {
   type SnapshotCache,
 } from "./snapshot";
 import { STATE_INTERNAL } from "./state-internal";
+import { isDevMode } from "./dev-mode";
+import { assertNoOrphanedEmbedContent } from "./embed-content-cascade";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -326,14 +328,23 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
     chainDepth(internal.snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
       ? compactCache(internal.snapshotCache, dirtyIds)
       : createOverlayCache(internal.snapshotCache, dirtyIds);
-  return {
-    state: Object.freeze({
-      rootId: state.rootId,
-      [STATE_INTERNAL]: Object.freeze({
-        doc: internal.doc,
-        snapshotCache: newCache,
-      }),
-    }) as State,
-    dirtyIds,
-  };
+  const newState = Object.freeze({
+    rootId: state.rootId,
+    [STATE_INTERNAL]: Object.freeze({
+      doc: internal.doc,
+      snapshotCache: newCache,
+    }),
+  }) as State;
+  // Dev-mode post-op invariant: every EmbedItem.properties.contentBlockId
+  // reference must resolve to an existing embedContent root. Catches future
+  // ops that drop EmbedItems (or embedContent bodies) without going through
+  // the cascade helpers, which would otherwise silently leak orphans. Gated
+  // on isDevMode() so production pays nothing. The dirtyIds set lets the
+  // assertion scope its scan inductively — pre-state is orphan-free, so a
+  // new orphan can only come from a dirty block's new EmbedItem (cheap)
+  // unless a dirty id was deleted (could be a body deletion → full scan).
+  if (isDevMode()) {
+    assertNoOrphanedEmbedContent(newState, "applyOperation", dirtyIds);
+  }
+  return { state: newState, dirtyIds };
 }

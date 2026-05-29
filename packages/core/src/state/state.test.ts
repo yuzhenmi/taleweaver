@@ -134,53 +134,71 @@ describe("applyOperation", () => {
     // through to the input cache (its base), so this allocation cost is
     // O(dirtyIds.size) regardless of how many blocks the input cache
     // had warmed up.
-    const NUM_BLOCKS = 100;
-    const state = createState({ rootId: "root" as BlockId });
-    applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+    //
+    // Runs with NODE_ENV=production so the dev-mode
+    // `assertNoOrphanedEmbedContent` invariant (#363) — which reads every
+    // block via `getBlock` after each `applyOperation` and would warm the
+    // fresh overlay — stays off the path. The empty-overlay property tested
+    // here is the production hot-path contract; dev-mode cache warming from
+    // invariant assertions is a separate, accepted tradeoff.
+    const origNodeEnv = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
+      .process?.env?.NODE_ENV;
+    const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
+    if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
+    try {
+      const NUM_BLOCKS = 100;
+      const state = createState({ rootId: "root" as BlockId });
+      applyOperation(state, () => {
+        const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+        for (let i = 0; i < NUM_BLOCKS; i++) {
+          blocks.set(`b${i}`, buildYBlock({
+            type: "paragraph",
+            attrs: {},
+            parentId: null,
+            prevSiblingId: null,
+            nextSiblingId: null,
+            firstChildId: null,
+            lastChildId: null,
+            inlineContent: { items: [] },
+          }));
+        }
+      });
+      // freshState the cache so all ids are uncached, then warm.
+      const warm = freshState(state);
       for (let i = 0; i < NUM_BLOCKS; i++) {
-        blocks.set(`b${i}`, buildYBlock({
-          type: "paragraph",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: { items: [] },
-        }));
+        getBlock(warm, `b${i}` as BlockId);
       }
-    });
-    // freshState the cache so all ids are uncached, then warm.
-    const warm = freshState(state);
-    for (let i = 0; i < NUM_BLOCKS; i++) {
-      getBlock(warm, `b${i}` as BlockId);
+      expect(warm[STATE_INTERNAL].snapshotCache.snapshots.block.size).toBe(NUM_BLOCKS);
+
+      // Mutate a single block.
+      const tiny = applyOperation(warm, () => {
+        const yBlock = getBlocksMap(warm[STATE_INTERNAL].doc).get("b0")!;
+        yBlock.set("type", "heading");
+      });
+      expect(tiny.dirtyIds.size).toBe(1);
+
+      const newCache = tiny.state[STATE_INTERNAL].snapshotCache;
+      // The new overlay starts empty — no entries carried forward, in ANY
+      // tree (the overlay-starts-empty property is what the whole carry-forward
+      // correctness argument rests on, so assert all three sub-maps).
+      expect(newCache.snapshots.block.size).toBe(0);
+      expect(newCache.snapshots.embedContent.size).toBe(0);
+      expect(newCache.snapshots.templateContent.size).toBe(0);
+      // The dirty block is invalidated on this layer so reads don't fall
+      // through to the stale base entry.
+      expect(newCache.invalidated.has("b0" as BlockId)).toBe(true);
+      // Base reference points to the warmed cache.
+      expect(newCache.base).toBe(warm[STATE_INTERNAL].snapshotCache);
+
+      // Reads still resolve correctly.
+      expect(getBlock(tiny.state, "b0" as BlockId)?.type).toBe("heading");
+      expect(getBlock(tiny.state, "b1" as BlockId)?.type).toBe("paragraph");
+    } finally {
+      if (proc?.env !== undefined) {
+        if (origNodeEnv === undefined) delete proc.env.NODE_ENV;
+        else proc.env.NODE_ENV = origNodeEnv;
+      }
     }
-    expect(warm[STATE_INTERNAL].snapshotCache.snapshots.block.size).toBe(NUM_BLOCKS);
-
-    // Mutate a single block.
-    const tiny = applyOperation(warm, () => {
-      const yBlock = getBlocksMap(warm[STATE_INTERNAL].doc).get("b0")!;
-      yBlock.set("type", "heading");
-    });
-    expect(tiny.dirtyIds.size).toBe(1);
-
-    const newCache = tiny.state[STATE_INTERNAL].snapshotCache;
-    // The new overlay starts empty — no entries carried forward, in ANY
-    // tree (the overlay-starts-empty property is what the whole carry-forward
-    // correctness argument rests on, so assert all three sub-maps).
-    expect(newCache.snapshots.block.size).toBe(0);
-    expect(newCache.snapshots.embedContent.size).toBe(0);
-    expect(newCache.snapshots.templateContent.size).toBe(0);
-    // The dirty block is invalidated on this layer so reads don't fall
-    // through to the stale base entry.
-    expect(newCache.invalidated.has("b0" as BlockId)).toBe(true);
-    // Base reference points to the warmed cache.
-    expect(newCache.base).toBe(warm[STATE_INTERNAL].snapshotCache);
-
-    // Reads still resolve correctly.
-    expect(getBlock(tiny.state, "b0" as BlockId)?.type).toBe("heading");
-    expect(getBlock(tiny.state, "b1" as BlockId)?.type).toBe("paragraph");
   });
 
   it("survives a 15K-deep cache chain without stack overflow (S-A2 iterative read)", () => {
