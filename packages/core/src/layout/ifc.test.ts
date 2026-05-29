@@ -2086,6 +2086,39 @@ describe("collectTokens — sourceLength (collapsed-whitespace offset accounting
     expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 2, 1, 1]);
     expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("  hi  ".length);
   });
+
+  it("#365 / #308-part-3: leading TAB at offset 0 under normal — TAB owned, no source-offset gap", () => {
+    // "\t  hello" — leading TAB, then 2 spaces, then "hello" = 8 chars total.
+    // Tokenizer's leading-emit loop pushes 3 synthetic " " tokens (one per ws
+    // char, regardless of whether it's TAB or literal space), then "hello".
+    // Before #365, `indexOf(" ", 0)` in fullText skipped forward past the TAB
+    // to the first literal space at index 1, leaving offset 0 (the TAB)
+    // unowned: token sourceLengths were [1, 1, 0, 5] = 7, not 8. After #365,
+    // synthetic " " tokens at a whitespace cursor use cursor directly as
+    // matchStart, so the TAB at offset 0 is correctly claimed.
+    const tokens = tokensOf("\t  hello");
+    expect(tokens.map(t => t.text)).toEqual([" ", " ", " ", "hello"]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 1, 5]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe("\t  hello".length);
+  });
+
+  it("#365 / #308-part-3: leading NBSP followed by literal space under normal — NBSP owned via /\\s/ branch", () => {
+    // "  hello" — NBSP at 0, literal space at 1, then "hello" (7 chars).
+    // True NBSP regression-guard analog of the TAB case: pre-fix
+    // `indexOf(" ", 0)` jumped past the NBSP to the literal space at index 1,
+    // leaving offset 0 (the NBSP) unowned (sourceLength sum was 6 ≠ 7).
+    // Post-fix the /\s/ branch matches NBSP and uses cursor=0 as matchStart.
+    //
+    // (Bare leading NBSP " hello" happens to pass pre-fix too: indexOf(" ", 0)
+    // returns -1, and the pre-existing -1 fallback covers it via
+    // `matchStart = cursor`. A following literal space is what makes pre-fix
+    // indexOf skip-forward instead of returning -1 — and exposes the bug.)
+    const text = "  hello";
+    const tokens = tokensOf(text);
+    expect(tokens.map(t => t.text)).toEqual([" ", " ", "hello"]);
+    expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 5]);
+    expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe(text.length);
+  });
 });
 
 describe("layoutInlineContent — offsetLength (state-correct line offsets across collapse)", () => {

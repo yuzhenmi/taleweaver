@@ -441,20 +441,32 @@ function collectInlineTokens(
         // second-pass sourceLength is next.matchStart − this.matchStart, never
         // NaN), and the editor does not crash. Surface a dev-mode warning so
         // the drift is visible without being fatal in production.
-        let matchStart = fullText.indexOf(part, cursor);
-        if (matchStart === -1) {
-          const g = globalThis as {
-            process?: { env?: { NODE_ENV?: string } };
-            console?: { warn(...args: unknown[]): void };
-          };
-          if (g.process?.env?.NODE_ENV !== "production" && g.console !== undefined) {
-            g.console.warn(
-              `[layout/ifc] collectTokens: indexOf(${JSON.stringify(part)}, ${cursor}) failed in fullText="${fullText.slice(0, 64)}..."; ` +
-                `falling back to cursor — source offsets may be approximate. ` +
-                `Typically a synthetic whitespace token over a non-space separator (tab/NBSP).`,
-            );
-          }
+        // For synthetic " " (space) tokens — leading/interior/trailing whitespace
+        // emitted by the tokenizer — `cursor` is positioned at a whitespace char
+        // in the source. Use cursor directly: `indexOf(" ", cursor)` would skip
+        // forward to the first LITERAL space, leaving non-space leading whitespace
+        // (TAB at offset 0, NBSP, etc.) unowned (#365). For non-space tokens use
+        // indexOf as before; if it returns -1 (rare; some other synthetic
+        // separator), fall back to cursor with a dev-mode warning so the drift
+        // is visible without being fatal.
+        let matchStart: number;
+        if (part === " " && cursor < fullText.length && /\s/.test(fullText[cursor])) {
           matchStart = cursor;
+        } else {
+          matchStart = fullText.indexOf(part, cursor);
+          if (matchStart === -1) {
+            const g = globalThis as {
+              process?: { env?: { NODE_ENV?: string } };
+              console?: { warn(...args: unknown[]): void };
+            };
+            if (g.process?.env?.NODE_ENV !== "production" && g.console !== undefined) {
+              g.console.warn(
+                `[layout/ifc] collectTokens: indexOf(${JSON.stringify(part)}, ${cursor}) failed in fullText="${fullText.slice(0, 64)}..."; ` +
+                  `falling back to cursor — source offsets may be approximate.`,
+              );
+            }
+            matchStart = cursor;
+          }
         }
         const matchEnd = matchStart + part.length;
 
