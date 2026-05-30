@@ -103,6 +103,7 @@ describe("handleToggleList — paragraph ⇄ list-item round-trip (regression #1
       renderOutput: rendered,
       cascadedRoot,
       cascadedTemplateContents: new Map(),
+      cascadedEmbedContents: new Map(),
       layoutTree: layout,
       containerWidth: config.containerWidth,
       targetX: null,

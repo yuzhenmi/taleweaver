@@ -10,6 +10,7 @@ export {
 
 export { documentComponent } from "./document";
 export { templateBodyComponent } from "./template-body";
+export { footnoteBodyComponent } from "./footnote-body";
 export { paragraphComponent } from "./paragraph";
 export { headingComponent } from "./heading";
 export { listComponent } from "./list";

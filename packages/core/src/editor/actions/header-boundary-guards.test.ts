@@ -126,6 +126,7 @@ function buildEditorWithSelection(state: State, anchor: Position, focus: Positio
     renderOutput: rendered,
     cascadedRoot,
     cascadedTemplateContents,
+    cascadedEmbedContents: new Map(),
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,

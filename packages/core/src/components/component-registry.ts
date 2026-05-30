@@ -3,6 +3,7 @@ import type { BlockKind, BlockKindResolver } from "../state";
 import { documentComponent } from "./document";
 import { sectionComponent } from "./section";
 import { templateBodyComponent } from "./template-body";
+import { footnoteBodyComponent } from "./footnote-body";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
 import { listComponent } from "./list";
@@ -78,6 +79,7 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   reg.register(documentComponent);
   reg.register(sectionComponent);
   reg.register(templateBodyComponent);
+  reg.register(footnoteBodyComponent);
   reg.register(listComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);

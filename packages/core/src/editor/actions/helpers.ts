@@ -4,7 +4,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
-import type { ElementBox } from "../../render/render-node";
+import type { ElementBox, RenderNode } from "../../render/render-node";
 
 /**
  * Re-run the render + cascade + layout pipeline for the editor's
@@ -62,6 +62,19 @@ export function rebuildTrees(
     dirtyIds,
   );
 
+  // FN-1: cascade EVERY footnote body, the exact parallel to the header/footer
+  // cascade above. Incremental → reuse an unchanged body's prior cascaded tree
+  // by reference; full → cascade each fresh. FN-1 only stores the map on
+  // EditorState; the footnote layout pass (`resolveFootnotes`, FN-4) consumes
+  // it — so unlike `cascadedTemplateContents` it is NOT threaded into the
+  // layout call yet.
+  const cascadedEmbedContents = cascadeEmbedContents(
+    rendered,
+    dirtyIds !== undefined ? prevRenderOutput : null,
+    dirtyIds !== undefined ? oldEditor.cascadedEmbedContents : null,
+    dirtyIds,
+  );
+
   const layout = layoutTreeIncremental(
     cascadedRoot,
     dirtyIds !== undefined ? prevCascaded : null,
@@ -78,6 +91,7 @@ export function rebuildTrees(
     renderOutput: rendered,
     cascadedRoot,
     cascadedTemplateContents,
+    cascadedEmbedContents,
     layoutTree: layout,
   };
 }
@@ -115,9 +129,57 @@ function cascadeTemplateContents(
   prevCascaded: ReadonlyMap<BlockId, ElementBox> | null,
   dirtyIds?: ReadonlySet<BlockId>,
 ): ReadonlyMap<BlockId, ElementBox> {
+  return cascadeBodies(
+    "cascadeTemplateContents",
+    rendered.templateContents,
+    prevRenderOutput?.templateContents ?? null,
+    prevCascaded,
+    dirtyIds,
+  );
+}
+
+/**
+ * Cascade every footnote body in `rendered.embedContents`, the exact parallel
+ * of `cascadeTemplateContents` (which cascades header/footer bodies). Same
+ * full + incremental semantics; see `cascadeBodies` for the shared logic. FN-1
+ * stores the result on `EditorState.cascadedEmbedContents`; the footnote layout
+ * pass (`resolveFootnotes`, FN-4) consumes it.
+ */
+function cascadeEmbedContents(
+  rendered: RenderOutput,
+  prevRenderOutput: RenderOutput | null,
+  prevCascaded: ReadonlyMap<BlockId, ElementBox> | null,
+  dirtyIds?: ReadonlySet<BlockId>,
+): ReadonlyMap<BlockId, ElementBox> {
+  return cascadeBodies(
+    "cascadeEmbedContents",
+    rendered.embedContents,
+    prevRenderOutput?.embedContents ?? null,
+    prevCascaded,
+    dirtyIds,
+  );
+}
+
+/**
+ * Shared body-cascade engine behind `cascadeTemplateContents` (headers/footers)
+ * and `cascadeEmbedContents` (footnotes). Both side-tree body maps
+ * (`templateContents`, `embedContents`) are keyed by a body root BlockId and
+ * carry the same full/incremental reuse contract; the only difference is which
+ * `RenderOutput` map they read. `bodies` is the current render output's body
+ * map; `prevBodies` is the prior render output's matching map (or null for the
+ * full path); `prevCascaded` is the prior cascaded result. `opName` names the
+ * caller for the non-element guard error.
+ */
+function cascadeBodies(
+  opName: string,
+  bodies: ReadonlyMap<BlockId, RenderNode>,
+  prevBodies: ReadonlyMap<BlockId, RenderNode> | null,
+  prevCascaded: ReadonlyMap<BlockId, ElementBox> | null,
+  dirtyIds?: ReadonlySet<BlockId>,
+): ReadonlyMap<BlockId, ElementBox> {
   const out = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.templateContents) {
-    const prevBody = prevRenderOutput?.templateContents.get(id) ?? null;
+  for (const [id, body] of bodies) {
+    const prevBody = prevBodies?.get(id) ?? null;
     const prevCascadedBody = prevCascaded?.get(id) ?? null;
 
     // Incremental reuse: the renderer hands back the SAME body RenderNode when
@@ -139,16 +201,14 @@ function cascadeTemplateContents(
         ? cascadePassIncremental(body, prevBody, prevCascadedBody)
         : cascadePass(body);
     if (cascaded.type !== "element") {
-      throw new Error(
-        `cascadeTemplateContents: template body "${id}" cascaded to a non-element node`,
-      );
+      throw new Error(`${opName}: body "${id}" cascaded to a non-element node`);
     }
     out.set(id, cascaded);
   }
   return out;
 }
 
-export { cascadeTemplateContents };
+export { cascadeTemplateContents, cascadeEmbedContents };
 
 /**
  * Find the first content-bearing leaf block in the document (the first

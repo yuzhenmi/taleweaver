@@ -160,6 +160,7 @@ function buildEditor(state: State, caret: { blockId: BlockId; offset: number }):
     renderOutput: rendered,
     cascadedRoot,
     cascadedTemplateContents,
+    cascadedEmbedContents: new Map(),
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,

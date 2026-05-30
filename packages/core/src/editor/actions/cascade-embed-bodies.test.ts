@@ -10,7 +10,7 @@ import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
 import type { ElementBox, RenderNode } from "../../render/render-node";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildState, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
 
 const measurer = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
@@ -23,28 +23,31 @@ const config: EditorConfig = {
 };
 
 /**
- * A single-paragraph main document. The `paragraph` cursor anchor.
+ * A single-paragraph main document whose paragraph carries a footnote anchor
+ * referencing `bodyRootId` in embedContents.
  */
-function mainDoc() {
+function mainDocWithAnchor(bodyRootId: string) {
   return [
     buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
     buildBlock({
       id: "p",
       type: "paragraph",
       parentId: "doc",
-      inlineContent: inlineContent([text("body text")]),
+      inlineContent: inlineContent([
+        text("body"),
+        embed("footnote-anchor", { contentBlockId: bodyRootId }),
+      ]),
     }),
   ];
 }
 
 /**
- * A multi-level header body (mirrors the #285 nested-container fixture):
- * a container (`document`) wrapping a paragraph leaf, living in
- * templateContents.
+ * A footnote body: a CONTAINER (`footnote-body`) root wrapping a paragraph
+ * leaf, living in embedContents (mirrors the header/footer container shape).
  */
-function headerBody(rootId: string, leafId: string, leafText: string) {
+function footnoteBody(rootId: string, leafId: string, leafText: string) {
   return [
-    buildBlock({ id: rootId, type: "document", firstChildId: leafId, lastChildId: leafId }),
+    buildBlock({ id: rootId, type: "footnote-body", firstChildId: leafId, lastChildId: leafId }),
     buildBlock({
       id: leafId,
       type: "paragraph",
@@ -54,13 +57,7 @@ function headerBody(rootId: string, leafId: string, leafText: string) {
   ];
 }
 
-/**
- * Build a complete EditorState from a State using the FULL pipeline
- * (render → cascadePass → layoutTree), populating every field T3 expects.
- * `cascadedTemplateContents` is populated via the same full-cascade path the
- * initial-state construction uses, so this serves as a valid `oldEditor` for
- * both the full and incremental rebuildTrees paths.
- */
+/** Build a complete EditorState from a State using the FULL pipeline. */
 function buildEditorFull(state: State): EditorState {
   const rendered = render(state, componentRegistry, attrRegistry);
   const cascadedRoot = cascadePass(rendered.root);
@@ -68,6 +65,10 @@ function buildEditorFull(state: State): EditorState {
   const cascadedTemplateContents = new Map<BlockId, ElementBox>();
   for (const [id, body] of rendered.templateContents) {
     cascadedTemplateContents.set(id, cascadePass(body) as ElementBox);
+  }
+  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
+  for (const [id, body] of rendered.embedContents) {
+    cascadedEmbedContents.set(id, cascadePass(body) as ElementBox);
   }
   const cursor = createPosition("p" as BlockId, 0);
   return {
@@ -78,7 +79,7 @@ function buildEditorFull(state: State): EditorState {
     renderOutput: rendered,
     cascadedRoot,
     cascadedTemplateContents,
-    cascadedEmbedContents: new Map(),
+    cascadedEmbedContents,
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,
@@ -97,15 +98,13 @@ function findByKey(node: RenderNode, key: string): RenderNode | undefined {
   return undefined;
 }
 
-describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
-  it("full path: a templateContents body is cascaded — body root has non-null computedStyle and cascaded children", () => {
+describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
+  it("full path: a footnote body is cascaded — body root has non-null computedStyle and cascaded children", () => {
     const state = buildState({
       rootId: "doc",
-      blocks: mainDoc(),
-      templateContents: headerBody("hdr-root", "hdr-p", "header text"),
+      blocks: mainDocWithAnchor("fn-root"),
+      embedContents: footnoteBody("fn-root", "fn-p", "footnote text"),
     });
-    // Start from a bare editor whose cascadedTemplateContents is empty (mimics
-    // the pre-T3 world where bodies were never cascaded), then full-rebuild.
     const rendered = render(state, componentRegistry, attrRegistry);
     const cascadedRoot = cascadePass(rendered.root);
     const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
@@ -124,52 +123,72 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
       targetX: null,
     };
 
-    // Full rebuild (no dirtyIds).
     const out = rebuildTrees(bare, bare, config);
 
-    const body = out.cascadedTemplateContents.get("hdr-root" as BlockId);
+    const body = out.cascadedEmbedContents.get("fn-root" as BlockId);
     expect(body).toBeDefined();
-    // The body root must be cascaded: non-null computedStyle.
     expect(body?.computedStyle).toBeDefined();
     expect(body?.type).toBe("element");
-    // And its descendants are cascaded too (the leaf paragraph node).
-    const leaf = body !== undefined ? findByKey(body, "hdr-p") : undefined;
+    const leaf = body !== undefined ? findByKey(body, "fn-p") : undefined;
     expect(leaf).toBeDefined();
     expect(leaf?.computedStyle).toBeDefined();
   });
 
-  it("incremental: editing a block inside a body re-cascades that body; an unchanged second body is reused by reference", () => {
+  it("incremental: editing a block inside a footnote body re-cascades that body; an unchanged second body is reused by reference", () => {
     const state1 = buildState({
       rootId: "doc",
-      blocks: mainDoc(),
-      templateContents: [
-        ...headerBody("hdr-a-root", "hdr-a-p", "A original"),
-        ...headerBody("hdr-b-root", "hdr-b-p", "B unchanged"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("body"),
+            embed("footnote-anchor", { contentBlockId: "fn-a-root" }),
+            embed("footnote-anchor", { contentBlockId: "fn-b-root" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        ...footnoteBody("fn-a-root", "fn-a-p", "A original"),
+        ...footnoteBody("fn-b-root", "fn-b-p", "B unchanged"),
       ],
     });
     const old = buildEditorFull(state1);
 
-    // Edit the leaf inside body A only.
     const state2 = buildState({
       rootId: "doc",
-      blocks: mainDoc(),
-      templateContents: [
-        ...headerBody("hdr-a-root", "hdr-a-p", "A EDITED"),
-        ...headerBody("hdr-b-root", "hdr-b-p", "B unchanged"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("body"),
+            embed("footnote-anchor", { contentBlockId: "fn-a-root" }),
+            embed("footnote-anchor", { contentBlockId: "fn-b-root" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        ...footnoteBody("fn-a-root", "fn-a-p", "A EDITED"),
+        ...footnoteBody("fn-b-root", "fn-b-p", "B unchanged"),
       ],
     });
     const next: EditorState = { ...old, state: state2 };
 
-    const out = rebuildTrees(next, old, config, new Set(["hdr-a-p" as BlockId]));
+    const out = rebuildTrees(next, old, config, new Set(["fn-a-p" as BlockId]));
 
-    const oldA = old.cascadedTemplateContents.get("hdr-a-root" as BlockId);
-    const newA = out.cascadedTemplateContents.get("hdr-a-root" as BlockId);
-    const oldB = old.cascadedTemplateContents.get("hdr-b-root" as BlockId);
-    const newB = out.cascadedTemplateContents.get("hdr-b-root" as BlockId);
+    const oldA = old.cascadedEmbedContents.get("fn-a-root" as BlockId);
+    const newA = out.cascadedEmbedContents.get("fn-a-root" as BlockId);
+    const oldB = old.cascadedEmbedContents.get("fn-b-root" as BlockId);
+    const newB = out.cascadedEmbedContents.get("fn-b-root" as BlockId);
 
-    // Body A re-cascaded (its leaf changed) → fresh ref, and the new text shows.
+    // Body A re-cascaded → fresh ref, new text shows.
     expect(newA).not.toBe(oldA);
-    const newLeafA = newA !== undefined ? findByKey(newA, "hdr-a-p") : undefined;
+    const newLeafA = newA !== undefined ? findByKey(newA, "fn-a-p") : undefined;
     const textNode = newLeafA?.type === "element" ? newLeafA.children[0] : undefined;
     expect(textNode?.type).toBe("text");
     expect((textNode as { text: string }).text).toBe("A EDITED");
@@ -178,15 +197,14 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
     expect(newB).toBe(oldB);
   });
 
-  it("incremental: a doc-body-only edit (no template change) reuses ALL template bodies by reference", () => {
+  it("incremental: a doc-body-only edit (no embed change) reuses ALL footnote bodies by reference", () => {
     const state1 = buildState({
       rootId: "doc",
-      blocks: mainDoc(),
-      templateContents: headerBody("hdr-root", "hdr-p", "header"),
+      blocks: mainDocWithAnchor("fn-root"),
+      embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
     const old = buildEditorFull(state1);
 
-    // Edit a main-document block; the template body is untouched.
     const state2 = buildState({
       rootId: "doc",
       blocks: [
@@ -195,30 +213,25 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: inlineContent([text("body text EDITED")]),
+          inlineContent: inlineContent([
+            text("body EDITED"),
+            embed("footnote-anchor", { contentBlockId: "fn-root" }),
+          ]),
         }),
       ],
-      templateContents: headerBody("hdr-root", "hdr-p", "header"),
+      embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
     const next: EditorState = { ...old, state: state2 };
 
     const out = rebuildTrees(next, old, config, new Set(["p" as BlockId]));
 
-    expect(out.cascadedTemplateContents.get("hdr-root" as BlockId)).toBe(
-      old.cascadedTemplateContents.get("hdr-root" as BlockId),
+    expect(out.cascadedEmbedContents.get("fn-root" as BlockId)).toBe(
+      old.cascadedEmbedContents.get("fn-root" as BlockId),
     );
   });
 
-  it("no-regression: a doc WITHOUT template bodies → cascadedTemplateContents is empty", () => {
-    const state = buildState({ rootId: "doc", blocks: mainDoc() });
-    const old = buildEditorFull(state);
-
-    // Full path.
-    const outFull = rebuildTrees(old, old, config);
-    expect(outFull.cascadedTemplateContents.size).toBe(0);
-
-    // Incremental path (a doc edit).
-    const state2 = buildState({
+  it("no-regression: a doc WITHOUT footnote bodies → cascadedEmbedContents is empty", () => {
+    const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -226,12 +239,13 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
           id: "p",
           type: "paragraph",
           parentId: "doc",
-          inlineContent: inlineContent([text("edited")]),
+          inlineContent: inlineContent([text("plain")]),
         }),
       ],
     });
-    const next: EditorState = { ...old, state: state2 };
-    const outInc = rebuildTrees(next, old, config, new Set(["p" as BlockId]));
-    expect(outInc.cascadedTemplateContents.size).toBe(0);
+    const old = buildEditorFull(state);
+
+    const outFull = rebuildTrees(old, old, config);
+    expect(outFull.cascadedEmbedContents.size).toBe(0);
   });
 });

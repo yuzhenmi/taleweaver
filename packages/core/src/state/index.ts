@@ -191,6 +191,14 @@ export type {
 } from "./ops/insert-template-body";
 export { insertTemplateBody } from "./ops/insert-template-body";
 
+// Footnotes (FN-1). Atomically creates a footnote anchor (an EmbedItem at the
+// cursor) + its body subtree (a CONTAINER root + one paragraph) in embedContents.
+export type { InsertFootnoteResult } from "./ops/insert-footnote";
+export {
+  insertFootnote,
+  FOOTNOTE_ANCHOR_EMBED_TYPE,
+} from "./ops/insert-footnote";
+
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult } from "./history";
 export { History, createHistory } from "./history";

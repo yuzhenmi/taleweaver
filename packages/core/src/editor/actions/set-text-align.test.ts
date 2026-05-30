@@ -149,6 +149,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
       renderOutput: rendered,
       cascadedRoot,
       cascadedTemplateContents: new Map(),
+      cascadedEmbedContents: new Map(),
       layoutTree: layout,
       containerWidth: config.containerWidth,
       targetX: null,

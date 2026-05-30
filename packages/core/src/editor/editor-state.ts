@@ -46,7 +46,7 @@ import {
   handleSetTextAlign,
 } from "./actions";
 
-import { cascadeTemplateContents } from "./actions/helpers";
+import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
 
 // Re-export helpers that are part of the public API.
 export { findFirstContentBlock, findLastContentBlock } from "./actions";
@@ -89,6 +89,18 @@ export interface EditorState {
    * (T4 consumes it; T3 only makes it available).
    */
   readonly cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>;
+  /**
+   * Cascaded footnote-body bodies (FN-1), keyed by the embed-content body's
+   * root BlockId — one entry per `renderOutput.embedContents` entry. Each value
+   * is the body root after `cascadePass` (so it carries a populated
+   * `computedStyle`, ready for the `resolveFootnotes` slot layout). Empty for
+   * docs with no footnotes. The exact parallel to `cascadedTemplateContents`
+   * (headers/footers): stored so the next reducer cycle can reuse an unchanged
+   * body's cascaded tree by reference (the incremental path keys reuse off
+   * `dirtyIds`). FN-1 only makes it available; the footnote layout pass
+   * (`resolveFootnotes`, FN-4) consumes it.
+   */
+  readonly cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>;
   /**
    * The layout result. In paginated mode (the common word-processor case) this
    * is a `VirtualLayoutTree` — a `PagePlan` plus lazily-materialized
@@ -154,6 +166,14 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     null,
     undefined,
   );
+  // FN-1: full-cascade every footnote body (no prev → full cascade each).
+  // Empty for the standard empty document (no footnotes).
+  const cascadedEmbedContents = cascadeEmbedContents(
+    rendered,
+    null,
+    null,
+    undefined,
+  );
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,
@@ -172,6 +192,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     renderOutput: rendered,
     cascadedRoot,
     cascadedTemplateContents,
+    cascadedEmbedContents,
     layoutTree: layout,
     containerWidth: config.containerWidth,
     targetX: null,
