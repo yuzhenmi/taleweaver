@@ -46,6 +46,14 @@ import {
  */
 const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
 
+/**
+ * Shared empty footnote-id array stamped onto every entry `measurePass` builds
+ * (FN-4 D2). `measurePass` is footnote-unaware; `resolveFootnotes` (FN-4.2)
+ * rewrites the footnote-bearing pages with their real assignment. A single
+ * frozen instance keeps the no-footnote path allocation-free.
+ */
+const EMPTY_FOOTNOTE_IDS: readonly BlockId[] = Object.freeze([]);
+
 let _fitOnePageCallCount = 0;
 
 /** Test-only: number of `fitOnePage` calls from `measurePass` since last reset. */
@@ -144,6 +152,31 @@ export interface PagePlanEntry {
    * to `effectiveTopInset`.
    */
   readonly effectiveBottomInset: number;
+  /**
+   * Footnote bodies (FN-4, D2) assigned to THIS page, in document order — the
+   * `contentBlockId`s of the footnote anchors whose host block lands on this
+   * page. `measurePass` ALWAYS stamps `[]` (it is footnote-unaware); the
+   * `resolveFootnotes` pass (FN-4.2) rewrites the footnote-bearing pages with
+   * the real assignment. An empty array ⇒ no footnote slot on this page.
+   */
+  readonly footnoteContentBlockIds: readonly BlockId[];
+  /**
+   * The laid-out footnote slot height for THIS page (FN-4, D2): the sum of the
+   * assigned bodies' heights + the separator rule, clamped to the bounded area
+   * (D5). `measurePass` ALWAYS stamps `0`; `resolveFootnotes` rewrites it. The
+   * footnote slot reduces the body content area by this amount, so the body
+   * re-fits against `pageContentBlockSize − footnoteSlotHeight`.
+   */
+  readonly footnoteSlotHeight: number;
+  /**
+   * The footnote-body continuation token OUT of THIS page (FN-4, D2): the resume
+   * state for a footnote body that overflowed the slot and continues onto the
+   * next page. ALWAYS `null` in FN-4 (`measurePass` stamps `null`,
+   * `resolveFootnotes` clamps rather than splits — D5); FN-5 fills it when
+   * cross-page footnote-body splitting lands. Added now so FN-5 never re-touches
+   * the entry type.
+   */
+  readonly footnoteContinuation: BreakToken | null;
 }
 
 /** The document's full pagination plan. */
@@ -557,6 +590,12 @@ export function measurePass(
           // consistent across both branches (I1).
           effectiveTopInset: effTop,
           effectiveBottomInset: effBottom,
+          // Footnote fields (FN-4 D2): `measurePass` is footnote-unaware, so it
+          // ALWAYS stamps the no-footnote defaults. The `resolveFootnotes` pass
+          // (FN-4.2) rewrites the footnote-bearing pages downstream.
+          footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
+          footnoteSlotHeight: 0,
+          footnoteContinuation: null,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -672,6 +711,11 @@ export function measurePass(
       // these to position the body origin + the footer slot.
       effectiveTopInset: effTop,
       effectiveBottomInset: effBottom,
+      // Footnote fields (FN-4 D2): the no-footnote defaults; `resolveFootnotes`
+      // (FN-4.2) rewrites the footnote-bearing pages downstream.
+      footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
+      footnoteSlotHeight: 0,
+      footnoteContinuation: null,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the
@@ -703,6 +747,40 @@ export function measurePass(
     pageIndex++;
   }
 
+  return buildPagePlan(
+    entries,
+    sectionPlan,
+    pageConfig.pageInlineSize,
+    pageContentBlockSize,
+    blockToPage,
+    blockToSpan,
+  );
+}
+
+/**
+ * Assemble a fully-functional `PagePlan` from finished entries + the prebuilt
+ * block-index maps. Extracted from `measurePass`'s return so a downstream pass
+ * that REWRITES entries (the footnote `resolveFootnotes` pass, FN-4.2) can
+ * rebuild a plan whose index methods (`pageIndexOfBlock`, `pageSpanOfBlock`,
+ * `pageIndexOfTemplateBlock`, `pageIndexAtBlockOffset`) reflect the NEW page
+ * boundaries — not the stale ones. The caller owns `blockToPage` / `blockToSpan`
+ * (built per-entry via `recordBlockMaps`, the same helper `measurePass` uses, so
+ * the maps are byte-identical regardless of which pass populated them).
+ *
+ * `totalBlockSize` is the running-sum-correct document height (the last entry's
+ * `blockOffset + pageConfig.pageBlockSize`, no trailing gap; 0 for an empty
+ * plan); the template-block→first-page map is rebuilt from the entries here so
+ * the caller never has to. Behavior-preserving for `measurePass` (it produced
+ * exactly this object inline before the extraction).
+ */
+export function buildPagePlan(
+  entries: readonly PagePlanEntry[],
+  sectionPlan: SectionPlan,
+  pageInlineSize: number,
+  pageContentBlockSize: number,
+  blockToPage: ReadonlyMap<string, number>,
+  blockToSpan: ReadonlyMap<string, { first: number; last: number }>,
+): PagePlan {
   // Running-sum-correct total document height (C.2b-2): the last page's top
   // edge plus its OWN block-size, with NO trailing gap. Pages are no longer
   // uniform-height, so a `pageCount × pageBlockSize + gaps` formula would be
@@ -732,7 +810,7 @@ export function measurePass(
     entries,
     sectionPlan,
     totalBlockSize,
-    pageInlineSize: pageConfig.pageInlineSize,
+    pageInlineSize,
     pageContentBlockSize,
     pageIndexAtBlockOffset(y: number): number {
       return pageIndexAtBlockOffset(entries, totalBlockSize, y);
@@ -854,7 +932,7 @@ function canReusePage(
  * page's whole-block-progress slice (`[startIndex, sliceEnd)`); `resumeInto` /
  * `resumeOut` are this page's tokens. No-op when `rootChildren` is omitted.
  */
-function recordBlockMaps(
+export function recordBlockMaps(
   pageChildren: readonly RenderNode[],
   rootChildren: readonly RenderNode[] | undefined,
   metas: readonly BlockFitMeta[],
