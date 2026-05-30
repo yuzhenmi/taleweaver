@@ -22,12 +22,14 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import {
   buildPagePlan,
   recordBlockMaps,
   type PagePlan,
   type PagePlanEntry,
+  type SlotInsets,
 } from "./measure-pass";
 import { sectionStateAt, type SectionPlan } from "./section-plan";
 import { isDevMode } from "./dev-mode";
@@ -69,7 +71,7 @@ const MAX_CONVERGENCE_ITERATIONS = 5;
  * `buildFootnotePageAssignment` uses it as the skip-when-nested guard.
  */
 export function buildBlockToTopLevelIndex(
-  rootChildren: readonly ElementBox[],
+  rootChildren: readonly RenderNode[],
 ): Map<BlockId, number> {
   const map = new Map<BlockId, number>();
   rootChildren.forEach((child, i) => {
@@ -180,16 +182,29 @@ export function buildFootnotePageAssignment(
  *   to the page content inline-size per page for the body layout, exactly as
  *   `materializePage` does.
  * @param shaper the text shaper used to lay out the footnote bodies.
+ * @param slotInsets per-section effective header/footer slot insets (#328),
+ *   keyed by `activeSectionId` (D9). Each swept page derives its
+ *   `effectiveTopInset`/`effectiveBottomInset` from the section active at the
+ *   (possibly shifted) `startIndex` — `slotInsets.get(activeSectionId)` falling
+ *   back to the section's raw effective page margins — EXACTLY as `measurePass`
+ *   does. This makes a footnote that shifts blocks across a section boundary get
+ *   the correct section's geometry. Absent/omitted for a section ⇒ raw margins.
+ * @param docWidePageConfig the doc-wide `PageConfig` (D9) — the fallback when the
+ *   section active at the new `startIndex` carries no `pageConfig` override
+ *   (`st.pageConfig ?? docWidePageConfig`), mirroring `measurePass`'s
+ *   `st.pageConfig ?? pageConfig`.
  */
 export function resolveFootnotes(
   rawPlan: PagePlan,
   metas: readonly BlockFitMeta[],
   sectionPlan: SectionPlan,
-  rootChildren: readonly ElementBox[],
+  rootChildren: readonly RenderNode[],
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>,
   footnoteAnchors: readonly FootnoteAnchorRef[],
   ctx: LayoutContext,
   shaper: TextShaper,
+  slotInsets: SlotInsets | undefined,
+  docWidePageConfig: PageConfig,
 ): PagePlan {
   // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost).
   if (footnoteAnchors.length === 0) return rawPlan;
@@ -333,32 +348,28 @@ export function resolveFootnotes(
       );
     }
 
-    // This page's effective geometry (C.2b-2): the page's OWN pageConfig +
-    // insets. The body content area is `pageBlockSize − topInset − bottomInset`;
-    // the footnote slot reduces it further by `footnoteSlotHeight` (D1 — the
-    // insets themselves are UNCHANGED).
-    //
-    // Geometry (pageConfig + insets) for this swept page is taken from the raw
-    // entry at the SAME PAGE NUMBER (`rawPlan.entries[pageIndex]`), falling back
-    // to `firstRaw` when the sweep produced more pages than the raw plan had.
-    // This is correct for single-section docs. LIMITATION (D9, fixed in FN-4.3):
-    // when a footnote shift moves blocks across a section boundary, the swept
-    // page's section membership changes and this by-page-number geometry is
-    // stale (it should derive from the section active at the new `startIndex`).
-    // FN-4.3 threads slotInsets + docWidePageConfig and derives geometry via
-    // `sectionStateAt` instead. `resolveFootnotes` is not wired to render until
-    // FN-4.3, so this limitation is latent here.
-    const geomEntry = rawPlan.entries[pageIndex] ?? firstRaw;
-    const effCfg = geomEntry.pageConfig;
-    const effTopInset = geomEntry.effectiveTopInset;
-    const effBottomInset = geomEntry.effectiveBottomInset;
+    // Section state at the (possibly shifted) startIndex (D7 + D9). EVERYTHING
+    // section-dependent — the page-break cap, the effective pageConfig, the
+    // header/footer body ids, AND the effective slot insets — derives from the
+    // section ACTIVE at `startIndex`, NOT from the raw entry at the same page
+    // NUMBER. A footnote-driven block shift can move this page across a section
+    // boundary, so its section membership (and thus its geometry) changes.
+    const st = sectionStateAt(sectionPlan, startIndex);
+    const sectionCap = st.nextBoundaryIndex;
+
+    // This page's effective geometry (C.2b-2 + D9): the section's OWN pageConfig
+    // (`st.pageConfig ?? docWidePageConfig`) + insets. Insets are derived EXACTLY
+    // as `measurePass` does — `slotInsets.get(activeSectionId)` falling back to
+    // the section's raw effective page margins. The body content area is
+    // `pageBlockSize − topInset − bottomInset`; the footnote slot reduces it
+    // further by `footnoteSlotHeight` (D1 — the insets themselves are UNCHANGED).
+    const effCfg = st.pageConfig ?? docWidePageConfig;
+    const sectionInsets = slotInsets?.get(st.activeSectionId ?? null);
+    const effTopInset = sectionInsets?.top ?? effCfg.pageMargins.blockStart;
+    const effBottomInset = sectionInsets?.bottom ?? effCfg.pageMargins.blockEnd;
     const pageContentBlockSize = effCfg.pageBlockSize - effTopInset - effBottomInset;
     const contentInlineSize =
       effCfg.pageInlineSize - effCfg.pageMargins.inlineStart - effCfg.pageMargins.inlineEnd;
-
-    // Re-derive the section cap at the (possibly shifted) startIndex (D7).
-    const st = sectionStateAt(sectionPlan, startIndex);
-    const sectionCap = st.nextBoundaryIndex;
 
     // D8 convergence: a footnote belongs to the page where its ANCHOR BLOCK is
     // PLACED, and the page reserves slot space for exactly those footnotes. That
@@ -489,8 +500,11 @@ export function resolveFootnotes(
       sectionPageIndex,
       // Cap re-derived at this page's startIndex (D7).
       stopBeforeIndex: stopBeforeIndex ?? null,
-      headerBlockId: geomEntry.headerBlockId,
-      footerBlockId: geomEntry.footerBlockId,
+      // Header/footer body ids for THIS page (C.2c + D9): from the section
+      // ACTIVE at the new `startIndex` (`st`), NOT the raw entry at the same page
+      // NUMBER — a footnote-driven shift can move the page to a different section.
+      headerBlockId: st.headerBlockId,
+      footerBlockId: st.footerBlockId,
       // effectiveBottomInset UNCHANGED (D1) — the slot reservation lives only in
       // footnoteSlotHeight.
       effectiveTopInset: effTopInset,

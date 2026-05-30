@@ -244,7 +244,9 @@ export function paginateRoot(
       pageIndex,
       pageConfig.pageInlineSize,
       // T1: header/footer slots default null (legacy positioned-paginate path).
-      null, null,
+      // FN-4: footnote slot also null — footnotes flow only through the virtual
+      // path (float/clear docs that fall to this legacy path are out of scope).
+      null, null, null,
       // #332 region edges: this legacy path lays the body flush at the page
       // content margins (no growing slot), so the body content area is exactly
       // [margins.blockStart, pageBlockSize − margins.blockEnd].
@@ -303,7 +305,7 @@ export function paginateRoot(
       ctx.writingMode, ctx.direction,
       rootComputed, rootUsedStyle,
       [], 0, pageConfig.pageInlineSize,
-      null, null,
+      null, null, null,
       // #332 region edges: empty defensive page uses the page content margins.
       margins.blockStart, margins.blockEnd,
     ));

@@ -564,8 +564,8 @@ function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.pageIndex, containingInlineSize,
-        // Preserve the named header/footer slots across the reposition clone.
-        box.headerSlot, box.footerSlot,
+        // Preserve the named header/footer/footnote slots across the reposition clone.
+        box.headerSlot, box.footerSlot, box.footnoteSlot,
         // Preserve the #332 region-classification edges across the clone.
         box.effectiveTopInset, box.effectiveBottomInset,
       );

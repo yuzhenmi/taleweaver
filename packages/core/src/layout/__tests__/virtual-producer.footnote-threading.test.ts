@@ -1,11 +1,12 @@
 // packages/core/src/layout/__tests__/virtual-producer.footnote-threading.test.ts
 //
-// FN-4.0 — pure-plumbing threading of `cascadedEmbedContents` + `footnoteAnchors`
-// through `buildVirtualPaginatedTree`. In THIS task the two new params are
-// UNUSED for layout output (a later task, FN-4.2 `resolveFootnotes`, consumes
-// them). So passing populated values must produce STRUCTURALLY-IDENTICAL output
-// (same page count, same top-level box geometry) to the SAME call with the
-// defaults. This pins the zero-behavior-change contract.
+// FN-4 — threading of `cascadedEmbedContents` + `footnoteAnchors` through
+// `buildVirtualPaginatedTree`. The KEY invariant (post FN-4.3): a
+// footnote-FREE doc is byte-identical whether or not the (empty) footnote params
+// are passed — `resolveFootnotes` is a ref-equal no-op when there are no anchors,
+// so a doc with no footnotes never changes. (FN-4.3 wires `resolveFootnotes`, so
+// a doc WITH a footnote now DOES change geometry — that case is covered by
+// `virtual-layout-tree.footnote-slot.test.ts`; here we only pin the no-op.)
 
 import { describe, it, expect } from "vitest";
 import { makeRootContext } from "../layout-context";
@@ -61,7 +62,7 @@ function pageGeometry(tree: ReturnType<typeof buildVirtualPaginatedTree>) {
   });
 }
 
-describe("virtual-producer — FN-4.0 footnote-threading is zero-behavior-change", () => {
+describe("virtual-producer — FN-4 footnote-threading: footnote-free is zero-behavior-change", () => {
   // 6 blocks × 100 = 600; content area with 10/10 margins on a 300-tall page is
   // 280 ⇒ 2 blocks/page ⇒ 3 pages.
   const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
@@ -85,24 +86,20 @@ describe("virtual-producer — FN-4.0 footnote-threading is zero-behavior-change
     );
   }
 
-  it("populated embedContents + footnoteAnchors produce identical page count + geometry as defaults", () => {
-    // Baseline: defaults (empty embed map, empty anchors).
-    const baseline = build(new Map(), []);
+  it("a footnote-FREE doc is byte-identical whether or not the (empty) footnote params are passed", () => {
+    // Defaults (params omitted) vs explicitly-empty params: `resolveFootnotes`
+    // is a ref-equal no-op with no anchors, so both produce the identical plan.
+    const root = cascadeRoot({ display: "block" }, children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
+    const defaulted = buildVirtualPaginatedTree(root, ctx, shaper(), cfg);
+    const explicitEmpty = build(new Map(), []);
 
-    // Populated: a non-empty footnote body + an anchor ref for a doc with a footnote.
-    const bodyId = "fn-body-1" as BlockId;
-    const fnBody = cascadeRoot({ display: "block" }, [fixedBlock("fb0", 16)]);
-    const embedContents = new Map<BlockId, ElementBox>([[bodyId, fnBody]]);
-    const anchors: readonly FootnoteAnchorRef[] = [
-      { contentBlockId: bodyId, blockId: "b0" as BlockId, sectionId: null },
-    ];
-    const populated = build(embedContents, anchors);
-
-    // Same page count.
-    expect(populated.plan.entries.length).toBe(baseline.plan.entries.length);
-    expect(populated.plan.entries.length).toBe(3);
-
-    // Byte-identical top-level page geometry (blockOffsets/sizes).
-    expect(pageGeometry(populated)).toEqual(pageGeometry(baseline));
+    expect(explicitEmpty.plan.entries.length).toBe(defaulted.plan.entries.length);
+    expect(explicitEmpty.plan.entries.length).toBe(3);
+    expect(pageGeometry(explicitEmpty)).toEqual(pageGeometry(defaulted));
+    // No page carries a footnote slot in a footnote-free doc.
+    for (let i = 0; i < explicitEmpty.plan.entries.length; i++) {
+      expect(explicitEmpty.getPage(i).footnoteSlot).toBeNull();
+    }
   });
 });

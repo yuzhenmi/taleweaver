@@ -25,13 +25,14 @@ import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
-import { measurePass, type SlotInsets } from "./measure-pass";
+import { measurePass, type SlotInsets, type PagePlan } from "./measure-pass";
 import { buildSectionPlan, type SectionPlan } from "./section-plan";
 import { flattenContents } from "./group-children";
 import { layoutBlock } from "./bfc";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
+import { resolveFootnotes } from "./resolve-footnotes";
 
 /**
  * Build a `VirtualLayoutTree` for a paginated `display: block` document root.
@@ -53,12 +54,14 @@ import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-
  *   so `materializePage` can lay them into each page's header/footer slot (T4
  *   consumes it). Defaults to an empty map (no header/footer bodies).
  * @param cascadedEmbedContents cascaded footnote bodies (FN-1), keyed by body
- *   root BlockId. Threaded end-to-end for the footnote layout pass (FN-4.2
- *   `resolveFootnotes`) to consume; UNUSED in this plumbing task (FN-4.0), so it
- *   does not affect layout output. Defaults to an empty map (no footnote bodies).
+ *   root BlockId. Consumed by the footnote layout pass (`resolveFootnotes`,
+ *   FN-4.3): each anchor's body is laid into its page's footnote slot, reducing
+ *   the body content area. Threaded on into `makeVirtualLayoutTree` so
+ *   `materializePage` renders the slot. Defaults to an empty map (no footnotes).
  * @param footnoteAnchors ordered footnote anchors in the main document
- *   (`collectFootnoteAnchors`), threaded for `resolveFootnotes` (FN-4.2);
- *   UNUSED here. Defaults to an empty array (no footnotes).
+ *   (`collectFootnoteAnchors`), consumed by `resolveFootnotes` (FN-4.3) to assign
+ *   each footnote body to its page. Empty ⇒ `resolveFootnotes` is a ref-equal
+ *   no-op (zero cost). Defaults to an empty array (no footnotes).
  */
 export function buildVirtualPaginatedTree(
   cascadedRoot: ElementBox,
@@ -70,14 +73,6 @@ export function buildVirtualPaginatedTree(
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
   footnoteAnchors: readonly FootnoteAnchorRef[] = [],
 ): VirtualLayoutTree {
-  // FN-4.0 plumbing: accepted end-to-end for the footnote layout pass (FN-4.2
-  // `resolveFootnotes`) but NOT yet consumed, so they cannot affect layout
-  // output (zero-behavior-change). `void` documents the deliberate non-use and
-  // satisfies `noUnusedParameters` without a leading-underscore rename (the
-  // names are load-bearing: callers forward by position into this signature).
-  void cascadedEmbedContents;
-  void footnoteAnchors;
-
   const margins = pageConfig.pageMargins;
   const pageContentInlineSize =
     pageConfig.pageInlineSize - margins.inlineStart - margins.inlineEnd;
@@ -122,11 +117,35 @@ export function buildVirtualPaginatedTree(
   const slotInsets = computeSlotInsets(
     sectionPlan, pageConfig, ctx, shaper, cascadedTemplateContents, minBodyPx,
   );
-  const plan = measurePass(
-    metas, pageConfig, sectionPlan, flattenContents(cascadedRoot.children), prevTree?.plan, slotInsets,
+  // The flattened top-level children — sliced by both the measure pass (per-page
+  // child fingerprints) AND `resolveFootnotes` (anchor→top-level-index mapping +
+  // page child slices). Extracted ONCE and shared so the two passes index over
+  // the identical array.
+  const rootChildren = flattenContents(cascadedRoot.children);
+  // D6: the measure pass's carry-forward source is the prior tree's RAW
+  // (pre-`resolveFootnotes`) plan — `resolveFootnotes` re-fits the footnote
+  // pages, so comparing against the resolved plan would see spurious mismatches.
+  // `?? prevTree?.plan` covers a footnote-free / pre-FN-4 prior tree (where the
+  // raw and resolved plans are ref-equal anyway).
+  const prevRawPlan =
+    (prevTree as { __rawPlan?: PagePlan } | undefined)?.__rawPlan ?? prevTree?.plan;
+  const rawPlan = measurePass(
+    metas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
   );
+  // FN-4.3 (D6): the footnote layout pass. Lays each anchor's body into its
+  // page's bottom slot, reduces the body content area, and forward-sweeps the
+  // re-fit. Footnote-free docs (empty `footnoteAnchors`) ⇒ ref-equal no-op
+  // (`plan === rawPlan`), so a doc with no footnotes is byte-identical.
+  const plan = resolveFootnotes(
+    rawPlan, metas, sectionPlan, rootChildren,
+    cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
+  );
+  // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
+  // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for
+  // the NEXT cycle's measurePass carry-forward (D6).
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
+    cascadedEmbedContents, rawPlan,
   );
 }
 

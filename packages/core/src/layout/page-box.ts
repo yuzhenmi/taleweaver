@@ -54,6 +54,17 @@ export interface PageBox {
   readonly footerSlot: BlockBox | null;
 
   /**
+   * The footnote slot laid out at this page's bottom (FN-4), between the body
+   * content area and the footer, or null when this page carries no footnotes.
+   * A wrapping `BlockBox` positioned at block-offset `blockSize −
+   * effectiveBottomInset − footnoteSlotHeight`, containing a thin separator
+   * rule followed by the stacked footnote bodies. Distinct named slot (see
+   * `headerSlot`) so paint, line-collection, and fingerprinting treat it
+   * separately from body content.
+   */
+  readonly footnoteSlot: BlockBox | null;
+
+  /**
    * Page-local top of the body content area = `effectiveTopInset`; bottom =
    * `blockSize − effectiveBottomInset`. The full top/bottom margins OUTSIDE
    * this band are the header/footer zones (#332): a click above
@@ -85,6 +96,7 @@ export function createPageBox(
   containingInlineSize: number,
   headerSlot: BlockBox | null,
   footerSlot: BlockBox | null,
+  footnoteSlot: BlockBox | null,
   effectiveTopInset: number,
   effectiveBottomInset: number,
 ): PageBox {
@@ -104,6 +116,7 @@ export function createPageBox(
     pageIndex,
     headerSlot,
     footerSlot,
+    footnoteSlot,
     effectiveTopInset,
     effectiveBottomInset,
   });

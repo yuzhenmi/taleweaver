@@ -36,6 +36,7 @@ import type { PagePlan, PagePlanEntry } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
 import { isDevMode } from "./dev-mode";
+import { FOOTNOTE_SEPARATOR_HEIGHT } from "./resolve-footnotes";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -157,6 +158,23 @@ interface PageFingerprint {
    */
   readonly effectiveTopInset: number;
   readonly effectiveBottomInset: number;
+  /**
+   * The footnote-body ids assigned to THIS page's slot (FN-4):
+   * `PagePlanEntry.footnoteContentBlockIds`. An empty array ⇒ no slot. MUST
+   * participate so a footnote that moves onto/off a page (a different assigned
+   * set) re-materializes the page even when its body content is unchanged.
+   */
+  readonly footnoteContentBlockIds: readonly BlockId[];
+  /**
+   * The cascaded footnote-body REFERENCES (`embedBodies.get(id)`) for this
+   * page's `footnoteContentBlockIds`. Reference identity is the change signal: a
+   * footnote-body edit produces a NEW cascaded ElementBox for the same id, so a
+   * ref differs → re-materialize; an unchanged carried-forward body keeps the
+   * same ref → reuse. (The bodies live OUTSIDE `entry.children`, so without this
+   * a body-content edit would leave the page fingerprint identical and wrongly
+   * reuse the stale slot.) `undefined` entry for an id absent from `embedBodies`.
+   */
+  readonly footnoteBodies: readonly (ElementBox | undefined)[];
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
@@ -192,6 +210,12 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.footerBody === b.footerBody &&
     a.effectiveTopInset === b.effectiveTopInset &&
     a.effectiveBottomInset === b.effectiveBottomInset &&
+    // FN-4: a different assigned footnote set OR an edited footnote body (new
+    // ref) invalidates the page's slot. `childrenRefsEqual` is order-sensitive
+    // element-by-element identity — exactly the contract for both the id list
+    // (string ===) and the body-ref list (reference ===).
+    childrenRefsEqual(a.footnoteContentBlockIds, b.footnoteContentBlockIds) &&
+    childrenRefsEqual(a.footnoteBodies, b.footnoteBodies) &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut)
@@ -221,6 +245,19 @@ export function makeVirtualLayoutTree(
   pageConfig: PageConfig,
   prevTree?: VirtualLayoutTree,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  // FN-4: cascaded footnote bodies, keyed by body root BlockId. Captured in the
+  // closure as `embedBodies` so `materializePage` can lay each page's assigned
+  // bodies into the footnote slot, and `fingerprintOf` can read the body refs as
+  // the slot's change signal. Defaults to an empty map (no footnote bodies).
+  cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  // FN-4 (D6): the RAW (pre-`resolveFootnotes`) measure plan, stored as the
+  // tree's non-enumerable `__rawPlan` so the NEXT cycle's `measurePass`
+  // carry-forward compares against the footnote-UNAWARE plan (the resolved
+  // `plan` re-fits footnote pages, which would otherwise look like spurious
+  // mismatches). Defaults to `plan` — for a footnote-free doc `resolveFootnotes`
+  // returns `rawPlan` unchanged, so `plan === rawPlan` and the default is exact;
+  // any tree built before FN-4 also reads back its own `plan` via the fallback.
+  rawPlan: PagePlan = plan,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -257,6 +294,12 @@ export function makeVirtualLayoutTree(
   // inspectable for tests and reachable by the T4 read site.
   const templateBodies = cascadedTemplateContents;
 
+  // FN-4: the cascaded footnote bodies, keyed by body root BlockId. Captured in
+  // the closure so `materializePage` can resolve a page's assigned footnote
+  // bodies and lay them into the footnote slot, and `fingerprintOf` can read the
+  // body refs as the slot's change signal. Empty for a footnote-free doc.
+  const embedBodies = cascadedEmbedContents;
+
   // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
   // so it can resolve a page's header/footer body REFERENCE off `templateBodies`
   // — the slot's change signal. The cross-tree compare in `getPage` works
@@ -282,6 +325,12 @@ export function makeVirtualLayoutTree(
       footerBody: footerBlockId !== undefined ? templateBodies.get(footerBlockId) : undefined,
       effectiveTopInset: entry.effectiveTopInset,
       effectiveBottomInset: entry.effectiveBottomInset,
+      // FN-4: the assigned footnote ids + their cascaded body refs. The id list
+      // is shared by reference from the entry (so an unchanged page keeps the
+      // SAME array ref — but `childrenRefsEqual` compares element-wise anyway).
+      // The body refs are resolved off `embedBodies`: a body edit flips the ref.
+      footnoteContentBlockIds: entry.footnoteContentBlockIds,
+      footnoteBodies: entry.footnoteContentBlockIds.map((id) => embedBodies.get(id)),
     };
   }
 
@@ -345,8 +394,14 @@ export function makeVirtualLayoutTree(
     // fallback), so the values below reduce to the raw-margin content area.
     const effTopInset = entry.effectiveTopInset;
     const effBottomInset = entry.effectiveBottomInset;
+    // FN-4 (D1): the footnote slot reserves `footnoteSlotHeight` between the body
+    // content and the footer. `effectiveBottomInset` is UNCHANGED (header/footer
+    // meaning only); the slot reservation lives ONLY in `footnoteSlotHeight`, so
+    // the body content area is reduced by `effBottomInset + footnoteSlotHeight`.
+    // 0 for a page with no footnotes ⇒ byte-identical to the pre-FN-4 body.
+    const footnoteSlotHeight = entry.footnoteSlotHeight;
     const effContentBlockSize =
-      effCfg.pageBlockSize - effTopInset - effBottomInset;
+      effCfg.pageBlockSize - effTopInset - effBottomInset - footnoteSlotHeight;
     // Slot-cap invariant (#329), mirroring measurePass: the producer's
     // `computeSlotInsets` pre-caps the per-section insets so the body content
     // area always retains ≥ minBody. This branch is therefore UNREACHABLE for
@@ -416,7 +471,11 @@ export function makeVirtualLayoutTree(
     // the per-page heights before this one (no longer pageIndex*(H+gap), since
     // a section may override its geometry). The PageBox block-size is the
     // SECTION's effective page block-size, not the content size.
-    const children: readonly LayoutBox[] = box ? [box] : [];
+    // The body BFC box (guarded — can be null when nothing fit). The FN-4
+    // footnote slot, when present, is appended to `children` below so existing
+    // paint / line-collection walks pick it up (it is ALSO exposed as the named
+    // `PageBox.footnoteSlot` for consumers that want it distinctly).
+    const bodyChildren: LayoutBox[] = box ? [box] : [];
 
     // C.2c (T4) + #328 (growing slot): lay the page's header/footer template
     // bodies at their NATURAL height — never clipped. Each is a single-shot
@@ -459,6 +518,94 @@ export function makeVirtualLayoutTree(
       effCfg.pageBlockSize - effBottomInset,
     );
 
+    // FN-4: the footnote slot. A wrapping BlockBox positioned (D1) between the
+    // body content and the footer, at page-block-offset `pageBlockSize −
+    // effectiveBottomInset − footnoteSlotHeight`, holding a thin separator rule
+    // (FOOTNOTE_SEPARATOR_HEIGHT) followed by the stacked footnote bodies. Each
+    // body is laid out from `embedBodies` at its NATURAL height — same
+    // `layoutBlock`-style single-shot the header/footer slots use
+    // (availableBlockSize MAX, no clip, no page-break). Children's blockOffsets
+    // are SLOT-LOCAL (the slot is a BlockBox; the page→slot offset is the
+    // wrapper's `blockOffset`). `null` when this page carries no footnotes.
+    const footnoteSlot: BlockBox | null =
+      entry.footnoteContentBlockIds.length === 0
+        ? null
+        : (() => {
+            const slotBlockStart =
+              effCfg.pageBlockSize - effBottomInset - footnoteSlotHeight;
+            const slotChildren: LayoutBox[] = [];
+            // The separator rule: a thin BlockBox at the slot's top edge. It
+            // carries the body root's style (the page root) for a neutral box;
+            // paint draws the rule. Height = FOOTNOTE_SEPARATOR_HEIGHT (D1).
+            slotChildren.push(
+              createBlockBox(
+                `footnote-sep-${pageIndex}`,
+                effMargins.inlineStart,
+                0,
+                effContentInlineSize,
+                FOOTNOTE_SEPARATOR_HEIGHT,
+                ctx.writingMode,
+                ctx.direction,
+                rootComputed,
+                effRootUsedStyle,
+                [],
+                effContentInlineSize,
+                { footnoteSeparator: true },
+              ),
+            );
+            // Stack the bodies below the separator. Each body lays out at its
+            // natural height; we advance the slot-local cursor by each laid box's
+            // block-size (0 for a body that produced no box — guarded).
+            let cursor = FOOTNOTE_SEPARATOR_HEIGHT;
+            for (const id of entry.footnoteContentBlockIds) {
+              const body = embedBodies.get(id);
+              if (body === undefined) {
+                // A no-MVP defect (a footnote body silently missing from the
+                // cascaded map). Dev-only throw; prod skips so layout never
+                // crashes. Mirrors resolveFootnotes's slotHeightFor guard.
+                if (isDevMode()) {
+                  throw new Error(
+                    `materializePage: footnote body ${id} is absent from ` +
+                      `cascadedEmbedContents — the body must be cascaded before layout.`,
+                  );
+                }
+                continue;
+              }
+              const { box: bodyBox } = layoutBlock(
+                body,
+                effMargins.inlineStart,
+                cursor,
+                effContentCtx,
+                shaper,
+                { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
+              );
+              if (bodyBox !== null) {
+                slotChildren.push(bodyBox);
+                cursor += bodyBox.blockSize;
+              }
+            }
+            return createBlockBox(
+              `footnote-slot-${pageIndex}`,
+              effMargins.inlineStart,
+              slotBlockStart,
+              effContentInlineSize,
+              footnoteSlotHeight,
+              ctx.writingMode,
+              ctx.direction,
+              rootComputed,
+              effRootUsedStyle,
+              slotChildren,
+              effContentInlineSize,
+              { footnoteSlot: true },
+            );
+          })();
+
+    // Page children = the body BFC box + (when present) the footnote slot. The
+    // slot is page-relative (its `blockOffset` is the page-local slot top), so it
+    // stacks correctly alongside the body box.
+    const children: readonly LayoutBox[] =
+      footnoteSlot !== null ? [...bodyChildren, footnoteSlot] : bodyChildren;
+
     return createPageBox(
       `page-${pageIndex}`,
       0, entry.blockOffset,
@@ -468,7 +615,7 @@ export function makeVirtualLayoutTree(
       children,
       pageIndex,
       effCfg.pageInlineSize,
-      headerSlot, footerSlot,
+      headerSlot, footerSlot, footnoteSlot,
       // #332 region-classification edges: body content area is
       // [effTopInset, pageBlockSize − effBottomInset]; the margins outside
       // are the header/footer zones. On a #328 growing slot these exceed the
@@ -550,6 +697,12 @@ export function makeVirtualLayoutTree(
     value: templateBodies,
     enumerable: false,
   });
+  // FN-4 (D6): the raw pre-resolveFootnotes plan, for the NEXT cycle's
+  // measurePass carry-forward source.
+  Object.defineProperty(tree, "__rawPlan", {
+    value: rawPlan,
+    enumerable: false,
+  });
   Object.freeze(tree);
   return tree;
 }
@@ -571,4 +724,12 @@ interface VirtualLayoutTreeInternal extends VirtualLayoutTree {
    * for test inspection of the threading.
    */
   readonly __cascadedTemplateContents?: ReadonlyMap<BlockId, ElementBox>;
+  /**
+   * The RAW (pre-`resolveFootnotes`) measure plan this tree was built from
+   * (FN-4 D6). `buildVirtualPaginatedTree` reads `prevTree?.__rawPlan` as the
+   * NEXT cycle's `measurePass` carry-forward source — the footnote-UNAWARE plan,
+   * so the re-fitted footnote pages in the resolved `plan` don't look like
+   * spurious mismatches. Equals `plan` for a footnote-free tree.
+   */
+  readonly __rawPlan?: PagePlan;
 }

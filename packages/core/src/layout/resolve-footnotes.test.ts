@@ -279,6 +279,7 @@ function setup(
   rootChildren: ElementBox[];
   cascadedEmbedContents: Map<BlockId, ElementBox>;
   ctx: ReturnType<typeof makeRootContext>;
+  pageConfig: PageConfig;
 } {
   const cascaded = fnCascade(renderRoot);
   const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
@@ -292,18 +293,18 @@ function setup(
   }
 
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
-  return { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx };
+  return { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig };
 }
 
 describe("resolveFootnotes", () => {
   it("(a) no anchors → returns the rawPlan by reference (no-op)", () => {
     const render = fnDoc([fnPara("b0"), fnPara("b1")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map());
 
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, [], ctx, FN_SHAPER,
+      cascadedEmbedContents, [], ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     expect(out).toBe(rawPlan); // ref-equal no-op
@@ -311,7 +312,7 @@ describe("resolveFootnotes", () => {
 
   it("(b) all anchors skipped (nested, non-top-level) → ref-equal rawPlan (prod skip)", () => {
     const render = fnDoc([fnPara("b0")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fnX", fnBody("fnX", 1)]]));
 
     // Anchor's blockId "nested" is not a top-level child key. In production
@@ -325,7 +326,7 @@ describe("resolveFootnotes", () => {
     try {
       const out = resolveFootnotes(
         rawPlan, metas, sectionPlan, rootChildren,
-        cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+        cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
       );
       expect(out).toBe(rawPlan);
     } finally {
@@ -338,7 +339,7 @@ describe("resolveFootnotes", () => {
     // 1-line body (16) + separator (13) = 29px slot, leaving 35px ⇒ only 2 paras
     // fit on page 0. So b2 (and b3) shift to a NEW page.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fn0", fnBody("fn0", 1)]]));
 
     // RAW: single page, all 4 blocks.
@@ -348,7 +349,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     expect(out).not.toBe(rawPlan);
@@ -374,7 +375,7 @@ describe("resolveFootnotes", () => {
     // block — the slot stacking is what's under test here, not eviction.
     const TALL: PageConfig = { ...FN_PAGE, pageBlockSize: 128 };
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([
         ["fnA", fnBody("fnA", 1)],
         ["fnB", fnBody("fnB", 1)],
@@ -383,7 +384,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b0", "fnA"), fnAnchor("b1", "fnB")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     // Two 1-line bodies (16 each) + ONE separator (13) = 45.
@@ -408,7 +409,7 @@ describe("resolveFootnotes", () => {
     // block nor its footnote is ever lost. Page 0 ends WITHOUT the slot (b3
     // left); the page that actually carries b3 gets the slot.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fn3", fnBody("fn3", 1)]]));
 
     expect(rawPlan.pageIndexOfBlock("b3")).toBe(0); // raw: b3 on page 0
@@ -416,7 +417,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b3", "fn3")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     // After convergence: b3 ended up on a later page; the footnote slot is on
@@ -435,13 +436,13 @@ describe("resolveFootnotes", () => {
     // page. D5 clamps the slot to `pageContentBlockSize − MIN_BODY_BLOCK_SIZE`
     // (64 − 16 = 48) so the body keeps ≥1 line. // FN-5: real split lands later.
     const render = fnDoc([fnPara("b0"), fnPara("b1")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fnBig", fnBody("fnBig", 10)]]));
 
     const anchors = [fnAnchor("b0", "fnBig")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     // Slot CLAMPED to pageContentBlockSize − MIN_BODY_BLOCK_SIZE, NOT the raw
@@ -461,7 +462,7 @@ describe("resolveFootnotes", () => {
       fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
       fnPara("b4"), fnPara("b5"), fnPara("b6"), fnPara("b7"),
     ]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fn4", fnBody("fn4", 1)]]));
 
     expect(rawPlan.entries.length).toBe(2);
@@ -470,7 +471,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b4", "fn4")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     // Page 0 (before the footnote page) is the SAME object — copied through.
@@ -500,13 +501,13 @@ describe("resolveFootnotes", () => {
     // 2 paras (32px) on a 64px page + a 1-line footnote (29px slot) ⇒ 35px body
     // area ⇒ both paras (32px) still fit. No eviction; single page; slot set.
     const render = fnDoc([fnPara("b0"), fnPara("b1")]);
-    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx } =
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fn0", fnBody("fn0", 1)]]));
 
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
     expect(out.entries.length).toBe(1);
@@ -528,7 +529,7 @@ describe("resolveFootnotes", () => {
 
     const out = resolveFootnotes(
       rawPlan, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      bodies, [fnAnchor("b0", "fn0")], ctx, FN_SHAPER,
+      bodies, [fnAnchor("b0", "fn0")], ctx, FN_SHAPER, undefined, FN_PAGE,
     );
 
     expect(out.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT);
