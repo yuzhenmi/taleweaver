@@ -17,9 +17,14 @@ import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import type { BlockId } from "../state";
+import type { FootnoteAnchorRef } from "../footnotes";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
+/** Empty cascaded-footnote-body map default (no footnote bodies). */
+const EMPTY_EMBED_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
+/** Empty footnote-anchor list default (no footnotes). */
+const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = [];
 
 /**
  * Incremental layout entry point.
@@ -46,6 +51,12 @@ export function layoutTreeIncremental(
   // consumes it). Optional, defaulting to an empty map: the many non-editor
   // callers (tests, the resize path) pass no bodies and stay byte-identical.
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_TEMPLATE_CONTENTS,
+  // FN-4.0: cascaded footnote bodies + ordered footnote anchors (from
+  // `rebuildTrees`), threaded end-to-end for the footnote layout pass (FN-4.2
+  // `resolveFootnotes`). UNUSED for layout output in this plumbing task.
+  // Defaults keep the many non-editor callers byte-identical.
+  cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
+  footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTreeIncremental");
   try {
@@ -113,7 +124,7 @@ export function layoutTreeIncremental(
         // rides `resolvePositionedTree`'s `materializeAll()` bridge. The prior
         // VirtualLayoutTree (when there was one) threads through as the
         // carry-forward memo so unchanged pages reuse their PageBox by ref.
-        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents);
+        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors);
       } else {
         // Unsupported-feature fallback: legacy positioned page tree.
         // paginateRoot drives layoutBlock per page; pass rootCtx so the

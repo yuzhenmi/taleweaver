@@ -3,6 +3,7 @@ import type { State, BlockId } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
+import { collectFootnoteAnchors } from "../../footnotes";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 
@@ -64,16 +65,19 @@ export function rebuildTrees(
 
   // FN-1: cascade EVERY footnote body, the exact parallel to the header/footer
   // cascade above. Incremental → reuse an unchanged body's prior cascaded tree
-  // by reference; full → cascade each fresh. FN-1 only stores the map on
-  // EditorState; the footnote layout pass (`resolveFootnotes`, FN-4) consumes
-  // it — so unlike `cascadedTemplateContents` it is NOT threaded into the
-  // layout call yet.
+  // by reference; full → cascade each fresh.
   const cascadedEmbedContents = cascadeEmbedContents(
     rendered,
     dirtyIds !== undefined ? prevRenderOutput : null,
     dirtyIds !== undefined ? oldEditor.cascadedEmbedContents : null,
     dirtyIds,
   );
+
+  // FN-4.0: ordered footnote anchors over the (new) main document, threaded
+  // into the layout pass alongside `cascadedEmbedContents` for the footnote
+  // layout pass (FN-4.2 `resolveFootnotes`) to consume. Both are UNUSED for
+  // layout output in this plumbing task, so they cannot change pagination.
+  const footnoteAnchors = collectFootnoteAnchors(newEditor.state);
 
   const layout = layoutTreeIncremental(
     cascadedRoot,
@@ -83,6 +87,8 @@ export function rebuildTrees(
     config.measurer,
     config.pageConfig,
     cascadedTemplateContents,
+    cascadedEmbedContents,
+    footnoteAnchors,
   );
 
   return {

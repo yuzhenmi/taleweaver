@@ -20,6 +20,7 @@
 
 import type { ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
+import type { FootnoteAnchorRef } from "../footnotes";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
@@ -51,6 +52,13 @@ import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-
  *   keyed by body root BlockId; threaded into `makeVirtualLayoutTree`'s closure
  *   so `materializePage` can lay them into each page's header/footer slot (T4
  *   consumes it). Defaults to an empty map (no header/footer bodies).
+ * @param cascadedEmbedContents cascaded footnote bodies (FN-1), keyed by body
+ *   root BlockId. Threaded end-to-end for the footnote layout pass (FN-4.2
+ *   `resolveFootnotes`) to consume; UNUSED in this plumbing task (FN-4.0), so it
+ *   does not affect layout output. Defaults to an empty map (no footnote bodies).
+ * @param footnoteAnchors ordered footnote anchors in the main document
+ *   (`collectFootnoteAnchors`), threaded for `resolveFootnotes` (FN-4.2);
+ *   UNUSED here. Defaults to an empty array (no footnotes).
  */
 export function buildVirtualPaginatedTree(
   cascadedRoot: ElementBox,
@@ -59,7 +67,17 @@ export function buildVirtualPaginatedTree(
   pageConfig: PageConfig,
   prevTree?: VirtualLayoutTree,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  footnoteAnchors: readonly FootnoteAnchorRef[] = [],
 ): VirtualLayoutTree {
+  // FN-4.0 plumbing: accepted end-to-end for the footnote layout pass (FN-4.2
+  // `resolveFootnotes`) but NOT yet consumed, so they cannot affect layout
+  // output (zero-behavior-change). `void` documents the deliberate non-use and
+  // satisfies `noUnusedParameters` without a leading-underscore rename (the
+  // names are load-bearing: callers forward by position into this signature).
+  void cascadedEmbedContents;
+  void footnoteAnchors;
+
   const margins = pageConfig.pageMargins;
   const pageContentInlineSize =
     pageConfig.pageInlineSize - margins.inlineStart - margins.inlineEnd;

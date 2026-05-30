@@ -15,9 +15,14 @@ import { paginateRoot } from "./paginate";
 import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
+import type { FootnoteAnchorRef } from "../footnotes";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
+/** Empty cascaded-footnote-body map default (no footnote bodies). */
+const EMPTY_EMBED_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
+/** Empty footnote-anchor list default (no footnotes). */
+const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = [];
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
@@ -39,6 +44,13 @@ export function layoutTree(
   // re-clipped). Defaults to an empty map for the many non-editor callers
   // (tests, table-root paths) that have no header/footer bodies.
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_TEMPLATE_CONTENTS,
+  // FN-4.0: cascaded footnote bodies + ordered footnote anchors, threaded
+  // end-to-end for the footnote layout pass (FN-4.2 `resolveFootnotes`). UNUSED
+  // for layout output in this plumbing task; the editor full-build path
+  // (`createInitialEditorState`) populates them. Defaults keep every other
+  // caller (tests, resize) byte-identical.
+  cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
+  footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
   try {
@@ -74,7 +86,8 @@ export function layoutTree(
         result = measurePassUnsupported(layoutRoot)
           ? paginateRoot(layoutRoot, ctx, shaper, pageConfig)
           : buildVirtualPaginatedTree(
-              layoutRoot, ctx, shaper, pageConfig, undefined, cascadedTemplateContents,
+              layoutRoot, ctx, shaper, pageConfig, undefined,
+              cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors,
             );
       } else {
         // Non-block root with pagination: layout without pagination for now.

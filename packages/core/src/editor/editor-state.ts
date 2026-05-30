@@ -2,6 +2,7 @@ import { createEmptyDocument, History, createHistory, getBlock, createPosition, 
 import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import { cascadePass } from "../cascade";
+import { collectFootnoteAnchors } from "../footnotes";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -174,6 +175,10 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     null,
     undefined,
   );
+  // FN-4.0: ordered footnote anchors over the main document, threaded into the
+  // initial full build for the footnote layout pass (FN-4.2 `resolveFootnotes`).
+  // Empty for the standard empty document (no footnotes).
+  const footnoteAnchors = collectFootnoteAnchors(state);
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,
@@ -182,6 +187,10 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     // #328 (C1): thread the cascaded header/footer bodies through the initial
     // full build so a seeded tall-header doc paginates with the GROWN insets.
     cascadedTemplateContents,
+    // FN-4.0: cascaded footnote bodies + anchors, threaded for the (later)
+    // footnote layout pass. Unused for layout output today.
+    cascadedEmbedContents,
+    footnoteAnchors,
   );
 
   return {
