@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
-import { layoutInlineContent, collectTokens } from "./ifc";
+import { layoutInlineContent, collectTokens, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
 import { layoutBlock } from "./bfc";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
@@ -1318,6 +1318,106 @@ describe("IFC — verticalAlign", () => {
     const expectedOffset = (line.blockSize - ib.blockSize) / 2;
     expect(ib.blockOffset).toBe(expectedOffset);
     expect(ib.y).toBe(expectedOffset);
+  });
+});
+
+describe("IFC — verticalAlign super / sub (true superscript / subscript)", () => {
+  // Build a paragraph whose single line carries a baseline-aligned run plus a
+  // sibling inline span with the given verticalAlign. Returns both line-level
+  // boxes so geometry can be compared directly.
+  function lineWithAlignedSpan(
+    va: "super" | "sub" | "baseline",
+    markFontSize?: number,
+  ) {
+    const markStyle: Parameters<typeof createElementBox>[1] =
+      markFontSize === undefined
+        ? { display: "inline", verticalAlign: va }
+        : { display: "inline", verticalAlign: va, fontSize: markFontSize };
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("base", {}, "x"),
+        createElementBox("mark", markStyle, [
+          createTextBox("mark/t", {}, "1"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "line") throw new Error("?");
+    const line = out.children[0];
+    const baseRun = line.children.find(c => c.type === "text-run");
+    const markBox = line.children.find(c => c.type === "inline");
+    if (baseRun === undefined) throw new Error("no baseline run");
+    if (markBox === undefined) throw new Error("no aligned span box");
+    return { line, baseRun, markBox };
+  }
+
+  it("super raises the box above the baseline sibling by SUPERSCRIPT_RAISE_FRACTION × font-size", () => {
+    const { baseRun, markBox } = lineWithAlignedSpan("super");
+    // The marker span shares the body font-size (INITIAL_COMPUTED_STYLE = 16),
+    // so its baseline-aligned offset would equal the baseline run's; the super
+    // shift is the ONLY difference.
+    const fontSize = markBox.computedStyle.fontSize;
+    const expected = baseRun.blockOffset - fontSize * SUPERSCRIPT_RAISE_FRACTION;
+    expect(markBox.blockOffset).toBeCloseTo(expected, 6);
+    // Raised => strictly ABOVE (smaller block-axis offset than) the baseline run.
+    expect(markBox.blockOffset).toBeLessThan(baseRun.blockOffset);
+    // logical↔physical agree (no frozen-box spread-patch).
+    expect(markBox.blockOffset).toBe(markBox.y);
+  });
+
+  it("super raise uses the PARENT's font-size, not the child's (CSS Inline 3 — a <sup font-size:smaller> still raises full amount)", () => {
+    // The marker span is a smaller font (8px) inside a 16px parent line — the
+    // common <sup font-size: smaller> shape. Per CSS Inline 3 the raise is a
+    // fraction of the PARENT's used font-size (16), NOT the child's (8). A
+    // child-relative bug would raise by only 8 × fraction (half), under-raising
+    // the superscript. Assert the raise magnitude is computed against 16.
+    const PARENT_FONT_SIZE = 16; // INITIAL_COMPUTED_STYLE
+    // The super shift = (the SAME small box's baseline offset) − (its super offset).
+    // It must equal PARENT_FONT_SIZE × fraction, independent of the child's 8px.
+    const superSmall = lineWithAlignedSpan("super", 8);
+    const baselineSmall = lineWithAlignedSpan("baseline", 8);
+    const shift = baselineSmall.markBox.blockOffset - superSmall.markBox.blockOffset;
+    expect(shift).toBeCloseTo(PARENT_FONT_SIZE * SUPERSCRIPT_RAISE_FRACTION, 6);
+    // A child-relative bug would give 8 × fraction (half); assert we're NOT that.
+    expect(shift).not.toBeCloseTo(8 * SUPERSCRIPT_RAISE_FRACTION, 6);
+  });
+
+  it("sub lowers the box below the baseline sibling by SUBSCRIPT_LOWER_FRACTION × font-size", () => {
+    const { baseRun, markBox } = lineWithAlignedSpan("sub");
+    const fontSize = markBox.computedStyle.fontSize;
+    const expected = baseRun.blockOffset + fontSize * SUBSCRIPT_LOWER_FRACTION;
+    expect(markBox.blockOffset).toBeCloseTo(expected, 6);
+    // Lowered => strictly BELOW (larger block-axis offset than) the baseline run.
+    expect(markBox.blockOffset).toBeGreaterThan(baseRun.blockOffset);
+    expect(markBox.blockOffset).toBe(markBox.y);
+  });
+
+  it("super / sub shift the baseline only — they do NOT change the box's size", () => {
+    const baseline = lineWithAlignedSpan("baseline");
+    const sup = lineWithAlignedSpan("super");
+    const sub = lineWithAlignedSpan("sub");
+    // Same content + same font-size => identical box dimensions; only position
+    // differs. (super/sub are a pure block-axis shift, no resize.)
+    expect(sup.markBox.inlineSize).toBe(baseline.markBox.inlineSize);
+    expect(sup.markBox.blockSize).toBe(baseline.markBox.blockSize);
+    expect(sub.markBox.inlineSize).toBe(baseline.markBox.inlineSize);
+    expect(sub.markBox.blockSize).toBe(baseline.markBox.blockSize);
+    // And the inline (horizontal) position is untouched by the vertical shift.
+    expect(sup.markBox.inlineOffset).toBe(baseline.markBox.inlineOffset);
+    expect(sub.markBox.inlineOffset).toBe(baseline.markBox.inlineOffset);
+  });
+
+  it("a baseline-aligned sibling is unaffected by a super sibling on the same line (regression)", () => {
+    const baselineOnly = lineWithAlignedSpan("baseline");
+    const withSuper = lineWithAlignedSpan("super");
+    // The plain baseline run's position is identical whether its sibling is
+    // baseline- or super-aligned.
+    expect(withSuper.baseRun.blockOffset).toBe(baselineOnly.baseRun.blockOffset);
+    expect(withSuper.baseRun.y).toBe(baselineOnly.baseRun.y);
   });
 });
 

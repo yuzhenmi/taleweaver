@@ -24,7 +24,7 @@ export type TextDecoration = "none" | "underline" | "line-through";
 
 export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces";
 
-export type VerticalAlign = "baseline" | "top" | "middle" | "bottom";
+export type VerticalAlign = "baseline" | "sub" | "super" | "top" | "middle" | "bottom";
 
 export type TextAlign = "start" | "end" | "center" | "justify";
 

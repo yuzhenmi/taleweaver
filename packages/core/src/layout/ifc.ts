@@ -1561,6 +1561,37 @@ export function layoutInlineContent(
 }
 
 /**
+ * Block-axis baseline shift fractions for `vertical-align: super` / `sub`,
+ * expressed as a multiple of the PARENT's used font-size (CSS Inline 3
+ * baseline-shift: "raise by one third of the parent's used font-size" /
+ * "drop by one fifth of the parent's used font-size"). Using the parent's
+ * size (not the child's) is what makes a `<sup>` carrying `font-size: smaller`
+ * still raise by the full parent-relative amount — matching browsers. Browsers
+ * derive the exact fraction from font metrics where available; these fixed
+ * fractions match Chrome/Firefox closely for the common sans/serif faces and
+ * give a faithful, reviewable raise/lower. The footnote call-marker relies on
+ * `SUPERSCRIPT_RAISE_FRACTION`.
+ *
+ * `super` RAISES the box (block-axis offset DECREASES — up the page);
+ * `sub` LOWERS it (offset INCREASES). Neither changes the box's size —
+ * the smaller glyphs of a `<sup>`/`<sub>` come from a separate
+ * `font-size: smaller`, resolved earlier in the cascade.
+ */
+export const SUPERSCRIPT_RAISE_FRACTION = 0.34;
+export const SUBSCRIPT_LOWER_FRACTION = 0.2;
+
+/**
+ * The baseline-aligned block-axis offset for an inline child within a line.
+ * Approximation: parent baseline sits at `lineBlockSize * 0.8`; the child's
+ * own baseline sits at `child.blockSize * 0.8`. Positioning the child so its
+ * baseline coincides with the line's baseline yields this offset. `super`/`sub`
+ * shift relative to THIS baseline position.
+ */
+function baselineBlockOffset(lineBlockSize: number, childBlockSize: number): number {
+  return lineBlockSize * 0.8 - childBlockSize * 0.8;
+}
+
+/**
  * Reposition inline children inside a line according to their `verticalAlign`.
  *
  * The computed block-axis position is a LOGICAL offset relative to the
@@ -1572,11 +1603,15 @@ export function layoutInlineContent(
  * @param containingInlineSize the line's inline-size — i.e. the children's
  *   containing-block inline-size. Required for the factory's physical-x
  *   derivation under RTL.
+ * @param parentFontSize the line's (parent's) used font-size — the `super`/`sub`
+ *   baseline shift is a fraction of THIS, per CSS Inline 3 (not the child's
+ *   font-size, so a `<sup font-size:smaller>` still raises the full amount).
  */
 function applyVerticalAlign(
   children: readonly LayoutBox[],
   lineBlockSize: number,
   containingInlineSize: number,
+  parentFontSize: number,
 ): LayoutBox[] {
   return children.map((c) => {
     const va = c.computedStyle.verticalAlign;
@@ -1591,12 +1626,25 @@ function applyVerticalAlign(
       case "bottom":
         newBlockOffset = lineBlockSize - c.blockSize;
         break;
+      case "super":
+        // Baseline-align, then RAISE by a fraction of the PARENT's font-size
+        // (up = smaller offset). Parent-relative per CSS Inline 3, so a `<sup>`
+        // with `font-size: smaller` still raises by the full amount. Baseline-
+        // only shift: the box keeps its size (no resize here).
+        newBlockOffset =
+          baselineBlockOffset(lineBlockSize, c.blockSize) -
+          parentFontSize * SUPERSCRIPT_RAISE_FRACTION;
+        break;
+      case "sub":
+        // Baseline-align, then LOWER by a fraction of the PARENT's font-size
+        // (down = larger offset).
+        newBlockOffset =
+          baselineBlockOffset(lineBlockSize, c.blockSize) +
+          parentFontSize * SUBSCRIPT_LOWER_FRACTION;
+        break;
       case "baseline":
       default:
-        // Approximation: parent baseline at lineBlockSize * 0.8; child baseline
-        // at child.blockSize * 0.8. Position child so its baseline lines up
-        // with the line's baseline.
-        newBlockOffset = lineBlockSize * 0.8 - c.blockSize * 0.8;
+        newBlockOffset = baselineBlockOffset(lineBlockSize, c.blockSize);
         break;
     }
     if (c.blockOffset === newBlockOffset) return c;
@@ -1686,7 +1734,7 @@ function buildLineWithFragments(
     );
   }
 
-  const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize);
+  const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize, parentCs.fontSize);
   const reordered = reorderLineForBidi(aligned, lineInlineSize);
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
