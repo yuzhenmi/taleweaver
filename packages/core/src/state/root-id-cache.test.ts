@@ -11,7 +11,7 @@ import {
   getTemplateContentIds,
   applyOperation,
 } from "./state";
-import { insertText } from "./insert-text";
+import { insertText } from "./ops/insert-text";
 import { createPosition } from "./block-position";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import {

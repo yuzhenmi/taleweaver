@@ -5,8 +5,8 @@ import {
 } from "./embed-content-cascade";
 import { applyOperation, freshStateFromDoc, getBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
-import { removeBlock } from "./remove-block";
-import { insertText } from "./insert-text";
+import { removeBlock } from "./ops/remove-block";
+import { insertText } from "./ops/insert-text";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
 import {
   buildBlock,

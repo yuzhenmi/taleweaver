@@ -149,41 +149,47 @@ export { extractText, builtinEmbedSerializer } from "./extract-text";
 // OperationResult (new state + dirtyIds). Editor action handlers are the
 // sole external callers; each composes one or more ops then records a
 // single undo entry via History.
+//
+// The op files live in the `ops/` subdirectory (one file per barrel-exposed
+// operation, plus each op's `plan*` / `*InTx` primitives). This barrel is the
+// public op surface; the prose groupings below (inline / structural / attrs /
+// section / template) are the category taxonomy. History and the boot helper
+// stay at the top level (they are not document-mutation ops).
 // ─────────────────────────────────────────────────────────────────────────
 
 // Inline-content edits.
-export { insertText } from "./insert-text";
-export { deleteRange } from "./delete-range";
-export { replaceRange } from "./replace-range";
-export { applyAttrsToRange } from "./apply-attrs";
+export { insertText } from "./ops/insert-text";
+export { deleteRange } from "./ops/delete-range";
+export { replaceRange } from "./ops/replace-range";
+export { applyAttrsToRange } from "./ops/apply-attrs";
 
 // Block-structural edits.
-export { splitBlockAtPosition } from "./split-block";
-export { mergeAdjacentBlocks } from "./merge-blocks";
-export type { InsertBlockArgs } from "./insert-block";
-export { insertBlock } from "./insert-block";
-export type { SiblingBlockInit } from "./insert-blocks-after";
-export { insertBlocksAfter } from "./insert-blocks-after";
-export { removeBlock } from "./remove-block";
+export { splitBlockAtPosition } from "./ops/split-block";
+export { mergeAdjacentBlocks } from "./ops/merge-blocks";
+export type { InsertBlockArgs } from "./ops/insert-block";
+export { insertBlock } from "./ops/insert-block";
+export type { SiblingBlockInit } from "./ops/insert-blocks-after";
+export { insertBlocksAfter } from "./ops/insert-blocks-after";
+export { removeBlock } from "./ops/remove-block";
 
 // Block-attribute + type edits.
-export { setBlockAttrs } from "./set-block-attrs";
-export { mergeBlockAttrs } from "./merge-block-attrs";
-export { setBlockType } from "./set-block-type";
+export { setBlockAttrs } from "./ops/set-block-attrs";
+export { mergeBlockAttrs } from "./ops/merge-block-attrs";
+export { setBlockType } from "./ops/set-block-type";
 
 // Section structure (flat never-nested `section` blocks).
-export { reparentChildren } from "./reparent-children";
-export type { SectionBreakResult } from "./section-break";
-export { applySectionBreak } from "./section-break";
-export { mergeSectionWithPrevious } from "./merge-section";
+export { reparentChildren } from "./ops/reparent-children";
+export type { SectionBreakResult } from "./ops/section-break";
+export { applySectionBreak } from "./ops/section-break";
+export { mergeSectionWithPrevious } from "./ops/merge-section";
 
 // Header/footer template bodies (C.2c). Creates + links a one-paragraph body.
 export type {
   TemplateRegion,
   InsertTemplateBodyArgs,
   InsertTemplateBodyResult,
-} from "./insert-template-body";
-export { insertTemplateBody } from "./insert-template-body";
+} from "./ops/insert-template-body";
+export { insertTemplateBody } from "./ops/insert-template-body";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult } from "./history";
@@ -201,5 +207,5 @@ export { createEmptyDocument } from "./initial-state";
 // `ReparentPlan`) and the paste helper `clonePastedSubtree` / `ClonedSubtree`
 // are deliberately NOT re-exported here. They are state-module-internal: the
 // only intra-core callers (`section-break`, `merge-section`) import them
-// directly from `./reparent-children`, keeping the barrel's public op surface
-// to the supported entry points (`reparentChildren`, `applySectionBreak`).
+// directly from `./ops/reparent-children`, keeping the barrel's public op
+// surface to the supported entry points (`reparentChildren`, `applySectionBreak`).

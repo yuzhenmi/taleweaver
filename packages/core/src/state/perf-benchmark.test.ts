@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createState, getBlock } from "./state";
 import { getBlocksMap, runTransaction } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
-import { setBlockAttrs } from "./set-block-attrs";
+import { setBlockAttrs } from "./ops/set-block-attrs";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
 

@@ -20,11 +20,11 @@
 // The existing per-op suites are the no-regression guard for the main tree.
 
 import { describe, it, expect } from "vitest";
-import { insertText } from "./insert-text";
-import { setBlockAttrs } from "./set-block-attrs";
-import { mergeBlockAttrs } from "./merge-block-attrs";
-import { setBlockType } from "./set-block-type";
-import { applyAttrsToRange } from "./apply-attrs";
+import { insertText } from "./ops/insert-text";
+import { setBlockAttrs } from "./ops/set-block-attrs";
+import { mergeBlockAttrs } from "./ops/merge-block-attrs";
+import { setBlockType } from "./ops/set-block-type";
+import { applyAttrsToRange } from "./ops/apply-attrs";
 import { getBlock, getTemplateContent } from "./state";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockKind, BlockKindResolver } from "./block-kinds";

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory } from "./history";
 import { createEmptyDocument } from "./initial-state";
-import { setBlockAttrs } from "./set-block-attrs";
+import { setBlockAttrs } from "./ops/set-block-attrs";
 import { applyOperation, getBlock } from "./state";
 import { getMetaMap, getTemplateContentsMap, getYBlock } from "./yjs-doc";
 import { createPosition, createSpan } from "./block-position";

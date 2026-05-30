@@ -19,10 +19,10 @@ import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
-import { insertText } from "./insert-text";
-import { applyAttrsToRange } from "./apply-attrs";
-import { deleteRange } from "./delete-range";
-import { replaceRange } from "./replace-range";
+import { insertText } from "./ops/insert-text";
+import { applyAttrsToRange } from "./ops/apply-attrs";
+import { deleteRange } from "./ops/delete-range";
+import { replaceRange } from "./ops/replace-range";
 import { createPosition, createSpan } from "./block-position";
 import { STATE_INTERNAL } from "./state-internal";
 

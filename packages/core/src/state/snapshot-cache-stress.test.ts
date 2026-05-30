@@ -3,7 +3,7 @@ import { createState, getBlock, applyOperation } from "./state";
 import { getBlocksMap } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
-import { setBlockAttrs } from "./set-block-attrs";
+import { setBlockAttrs } from "./ops/set-block-attrs";
 import { STATE_INTERNAL } from "./state-internal";
 
 describe("snapshot cache (stress)", () => {

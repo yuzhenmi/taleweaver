@@ -24,10 +24,10 @@
 // the no-regression guard for the main tree.
 
 import { describe, it, expect } from "vitest";
-import { splitBlockAtPosition } from "./split-block";
-import { mergeAdjacentBlocks } from "./merge-blocks";
-import { deleteRange } from "./delete-range";
-import { replaceRange } from "./replace-range";
+import { splitBlockAtPosition } from "./ops/split-block";
+import { mergeAdjacentBlocks } from "./ops/merge-blocks";
+import { deleteRange } from "./ops/delete-range";
+import { replaceRange } from "./ops/replace-range";
 import { getBlock, getTemplateContent } from "./state";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator } from "./block-id";

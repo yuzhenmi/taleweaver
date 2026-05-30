@@ -729,7 +729,7 @@ describe("render (incremental — R-D)", () => {
 
     // Mutate only p2 via a state-module operation. Use insertText
     // (Layer 3) so we get a real dirtyIds set.
-    const { insertText } = await import("../state/insert-text");
+    const { insertText } = await import("../state/ops/insert-text");
     const { createPosition } = await import("../state/block-position");
     const { productionAllocator: _alloc } = await import("../state/block-id");
     const r = insertText(state1, createPosition("p2" as BlockId, 0), "X", {});
@@ -774,7 +774,7 @@ describe("render (incremental — R-D)", () => {
     const state1 = threeParagraphState();
     const prev = render(state1, reg, attrs);
 
-    const { insertText } = await import("../state/insert-text");
+    const { insertText } = await import("../state/ops/insert-text");
     const { createPosition } = await import("../state/block-position");
     const r = insertText(state1, createPosition("p2" as BlockId, 0), "X", {});
 
@@ -824,7 +824,7 @@ describe("render (incremental — R-D)", () => {
     const state1 = threeParagraphState();
     const prev = render(state1, reg, attrs);
 
-    const { removeBlock } = await import("../state/remove-block");
+    const { removeBlock } = await import("../state/ops/remove-block");
     // Remove the MIDDLE child p2.
     const { state: state2, dirtyIds } = removeBlock(state1, "p2" as BlockId);
 
