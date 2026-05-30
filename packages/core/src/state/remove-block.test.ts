@@ -278,45 +278,10 @@ describe("removeBlock — cascade-delete embed-content references", () => {
     expect(result.dirtyIds.has("inner" as BlockId)).toBe(true);
   });
 
-  // BUG (#363 follow-up): the cascade is over-eager when multiple anchors share
-  // a body. Removing p1 cascade-deletes "shared", leaving p2's anchor dangling.
-  // The dev-mode `assertNoOrphanedEmbedContent` invariant catches this on the
-  // first removeBlock call. Behaviour needs to either refcount the body (delete
-  // only when no other anchor references it) or rewrite the surviving anchors.
-  // Tracking this as a separate task; for now the test pins the current
-  // (catch-the-bug) behaviour: the first removal throws via the dev invariant.
-  it("BUG: removing one anchor when a shared body has another anchor leaves a dangling reference (caught by dev invariant)", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({
-          id: "p1",
-          type: "paragraph",
-          parentId: "doc",
-          nextSiblingId: "p2",
-          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "shared" })]),
-        }),
-        buildBlock({
-          id: "p2",
-          type: "paragraph",
-          parentId: "doc",
-          prevSiblingId: "p1",
-          inlineContent: inlineContent([embed("fn-anchor", { contentBlockId: "shared" })]),
-        }),
-      ],
-      embedContents: [
-        buildBlock({
-          id: "shared",
-          type: "fn-body",
-          inlineContent: inlineContent([text("body")]),
-        }),
-      ],
-    });
-    // The dev-mode invariant catches the orphan p2 → "shared" created by
-    // cascade-deleting "shared" while p2 still references it.
-    expect(() => removeBlock(state, "p1" as BlockId)).toThrow(
-      /assertNoOrphanedEmbedContent.+missing embedContent root "shared"/,
-    );
-  });
+  // Sharing of an embedContent body across two anchors is unsupported by design
+  // (see docs/superpowers/specs/2026-05-30-367-shared-embedcontent-decision.md).
+  // The dev invariant that catches it — `assertNoSharedEmbedContent` — is tested
+  // in embed-content-cascade.test.ts. Under the no-sharing model the
+  // unconditional cascade-delete in removeBlock is correct, so removeBlock has
+  // no special-case behaviour to pin here.
 });

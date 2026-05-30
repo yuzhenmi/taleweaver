@@ -219,6 +219,179 @@ function assertNoOrphansInInlineContent(
 }
 
 /**
+ * Dev-mode invariant assertion (paired with `isDevMode()` at the call
+ * site): check that no embedContent root is referenced by more than one
+ * `EmbedItem.properties.contentBlockId` anchor — i.e. every embedContent
+ * body has EXACTLY ONE owning anchor.
+ *
+ * This is the SECOND half of the one-to-one mapping between anchors and
+ * bodies. `assertNoOrphanedEmbedContent` catches the "zero owners" case
+ * (a reference that resolves to nothing); this catches the "two-plus
+ * owners" case (sharing). Together they establish: every embedContent root
+ * has exactly one anchor.
+ *
+ * Sharing is unsupported by design (see
+ * `docs/superpowers/specs/2026-05-30-367-shared-embedcontent-decision.md`):
+ * Word and Google Docs both follow the "each anchor owns its own body"
+ * model, and the cascade-delete in `removeBlock` / `deleteRange` is
+ * unconditional under that model. Copy-paste remaps every `contentBlockId`
+ * to a fresh body via `clonePastedSubtree`, so no production path produces
+ * sharing; this assertion turns a latent data-model hole into a loud throw.
+ *
+ * On the first violation, throws an `Error` whose message includes:
+ *   - `opName`, identifying which op produced the bad state;
+ *   - the shared `contentBlockId` value;
+ *   - BOTH owning block ids that reference it.
+ *
+ * Scope-down (asymmetric with the orphan check). When `dirtyIds` is
+ * provided, the full sweep runs ONLY IF at least one dirty block currently
+ * carries an `EmbedItem` with a string `contentBlockId`. Rationale: by
+ * induction the pre-state was sharing-free, so a new duplicate can only be
+ * introduced by a dirty block that wrote an embed reference. A
+ * newly-pointed ref could duplicate an EXISTING ref in a non-dirty block,
+ * so once a dirty block does carry such a ref the sweep must be global (not
+ * just the dirty blocks). Deletions need NO sweep at all — removing inline
+ * refs can never create duplicates — which is exactly the opposite of the
+ * orphan check, where deletions are the case that forces a full scan.
+ * When `dirtyIds` is omitted (direct callers, tests), always do the full
+ * sweep.
+ *
+ * Traversal mirrors the orphan check: each tree's Y.Map keys iterated
+ * directly, each block resolved via the snapshot accessor, accumulating
+ * `contentBlockId -> owning block id` into a shared `Map`. Y.Map-key
+ * iteration is implicitly cycle-safe (each block appears once in its owning
+ * map). Cost is dev-mode only — guarded by `isDevMode()` at the single
+ * production call site inside `applyOperation`.
+ */
+export function assertNoSharedEmbedContent(
+  state: State,
+  opName: string,
+  dirtyIds?: ReadonlySet<BlockId>,
+): void {
+  if (dirtyIds !== undefined && !anyDirtyBlockHasEmbedRef(state, dirtyIds)) {
+    // No dirty block introduced or modified an embed-with-contentBlockId, so
+    // the op cannot have created a new duplicate. Skip the full sweep.
+    return;
+  }
+  fullScanForSharing(state, opName);
+}
+
+/**
+ * Return true if any id in `dirtyIds` resolves to a block whose inline
+ * content holds an `EmbedItem` with a string `contentBlockId`. Used by the
+ * sharing check's scope-down: only an embed-touching dirty block can
+ * introduce a new duplicate reference, so a negative result lets us skip
+ * the global sweep entirely (typing, attr-only, structural, and all
+ * deletion ops short-circuit here).
+ */
+function anyDirtyBlockHasEmbedRef(
+  state: State,
+  dirtyIds: ReadonlySet<BlockId>,
+): boolean {
+  for (const id of dirtyIds) {
+    const block =
+      getBlock(state, id) ??
+      getEmbedContent(state, id) ??
+      getTemplateContent(state, id);
+    if (block === null) continue;
+    const content = block.inlineContent;
+    if (content === null) continue;
+    if (inlineContentHasEmbedRef(content)) return true;
+  }
+  return false;
+}
+
+/**
+ * True if `content` holds at least one `EmbedItem` with a string-typed
+ * `contentBlockId` (the reference-typed embeds the sharing invariant
+ * covers).
+ */
+function inlineContentHasEmbedRef(content: InlineContent): boolean {
+  for (const item of content.items) {
+    if (item.kind !== "embed") continue;
+    if (typeof item.properties.contentBlockId === "string") return true;
+  }
+  return false;
+}
+
+/**
+ * Walk every block in all three top-level Y.Maps, accumulating each
+ * `EmbedItem.properties.contentBlockId` reference into a shared
+ * `Map<contentBlockId, owningBlockId>`. Throws on the first contentBlockId
+ * that is already a key (a second owning anchor).
+ */
+function fullScanForSharing(state: State, opName: string): void {
+  const doc = state[STATE_INTERNAL].doc;
+  const [mainMap, embedMap, templateMap] = getTreeMaps(doc);
+  const seenRefs = new Map<BlockId, BlockId>();
+  iterateMapForSharing(mainMap, (id) => getBlock(state, id), seenRefs, opName);
+  iterateMapForSharing(
+    embedMap,
+    (id) => getEmbedContent(state, id),
+    seenRefs,
+    opName,
+  );
+  iterateMapForSharing(
+    templateMap,
+    (id) => getTemplateContent(state, id),
+    seenRefs,
+    opName,
+  );
+}
+
+/**
+ * Iterate every block id present in `map` and, for each block whose
+ * `inlineContent` is non-null, fold its EmbedItem references into
+ * `seenRefs`, throwing on the first duplicate.
+ */
+function iterateMapForSharing(
+  map: { keys(): IterableIterator<string> },
+  resolve: (id: BlockId) => { inlineContent: InlineContent | null } | null,
+  seenRefs: Map<BlockId, BlockId>,
+  opName: string,
+): void {
+  for (const key of map.keys()) {
+    const id = key as BlockId;
+    const block = resolve(id);
+    if (block === null) continue;
+    const content = block.inlineContent;
+    if (content === null) continue;
+    accumulateSharingInInlineContent(id, content, seenRefs, opName);
+  }
+}
+
+/**
+ * Fold a block's EmbedItem `contentBlockId` references into `seenRefs`.
+ * Non-string `contentBlockId` values (undefined, null, numbers) are skipped
+ * — the invariant only covers reference-typed embed properties. Throws on
+ * the first contentBlockId that already has an owning anchor recorded.
+ */
+function accumulateSharingInInlineContent(
+  owningBlockId: BlockId,
+  content: InlineContent,
+  seenRefs: Map<BlockId, BlockId>,
+  opName: string,
+): void {
+  for (const item of content.items) {
+    if (item.kind !== "embed") continue;
+    const cbId = item.properties.contentBlockId;
+    if (typeof cbId !== "string") continue;
+    const cbBlockId = cbId as BlockId;
+    const prevOwner = seenRefs.get(cbBlockId);
+    if (prevOwner !== undefined) {
+      throw new Error(
+        `assertNoSharedEmbedContent (op: "${opName}"): embedContent root ` +
+          `"${cbId}" is referenced by multiple anchors (blocks "${prevOwner}" ` +
+          `and "${owningBlockId}"). Shared embedContent bodies are not ` +
+          `supported; copy-paste should remap contentBlockId via ` +
+          `clonePastedSubtree.`,
+      );
+    }
+    seenRefs.set(cbBlockId, owningBlockId);
+  }
+}
+
+/**
  * Walk an InlineContent for `EmbedItem.properties.contentBlockId`
  * references and collect each referenced embed-content subtree into
  * `out` via `collectEmbedContentSubtree`.

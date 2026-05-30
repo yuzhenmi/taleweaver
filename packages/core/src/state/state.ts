@@ -23,7 +23,10 @@ import {
 } from "./snapshot";
 import { STATE_INTERNAL } from "./state-internal";
 import { isDevMode } from "./dev-mode";
-import { assertNoOrphanedEmbedContent } from "./embed-content-cascade";
+import {
+  assertNoOrphanedEmbedContent,
+  assertNoSharedEmbedContent,
+} from "./embed-content-cascade";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -377,6 +380,13 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
   // unless a dirty id was deleted (could be a body deletion → full scan).
   if (isDevMode()) {
     assertNoOrphanedEmbedContent(newState, "applyOperation", dirtyIds);
+    // Companion invariant: every embedContent root has at most ONE owning
+    // anchor (the orphan check above covers the "at least one" direction).
+    // Together they pin the 1:1 anchor<->body mapping. Sharing is unsupported
+    // by design; copy-paste remaps contentBlockId via clonePastedSubtree. The
+    // sharing check's scope-down only sweeps when a dirty block introduced an
+    // embed reference (deletions/typing pay nothing).
+    assertNoSharedEmbedContent(newState, "applyOperation", dirtyIds);
   }
   return { state: newState, dirtyIds };
 }
