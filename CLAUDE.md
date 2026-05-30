@@ -20,6 +20,28 @@ The engine renders rich text documents — multi-page, multi-script, faithfully 
 
 **Quality bar:** match Google Docs in feature behavior. Performance target: O(1) per keystroke and per cursor-move regardless of document size.
 
+**We are NOT building an MVP. We are building a Google Docs-equivalent.**
+This overrides every instinct to ship a reduced first version of anything.
+There is no "v1 that handles the common case" for an in-scope feature: when a
+feature is built, it is built to Google Docs parity — including the hard cases
+(footnote bodies that split across pages, RTL, restart-numbering, long-document
+performance, etc.). A feature that handles the 95% case and degrades on the rest
+is NOT done.
+
+Phasing is allowed ONLY across whole features (build footnotes before tables),
+NEVER within a feature (do not ship footnotes-that-cannot-split and call
+splitting a "fast-follow"). "Foundations before features" (first principle 1) is
+about LAYER and FEATURE ordering — it never licenses a deliberately-weakened
+version of a feature you are actively building. If a feature's correct behavior
+needs a foundation that doesn't exist yet, build that foundation first or don't
+start the feature; do not ship the feature degraded.
+
+When you catch yourself proposing "simplest MVP", "v1 handles the common case",
+"assume X fits", "good enough for now", or "fast-follow for the hard part" —
+STOP. That is the exact anti-pattern this rule exists to prevent. The only
+acceptable scoping question is "which whole feature next," never "how much of
+this feature."
+
 ## Durability rule (load-bearing)
 
 **Roadmap-level and scope decisions must be committed to a spec or plan doc before continuing past the decision. Chat is not durable.**
