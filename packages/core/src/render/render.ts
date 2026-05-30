@@ -1,4 +1,4 @@
-import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, resolveBlock } from "../state";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, resolveBlock, FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
 import type { Block, BlockId, State, ReadonlyAttrs, InlineContent } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
@@ -6,6 +6,13 @@ import { composeComputed } from "../cascade/compose";
 import { flattenLengths } from "../cascade/flatten-lengths";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
+import {
+  collectFootnoteAnchors,
+  footnoteNumbers,
+  type FootnoteAnchorRef,
+  type FootnoteNumber,
+  type FootnoteNumberingPolicy,
+} from "../footnotes";
 import type {
   BlockView,
   ContainerBlockView,
@@ -14,6 +21,40 @@ import type {
 } from "./block-view";
 import type { RenderNode } from "./render-node";
 import { createTextBox, createElementBox } from "./render-node";
+import { buildFootnoteMarker } from "./footnote-marker";
+
+/**
+ * FN-2: the document-level default footnote numbering policy — the Google Docs
+ * default (a single continuous decimal sequence in document order). The
+ * per-document / user-changeable policy SOURCE is a later task (FN-6 adds the
+ * layout-dependent restart-per-page policy; the policy setting itself is wired
+ * with the editor toolbar work); render uses the default until then.
+ */
+const DEFAULT_FOOTNOTE_NUMBERING_POLICY: FootnoteNumberingPolicy = {
+  reset: "continuous",
+  format: "decimal",
+};
+
+/**
+ * Compute the footnote numbering map for `state` once per render cycle — one
+ * `collectFootnoteAnchors` walk + one `footnoteNumbers` pass, keyed by each
+ * anchor's `contentBlockId`. Threaded into the inline expansion so the
+ * footnote-anchor marker looks up its number by id (no per-embed re-walk).
+ *
+ * Perf (FN-8): recomputed every cycle (correctness first — FN-2). The
+ * `collectFootnoteAnchors` WALK is O(N_blocks) regardless of footnote count;
+ * only the downstream `footnoteNumbers` map-build is O(|anchors|) (so a
+ * footnote-free doc builds an empty map but still pays the one walk). The
+ * incremental path collects anchors ONCE and skips this entirely for the
+ * prevState when the new state is footnote-free. Caching the walk across cycles
+ * is FN-8; do not prematurely optimize here.
+ */
+function computeFootnoteNumbers(state: State): ReadonlyMap<BlockId, FootnoteNumber> {
+  return footnoteNumbers(
+    collectFootnoteAnchors(state),
+    DEFAULT_FOOTNOTE_NUMBERING_POLICY,
+  );
+}
 
 /**
  * Output of the new renderer. `root` is the main document's RenderNode tree;
@@ -121,6 +162,9 @@ export function render(
       throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
     },
   };
+  // FN-2: compute the footnote numbering map once for this render cycle and
+  // thread it down so the footnote-anchor marker renders its number by id.
+  const fnNumbers = computeFootnoteNumbers(state);
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -135,6 +179,7 @@ export function render(
     attrRegistry,
     context,
     visited,
+    fnNumbers,
   );
   const embedContents = new Map<BlockId, RenderNode>();
   for (const id of getEmbedContentIds(state)) {
@@ -160,6 +205,7 @@ export function render(
         attrRegistry,
         context,
         visitedEmbed,
+        fnNumbers,
       ),
     );
   }
@@ -183,6 +229,7 @@ export function render(
         attrRegistry,
         context,
         visitedTemplate,
+        fnNumbers,
       ),
     );
   }
@@ -223,6 +270,7 @@ function renderBlock(
   attrRegistry: AttrRegistry,
   context: RenderContext,
   visited: Set<BlockId>,
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderNode {
   if (visited.has(block.id)) {
     throw new Error(`render: cycle detected at block "${block.id}"`);
@@ -270,6 +318,7 @@ function renderBlock(
             attrRegistry,
             context,
             visited,
+            fnNumbers,
           ),
         );
         childId = child.nextSiblingId;
@@ -295,7 +344,7 @@ function renderBlock(
     // components can't accidentally consume the sentinel.
     const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
       ? []
-      : expandInlineItems(block.id, inline, specified, attrRegistry);
+      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers);
     return def.render(view, context, inlineRenderNodes);
   } finally {
     // A2: visited tracks the ACTIVE recursion path, not the cumulative
@@ -356,6 +405,7 @@ function expandInlineItems(
   content: InlineContent,
   blockSpecified: Partial<Style>,
   attrRegistry: AttrRegistry,
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderNode[] {
   const out: RenderNode[] = [];
   let i = 0;
@@ -367,6 +417,25 @@ function expandInlineItems(
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
       out.push(createTextBox(key, itemStyle, item.text));
+    } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
+      // FN-2: a footnote-anchor embed renders as the superscript call marker
+      // (a small, raised number) instead of the invisible zero-width embed
+      // box. Its number comes from the FN-3 numbering map, keyed by the
+      // anchor's `properties.contentBlockId`. The marker is still ONE
+      // inline-block = exactly one cursor stop (the IFC emits one atomic token
+      // per inline-block regardless of its children), so the state-model
+      // offset accounting is unchanged from a plain embed.
+      const contentBlockId = item.properties.contentBlockId;
+      const formatted =
+        typeof contentBlockId === "string"
+          ? fnNumbers.get(contentBlockId as BlockId)?.formatted
+          : undefined;
+      out.push(
+        buildFootnoteMarker(key, itemStyle, formatted, {
+          embedType: item.embedType,
+          ...item.properties,
+        }),
+      );
     } else {
       // InlineItem narrows to EmbedItem here.
       //
@@ -451,7 +520,38 @@ function renderIncremental(
   // downstream consumers (cascade, layout, paint) can skip work too.
   if (dirtyIds.size === 0) return prev;
 
+  // FN-2: the footnote numbering map for THIS cycle, and the prior cycle's.
+  // A footnote inserted/deleted/reordered renumbers DOWNSTREAM anchors whose
+  // own blocks are NOT in `dirtyIds` (only the edited anchor's block is). Those
+  // downstream anchor blocks carry a now-stale marker number in their cached
+  // RenderNode, so they must be invalidated even though their content didn't
+  // change. `footnoteRenumberedBlocks` finds exactly those blocks by diffing
+  // the two numbering maps; they are folded into the invalidation set below.
+  // (FN-8 will make this incremental rather than a full re-diff per cycle.)
+  // Collect the new state's footnote anchors ONCE (one O(N_blocks) walk) and
+  // reuse the list for both the numbering map AND the renumber diff — avoid a
+  // second walk per keystroke.
+  const fnAnchors = collectFootnoteAnchors(state);
+  const fnNumbers = footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY);
+
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
+  // The renumber diff only matters when the NEW state has footnotes: an empty
+  // anchor list means no markers exist to carry a stale number. So for a
+  // footnote-free document we skip the prevState walk + diff entirely — the
+  // common case pays nothing here (the FN-8 incremental work tightens the
+  // footnote-bearing case further).
+  if (fnAnchors.length > 0) {
+    const prevFnNumbers = computeFootnoteNumbers(prevState);
+    for (const id of footnoteRenumberedBlocks(fnAnchors, fnNumbers, prevFnNumbers)) {
+      if (!invalidated.has(id)) {
+        // The renumbered anchor's block needs a fresh marker; invalidating its
+        // ancestors too (so the parent's children array is rebuilt with the new
+        // marker node) mirrors `computeInvalidatedBlocks`'s ancestor walk.
+        invalidated.add(id);
+        addAncestorsToInvalidated(state, prevState, id, invalidated);
+      }
+    }
+  }
   // Index the main tree PLUS every prev embed-content and template-content
   // body tree into ONE combined map, so a dirty body re-rendered via
   // renderBlockIncremental can reuse its UNCHANGED children by reference.
@@ -505,6 +605,7 @@ function renderIncremental(
     visited,
     invalidated,
     prevByKey,
+    fnNumbers,
   );
 
   // Embed contents: reuse prev's RenderNode unless the embed's source
@@ -533,6 +634,7 @@ function renderIncremental(
         embedVisited,
         invalidated,
         prevByKey,
+        fnNumbers,
       ),
     );
   }
@@ -563,6 +665,7 @@ function renderIncremental(
         templateVisited,
         invalidated,
         prevByKey,
+        fnNumbers,
       ),
     );
   }
@@ -588,6 +691,7 @@ function renderBlockIncremental(
   visited: Set<BlockId>,
   invalidated: ReadonlySet<BlockId>,
   prevByKey: ReadonlyMap<string, RenderNode>,
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderNode {
   if (!invalidated.has(block.id)) {
     const cached = prevByKey.get(block.id);
@@ -655,6 +759,7 @@ function renderBlockIncremental(
             visited,
             invalidated,
             prevByKey,
+            fnNumbers,
           ),
         );
         childId = child.nextSiblingId;
@@ -673,7 +778,7 @@ function renderBlockIncremental(
     });
     const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
       ? []
-      : expandInlineItems(block.id, inline, specified, attrRegistry);
+      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers);
     return def.render(view, context, inlineRenderNodes);
   } finally {
     visited.delete(block.id);
@@ -703,24 +808,68 @@ function computeInvalidatedBlocks(
   const invalidated = new Set<BlockId>();
   for (const id of dirtyIds) {
     invalidated.add(id);
-    // Ancestors via parentId chain. resolveBlock (main → embed → template)
-    // so the walk climbs THROUGH a container body nested in
-    // embedContents/templateContents and reaches the body root — main-tree
-    // behavior is byte-identical (resolveBlock's first arm is getBlock).
-    let cursor: BlockId = id;
-    while (true) {
-      const block =
-        resolveBlock(state, cursor)?.block ?? resolveBlock(prevState, cursor)?.block ?? null;
-      if (block === null || block.parentId === null) break;
-      const parentId = block.parentId;
-      if (invalidated.has(parentId)) break;
-      invalidated.add(parentId);
-      cursor = parentId;
-    }
+    // Ancestors via parentId chain.
+    addAncestorsToInvalidated(state, prevState, id, invalidated);
     // Descendants in new state.
     addDescendantsToInvalidated(state, id, invalidated);
   }
   return invalidated;
+}
+
+/**
+ * Add every ancestor of `id` (via the parentId chain) to `out`, stopping at
+ * the first already-present ancestor (the chain above it is already covered).
+ *
+ * resolveBlock (main → embed → template) so the walk climbs THROUGH a
+ * container body nested in embedContents/templateContents and reaches the body
+ * root — main-tree behavior is byte-identical (resolveBlock's first arm is
+ * getBlock). Falls back to OLD state for a removed block so a deleted block's
+ * parent is still invalidated.
+ */
+function addAncestorsToInvalidated(
+  state: State,
+  prevState: State,
+  id: BlockId,
+  out: Set<BlockId>,
+): void {
+  let cursor: BlockId = id;
+  while (true) {
+    const block =
+      resolveBlock(state, cursor)?.block ?? resolveBlock(prevState, cursor)?.block ?? null;
+    if (block === null || block.parentId === null) break;
+    const parentId = block.parentId;
+    if (out.has(parentId)) break;
+    out.add(parentId);
+    cursor = parentId;
+  }
+}
+
+/**
+ * FN-2: blocks whose footnote-anchor marker number changed between the prior
+ * render cycle and this one — i.e. blocks carrying an anchor whose
+ * `formatted` differs (or is newly present / absent) across the two numbering
+ * maps. These blocks render a stale number if their cached RenderNode is
+ * reused, so they must be re-rendered even when their own content is unchanged.
+ *
+ * Takes the NEW state's already-collected anchors (the markers we're about to
+ * render — collected once by the caller, NOT re-walked here) and compares each
+ * anchor's number to the prior map. A deleted anchor's block is already covered
+ * by `dirtyIds` (the delete dirties that block), so absent-now anchors need no
+ * special handling here. The caller only invokes this when `anchors` is
+ * non-empty (footnote-free documents skip it entirely).
+ */
+function footnoteRenumberedBlocks(
+  anchors: readonly FootnoteAnchorRef[],
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  prevFnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+): Set<BlockId> {
+  const out = new Set<BlockId>();
+  for (const anchor of anchors) {
+    const now = fnNumbers.get(anchor.contentBlockId)?.formatted;
+    const before = prevFnNumbers.get(anchor.contentBlockId)?.formatted;
+    if (now !== before) out.add(anchor.blockId);
+  }
+  return out;
 }
 
 function addDescendantsToInvalidated(
