@@ -9,6 +9,7 @@ import type { ComponentRegistry } from "../components/component-registry";
 import {
   collectFootnoteAnchors,
   footnoteNumbers,
+  documentFootnotePolicy,
   EMPTY_FOOTNOTE_ANCHORS,
   type FootnoteAnchorRef,
   type FootnoteNumber,
@@ -25,16 +26,27 @@ import { createTextBox, createElementBox } from "./render-node";
 import { buildFootnoteMarker } from "./footnote-marker";
 
 /**
- * FN-2: the document-level default footnote numbering policy — the Google Docs
- * default (a single continuous decimal sequence in document order). The
- * per-document / user-changeable policy SOURCE is a later task (FN-6 adds the
- * layout-dependent restart-per-page policy; the policy setting itself is wired
- * with the editor toolbar work); render uses the default until then.
+ * FN-6.3: the EFFECTIVE footnote numbering policy for the RENDER pass. Reads the
+ * document-level policy from the root block's raw attrs (`documentFootnotePolicy`
+ * — the Google Docs default `{ continuous, decimal }` when unset/invalid), then
+ * applies one render-only adjustment:
+ *
+ * **restart-per-page falls back to continuous here.** `restart-per-page`
+ * numbering depends on which page each footnote lands on, which is only known
+ * AFTER the `resolveFootnotes` layout pass (FN-4/FN-6.4). The render pass has no
+ * `pageAssignment`, and `footnoteNumbers` THROWS for `restart-per-page` without
+ * one. Substituting `continuous` renders a valid (if not yet per-page) sequence
+ * instead of crashing. This is the documented FN-6.3 → FN-6.4 phasing: FN-6.3
+ * lands the policy infrastructure; FN-6.4's two-pass cycle feeds per-page numbers
+ * from `resolveFootnotes` into the markers. Continuous and restart-per-section are
+ * state-derivable and pass through unchanged.
  */
-const DEFAULT_FOOTNOTE_NUMBERING_POLICY: FootnoteNumberingPolicy = {
-  reset: "continuous",
-  format: "decimal",
-};
+function effectiveRenderPolicy(state: State): FootnoteNumberingPolicy {
+  const policy = documentFootnotePolicy(state);
+  return policy.reset === "restart-per-page"
+    ? { ...policy, reset: "continuous" }
+    : policy;
+}
 
 /**
  * The block `type` that opens a section (flat children of the document root).
@@ -205,7 +217,7 @@ export function render(
     ? collectFootnoteAnchors(state)
     : EMPTY_FOOTNOTE_ANCHORS;
   const fnNumbers = fnAnchors.length > 0
-    ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
+    ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
     : EMPTY_FOOTNOTE_NUMBERS;
   // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
   // through a per-block view cache. Throwing rather than returning
@@ -601,13 +613,17 @@ function renderIncremental(
   // new-or-prev inline content for an anchor (plus the section guard) is a
   // complete test (`footnoteAnchorsUnchanged`).
   //
-  // When anchors are reused, the numbering map is reused verbatim: the default
-  // continuous policy is a pure function of the anchor list, so unchanged
-  // anchors ⇒ unchanged numbers — the per-cycle renumber diff is skipped too.
-  // (Restart-per-page numbering, FN-6.4, is NOT yet wired into render; once it
-  // is, layout-dependent numbers can shift WITHOUT any anchor change — that
-  // policy must NOT reuse numbers blindly. Today only the state-derivable
-  // continuous policy reaches here, so the reuse is valid.)
+  // When anchors are reused, the numbering map is reused verbatim: the
+  // state-derivable policies (continuous / restart-per-section) are pure
+  // functions of the anchor list, so unchanged anchors ⇒ unchanged numbers —
+  // the per-cycle renumber diff is skipped too. FN-6.3: a policy CHANGE dirties
+  // the root block, and `footnoteAnchorsUnchanged` returns false when the root
+  // is dirty (`dirtyIds.has(state.rootId)`), so a policy edit forces a
+  // recompute under the new policy rather than reusing stale numbers.
+  // (Restart-per-page numbering, FN-6.4, is NOT yet wired into render — it
+  // falls back to continuous via `effectiveRenderPolicy`; once FN-6.4's two-pass
+  // cycle supplies per-page numbers, layout-dependent numbers can shift WITHOUT
+  // any anchor change, and that policy must NOT reuse numbers blindly.)
   const reuseAnchors = footnoteAnchorsUnchanged(state, prevState, dirtyIds, prev);
   const fnAnchors = reuseAnchors
     ? prev.footnoteAnchors
@@ -617,7 +633,7 @@ function renderIncremental(
   const fnNumbers = reuseAnchors
     ? prev.footnoteNumbers
     : fnAnchors.length > 0
-      ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
+      ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
       : EMPTY_FOOTNOTE_NUMBERS;
 
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
@@ -793,6 +809,12 @@ function footnoteAnchorsUnchanged(
   // this is true on any normal `prev`; the check doubles as the guard that we
   // have a list to reuse before scanning the dirty set.
   if (prev.footnoteAnchors.length === 0) return false;
+  // FN-6.3: the numbering map also depends on the DOCUMENT-LEVEL policy, which
+  // lives in the ROOT block's raw attrs (read by `documentFootnotePolicy`). A
+  // policy change dirties the root but touches no anchor-bearing or section
+  // block, so the per-block scan below would NOT catch it — reusing the stale
+  // numbers. Force a recompute whenever the policy-bearing root is dirty (O(1)).
+  if (dirtyIds.has(state.rootId)) return false;
   for (const id of dirtyIds) {
     if (blockIsSection(state, id) || blockIsSection(prevState, id)) return false;
     if (
