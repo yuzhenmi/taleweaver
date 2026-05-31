@@ -9,7 +9,7 @@ import { createMockShaper } from "../layout/mock-shaper";
 import { makeRootContext } from "../layout/layout-context";
 import { buildLayoutBoxCacheFromTree } from "../layout/layout-reuse";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
-import type { LayoutBox } from "../layout/layout-box-v2";
+import type { LayoutBox } from "../layout/layout-box";
 
 const shaper = createMockShaper(10, 16);
 

@@ -30,7 +30,7 @@ import {
   type BlockId,
 } from "../../index";
 import type { PageBox } from "../../layout/page-box";
-import type { LayoutBox } from "../../layout/layout-box-v2";
+import type { LayoutBox } from "../../layout/layout-box";
 import {
   buildState,
   buildBlock,

@@ -14,7 +14,7 @@ import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { makeRootContext, makeChildContext } from "../layout/layout-context";
 import { createMockShaper } from "../layout/mock-shaper";
-import type { BlockBox, LayoutBox } from "../layout/layout-box-v2";
+import type { BlockBox, LayoutBox } from "../layout/layout-box";
 
 /**
  * A RenderContext the footnote-body render fn reads ONLY `footnoteNumber` from

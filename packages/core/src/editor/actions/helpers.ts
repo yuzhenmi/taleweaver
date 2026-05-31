@@ -5,7 +5,7 @@ import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import type { ElementBox, RenderNode } from "../../render/render-node";
-import type { LayoutBox } from "../../layout/layout-box-v2";
+import type { LayoutBox } from "../../layout/layout-box";
 import type { VirtualLayoutTree } from "../../layout/virtual-layout-tree";
 import {
   documentFootnotePolicy,

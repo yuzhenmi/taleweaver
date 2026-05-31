@@ -31,7 +31,7 @@ import {
   type BlockId,
 } from "../../index";
 import type { PageBox } from "../../layout/page-box";
-import type { LayoutBox } from "../../layout/layout-box-v2";
+import type { LayoutBox } from "../../layout/layout-box";
 
 // Mock shaper: line height 16, char width 8. Page block-size 64, 0 margins ⇒
 // 4 one-line paragraphs fit per page. A 2-paragraph leading section thus leaves

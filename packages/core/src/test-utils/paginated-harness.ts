@@ -5,7 +5,7 @@ import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
-import type { BlockBox, LayoutBox } from "../layout/layout-box-v2";
+import type { BlockBox, LayoutBox } from "../layout/layout-box";
 import type { PageBox } from "../layout/page-box";
 
 export interface PaginatedHarnessResult {

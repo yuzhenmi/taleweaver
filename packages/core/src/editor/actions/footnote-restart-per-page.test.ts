@@ -26,7 +26,7 @@ import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
 import type { PageConfig } from "../../layout/page-config";
 import type { ElementBox } from "../../render/render-node";
-import type { LayoutBox, PageBox } from "../../layout/layout-box-v2";
+import type { LayoutBox, PageBox } from "../../layout/layout-box";
 import type { VirtualLayoutTree } from "../../layout/virtual-layout-tree";
 import {
   buildState,

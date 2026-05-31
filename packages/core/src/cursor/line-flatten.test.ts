@@ -7,7 +7,7 @@ import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { computeUsedStyle } from "../layout/used-style";
-import { createLineBox, createTextRunBox } from "../layout/layout-box-v2";
+import { createLineBox, createTextRunBox } from "../layout/layout-box";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state";
 import type { BlockId } from "../state";

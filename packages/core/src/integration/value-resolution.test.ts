@@ -17,7 +17,7 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "../layout/mock-shaper";
-import type { LayoutBox } from "../layout/layout-box-v2";
+import type { LayoutBox } from "../layout/layout-box";
 
 const shaper = createMockShaper(10, 16);
 
