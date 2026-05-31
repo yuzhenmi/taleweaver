@@ -91,5 +91,14 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   // formatting from the selection.
   if (mod && key === "\\") return { type: "CLEAR_FORMATTING" };
 
+  // Paragraph alignment (Google Docs: Ctrl+Shift+L/E/R/J). `align` is LOGICAL:
+  // L → start, R → end (matches Google Docs' physical L/R in LTR; mirrors under
+  // RTL, which is the correct logical behavior). The shifted `key` is already
+  // lowercased by the normalization above, so "L" → "l" matches.
+  if (mod && shiftKey && key === "l") return { type: "SET_TEXT_ALIGN", align: "start" };
+  if (mod && shiftKey && key === "e") return { type: "SET_TEXT_ALIGN", align: "center" };
+  if (mod && shiftKey && key === "r") return { type: "SET_TEXT_ALIGN", align: "end" };
+  if (mod && shiftKey && key === "j") return { type: "SET_TEXT_ALIGN", align: "justify" };
+
   return null;
 }

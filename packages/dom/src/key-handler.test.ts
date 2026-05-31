@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapKeyEvent, type EditorAction } from "./key-handler";
+import { mapKeyEvent } from "./key-handler";
 
 function key(overrides: {
   key: string;
@@ -102,6 +102,30 @@ describe("mapKeyEvent", () => {
     expect(
       mapKeyEvent(key({ key: "X", metaKey: true, shiftKey: true })),
     ).toEqual({ type: "TOGGLE_STYLE", style: "strikethrough" });
+  });
+
+  it("maps the real-browser uppercase Ctrl+Shift+L/E/R/J to alignment", () => {
+    // Browser sends the uppercase letter when Shift is held; the chord must
+    // still fire after normalization. `align` is logical (L→start, R→end).
+    expect(
+      mapKeyEvent(key({ key: "L", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "start" });
+    expect(
+      mapKeyEvent(key({ key: "E", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "center" });
+    expect(
+      mapKeyEvent(key({ key: "R", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "end" });
+    expect(
+      mapKeyEvent(key({ key: "J", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "justify" });
+  });
+
+  it("does not map the alignment letters without the modifier+shift", () => {
+    // Bare/Shift-only/mod-only must NOT trigger alignment (would clobber typing).
+    expect(mapKeyEvent(key({ key: "l" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "L", shiftKey: true }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "j", ctrlKey: true }))).toBeNull();
   });
 
   it("maps Ctrl+Y to REDO", () => {
