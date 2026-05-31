@@ -173,6 +173,12 @@ page). Round 2:
   reflows into the narrower width, cursor/clicks land correctly in the indented
   paragraph, and multi-paragraph selections each indent. (Tab-to-indent isn't
   wired yet — use the toolbar buttons.)
+- 🔁 **Paragraph spacing (NEW):** the toolbar "Before"/"After" selects add space
+  above/below the selected paragraph(s). NOTE (by design): spacing **collapses**
+  per CSS — if para A has "after: 40" and para B has "before: 20", the gap is 40
+  (the larger), NOT 60 (sum). Google Docs *adds* them; we follow the CSS/browser
+  convention here (it's a layout question). Flag if you'd rather have the
+  Google-Docs additive behavior — it'd be a deliberate non-collapsing mode.
 - 🔁 **Line spacing (NEW):** put the cursor in (or select) a paragraph → the
   line-spacing `<select>` (1.0/1.15/1.5/2.0) near the alignment buttons → the
   paragraph's lines space out / tighten (the page reflows). Works on headings and
