@@ -148,6 +148,11 @@ export { extractText, builtinEmbedSerializer } from "./extract-text";
 export type { TextMatch, FindMatchesOptions } from "./find-matches";
 export { findMatches } from "./find-matches";
 
+// Word count: read-only document statistics over main-tree leaf blocks
+// (Google Docs Tools ▸ Word count — words / characters / chars-excl-spaces).
+export type { WordCount, WordCountOptions } from "./word-count";
+export { getWordCount } from "./word-count";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //
