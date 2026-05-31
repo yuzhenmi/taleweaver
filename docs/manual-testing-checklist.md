@@ -8,6 +8,33 @@ findings and I'll act on them.
 > Convention: ✅ works · ❌ broken (with note) · ⏳ awaiting your test · 🔧 I'm
 > fixing · 🔁 re-test after a fix landed.
 
+> ## 🧭 Design decisions needing your input (2 — non-blocking)
+> I hit two genuine forks the first principles + codebase don't settle, so I'm
+> surfacing them per the coordination protocol instead of guessing:
+>
+> 1. **Superscript / subscript** (Format ▸ Superscript, Ctrl+. / Ctrl+,) — the
+>    next inline-format feature. The *render* foundation exists (`vertical-align:
+>    super/sub` already raises/lowers). The catch: Google-Docs superscript is also
+>    **smaller** (≈0.75× font), and that scale must compose *multiplicatively* with
+>    a custom font-size (superscript of 20px text → 15px, not 0.75em-of-the-block).
+>    In our flat per-item attr model a plain `font-size: 0.75em` interpreter can't
+>    express that (em resolves against the parent, and it collides with an explicit
+>    `fontSize` attr); the clean fix is a small **new ComputedStyle scale notion**
+>    tied to the superscript/subscript command (NOT to `vertical-align`, since
+>    footnote markers already set both and would double-scale). That's a
+>    cross-cutting cascade change → I want your ✅ before building it, rather than
+>    ship a superscript that breaks on custom font sizes. **Default I'd take:** add
+>    `ComputedStyle.fontScale` (1 by default), resolved in used-style as
+>    `fontScale × resolvedFontSize`; super/sub set it to 0.75. OK?
+> 2. **Embedded-in-a-scroll-`<div>` editor** — the IntersectionObserver canvas pool
+>    is built against the viewport, not a non-window scroll parent. The React
+>    example scrolls the *window*, so this is correct today. Fixing it (pass
+>    `root: scrollParent`) only matters if you intend to embed the editor inside a
+>    scrollable container. **In scope?** If yes I'll fix + test it; if not I'll
+>    leave a note and move on.
+>
+> (Neither blocks the typography/footnote testing below.)
+
 > ## ⚠️ DO THIS FIRST before Round 2: **hard-restart the dev server**
 > Stop and restart `npm run dev --workspace=examples/react` (a full restart, not
 > just a page refresh). You tested Round 1 against a dev server that was running

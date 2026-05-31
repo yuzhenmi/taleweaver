@@ -133,9 +133,9 @@ export function createEditorController(
   // paginated mode. Plan 3.K.2 Task 1 wires these so paint takes the
   // incremental path with root-reference short-circuit. Without these,
   // every paint pass clears the entire canvas and repaints every box —
-  // O(N) per cursor move.
-  // TODO: prune pageCaches when pages are removed (currently leaks one
-  // PaintCache per removed page; benign in practice, page count is small).
+  // O(N) per cursor move. Pruned on page removal in the excess-slot loop
+  // (see `pageCaches.delete(i)` there) so the map never outgrows the live
+  // page count.
   const canvasCache: PaintCache = createPaintCache();
   const pageCaches: Map<number, PaintCache> = new Map();
   function getOrCreatePageCache(idx: number): PaintCache {
@@ -616,6 +616,12 @@ export function createEditorController(
         activeCanvases.delete(i);
       }
       pageSlots[i].remove();
+      // Prune this index's PaintCache. Without this, `pageCaches` retains one
+      // entry per peak page index for the lifetime of the controller (open a
+      // 200-page doc, shrink to 2 → 198 stale caches held). Correctness on
+      // grow-back is already guaranteed by acquireCanvas deleting the cache on
+      // re-acquire; this just frees the memory promptly when a page is removed.
+      pageCaches.delete(i);
     }
     pageSlots.length = targetCount;
 
