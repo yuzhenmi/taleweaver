@@ -19,8 +19,6 @@ function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
 function stubCtx(): RenderContext {
   return {
     state: {} as State,
-    getView: () => { throw new Error("stub"); },
-    getEmbedContent: () => { throw new Error("stub"); },
     footnoteNumber: () => undefined,
   };
 }

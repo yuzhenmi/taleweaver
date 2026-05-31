@@ -11,12 +11,12 @@ import {
   footnoteNumbers,
   documentFootnotePolicy,
   EMPTY_FOOTNOTE_ANCHORS,
+  SECTION_BLOCK_TYPE,
   type FootnoteAnchorRef,
   type FootnoteNumber,
   type FootnoteNumberingPolicy,
 } from "../footnotes";
 import type {
-  BlockView,
   ContainerBlockView,
   LeafBlockView,
   RenderContext,
@@ -49,15 +49,6 @@ function effectiveRenderPolicy(state: State): FootnoteNumberingPolicy {
 }
 
 /**
- * The block `type` that opens a section (flat children of the document root).
- * FN-8's anchor-reuse guard treats a dirty `section` block as a possible
- * anchor-rescope (its enclosing `sectionId` drives restart-per-section
- * numbering), forcing a recompute. Mirrors the constant in
- * `footnotes/collect-anchors.ts`.
- */
-const SECTION_BLOCK_TYPE = "section";
-
-/**
  * FN-8: shared frozen empty numbering map for the footnote-free path. A document
  * with no footnotes (`docHasFootnotes(state) === false`) skips the O(N_blocks)
  * `collectFootnoteAnchors` walk entirely and uses `EMPTY_FOOTNOTE_ANCHORS` (from
@@ -69,14 +60,12 @@ const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
   Object.freeze(new Map<BlockId, FootnoteNumber>());
 
 /**
- * Build the per-render-cycle `RenderContext`. `getView` / `getEmbedContent`
- * remain P7 stubs (throw on use — surfaces accidental callers immediately;
- * P10+ wires them through a per-block view cache). `footnoteNumber` is wired:
- * it reads `fnNumbers` — the SAME numbering map already computed once this
- * cycle for the call markers — so a footnote body's leading number (its
- * generated `markerText`) always matches its anchor's number. Both render
- * paths (full + incremental) construct the context through here so the body
- * number renders identically regardless of path.
+ * Build the per-render-cycle `RenderContext`. `footnoteNumber` is wired: it
+ * reads `fnNumbers` — the SAME numbering map already computed once this cycle
+ * for the call markers — so a footnote body's leading number (its generated
+ * `markerText`) always matches its anchor's number. Both render paths (full +
+ * incremental) construct the context through here so the body number renders
+ * identically regardless of path.
  */
 function makeRenderContext(
   state: State,
@@ -84,12 +73,6 @@ function makeRenderContext(
 ): RenderContext {
   return {
     state,
-    getView: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getView not yet wired — populated in P10");
-    },
-    getEmbedContent: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
-    },
     footnoteNumber: (contentBlockId: BlockId): string | undefined =>
       fnNumbers.get(contentBlockId)?.formatted,
   };
@@ -239,9 +222,6 @@ export function render(
     : fnAnchors.length > 0
       ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
       : EMPTY_FOOTNOTE_NUMBERS;
-  // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
-  // through a per-block view cache. Throwing rather than returning
-  // undefined surfaces accidental P7 callers immediately.
   const context: RenderContext = makeRenderContext(state, fnNumbers);
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
@@ -576,6 +556,14 @@ function expandInlineItems(
       );
     } else {
       // InlineItem narrows to EmbedItem here.
+      //
+      // Exhaustiveness backstop: the `text` arm handled the only other
+      // `InlineItem` variant, so `item.kind` is `"embed"` in this final else.
+      // If a third inline-item kind is ever added to the `InlineItem` union,
+      // this `satisfies` fails to compile — forcing the new kind to be handled
+      // rather than silently routing through the embed path. (Mirrors the
+      // `def.kind satisfies "leaf"` backstop in `renderBlockBody`.)
+      item.kind satisfies "embed";
       //
       // Embeds are emitted as `display: inline-block` so the IFC's
       // token stream represents the state-model 1-unit cursor

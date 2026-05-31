@@ -17,7 +17,7 @@ export type {
   FootnoteNumberingPolicy,
 } from "./types";
 
-export { collectFootnoteAnchors, EMPTY_FOOTNOTE_ANCHORS } from "./collect-anchors";
+export { collectFootnoteAnchors, EMPTY_FOOTNOTE_ANCHORS, SECTION_BLOCK_TYPE } from "./collect-anchors";
 export { footnoteNumbers, footnoteRenumberedBlocks } from "./numbering";
 export {
   documentFootnotePolicy,

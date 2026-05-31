@@ -19,8 +19,6 @@ function containerView(overrides: Partial<ContainerBlockView> = {}): ContainerBl
 function stubCtx(): RenderContext {
   return {
     state: {} as State,
-    getView: () => { throw new Error("stub"); },
-    getEmbedContent: () => { throw new Error("stub"); },
     footnoteNumber: () => undefined,
   };
 }

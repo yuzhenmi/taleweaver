@@ -52,18 +52,14 @@ describe("block-view (types)", () => {
     }
   });
 
-  it("RenderContext provides state + view accessors", () => {
+  it("RenderContext provides state + footnoteNumber accessor", () => {
     // Declare a stub matching the contract — proves the interface shape
     // is implementable. If RenderContext loses any of these members, this
     // assignment stops compiling and the test breaks loudly.
     const stub: RenderContext = {
       state: {} as State,
-      getView: () => { throw new Error("stub"); },
-      getEmbedContent: () => { throw new Error("stub"); },
       footnoteNumber: () => undefined,
     };
-    expect(typeof stub.getView).toBe("function");
-    expect(typeof stub.getEmbedContent).toBe("function");
     expect(typeof stub.footnoteNumber).toBe("function");
     expect(stub.state).toBeDefined();
   });

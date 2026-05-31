@@ -43,19 +43,12 @@ export interface LeafBlockView extends BlockViewBase {
 export type BlockView = ContainerBlockView | LeafBlockView;
 
 /**
- * Render-time escape hatch for cross-block lookups (footnote-anchor →
- * footnote body via getEmbedContent; future cross-references via
- * getView). Keeps BlockView focused on "this block's data."
- *
- * In P7 these accessors throw — no consumer needs them yet. P10+ phases
- * (cursor positioning, cross-references) wire them up via a per-block
- * view cache. The signature is shipped now so component implementations
- * landing in P8 can be written against the final RenderContext shape.
+ * Per-render-cycle context handed to every component's `render`. Carries the
+ * read-only `State` and the footnote-number lookup; keeps `BlockView` focused
+ * on "this block's data."
  */
 export interface RenderContext {
   readonly state: State;
-  getView(id: BlockId): BlockView;
-  getEmbedContent(id: BlockId): BlockView;
   /**
    * The footnote number (its formatted string, e.g. `"1"`) for a footnote
    * BODY whose root id is `contentBlockId`, or `undefined` if that id is not a

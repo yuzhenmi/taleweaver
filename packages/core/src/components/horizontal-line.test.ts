@@ -17,7 +17,7 @@ function leafView(): LeafBlockView {
 }
 
 function stubCtx(): RenderContext {
-  return { state: {} as State, getView: () => { throw new Error("stub"); }, getEmbedContent: () => { throw new Error("stub"); }, footnoteNumber: () => undefined };
+  return { state: {} as State, footnoteNumber: () => undefined };
 }
 
 describe("horizontalLineComponent (new)", () => {

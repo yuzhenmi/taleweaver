@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { createDefaultComponentRegistry } from "./component-registry";
 import { sectionComponent } from "./section";
 import type { ContainerBlockView, RenderContext } from "../render/block-view";
-import type { BlockView } from "../render/block-view";
 import type { BlockId } from "../state";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 
@@ -22,17 +21,10 @@ function makeContainerView(
   } satisfies ContainerBlockView;
 }
 
-// A typed RenderContext fixture. The accessors throw — sectionComponent
-// never calls them, matching the renderer's P7 stub behavior.
+// A typed RenderContext fixture. sectionComponent reads none of these.
 function makeContext(): RenderContext {
   return {
     state: {} as RenderContext["state"],
-    getView: (_id: BlockId): BlockView => {
-      throw new Error("getView not used by sectionComponent");
-    },
-    getEmbedContent: (_id: BlockId): BlockView => {
-      throw new Error("getEmbedContent not used by sectionComponent");
-    },
     footnoteNumber: (_id: BlockId): string | undefined => undefined,
   };
 }

@@ -24,8 +24,15 @@ import {
 } from "../state";
 import type { FootnoteAnchorRef } from "./types";
 
-/** The block `type` that opens a section (flat, never nested under root). */
-const SECTION_BLOCK_TYPE = "section";
+/**
+ * The block `type` that opens a section (flat, never nested under root).
+ *
+ * The canonical source of truth for this literal. The render pass imports it
+ * (via the footnotes barrel) for its FN-8 anchor-reuse guard, which treats a
+ * dirty `section` block as a possible anchor-rescope. Keep this the only
+ * declaration.
+ */
+export const SECTION_BLOCK_TYPE = "section";
 
 /**
  * The shared frozen empty anchor list. Returned by the per-keystroke
