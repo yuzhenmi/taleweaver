@@ -173,6 +173,12 @@ page). Round 2:
   reflows into the narrower width, cursor/clicks land correctly in the indented
   paragraph, and multi-paragraph selections each indent. (Tab-to-indent isn't
   wired yet — use the toolbar buttons.)
+- 🔁 **Alignment keyboard shortcuts (NEW):** Ctrl/Cmd+Shift+**L** (left), +**E**
+  (center), +**R** (right), +**J** (justify) align the current paragraph(s) —
+  the standard Google Docs chords. (Note: Ctrl+Shift+R is normally browser
+  hard-reload and Ctrl+Shift+J opens DevTools — Google Docs overrides these too;
+  confirm the editor intercepts them rather than the browser. If the browser
+  wins, that's a preventDefault gap to flag.)
 - 🔁 **Paragraph spacing (NEW):** the toolbar "Before"/"After" selects add space
   above/below the selected paragraph(s). NOTE (by design): spacing **collapses**
   per CSS — if para A has "after: 40" and para B has "before: 20", the gap is 40
