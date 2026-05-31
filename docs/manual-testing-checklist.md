@@ -175,5 +175,9 @@ page). Round 2:
 
 **Inline-format toolbar is now ~feature-complete vs Google Docs:** Bold, Italic,
 Underline, Strikethrough, Text color, Highlight, Font family, Font size, Link.
-Remaining: Superscript/Subscript (awaiting your fontScale decision above) and
-Clear-formatting (next).
+Remaining: Superscript/Subscript (awaiting your fontScale decision above).
+- 🔁 **Clear formatting (NEW — Ctrl+\ or the RemoveFormatting toolbar button):**
+  select text that has bold/color/font-size/highlight/link/etc. → all inline
+  character formatting is stripped in one go (one **undo** brings it all back).
+  Scope is character formatting only — it does NOT reset heading/alignment (open
+  question: should Google-Docs Ctrl+\ also reset those? your call).
