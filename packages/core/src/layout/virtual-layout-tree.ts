@@ -32,7 +32,7 @@ import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "../styles";
-import type { PagePlan, PagePlanEntry } from "./measure-pass";
+import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
 import { isDevMode } from "./dev-mode";
@@ -175,6 +175,49 @@ interface PageFingerprint {
    * reuse the stale slot.) `undefined` entry for an id absent from `embedBodies`.
    */
   readonly footnoteBodies: readonly (ElementBox | undefined)[];
+  /**
+   * The INBOUND footnote-continuation list this page renders at the TOP of its
+   * slot (FN-5.5 / E6(b)): `PagePlanEntry.footnoteContinuation`. Each element is
+   * a `{ contentBlockId, resumeToken }` carried from the PRIOR page's split. MUST
+   * participate so a page whose inbound continuation changed — the upstream split
+   * point moved (a different `resumeToken`) OR a different body is now carried —
+   * re-materializes. An empty list ⇒ no inbound continuation (the page STARTS its
+   * footnotes). Compared element-wise (`contentBlockId` string ===, `resumeToken`
+   * structural via `breakTokensEqual`) alongside the resolved body ref below.
+   */
+  readonly footnoteContinuation: readonly FootnoteContinuation[];
+  /**
+   * The cascaded body REFERENCES (`embedBodies.get(contentBlockId)`) for the
+   * INBOUND `footnoteContinuation` list (FN-5.5 / E6(b)). Reference identity is
+   * the change signal: editing a continued body produces a NEW cascaded
+   * ElementBox for the same id, so the ref differs → re-materialize even when the
+   * `resumeToken` is unchanged. Element-aligned with `footnoteContinuation`;
+   * `undefined` for an id absent from `embedBodies`.
+   */
+  readonly footnoteContinuationBodies: readonly (ElementBox | undefined)[];
+}
+
+/**
+ * Structural equality of two INBOUND footnote-continuation lists + their
+ * resolved body refs (FN-5.5 / E6(b)). Equal iff same length AND each element
+ * agrees on `contentBlockId` (string ===), `resumeToken` (structural
+ * `breakTokensEqual`), and the resolved body ref (reference ===). A split point
+ * that moved upstream flips a `resumeToken`; a continued-body edit flips a body
+ * ref — either re-materializes the page.
+ */
+function footnoteContinuationsEqual(
+  a: readonly FootnoteContinuation[],
+  aBodies: readonly (ElementBox | undefined)[],
+  b: readonly FootnoteContinuation[],
+  bBodies: readonly (ElementBox | undefined)[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].contentBlockId !== b[i].contentBlockId) return false;
+    if (!breakTokensEqual(a[i].resumeToken, b[i].resumeToken)) return false;
+    if (aBodies[i] !== bBodies[i]) return false;
+  }
+  return true;
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
@@ -216,6 +259,13 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     // (string ===) and the body-ref list (reference ===).
     childrenRefsEqual(a.footnoteContentBlockIds, b.footnoteContentBlockIds) &&
     childrenRefsEqual(a.footnoteBodies, b.footnoteBodies) &&
+    // FN-5.5 (E6(b)): the INBOUND continuation list (the prior page's split
+    // carries) + the resolved body refs. A moved upstream split point flips a
+    // resumeToken; a continued-body edit flips a body ref — either re-materializes.
+    footnoteContinuationsEqual(
+      a.footnoteContinuation, a.footnoteContinuationBodies,
+      b.footnoteContinuation, b.footnoteContinuationBodies,
+    ) &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut)
@@ -331,6 +381,11 @@ export function makeVirtualLayoutTree(
       // The body refs are resolved off `embedBodies`: a body edit flips the ref.
       footnoteContentBlockIds: entry.footnoteContentBlockIds,
       footnoteBodies: entry.footnoteContentBlockIds.map((id) => embedBodies.get(id)),
+      // FN-5.5 (E6(b)): the inbound continuation list + its resolved body refs.
+      footnoteContinuation: entry.footnoteContinuation,
+      footnoteContinuationBodies: entry.footnoteContinuation.map((c) =>
+        embedBodies.get(c.contentBlockId),
+      ),
     };
   }
 
@@ -518,25 +573,34 @@ export function makeVirtualLayoutTree(
       effCfg.pageBlockSize - effBottomInset,
     );
 
-    // FN-4: the footnote slot. A wrapping BlockBox positioned (D1) between the
-    // body content and the footer, at page-block-offset `pageBlockSize −
-    // effectiveBottomInset − footnoteSlotHeight`, holding a thin separator rule
-    // (FOOTNOTE_SEPARATOR_HEIGHT) followed by the stacked footnote bodies. Each
-    // body is laid out from `embedBodies` at its NATURAL height — same
-    // `layoutBlock`-style single-shot the header/footer slots use
-    // (availableBlockSize MAX, no clip, no page-break). Children's blockOffsets
-    // are SLOT-LOCAL (the slot is a BlockBox; the page→slot offset is the
-    // wrapper's `blockOffset`). `null` when this page carries no footnotes.
+    // FN-4 / FN-5.5: the footnote slot. A wrapping BlockBox positioned (D1)
+    // between the body content and the footer, at page-block-offset
+    // `pageBlockSize − effectiveBottomInset − footnoteSlotHeight`, holding a thin
+    // separator rule (FOOTNOTE_SEPARATOR_HEIGHT) followed by the stacked footnote
+    // bodies. FN-5.5 renders, in order: (1) the INBOUND continuation list
+    // (`entry.footnoteContinuation` — the prior page's split carries, each resumed
+    // from its `resumeToken`), then (2) the FRESH bodies that STARTED on this page
+    // (`entry.footnoteContentBlockIds`, resumed from null). Every body lays out
+    // BOUNDED by the shrinking remaining slot area (NOT MAX as FN-4.3 used) so a
+    // PARTIAL body renders exactly what `resolveFootnotes` planned. Children's
+    // blockOffsets are SLOT-LOCAL (the slot is a BlockBox; the page→slot offset is
+    // the wrapper's `blockOffset`).
+    //
+    // GATE (E4): fire iff `footnoteSlotHeight > 0` — the authoritative resolved
+    // height, which is 0 EXACTLY when nothing renders (including the
+    // inbound-non-empty-but-nothing-fit case, where the whole list carries
+    // forward). A list-length check would draw a zero-height separator into
+    // unreserved space, overlapping the footer.
     const footnoteSlot: BlockBox | null =
-      entry.footnoteContentBlockIds.length === 0
+      footnoteSlotHeight <= 0
         ? null
         : (() => {
             const slotBlockStart =
               effCfg.pageBlockSize - effBottomInset - footnoteSlotHeight;
             const slotChildren: LayoutBox[] = [];
-            // The separator rule: a thin BlockBox at the slot's top edge. It
-            // carries the body root's style (the page root) for a neutral box;
-            // paint draws the rule. Height = FOOTNOTE_SEPARATOR_HEIGHT (D1).
+            // The separator rule: a thin BlockBox at the slot's top edge (E5 step
+            // 1). It carries the body root's style (the page root) for a neutral
+            // box; paint draws the rule. Height = FOOTNOTE_SEPARATOR_HEIGHT (D1).
             slotChildren.push(
               createBlockBox(
                 `footnote-sep-${pageIndex}`,
@@ -553,23 +617,33 @@ export function makeVirtualLayoutTree(
                 { footnoteSeparator: true },
               ),
             );
-            // Stack the bodies below the separator. Each body lays out at its
-            // natural height; we advance the slot-local cursor by each laid box's
-            // block-size (0 for a body that produced no box — guarded).
+            // The slot-local cursor starts below the separator; `remaining` bounds
+            // each body's layout by what is left of the resolved slot (E5). The
+            // footnote area available to the bodies is `footnoteSlotHeight −
+            // FOOTNOTE_SEPARATOR_HEIGHT`; the cursor + remaining track the SAME
+            // shrinking window so a partial body renders exactly `resolveFootnotes`'s
+            // plan.
             let cursor = FOOTNOTE_SEPARATOR_HEIGHT;
-            for (const id of entry.footnoteContentBlockIds) {
+            let remaining = footnoteSlotHeight - FOOTNOTE_SEPARATOR_HEIGHT;
+            // Lay ONE footnote body (continuation or fresh) into the slot, bounded
+            // by `remaining`, resumed from `resumeToken`. Advances the cursor +
+            // shrinks `remaining` by the laid box's height. Guards a missing body
+            // (dev throw / prod skip), a null box, and a C.6-overflow body that
+            // exceeds `remaining` (defensive — shouldn't happen since
+            // `resolveFootnotes` planned the height; dev throw / prod skip).
+            const layBody = (id: BlockId, resumeToken: BreakToken | null): void => {
               const body = embedBodies.get(id);
               if (body === undefined) {
                 // A no-MVP defect (a footnote body silently missing from the
                 // cascaded map). Dev-only throw; prod skips so layout never
-                // crashes. Mirrors resolveFootnotes's slotHeightFor guard.
+                // crashes. Mirrors resolveFootnotes's computeSlotLayout guard.
                 if (isDevMode()) {
                   throw new Error(
                     `materializePage: footnote body ${id} is absent from ` +
                       `cascadedEmbedContents — the body must be cascaded before layout.`,
                   );
                 }
-                continue;
+                return;
               }
               const { box: bodyBox } = layoutBlock(
                 body,
@@ -577,12 +651,41 @@ export function makeVirtualLayoutTree(
                 cursor,
                 effContentCtx,
                 shaper,
-                { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
+                { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
               );
-              if (bodyBox !== null) {
+              // Stack the body ONLY if it actually fits the remaining slot area.
+              // This mirrors computeSlotLayout's C.6 bound (`box === null ||
+              // box.blockSize > remaining`): a CSS Fragmentation §3.5 C.6
+              // force-placed box can exceed the bounded `remaining`, and such a
+              // body is excluded from the entry's lists (carried forward instead),
+              // so the plan should NEVER put a body here that doesn't fit. This is
+              // a defensive guard against a future plan/reuse-gate bug from
+              // over-rendering into the footer; in dev it's a real plan-mismatch
+              // signal, so throw — in prod skip gracefully.
+              if (bodyBox !== null && bodyBox.blockSize <= remaining) {
                 slotChildren.push(bodyBox);
                 cursor += bodyBox.blockSize;
+                remaining -= bodyBox.blockSize;
+              } else if (bodyBox !== null && isDevMode()) {
+                throw new Error(
+                  `materializePage: footnote body ${id} (blockSize ` +
+                    `${bodyBox.blockSize}) overruns the remaining slot area ` +
+                    `(${remaining}) — the plan must not place a body that does ` +
+                    `not fit (C.6-overflow bodies are carried forward).`,
+                );
               }
+            };
+            // (E5 step 2) the INBOUND continuation list, in order, each resumed
+            // from its carried `resumeToken` (the prior page's split point).
+            for (const cont of entry.footnoteContinuation) {
+              layBody(cont.contentBlockId, cont.resumeToken);
+            }
+            // (E5 step 3) the FRESH bodies that STARTED here, in order, resumed
+            // from null. A fresh body fully deferred is NOT in this list (it is in
+            // this page's outbound → the next page's inbound), so it is never
+            // double-rendered.
+            for (const id of entry.footnoteContentBlockIds) {
+              layBody(id, null);
             }
             return createBlockBox(
               `footnote-slot-${pageIndex}`,
