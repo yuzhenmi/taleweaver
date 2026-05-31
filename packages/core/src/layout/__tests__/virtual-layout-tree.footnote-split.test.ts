@@ -34,11 +34,29 @@ function fnPara(key: string, text = "x"): ElementBox {
   ]);
 }
 
-/** A footnote body: a container block holding `lines` single-line paragraphs. */
-function fnBody(key: string, lines: number): ElementBox {
+/**
+ * A footnote body: a container block holding `lines` single-line paragraphs.
+ * `markerText` (FN-6.2b) is the footnote number stamped on the body root —
+ * the real `footnoteBodyComponent.render` sets it from `ctx.footnoteNumber`.
+ * The slot materialization (Bug C) reads this to emit the leading number marker.
+ */
+function fnBody(key: string, lines: number, markerText?: string): ElementBox {
   const children: RenderNode[] = [];
   for (let i = 0; i < lines; i++) children.push(fnPara(`${key}-p${i}`));
-  return createElementBox(key, { display: "block" } as Style, children);
+  const style: Style = { display: "block" } as Style;
+  return createElementBox(
+    key,
+    markerText !== undefined ? { ...style, markerText } : style,
+    children,
+  );
+}
+
+/** Collect every MarkerBox (deepest) under a layout box. */
+function collectMarkers(box: LayoutBox): { text: string; blockOffset: number }[] {
+  if (box.type === "marker") return [{ text: box.text, blockOffset: box.blockOffset }];
+  const out: { text: string; blockOffset: number }[] = [];
+  if ("children" in box) for (const c of box.children) out.push(...collectMarkers(c));
+  return out;
 }
 
 function cascadeRoot(children: readonly ElementBox[]): ElementBox {
@@ -103,7 +121,8 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     // body para (b0); the eviction pushes b1.. to a later page.
     const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const fnId = "fnSplit" as BlockId;
-    const embed = new Map<BlockId, ElementBox>([[fnId, cascadeBody(fnBody("fnSplit", 5))]]);
+    // Bug C: number "1" on the body root — must appear ONLY where the body STARTS.
+    const embed = new Map<BlockId, ElementBox>([[fnId, cascadeBody(fnBody("fnSplit", 5, "1"))]]);
     const anchors = [anchor("b0", "fnSplit")];
 
     const tree = build(root, embed, anchors);
@@ -176,6 +195,15 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
       }
     }
     expect(totalFnLines).toBe(5); // every line rendered exactly once across pages
+
+    // Bug C: the leading number "1" appears ONLY where the body STARTS (page 0,
+    // a FRESH body), NOT on the continuation tail (page contPageIndex, an inbound
+    // continuation). Google Docs shows the number only at the footnote's start.
+    const startMarkers = collectMarkers(slot0).filter((m) => m.text === "1");
+    expect(startMarkers.length).toBe(1);
+    expect(startMarkers[0].blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT); // body's first line
+    const contMarkers = collectMarkers(slotCont).filter((m) => m.text === "1");
+    expect(contMarkers.length).toBe(0); // continuation tail repeats no number
   });
 
   it("(continuation-only tail page) a footnote taller than the whole body run drains onto a tail page whose slot = separator + the continued body, no fresh bodies", () => {
@@ -266,7 +294,8 @@ describe("FN-5.5 — FN-4 parity: a fully-fitting footnote renders unchanged", (
     // 1-line footnote on b0 ⇒ slot 29, body area 35 ⇒ 2 paras on page 0.
     const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const fnId = "fnFit" as BlockId;
-    const embed = new Map<BlockId, ElementBox>([[fnId, cascadeBody(fnBody("fnFit", 1))]]);
+    // Bug C: the body root carries the footnote number ("1") via markerText.
+    const embed = new Map<BlockId, ElementBox>([[fnId, cascadeBody(fnBody("fnFit", 1, "1"))]]);
     const anchors = [anchor("b0", "fnFit")];
 
     const tree = build(root, embed, anchors);
@@ -279,11 +308,24 @@ describe("FN-5.5 — FN-4 parity: a fully-fitting footnote renders unchanged", (
     if (slot === null) throw new Error("unreachable");
     expect(slot.blockOffset).toBe(PAGE.pageBlockSize - (16 + FOOTNOTE_SEPARATOR_HEIGHT)); // 35
     expect(slot.blockSize).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT); // 29
-    expect(slot.children.length).toBe(2); // separator + full 1-line body
+    // separator + full 1-line body + the leading number MarkerBox (Bug C).
     expect(slot.children[0].blockOffset).toBe(0);
     expect(slot.children[0].blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
-    expect(slot.children[1].blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
-    expect(slot.children[1].blockSize).toBe(16); // one line, full body
+    const fitBody = slot.children.find(
+      (c) => c.type === "block" && !("footnoteSeparator" in (c.metadata ?? {})),
+    );
+    expect(fitBody).toBeDefined();
+    if (fitBody === undefined) throw new Error("unreachable");
+    expect(fitBody.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
+    expect(fitBody.blockSize).toBe(16); // one line, full body
+
+    // Bug C: the leading number MarkerBox "1" appears in the slot subtree, at
+    // the body's first-line block-offset (== the body box top), as a sibling of
+    // the body box (offset-excluded, presentation-only).
+    const markers = slot.children.flatMap((c) => collectMarkers(c));
+    const numberMarker = markers.find((m) => m.text === "1");
+    expect(numberMarker).toBeDefined();
+    expect(numberMarker?.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
 
     // No continuation page exists for this footnote.
     const anyCont = tree.plan.entries.some((e) =>

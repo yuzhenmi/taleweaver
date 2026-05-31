@@ -26,7 +26,8 @@ import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox } from "./layout-box";
-import { createBlockBox } from "./layout-box";
+import { createBlockBox, createMarkerBox } from "./layout-box";
+import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
@@ -650,7 +651,28 @@ export function makeVirtualLayoutTree(
             // (dev throw / prod skip), a null box, and a C.6-overflow body that
             // exceeds `remaining` (defensive — shouldn't happen since
             // `resolveFootnotes` planned the height; dev throw / prod skip).
-            const layBody = (id: BlockId, resumeToken: BreakToken | null): void => {
+            // The slot-local block-offset of a body box's FIRST line — descend
+            // the first-child chain to the deepest LineBox, accumulating each
+            // box's own blockOffset. Used to anchor the leading number marker on
+            // the body's first line (Google-Docs style). Falls back to the body
+            // box's own offset if the body has no line (e.g. an empty body).
+            const firstLineBlockOffset = (box: LayoutBox): number => {
+              let offset = 0;
+              let cur: LayoutBox | undefined = box;
+              // Bounded by box depth; the layout tree is finite + acyclic.
+              while (cur !== undefined) {
+                offset += cur.blockOffset;
+                if (cur.type === "line") return offset;
+                if (!("children" in cur) || cur.children.length === 0) break;
+                cur = cur.children[0];
+              }
+              return box.blockOffset;
+            };
+            const layBody = (
+              id: BlockId,
+              resumeToken: BreakToken | null,
+              isFresh: boolean,
+            ): void => {
               const body = embedBodies.get(id);
               if (body === undefined) {
                 // A no-MVP defect (a footnote body silently missing from the
@@ -683,6 +705,59 @@ export function makeVirtualLayoutTree(
               // signal, so throw — in prod skip gracefully.
               if (bodyBox !== null && bodyBox.blockSize <= remaining) {
                 slotChildren.push(bodyBox);
+                // Bug C: the leading footnote-number marker. The body root carries
+                // the number via `markerText` (FN-6.2b, set by footnoteBodyComponent
+                // from ctx.footnoteNumber). The slot lays the body out with the body
+                // root as the TOP-LEVEL node, and the BFC only emits a generated
+                // marker for a block's CHILDREN — never the root's own markerText —
+                // so the number never showed. We emit it here, presentation-only:
+                // a MarkerBox SIBLING of the body box in the slot subtree, anchored
+                // at the body's first line (Google-Docs style), placed at the
+                // content inline-start (listStylePosition:"inside"-like) so it reads
+                // before the body text and stays visible within the slot. ONLY a
+                // FRESH body (the page where the footnote STARTS) gets the number;
+                // a continuation tail does NOT repeat it. The marker is generated /
+                // offset-excluded — it never participates in the body's editable
+                // cursor-offset model (that lives in embedContents) and does NOT
+                // change the body's layout/split (this is purely additive: the body
+                // box, cursor, and `remaining` are untouched by it).
+                const bodyMarkerText = body.computedStyle?.markerText;
+                if (
+                  isFresh &&
+                  bodyMarkerText !== undefined &&
+                  bodyMarkerText !== ""
+                ) {
+                  const measurer = adaptShaperToMeasurer(shaper);
+                  const rootCs = body.computedStyle;
+                  if (rootCs !== undefined) {
+                    const rootUs = computeUsedStyle(
+                      rootCs,
+                      effContentInlineSize,
+                      "indefinite",
+                    );
+                    const markerInlineSize = measurer.measureWidth(
+                      bodyMarkerText,
+                      rootCs,
+                    );
+                    const markerBlockSize = measurer.measureHeight(rootCs);
+                    slotChildren.push(
+                      createMarkerBox(
+                        `${body.key}-marker`,
+                        // Content inline-start (slot-local) — "inside"-like.
+                        effMargins.inlineStart,
+                        firstLineBlockOffset(bodyBox),
+                        markerInlineSize,
+                        markerBlockSize,
+                        ctx.writingMode,
+                        ctx.direction,
+                        rootCs,
+                        rootUs,
+                        bodyMarkerText,
+                        effContentInlineSize,
+                      ),
+                    );
+                  }
+                }
                 cursor += bodyBox.blockSize;
                 remaining -= bodyBox.blockSize;
               } else if (bodyBox !== null && isDevMode()) {
@@ -697,14 +772,14 @@ export function makeVirtualLayoutTree(
             // (E5 step 2) the INBOUND continuation list, in order, each resumed
             // from its carried `resumeToken` (the prior page's split point).
             for (const cont of entry.footnoteContinuation) {
-              layBody(cont.contentBlockId, cont.resumeToken);
+              layBody(cont.contentBlockId, cont.resumeToken, /* isFresh */ false);
             }
             // (E5 step 3) the FRESH bodies that STARTED here, in order, resumed
             // from null. A fresh body fully deferred is NOT in this list (it is in
             // this page's outbound → the next page's inbound), so it is never
             // double-rendered.
             for (const id of entry.footnoteContentBlockIds) {
-              layBody(id, null);
+              layBody(id, null, /* isFresh */ true);
             }
             return createBlockBox(
               `footnote-slot-${pageIndex}`,
