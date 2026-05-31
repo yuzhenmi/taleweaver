@@ -54,6 +54,25 @@ const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
  */
 const EMPTY_FOOTNOTE_IDS: readonly BlockId[] = Object.freeze([]);
 
+/**
+ * One footnote body's cross-page continuation OUT of a page (FN-5): the body
+ * `contentBlockId` and the `resumeToken` to resume its layout on the next page,
+ * or `null` when the body completes on this page. FN-5 footnote-body splitting
+ * fills a list of these; FN-4 always stamps the empty list (it clamps rather
+ * than splits — D5).
+ */
+export interface FootnoteContinuation {
+  readonly contentBlockId: BlockId;
+  readonly resumeToken: BreakToken | null;
+}
+
+/**
+ * Shared empty footnote-continuation list stamped onto every entry by the
+ * footnote-unaware passes (FN-5 E1). A single frozen instance keeps the
+ * no-continuation path allocation-free, mirroring `EMPTY_FOOTNOTE_IDS`.
+ */
+export const EMPTY_FOOTNOTE_CONTINUATIONS: readonly FootnoteContinuation[] = Object.freeze([]);
+
 let _fitOnePageCallCount = 0;
 
 /** Test-only: number of `fitOnePage` calls from `measurePass` since last reset. */
@@ -169,14 +188,14 @@ export interface PagePlanEntry {
    */
   readonly footnoteSlotHeight: number;
   /**
-   * The footnote-body continuation token OUT of THIS page (FN-4, D2): the resume
-   * state for a footnote body that overflowed the slot and continues onto the
-   * next page. ALWAYS `null` in FN-4 (`measurePass` stamps `null`,
-   * `resolveFootnotes` clamps rather than splits — D5); FN-5 fills it when
-   * cross-page footnote-body splitting lands. Added now so FN-5 never re-touches
-   * the entry type.
+   * The footnote-body continuations OUT of THIS page (FN-4, D2): one entry per
+   * footnote body that overflowed the slot and continues onto the next page.
+   * ALWAYS empty in FN-4 (`measurePass` and `resolveFootnotes` stamp
+   * `EMPTY_FOOTNOTE_CONTINUATIONS`; `resolveFootnotes` clamps rather than splits
+   * — D5); FN-5 fills it when cross-page footnote-body splitting lands. Widened
+   * to a list now so FN-5 never re-touches the entry type (E1).
    */
-  readonly footnoteContinuation: BreakToken | null;
+  readonly footnoteContinuation: readonly FootnoteContinuation[];
 }
 
 /** The document's full pagination plan. */
@@ -595,7 +614,7 @@ export function measurePass(
           // (FN-4.2) rewrites the footnote-bearing pages downstream.
           footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
           footnoteSlotHeight: 0,
-          footnoteContinuation: null,
+          footnoteContinuation: EMPTY_FOOTNOTE_CONTINUATIONS,
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
@@ -715,7 +734,7 @@ export function measurePass(
       // (FN-4.2) rewrites the footnote-bearing pages downstream.
       footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
       footnoteSlotHeight: 0,
-      footnoteContinuation: null,
+      footnoteContinuation: EMPTY_FOOTNOTE_CONTINUATIONS,
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the

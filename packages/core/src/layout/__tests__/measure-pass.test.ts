@@ -62,6 +62,20 @@ describe("measurePass", () => {
     expect(plan.totalBlockSize).toBe(300);
   });
 
+  it("stamps the no-footnote defaults (footnote-unaware pass)", () => {
+    // measurePass is footnote-unaware (FN-4 D2 / FN-5 E1): every entry it builds
+    // carries the empty footnote defaults. `footnoteContinuation` is a LIST now
+    // (widened in FN-5 E1) and defaults to an empty array, NOT null.
+    const metas = [blockMeta(50), blockMeta(50), blockMeta(50)];
+    const plan = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    const entry = plan.entries[0];
+    expect(entry.footnoteContentBlockIds).toEqual([]);
+    expect(entry.footnoteSlotHeight).toBe(0);
+    expect(Array.isArray(entry.footnoteContinuation)).toBe(true);
+    expect(entry.footnoteContinuation.length).toBe(0);
+    expect(entry.footnoteContinuation).toEqual([]);
+  });
+
   it("multi-page: per-entry blockOffset = pageIndex * (pageBlockSize + pageGap)", () => {
     // 10 × 100; page content 300 ⇒ 3 per page ⇒ 4 pages.
     const metas = Array.from({ length: 10 }, () => blockMeta(100));

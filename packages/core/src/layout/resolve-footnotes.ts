@@ -26,6 +26,7 @@ import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import {
   buildPagePlan,
+  EMPTY_FOOTNOTE_CONTINUATIONS,
   recordBlockMaps,
   type PagePlan,
   type PagePlanEntry,
@@ -647,9 +648,9 @@ export function resolveFootnotes(
       effectiveBottomInset: effBottomInset,
       footnoteContentBlockIds: resolvedContentBlockIds,
       footnoteSlotHeight: resolvedSlotHeight,
-      // FN-5: cross-page footnote-body continuation. ALWAYS null in FN-4 (D5
+      // FN-5: cross-page footnote-body continuations. ALWAYS empty in FN-4 (D5
       // clamp instead of split).
-      footnoteContinuation: null,
+      footnoteContinuation: EMPTY_FOOTNOTE_CONTINUATIONS,
     });
 
     recordBlockMaps(
