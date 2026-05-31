@@ -22,6 +22,7 @@ export { handleSetBlockType } from "./set-block-type";
 export { handleToggleList } from "./toggle-list";
 export { handleToggleStyle } from "./toggle-style";
 export { handleSetLink } from "./set-link";
+export { handleSetTextColor } from "./set-text-color";
 export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";

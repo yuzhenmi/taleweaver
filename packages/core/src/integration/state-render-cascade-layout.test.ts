@@ -32,6 +32,14 @@ import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
+import {
+  createInitialEditorState,
+  reduceEditor,
+  getBlock,
+  createPosition,
+  createSpan,
+  type EditorConfig,
+} from "../index";
 import type { LayoutBox } from "../layout/layout-node";
 import type { RenderNode } from "../render/render-node";
 
@@ -218,5 +226,50 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     if (p2 !== null) {
       expect(p2.blockSize).toBeGreaterThan(0);
     }
+  });
+
+  it("SET_TEXT_COLOR threads color attr → colorInterpreter → ComputedStyle.color end-to-end", () => {
+    // End-to-end: dispatch SET_TEXT_COLOR over a selection, then run the
+    // full render() → cascadePass pipeline and confirm the cascaded
+    // ComputedStyle.color on the affected text node is the dispatched
+    // value (the canvas renderer reads exactly this as the glyph
+    // fillStyle).
+    const config: EditorConfig = {
+      measurer: shaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 0), createPosition(pId, 8)),
+      },
+      config,
+    );
+    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" }, config);
+
+    const renderOutput = render(editor.state, componentRegistry, attrRegistry);
+    const cascaded = cascadePass(renderOutput.root);
+
+    function findFirstText(node: RenderNode): RenderNode | null {
+      if (node.type === "text") return node;
+      for (const child of node.children) {
+        const found = findFirstText(child);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+    const textNode = findFirstText(cascaded);
+    expect(textNode).not.toBeNull();
+    expect(textNode?.computedStyle?.color).toBe("#ff0000");
   });
 });

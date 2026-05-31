@@ -19,6 +19,7 @@ export type EditorAction =
   | { type: "EXPAND_LINE"; direction: "up" | "down" }
   | { type: "TOGGLE_STYLE"; style: "bold" | "italic" | "underline" | "strikethrough" }
   | { type: "SET_LINK"; url: string | null }
+  | { type: "SET_TEXT_COLOR"; color: string | null }
   | { type: "PASTE"; text: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }

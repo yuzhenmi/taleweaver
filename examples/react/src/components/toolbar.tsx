@@ -18,6 +18,8 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
+  Baseline,
+  Ban,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -226,6 +228,41 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         onAction={() =>
           dispatch({ type: "TOGGLE_STYLE", style: "strikethrough" })
         }
+      />
+
+      {/* Text color. A native <input type="color"> is a complete color
+          picker; its onChange dispatches SET_TEXT_COLOR with the chosen
+          hex, which sets the per-run `color` attr (cascade →
+          ComputedStyle.color → glyph fillStyle). The adjacent reset button
+          clears the attr (color: null) so the text falls back to the
+          inherited/default color. onMouseDown/preventDefault on the wrappers
+          keeps the editor's selection while interacting. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <label
+            className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm text-[#444746] hover:bg-[#d3e3fd]"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <Baseline className="h-4 w-4" />
+            <input
+              type="color"
+              aria-label="Text color"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              onMouseDown={(e) => e.preventDefault()}
+              onChange={(e) =>
+                dispatch({ type: "SET_TEXT_COLOR", color: e.target.value })
+              }
+            />
+          </label>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Text color
+        </TooltipContent>
+      </Tooltip>
+      <ToolbarButton
+        label="Reset text color"
+        icon={Ban}
+        onAction={() => dispatch({ type: "SET_TEXT_COLOR", color: null })}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
