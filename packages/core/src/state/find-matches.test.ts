@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { findMatches } from "./find-matches";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 
 /**
@@ -142,6 +142,37 @@ describe("findMatches", () => {
     const ids: BlockId[] = ["doc" as BlockId, "p2" as BlockId];
     expect(findMatches(state, "cat", { blockIds: ids })).toEqual([
       { blockId: "p2" as BlockId, start: 0, end: 3 },
+    ]);
+  });
+
+  it("counts an embed as length 1 — match offsets stay aligned with the Position model (#407)", () => {
+    // LOAD-BEARING: a TextMatch offset must map 1:1 to a { blockId, offset }
+    // Position so a match can become a selection/highlight. An embed counts as
+    // length 1 in extractText AND in inlineContentLength, so text AFTER an embed
+    // is offset by exactly 1. Block: "abc" + hard-break + "def" → "abc\ndef".
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([text("abc"), embed("hard-break"), text("def")]),
+        }),
+      ],
+    });
+    // "def" begins at offset 4: a(0) b(1) c(2) +embed(3) d(4) — the embed is
+    // length 1, NOT 0 and NOT its serialized-string length.
+    expect(findMatches(state, "def")).toEqual([
+      { blockId: "p" as BlockId, start: 4, end: 7 },
+    ]);
+    // "abc" before the embed is unaffected.
+    expect(findMatches(state, "abc")).toEqual([
+      { blockId: "p" as BlockId, start: 0, end: 3 },
+    ]);
+    // The hard-break itself serializes to "\n" (one char) at offset 3, so it is
+    // matchable and occupies exactly one offset slot.
+    expect(findMatches(state, "\n")).toEqual([
+      { blockId: "p" as BlockId, start: 3, end: 4 },
     ]);
   });
 });
