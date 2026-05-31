@@ -1972,7 +1972,7 @@ describe("createEditorController", () => {
     it("cursor below the viewport scrolls down to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
       // Scroll-parent fully at top (scrollTop 0), short viewport (clientHeight
       // 200), container flush with the scroll-parent (both rect tops 0).
-      const { sp, container, ctrl } = makeScrollableController(
+      const { sp, ctrl } = makeScrollableController(
         { scrollTop: 0, clientHeight: 200, rectTop: 0 },
         0,
       );
@@ -2007,7 +2007,7 @@ describe("createEditorController", () => {
     it("cursor above the viewport scrolls up to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
       // Scroll-parent scrolled down to 500 with the container scrolled up by the
       // same amount (rect top -500), so page 2 sits above the visible window.
-      const { sp, container, ctrl } = makeScrollableController(
+      const { sp, ctrl } = makeScrollableController(
         { scrollTop: 500, clientHeight: 200, rectTop: 0 },
         -500,
       );
