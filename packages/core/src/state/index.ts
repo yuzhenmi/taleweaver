@@ -143,6 +143,11 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteratio
 export type { EmbedSerializer } from "./extract-text";
 export { extractText, builtinEmbedSerializer } from "./extract-text";
 
+// Find: non-overlapping text search over main-tree leaf blocks (Find & Replace
+// foundation — read-only query, returns block-relative match offsets).
+export type { TextMatch, FindMatchesOptions } from "./find-matches";
+export { findMatches } from "./find-matches";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //
