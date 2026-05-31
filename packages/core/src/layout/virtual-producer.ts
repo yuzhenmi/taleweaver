@@ -136,9 +136,21 @@ export function buildVirtualPaginatedTree(
   // page's bottom slot, reduces the body content area, and forward-sweeps the
   // re-fit. Footnote-free docs (empty `footnoteAnchors`) ⇒ ref-equal no-op
   // (`plan === rawPlan`), so a doc with no footnotes is byte-identical.
+  //
+  // FN-4.4 incremental carry-forward: pass the prior tree's RESOLVED plan
+  // (`prevTree?.plan` — `.plan` is the resolved one; `.__rawPlan` feeds
+  // measurePass above) + the prior tree's cascaded footnote bodies
+  // (`__cascadedEmbedContents`) so `resolveFootnotes` can REUSE an unchanged
+  // footnote page's body re-layout + re-fit. The prior body map is the reuse
+  // gate's change signal (ref-equal body ⇒ unchanged). Absent (no prior tree /
+  // pre-FN-4.4 tree) ⇒ inline-default empty map ⇒ every page takes the full path.
+  const prevInternal = prevTree as
+    | { __cascadedEmbedContents?: ReadonlyMap<BlockId, ElementBox> }
+    | undefined;
   const plan = resolveFootnotes(
     rawPlan, metas, sectionPlan, rootChildren,
     cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
+    prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
   );
   // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
   // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for

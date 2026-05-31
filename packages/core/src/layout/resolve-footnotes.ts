@@ -31,8 +31,33 @@ import {
   type PagePlanEntry,
   type SlotInsets,
 } from "./measure-pass";
-import { sectionStateAt, type SectionPlan } from "./section-plan";
+import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
+import type { BreakToken } from "./fragmentation";
 import { isDevMode } from "./dev-mode";
+
+// ---------------------------------------------------------------------------
+// Test-only instrumentation: count footnote-body `layoutBlock` invocations from
+// `resolveFootnotes` (the per-call body-height layout, NOT the materialize-pass
+// slot render). FN-4.4's incremental carry-forward (the `prevResolvedPlan` reuse
+// gate below) SKIPS laying out a page's footnote bodies + re-running the
+// convergence loop for a page whose body inputs AND assigned-body refs AND
+// per-page geometry are all unchanged. The incremental test asserts that an edit
+// on a footnote-FREE page does NOT re-lay-out the footnote pages' bodies — i.e.
+// this counter does not climb for the reused pages. Production pays one integer
+// increment per body it actually lays out (negligible).
+// ---------------------------------------------------------------------------
+
+let _bodyLayoutCallCount = 0;
+
+/** Test-only: number of footnote-body `layoutBlock` calls from `resolveFootnotes` since last reset. */
+export function __getBodyLayoutCallCountForTest(): number {
+  return _bodyLayoutCallCount;
+}
+
+/** Test-only: reset the footnote-body layout-call counter. */
+export function __resetBodyLayoutCallCountForTest(): void {
+  _bodyLayoutCallCount = 0;
+}
 
 /**
  * Height of the footnote SEPARATOR rule (FN-4): the thin horizontal line Google
@@ -174,9 +199,22 @@ export function buildFootnotePageAssignment(
  * so its index methods (`pageIndexOfBlock`, `pageSpanOfBlock`, …) reflect the NEW
  * page boundaries.
  *
- * NOTE: `prevResolvedPlan` (the incremental carry-forward) is FN-4.4 — omitted
- * here. The body re-layout is cached by `(body ref + content inline-size)` within
- * a single call only.
+ * INCREMENTAL CARRY-FORWARD (FN-4.4): when `prevResolvedPlan` (the PRIOR cycle's
+ * RESOLVED plan) is supplied, a swept page is REUSED — skipping its footnote-body
+ * re-layout AND the convergence loop — when every input that determined its prior
+ * resolution is provably unchanged at the CURRENT loop position (see
+ * `canReuseFootnotePage`): the prior entry STARTS at this `startIndex`, its
+ * `resumeInto` is structurally equal, its whole-block-progress `children` slice is
+ * REFERENCE-equal to the current `rootChildren` slice, the assigned footnote
+ * bodies (the `cascadedEmbedContents` lookups for the prior entry's
+ * `footnoteContentBlockIds`) are REFERENCE-equal to the prior cycle's, and the
+ * page's effective geometry (`pageConfig` + insets, from `sectionStateAt`) matches.
+ * On a hit the prior entry's `footnoteSlotHeight` / `footnoteContentBlockIds` /
+ * re-fit shape (`resumeOut`, children count) carry forward unchanged; the loop
+ * state advances exactly as it would from a fresh re-fit. This mirrors
+ * `measurePass`'s per-page reuse gate, so an edit on a footnote-FREE page does NOT
+ * re-lay-out the unchanged footnote pages' bodies (FN-8 perf seam). Without
+ * `prevResolvedPlan` every footnote page takes the full path.
  *
  * @param ctx the root layout context (writing-mode/direction/caches); narrowed
  *   to the page content inline-size per page for the body layout, exactly as
@@ -205,8 +243,19 @@ export function resolveFootnotes(
   shaper: TextShaper,
   slotInsets: SlotInsets | undefined,
   docWidePageConfig: PageConfig,
+  // FN-4.4: the PRIOR cycle's RESOLVED plan, for the incremental carry-forward
+  // reuse gate. `undefined` for a fresh build / footnote-free prior tree.
+  prevResolvedPlan?: PagePlan,
+  // FN-4.4: the PRIOR cycle's cascaded footnote bodies (keyed by body root id).
+  // The reuse gate compares a prior-assigned body's CURRENT ref against its prior
+  // ref — ref-equal iff the body is unchanged (the cascade preserves refs). When
+  // omitted (no prior tree) every page takes the full path. Defaults to an empty
+  // map so a `prevResolvedPlan` without a paired prior map never spuriously
+  // reuses (an absent prior body ref refuses reuse — see `canReuseFootnotePage`).
+  prevCascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
 ): PagePlan {
-  // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost).
+  // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost). The `prevResolvedPlan`
+  // path never runs for a footnote-free doc — the early return fires first.
   if (footnoteAnchors.length === 0) return rawPlan;
 
   const blockToIndex = buildBlockToTopLevelIndex(rootChildren);
@@ -226,6 +275,21 @@ export function resolveFootnotes(
   // the map keys ARE page indices) ⇒ no-op.
   if (firstFootnotePage === Infinity) return rawPlan;
 
+  // FN-4.4 incremental carry-forward: index the PRIOR cycle's RESOLVED entries by
+  // `startIndex` so a swept page can look up its prior resolution in O(1) and skip
+  // the body re-layout + convergence loop when nothing influencing it changed (see
+  // `canReuseFootnotePage`). Mirrors `measurePass`'s `prevPlanIndexByStartIndex`.
+  // We store the prior PLAN-INDEX (not the entry) so the reuse path can read the
+  // NEXT prior entry's `listCounterAtStart` for the list-counter delta — exactly
+  // as measurePass does — keeping the running counter byte-identical to a re-fit.
+  const prevResolvedIndexByStartIndex: Map<number, number> | null =
+    prevResolvedPlan !== undefined ? new Map() : null;
+  if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
+    for (let k = 0; k < prevResolvedPlan.entries.length; k++) {
+      prevResolvedIndexByStartIndex.set(prevResolvedPlan.entries[k].startIndex, k);
+    }
+  }
+
   // Per-call body-layout cache, keyed by body ref → (content inline-size →
   // laid-out height). The incremental cascade returns the SAME body ElementBox
   // ref for an unchanged body, but within ONE call we may consult the same body
@@ -243,6 +307,7 @@ export function resolveFootnotes(
       ...ctx,
       containingInlineSize: contentInlineSize,
     };
+    _bodyLayoutCallCount++;
     const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
@@ -371,6 +436,62 @@ export function resolveFootnotes(
     const contentInlineSize =
       effCfg.pageInlineSize - effCfg.pageMargins.inlineStart - effCfg.pageMargins.inlineEnd;
 
+    // FN-4.4 incremental carry-forward: try to REUSE this page's prior resolution
+    // (skipping the body re-layout + convergence loop) when nothing influencing it
+    // changed. On a hit we copy the prior entry's footnote slot + re-fit SHAPE and
+    // skip straight to emitting the entry; on a miss we run the full path below.
+    // These hold the resolved page's outputs from WHICHEVER path produced them.
+    // Initialized to inert defaults so TS sees them definitely-assigned; BOTH the
+    // reuse and the miss path overwrite every one before they're read below.
+    let resolvedContentBlockIds: readonly BlockId[] = [];
+    let resolvedSlotHeight = 0;
+    let resolvedStopBeforeIndex: number | undefined = undefined;
+    let resolvedResumeOut: BreakToken | null = null;
+    // The next page's `listCounterAtStart` seed (this page's `listCounterAtEnd`).
+    let resolvedListCounterAtEnd = listCounterAtStart;
+    // Whole-block-progress child count placed on this page (slice length basis).
+    let resolvedChildrenCount = 0;
+    let reused = false;
+
+    if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
+      const prevK = prevResolvedIndexByStartIndex.get(startIndex);
+      const prevEntry = prevK !== undefined ? prevResolvedPlan.entries[prevK] : undefined;
+      const prevNext = prevK !== undefined ? prevResolvedPlan.entries[prevK + 1] : undefined;
+      if (
+        prevEntry !== undefined &&
+        canReuseFootnotePage(
+          prevEntry, prevNext, resumeInto, effCfg, effTopInset, effBottomInset,
+          rootChildren, startIndex, metas.length, sectionCap, cascadedEmbedContents,
+          prevCascadedEmbedContents,
+        )
+      ) {
+        reused = true;
+        resolvedContentBlockIds = prevEntry.footnoteContentBlockIds;
+        resolvedSlotHeight = prevEntry.footnoteSlotHeight;
+        // Re-stamp the cap from the CURRENT section cap (NOT the prior entry's
+        // stale copy), matching the miss path's section-only cap (no footnote
+        // tightening applies on a reuse hit — a reused page carries no fresh
+        // footnote-driven atomic cap). The gate above guarantees
+        // `sectionCap === prevEntry.stopBeforeIndex` here, so this equals the
+        // prior value; re-stamping from the current cap is the measurePass-
+        // consistent pattern (defends against any future gate relaxation), the
+        // same way measurePass's reuse path stamps `st.nextBoundaryIndex`.
+        resolvedStopBeforeIndex = tightenCap(sectionCap, undefined);
+        resolvedResumeOut = prevEntry.resumeOut;
+        resolvedChildrenCount = prevEntry.children.length;
+        // The page's list-counter INCREMENT is a pure function of its (proved
+        // identical) content; reading it off the prior plan as
+        // `prevNext.listCounterAtStart − prevEntry.listCounterAtStart` reproduces
+        // the real fit's `listCounterAtEnd`, applied to the CURRENT running seed —
+        // exactly as measurePass's reuse path. When the prior page ended the
+        // document (`resumeOut === null`) there is no next page, so the delta is 0
+        // (the value is unused — the loop breaks below).
+        const listCounterDelta =
+          prevNext !== undefined ? prevNext.listCounterAtStart - prevEntry.listCounterAtStart : 0;
+        resolvedListCounterAtEnd = listCounterAtStart + listCounterDelta;
+      }
+    }
+
     // D8 convergence: a footnote belongs to the page where its ANCHOR BLOCK is
     // PLACED, and the page reserves slot space for exactly those footnotes. That
     // is a fixpoint (slot ⇄ which blocks fit), reached by iterating
@@ -389,6 +510,10 @@ export function resolveFootnotes(
     // travels WITH its footnote to the next page. We cap THIS page before that
     // block (`footnoteCap`), so the block + footnote are picked up together by
     // the next sweep page — neither the block nor its footnote is ever lost.
+    if (reused) {
+      // Reuse path: every resolved output was copied from the prior entry above.
+      // Nothing further to compute — fall through to the entry emission below.
+    } else {
     const seedNoSlotFit = fitOnePage(
       metas, startIndex, resumeInto,
       pageContentBlockSize, listCounterAtStart,
@@ -477,13 +602,21 @@ export function resolveFootnotes(
       }
     }
 
-    const stopBeforeIndex = tightenCap(sectionCap, footnoteCap);
+    // Publish the miss path's outputs into the shared resolved* vars (the reuse
+    // path published them above).
+    resolvedContentBlockIds = contentBlockIds;
+    resolvedSlotHeight = footnoteSlotHeight;
+    resolvedStopBeforeIndex = tightenCap(sectionCap, footnoteCap);
+    resolvedResumeOut = fit.resumeOut;
+    resolvedChildrenCount = fit.childrenCount;
+    resolvedListCounterAtEnd = fit.listCounterAtEnd;
+    } // end miss path
 
     const nextStartIndex =
-      fit.resumeOut !== null && fit.resumeOut.type === "block"
-        ? fit.resumeOut.resumeChildIndex
-        : startIndex + fit.childrenCount;
-    const sliceEnd = fit.resumeOut === null ? metas.length : nextStartIndex;
+      resolvedResumeOut !== null && resolvedResumeOut.type === "block"
+        ? resolvedResumeOut.resumeChildIndex
+        : startIndex + resolvedChildrenCount;
+    const sliceEnd = resolvedResumeOut === null ? metas.length : nextStartIndex;
     const children: readonly RenderNode[] = rootChildren.slice(startIndex, sliceEnd);
 
     newEntries.push({
@@ -494,12 +627,15 @@ export function resolveFootnotes(
       children,
       startIndex,
       resumeInto,
-      resumeOut: fit.resumeOut,
+      resumeOut: resolvedResumeOut,
       listCounterAtStart,
       activeSectionId,
       sectionPageIndex,
-      // Cap re-derived at this page's startIndex (D7).
-      stopBeforeIndex: stopBeforeIndex ?? null,
+      // Cap re-derived at this page's startIndex (D7) on BOTH paths: the miss
+      // path tightens the section cap by any footnote atomic cap; the reuse path
+      // re-stamps from the CURRENT section cap (the gate proved it equals the
+      // prior entry's cap), never the prior entry's possibly-stale copy.
+      stopBeforeIndex: resolvedStopBeforeIndex ?? null,
       // Header/footer body ids for THIS page (C.2c + D9): from the section
       // ACTIVE at the new `startIndex` (`st`), NOT the raw entry at the same page
       // NUMBER — a footnote-driven shift can move the page to a different section.
@@ -509,8 +645,8 @@ export function resolveFootnotes(
       // footnoteSlotHeight.
       effectiveTopInset: effTopInset,
       effectiveBottomInset: effBottomInset,
-      footnoteContentBlockIds: contentBlockIds,
-      footnoteSlotHeight,
+      footnoteContentBlockIds: resolvedContentBlockIds,
+      footnoteSlotHeight: resolvedSlotHeight,
       // FN-5: cross-page footnote-body continuation. ALWAYS null in FN-4 (D5
       // clamp instead of split).
       footnoteContinuation: null,
@@ -518,21 +654,21 @@ export function resolveFootnotes(
 
     recordBlockMaps(
       children, rootChildren, metas, startIndex, pageIndex,
-      resumeInto, fit.resumeOut, blockToPage, blockToSpan,
+      resumeInto, resolvedResumeOut, blockToPage, blockToSpan,
     );
 
     // Advance the running-sum document-y by THIS page's height + gap (C.2b-2).
     blockOffset += effCfg.pageBlockSize + effCfg.pageGap;
 
-    if (fit.resumeOut === null) break;
+    if (resolvedResumeOut === null) break;
 
     // Thread loop state forward (mirrors measurePass). Section-state (active id +
     // within-section page index) is recomputed at the next startIndex so a swept
     // page that crossed a section boundary tags the correct section.
     pageIndex++;
     startIndex = nextStartIndex;
-    resumeInto = fit.resumeOut;
-    listCounterAtStart = fit.listCounterAtEnd;
+    resumeInto = resolvedResumeOut;
+    listCounterAtStart = resolvedListCounterAtEnd;
     const nextSt = sectionStateAt(sectionPlan, startIndex);
     if (nextSt.activeSectionId !== activeSectionId) {
       sectionPageIndex = 0;
@@ -562,6 +698,148 @@ export function resolveFootnotes(
 function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * Structural break-token equality (references differ across measure cycles, so
+ * `===` would always miss). Recurses through `block` tokens' nested
+ * `resumeChildToken`. Mirrors the equality `measure-pass.ts` uses for its reuse
+ * gate; FN-4.4's `canReuseFootnotePage` compares the prior resolved entry's
+ * `resumeInto` to the current loop's `resumeInto` with it.
+ */
+function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (a.type !== b.type) return false;
+  if (a.type === "block" && b.type === "block") {
+    return (
+      a.resumeChildIndex === b.resumeChildIndex &&
+      breakTokensEqual(a.resumeChildToken, b.resumeChildToken)
+    );
+  }
+  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
+  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
+  return false;
+}
+
+/**
+ * FN-4.4 incremental carry-forward reuse gate: decide whether a swept page's
+ * PRIOR resolution (`prevEntry`, from the prior cycle's resolved plan) may be
+ * reused at the current loop position — skipping its footnote-body re-layout AND
+ * the convergence loop. Mirrors `measurePass`'s `canReusePage`, extended with the
+ * footnote-specific inputs (the slot's assigned-body refs). Reuse is sound ONLY
+ * when EVERY input that determined the prior page's resolution is identical now:
+ *
+ *   0. The CURRENT section cap (`sectionCap`, the page-break cap the re-fit was
+ *      built against) equals the prior entry's `stopBeforeIndex`. A `SECTION_BREAK`
+ *      can move a boundary into this page's range without touching its geometry or
+ *      body refs; reusing then would emit a STALE cap and leak the wrong section's
+ *      blocks onto the page. Mirrors `measurePass.canReusePage`'s cap check.
+ *   1. The prior entry STARTS at this `startIndex` (the caller's O(1) index
+ *      lookup guarantees this; re-checked implicitly by the slice compare).
+ *   2. Its `resumeInto` is STRUCTURALLY equal to the current `resumeInto` (same
+ *      continuation state INTO the page; references differ across cycles).
+ *   3. The page's EFFECTIVE geometry is unchanged: `pageConfig` field-equal (deep
+ *      compare — references differ across cycles) AND the grown insets
+ *      (`effectiveTopInset` / `effectiveBottomInset`) equal. The body re-fit and
+ *      the slot clamp both depend on the content block-size these determine, so a
+ *      section-geometry or header/footer-height change must force a re-resolve.
+ *   4. Every child that INFLUENCED the prior re-fit — the whole-block-progress
+ *      slice AND a mid-fragment child at the resume-out index — is REFERENCE-equal
+ *      to the current `rootChildren` (the cascade preserves refs for unchanged
+ *      blocks). When the prior page ended the document (`resumeOut === null`) the
+ *      slice must still reach the CURRENT document end (no blocks appended past
+ *      it), else appended blocks would be silently dropped.
+ *   5. The assigned footnote BODIES are unchanged: each `prevEntry`-assigned id's
+ *      CURRENT `cascadedEmbedContents` lookup is REFERENCE-equal to the PRIOR
+ *      cycle's lookup (`prevCascadedEmbedContents`). The prior cycle resolved its
+ *      `footnoteSlotHeight` against the prior refs; the cascade preserves a body's
+ *      ElementBox ref across cycles iff the body is UNCHANGED, so ref-equality is
+ *      the exact change signal. A body edit yields a NEW cascaded ElementBox for
+ *      the same id → the refs differ → re-resolve so the slot height reflects the
+ *      new body. A missing body (current OR prior) refuses reuse defensively — a
+ *      slot built from an absent body can't be trusted. (The TREE-level
+ *      `PageFingerprint` ALSO carries the body refs, so a body edit re-materializes
+ *      the page; this gate keeps the PLAN's slot HEIGHT correct in lockstep.)
+ */
+function canReuseFootnotePage(
+  prevEntry: PagePlanEntry,
+  prevNext: PagePlanEntry | undefined,
+  resumeInto: BreakToken | null,
+  effCfg: PageConfig,
+  effTopInset: number,
+  effBottomInset: number,
+  rootChildren: readonly RenderNode[],
+  startIndex: number,
+  metasLength: number,
+  sectionCap: number | null,
+  cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>,
+  prevCascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>,
+): boolean {
+  // (0) Section cap unchanged. The prior entry's `stopBeforeIndex` is the cap its
+  // re-fit was built against (the section cap tightened by any footnote-driven
+  // atomic cap). A `SECTION_BREAK` can move a section boundary into this page's
+  // range WITHOUT changing the page's geometry or body refs, so every OTHER gate
+  // field would still match while the CURRENT section cap differs — reusing the
+  // prior entry would emit a STALE `stopBeforeIndex` that leaks the wrong
+  // section's blocks onto the page (`materializePage` threads it into
+  // `bfc.layoutBlock`). Mirror `measurePass.canReusePage`'s `sectionStatesEqual`
+  // cap check: refuse reuse unless the CURRENT section cap equals what the prior
+  // entry was capped at. (`fitOnePage`/the convergence loop both normalize a
+  // null section cap to `undefined`, so compare against `?? null`.)
+  //
+  // CONSERVATIVE MISS: this ALSO refuses reuse for a prior page whose cap was
+  // footnote-TIGHTENED below the section cap (a self-eviction atomic-cap page),
+  // since `prevEntry.stopBeforeIndex` would then be < `sectionCap` even when the
+  // section is unchanged. Those rare pages simply re-resolve — an acceptable
+  // conservative miss (FN-8 is the perf-refinement task), never a correctness
+  // hazard.
+  if ((sectionCap ?? null) !== prevEntry.stopBeforeIndex) return false;
+
+  // (2) resumeInto structural-equality.
+  if (!breakTokensEqual(prevEntry.resumeInto, resumeInto)) return false;
+
+  // (3) Effective geometry unchanged.
+  if (!pageConfigsEqual(effCfg, prevEntry.pageConfig)) return false;
+  if (effTopInset !== prevEntry.effectiveTopInset) return false;
+  if (effBottomInset !== prevEntry.effectiveBottomInset) return false;
+
+  // (4) Body-input child refs unchanged (whole-block slice + mid-fragment child).
+  const sliceLen = prevEntry.children.length;
+  if (startIndex + sliceLen > rootChildren.length) return false;
+  for (let i = 0; i < sliceLen; i++) {
+    if (rootChildren[startIndex + i] !== prevEntry.children[i]) return false;
+  }
+  if (prevEntry.resumeOut === null) {
+    // Prior page ended the document: reusable only if it still does (no append).
+    if (startIndex + sliceLen !== metasLength) return false;
+  } else if (prevEntry.resumeOut.type === "block") {
+    // A child resuming onto the NEXT page placed content on THIS page that shaped
+    // `resumeOut`. It sits at the slice end and is omitted from `children`, so
+    // verify it via the prior NEXT entry's first child (the prior node at K).
+    const k = prevEntry.resumeOut.resumeChildIndex;
+    if (k < 0 || k >= rootChildren.length) return false;
+    if (prevNext === undefined || prevNext.children.length === 0) return false;
+    if (prevNext.startIndex !== k) return false;
+    if (rootChildren[k] !== prevNext.children[0]) return false;
+  } else {
+    // Bare ifc/table resumeOut is unreachable at the top level (the doc root is a
+    // block FC, so fitOnePage always wraps a leaf token in a top-level block
+    // token). Refuse reuse conservatively if one ever surfaces.
+    return false;
+  }
+
+  // (5) Assigned footnote BODIES unchanged: each prior-assigned id's CURRENT body
+  // ref must equal the PRIOR cycle's body ref. A missing body (current OR prior)
+  // refuses reuse defensively — a slot built from an absent body can't be trusted.
+  for (const id of prevEntry.footnoteContentBlockIds) {
+    const current = cascadedEmbedContents.get(id);
+    const prior = prevCascadedEmbedContents.get(id);
+    if (current === undefined || prior === undefined) return false;
+    if (current !== prior) return false;
+  }
+
   return true;
 }
 

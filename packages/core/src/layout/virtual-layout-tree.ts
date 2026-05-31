@@ -697,6 +697,13 @@ export function makeVirtualLayoutTree(
     value: templateBodies,
     enumerable: false,
   });
+  // FN-4.4: the cascaded footnote bodies this tree was built with, for the NEXT
+  // cycle's `resolveFootnotes` reuse gate — it compares a prior-assigned body's
+  // CURRENT ref against this prior ref (ref-equal iff the body is unchanged).
+  Object.defineProperty(tree, "__cascadedEmbedContents", {
+    value: embedBodies,
+    enumerable: false,
+  });
   // FN-4 (D6): the raw pre-resolveFootnotes plan, for the NEXT cycle's
   // measurePass carry-forward source.
   Object.defineProperty(tree, "__rawPlan", {
@@ -724,6 +731,14 @@ interface VirtualLayoutTreeInternal extends VirtualLayoutTree {
    * for test inspection of the threading.
    */
   readonly __cascadedTemplateContents?: ReadonlyMap<BlockId, ElementBox>;
+  /**
+   * The cascaded footnote bodies this tree was built with (FN-4.4), keyed by body
+   * root BlockId. `buildVirtualPaginatedTree` reads `prevTree?.__cascadedEmbedContents`
+   * as the NEXT cycle's `resolveFootnotes` reuse-gate comparison source — the prior
+   * body ref for each id (ref-equal to the current iff the body is unchanged).
+   * Equals the empty map for a footnote-free tree.
+   */
+  readonly __cascadedEmbedContents?: ReadonlyMap<BlockId, ElementBox>;
   /**
    * The RAW (pre-`resolveFootnotes`) measure plan this tree was built from
    * (FN-4 D6). `buildVirtualPaginatedTree` reads `prevTree?.__rawPlan` as the
