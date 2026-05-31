@@ -164,6 +164,11 @@ page). Round 2:
   show the blue selection tint over the highlight (the highlight is opaque — same
   as block backgrounds; a selection-compositing follow-up is tracked). The caret
   stays visible.
+- 🔁 **Line spacing (NEW):** put the cursor in (or select) a paragraph → the
+  line-spacing `<select>` (1.0/1.15/1.5/2.0) near the alignment buttons → the
+  paragraph's lines space out / tighten (the page reflows). Works on headings and
+  list items too (scales to their font size). First block-paragraph feature beyond
+  alignment.
 - 🔁 **Font size + font family (NEW):** select text → the two `<select>`
   dropdowns in the toolbar (size: 10–64px; family: Arial/Times/Courier/…). Size
   should **reflow** (bigger text → taller line, wrapping shifts); family should
