@@ -338,3 +338,160 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     expect(joinText(getBlock(deleted.state, paraId)?.inlineContent?.items)).toBe("abc");
   });
 });
+
+/**
+ * Bug-A-class siblings: keyboard navigation and selection ACROSS an inline-block
+ * footnote call-marker. The marker is a 1-unit `EmbedItem` in the host paragraph
+ * — `"abc"` (offsets 0..3) followed by the marker, which occupies one offset
+ * unit, so the position BEFORE the marker is offset 3 and the position AFTER is
+ * offset 4 (= block end). Every nav/selection primitive must treat the marker as
+ * a SINGLE atomic cursor stop with a before/after position — never step into its
+ * inner body text, never skip it, never land off-by-one.
+ *
+ * Driven through the real `reduceEditor` (the same surface ArrowLeft/Right,
+ * Ctrl+Arrow, Shift+Arrow, Home/End map to). Fixture: type "abc", caret to the
+ * end (offset 3), INSERT_FOOTNOTE splices the marker at 3, then SET_SELECTION
+ * places a collapsed caret back in the MAIN paragraph (INSERT_FOOTNOTE leaves the
+ * caret inside the new body) at the requested offset.
+ */
+describe("nav + selection across an inline-block footnote marker (Bug-A siblings)", () => {
+  /**
+   * Build an editor whose main paragraph is "abc" + a footnote marker, with a
+   * collapsed caret at `caretOffset` in that main paragraph. Returns the editor
+   * and the main paragraph id. Offsets: 0..3 = "abc", 3 = before marker, 4 =
+   * after marker (block end).
+   */
+  function markerFixture(caretOffset: number): {
+    editor: EditorState;
+    paraId: BlockId;
+  } {
+    const initial = createInitialEditorState(config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
+    const paraId = bodyParaId(typed);
+    const atEnd = reduceEditor(
+      typed,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: paraId, offset: 3 },
+          focus: { blockId: paraId, offset: 3 },
+        },
+      },
+      config,
+    );
+    const withFn = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" }, config);
+    // The marker is now a 1-unit embed at index after "abc": block length is 4.
+    expect(anchorEmbedsOf(withFn, paraId).length).toBe(1);
+    // Caret back into the main paragraph at the requested offset.
+    const editor = reduceEditor(
+      withFn,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: paraId, offset: caretOffset },
+          focus: { blockId: paraId, offset: caretOffset },
+        },
+      },
+      config,
+    );
+    expect(editor.selection.focus.blockId).toBe(paraId);
+    expect(editor.selection.focus.offset).toBe(caretOffset);
+    return { editor, paraId };
+  }
+
+  // (1) MOVE_CURSOR right from BEFORE the marker (offset 3) steps OVER it as a
+  // single stop, landing AFTER it (offset 4) — never into its inner body text.
+  it("MOVE_CURSOR forward from offset 3 (before marker) lands at offset 4 (after marker), one step", () => {
+    const { editor, paraId } = markerFixture(3);
+    const moved = reduceEditor(editor, { type: "MOVE_CURSOR", direction: "forward" }, config);
+    expect(moved.selection.focus.blockId).toBe(paraId);
+    expect(moved.selection.focus.offset).toBe(4);
+    // Collapsed (a move, not a selection).
+    expect(moved.selection.anchor.offset).toBe(4);
+  });
+
+  // (2) MOVE_CURSOR left from AFTER the marker (offset 4) lands BEFORE it
+  // (offset 3) in one step — the symmetric ArrowLeft case.
+  it("MOVE_CURSOR backward from offset 4 (after marker) lands at offset 3 (before marker), one step", () => {
+    const { editor, paraId } = markerFixture(4);
+    const moved = reduceEditor(editor, { type: "MOVE_CURSOR", direction: "backward" }, config);
+    expect(moved.selection.focus.blockId).toBe(paraId);
+    expect(moved.selection.focus.offset).toBe(3);
+    expect(moved.selection.anchor.offset).toBe(3);
+  });
+
+  // (3) MOVE_WORD across the marker treats it as a 1-unit barrier: forward from
+  // before "abc" stops at the marker boundary (offset 3 = end of the word, before
+  // the embed); a further forward steps the single embed unit to offset 4.
+  // Backward from offset 4 (after marker) retreats over the 1-unit embed to 3.
+  it("MOVE_WORD forward stops at the marker boundary (offset 3), then steps the embed to 4; never crashes/skips", () => {
+    const { editor, paraId } = markerFixture(0);
+    const fwd1 = reduceEditor(editor, { type: "MOVE_WORD", direction: "forward" }, config);
+    // Word-forward over "abc" halts at the embed barrier = offset 3 (before marker).
+    expect(fwd1.selection.focus.blockId).toBe(paraId);
+    expect(fwd1.selection.focus.offset).toBe(3);
+    const fwd2 = reduceEditor(fwd1, { type: "MOVE_WORD", direction: "forward" }, config);
+    // The next word-forward steps the single embed unit → after the marker (4).
+    expect(fwd2.selection.focus.offset).toBe(4);
+  });
+
+  it("MOVE_WORD backward from offset 4 (after marker) retreats over the 1-unit embed to offset 3", () => {
+    const { editor, paraId } = markerFixture(4);
+    const back = reduceEditor(editor, { type: "MOVE_WORD", direction: "backward" }, config);
+    expect(back.selection.focus.blockId).toBe(paraId);
+    expect(back.selection.focus.offset).toBe(3);
+  });
+
+  // (4) EXPAND_SELECTION (Shift+Arrow) selects the 1-unit marker as a unit.
+  it("EXPAND_SELECTION forward from offset 3 selects the marker (anchor 3, focus 4)", () => {
+    const { editor, paraId } = markerFixture(3);
+    const sel = reduceEditor(editor, { type: "EXPAND_SELECTION", direction: "forward" }, config);
+    expect(sel.selection.anchor.blockId).toBe(paraId);
+    expect(sel.selection.anchor.offset).toBe(3);
+    expect(sel.selection.focus.blockId).toBe(paraId);
+    expect(sel.selection.focus.offset).toBe(4);
+  });
+
+  it("EXPAND_SELECTION backward from offset 4 selects the marker (anchor 4, focus 3)", () => {
+    const { editor, paraId } = markerFixture(4);
+    const sel = reduceEditor(editor, { type: "EXPAND_SELECTION", direction: "backward" }, config);
+    expect(sel.selection.anchor.blockId).toBe(paraId);
+    expect(sel.selection.anchor.offset).toBe(4);
+    expect(sel.selection.focus.blockId).toBe(paraId);
+    expect(sel.selection.focus.offset).toBe(3);
+  });
+
+  // (5) DELETE_BACKWARD from offset 4 (caret just AFTER the marker) deletes the
+  // marker AND cascade-deletes its body — confirmed here in the nav context
+  // (the offset-4 = after-the-1-unit-embed accounting is the same that ArrowLeft
+  // and Shift+ArrowLeft rely on).
+  it("DELETE_BACKWARD from offset 4 (after marker) deletes the marker + cascades the body", () => {
+    const { editor, paraId } = markerFixture(4);
+    const anchors = anchorEmbedsOf(editor, paraId);
+    expect(anchors.length).toBe(1);
+    const bodyRootId = anchors[0].contentBlockId;
+    expect(getEmbedContent(editor.state, bodyRootId)).not.toBeNull();
+
+    const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    expect(anchorEmbedsOf(deleted, paraId).length).toBe(0);
+    expect(getEmbedContent(deleted.state, bodyRootId)).toBeNull();
+    // "abc" survives — only the 1-unit embed was removed.
+    expect(joinText(getBlock(deleted.state, paraId)?.inlineContent?.items)).toBe("abc");
+    // Caret collapses to where the marker was (offset 3, the end of "abc").
+    expect(deleted.selection.focus.blockId).toBe(paraId);
+    expect(deleted.selection.focus.offset).toBe(3);
+  });
+
+  // (6) MOVE_LINE_BOUNDARY (Home/End) on the line carrying the marker: End lands
+  // AFTER the marker (offset 4 = the line's true end, the 1-unit embed counted in
+  // `inlineOffsetEnd`); Home lands at line start (offset 0).
+  it("MOVE_LINE_BOUNDARY end lands AFTER the marker (offset 4); start at line start (offset 0)", () => {
+    const { editor, paraId } = markerFixture(3);
+    const end = reduceEditor(editor, { type: "MOVE_LINE_BOUNDARY", boundary: "end" }, config);
+    expect(end.selection.focus.blockId).toBe(paraId);
+    expect(end.selection.focus.offset).toBe(4);
+    const home = reduceEditor(end, { type: "MOVE_LINE_BOUNDARY", boundary: "start" }, config);
+    expect(home.selection.focus.blockId).toBe(paraId);
+    expect(home.selection.focus.offset).toBe(0);
+  });
+});
