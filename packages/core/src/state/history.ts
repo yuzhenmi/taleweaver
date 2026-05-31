@@ -273,6 +273,25 @@ export class History {
   }
 
   /**
+   * Dispose this History's `Y.UndoManager`, detaching the
+   * `afterTransaction` / `afterAllTransactions` observers it registered on the
+   * Doc. The owner (the editor/doc that created this History) MUST call this
+   * when it is torn down.
+   *
+   * Today there is exactly one long-lived History per editor, so nothing leaks
+   * in the current app. This exists for the collab / multi-view future, where
+   * editors and docs are created and destroyed: a second `Y.UndoManager`
+   * tracking the same scopes on an undisposed Doc would double-count changes
+   * and silently corrupt undo grouping. Disposing is the cheap insurance.
+   *
+   * After `destroy()` the History must not be used again (undo/redo/commit are
+   * undefined behaviour on a destroyed UndoManager).
+   */
+  destroy(): void {
+    this.undoManager.destroy();
+  }
+
+  /**
    * Pop the latest undo entry: mutate Y.Doc back, mint a fresh State,
    * and return the pre-action selection so the caller can restore it.
    * Y.UndoManager creates a fresh StackItem on the redo stack; we re-weld

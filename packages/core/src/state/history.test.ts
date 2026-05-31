@@ -95,6 +95,28 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
   });
 
+  it("destroy() disposes the UndoManager and detaches its observers", () => {
+    const state0 = createEmptyDocument();
+    const history = createHistory(state0);
+    const child = firstChild(state0);
+    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    history.commit(setBlockAttrs(state0, child.id, { bold: true }), {
+      before: sel,
+      after: sel,
+    });
+    // Drain the undo stack so it is empty, then destroy.
+    history.undo();
+    expect(history.canUndo()).toBe(false);
+
+    expect(() => history.destroy()).not.toThrow();
+
+    // A post-destroy tracked mutation must NOT push a new entry onto the (now
+    // empty) undo stack: proves the afterTransaction observer was detached. If
+    // it were still live, this op would make canUndo() true again.
+    setBlockAttrs(state0, child.id, { italic: true });
+    expect(history.canUndo()).toBe(false);
+  });
+
   it("undo after a single commit restores the prior Y.Doc state and returns 'before' selection", () => {
     const state0 = createEmptyDocument();
     const history = createHistory(state0);

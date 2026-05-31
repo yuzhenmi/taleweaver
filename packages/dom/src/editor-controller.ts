@@ -1133,6 +1133,13 @@ export function createEditorController(
     cancelAnimationFrame(scrollRafId);
     cancelAnimationFrame(scrollAnimId);
 
+    // Dispose the document History so its Y.UndoManager detaches its
+    // afterTransaction observers from the Doc. `history` is the one long-lived
+    // instance carried by reference across every EditorState, so disposing it
+    // once here releases the observers a torn-down/recreated controller would
+    // otherwise leak (collab / multi-view).
+    state?.history.destroy();
+
     // Cleanup DOM
     cleanupPageCanvases();
     if (singleCanvas) {

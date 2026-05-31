@@ -85,6 +85,24 @@ describe("yjs-doc", () => {
       expect(getBlocksMap(doc).has("test")).toBe(true);
     });
 
+    it("throws (dev) when called reentrantly inside another transaction", () => {
+      // Nested runTransaction silently loses dirtyIds (the inner
+      // afterTransaction listener detaches before the outer commit) → invisible
+      // stale paint. The dev-mode guard turns that footgun into a loud throw.
+      const doc = createYDoc();
+      expect(() =>
+        runTransaction(doc, () => {
+          runTransaction(doc, () => {
+            getBlocksMap(doc).set("inner", new Y.Map());
+          });
+        }),
+      ).toThrow(/already inside a Y\.Doc transaction/);
+      // The guard throws BEFORE doc.transact, so the inner write never lands —
+      // no half-mutation. (A regression that moved the guard after the
+      // transaction would commit "inner" and fail here.)
+      expect(getBlocksMap(doc).has("inner")).toBe(false);
+    });
+
     it("returns the set of changed BlockIds (blocks map)", () => {
       const doc = createYDoc();
       const result = runTransaction(doc, () => {

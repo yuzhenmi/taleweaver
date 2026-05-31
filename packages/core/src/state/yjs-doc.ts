@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
+import { isDevMode } from "./dev-mode";
 
 const BLOCKS_KEY = "blocks";
 const EMBED_CONTENTS_KEY = "embedContents";
@@ -267,6 +268,20 @@ export function runTransaction(
   doc: Y.Doc,
   fn: () => void,
 ): TransactionResult {
+  // Reentrancy guard (dev-mode). A nested `runTransaction` silently returns an
+  // empty dirtyIds set — Yjs merges the inner `doc.transact` into the outer
+  // one, so this call's `afterTransaction` listener is detached before the
+  // outer commit fires. That manifests as invisible stale paint (the inner
+  // mutation never reaches incremental render), the hardest class of bug to
+  // trace. Turn the silent footgun into a loud throw. PROD pays nothing.
+  if (isDevMode() && isInYjsTransaction(doc)) {
+    throw new Error(
+      "runTransaction called while already inside a Y.Doc transaction. " +
+        "Nested runTransaction loses dirtyIds (the inner afterTransaction " +
+        "listener detaches before the outer commit). Mutate raw Y types " +
+        "directly and let the outer caller's runTransaction capture dirtyIds.",
+    );
+  }
   const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn));
   return { dirtyIds };
 }
