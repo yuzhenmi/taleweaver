@@ -144,6 +144,57 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     spy.mockRestore();
   });
 
+  it("re-renders footnote BODY slot numbers (not just call markers) when an insert renumbers (render-audit I1)", () => {
+    // Build two footnotes across two paragraphs (fn1 on para 1, fn2 on para 2).
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    const firstHost = editor.selection.focus.blockId;
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: firstHost, offset: 2 },
+          focus: { blockId: firstHost, offset: 2 },
+        },
+      },
+      config,
+    );
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+
+    // Insert a NEW footnote at the very start of para 1 — BEFORE fn1's anchor —
+    // bumping the existing footnotes 1→2 and 2→3. fn2's host is NOT dirty (only
+    // renumbered), so its body slot is a prime stale-reuse candidate.
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: firstHost, offset: 0 },
+          focus: { blockId: firstHost, offset: 0 },
+        },
+      },
+      config,
+    );
+    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+
+    // Invariant: every footnote body's RENDERED leading number (markerText,
+    // baked from ctx.footnoteNumber at render time) must equal its current
+    // number. A stale reused body node keeps the OLD number while the numbers
+    // map + call marker show the new one — the render-audit I1 bug.
+    expect(after.renderOutput.footnoteNumbers.size).toBe(3);
+    for (const [contentBlockId, number] of after.renderOutput.footnoteNumbers) {
+      const body = after.renderOutput.embedContents.get(contentBlockId);
+      if (body === undefined || body.type !== "element") {
+        throw new Error(`expected an element body node for ${contentBlockId}`);
+      }
+      expect(body.style.markerText).toBe(number.formatted);
+    }
+  });
+
   it("reuses CORRECT numbers across a skipped (reused) cycle", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);

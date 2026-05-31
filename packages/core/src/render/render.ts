@@ -9,7 +9,6 @@ import type { ComponentRegistry } from "../components/component-registry";
 import {
   collectFootnoteAnchors,
   footnoteNumbers,
-  footnoteRenumberedBlocks,
   documentFootnotePolicy,
   EMPTY_FOOTNOTE_ANCHORS,
   type FootnoteAnchorRef,
@@ -618,9 +617,9 @@ function renderIncremental(
   // own blocks are NOT in `dirtyIds` (only the edited anchor's block is). Those
   // downstream anchor blocks carry a now-stale marker number in their cached
   // RenderNode, so they must be invalidated even though their content didn't
-  // change. `footnoteRenumberedBlocks` finds exactly those blocks by diffing
-  // the two numbering maps; they are folded into the invalidation set below.
-  // (FN-8 will make this incremental rather than a full re-diff per cycle.)
+  // change. The renumber loop below diffs the two numbering maps per anchor and
+  // folds both the host (call marker) and the body root (slot number) of each
+  // renumbered footnote into the invalidation set.
   // Collect the new state's footnote anchors ONCE (one O(N_blocks) walk) and
   // reuse the list for both the numbering map AND the renumber diff — avoid a
   // second walk per keystroke.
@@ -682,14 +681,30 @@ function renderIncremental(
     // directly instead of re-walking prevState (the renumber diff only runs when
     // an anchor changed, but even then the prevState walk is pure waste here).
     const prevFnNumbers = prev.footnoteNumbers;
-    for (const id of footnoteRenumberedBlocks(fnAnchors, fnNumbers, prevFnNumbers)) {
-      if (!invalidated.has(id)) {
-        // The renumbered anchor's block needs a fresh marker; invalidating its
-        // ancestors too (so the parent's children array is rebuilt with the new
-        // marker node) mirrors `computeInvalidatedBlocks`'s ancestor walk.
-        invalidated.add(id);
-        addAncestorsToInvalidated(state, prevState, id, invalidated);
+    // Diff per-ANCHOR (by contentBlockId) so a host block carrying multiple
+    // footnotes only re-renders the bodies that actually renumbered — a strict
+    // superset check by host would over-invalidate unchanged siblings.
+    for (const anchor of fnAnchors) {
+      const now = fnNumbers.get(anchor.contentBlockId)?.formatted;
+      const before = prevFnNumbers.get(anchor.contentBlockId)?.formatted;
+      if (now === before) continue;
+      if (!invalidated.has(anchor.blockId)) {
+        // The renumbered anchor's HOST block needs a fresh call marker;
+        // invalidating its ancestors too (so the parent's children array is
+        // rebuilt with the new marker node) mirrors `computeInvalidatedBlocks`'s
+        // ancestor walk.
+        invalidated.add(anchor.blockId);
+        addAncestorsToInvalidated(state, prevState, anchor.blockId, invalidated);
       }
+      // The footnote BODY root carries the same number as a leading marker
+      // (`markerText`, baked from `ctx.footnoteNumber` at render time —
+      // footnote-body.ts / FN-6.2b). Without invalidating it the body slot keeps
+      // the stale number while the call marker updates (e.g. insert a footnote
+      // before existing ones → markers renumber but body slots don't). The body
+      // root is a top-level embedContents entry reused via `invalidated.has(id)`
+      // below, so no ancestor walk is needed. (Mirrors the layout-path override
+      // in editor/actions/helpers.ts, which already invalidates both ids.)
+      invalidated.add(anchor.contentBlockId);
     }
   }
   // Index the main tree PLUS every prev embed-content and template-content
