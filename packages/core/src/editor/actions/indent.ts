@@ -11,6 +11,14 @@ import { rebuildTrees } from "./helpers";
 export const INDENT_STEP = 48;
 
 /**
+ * Minimum content width (px) an indented line must retain. INDENT is capped so
+ * `marginInlineStart` can't exceed `availableWidth - MIN_CONTENT_WIDTH`, i.e. it
+ * can't push the text off the page (Google Docs caps indent at the right margin).
+ * ~1in keeps a usable line. `availableWidth` is `config.containerWidth`.
+ */
+export const MIN_INDENT_CONTENT_WIDTH = 96;
+
+/**
  * `INDENT` / `OUTDENT` handler — steps the per-block `marginInlineStart` attr
  * on the target LEAF block(s) by `delta` (`+INDENT_STEP` to indent,
  * `-INDENT_STEP` to outdent). Mirrors `handleSetLineSpacing` (indent is a
@@ -49,6 +57,16 @@ export function handleIndent(
 ): EditorState {
   const targetIds = targetLeafBlockIds(editor);
 
+  // INDENT cap: don't let the margin push content off the page. The block's
+  // available inline size is approximated by the editor container width; the
+  // cap keeps at least MIN_INDENT_CONTENT_WIDTH of content. When the width is
+  // unknown (not yet measured), there is no cap (Infinity) — old behavior.
+  const availableWidth = config.containerWidth;
+  const maxIndent =
+    typeof availableWidth === "number" && availableWidth > 0
+      ? Math.max(0, availableWidth - MIN_INDENT_CONTENT_WIDTH)
+      : Infinity;
+
   let state: State = editor.state;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
@@ -61,7 +79,13 @@ export function handleIndent(
       Number.isFinite(block.attrs.marginInlineStart)
         ? block.attrs.marginInlineStart
         : 0;
-    const next = Math.max(0, current + delta);
+    // INDENT (delta > 0): cap at maxIndent, but never reduce a block already
+    // past the cap (a wider doc, or a shrunken container). OUTDENT (delta < 0):
+    // always allowed, clamped at 0.
+    const next =
+      delta > 0
+        ? Math.min(current + delta, Math.max(current, maxIndent))
+        : Math.max(0, current + delta);
     // Outdent to 0 clears the attr (undefined → mergeAttrs removes the key).
     const nextValue = next > 0 ? next : undefined;
     const result = mergeBlockAttrs(

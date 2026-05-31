@@ -24,7 +24,7 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { INDENT_STEP } from "./indent";
+import { INDENT_STEP, MIN_INDENT_CONTENT_WIDTH } from "./indent";
 import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
 import type { BlockId } from "../../state";
@@ -60,6 +60,26 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     editor = reduceEditor(editor, { type: "INDENT" }, config);
     expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(96);
+  });
+
+  it("INDENT caps at containerWidth - MIN_INDENT_CONTENT_WIDTH (can't push content off the page)", () => {
+    // Narrow container → cap reached quickly: maxIndent = 200 - 96 = 104.
+    const narrow = { ...config, containerWidth: 200 };
+    const maxIndent = 200 - MIN_INDENT_CONTENT_WIDTH; // 104
+    const initial = createInitialEditorState(narrow);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, narrow);
+    const paraId = firstChildId(editor.state) as BlockId;
+
+    // Indent well past the cap (10 × 48 = 480 ≫ 104).
+    for (let i = 0; i < 10; i++) {
+      editor = reduceEditor(editor, { type: "INDENT" }, narrow);
+    }
+    // Capped exactly at maxIndent — never exceeds it (no off-page push).
+    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(maxIndent);
+
+    // OUTDENT still works from the cap (reduces by one step).
+    editor = reduceEditor(editor, { type: "OUTDENT" }, narrow);
+    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(maxIndent - INDENT_STEP);
   });
 
   it("OUTDENT from one step: clears the attr (back to 0 / undefined)", () => {
