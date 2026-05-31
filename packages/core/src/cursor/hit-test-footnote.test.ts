@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { resolvePositionFromPixel } from "./hit-test";
-import { getLineIndex } from "./line-flatten";
+import { getLineIndex, collectLineLeaves } from "./line-flatten";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
 import { createDefaultComponentRegistry } from "../components/component-registry";
@@ -310,7 +310,13 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
   });
 
   it("CASE 3: the body's empty TAIL (above the slot) still clamps to the END of the last body block (no footnote capture)", () => {
-    const lastBodyText = "body two"; // the bp1 text (offset before the anchor)
+    // `bp1` is "body two" (8 chars) followed by the footnote-anchor marker (a
+    // 1-unit inline-block), so the line's last cursor stop is offset 9 — the
+    // position AFTER the marker, the true line end. A click far past the line end
+    // (x=1000) clamps to that line end, landing AFTER the marker (exactly as a
+    // past-end click on a text-only line lands after the last glyph). It must NOT
+    // be captured by the footnote slot.
+    const lastBodyText = "body two"; // the bp1 text content (before the anchor)
     const { state, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
     const g = lineGeometry(state, positioned);
     const edges = page0Geometry(positioned);
@@ -324,11 +330,11 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     const resolved = resolveBlock(state, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
-    // Last body block, clamped to the end of its text content (offset before the
-    // footnote-anchor embed = the text length).
+    // Last body block, clamped to the line END = AFTER the 1-unit marker
+    // (text length + 1), not the footnote slot.
     expect(resolved.kind).toBe("block");
     expect(pos.blockId).toBe("bp1");
-    expect(pos.offset).toBe(lastBodyText.length);
+    expect(pos.offset).toBe(lastBodyText.length + 1);
   });
 
   it("CASE 4: with BOTH a footnote slot and a footer, a click in the FOOTER band still resolves to the footer (no regression)", () => {
@@ -353,6 +359,59 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     if (resolved === null) return;
     expect(resolved.kind).toBe("templateContent");
     expect(pos.blockId).toBe(FOOTER_P1);
+  });
+
+  it("CASE 6 (the marker-after caret bug): clicking the RIGHT half of the footnote call-marker lands the caret AFTER it, not before", () => {
+    // The footnote anchor (an inline-block call-marker = ONE state offset unit)
+    // sits at the END of `bp1` ("body two", 8 chars). Clicking the marker's left
+    // half resolves to offset 8 (the position BEFORE the embed); clicking its
+    // right half must resolve to offset 9 (AFTER the embed). The pre-fix hit-test
+    // hardcoded the inline-block to its LEADING edge, so a click anywhere on the
+    // marker — including just past it — resolved to 8, making the caret
+    // impossible to place after a footnote marker by clicking.
+    const bp1Text = "body two";
+    const { state, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
+
+    // Locate the marker leaf on bp1's line.
+    const bp1Lines = getLineIndex(positioned).byBlock.get("bp1" as BlockId) ?? [];
+    expect(bp1Lines.length).toBe(1);
+    const line = bp1Lines[0];
+    const leaves = collectLineLeaves(line.line, line.absoluteX);
+    const marker = leaves.find((l) => l.kind === "inline-block");
+    expect(marker).toBeDefined();
+    if (marker === undefined) return;
+    // The marker owns exactly one offset unit (state-model embed == 1 unit).
+    expect(marker.offsetContribution).toBe(1);
+
+    const y = line.absoluteY + line.line.blockSize / 2;
+
+    // RIGHT half → AFTER the marker (offset = text length + 1).
+    const right = resolvePositionFromPixel(
+      state,
+      positioned,
+      shaper,
+      marker.absoluteX + marker.width * 0.9,
+      y,
+      0,
+    );
+    expect(right).not.toBeNull();
+    if (right === null) return;
+    expect(right.blockId).toBe("bp1");
+    expect(right.offset).toBe(bp1Text.length + 1);
+
+    // LEFT half → BEFORE the marker (offset = text length).
+    const left = resolvePositionFromPixel(
+      state,
+      positioned,
+      shaper,
+      marker.absoluteX + marker.width * 0.1,
+      y,
+      0,
+    );
+    expect(left).not.toBeNull();
+    if (left === null) return;
+    expect(left.blockId).toBe("bp1");
+    expect(left.offset).toBe(bp1Text.length);
   });
 
   it("CASE 5: with BOTH a slot and a footer, a click in the FOOTNOTE band still resolves to the footnote (footnote wins over body, footer untouched)", () => {

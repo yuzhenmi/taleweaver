@@ -36,8 +36,13 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      the leaf whose X range contains `x`; fall back to the last
  *      leaf for clicks past line end.
  *   6. For text-run leaves: `findCharOffset` over the run's text.
- *      For inline-block leaves: cursor lands at the position just
- *      before the embed (charOffset = 0).
+ *      For inline-block leaves (a 1-unit embed, e.g. a footnote marker):
+ *      split at the box midpoint — `charOffset = 0` (leading, before the
+ *      embed) when `x` is in the left half, `charOffset = 1` (trailing,
+ *      after the embed) when `x` is in the right half. Mirrors the
+ *      nearest-edge rule `findCharOffset` applies to glyphs and is the
+ *      inverse of `cursor-position.ts`'s inline-block offset→x mapping
+ *      (0 → left edge, 1 → right edge), so click↔render round-trips.
  *   7. Position = `(line.ownerBlockId, line.inlineOffsetStart +
  *      withinLineOffset + charOffset)`, where `withinLineOffset` is
  *      the sum of preceding leaves' `offsetContribution`.
@@ -152,12 +157,19 @@ export function resolvePositionFromPixel(
         measurer,
       );
     } else {
-      // Inline-block: cursor lands at the position just before the
-      // embed item. (Equivalent state-model character is the embed's
-      // 1 unit — its leading edge is the position before, trailing
-      // edge would be +1; we choose leading here to match the prior
-      // "click on embed → land on closest text-run" approximation.)
-      charOffset = 0;
+      // Inline-block (e.g. a footnote call-marker): one atomic box owning ONE
+      // state offset unit (`offsetContribution === 1`). The cursor lands at the
+      // LEADING edge (charOffset 0, the position BEFORE the embed) for a click in
+      // the box's left half, and the TRAILING edge (charOffset 1, the position
+      // AFTER the embed) for a click in the right half — split at the box
+      // midpoint, the same nearest-edge rule `findCharOffset` applies to a text
+      // glyph. Always-leading (the prior behaviour) made a click anywhere on the
+      // marker — including just past it — resolve to the position BEFORE it, so a
+      // caret could never be placed after a footnote marker by clicking (and the
+      // wrong offset then fed downstream edits). This mirrors `cursor-position`'s
+      // inline-block branch, which already maps offset 0 → leading / 1 → trailing.
+      const midpoint = targetLeaf.absoluteX + targetLeaf.width / 2;
+      charOffset = x >= midpoint ? 1 : 0;
     }
 
     // 7. Accumulate within-line offset for all preceding leaves.

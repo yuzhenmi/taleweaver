@@ -200,6 +200,68 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     expect(numbers.get(anchors[1].contentBlockId)?.value).toBe(2);
   });
 
+  it("a SECOND INSERT_FOOTNOTE with the caret JUST AFTER the first marker inserts cleanly (no crash); markers renumber 1,2", () => {
+    // Regression for the marker-adjacent insert: after the first footnote, the
+    // anchor is a 1-unit embed at the end of "abc" (index 3). Placing the caret
+    // at offset 4 — the position immediately AFTER that embed — and inserting a
+    // second footnote splices the new anchor right after the first, with no
+    // out-of-range / normalization failure on the embed-adjacent splice.
+    const initial = createInitialEditorState(config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
+    const paraId = bodyParaId(typed);
+
+    const atEnd = reduceEditor(
+      typed,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: paraId, offset: 3 },
+          focus: { blockId: paraId, offset: 3 },
+        },
+      },
+      config,
+    );
+    const first = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" }, config);
+
+    // Caret to offset 4 = "abc" (3) + the 1-unit first anchor — JUST AFTER the
+    // marker in the main body.
+    const afterMarker = reduceEditor(
+      first,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: paraId, offset: 4 },
+          focus: { blockId: paraId, offset: 4 },
+        },
+      },
+      config,
+    );
+    const second = reduceEditor(afterMarker, { type: "INSERT_FOOTNOTE" }, config);
+
+    // Two anchors now live on the leaf (no crash on the embed-adjacent splice).
+    const anchors = anchorEmbedsOf(second, paraId);
+    expect(anchors.length).toBe(2);
+
+    // Both anchors sit back-to-back at the end of "abc": the two trailing items
+    // are the embeds, in document order.
+    const items = getBlock(second.state, paraId)?.inlineContent?.items ?? [];
+    const embeds = items.filter(
+      (it) =>
+        it.kind === "embed" && it.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE,
+    );
+    expect(embeds.length).toBe(2);
+
+    // Numbering renumbers in document order: 1, 2.
+    const ordered = collectFootnoteAnchors(second.state);
+    expect(ordered.length).toBe(2);
+    const numbers = footnoteNumbers(ordered, {
+      reset: "continuous",
+      format: "decimal",
+    });
+    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1");
+    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2");
+  });
+
   it("refuses a nested footnote: with the caret already in a footnote body, INSERT_FOOTNOTE returns the editor unchanged", () => {
     const initial = createInitialEditorState(config);
     const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
