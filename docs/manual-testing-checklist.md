@@ -8,6 +8,12 @@ findings and I'll act on them.
 > Convention: ✅ works · ❌ broken (with note) · ⏳ awaiting your test · 🔧 I'm
 > fixing · 🔁 re-test after a fix landed.
 
+> 💡 **The toolbar now reflects your cursor.** All the formatting controls
+> (font/size/spacing/color selects + the bold/italic/etc. toggles) should show
+> the ACTIVE formatting at the cursor — move the caret through differently-styled
+> text and watch the toolbar update; a selection spanning mixed values shows the
+> control blank. This makes verifying every formatting feature below much easier.
+
 > ## 🧭 Design decisions needing your input (2 — non-blocking)
 > I hit two genuine forks the first principles + codebase don't settle, so I'm
 > surfacing them per the coordination protocol instead of guessing:
