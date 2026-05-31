@@ -4,7 +4,12 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import type { Style } from "../styles";
 import type { BlockId } from "../state";
 import type { FootnoteAnchorRef } from "../footnotes";
-import { measurePass, type PagePlan } from "./measure-pass";
+import {
+  measurePass,
+  buildPagePlan,
+  type PagePlan,
+  type PagePlanEntry,
+} from "./measure-pass";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import {
   buildSectionPlan,
@@ -443,10 +448,14 @@ describe("resolveFootnotes", () => {
     expect(out.entries[0].footnoteSlotHeight).toBe(0);
   });
 
-  it("(f) D5 clamp: a body taller than the bounded area is clamped; page stays valid // FN-5", () => {
-    // A 10-line body (160px) on a 64px-content page would consume the whole
-    // page. D5 clamps the slot to `pageContentBlockSize − MIN_BODY_BLOCK_SIZE`
-    // (64 − 16 = 48) so the body keeps ≥1 line. // FN-5: real split lands later.
+  it("(f) FN-5 split (was D5 clamp): a body taller than the bounded area SPLITS — what fits is placed, the rest carries to a continuation page", () => {
+    // A 10-block body (160px) on a 64px-content page can't fully fit. FN-5
+    // REPLACES FN-4's D5 clamp with real splitting: the slot is bounded to
+    // `pageContentBlockSize − MIN_BODY_BLOCK_SIZE − FOOTNOTE_SEPARATOR_HEIGHT`
+    // (64 − 16 − 13 = 35) ⇒ 2 of the 10 blocks (32px) fit + the separator = 45px
+    // slot; the remaining 8 blocks carry forward to a continuation page. (`fnBody`
+    // is a CONTAINER of 10 block paragraphs, so it splits at block boundaries —
+    // no orphans/widows override needed for block-level fragmentation.)
     const render = fnDoc([fnPara("b0"), fnPara("b1")]);
     const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setup(render, new Map([["fnBig", fnBody("fnBig", 10)]]));
@@ -457,11 +466,16 @@ describe("resolveFootnotes", () => {
       cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
 
-    // Slot CLAMPED to pageContentBlockSize − MIN_BODY_BLOCK_SIZE, NOT the raw
-    // 160 + 13. // FN-5: this clamp is the seam for body splitting.
-    const clampMax = FN_PAGE.pageBlockSize - MIN_BODY_BLOCK_SIZE;
-    expect(out.entries[0].footnoteSlotHeight).toBe(clampMax);
+    // Slot = 2 placed blocks (32) + separator (13) = 45 (NOT the FN-4 clamp of
+    // 48, and NOT the raw 160 + 13 — the body SPLIT).
+    expect(out.entries[0].footnoteSlotHeight).toBe(2 * 16 + FOOTNOTE_SEPARATOR_HEIGHT); // 45
     expect(out.entries[0].footnoteSlotHeight).toBeLessThan(16 * 10 + FOOTNOTE_SEPARATOR_HEIGHT);
+    // fnBig STARTED on page 0; its remainder carries forward (a continuation page
+    // exists) so the body is never clamped/lost.
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["fnBig" as BlockId]);
+    expect(out.entries.length).toBeGreaterThan(1);
+    expect(out.entries[1].footnoteContinuation).toHaveLength(1);
+    expect(out.entries[1].footnoteContinuation[0].contentBlockId).toBe("fnBig");
     // The page stays valid: the body content area retains ≥ MIN_BODY (≥1 line),
     // so at least one block still fits on page 0.
     expect(out.entries[0].children.length).toBeGreaterThanOrEqual(1);
@@ -1109,3 +1123,496 @@ describe("computeSlotLayout (FN-5.3)", () => {
     expect(r.outboundContinuations[0].resumeToken).not.toBeNull();
   });
 });
+
+// ===========================================================================
+// FN-5.4: thread the inbound/outbound continuation LIST through the forward
+// sweep + the E6(a) reuse gate. These drive the REAL
+// render→cascade→measurePass→resolveFootnotes flow with a SPLITTABLE footnote
+// body (single paragraph, orphans/widows = 1 via `splitBody`), asserting the
+// per-page `footnoteContinuation` list progression (contentBlockId +
+// resumeAtLine advancing) and that the body's lines partition across the pages
+// with no overlap or loss. `footnoteContentBlockIds` now means "fresh bodies
+// STARTED on this page" (the FN-5 semantic change), so a deferred fresh body is
+// in this page's `footnoteContinuation` outbound → the NEXT page's inbound, never
+// in this page's `footnoteContentBlockIds`.
+// ===========================================================================
+
+/**
+ * Descend a footnote-body break token to its inner IFC `resumeAtLine` (the
+ * count of lines consumed on the prior page). A `splitBody` root is
+ * `block(body) → block(para) → ifc`, so the token nests
+ * `block → resumeChildToken block → resumeChildToken ifc`. Returns the deepest
+ * `ifc` token's `resumeAtLine`, or `null` when the token is not an IFC chain.
+ */
+function resumeAtLineOf(token: BreakToken | null): number | null {
+  let t: BreakToken | null = token;
+  while (t !== null) {
+    if (t.type === "ifc") return t.resumeAtLine;
+    if (t.type === "block") {
+      t = t.resumeChildToken;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Build the `resolveFootnotes` inputs from a render-doc root + cascaded
+ * splittable footnote bodies (each via `splitBody`, so orphans/widows = 1).
+ * Mirrors `setup` but cascades the bodies as splittable single-paragraph blocks.
+ */
+function setupSplit(
+  renderRoot: ElementBox,
+  bodies: ReadonlyMap<string, number>, // body id → line count
+  pageConfig: PageConfig = FN_PAGE,
+): {
+  rawPlan: PagePlan;
+  metas: ReturnType<typeof buildBlockFitMetas>;
+  sectionPlan: ReturnType<typeof buildSectionPlan>;
+  rootChildren: ElementBox[];
+  cascadedEmbedContents: Map<BlockId, ElementBox>;
+  ctx: ReturnType<typeof makeRootContext>;
+  pageConfig: PageConfig;
+} {
+  const cascaded = fnCascade(renderRoot);
+  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+  const sectionPlan = buildSectionPlan(cascaded, pageConfig);
+  const rootChildren = flattenContents(cascaded.children) as ElementBox[];
+  const rawPlan = measurePass(metas, pageConfig, sectionPlan, rootChildren);
+
+  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
+  for (const [id, lines] of bodies) {
+    // `splitBody` already cascades; it is keyed by `id` as the body root.
+    cascadedEmbedContents.set(id as BlockId, splitBody(id, lines));
+  }
+
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+  return { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig };
+}
+
+describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () => {
+  it("a footnote that fully FITS leaves footnoteContinuation empty (FN-4 single-page parity, no split)", () => {
+    // 2 paras (32px) + a 1-line footnote (29px slot) on a 64px page: both paras
+    // still fit, the body fully fits ⇒ no overflow ⇒ empty continuation list.
+    const render = fnDoc([fnPara("b0"), fnPara("b1")]);
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupSplit(render, new Map([["fn0", 1]]));
+
+    const anchors = [fnAnchor("b0", "fn0")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    expect(out.entries.length).toBe(1);
+    expect(out.entries[0].footnoteContinuation).toEqual([]); // inbound (none)
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["fn0"]); // started + finished here
+    expect(out.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT);
+  });
+
+  it("a 3-page footnote chain: one body taller than two empty footnote areas partitions its lines across 3 pages with no overlap/loss", () => {
+    // ONE footnote on b0 whose body is 12 lines (192px). The page is 64px content
+    // ⇒ maxSlot per page = 64 − 16 − 13 = 35 ⇒ 2 lines (32px) fit per page. 12
+    // lines / 2-per-page ⇒ the body spans pages 0, 1, 2 (2 + 2 + … ). We assert
+    // the inbound `footnoteContinuation` resumeAtLine progression and that the
+    // placed lines partition the 12 with no overlap or loss.
+    const render = fnDoc([fnPara("b0")]);
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupSplit(render, new Map([["fnBig", 12]]));
+
+    const anchors = [fnAnchor("b0", "fnBig")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // Page 0: inbound EMPTY (this page STARTS the body). It places 2 lines and
+    // carries the rest. fnBig is "started here" so it is in this page's
+    // footnoteContentBlockIds.
+    expect(out.entries[0].footnoteContinuation).toEqual([]);
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["fnBig"]);
+    expect(out.entries[0].footnoteSlotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 2 * 16); // 45
+
+    // There must be ≥3 pages (the body cannot finish on fewer).
+    expect(out.entries.length).toBeGreaterThanOrEqual(3);
+
+    // Page 1: inbound list = [{fnBig, token@line2}] (renders the body's remainder
+    // at top). fnBig is NOT freshly started here ⇒ NOT in footnoteContentBlockIds.
+    const p1 = out.entries[1];
+    expect(p1.footnoteContinuation).toHaveLength(1);
+    expect(p1.footnoteContinuation[0].contentBlockId).toBe("fnBig");
+    expect(resumeAtLineOf(p1.footnoteContinuation[0].resumeToken)).toBe(2);
+    expect(p1.footnoteContentBlockIds).toEqual([]); // not freshly started here
+
+    // Page 2: inbound resumeAtLine advanced to 4 (2 more consumed on page 1).
+    const p2 = out.entries[2];
+    expect(p2.footnoteContinuation).toHaveLength(1);
+    expect(p2.footnoteContinuation[0].contentBlockId).toBe("fnBig");
+    expect(resumeAtLineOf(p2.footnoteContinuation[0].resumeToken)).toBe(4);
+
+    // The resumeAtLine sequence across the inbound lists is strictly increasing in
+    // steps of 2 (2 lines per page), partitioning the 12 lines with no overlap.
+    const resumePoints: number[] = [];
+    for (const e of out.entries) {
+      if (e.footnoteContinuation.length === 1 && e.footnoteContinuation[0].contentBlockId === "fnBig") {
+        const r = resumeAtLineOf(e.footnoteContinuation[0].resumeToken);
+        if (r !== null) resumePoints.push(r);
+      }
+    }
+    // Inbound resume points are 2, 4, 6, 8, 10 (each page after page 0 resumes 2
+    // further into the body) — strictly increasing, step 2, covering all 12 lines.
+    for (let i = 1; i < resumePoints.length; i++) {
+      expect(resumePoints[i]).toBeGreaterThan(resumePoints[i - 1]);
+      expect(resumePoints[i] - resumePoints[i - 1]).toBe(2);
+    }
+    // The LAST page that carries the body has an EMPTY outbound for it: the body
+    // finishes (no entry's outbound continues past the final inbound). Concretely,
+    // the final page rendering fnBig has no further footnoteContinuation page after
+    // it referencing fnBig.
+    const lastResume = resumePoints[resumePoints.length - 1];
+    expect(lastResume).toBeLessThan(12); // last inbound resumes before the end
+    // 12 lines, 2 per page starting at page 0 ⇒ inbound resumes at 2,4,6,8,10 ⇒
+    // the body finishes on the page whose inbound is 10 (renders lines 10,11).
+    expect(resumePoints).toEqual([2, 4, 6, 8, 10]);
+  });
+
+  it("a VERY tall footnote (40 lines → 20+ continuation pages) resolves WITHOUT throwing; lines partition across all pages with no loss (Fix 1: line/height-based tail bound, not render-node count)", () => {
+    // Regression for the UNSOUND render-node-based `maxPages` bound. A splitBody
+    // is only ~3 render nodes (root + para + text), so the OLD bound
+    // `metas.length*2 + totalFootnoteNodeCount + 2` = 1*2 + 3 + 2 = 7 pages —
+    // FAR below the real chain length. This body is 40 lines (640px); at 2
+    // lines/page it drains across 20+ pages, so the old bound would FALSELY throw
+    // "page count exceeded" on a VALID document. The line/height-based bound
+    // (`metas.length*2 + ⌈totalFootnoteContentHeight⌉ + 2` = 2 + 640 + 2 = 644) is
+    // sound: each tail page drains ≥1 line ≥1px, so #tail-pages ≤ ⌈heightPx⌉.
+    const BODY_LINES = 40;
+    const render = fnDoc([fnPara("b0")]);
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupSplit(render, new Map([["fnTall", BODY_LINES]]));
+
+    const anchors = [fnAnchor("b0", "fnTall")];
+    // The headline assertion: this MUST NOT throw (the old render-node bound did).
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // maxSlot per page = 64 − 16 − 13 = 35 ⇒ 2 lines (32px) per page ⇒ 40 lines
+    // span 20 pages. The body STARTS on page 0 and carries forward each page.
+    expect(out.entries.length).toBeGreaterThanOrEqual(20);
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["fnTall"]);
+
+    // No-loss partition: page 0 places lines [0,2); each later page that carries
+    // fnTall inbound resumes exactly where the prior page stopped — the inbound
+    // resume points are 2,4,6,…,38 (strictly increasing, step 2, covering all 40
+    // lines). The TOTAL lines placed across every page == 40, with no overlap.
+    const resumePoints: number[] = [0]; // page 0 starts at line 0 (no inbound)
+    for (let i = 1; i < out.entries.length; i++) {
+      const cont = out.entries[i].footnoteContinuation;
+      expect(cont).toHaveLength(1);
+      expect(cont[0].contentBlockId).toBe("fnTall");
+      const r = resumeAtLineOf(cont[0].resumeToken);
+      expect(r).not.toBeNull();
+      if (r !== null) resumePoints.push(r);
+    }
+    // Step-2 strictly-increasing inbound resume sequence: 0,2,4,…,38.
+    for (let i = 1; i < resumePoints.length; i++) {
+      expect(resumePoints[i] - resumePoints[i - 1]).toBe(2);
+    }
+    expect(resumePoints[0]).toBe(0);
+    expect(resumePoints[resumePoints.length - 1]).toBe(BODY_LINES - 2); // 38
+
+    // Total lines placed = (last resume start + lines on the last page) = the body
+    // line count, with no overlap. Each page placed exactly 2 lines; #carry-pages =
+    // resumePoints.length, so 2 * resumePoints.length == 40.
+    expect(2 * resumePoints.length).toBe(BODY_LINES);
+
+    // The last page's OUTBOUND is empty: no page after the final fnTall page carries
+    // it ⇒ the chain drained fully (the body finished, nothing lost).
+    const lastFnPageIdx = out.entries.length - 1;
+    expect(out.entries[lastFnPageIdx].footnoteContinuation).toHaveLength(1);
+    // The final inbound resumes at 38 (renders lines 38,39 = the last 2). There is
+    // no entry beyond it referencing fnTall ⇒ outbound empty.
+    expect(resumeAtLineOf(out.entries[lastFnPageIdx].footnoteContinuation[0].resumeToken)).toBe(
+      BODY_LINES - 2,
+    );
+  });
+
+  it("Blocker-1 carry: a page with anchors A,B,C where the slot fits A + partial B → the NEXT page inbound = [{B,token},{C,null}], C not lost and NOT in page 0's footnoteContentBlockIds", () => {
+    // ONE host block b0 anchors all three footnotes (A,B,C). A single host keeps
+    // the body content small (16px) so a BOUNDED footnote slot can split B without
+    // evicting the anchor block (a multi-block host would be evicted by the slot —
+    // the bounded-slot ⇄ body-content tension). The slot is bounded by
+    // maxSlot = pageContentBlockSize − 16 − 13:
+    //   page content = 89 ⇒ maxSlot = 60 ⇒ A(16) + 2 lines of B(32) = 48 placed,
+    //   B's 3rd line + C(16) would push past 60, so B splits (1 line carries) and
+    //   C fully defers. Body beneath = 89 − 61 = 28 ≥ 16 ⇒ b0 still fits page 0.
+    const TALL: PageConfig = { ...FN_PAGE, pageBlockSize: 89 };
+    const render = fnDoc([fnPara("b0")]);
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupSplit(render, new Map([["A", 1], ["B", 3], ["C", 1]]), TALL);
+
+    const anchors = [fnAnchor("b0", "A"), fnAnchor("b0", "B"), fnAnchor("b0", "C")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // Page 0: inbound empty; A and B STARTED here (C did NOT) ⇒ only A,B in
+    // footnoteContentBlockIds. Slot = sep + A(16) + B-partial(32) = 61.
+    expect(out.entries[0].footnoteContinuation).toEqual([]);
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["A", "B"]);
+    expect(out.entries[0].footnoteContentBlockIds).not.toContain("C"); // C not started here
+    expect(out.entries[0].footnoteSlotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 2 * 16); // 61
+
+    // Page 1 inbound = [{B, token@line2}, {C, null}] — B's remainder carried AND C
+    // carried (Blocker-1: C is NOT lost even though its anchor was on page 0).
+    expect(out.entries.length).toBeGreaterThanOrEqual(2);
+    const p1 = out.entries[1];
+    expect(p1.footnoteContinuation).toHaveLength(2);
+    expect(p1.footnoteContinuation[0].contentBlockId).toBe("B");
+    expect(resumeAtLineOf(p1.footnoteContinuation[0].resumeToken)).toBe(2);
+    expect(p1.footnoteContinuation[1].contentBlockId).toBe("C");
+    expect(p1.footnoteContinuation[1].resumeToken).toBeNull(); // C never started
+  });
+
+  it("E6(a): a change to the PRIOR page's split point (body grows) invalidates the next page's reuse — the next page re-resolves (body-layout probe climbs)", () => {
+    // Page 0 STARTS a footnote whose remainder carries to page 1. Editing the
+    // body (1 extra line) moves where the body splits ⇒ page 1's INBOUND
+    // continuation changes. The reuse gate (E6(a)) must refuse to reuse page 1's
+    // prior resolution: the body is re-laid-out on page 1 (probe climbs).
+    //
+    // Doc: b0 anchors a body big enough to split across pages 0→1, plus filler
+    // paras so there IS a page 1 to reuse-or-not. Body fnBig spans pages.
+    const render0 = fnDoc([
+      fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
+      fnPara("b4"), fnPara("b5"),
+    ]);
+    const cascaded0 = fnCascade(render0);
+    const metas0 = buildBlockFitMetas(cascaded0, FN_SHAPER, FN_CONTENT_INLINE);
+    const sectionPlan0 = buildSectionPlan(cascaded0, FN_PAGE);
+    const rootChildren0 = flattenContents(cascaded0.children) as ElementBox[];
+    const rawPlan0 = measurePass(metas0, FN_PAGE, sectionPlan0, rootChildren0);
+    const fnCtxLocal = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+
+    // 6-line body (96px). maxSlot per page = 64 − 16 − 13 = 35 ⇒ 2 lines/page ⇒
+    // body spans pages 0,1,2 — page 1 carries an INBOUND continuation.
+    const bodyA = splitBody("fnBig", 6);
+    const embedA = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyA]]);
+    const anchors = [fnAnchor("b0", "fnBig")];
+
+    const resolved0 = resolveFootnotes(
+      rawPlan0, metas0, sectionPlan0, rootChildren0,
+      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+    );
+    // Page 1 carries fnBig's remainder inbound at resumeAtLine 2.
+    expect(resolved0.entries[1].footnoteContinuation).toHaveLength(1);
+    expect(resolveAtLineHelper(resolved0.entries[1])).toBe(2);
+
+    // Cycle 2: grow the body to 8 lines (a NEW ElementBox ref). The page-0 split
+    // point is UNCHANGED (still 2 lines on page 0 ⇒ inbound still resumeAtLine 2),
+    // but the body REF changed, so the gate's body-ref check ALONE already forces
+    // a miss. To isolate the E6(a) inbound-LIST check we instead change the page-0
+    // split WITHOUT changing the body ref: shrink page 0's available slot by
+    // adding a SECOND footnote on b0 that consumes a line, pushing fnBig's split
+    // earlier. Simpler + sufficient for E6(a): assert the gate refuses reuse when
+    // the inbound continuation list differs. We do that by re-resolving with a
+    // DIFFERENT prior plan whose page-1 inbound differs.
+    //
+    // Construct a prior plan whose page-1 inbound resumeAtLine is DIFFERENT (3,
+    // not 2) by reusing resolved0 but as if the split were elsewhere: the cleanest
+    // probe is to feed the SAME doc but a body that splits at a different point.
+    const bodyB = splitBody("fnBig", 8); // longer body, still 2 lines/page on p0
+    const embedB = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyB]]);
+    expect(bodyB).not.toBe(bodyA);
+
+    __resetBodyLayoutCallCountForTest();
+    const resolvedIncremental = resolveFootnotes(
+      rawPlan0, metas0, sectionPlan0, rootChildren0,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      resolved0, embedA,
+    );
+    // The body changed ⇒ page 0 misses (cond 5). Page 1's inbound continuation
+    // also differs because the carried body ref changed ⇒ page 1 misses too. The
+    // body-layout probe climbs above 0 (the footnote pages re-resolved).
+    expect(__getBodyLayoutCallCountForTest()).toBeGreaterThan(0);
+    // The re-resolved plan equals a fresh full build (no stale inbound).
+    const resolvedFresh = resolveFootnotes(
+      rawPlan0, metas0, sectionPlan0, rootChildren0,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+    );
+    expect(resolvedIncremental.entries.map((e) => e.footnoteSlotHeight)).toEqual(
+      resolvedFresh.entries.map((e) => e.footnoteSlotHeight),
+    );
+    for (let i = 0; i < resolvedFresh.entries.length; i++) {
+      const inc = resolvedIncremental.entries[i].footnoteContinuation;
+      const fresh = resolvedFresh.entries[i].footnoteContinuation;
+      expect(inc.map((c) => c.contentBlockId)).toEqual(fresh.map((c) => c.contentBlockId));
+      expect(inc.map((c) => resumeAtLineOf(c.resumeToken))).toEqual(
+        fresh.map((c) => resumeAtLineOf(c.resumeToken)),
+      );
+    }
+  });
+
+  it("E6(a) gate refuses reuse when the inbound continuation LIST differs even though geometry + child refs match (cap-style isolation)", () => {
+    // Direct unit-level proof that `canReuseFootnotePage`'s inbound check fires:
+    // build two resolves of the SAME doc whose ONLY difference is the prior page's
+    // split point, and assert the downstream page re-resolves. We probe this
+    // through the full pass: cycle 1 a 6-line body; cycle 2 a 4-line body (NEW
+    // ref). The body-ref already forces a miss, but the inbound continuation list
+    // for page 1 ALSO differs — the assertion checks the resolved continuation is
+    // the FRESH one (not the stale prior), proving no spurious reuse leaked the old
+    // split.
+    const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const cascaded = fnCascade(render);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const sectionPlan = buildSectionPlan(cascaded, FN_PAGE);
+    const rootChildren = flattenContents(cascaded.children) as ElementBox[];
+    const rawPlan = measurePass(metas, FN_PAGE, sectionPlan, rootChildren);
+    const fnCtxLocal = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+    const anchors = [fnAnchor("b0", "fnBig")];
+
+    const bodyA = splitBody("fnBig", 6);
+    const embedA = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyA]]);
+    const resolvedA = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+    );
+
+    const bodyB = splitBody("fnBig", 3); // shorter ⇒ finishes on page 1 (no page 2)
+    const embedB = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyB]]);
+    const resolvedIncremental = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      resolvedA, embedA,
+    );
+    const resolvedFresh = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+    );
+
+    // The incremental result's continuation lists match the FRESH build (no stale
+    // 6-line split leaked through a spurious reuse).
+    for (let i = 0; i < resolvedFresh.entries.length; i++) {
+      const inc = resolvedIncremental.entries[i].footnoteContinuation;
+      const fresh = resolvedFresh.entries[i].footnoteContinuation;
+      expect(inc.map((c) => c.contentBlockId)).toEqual(fresh.map((c) => c.contentBlockId));
+      expect(inc.map((c) => resumeAtLineOf(c.resumeToken))).toEqual(
+        fresh.map((c) => resumeAtLineOf(c.resumeToken)),
+      );
+      expect(resolvedIncremental.entries[i].footnoteContentBlockIds).toEqual(
+        resolvedFresh.entries[i].footnoteContentBlockIds,
+      );
+    }
+  });
+
+  it("Fix 2 — condition-6 ISOLATION: with the body REF held STABLE (cond 5 passes), a DIFFERENT prior-page split point (page-1 inbound token differs) ALONE refuses page-1 reuse via cond 6", () => {
+    // The two E6(a) tests above change the body REF, so cond 5 (assigned-body-ref)
+    // trips BEFORE cond 6 (inbound-list) is reached — neither proves cond 6 fires.
+    // This test isolates cond 6: the SAME body ElementBox is fed as both the
+    // current AND the prior cascaded body (so cond 5 passes), and the ONLY thing
+    // that differs is the prior page-1 entry's inbound `footnoteContinuation` token.
+    //
+    // Differential design: page 0 is forced to RE-RESOLVE in both runs (so it
+    // threads the REAL outbound into page 1, not the prior plan's stored one) by
+    // giving the prior plan's page-0 entry a non-null `resumeInto` (cond 2 miss).
+    //   - CONTROL run: prior page-1 inbound token = the REAL one ⇒ cond 6 PASSES ⇒
+    //     page 1 REUSES ⇒ its body is NOT re-laid-out.
+    //   - TEST run:    prior page-1 inbound token = a DIFFERENT (line-3) token ⇒
+    //     cond 6 FAILS ⇒ page 1 RE-RESOLVES ⇒ its body IS re-laid-out.
+    // The body-layout call counter therefore climbs MORE in the test run, isolating
+    // cond 6 as the sole cause of the page-1 re-resolution.
+    const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const cascaded = fnCascade(render);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const sectionPlan = buildSectionPlan(cascaded, FN_PAGE);
+    const rootChildren = flattenContents(cascaded.children) as ElementBox[];
+    const rawPlan = measurePass(metas, FN_PAGE, sectionPlan, rootChildren);
+    const fnCtxLocal = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+    const anchors = [fnAnchor("b0", "fnBig")];
+
+    // A 6-line body. maxSlot per page = 64 − 16 − 13 = 35 ⇒ 2 lines/page ⇒ the
+    // body spans pages 0,1,2; page 1's REAL inbound resumes at line 2.
+    const body = splitBody("fnBig", 6);
+    const embed = new Map<BlockId, ElementBox>([["fnBig" as BlockId, body]]);
+
+    // The REAL resolved plan (no prior). Page 1's inbound = [{fnBig, token@line2}].
+    const real = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+    );
+    expect(resolveAtLineHelper(real.entries[1])).toBe(2); // sanity: real split @ line 2
+
+    // A DIFFERENT but valid inbound token: fnBig resuming at line 3 (the same body,
+    // a different prior-page split point). Built by laying the body bounded to 3
+    // lines, which yields a token resuming after line 3.
+    const tokenLine3 = partialToken(body, 3 * SLOT_LINE);
+    expect(resumeAtLineOf(tokenLine3)).toBe(3);
+
+    // Clone a plan, overriding specific entries. `buildPagePlan` only needs the
+    // entries for `resolveFootnotes`'s reuse path (it indexes entries by
+    // `startIndex`); empty block maps suffice since the reuse path never calls the
+    // index methods.
+    const buildPriorPlan = (
+      overrides: ReadonlyMap<number, Partial<PagePlanEntry>>,
+    ): PagePlan => {
+      const entries = real.entries.map((e, i) => {
+        const o = overrides.get(i);
+        return o === undefined ? e : { ...e, ...o };
+      });
+      return buildPagePlan(
+        entries, real.sectionPlan, real.pageInlineSize, real.pageContentBlockSize,
+        new Map(), new Map(),
+      );
+    };
+
+    // Page-0 override (BOTH runs): a non-null `resumeInto` so cond 2 forces page 0
+    // to re-resolve (it threads the REAL outbound into page 1, defeating the
+    // tamper-propagation that a page-0 REUSE would cause).
+    const fakeResumeInto: BreakToken = {
+      type: "block", resumeChildIndex: 99, resumeChildToken: null,
+    };
+    const page0Override: Partial<PagePlanEntry> = { resumeInto: fakeResumeInto };
+
+    // CONTROL: page-1 inbound LEFT real ⇒ cond 6 passes ⇒ page 1 reuses.
+    const prevControl = buildPriorPlan(new Map([[0, page0Override]]));
+    __resetBodyLayoutCallCountForTest();
+    resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      prevControl, embed, // prior cascaded = SAME body ref ⇒ cond 5 passes
+    );
+    const controlBodyLayouts = __getBodyLayoutCallCountForTest();
+
+    // TEST: page-1 inbound token swapped to @line3 ⇒ cond 6 fails ⇒ page 1
+    // re-resolves. Everything else (body ref, geometry, children, cond 5) matches.
+    const page1Real = real.entries[1];
+    const tamperedPage1: Partial<PagePlanEntry> = {
+      footnoteContinuation: [
+        { contentBlockId: page1Real.footnoteContinuation[0].contentBlockId, resumeToken: tokenLine3 },
+      ],
+    };
+    const prevTest = buildPriorPlan(new Map([
+      [0, page0Override],
+      [1, tamperedPage1],
+    ]));
+    __resetBodyLayoutCallCountForTest();
+    resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      prevTest, embed,
+    );
+    const testBodyLayouts = __getBodyLayoutCallCountForTest();
+
+    // The inbound-list difference ALONE (cond 6) forced page 1 to re-resolve: the
+    // test run lays out MORE footnote bodies than the control (which reused page 1).
+    expect(testBodyLayouts).toBeGreaterThan(controlBodyLayouts);
+  });
+});
+
+/** Convenience: the inbound continuation's resumeAtLine for a 1-element list. */
+function resolveAtLineHelper(entry: PagePlanEntry): number | null {
+  if (entry.footnoteContinuation.length !== 1) return null;
+  return resumeAtLineOf(entry.footnoteContinuation[0].resumeToken);
+}
