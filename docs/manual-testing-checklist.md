@@ -8,6 +8,16 @@ findings and I'll act on them.
 > Convention: ✅ works · ❌ broken (with note) · ⏳ awaiting your test · 🔧 I'm
 > fixing · 🔁 re-test after a fix landed.
 
+> ## ⚠️ DO THIS FIRST before Round 2: **hard-restart the dev server**
+> Stop and restart `npm run dev --workspace=examples/react` (a full restart, not
+> just a page refresh). You tested Round 1 against a dev server that was running
+> while I committed 12+ footnote changes. **Vite HMR silently misses module-init
+> singleton changes** (the component registry, attr registry, EditorConfig
+> defaults) — so the browser can keep running stale code even though the source is
+> fixed. This is a known gotcha in this project. Bug D in particular is **provably
+> correct in the engine** (see below), so a stale HMR module is the leading
+> explanation. A restart may clear D — and possibly B — outright.
+
 ---
 
 ## Round 1 — your results (2026-05-31, night)
@@ -36,16 +46,21 @@ findings and I'll act on them.
   the caret is AFTER it, insert a 2nd). If it still crashes, I'll instrument the
   DOM controller path directly (I can't run the browser).
 - **Bug C (render):** ✅ **FIXED** (commit 6ec2251). The slot now emits the body root's number-marker (materialize-side only; FN-5 split path untouched; number only on the page where the footnote starts, not on continuation tails). → 🔁 re-test in Round 2 (confirm a "1/2/…" shows before each footnote body in the slot).
-- **Bug D (render):** ⏳ **NOT reproducible in any unit test** — a 5-line footnote
-  body materializes AND paints all 5 lines correctly; the canvas paint recurses
-  every slot child. So D is some real-app input the harness can't see. **Please
-  help me pin it when you re-test** — tell me:
-  (a) is it ONE long line running off the edge (no wrapping), or wrapped lines
+- **Bug D (render):** ⏳ **provably correct in the engine — most likely stale HMR.**
+  I drove the REAL incremental edit path (`reduceEditor`: insert footnote → type a
+  long body char-by-char, paginated config) and the slot grows correctly: 1→2→3
+  lines as you type; a 120-word body → 21 lines; all lines materialize AND paint
+  (the canvas walks every slot child). Both layout reuse-gates correctly invalidate
+  the footnote page when the body content changes. So the engine is right.
+  → **Re-test after the hard dev-server restart above.** If it STILL shows one line
+  after a clean restart, tell me:
+  (a) is it ONE long line running off the edge (a long *unbroken* word with no
+  spaces legitimately doesn't wrap — type spaced prose to check), or wrapped lines
   where only line 1 shows?
-  (b) does it happen on an otherwise-empty page, or a nearly-full page?
-  (c) does the rest appear if you scroll / resize / click away and back?
-  That detail will localize it (candidates: body paragraph not wrapping in the
-  slot width, or stale incremental reuse of the embed-body layout while typing).
+  (b) does it happen on an empty page or a nearly-full page?
+  Then the remaining suspect is the real CanvasShaper's text metrics differing from
+  layout — I'd instrument the live `getPage(slotPage).footnoteSlot` line count vs
+  the layout's `footnoteSlotHeight` to isolate it.
 
 Every fix lands a regression test (first principle 8) so these can't silently
 recur.
