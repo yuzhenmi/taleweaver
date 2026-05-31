@@ -27,6 +27,7 @@ import {
   assertNoOrphanedEmbedContent,
   assertNoSharedEmbedContent,
 } from "./embed-content-cascade";
+import { assertChainIntegrity } from "./chain-integrity";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -409,6 +410,12 @@ export function applyOperation(state: State, fn: () => void): OperationResult {
     // sharing check's scope-down only sweeps when a dirty block introduced an
     // embed reference (deletions/typing pay nothing).
     assertNoSharedEmbedContent(newState, "applyOperation", dirtyIds);
+    // Structural invariant: the parent/sibling/child back-link chain is
+    // internally consistent. Catches a structural op that mis-sets a pointer
+    // (split/merge/remove/reparent/section-break) before the broken tree can
+    // silently drop or duplicate blocks in the render walk. Inductively scoped
+    // by dirtyIds (full scan only on a deletion). See chain-integrity.ts.
+    assertChainIntegrity(newState, "applyOperation", dirtyIds);
   }
   return { state: newState, dirtyIds };
 }

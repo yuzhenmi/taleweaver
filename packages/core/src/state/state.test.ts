@@ -69,10 +69,13 @@ describe("applyOperation", () => {
     const state = createState({ rootId: "root" as BlockId });
     const result = applyOperation(state, () => {
       const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
+      // Standalone block (parentId null) — this test exercises only
+      // applyOperation's dirty-id capture, so a valid minimal tree keeps the
+      // dev-mode assertChainIntegrity happy without needing a parent.
       blocks.set("p1", buildYBlock({
         type: "paragraph",
         attrs: {},
-        parentId: "root" as BlockId,
+        parentId: null,
         prevSiblingId: null,
         nextSiblingId: null,
         firstChildId: null,

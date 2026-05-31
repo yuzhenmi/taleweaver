@@ -18,6 +18,7 @@ import {
 import {
   getEmbedContentsMap,
   getBlocksMap,
+  runTransaction,
 } from "./yjs-doc";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
@@ -514,17 +515,24 @@ describe("assertNoOrphanedEmbedContent", () => {
       });
       // Inject a sibling self-cycle: p2.nextSiblingId = p1. The walker
       // visits doc → p1 → p2 → p1 (already visited, terminate).
-      const result = applyOperation(state, () => {
+      //
+      // Use direct Y.Doc surgery (runTransaction + freshStateFromDoc), NOT
+      // applyOperation — applyOperation's dev-mode assertChainIntegrity would
+      // (correctly) reject this deliberately-malformed chain before the test
+      // could exercise the cascade walker's own cycle defense. freshStateFromDoc
+      // is the documented escape hatch for untracked external surgery.
+      runTransaction(state[STATE_INTERNAL].doc, () => {
         const blocksMap = getBlocksMap(state[STATE_INTERNAL].doc);
         const yp2 = blocksMap.get("p2");
         if (yp2 === undefined) throw new Error("test setup: missing p2");
         yp2.set("nextSiblingId", "p1");
       });
+      const badState = freshStateFromDoc(state);
       // Must terminate, not hang. (Vitest's default per-test timeout would
       // catch infinite loops, but the explicit not-hang assertion is the
       // visible contract.)
       expect(() =>
-        assertNoOrphanedEmbedContent(result.state, "cycle"),
+        assertNoOrphanedEmbedContent(badState, "cycle"),
       ).not.toThrow();
     });
   });
