@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
+import { listItemComponent } from "../components/list-item";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutBlock } from "./bfc";
@@ -1041,5 +1042,137 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     expect(outB.children[0].y).toBe(outA.children[0].y);
     expect(outB.children[0].width).toBe(outA.children[0].width);
     expect(outB.children[0].height).toBe(outA.children[0].height);
+  });
+});
+
+// The word-processor model puts list presentation (listStyleType +
+// the structural marker gutter) on the list-item LEAF itself — there is no
+// wrapping `list` container in the toggle-list path. These tests drive the
+// real `listItemComponent.render` output through cascade+layout so they
+// exercise the actual editor codepath, asserting GEOMETRY (marker glyph,
+// positive marker offset inside the content column, content indent), not
+// just structure.
+describe("BFC — list-item leaf carries its own marker presentation (component-driven)", () => {
+  function collectMarkers(root: import("./layout-box").LayoutBox): import("./layout-box").MarkerBox[] {
+    const out: import("./layout-box").MarkerBox[] = [];
+    function walk(b: import("./layout-box").LayoutBox) {
+      if (b.type === "marker") out.push(b);
+      if ("children" in b && b.children) {
+        for (const c of b.children) walk(c);
+      }
+    }
+    walk(root);
+    return out;
+  }
+
+  // Absolute (root-relative) inline position of the list-item's first content
+  // line. All box positions are PARENT-RELATIVE, so we accumulate the li
+  // block's own `x` plus the line's `x`. In the leaf model the root container
+  // has no padding, so `li.x === 0` and the indent comes entirely from the
+  // item's OWN paddingInlineStart, which surfaces as the line's `x` (= 30)
+  // inside the li block. Summing the two gives the parent-relative content
+  // edge, which matches the marker's frame (the marker is a sibling of the li
+  // block under the same root parent).
+  function absoluteContentEdge(liBlock: import("./layout-box").LayoutBox): number {
+    let lineX: number | null = null;
+    function walk(b: import("./layout-box").LayoutBox) {
+      if (lineX !== null) return;
+      if (b.type === "line") { lineX = b.x; return; }
+      if ("children" in b && b.children) for (const c of b.children) walk(c);
+    }
+    walk(liBlock);
+    if (lineX === null) throw new Error("no content line found");
+    return liBlock.x + lineX;
+  }
+
+  // markerGap is 4 in the BFC; mock shaper advances 8 px per char.
+  const MARKER_GAP = 4;
+  const CHAR_W = 8;
+
+  function listItemBox(
+    key: string,
+    listType: "ordered" | "unordered",
+    text: string,
+    extraAttrs: Record<string, unknown> = {},
+  ): ReturnType<typeof createElementBox> {
+    const el = listItemComponent.render(
+      {
+        id: key as unknown as import("../state").BlockId,
+        type: "list-item",
+        attrs: Object.freeze({ listType, ...extraAttrs }),
+        computedStyle: {} as import("../styles").ComputedStyle,
+        kind: "leaf",
+        inlineContent: { items: [] },
+      },
+      { state: {} as import("../state").State, footnoteNumber: () => undefined },
+      [createTextBox(`${key}-t`, {}, text)],
+    );
+    if (el.type !== "element") throw new Error("component did not return an element");
+    return el;
+  }
+
+  function layoutItems(items: ReturnType<typeof createElementBox>[]) {
+    const tree = cascadePass(createElementBox("root", { display: "block" }, items));
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper);
+    if (r.box === null || r.box.type !== "block") throw new Error("layout failed");
+    return r.box;
+  }
+
+  it("ordered list-items emit DECIMAL counter markers (1., 2., 3.) — not bullets — continuing across consecutive items", () => {
+    const out = layoutItems([
+      listItemBox("li1", "ordered", "first"),
+      listItemBox("li2", "ordered", "second"),
+      listItemBox("li3", "ordered", "third"),
+    ]);
+    expect(collectMarkers(out).map(m => m.text)).toEqual(["1.", "2.", "3."]);
+  });
+
+  it("ordered marker sits at a POSITIVE inline offset inside the content column, glued to the indented content edge", () => {
+    const out = layoutItems([listItemBox("li1", "ordered", "first")]);
+    const li1 = out.children.find(c => c.key === "li1");
+    if (!li1) throw new Error("li1 block not found");
+    const pad = absoluteContentEdge(li1); // content lines start at paddingInlineStart
+    expect(pad).toBeGreaterThan(0); // text indented off the page edge
+
+    const markers = collectMarkers(out);
+    expect(markers).toHaveLength(1);
+    const marker = markers[0];
+    // "1." → 2 chars × 8 = 16 px wide.
+    const markerWidth = "1.".length * CHAR_W;
+    // outside marker: paddingInlineStart - markerWidth - markerGap, and POSITIVE.
+    expect(marker.x).toBe(pad - markerWidth - MARKER_GAP);
+    expect(marker.x).toBeGreaterThan(0);
+  });
+
+  it("unordered list-item emits the bullet '•' at the same positive offset", () => {
+    const out = layoutItems([listItemBox("ul1", "unordered", "x")]);
+    const ul1 = out.children.find(c => c.key === "ul1");
+    if (!ul1) throw new Error("ul1 block not found");
+    const pad = absoluteContentEdge(ul1);
+    const markers = collectMarkers(out);
+    expect(markers.map(m => m.text)).toEqual(["•"]);
+    const markerWidth = "•".length * CHAR_W;
+    expect(markers[0].x).toBe(pad - markerWidth - MARKER_GAP);
+    expect(markers[0].x).toBeGreaterThan(0);
+  });
+
+  it("a user marginInlineStart indent ADDS ON TOP OF the base list indent (content + marker shift together)", () => {
+    const base = layoutItems([listItemBox("li1", "ordered", "first")]);
+    const baseLi = base.children.find(c => c.key === "li1");
+    if (!baseLi) throw new Error("baseLi not found");
+    const basePad = absoluteContentEdge(baseLi);
+
+    const indented = layoutItems([listItemBox("li1", "ordered", "first", { marginInlineStart: 48 })]);
+    const indentedLi = indented.children.find(c => c.key === "li1");
+    if (!indentedLi) throw new Error("indentedLi not found");
+    const indentedPad = absoluteContentEdge(indentedLi);
+
+    // childInlineStart = paddingInlineStart + marginInlineStart → content moves
+    // right by exactly the user indent, on top of the structural base indent.
+    expect(indentedPad).toBe(basePad + 48);
+    // Marker stays glued to the (now further-indented) content edge.
+    const markerWidth = "1.".length * CHAR_W;
+    expect(collectMarkers(indented)[0].x).toBe(indentedPad - markerWidth - MARKER_GAP);
   });
 });

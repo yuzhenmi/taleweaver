@@ -595,14 +595,26 @@ export function layoutBlock(
       const markerInlineSize = measurer.measureWidth(markerText, childCs);
       const markerBlockSize = measurer.measureHeight(childCs);
       const markerGap = 4;
-      // Compose the marker against the list-item's indented content edge
-      // (`childInlineStart = paddingInlineStart + marginInlineStart`) so the
-      // marker stays glued to its content when the item carries an inline
-      // margin. With no inline margin, `childInlineStart === paddingInlineStart`,
-      // so this is byte-identical to the pre-margin marker position.
+      // Compose the marker against the list-item's CONTENT edge — the
+      // inline-start of where the item's own text begins. That edge is the
+      // item's outer inline offset (`childInlineStart = parent paddingInlineStart
+      // + child marginInlineStart`) PLUS the item's OWN paddingInlineStart.
+      //
+      // The item's own padding is the structural list-indent / marker gutter in
+      // the word-processor leaf model (list membership is a per-paragraph
+      // property; the `list-item` leaf carries `paddingInlineStart` itself,
+      // there is no wrapping `list` container — see components/list-item.ts).
+      // An `outside` marker hangs into that gutter at `contentEdge -
+      // markerWidth - markerGap`, landing at a positive offset INSIDE the
+      // content column rather than out in the page margin.
+      //
+      // For the legacy container-wrapped shape (padding on the parent `list`,
+      // none on the item) `childUsedStyle.paddingInlineStart === 0`, so this is
+      // byte-identical to the pre-leaf marker position.
+      const markerContentEdge = childInlineStart + childUsedStyle.paddingInlineStart;
       const markerInlineOffset = childCs.listStylePosition === "inside"
-        ? childInlineStart
-        : childInlineStart - markerInlineSize - markerGap;
+        ? markerContentEdge
+        : markerContentEdge - markerInlineSize - markerGap;
       const markerBox = createMarkerBox(
         `${child.key}-marker`,
         markerInlineOffset, childBlockOffset,

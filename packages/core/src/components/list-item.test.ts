@@ -59,4 +59,61 @@ describe("listItemComponent (new)", () => {
     const el = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
     expect("textAlign" in el.style).toBe(false);
   });
+
+  // List presentation lives on the list-item leaf itself (word-processor
+  // model: list membership is a per-paragraph property, not a wrapper
+  // element). Both properties must be synthesized onto the ElementBox style
+  // so the BFC's marker generator reads them off the list-item's OWN
+  // computed style.
+  it("renders listStyleType: 'decimal' for an ordered list-item", () => {
+    const el = listItemComponent.render(
+      leafView({ listType: "ordered" }),
+      stubCtx(),
+      [],
+    ) as ElementBox;
+    expect(el.style.listStyleType).toBe("decimal");
+  });
+
+  it("renders listStyleType: 'disc' for an unordered list-item", () => {
+    const el = listItemComponent.render(
+      leafView({ listType: "unordered" }),
+      stubCtx(),
+      [],
+    ) as ElementBox;
+    expect(el.style.listStyleType).toBe("disc");
+  });
+
+  it("defaults to listStyleType: 'disc' when listType is absent/unknown", () => {
+    const el = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
+    expect(el.style.listStyleType).toBe("disc");
+  });
+
+  it("sets a non-zero structural paddingInlineStart (the marker gutter / list indent)", () => {
+    const el = listItemComponent.render(
+      leafView({ listType: "ordered" }),
+      stubCtx(),
+      [],
+    ) as ElementBox;
+    expect(typeof el.style.paddingInlineStart).toBe("number");
+    expect(el.style.paddingInlineStart as number).toBeGreaterThan(0);
+  });
+
+  it("the structural padding is always present, even for a bare list-item", () => {
+    const el = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
+    expect(el.style.paddingInlineStart as number).toBeGreaterThan(0);
+  });
+
+  it("forwards a user marginInlineStart indent ON TOP OF the structural padding", () => {
+    // INDENT/OUTDENT set marginInlineStart; it must compose with (not replace)
+    // the base list indent. The BFC insets content by paddingInlineStart +
+    // marginInlineStart, so both surviving on the style is what makes indent
+    // add on top of the base list indent.
+    const el = listItemComponent.render(
+      leafView({ listType: "ordered", marginInlineStart: 48 }),
+      stubCtx(),
+      [],
+    ) as ElementBox;
+    expect(el.style.marginInlineStart).toBe(48);
+    expect(el.style.paddingInlineStart as number).toBeGreaterThan(0);
+  });
 });
