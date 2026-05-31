@@ -23,6 +23,7 @@ export type EditorAction =
   | { type: "SET_HIGHLIGHT"; color: string | null }
   | { type: "SET_FONT_SIZE"; size: number | null }
   | { type: "SET_FONT_FAMILY"; family: string | null }
+  | { type: "CLEAR_FORMATTING" }
   | { type: "PASTE"; text: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }

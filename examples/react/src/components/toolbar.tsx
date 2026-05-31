@@ -21,6 +21,7 @@ import {
   Baseline,
   Highlighter,
   Ban,
+  RemoveFormatting,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -299,6 +300,16 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Reset highlight color"
         icon={Ban}
         onAction={() => dispatch({ type: "SET_HIGHLIGHT", color: null })}
+      />
+
+      {/* Clear formatting: removes all inline character formatting
+          (bold/italic/underline/strikethrough, color, highlight, font
+          size/family, link) from the selection. Block-level attrs (type,
+          alignment) are untouched. */}
+      <ToolbarButton
+        label="Clear formatting (Ctrl+\)"
+        icon={RemoveFormatting}
+        onAction={() => dispatch({ type: "CLEAR_FORMATTING" })}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />

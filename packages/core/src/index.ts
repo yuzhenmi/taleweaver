@@ -202,6 +202,11 @@ export { isCollapsed } from "./cursor/selection";
 
 // Editor
 export type { EditorAction } from "./editor/editor-action";
+// Inline (character-level) formatting attr keys — the single source of truth
+// for what CLEAR_FORMATTING removes; exported so downstream consumers can
+// reason about the same set.
+export type { InlineFormatAttrKey } from "./editor/inline-format-keys";
+export { INLINE_FORMAT_ATTR_KEYS } from "./editor/inline-format-keys";
 // LineBox-canonical line traversal — replaces the deleted
 // text-run-driven `AbsoluteTextBox` / `collectAllTextBoxes` flatten
 // (lived under `editor/layout-utils.ts` until E-E.7).

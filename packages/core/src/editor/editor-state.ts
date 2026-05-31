@@ -40,6 +40,7 @@ import {
   handleSetHighlight,
   handleSetFontSize,
   handleSetFontFamily,
+  handleClearFormatting,
   handleUndo,
   handleRedo,
   handlePaste,
@@ -288,6 +289,9 @@ export function reduceEditor(
       break;
     case "SET_FONT_FAMILY":
       result = handleSetFontFamily(editor, action.family, config);
+      break;
+    case "CLEAR_FORMATTING":
+      result = handleClearFormatting(editor, config);
       break;
     case "PASTE":
       result = handlePaste(editor, action.text, config);

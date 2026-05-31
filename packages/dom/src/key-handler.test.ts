@@ -234,6 +234,22 @@ describe("mapKeyEvent", () => {
     });
   });
 
+  it("maps Ctrl+\\ to CLEAR_FORMATTING", () => {
+    expect(mapKeyEvent(key({ key: "\\", ctrlKey: true }))).toEqual({
+      type: "CLEAR_FORMATTING",
+    });
+  });
+
+  it("maps Cmd+\\ to CLEAR_FORMATTING (macOS)", () => {
+    expect(mapKeyEvent(key({ key: "\\", metaKey: true }))).toEqual({
+      type: "CLEAR_FORMATTING",
+    });
+  });
+
+  it("returns null for a bare backslash (no modifier — handled by textarea input)", () => {
+    expect(mapKeyEvent(key({ key: "\\" }))).toBeNull();
+  });
+
   // --- Printable chars with shift should still insert ---
 
   it("returns null for Shift+letter (handled by textarea input)", () => {

@@ -87,6 +87,9 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   if (mod && key === "u") return { type: "TOGGLE_STYLE", style: "underline" };
   if (mod && shiftKey && key === "x")
     return { type: "TOGGLE_STYLE", style: "strikethrough" };
+  // Clear formatting (Google Docs' Ctrl+\) — removes all inline character
+  // formatting from the selection.
+  if (mod && key === "\\") return { type: "CLEAR_FORMATTING" };
 
   return null;
 }
