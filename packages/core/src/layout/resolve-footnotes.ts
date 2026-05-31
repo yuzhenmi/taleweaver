@@ -191,6 +191,51 @@ export function buildFootnotePageAssignment(
 }
 
 /**
+ * FN-6.4 — the INVERSE of `buildFootnotePageAssignment`: each footnote body
+ * (`contentBlockId`) → the 0-based page index its ANCHOR REFERENCE lands on.
+ *
+ * `buildFootnotePageAssignment` groups `pageIndex → contentBlockId[]` (the page's
+ * assigned bodies); this flattens that grouping to the per-anchor inverse
+ * `contentBlockId → pageIndex`. It is built ON TOP of `buildFootnotePageAssignment`
+ * (NOT re-derived) so the page-of-anchor decision is the SAME source of truth —
+ * the FIRST page of the anchor host block's span (`pageSpanOfBlock(...).first`,
+ * plan decision D4), with the identical nested/no-span skip behaviour.
+ *
+ * This is the `pageAssignment` shape `footnoteNumbers(anchors, policy,
+ * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1): a
+ * `ReadonlyMap<contentBlockId, pageIndex>` keyed by the anchor's REFERENCE page.
+ *
+ * FN-6.4 slice 1 ONLY exposes this assignment to post-layout consumers; slices
+ * 2-6 wire it into the render pipeline's `footnoteNumbers` call to compute the
+ * per-page-reset numbers. This helper changes NO numbering behaviour.
+ *
+ * @param anchors ordered footnote anchors (document order, from
+ *   `collectFootnoteAnchors`).
+ * @param plan the page plan whose `pageSpanOfBlock` reports each anchor host
+ *   block's page span. MUST be the SAME plan `resolveFootnotes` assigns against
+ *   internally — the RAW (pre-`resolveFootnotes`) plan — so the exposed page
+ *   matches the page the bodies were assigned to. (`resolveFootnotes` re-fits
+ *   footnote pages; the anchor→reference-page mapping is established on the raw
+ *   plan, before that re-fit.)
+ * @param blockToIndex top-level child key → index (from
+ *   `buildBlockToTopLevelIndex`); the nested-anchor skip guard.
+ */
+export function footnoteAnchorPageAssignment(
+  anchors: readonly FootnoteAnchorRef[],
+  plan: PagePlan,
+  blockToIndex: ReadonlyMap<BlockId, number>,
+): Map<BlockId, number> {
+  const byPage = buildFootnotePageAssignment(anchors, plan, blockToIndex);
+  const result = new Map<BlockId, number>();
+  for (const [pageIndex, contentBlockIds] of byPage) {
+    for (const contentBlockId of contentBlockIds) {
+      result.set(contentBlockId, pageIndex);
+    }
+  }
+  return result;
+}
+
+/**
  * FN-5.3 — greedy fill + split + carry-all-overflow for ONE page's footnote
  * slot. Replaces FN-4's D5 height CLAMP with real splitting: lays the inbound
  * continuations (cross-page carries from the prior page) then the page's fresh

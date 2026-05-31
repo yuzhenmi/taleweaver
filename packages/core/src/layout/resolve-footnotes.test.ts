@@ -27,6 +27,7 @@ import type { PageConfig } from "./page-config";
 import {
   buildBlockToTopLevelIndex,
   buildFootnotePageAssignment,
+  footnoteAnchorPageAssignment,
   resolveFootnotes,
   computeSlotLayout,
   FOOTNOTE_SEPARATOR_HEIGHT,
@@ -227,6 +228,95 @@ describe("buildFootnotePageAssignment", () => {
 
     expect(result.get(0)).toEqual(["fnKept" as BlockId]);
     expect([...result.values()].flat()).not.toContain("fnNoPage" as BlockId);
+  });
+});
+
+// ===========================================================================
+// FN-6.4 slice 1 — footnoteAnchorPageAssignment: the per-anchor INVERSE of
+// buildFootnotePageAssignment (contentBlockId → pageIndex). Same anchor→page
+// source of truth (pageSpanOfBlock(...).first), just flattened. This is the
+// `footnoteNumbers` `pageAssignment` shape restart-per-page consumes (FN-6.1).
+// ===========================================================================
+
+describe("footnoteAnchorPageAssignment (FN-6.4 slice 1)", () => {
+  it("maps each footnote body to its anchor's page (different pages)", () => {
+    const children: ElementBox[] = [elem("b0"), elem("b1")];
+    const index = buildBlockToTopLevelIndex(children);
+    const plan = stubPlan({
+      b0: { first: 0, last: 0 },
+      b1: { first: 1, last: 1 },
+    });
+    const anchors = [anchor("b0", "fn0"), anchor("b1", "fn1")];
+
+    const result = footnoteAnchorPageAssignment(anchors, plan, index);
+
+    expect(result.get("fn0" as BlockId)).toBe(0);
+    expect(result.get("fn1" as BlockId)).toBe(1);
+    expect(result.size).toBe(2);
+  });
+
+  it("maps two same-page footnotes both to that page", () => {
+    const children: ElementBox[] = [elem("b0"), elem("b1")];
+    const index = buildBlockToTopLevelIndex(children);
+    const plan = stubPlan({
+      b0: { first: 0, last: 0 },
+      b1: { first: 0, last: 0 },
+    });
+    const anchors = [anchor("b0", "fnA"), anchor("b1", "fnB")];
+
+    const result = footnoteAnchorPageAssignment(anchors, plan, index);
+
+    expect(result.get("fnA" as BlockId)).toBe(0);
+    expect(result.get("fnB" as BlockId)).toBe(0);
+  });
+
+  it("uses the FIRST page of a page-spanning anchor's block (D4)", () => {
+    const children: ElementBox[] = [elem("bSpan")];
+    const index = buildBlockToTopLevelIndex(children);
+    const plan = stubPlan({ bSpan: { first: 2, last: 4 } });
+    const anchors = [anchor("bSpan", "fnSpan")];
+
+    const result = footnoteAnchorPageAssignment(anchors, plan, index);
+
+    expect(result.get("fnSpan" as BlockId)).toBe(2);
+  });
+
+  it("returns an empty map for empty anchors (no crash)", () => {
+    const index = buildBlockToTopLevelIndex([elem("b0")]);
+    const plan = stubPlan({ b0: { first: 0, last: 0 } });
+
+    const result = footnoteAnchorPageAssignment([], plan, index);
+
+    expect(result.size).toBe(0);
+  });
+
+  it("is exactly buildFootnotePageAssignment's grouping inverted (same source of truth)", () => {
+    const children: ElementBox[] = [elem("b0"), elem("b1"), elem("b2")];
+    const index = buildBlockToTopLevelIndex(children);
+    const plan = stubPlan({
+      b0: { first: 0, last: 0 },
+      b1: { first: 0, last: 0 },
+      b2: { first: 1, last: 1 },
+    });
+    const anchors = [
+      anchor("b0", "fn0"),
+      anchor("b1", "fn1"),
+      anchor("b2", "fn2"),
+    ];
+
+    const byPage = buildFootnotePageAssignment(anchors, plan, index);
+    const inverse = footnoteAnchorPageAssignment(anchors, plan, index);
+
+    // Every (page → ids) entry round-trips to (id → page).
+    let total = 0;
+    for (const [page, ids] of byPage) {
+      for (const id of ids) {
+        expect(inverse.get(id)).toBe(page);
+        total += 1;
+      }
+    }
+    // No extra keys in the inverse beyond what the grouping produced.
+    expect(inverse.size).toBe(total);
   });
 });
 
@@ -1616,3 +1706,97 @@ function resolveAtLineHelper(entry: PagePlanEntry): number | null {
   if (entry.footnoteContinuation.length !== 1) return null;
   return resumeAtLineOf(entry.footnoteContinuation[0].resumeToken);
 }
+
+// ===========================================================================
+// FN-6.4 slice 1 — VirtualLayoutTree.footnoteAnchorPages exposed via the REAL
+// producer (buildVirtualPaginatedTree). Each footnote body → the page index its
+// ANCHOR REFERENCE lands on (raw-plan source of truth). This slice only EXPOSES
+// the data; it changes NO numbering behaviour. Consumed by FN-6.4 slices 2-6.
+// ===========================================================================
+
+describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)", () => {
+  const fnCtx = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+
+  it("a footnote-free doc → empty map (no crash)", () => {
+    const cascaded = fnCascade(fnDoc([fnPara("b0"), fnPara("b1")]));
+    const tree = buildVirtualPaginatedTree(cascaded, fnCtx, FN_SHAPER, FN_PAGE);
+    expect(tree.footnoteAnchorPages.size).toBe(0);
+  });
+
+  it("two footnotes whose anchors land on DIFFERENT pages → each maps to its anchor's page", () => {
+    // 8 paras ⇒ raw plan is 2 pages (4 each: b0..b3 on page 0, b4..b7 on page 1).
+    // Footnote on b0 (raw page 0) and on b4 (raw page 1). footnoteAnchorPages is
+    // derived from the RAW plan, so fn0→0 and fn4→1 regardless of the slot re-fit.
+    const render = fnDoc([
+      fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
+      fnPara("b4"), fnPara("b5"), fnPara("b6"), fnPara("b7"),
+    ]);
+    const cascaded = fnCascade(render);
+    // Sanity: the RAW measure plan really splits b0/b4 across pages 0/1.
+    const rawInputs = inputsFrom(cascaded);
+    expect(rawInputs.rawPlan.pageIndexOfBlock("b0")).toBe(0);
+    expect(rawInputs.rawPlan.pageIndexOfBlock("b4")).toBe(1);
+
+    const embed = new Map<BlockId, ElementBox>([
+      ["fn0" as BlockId, fnCascade(fnBody("fn0", 1))],
+      ["fn4" as BlockId, fnCascade(fnBody("fn4", 1))],
+    ]);
+    const anchors = [fnAnchor("b0", "fn0"), fnAnchor("b4", "fn4")];
+
+    const tree = buildVirtualPaginatedTree(
+      cascaded, fnCtx, FN_SHAPER, FN_PAGE, undefined, new Map(), embed, anchors,
+    );
+
+    expect(tree.footnoteAnchorPages.get("fn0" as BlockId)).toBe(0);
+    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(1);
+    expect(tree.footnoteAnchorPages.size).toBe(2);
+  });
+
+  it("two footnotes whose anchors are on the SAME page → both map to that page", () => {
+    // b0 and b1 both on raw page 0 (a TALL page so the slot doesn't matter for
+    // the raw assignment). Both anchors → page 0.
+    const TALL: PageConfig = { ...FN_PAGE, pageBlockSize: 128 };
+    const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const cascaded = fnCascade(render);
+    const embed = new Map<BlockId, ElementBox>([
+      ["fnA" as BlockId, fnCascade(fnBody("fnA", 1))],
+      ["fnB" as BlockId, fnCascade(fnBody("fnB", 1))],
+    ]);
+    const anchors = [fnAnchor("b0", "fnA"), fnAnchor("b1", "fnB")];
+
+    const tree = buildVirtualPaginatedTree(
+      cascaded, fnCtx, FN_SHAPER, TALL, undefined, new Map(), embed, anchors,
+    );
+
+    expect(tree.footnoteAnchorPages.get("fnA" as BlockId)).toBe(0);
+    expect(tree.footnoteAnchorPages.get("fnB" as BlockId)).toBe(0);
+    expect(tree.footnoteAnchorPages.size).toBe(2);
+  });
+
+  it("matches footnoteAnchorPageAssignment over the raw plan (same source of truth)", () => {
+    const render = fnDoc([
+      fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
+      fnPara("b4"), fnPara("b5"), fnPara("b6"), fnPara("b7"),
+    ]);
+    const cascaded = fnCascade(render);
+    const rawInputs = inputsFrom(cascaded);
+    const embed = new Map<BlockId, ElementBox>([
+      ["fn0" as BlockId, fnCascade(fnBody("fn0", 1))],
+      ["fn4" as BlockId, fnCascade(fnBody("fn4", 1))],
+    ]);
+    const anchors = [fnAnchor("b0", "fn0"), fnAnchor("b4", "fn4")];
+
+    const tree = buildVirtualPaginatedTree(
+      cascaded, fnCtx, FN_SHAPER, FN_PAGE, undefined, new Map(), embed, anchors,
+    );
+
+    const expected = footnoteAnchorPageAssignment(
+      anchors,
+      rawInputs.rawPlan,
+      buildBlockToTopLevelIndex(rawInputs.rootChildren),
+    );
+    expect(tree.footnoteAnchorPages.get("fn0" as BlockId)).toBe(expected.get("fn0" as BlockId));
+    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(expected.get("fn4" as BlockId));
+    expect(tree.footnoteAnchorPages.size).toBe(expected.size);
+  });
+});

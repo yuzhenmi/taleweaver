@@ -32,7 +32,11 @@ import { layoutBlock } from "./bfc";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
-import { resolveFootnotes } from "./resolve-footnotes";
+import {
+  resolveFootnotes,
+  buildBlockToTopLevelIndex,
+  footnoteAnchorPageAssignment,
+} from "./resolve-footnotes";
 
 /**
  * Build a `VirtualLayoutTree` for a paginated `display: block` document root.
@@ -152,12 +156,28 @@ export function buildVirtualPaginatedTree(
     cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
     prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
   );
+  // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
+  // anchor REFERENCE lands on, derived from the RAW plan + anchors (the SAME
+  // anchor→page source of truth `resolveFootnotes` assigns bodies against —
+  // `buildFootnotePageAssignment` keys off `rawPlan`, so the inverse must too).
+  // Exposed on the tree (`footnoteAnchorPages`) for the post-layout rebuild
+  // pipeline, which feeds it to `footnoteNumbers` for `restart-per-page`
+  // numbering (FN-6.1). Empty for a footnote-free doc (no anchors). This changes
+  // NO numbering behaviour; slices 2-6 wire it into the render pipeline.
+  const footnoteAnchorPages =
+    footnoteAnchors.length === 0
+      ? new Map<BlockId, number>()
+      : footnoteAnchorPageAssignment(
+          footnoteAnchors,
+          rawPlan,
+          buildBlockToTopLevelIndex(rootChildren),
+        );
   // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
   // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for
   // the NEXT cycle's measurePass carry-forward (D6).
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
-    cascadedEmbedContents, rawPlan,
+    cascadedEmbedContents, rawPlan, footnoteAnchorPages,
   );
 }
 

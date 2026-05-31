@@ -50,6 +50,19 @@ export interface VirtualLayoutTree {
   readonly inlineSize: number;
   /** Document block-size (== plan.totalBlockSize). */
   readonly blockSize: number;
+  /**
+   * FN-6.4 — each footnote body (`contentBlockId`) → the 0-based page index its
+   * ANCHOR REFERENCE lands on (from `footnoteAnchorPageAssignment` over the RAW
+   * measure plan — the same anchor→page source of truth `resolveFootnotes` uses
+   * to assign bodies). Empty for a footnote-free doc.
+   *
+   * This is the `pageAssignment` shape `footnoteNumbers(anchors, policy,
+   * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1). FN-6.4
+   * slice 1 ONLY exposes it here so the post-layout rebuild pipeline can read it;
+   * slices 2-6 thread it into the render pipeline's `footnoteNumbers` call. This
+   * field changes NO numbering behaviour on its own.
+   */
+  readonly footnoteAnchorPages: ReadonlyMap<BlockId, number>;
   /** Position + memoize page `pageIndex`. Out-of-range throws. */
   getPage(pageIndex: number): PageBox;
   /** `getPage(from..to)`, inclusive, clamped to `[0, lastPage]`. */
@@ -308,6 +321,12 @@ export function makeVirtualLayoutTree(
   // returns `rawPlan` unchanged, so `plan === rawPlan` and the default is exact;
   // any tree built before FN-4 also reads back its own `plan` via the fallback.
   rawPlan: PagePlan = plan,
+  // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
+  // anchor reference lands on (the `footnoteNumbers` `pageAssignment` shape).
+  // Computed by the producer from the RAW plan + anchors and stored on the tree
+  // (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty map
+  // (footnote-free doc).
+  footnoteAnchorPages: ReadonlyMap<BlockId, number> = new Map(),
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -784,6 +803,9 @@ export function makeVirtualLayoutTree(
     plan,
     inlineSize: plan.pageInlineSize,
     blockSize: plan.totalBlockSize,
+    // FN-6.4 slice 1: the anchor→reference-page assignment, exposed for the
+    // post-layout rebuild pipeline (the `footnoteNumbers` `pageAssignment` shape).
+    footnoteAnchorPages,
     getPage,
     getPages,
     materializeAll,
