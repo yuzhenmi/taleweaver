@@ -123,7 +123,12 @@ function ToolbarToggle({
         <Toggle
           size="sm"
           pressed={pressed}
-          className="h-7 w-7 rounded-sm text-[#444746] hover:bg-[#d3e3fd] data-[state=on]:bg-[#d3e3fd] data-[state=on]:text-[#1a73e8]"
+          // A controlled Radix Toggle with `pressed` but no `onPressedChange`
+          // renders read-only: it sets `aria-pressed` but NOT `data-state`, so
+          // a `data-[state=on]:` style never matches. Key the active style off
+          // `aria-pressed` (the attribute that actually toggles); keep the
+          // `data-[state=on]:` variants too so it's robust either way.
+          className="h-7 w-7 rounded-sm text-[#444746] hover:bg-[#d3e3fd] aria-pressed:bg-[#d3e3fd] aria-pressed:text-[#1a73e8] data-[state=on]:bg-[#d3e3fd] data-[state=on]:text-[#1a73e8]"
           onMouseDown={(e) => {
             e.preventDefault();
             onAction();
