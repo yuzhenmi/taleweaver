@@ -26,16 +26,20 @@ findings and I'll act on them.
 
 ## Bugs found (Round 1) → fix status
 
-- **Bug B (CRASH, critical):** inserting a 2nd footnote with the caret just after
-  the 1st marker crashes. → 🔧 investigating root cause.
-- **Bug A (caret):** clicking after a marker puts the caret before it (the
-  inline-block marker's 1-unit offset is mis-resolved). Likely same root cause as B.
-  → 🔧
+- **Bug A (caret):** ✅ **FIXED** (commit 60742b9). Hit-test hardcoded the
+  inline-block caret to the leading edge; now splits at the box midpoint so the
+  caret can land *after* the marker. → 🔁 re-test in Round 2.
+- **Bug B (CRASH, critical):** ⏳ NOT reproducible in 345 core/dom unit tests at
+  any marker adjacency — the crash is in the browser-only canvas/controller layer.
+  The Bug A offset fix may clear it (a wrong offset was plausible kindling). →
+  🔁 **please re-test first** (insert footnote, click just right of its marker so
+  the caret is AFTER it, insert a 2nd). If it still crashes, I'll instrument the
+  DOM controller path directly (I can't run the browser).
 - **Bug D (render):** a long footnote body only shows its first line in the slot;
-  the rest doesn't render (so splitting can't be observed either). → 🔧
-- **Bug C (render):** the footnote body in the slot has no leading number, so you
-  can't tell which footnote a body belongs to. The number IS computed; it just
-  isn't reaching the slot's painted box. → 🔧
+  the rest doesn't render. → 🔧 investigating (slot body layout/render).
+- **Bug C (render):** the footnote body in the slot has no leading number. The
+  number IS computed; it isn't reaching the slot's painted box. → 🔧 investigating
+  (same slot-rendering subsystem as D).
 
 Every fix lands a regression test (first principle 8) so these can't silently
 recur.
