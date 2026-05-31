@@ -521,6 +521,20 @@ function paintBox(
       ctx.fillStyle = "#dadce0";
       ctx.fillRect(absX + 8, absY + box.height / 2 - 0.5, box.width - 16, 1);
     }
+    // Footnote separator rule (E5 / D1): a short thin rule at the inline-start
+    // of the footnote area, above the bodies — Google Docs parity. The layout
+    // (virtual-layout-tree) emits a full-content-width separator BlockBox
+    // carrying `{ footnoteSeparator: true }`; without this branch the rule never
+    // painted (it was invisible). Drawn short (~1.5in, like Google Docs) at the
+    // box's vertical center; RTL anchors it at the inline-start (right edge).
+    // Exact length/colour are visual details tunable in-browser.
+    if (box.metadata?.footnoteSeparator) {
+      const ruleLength = Math.min(box.width, 144);
+      const ruleX =
+        box.direction === "rtl" ? absX + box.width - ruleLength : absX;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(ruleX, absY + box.height / 2 - 0.5, ruleLength, 1);
+    }
     // Recurse into children
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
