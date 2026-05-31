@@ -35,10 +35,7 @@ findings and I'll act on them.
   🔁 **please re-test first** (insert footnote, click just right of its marker so
   the caret is AFTER it, insert a 2nd). If it still crashes, I'll instrument the
   DOM controller path directly (I can't run the browser).
-- **Bug C (render):** 🔧 root cause found + fixing. The slot lays the footnote body
-  out as a *top-level* node, but the BFC only emits a number-marker for a block's
-  *children* — so the body root's number is never produced in the slot. Fix in
-  progress (must not disturb the FN-5 cross-page split).
+- **Bug C (render):** ✅ **FIXED** (commit 6ec2251). The slot now emits the body root's number-marker (materialize-side only; FN-5 split path untouched; number only on the page where the footnote starts, not on continuation tails). → 🔁 re-test in Round 2 (confirm a "1/2/…" shows before each footnote body in the slot).
 - **Bug D (render):** ⏳ **NOT reproducible in any unit test** — a 5-line footnote
   body materializes AND paints all 5 lines correctly; the canvas paint recurses
   every slot child. So D is some real-app input the harness can't see. **Please
