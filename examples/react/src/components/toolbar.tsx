@@ -62,6 +62,16 @@ function getBlockTypeLabel(blockType: string, headingLevel: number | null): stri
   return BLOCK_TYPE_LABELS[blockType] ?? "Normal text";
 }
 
+/**
+ * `<input type="color">.value` accepts only a 7-char `#rrggbb` hex. The stored
+ * color attr is set via that same control, so it's normally a valid hex — but
+ * guard against other CSS color syntaxes (named colors, rgb()) to avoid React
+ * resetting the input to black with a console warning.
+ */
+function isHexColor(value: string | null): value is string {
+  return value !== null && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 function ToolbarButton({
   label,
   icon: Icon,
@@ -252,6 +262,10 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
               type="color"
               aria-label="Text color"
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              // <input type=color> can only show a valid hex (it has no "unset"
+              // state), so reflect the active color when present, else default
+              // to black. This drives the swatch the picker opens on.
+              value={isHexColor(fmt.color) ? fmt.color : "#000000"}
               onMouseDown={(e) => e.preventDefault()}
               onChange={(e) =>
                 dispatch({ type: "SET_TEXT_COLOR", color: e.target.value })
@@ -287,6 +301,11 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
               type="color"
               aria-label="Highlight color"
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              // Reflect the active highlight when present, else default to
+              // yellow (the same caveat as text color: no "unset" state).
+              value={
+                isHexColor(fmt.backgroundColor) ? fmt.backgroundColor : "#ffff00"
+              }
               onMouseDown={(e) => e.preventDefault()}
               onChange={(e) =>
                 dispatch({ type: "SET_HIGHLIGHT", color: e.target.value })
@@ -327,7 +346,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
           <select
             aria-label="Font family"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
-            value=""
+            value={fmt.fontFamily ?? ""}
             onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
@@ -358,7 +377,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
           <select
             aria-label="Font size"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
-            value=""
+            value={fmt.fontSize !== null ? String(fmt.fontSize) : ""}
             onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
@@ -443,7 +462,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
           <select
             aria-label="Line spacing"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
-            value=""
+            value={fmt.lineHeight !== null ? String(fmt.lineHeight) : ""}
             onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
@@ -476,7 +495,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
           <select
             aria-label="Space before paragraph"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
-            value=""
+            value={fmt.spaceBefore !== null ? String(fmt.spaceBefore) : ""}
             onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
@@ -507,7 +526,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
           <select
             aria-label="Space after paragraph"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
-            value=""
+            value={fmt.spaceAfter !== null ? String(fmt.spaceAfter) : ""}
             onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
