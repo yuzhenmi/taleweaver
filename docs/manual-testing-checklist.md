@@ -153,6 +153,11 @@ page). Round 2:
   REDO** now works (it was silently dead in-browser — a key-casing bug); confirm
   redo via Ctrl+Shift+Z. (b) The **Bold/Italic/Underline toolbar buttons now
   HIGHLIGHT** when the selection has that style (their pressed-state was dead).
+- 🔁 **Text color (NEW):** select text → the new color-swatch control in the
+  toolbar (native color picker) → text repaints in that color. The **reset button**
+  (Ban/⦸ icon next to it) clears back to default. Whole chain is real (attr →
+  cascade → glyph paint); pick a few colors and confirm they apply to exactly the
+  selection. (Highlight/background color is the next feature — not in yet.)
 - (text-indent (P5.1) also shipped but has no toolbar control yet, so it's not
   directly testable without seeding `text-indent` in a doc — UI exposure is a
   follow-up.)
