@@ -69,6 +69,33 @@ function computeFootnoteNumbers(state: State): ReadonlyMap<BlockId, FootnoteNumb
 }
 
 /**
+ * Build the per-render-cycle `RenderContext`. `getView` / `getEmbedContent`
+ * remain P7 stubs (throw on use — surfaces accidental callers immediately;
+ * P10+ wires them through a per-block view cache). `footnoteNumber` is wired:
+ * it reads `fnNumbers` — the SAME numbering map already computed once this
+ * cycle for the call markers — so a footnote body's leading number (its
+ * generated `markerText`) always matches its anchor's number. Both render
+ * paths (full + incremental) construct the context through here so the body
+ * number renders identically regardless of path.
+ */
+function makeRenderContext(
+  state: State,
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+): RenderContext {
+  return {
+    state,
+    getView: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getView not yet wired — populated in P10");
+    },
+    getEmbedContent: (_id: BlockId): BlockView => {
+      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
+    },
+    footnoteNumber: (contentBlockId: BlockId): string | undefined =>
+      fnNumbers.get(contentBlockId)?.formatted,
+  };
+}
+
+/**
  * Output of the new renderer. `root` is the main document's RenderNode tree;
  * `embedContents` (populated by T8) carries footnote bodies etc. as a
  * parallel map keyed by BlockId, consumed by pagination. `templateContents`
@@ -162,18 +189,6 @@ export function render(
     );
   }
 
-  // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
-  // through a per-block view cache. Throwing rather than returning
-  // undefined surfaces accidental P7 callers immediately.
-  const context: RenderContext = {
-    state,
-    getView: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getView not yet wired — populated in P10");
-    },
-    getEmbedContent: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
-    },
-  };
   // FN-2: compute the footnote numbering map once for this render cycle and
   // thread it down so the footnote-anchor marker renders its number by id.
   // FN-8: a footnote-free doc skips the O(N_blocks) `collectFootnoteAnchors`
@@ -182,6 +197,10 @@ export function render(
   const fnNumbers = docHasFootnotes(state)
     ? computeFootnoteNumbers(state)
     : EMPTY_FOOTNOTE_NUMBERS;
+  // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
+  // through a per-block view cache. Throwing rather than returning
+  // undefined surfaces accidental P7 callers immediately.
+  const context: RenderContext = makeRenderContext(state, fnNumbers);
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -609,15 +628,7 @@ function renderIncremental(
     indexRenderNodesByKey(bodyNode, prevByKey);
   }
 
-  const context: RenderContext = {
-    state,
-    getView: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getView not yet wired — populated in P10");
-    },
-    getEmbedContent: (_id: BlockId): BlockView => {
-      throw new Error("RenderContext.getEmbedContent not yet wired — populated in P10");
-    },
-  };
+  const context: RenderContext = makeRenderContext(state, fnNumbers);
 
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {

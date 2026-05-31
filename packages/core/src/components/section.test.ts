@@ -33,6 +33,7 @@ function makeContext(): RenderContext {
     getEmbedContent: (_id: BlockId): BlockView => {
       throw new Error("getEmbedContent not used by sectionComponent");
     },
+    footnoteNumber: (_id: BlockId): string | undefined => undefined,
   };
 }
 

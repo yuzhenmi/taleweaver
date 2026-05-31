@@ -1,5 +1,6 @@
 import type { ContainerComponentDefinition } from "./component-definition";
 import { createElementBox } from "../render/render-node";
+import type { Style } from "../styles";
 
 /**
  * Footnote body: the root container block for a footnote's content (the
@@ -31,14 +32,33 @@ import { createElementBox } from "../render/render-node";
  * `{ box: null }` (the whole body carries — wrong for footnotes). Both properties
  * are `inherits: true`, so they cascade from this body root through the anonymous
  * block to the IFC's `parentCs.orphans`/`parentCs.widows` readers.
+ *
+ * `markerText` (FN-6.2b): the body displays its footnote number as a generated,
+ * offset-excluded leading marker — the "1" at the start of the footnote in the
+ * slot (Google Docs parity). The number comes from `ctx.footnoteNumber(view.id)`
+ * (`view.id` is the body root id === the footnote's `contentBlockId`, the key
+ * into the per-render numbering map), so it always matches the call marker's
+ * displayed number. The BFC reads this `markerText` and emits a `MarkerBox`
+ * BEFORE the body's content — offset-excluded, so it does NOT shift the body's
+ * cursor offsets. A body that is not in the numbering map (shouldn't happen for a
+ * real footnote) gets no marker (`markerText` omitted). Superscript styling of
+ * the body number is a later visual refinement.
  */
 export const footnoteBodyComponent: ContainerComponentDefinition = {
   type: "footnote-body",
   kind: "container",
-  render: (view, _ctx, childRenderNodes) =>
-    createElementBox(
+  render: (view, ctx, childRenderNodes) => {
+    const number = ctx.footnoteNumber(view.id);
+    const style: Style = {
+      display: "block",
+      whiteSpace: "break-spaces",
+      orphans: 1,
+      widows: 1,
+    };
+    return createElementBox(
       view.id,
-      { display: "block", whiteSpace: "break-spaces", orphans: 1, widows: 1 },
+      number !== undefined ? { ...style, markerText: number } : style,
       childRenderNodes,
-    ),
+    );
+  },
 };

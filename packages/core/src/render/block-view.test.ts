@@ -60,9 +60,11 @@ describe("block-view (types)", () => {
       state: {} as State,
       getView: () => { throw new Error("stub"); },
       getEmbedContent: () => { throw new Error("stub"); },
+      footnoteNumber: () => undefined,
     };
     expect(typeof stub.getView).toBe("function");
     expect(typeof stub.getEmbedContent).toBe("function");
+    expect(typeof stub.footnoteNumber).toBe("function");
     expect(stub.state).toBeDefined();
   });
 });

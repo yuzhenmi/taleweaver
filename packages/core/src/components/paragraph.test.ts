@@ -22,6 +22,7 @@ function stubCtx(): RenderContext {
     state: {} as State,
     getView: () => { throw new Error("stub"); },
     getEmbedContent: () => { throw new Error("stub"); },
+    footnoteNumber: () => undefined,
   };
 }
 

@@ -17,11 +17,14 @@ import { createMockShaper } from "../layout/mock-shaper";
 import type { BlockBox, LayoutBox } from "../layout/layout-box-v2";
 
 /**
- * A RenderContext the footnote-body render fn never touches (it reads only
- * `view.id` + `childRenderNodes`). The accessors throw to make any accidental
- * use loud — matches the P7 "unwired accessor" contract.
+ * A RenderContext the footnote-body render fn reads ONLY `footnoteNumber` from
+ * (plus `view.id` + `childRenderNodes`). `state` / `getView` / `getEmbedContent`
+ * throw to make any accidental use loud — matches the P7 "unwired accessor"
+ * contract. `footnoteNumber` returns `numberFor` for the body root id and
+ * `undefined` otherwise; pass `undefined` (default) to model a body with no
+ * number in the numbering map.
  */
-function stubRenderContext(): RenderContext {
+function stubRenderContext(numberFor?: string): RenderContext {
   return {
     get state(): never {
       throw new Error("footnote-body render must not read context.state");
@@ -31,6 +34,9 @@ function stubRenderContext(): RenderContext {
     },
     getEmbedContent(): never {
       throw new Error("footnote-body render must not call getEmbedContent");
+    },
+    footnoteNumber(id: BlockId): string | undefined {
+      return id === ("fn-body-0" as BlockId) ? numberFor : undefined;
     },
   };
 }
@@ -180,5 +186,52 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     expect(box?.blockSize).toBe(2 * LINE_HEIGHT);
     const paragraphBox = asBlockBox(box?.children[0]);
     expect(paragraphBox.children).toHaveLength(2);
+  });
+});
+
+describe("footnoteBodyComponent — leading number marker (FN-6.2b)", () => {
+  it("sets markerText from ctx.footnoteNumber(view.id)", () => {
+    const rendered = footnoteBodyComponent.render(
+      bodyView(),
+      stubRenderContext("1"),
+      [paragraphChild(1)],
+    );
+    if (rendered.type !== "element") throw new Error("render returned non-element");
+    expect(rendered.style.markerText).toBe("1");
+  });
+
+  it("uses the formatted number as-is (e.g. '2') — matches the call marker", () => {
+    const rendered = footnoteBodyComponent.render(
+      bodyView(),
+      stubRenderContext("2"),
+      [paragraphChild(1)],
+    );
+    if (rendered.type !== "element") throw new Error("render returned non-element");
+    // No appended period — the body number is the same string the call marker
+    // displays (FootnoteNumber.formatted), e.g. "2", not "2.".
+    expect(rendered.style.markerText).toBe("2");
+  });
+
+  it("omits markerText when the body has no number (not in the numbering map)", () => {
+    const rendered = footnoteBodyComponent.render(
+      bodyView(),
+      stubRenderContext(undefined),
+      [paragraphChild(1)],
+    );
+    if (rendered.type !== "element") throw new Error("render returned non-element");
+    expect(rendered.style.markerText).toBeUndefined();
+  });
+
+  it("still carries the orphans/widows defaults alongside the marker", () => {
+    const rendered = footnoteBodyComponent.render(
+      bodyView(),
+      stubRenderContext("1"),
+      [paragraphChild(1)],
+    );
+    if (rendered.type !== "element") throw new Error("render returned non-element");
+    expect(rendered.style.markerText).toBe("1");
+    expect(rendered.style.orphans).toBe(1);
+    expect(rendered.style.widows).toBe(1);
+    expect(rendered.style.whiteSpace).toBe("break-spaces");
   });
 });

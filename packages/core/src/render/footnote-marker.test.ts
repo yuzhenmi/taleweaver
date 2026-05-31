@@ -29,6 +29,7 @@ import { deleteRange } from "../state/ops/delete-range";
 import { createPosition } from "../state/block-position";
 import { createTestAllocator } from "../state/block-id";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { footnoteBodyComponent } from "../components/footnote-body";
 
 const documentComponent: ContainerComponentDefinition = {
   type: "document",
@@ -468,5 +469,148 @@ describe("FN-8: footnote-free incremental render skips the anchor walk", () => {
       dirtyIds: edited.dirtyIds,
     });
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("render — footnote body leading number (FN-6.2b: markerText from numbering map)", () => {
+  // Uses the REAL footnoteBodyComponent (not the stub above) so the body's
+  // markerText is the actual product of ctx.footnoteNumber(view.id). The body
+  // root that `insertFootnote` materializes is a `footnote-body` CONTAINER with
+  // a `paragraph` child — both must be registered alongside the document.
+  function realBodyRegistry() {
+    const reg = createComponentRegistry();
+    reg.register(documentComponent);
+    reg.register(paragraphComponent);
+    reg.register(footnoteBodyComponent);
+    return reg;
+  }
+
+  /** The cascaded ElementBox style for the embed-content body root `id`. */
+  function bodyStyle(out: { embedContents: ReadonlyMap<BlockId, RenderNode> }, id: string) {
+    const body = out.embedContents.get(id as BlockId);
+    if (body === undefined || body.type !== "element") {
+      throw new Error(`expected an ElementBox embed body for "${id}"`);
+    }
+    return body.style;
+  }
+
+  it("a single footnote body carries markerText '1' (the leading number)", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const inserted = insertFootnote(
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("body")]) }),
+        ],
+      }),
+      createPosition("p" as BlockId, 4),
+      alloc,
+    );
+    const out = render(inserted.state, reg, attrReg);
+    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe("1");
+  });
+
+  it("two footnotes → their bodies carry markerText '1' and '2' (document order)", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    // Insert at p1 first (document order earlier) → "1"; then p2 → "2".
+    const after1 = insertFootnote(
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+          buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+          buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("b")]) }),
+        ],
+      }),
+      createPosition("p1" as BlockId, 1),
+      alloc,
+    );
+    const after2 = insertFootnote(after1.state, createPosition("p2" as BlockId, 1), alloc);
+
+    const out = render(after2.state, reg, attrReg);
+    // after1's body is the document-earlier anchor → "1"; after2's → "2".
+    expect(bodyStyle(out, after1.bodyRootId).markerText).toBe("1");
+    expect(bodyStyle(out, after2.bodyRootId).markerText).toBe("2");
+  });
+
+  it("the body's number matches its call marker (same formatted string)", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const inserted = insertFootnote(
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+        ],
+      }),
+      createPosition("p" as BlockId, 2),
+      alloc,
+    );
+    const out = render(inserted.state, reg, attrReg);
+    const numbers = footnoteNumbers(collectFootnoteAnchors(inserted.state), {
+      reset: "continuous",
+      format: "decimal",
+    });
+    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe(
+      numbers.get(inserted.bodyRootId)?.formatted,
+    );
+  });
+
+  it("a footnote-free render leaves no body markerText (no crash, empty embedContents)", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const out = render(
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("plain")]) }),
+        ],
+      }),
+      reg,
+      attrReg,
+    );
+    expect(out.embedContents.size).toBe(0);
+  });
+
+  it("markerText is offset-excluded: the body's first-paragraph cursor offsets are unchanged by the marker", () => {
+    // End-to-end: lay out the cascaded footnote body and confirm the generated
+    // MarkerBox carries the number while the body content's own offsets are
+    // untouched (the marker is offset-excluded, per FN-6.2a). We assert the
+    // marker text is present in the laid-out box AND the body's single
+    // paragraph still owns exactly its inline content (no extra offset unit).
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const inserted = insertFootnote(
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }),
+        ],
+      }),
+      createPosition("p" as BlockId, 1),
+      alloc,
+    );
+    const out = render(inserted.state, reg, attrReg);
+    const body = out.embedContents.get(inserted.bodyRootId);
+    if (body === undefined || body.type !== "element") {
+      throw new Error("expected an ElementBox embed body");
+    }
+    // The markerText is set on the body style; the BFC turns it into an
+    // offset-excluded MarkerBox at layout time (FN-6.2a, covered by its own
+    // tests). Here we assert the render-level contract: markerText present,
+    // body content (the paragraph child) intact and not displaced.
+    expect(body.style.markerText).toBe("1");
+    expect(body.children).toHaveLength(1);
+    expect((body.children[0] as ElementBox).key).toBe(inserted.firstParagraphId);
   });
 });

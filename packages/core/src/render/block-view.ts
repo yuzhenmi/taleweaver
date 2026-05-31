@@ -56,4 +56,16 @@ export interface RenderContext {
   readonly state: State;
   getView(id: BlockId): BlockView;
   getEmbedContent(id: BlockId): BlockView;
+  /**
+   * The footnote number (its formatted string, e.g. `"1"`) for a footnote
+   * BODY whose root id is `contentBlockId`, or `undefined` if that id is not a
+   * footnote body in the current numbering map. Sourced from the same
+   * per-render-cycle `footnoteNumbers` map the call-marker reads, so the
+   * leading number a footnote body displays (the `::marker`-style "1" at the
+   * start of the body in the slot — Google Docs parity) always matches its
+   * call marker. The footnote-body component reads this to set its generated
+   * `markerText`; the marker is offset-excluded (it does not shift the body's
+   * cursor offsets).
+   */
+  footnoteNumber(contentBlockId: BlockId): string | undefined;
 }
