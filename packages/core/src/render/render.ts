@@ -37,6 +37,15 @@ const DEFAULT_FOOTNOTE_NUMBERING_POLICY: FootnoteNumberingPolicy = {
 };
 
 /**
+ * The block `type` that opens a section (flat children of the document root).
+ * FN-8's anchor-reuse guard treats a dirty `section` block as a possible
+ * anchor-rescope (its enclosing `sectionId` drives restart-per-section
+ * numbering), forcing a recompute. Mirrors the constant in
+ * `footnotes/collect-anchors.ts`.
+ */
+const SECTION_BLOCK_TYPE = "section";
+
+/**
  * FN-8: shared frozen empty numbering map for the footnote-free path. A document
  * with no footnotes (`docHasFootnotes(state) === false`) skips the O(N_blocks)
  * `collectFootnoteAnchors` walk entirely and uses `EMPTY_FOOTNOTE_ANCHORS` (from
@@ -46,27 +55,6 @@ const DEFAULT_FOOTNOTE_NUMBERING_POLICY: FootnoteNumberingPolicy = {
  */
 const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
   Object.freeze(new Map<BlockId, FootnoteNumber>());
-
-/**
- * Compute the footnote numbering map for `state` once per render cycle — one
- * `collectFootnoteAnchors` walk + one `footnoteNumbers` pass, keyed by each
- * anchor's `contentBlockId`. Threaded into the inline expansion so the
- * footnote-anchor marker looks up its number by id (no per-embed re-walk).
- *
- * Perf (FN-8): recomputed every cycle (correctness first — FN-2). The
- * `collectFootnoteAnchors` WALK is O(N_blocks) regardless of footnote count;
- * only the downstream `footnoteNumbers` map-build is O(|anchors|) (so a
- * footnote-free doc builds an empty map but still pays the one walk). The
- * incremental path collects anchors ONCE and skips this entirely for the
- * prevState when the new state is footnote-free. Caching the walk across cycles
- * is FN-8; do not prematurely optimize here.
- */
-function computeFootnoteNumbers(state: State): ReadonlyMap<BlockId, FootnoteNumber> {
-  return footnoteNumbers(
-    collectFootnoteAnchors(state),
-    DEFAULT_FOOTNOTE_NUMBERING_POLICY,
-  );
-}
 
 /**
  * Build the per-render-cycle `RenderContext`. `getView` / `getEmbedContent`
@@ -107,6 +95,22 @@ export interface RenderOutput {
   readonly root: RenderNode;
   readonly embedContents: ReadonlyMap<BlockId, RenderNode>;
   readonly templateContents: ReadonlyMap<BlockId, RenderNode>;
+  /**
+   * FN-8: the document's footnote anchors in document order, cached on the
+   * render output so the NEXT incremental cycle can REUSE them — skipping the
+   * O(N_blocks) `collectFootnoteAnchors` walk when no edit could have changed
+   * the list (no dirty block gained/lost/moved an anchor; see
+   * `footnoteAnchorsUnchanged`). Empty for a footnote-free document.
+   */
+  readonly footnoteAnchors: readonly FootnoteAnchorRef[];
+  /**
+   * FN-8: the per-anchor numbering map for THIS cycle (keyed by
+   * `FootnoteAnchorRef.contentBlockId`), cached alongside `footnoteAnchors`.
+   * When the anchors are reused unchanged, this map is reused too (the default
+   * continuous policy is a pure function of the anchor list), so the per-cycle
+   * renumber diff is also skipped. Empty for a footnote-free document.
+   */
+  readonly footnoteNumbers: ReadonlyMap<BlockId, FootnoteNumber>;
 }
 
 /**
@@ -193,9 +197,15 @@ export function render(
   // thread it down so the footnote-anchor marker renders its number by id.
   // FN-8: a footnote-free doc skips the O(N_blocks) `collectFootnoteAnchors`
   // walk entirely (an empty map is the identical result). `docHasFootnotes` is
-  // O(1) (cached embed-content root-id set).
-  const fnNumbers = docHasFootnotes(state)
-    ? computeFootnoteNumbers(state)
+  // O(1) (cached embed-content root-id set). We collect the anchor LIST here
+  // (not just the numbers) so the resulting RenderOutput can CACHE it — the
+  // next incremental cycle reuses both the anchors and the numbers when no edit
+  // could have changed them (see `footnoteAnchorsUnchanged`).
+  const fnAnchors = docHasFootnotes(state)
+    ? collectFootnoteAnchors(state)
+    : EMPTY_FOOTNOTE_ANCHORS;
+  const fnNumbers = fnAnchors.length > 0
+    ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
     : EMPTY_FOOTNOTE_NUMBERS;
   // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
   // through a per-block view cache. Throwing rather than returning
@@ -269,7 +279,13 @@ export function render(
       ),
     );
   }
-  return Object.freeze({ root, embedContents, templateContents });
+  return Object.freeze({
+    root,
+    embedContents,
+    templateContents,
+    footnoteAnchors: fnAnchors,
+    footnoteNumbers: fnNumbers,
+  });
 }
 
 /**
@@ -576,21 +592,45 @@ function renderIncremental(
   // numbering map, so the downstream `fnAnchors.length > 0` block naturally
   // skips too. This removes the last unguarded per-keystroke walk (the
   // prevState diff at L543 was already guarded).
-  const fnAnchors = docHasFootnotes(state)
-    ? collectFootnoteAnchors(state)
-    : EMPTY_FOOTNOTE_ANCHORS;
-  const fnNumbers = fnAnchors.length > 0
-    ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
-    : EMPTY_FOOTNOTE_NUMBERS;
+  // FN-8 (footnote-BEARING incremental): when the doc has footnotes but NO edit
+  // this cycle could have changed the anchor list (added / removed / moved an
+  // anchor-bearing block, or touched a section), REUSE the prior cycle's cached
+  // anchors + numbers instead of re-walking all N blocks. The reuse is exact:
+  // the anchor list is the document order of anchor-bearing blocks, and every
+  // block that could change it is in `dirtyIds`, so checking each dirty block's
+  // new-or-prev inline content for an anchor (plus the section guard) is a
+  // complete test (`footnoteAnchorsUnchanged`).
+  //
+  // When anchors are reused, the numbering map is reused verbatim: the default
+  // continuous policy is a pure function of the anchor list, so unchanged
+  // anchors ⇒ unchanged numbers — the per-cycle renumber diff is skipped too.
+  // (Restart-per-page numbering, FN-6.4, is NOT yet wired into render; once it
+  // is, layout-dependent numbers can shift WITHOUT any anchor change — that
+  // policy must NOT reuse numbers blindly. Today only the state-derivable
+  // continuous policy reaches here, so the reuse is valid.)
+  const reuseAnchors = footnoteAnchorsUnchanged(state, prevState, dirtyIds, prev);
+  const fnAnchors = reuseAnchors
+    ? prev.footnoteAnchors
+    : docHasFootnotes(state)
+      ? collectFootnoteAnchors(state)
+      : EMPTY_FOOTNOTE_ANCHORS;
+  const fnNumbers = reuseAnchors
+    ? prev.footnoteNumbers
+    : fnAnchors.length > 0
+      ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
+      : EMPTY_FOOTNOTE_NUMBERS;
 
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
-  // The renumber diff only matters when the NEW state has footnotes: an empty
-  // anchor list means no markers exist to carry a stale number. So for a
-  // footnote-free document we skip the prevState walk + diff entirely — the
-  // common case pays nothing here (the FN-8 incremental work tightens the
-  // footnote-bearing case further).
-  if (fnAnchors.length > 0) {
-    const prevFnNumbers = computeFootnoteNumbers(prevState);
+  // The renumber diff only matters when the NEW state has footnotes AND we did
+  // NOT reuse the anchors: reused anchors ⇒ identical numbers ⇒ no marker can be
+  // stale, so the diff (and its prevState walk) is skipped. A footnote-free doc
+  // has an empty anchor list and skips here too — the common case pays nothing.
+  if (!reuseAnchors && fnAnchors.length > 0) {
+    // FN-8: the prior cycle's numbering map is already cached on `prev` — it IS
+    // `footnoteNumbers(collectFootnoteAnchors(prevState), policy)`. Reuse it
+    // directly instead of re-walking prevState (the renumber diff only runs when
+    // an anchor changed, but even then the prevState walk is pure waste here).
+    const prevFnNumbers = prev.footnoteNumbers;
     for (const id of footnoteRenumberedBlocks(fnAnchors, fnNumbers, prevFnNumbers)) {
       if (!invalidated.has(id)) {
         // The renumbered anchor's block needs a fresh marker; invalidating its
@@ -711,7 +751,74 @@ function renderIncremental(
     );
   }
 
-  return Object.freeze({ root, embedContents, templateContents });
+  // Always carry THIS cycle's anchors + numbers (reused or recomputed) so the
+  // NEXT incremental cycle can reuse them.
+  return Object.freeze({
+    root,
+    embedContents,
+    templateContents,
+    footnoteAnchors: fnAnchors,
+    footnoteNumbers: fnNumbers,
+  });
+}
+
+/**
+ * FN-8: decide whether the prior render cycle's cached footnote anchors (and
+ * thus the derived continuous numbering) can be REUSED for this incremental
+ * cycle, skipping the O(N_blocks) `collectFootnoteAnchors` walk.
+ *
+ * Reuse is allowed iff ALL of:
+ *  1. the document has footnotes (`docHasFootnotes`) — a footnote-free doc has
+ *     no cached anchors worth reusing and takes the empty-list short-circuit;
+ *  2. NO block in `dirtyIds` carries a footnote anchor in its NEW (current
+ *     state) OR PREV (prevState) inline content — the complete test for an
+ *     anchor add / remove / move, since every such block is dirty and either
+ *     its new content (added/moved) or its prev content (removed/moved) holds
+ *     the anchor; and
+ *  3. NO block in `dirtyIds` is a `section`-type block in the new OR prev state
+ *     — a section change can rescope an anchor (its enclosing `sectionId`),
+ *     which the restart-per-section policy depends on.
+ *
+ * Moving a NON-anchor block cannot reorder anchors, so it does not block reuse.
+ */
+function footnoteAnchorsUnchanged(
+  state: State,
+  prevState: State,
+  dirtyIds: ReadonlySet<BlockId>,
+  prev: RenderOutput,
+): boolean {
+  if (!docHasFootnotes(state)) return false;
+  // Reuse only when `prev` actually cached anchors. Every render path (full +
+  // incremental) populates `footnoteAnchors` whenever the doc has footnotes, so
+  // this is true on any normal `prev`; the check doubles as the guard that we
+  // have a list to reuse before scanning the dirty set.
+  if (prev.footnoteAnchors.length === 0) return false;
+  for (const id of dirtyIds) {
+    if (blockIsSection(state, id) || blockIsSection(prevState, id)) return false;
+    if (
+      blockHasFootnoteAnchor(getBlock(state, id)) ||
+      blockHasFootnoteAnchor(getBlock(prevState, id))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** True if `block` (a main-tree block, or null) carries a footnote-anchor embed. */
+function blockHasFootnoteAnchor(block: Block | null): boolean {
+  if (block === null || block.inlineContent === null) return false;
+  for (const item of block.inlineContent.items) {
+    if (item.kind === "embed" && item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True if the block with `id` in `state` is a `section`-type block. */
+function blockIsSection(state: State, id: BlockId): boolean {
+  return getBlock(state, id)?.type === SECTION_BLOCK_TYPE;
 }
 
 /**

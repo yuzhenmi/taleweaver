@@ -31,15 +31,45 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     spy.mockRestore();
   });
 
-  it("DOES call collectFootnoteAnchors once the document has a footnote", () => {
+  it("DOES call collectFootnoteAnchors when an edit changes the anchor set", () => {
+    const initial = createInitialEditorState(config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
+    const hostId = typed.selection.focus.blockId;
+    const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+    // INSERT_FOOTNOTE drops the caret into the footnote body; move it back into
+    // the main host paragraph (after "abc" + anchor → offset 4) so the next
+    // INSERT_FOOTNOTE lands in body text and genuinely ADDS a second anchor —
+    // the edit that must re-walk (FN-8 reuses the anchors only when no anchor
+    // changed; adding one invalidates the cache).
+    const backInBody = reduceEditor(
+      withFn,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: { blockId: hostId, offset: 4 },
+          focus: { blockId: hostId, offset: 4 },
+        },
+      },
+      config,
+    );
+    const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
+    reduceEditor(backInBody, { type: "INSERT_FOOTNOTE" }, config);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("does NOT call collectFootnoteAnchors when typing in a footnote body (anchors unchanged)", () => {
+    // FN-8 footnote-BEARING reuse: a doc WITH a footnote, edited where no anchor
+    // changes (typing into the footnote body), must REUSE the cached anchors —
+    // the per-keystroke O(N_blocks) walk is skipped even though the doc has
+    // footnotes.
     const initial = createInitialEditorState(config);
     const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
     const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
-    // Spy AFTER the footnote exists; the next edit must walk anchors so the
-    // marker numbering stays correct.
+    // Caret is inside the footnote body after INSERT_FOOTNOTE.
     const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
     reduceEditor(withFn, { type: "INSERT_TEXT", text: "d" }, config);
-    expect(spy).toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });
