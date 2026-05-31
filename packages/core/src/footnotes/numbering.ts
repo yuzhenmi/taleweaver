@@ -26,13 +26,14 @@ import type {
  * - **restart-per-section**: the counter resets to 1 whenever `sectionId`
  *   changes between consecutive anchors (the implicit root section, `null`, is
  *   its own scope).
- * - **restart-per-page** (FN-6): requires `pageAssignment` (a
- *   `contentBlockId → pageIndex` map, filled in by `resolveFootnotes`). FN-3
- *   does NOT implement it: when `reset === "restart-per-page"` and no
+ * - **restart-per-page** (FN-6): the counter resets to 1 whenever the page
+ *   (`pageAssignment.get(contentBlockId)`) changes between consecutive anchors.
+ *   Requires `pageAssignment` (a `contentBlockId → pageIndex` map, filled in by
+ *   `resolveFootnotes`): when `reset === "restart-per-page"` and no
  *   `pageAssignment` is supplied, this THROWS rather than silently degrading to
- *   continuous (a hidden degradation would be a quality regression). The
- *   `pageAssignment` parameter is accepted now so FN-6 fills in the body here
- *   without a signature change.
+ *   continuous (a hidden degradation would be a quality regression). An anchor
+ *   absent from a supplied `pageAssignment` is a real inconsistency and also
+ *   THROWS (naming the `contentBlockId`).
  *
  * Returns a `Map` keyed by each anchor's `contentBlockId`.
  */
@@ -78,10 +79,31 @@ export function footnoteNumbers(
           "footnoteNumbers: restart-per-page requires pageAssignment (FN-6)",
         );
       }
-      // FN-6 will compute per-page numbering from `pageAssignment` here.
-      throw new Error(
-        "footnoteNumbers: restart-per-page numbering is not implemented yet (FN-6)",
-      );
+      // Mirrors `restart-per-section`, keyed on pageIndex instead of sectionId.
+      // Relies on `anchors` being in document order (guaranteed by
+      // `collectFootnoteAnchors`) AND `pageAssignment` being monotonic
+      // non-decreasing in that order (a later anchor cannot land on an earlier
+      // page), so a single forward pass with a per-page counter is sufficient.
+      let counter = 0;
+      let currentPage: number | undefined = undefined;
+      for (const anchor of anchors) {
+        const page = pageAssignment.get(anchor.contentBlockId);
+        if (page === undefined) {
+          // Every anchor must have a page; a missing entry is a real
+          // inconsistency in the caller-supplied map, not a normal case. Throw
+          // loudly (don't skip) so the numbering bug surfaces immediately.
+          throw new Error(
+            `footnoteNumbers: restart-per-page anchor "${anchor.contentBlockId}" is missing from pageAssignment`,
+          );
+        }
+        if (page !== currentPage) {
+          currentPage = page;
+          counter = 0;
+        }
+        counter += 1;
+        result.set(anchor.contentBlockId, makeNumber(counter, policy));
+      }
+      return result;
     }
   }
 }
