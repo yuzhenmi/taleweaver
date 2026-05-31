@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { getWordCount } from "./word-count";
+import { getWordCount, countText, getSelectionWordCount } from "./word-count";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { createPosition, createSpan } from "./block-position";
 
 /**
  * Build a single-paragraph document with the given block text.
@@ -157,6 +158,111 @@ describe("getWordCount", () => {
       words: 2,
       characters: 11,
       charactersExcludingSpaces: 10,
+    });
+  });
+});
+
+describe("countText", () => {
+  it("counts words/characters/excl-spaces for a simple string", () => {
+    expect(countText("hello world")).toEqual({
+      words: 2,
+      characters: 11,
+      charactersExcludingSpaces: 10,
+    });
+  });
+
+  it("returns all zeros for the empty string", () => {
+    expect(countText("")).toEqual({
+      words: 0,
+      characters: 0,
+      charactersExcludingSpaces: 0,
+    });
+  });
+
+  it("ignores leading/trailing/repeated whitespace (no empty tokens)", () => {
+    // "  a  b  " → 2 words. characters = full length incl. spaces = 8.
+    // excl-spaces = a,b = 2.
+    expect(countText("  a  b  ")).toEqual({
+      words: 2,
+      characters: 8,
+      charactersExcludingSpaces: 2,
+    });
+  });
+});
+
+describe("getSelectionWordCount", () => {
+  it("counts a partial selection inside one block, partial tokens count as words", () => {
+    // "hello world" — select offsets [3, 9) → "lo wor". The partial tokens
+    // "lo" and "wor" each count as a word (split semantics): 2 words,
+    // characters 6, excl-spaces 5.
+    const state = singleBlock("hello world");
+    const span = createSpan(
+      createPosition("p" as BlockId, 3),
+      createPosition("p" as BlockId, 9),
+    );
+    expect(getSelectionWordCount(state, span)).toEqual({
+      words: 2,
+      characters: 6,
+      charactersExcludingSpaces: 5,
+    });
+  });
+
+  it("normalizes a backwards selection (anchor after focus)", () => {
+    // Same "lo wor" selection but with anchor/focus reversed — must yield the
+    // identical result.
+    const state = singleBlock("hello world");
+    const backwards = createSpan(
+      createPosition("p" as BlockId, 9),
+      createPosition("p" as BlockId, 3),
+    );
+    expect(getSelectionWordCount(state, backwards)).toEqual({
+      words: 2,
+      characters: 6,
+      charactersExcludingSpaces: 5,
+    });
+  });
+
+  it("over a full single block equals getWordCount of that block", () => {
+    const state = singleBlock("hello world");
+    const fullSpan = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 11),
+    );
+    expect(getSelectionWordCount(state, fullSpan)).toEqual(
+      getWordCount(state, { blockIds: ["p" as BlockId] }),
+    );
+  });
+
+  it("spanning two blocks counts the inter-block newline separator", () => {
+    // p1 = "hello world", p2 = "foo bar". Select from "world" start (offset 6
+    // of p1) to end of "foo" (offset 3 of p2). extractText joins the two block
+    // fragments with "\n", so the selected text is "world\nfoo".
+    //   words: "world" and "foo" → 2 (newline is whitespace, splits them).
+    //   characters: "world\nfoo".length = 9 (the \n IS counted — the selection
+    //     genuinely spans the paragraph break).
+    //   excl-spaces: 8 (everything but the \n).
+    const state = twoBlocks("hello world", "foo bar");
+    const span = createSpan(
+      createPosition("p1" as BlockId, 6),
+      createPosition("p2" as BlockId, 3),
+    );
+    expect(getSelectionWordCount(state, span)).toEqual({
+      words: 2,
+      characters: 9,
+      charactersExcludingSpaces: 8,
+    });
+  });
+
+  it("returns all zeros for a collapsed selection", () => {
+    const state = singleBlock("hello world");
+    const collapsed = createSpan(
+      createPosition("p" as BlockId, 4),
+      createPosition("p" as BlockId, 4),
+    );
+    expect(getSelectionWordCount(state, collapsed)).toEqual({
+      words: 0,
+      characters: 0,
+      charactersExcludingSpaces: 0,
     });
   });
 });

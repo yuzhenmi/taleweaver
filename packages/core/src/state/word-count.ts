@@ -1,6 +1,7 @@
 import type { State } from "./state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
+import type { Selection } from "./block-position";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText, builtinEmbedSerializer } from "./extract-text";
@@ -52,6 +53,36 @@ const WHITESPACE_SPLIT = /\s+/;
 const WHITESPACE_CHAR = /\s/;
 
 /**
+ * Count words / characters / characters-excluding-spaces over a single plain-
+ * text string — the shared counting kernel behind {@link getWordCount} (per
+ * block) and {@link getSelectionWordCount} (per selected text).
+ *
+ * - `words`: the number of non-empty tokens from `text.split(/\s+/)` — i.e.
+ *   maximal runs of non-whitespace. Leading / trailing / repeated whitespace
+ *   produce empty tokens that are dropped, so they never inflate the count.
+ *   A PARTIAL token counts as a word: counting "lo wor" (a slice of
+ *   "hello world") yields 2 words.
+ * - `characters`: `text.length` (UTF-16 code units; see {@link WordCount} for
+ *   the grapheme-cluster limitation note).
+ * - `charactersExcludingSpaces`: the count of characters NOT matching `/\s/`.
+ *
+ * `countText("")` → `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
+ */
+export function countText(text: string): WordCount {
+  let words = 0;
+  for (const token of text.split(WHITESPACE_SPLIT)) {
+    if (token !== "") words += 1;
+  }
+
+  let charactersExcludingSpaces = 0;
+  for (const ch of text) {
+    if (!WHITESPACE_CHAR.test(ch)) charactersExcludingSpaces += 1;
+  }
+
+  return { words, characters: text.length, charactersExcludingSpaces };
+}
+
+/**
  * Compute word / character / character-excluding-spaces counts over the target
  * blocks of `state` — the read-only query behind Google Docs' Tools ▸ Word
  * count.
@@ -89,20 +120,52 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
     );
     const blockText = extractText(state, span, builtinEmbedSerializer);
 
-    // Words: split on Unicode whitespace and drop the empty strings that
-    // leading/trailing/repeated whitespace produces. Per-block so words never
-    // straddle a block boundary.
-    for (const token of blockText.split(WHITESPACE_SPLIT)) {
-      if (token !== "") words += 1;
-    }
-
-    characters += blockText.length;
-    for (const ch of blockText) {
-      if (!WHITESPACE_CHAR.test(ch)) charactersExcludingSpaces += 1;
-    }
+    // Count this block in isolation and sum the three fields. Counting PER
+    // BLOCK (rather than over a single concatenated string) is what makes
+    // words never straddle a block boundary and what keeps `characters` free of
+    // any inter-block separator — each block's text is extracted independently,
+    // so there is no character "between" blocks. (Contrast
+    // `getSelectionWordCount`, which extracts a single multi-block string whose
+    // inter-block "\n" separators ARE part of the selected text.)
+    const blockCounts = countText(blockText);
+    words += blockCounts.words;
+    characters += blockCounts.characters;
+    charactersExcludingSpaces += blockCounts.charactersExcludingSpaces;
   }
 
   return { words, characters, charactersExcludingSpaces };
+}
+
+/**
+ * Compute word / character / character-excluding-spaces counts over the text
+ * currently SELECTED in `state` — the per-selection figure Google Docs shows
+ * alongside the document total in Tools ▸ Word count.
+ *
+ * Read-only query over state; no mutation, no paint. The selection (a directed
+ * anchor→focus pair, possibly BACKWARDS) is normalized to a document-ordered
+ * span and its plain text is obtained via {@link extractText} with
+ * {@link builtinEmbedSerializer} (hard-break → "\n", tab → "\t"); the result is
+ * `countText(selectedText)`.
+ *
+ * SEPARATOR NOTE: for a multi-block selection, `extractText` joins each block's
+ * fragment with "\n". That "\n" is genuinely part of the selected text — the
+ * selection spans the paragraph break — so it is counted toward `characters`
+ * (and, being whitespace, it splits the adjacent words rather than merging
+ * them). This is WHY a selection covering the whole document can report a
+ * larger `characters` than {@link getWordCount}: the latter counts each block
+ * independently with NO inter-block separators, the former includes the
+ * paragraph-break newlines the selection actually crosses.
+ *
+ * A COLLAPSED selection (anchor === focus → empty span) extracts "" →
+ * `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
+ */
+export function getSelectionWordCount(state: State, selection: Selection): WordCount {
+  // `extractText` normalizes the span internally (it iterates via
+  // `iterateSpan`, which calls `normalizeSpan`), so a backwards anchor→focus
+  // selection yields the same text as the forward one. Passing the selection
+  // through directly avoids a redundant normalize here.
+  const selectedText = extractText(state, selection, builtinEmbedSerializer);
+  return countText(selectedText);
 }
 
 /**

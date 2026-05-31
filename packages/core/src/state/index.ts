@@ -150,8 +150,10 @@ export { findMatches } from "./find-matches";
 
 // Word count: read-only document statistics over main-tree leaf blocks
 // (Google Docs Tools ▸ Word count — words / characters / chars-excl-spaces).
+// `getSelectionWordCount` is the per-selection figure shown alongside the
+// document total; `countText` is the shared single-string counting kernel.
 export type { WordCount, WordCountOptions } from "./word-count";
-export { getWordCount } from "./word-count";
+export { getWordCount, getSelectionWordCount, countText } from "./word-count";
 
 // Document outline: read-only flat list of heading blocks over main-tree leaf
 // blocks (Google Docs View ▸ Show outline — blockId / level / text per heading).

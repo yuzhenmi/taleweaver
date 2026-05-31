@@ -103,7 +103,7 @@ export { extractText, builtinEmbedSerializer } from "./state";
 export type { EmbedSerializer } from "./state";
 // Document queries (pure reads over the document) — consumed by host UI for
 // find/replace, word count, and the outline panel.
-export { findMatches, getWordCount, getOutline } from "./state";
+export { findMatches, getWordCount, getSelectionWordCount, countText, getOutline } from "./state";
 export type {
   TextMatch,
   FindMatchesOptions,
