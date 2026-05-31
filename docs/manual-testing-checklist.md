@@ -14,9 +14,21 @@ findings and I'll act on them.
 > text and watch the toolbar update; a selection spanning mixed values shows the
 > control blank. This makes verifying every formatting feature below much easier.
 
-> ## 🧭 Design decisions needing your input (2 — non-blocking)
-> I hit two genuine forks the first principles + codebase don't settle, so I'm
+> ## 🧭 Design decisions needing your input (non-blocking)
+> I hit genuine forks the first principles + codebase don't settle, so I'm
 > surfacing them per the coordination protocol instead of guessing:
+>
+> 0. **Find & Replace** (Ctrl+F / Ctrl+H) — the single biggest remaining gap. I
+>    wrote a **design brief** while you slept so the morning is "read → decide → I
+>    build," not a from-scratch brainstorm:
+>    `docs/superpowers/specs/2026-05-31-find-and-replace-design-brief.md`. It's
+>    grounded in existing APIs (extractText for search, replaceRange for replace,
+>    the selection-overlay for highlights) and mostly unit-testable pure functions
+>    — low risk. **Two open questions** for you: (D1) regex in the first cut or
+>    phase it after plain find? (D8) search only the main body first, or also
+>    headers/footers/footnotes/embeds? The rest has proposed defaults you can
+>    rubber-stamp. The search primitive (slice 1) is forkless — buildable
+>    immediately regardless.
 >
 > 1. **Superscript / subscript** (Format ▸ Superscript, Ctrl+. / Ctrl+,) — the
 >    next inline-format feature. The *render* foundation exists (`vertical-align:
