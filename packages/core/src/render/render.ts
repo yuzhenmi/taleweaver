@@ -410,6 +410,12 @@ function renderBlock(
       return def.render(view, context, childRenderNodes);
     }
 
+    // Exhaustiveness backstop: the container branch returns, so `def` is the
+    // leaf variant here. If a third component `kind` is ever added, this line
+    // fails to compile — forcing the new kind to be handled rather than silently
+    // falling through to the leaf path.
+    def.kind satisfies "leaf";
+
     // Leaf: build LeafBlockView, expand inline items (only for
     // inline-bearing leaves), dispatch.
     const inline: InlineContent = block.inlineContent ?? { items: [] };
@@ -986,6 +992,9 @@ function renderBlockIncremental(
       }
       return def.render(view, context, childRenderNodes);
     }
+
+    // Exhaustiveness backstop (see renderBlock): `def` is the leaf variant here.
+    def.kind satisfies "leaf";
 
     const inline: InlineContent = block.inlineContent ?? { items: [] };
     const view: LeafBlockView = Object.freeze({
