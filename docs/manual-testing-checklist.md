@@ -35,11 +35,20 @@ findings and I'll act on them.
   🔁 **please re-test first** (insert footnote, click just right of its marker so
   the caret is AFTER it, insert a 2nd). If it still crashes, I'll instrument the
   DOM controller path directly (I can't run the browser).
-- **Bug D (render):** a long footnote body only shows its first line in the slot;
-  the rest doesn't render. → 🔧 investigating (slot body layout/render).
-- **Bug C (render):** the footnote body in the slot has no leading number. The
-  number IS computed; it isn't reaching the slot's painted box. → 🔧 investigating
-  (same slot-rendering subsystem as D).
+- **Bug C (render):** 🔧 root cause found + fixing. The slot lays the footnote body
+  out as a *top-level* node, but the BFC only emits a number-marker for a block's
+  *children* — so the body root's number is never produced in the slot. Fix in
+  progress (must not disturb the FN-5 cross-page split).
+- **Bug D (render):** ⏳ **NOT reproducible in any unit test** — a 5-line footnote
+  body materializes AND paints all 5 lines correctly; the canvas paint recurses
+  every slot child. So D is some real-app input the harness can't see. **Please
+  help me pin it when you re-test** — tell me:
+  (a) is it ONE long line running off the edge (no wrapping), or wrapped lines
+  where only line 1 shows?
+  (b) does it happen on an otherwise-empty page, or a nearly-full page?
+  (c) does the rest appear if you scroll / resize / click away and back?
+  That detail will localize it (candidates: body paragraph not wrapping in the
+  slot width, or stale incremental reuse of the embed-body layout while typing).
 
 Every fix lands a regression test (first principle 8) so these can't silently
 recur.
