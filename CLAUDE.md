@@ -94,8 +94,33 @@ not raise-then-defer.
 with an independent code-reviewer dispatch that returns "approved / no more
 feedback".** No exceptions.
 
-The user has restated this rule four times. It is the standing default. It
+The user has restated this rule five times. It is the standing default. It
 overrides time pressure, "small fix" feels, and "tests pass" feels.
+
+**"No more feedback" is a HIGH bar — do not confuse it with "no blockers."**
+The loop terminates ONLY when the reviewer's verdict is, in substance, *"clean
+— I have no remaining feedback at any severity."* A review that returns findings
+labelled "minor", "nit", "acceptable follow-up", "non-blocking", or "no
+blockers" has NOT terminated the loop — it has open feedback. The correct
+response to ANY open finding is to RESOLVE it and re-review, iterating until the
+reviewer comes back genuinely clean. Committing on a "no blockers" verdict with
+open findings is the exact lapse this rule exists to prevent.
+
+**Interaction with principle 4 (carve-out to a ticket).** Principle 4 lets a
+concern become "a follow-up task with its own ticket" — but a carve-out does NOT
+terminate the review loop by itself. A finding may be deferred to a ticket ONLY
+when it is genuinely OUT OF SCOPE of the current diff (a pre-existing issue, or a
+separable larger workstream), AND you re-dispatch the reviewer and it returns
+clean ON THE CURRENT DIFF with that item explicitly carved out. A finding that is
+IN the current diff (something this change introduced or should have done) is not
+eligible for carve-out — fix it and re-review. When unsure whether a finding is
+in-scope, treat it as in-scope and fix it.
+
+**Terminating-review checklist (run before EVERY commit):** (1) Did the last
+reviewer dispatch cover THIS exact diff? (2) Did it return zero open findings —
+not "no blockers", actually zero? (3) If any finding was deferred, is it provably
+out-of-scope AND did a re-review confirm the diff is clean with it carved out? If
+any answer is "no", you are not done — resolve and re-review; do NOT commit.
 
 **When the review fires:**
 - After writing a plan → dispatch plan reviewer → iterate → only when
@@ -117,6 +142,13 @@ browser-verified" / "it's a small fix" / "the implementer stalled but
 the work looks right" / "I want to keep momentum" / "the reviewer
 infrastructure failed" (try again; if it persistently fails, escalate to
 user, don't self-review silently).
+
+**Common rationalizations that mean "I'm about to commit on an unterminated
+review" (don't):** "the reviewer said no blockers" / "those are just minor
+nits" / "the reviewer called it an acceptable follow-up" / "I'll ticket the
+rest and move on" / "it's non-blocking so it can wait" / "the findings are
+low-severity". Each of these is OPEN FEEDBACK. Resolve the findings and
+re-review to a genuinely clean verdict before committing.
 
 **Exceptions are narrow:** trivially mechanical edits — one-line typo
 fixes, memory updates, pure git operations with no semantic change. Bug
