@@ -82,8 +82,21 @@ recur.
 - ⏳ Insert footnote inside a footnote body → refused (no nested footnotes).
 - ⏳ Undo/redo across footnote insert/delete restores both marker + body + caret.
 
-## Not yet user-testable (no UI yet)
+## Now testable — footnote numbering policy (FN-6 complete)
 
-- restart-per-page numbering (FN-6.4) works in the engine but has no toolbar
-  control to *select* the policy — you'll see continuous numbering until that UI
-  lands. (Tracked.)
+The toolbar now has a small **"FN: …" dropdown** (continuous / per section / per
+page). Round 2:
+- ⏳ Make a multi-page doc with footnotes on ≥2 pages → pick **"FN: per page"** in
+  the dropdown → each page's footnotes restart at **1** (page 2's first footnote
+  shows "1", not its continuous number). Pick **continuous** again → back to 1,2,3…
+- ⏳ Pick **"FN: per section"** with a section break between footnotes → numbering
+  restarts at each section.
+- (Number *format* — roman/alpha — has an action but no toolbar control yet; lower
+  priority.)
+
+## Visual polish deferred (engine correct, styling TBD in-browser)
+
+- The footnote body's leading number (Bug C fix) renders as a plain marker at the
+  start of the body; Google Docs shows it as a small superscript. Once you confirm
+  the number *appears* (Round 2), I'll refine the superscript styling + exact
+  spacing — that's a pixel-tuning pass best done against your browser.
