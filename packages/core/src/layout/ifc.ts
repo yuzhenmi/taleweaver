@@ -11,7 +11,7 @@ import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
 import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
-import { computeUsedStyle } from "./used-style";
+import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import type { IntrinsicSizesCache } from "./intrinsic-sizes";
@@ -690,12 +690,30 @@ export function layoutInlineContent(
 
   const floatEnv = ctx.floatEnv;
 
-  /** Returns the effective line inlineOffset and inlineSize at a given lineBlockOffset, accounting for floats. */
-  function effectiveLineDims(lineBlockOffset: number): { lineInlineCursor: number; lineInlineSize: number } {
+  // P5 (#391): CSS Text §8 `text-indent` — the block's first-line indent,
+  // resolved to a used length (px) against the containing inline size. It is
+  // LOGICAL (inline-start), so it composes additively with the float
+  // `inlineStartSize` and is RTL/vertical-WM-correct via the existing logical
+  // axis — no physical left/right handling. Negative values (hanging indent)
+  // are permitted and NOT clamped. Applied to the block's FIRST line only.
+  // Resolve ONLY the indent length (mirrors `used-style.ts`'s textIndent
+  // resolution) rather than allocating a full UsedStyle here — this runs on the
+  // hot cache-hit path before the wrap-cache short-circuit, so a per-call
+  // ~50-field UsedStyle allocation would be a per-keystroke regression.
+  const blockTextIndent = resolveUsedLength(parentCs.textIndent, availableInlineSize, 0);
+
+  /**
+   * Returns the effective line inlineOffset and inlineSize at a given
+   * lineBlockOffset, accounting for floats. On the block's FIRST line
+   * (`firstLine`), `text-indent` shifts the inline-start cursor and reduces the
+   * available width by the same amount (so wrapping accounts for the indent).
+   */
+  function effectiveLineDims(lineBlockOffset: number, firstLine: boolean): { lineInlineCursor: number; lineInlineSize: number } {
     const active = floatEnv.availableInlineSizeAt(lineBlockOffset, availableInlineSize);
+    const indent = firstLine ? blockTextIndent : 0;
     return {
-      lineInlineCursor: inlineOffset + active.inlineStartSize,
-      lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize,
+      lineInlineCursor: inlineOffset + active.inlineStartSize + indent,
+      lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize - indent,
     };
   }
 
@@ -714,12 +732,15 @@ export function layoutInlineContent(
   // itself spans the full width at the natural inline-start). A change to ONLY
   // `textAlign` or `direction` — tokens + availableInlineSize unchanged — must
   // re-lay the lines, not return the stale (differently-aligned) ones. Gate the
-  // hit on alignment too.
+  // hit on alignment too. P5 (#391): the FIRST line also bakes in `text-indent`
+  // (its inline-start cursor + width), so gate on it as well — an indent-only
+  // change must re-lay, not reuse stale first-line geometry.
   if (
     prevState !== undefined &&
     prevState.availableInlineSize === availableInlineSize &&
     prevState.textAlign === textAlign &&
-    prevState.direction === direction
+    prevState.direction === direction &&
+    prevState.textIndent === blockTextIndent
   ) {
     if (findChangePoint(prevState.tokens, tokens) === -1) {
       const tHit = markStart("ifc.cache.hit");
@@ -1165,7 +1186,7 @@ export function layoutInlineContent(
   // against their neighbours, and selection/caret on the empty line has no
   // line box to attach to.
   if (units.length === 0) {
-    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
     // P2 (#312) / #333: a strut (empty paragraph) has zero content width, so
     // the gap is the full line. The alignment is carried on a single zero-width
     // STRUT CHILD inside the line — caret/selection consumers walk `line.children`
@@ -1242,7 +1263,7 @@ export function layoutInlineContent(
     // position past the `\n`); the next line starts at the same
     // offset, preserving `nextLine.start === currentLine.end`.
     if (unit.isLineBreak) {
-      const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+      const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
       if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
       cursorOffset += unitOffsetContribution(unit);
       // Hard-break-terminated line is NOT justified (P3, CSS Text 3 §7.3).
@@ -1251,7 +1272,7 @@ export function layoutInlineContent(
     }
 
     // Soft wrap — only when canWrap is true
-    let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
 
     // #338 (trailing-space HANG, match Google Docs): a SPACE unit never
     // triggers its own soft wrap. Only word / inline-block units wrap. When an
@@ -1275,7 +1296,7 @@ export function layoutInlineContent(
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
         // Recompute dims and push the suffix unit back as next to process.
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
         // Insert suffix at the current position so it's processed next.
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
@@ -1283,7 +1304,7 @@ export function layoutInlineContent(
       // No hyphen split possible — normal word wrap.
       flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
       // Recompute dims for the new line position
-      ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+      ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
     }
 
     // If even an empty line can't fit the token and there are active floats,
@@ -1299,7 +1320,7 @@ export function layoutInlineContent(
           const next = floatEnv.nextFloatBottomBelow(lineBlockOffset);
           if (next <= lineBlockOffset) break; // no float below; can't push further
           lineBlockOffset = next;
-          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
           if (lineInlineSize >= unit.totalWidth) break; // now fits
           if (lineInlineSize >= availableInlineSize) break; // no more floats squeezing
         }
@@ -1315,7 +1336,7 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
@@ -1328,7 +1349,7 @@ export function layoutInlineContent(
   }
 
   if (currentUnits.length > 0) {
-    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
     // Final flush — the last/only line of the paragraph is NOT justified (P3).
     flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
   }
@@ -1391,6 +1412,7 @@ export function layoutInlineContent(
       availableInlineSize,
       textAlign,
       direction,
+      textIndent: blockTextIndent,
     });
   }
 

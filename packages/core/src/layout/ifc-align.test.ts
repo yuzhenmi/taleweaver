@@ -587,3 +587,152 @@ describe("IFC alignment — justify (P3)", () => {
     expect(runs[1].width).toBe(5 * CHAR_W); // 40
   });
 });
+
+describe("IFC text-indent (CSS Text §8 first-line indent)", () => {
+  // `text-indent` indents the FIRST line of the block only (logical inline-start),
+  // and consumes that line's available width (so wrapping accounts for it).
+  // Subsequent lines are unchanged. The first line's LineBox carries the indent
+  // on its inline-start: under the #333 full-width model `line.x` (LTR physical)
+  // == inlineOffset + textIndent and `line.width` shrinks by textIndent. The
+  // start-aligned text-run sits at the line origin (run.x === 0), so the visible
+  // content begins at `line.x` (= the indent).
+
+  it("positive: first line content starts at inlineStart + textIndent; wrapped 2nd line at inlineStart", () => {
+    // "aaaa bbbb" = 9 glyphs (72px). W=80 fits it on ONE line WITHOUT indent.
+    // With textIndent=40 the first line's available width = 80 − 40 = 40:
+    //   "aaaa " (40) fits; "bbbb" (32) overflows (40+32 > 40) → wraps.
+    // ⇒ line 0 = "aaaa " indented by 40; line 1 = "bbbb" at the natural start.
+    const lines = layoutPara("aaaa bbbb", 80, { textIndent: { value: 40, unit: "px" } });
+    expect(lines).toHaveLength(2);
+
+    // First line: shifted inline-start by the indent, width reduced by it.
+    expect(lines[0].x).toBe(40);
+    expect(lines[0].width).toBe(80 - 40);
+    // start-aligned text-run at the line origin → visible content at x = 40.
+    expect(textRuns(lines[0])[0].x).toBe(0);
+    expect(lines[0].x + textRuns(lines[0])[0].x).toBe(40);
+
+    // Second (wrapped) line: NO indent — natural inline-start, full width.
+    expect(lines[1].x).toBe(0);
+    expect(lines[1].width).toBe(80);
+    expect(textRuns(lines[1])[0].x).toBe(0);
+  });
+
+  it("reduces first-line available width: a word that fits WITHOUT the indent wraps WITH it", () => {
+    // "aaaa bbbb" (72px) fits W=80 on ONE line at textIndent 0.
+    const noIndent = layoutPara("aaaa bbbb", 80, {});
+    expect(noIndent).toHaveLength(1);
+
+    // The SAME text, same width, with a 16px indent: first-line available = 64.
+    // "aaaa " (40) fits; "bbbb" (32) overflows (40+32 > 64? no — 72 > 64 yes) →
+    // wraps. The indent alone forces the second line.
+    const withIndent = layoutPara("aaaa bbbb", 80, { textIndent: { value: 16, unit: "px" } });
+    expect(withIndent).toHaveLength(2);
+    expect(withIndent[0].x).toBe(16);
+    expect(withIndent[0].width).toBe(80 - 16);
+  });
+
+  it("negative (hanging indent): first line starts BEFORE the content edge (no clamping)", () => {
+    // textIndent −16 → first line's inline-start at −16 (CSS permits negative).
+    const lines = layoutPara("hello", 200, { textIndent: { value: -16, unit: "px" } });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe(-16);
+    // Available width GROWS by the (negative) indent: 200 − (−16) = 216.
+    expect(lines[0].width).toBe(216);
+    expect(lines[0].x + textRuns(lines[0])[0].x).toBe(-16);
+  });
+
+  it("textIndent 0 (default): byte-identical to baseline (no regression)", () => {
+    const lines = layoutPara("hello", 200, { textIndent: { value: 0, unit: "px" } });
+    const baseline = layoutPara("hello", 200, {});
+    expect(lines).toHaveLength(1);
+    expect(baseline).toHaveLength(1);
+    expect(lines[0].x).toBe(baseline[0].x); // 0
+    expect(lines[0].width).toBe(baseline[0].width); // 200
+    expect(textRuns(lines[0])[0].x).toBe(textRuns(baseline[0])[0].x); // 0
+  });
+
+  it("single-line / empty block: the ONLY line is the first line ⇒ indented", () => {
+    // Single short line.
+    const single = layoutPara("hi", 200, { textIndent: { value: 24, unit: "px" } });
+    expect(single).toHaveLength(1);
+    expect(single[0].x).toBe(24);
+    expect(single[0].width).toBe(200 - 24);
+
+    // Empty paragraph (strut): the strut line is the first line ⇒ indented; the
+    // empty-line caret anchor sits at the indented start (start-aligned).
+    const empty = layoutPara("", 200, { textIndent: { value: 24, unit: "px" } });
+    expect(empty).toHaveLength(1);
+    expect(empty[0].x).toBe(24);
+    expect(empty[0].width).toBe(200 - 24);
+    expect(empty[0].children).toHaveLength(1);
+    expect(empty[0].x + empty[0].children[0].x).toBe(24); // caret at indented start
+  });
+
+  it("composes with text-align (center): alignment distributes the POST-indent remaining space (no double-count)", () => {
+    // "hello" = 40px content, W=200, indent=40. The indent is applied BEFORE
+    // alignment: first line is shifted by the indent (line.x = 40) and its width
+    // reduced by it (160); centering then offsets the run WITHIN that reduced
+    // line (run.x = (160 − 40)/2 = 60). Physical content x = 40 + 60 = 100 =
+    // indent + (W − indent − content)/2 — the indent is counted exactly once.
+    const W = 200;
+    const CONTENT = "hello".length * CHAR_W; // 40
+    const INDENT = 40;
+    const lines = layoutPara("hello", W, {
+      textAlign: "center",
+      textIndent: { value: INDENT, unit: "px" },
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].x).toBe(INDENT); // line shifted by the indent
+    expect(lines[0].width).toBe(W - INDENT); // width reduced by the indent
+    // Centering within the reduced-width line, NOT the full width:
+    expect(textRuns(lines[0])[0].x).toBe((W - INDENT - CONTENT) / 2); // 60
+    // Physical content position = indent applied once, then centered:
+    expect(lines[0].x + textRuns(lines[0])[0].x).toBe(
+      INDENT + (W - INDENT - CONTENT) / 2,
+    ); // 100
+  });
+
+  it("wrap-cache rejects stale lines when ONLY textIndent changes (re-lays the first line)", () => {
+    // Re-lay the SAME paragraph (same tokens, width, align, direction) through
+    // the SAME LayoutContext, changing ONLY textIndent. The first layout
+    // populates the IFC wrap-cache; the second must NOT return the stale
+    // (un-indented) first line but re-lay it with the indent. Parallels the
+    // textAlign cache-invalidation gate.
+    const W = 200;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, W);
+
+    const noIndentTree = cascadePass(
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, "hello")]),
+    );
+    if (noIndentTree.type !== "element") throw new Error("expected element");
+    const r1 = layoutInlineContent(noIndentTree, 0, 0, ctx, shaper);
+    if (r1.box === null) throw new Error("null box");
+    const l1 = r1.box.children.filter((c): c is LineBox => c.type === "line");
+    expect(l1[0].x).toBe(0); // un-indented, populates cache for "p"
+
+    // SAME key/tokens/width — only textIndent flips to 32. The cache entry for
+    // "p" exists; the gate must reject it (textIndent differs) and re-lay.
+    const indentTree = cascadePass(
+      createElementBox("p", { display: "block", textIndent: { value: 32, unit: "px" } }, [
+        createTextBox("t", {}, "hello"),
+      ]),
+    );
+    if (indentTree.type !== "element") throw new Error("expected element");
+    const r2 = layoutInlineContent(indentTree, 0, 0, ctx, shaper);
+    if (r2.box === null) throw new Error("null box");
+    const l2 = r2.box.children.filter((c): c is LineBox => c.type === "line");
+    expect(l2[0].x).toBe(32); // RE-LAID with the indent, not the stale x=0
+    expect(l2[0].width).toBe(W - 32);
+  });
+
+  it("RTL: indent rides the LOGICAL inline-start (first line's logical inlineOffset shifts)", () => {
+    // The indent is logical (inline-start), so under RTL it composes with the
+    // logical axis with no physical-left/right special-casing. The first line's
+    // LOGICAL inlineOffset == textIndent and its inline size shrinks by it.
+    const lines = layoutPara("hello", 200, { textIndent: { value: 40, unit: "px" } }, "rtl");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].inlineOffset).toBe(40); // logical inline-start shift
+    expect(lines[0].inlineSize).toBe(200 - 40);
+  });
+});

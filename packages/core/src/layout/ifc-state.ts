@@ -24,6 +24,14 @@ export interface IFCState {
    */
   readonly textAlign: TextAlign;
   readonly direction: Direction;
+  /**
+   * The block's resolved `text-indent` (used length, px) at layout time. The
+   * FIRST cached line bakes in the indent (its inline-start cursor + width
+   * reflect it), so a subsequent layout that changed ONLY the indent — same
+   * tokens, width, align, direction — must NOT reuse the stale lines. Same
+   * rationale as `textAlign`/`direction` above.
+   */
+  readonly textIndent: number;
 }
 
 /**

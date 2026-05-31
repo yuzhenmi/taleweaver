@@ -216,6 +216,7 @@ describe("rewrapIncremental", () => {
       direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
+      textIndent: 0,
     };
     const wrapOneLine = vi.fn();
     const lines = rewrapIncremental(prev, tokens, 100, wrapOneLine, meta);
@@ -234,6 +235,7 @@ describe("rewrapIncremental", () => {
       direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
+      textIndent: 0,
     };
     const newLine = makeLine();
     const wrapOneLine = vi.fn(() => ({
@@ -270,6 +272,7 @@ describe("rewrapIncremental", () => {
       direction: "ltr",
       lines: [prevLine],
       availableInlineSize: 100,
+      textIndent: 0,
     };
     const newLine = makeLine();
     // Change point is 2 → findLineForToken(2) returns lines.length (1), so no head reuse
@@ -313,6 +316,7 @@ describe("rewrapIncremental", () => {
       direction: "ltr",
       lines: [line0, line1],
       availableInlineSize: 100,
+      textIndent: 0,
     };
     const newLine1 = makeLine();
     const wrapOneLine = vi.fn((_toks: readonly Token[], start: number) => ({
@@ -364,6 +368,7 @@ describe("rewrapIncremental", () => {
       direction: "ltr",
       lines: [line0, line1, line2],
       availableInlineSize: 100,
+      textIndent: 0,
     };
     const newLine0 = makeLine();
     // wrapOneLine produces a line covering tokens 0..1, same width → convergence at token 2
