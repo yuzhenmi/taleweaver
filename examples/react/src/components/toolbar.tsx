@@ -352,7 +352,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Font family"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={fmt.fontFamily ?? ""}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
                 dispatch({ type: "SET_FONT_FAMILY", family: e.target.value });
@@ -383,7 +382,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Font size"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={fmt.fontSize !== null ? String(fmt.fontSize) : ""}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
                 dispatch({ type: "SET_FONT_SIZE", size: Number(e.target.value) });
@@ -468,7 +466,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Line spacing"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={fmt.lineHeight !== null ? String(fmt.lineHeight) : ""}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
                 dispatch({ type: "SET_LINE_SPACING", spacing: Number(e.target.value) });
@@ -501,7 +498,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Space before paragraph"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={fmt.spaceBefore !== null ? String(fmt.spaceBefore) : ""}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
                 dispatch({
@@ -532,7 +528,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Space after paragraph"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={fmt.spaceAfter !== null ? String(fmt.spaceAfter) : ""}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) => {
               if (e.target.value !== "") {
                 dispatch({
@@ -628,7 +623,6 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
             aria-label="Footnote numbering"
             className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
             value={footnoteReset}
-            onMouseDown={(e) => e.preventDefault()}
             onChange={(e) =>
               dispatch({
                 type: "SET_FOOTNOTE_POLICY",
