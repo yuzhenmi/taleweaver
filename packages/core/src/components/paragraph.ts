@@ -1,7 +1,7 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style, WhiteSpace } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { textAlignFromAttrs, lineHeightFromAttrs } from "./leaf-style-attrs";
+import { textAlignFromAttrs, lineHeightFromAttrs, marginInlineStartFromAttrs } from "./leaf-style-attrs";
 
 const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
   "normal",
@@ -52,12 +52,14 @@ export const paragraphComponent: LeafComponentDefinition = {
     const whiteSpace = whiteSpaceFromAttrs(view.attrs.whiteSpace);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
+    const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
     const style: Style = {
       display: "block",
       marginBlockEnd: { unit: "em", value: 0.5 },
       ...(whiteSpace !== undefined ? { whiteSpace } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },

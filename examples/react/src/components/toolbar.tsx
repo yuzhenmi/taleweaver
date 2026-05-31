@@ -18,6 +18,8 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
+  IndentIncrease,
+  IndentDecrease,
   Baseline,
   Highlighter,
   Ban,
@@ -410,6 +412,22 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         icon={AlignJustify}
         pressed={fmt.textAlign === "justify"}
         onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "justify" })}
+      />
+
+      {/* Indent / outdent (Google Docs increase/decrease-indent). Each steps the
+          focus/selected paragraph's marginInlineStart by one INDENT_STEP; the
+          BFC insets the in-flow block and narrows its width, so it reflows.
+          These are stateless actions (no pressed state), so they use
+          ToolbarButton; onMouseDown/preventDefault keeps the selection. */}
+      <ToolbarButton
+        label="Decrease indent"
+        icon={IndentDecrease}
+        onAction={() => dispatch({ type: "OUTDENT" })}
+      />
+      <ToolbarButton
+        label="Increase indent"
+        icon={IndentIncrease}
+        onAction={() => dispatch({ type: "INDENT" })}
       />
 
       {/* Line spacing (Google Docs' 1.0 / 1.15 / 1.5 / 2.0 control). Dispatches

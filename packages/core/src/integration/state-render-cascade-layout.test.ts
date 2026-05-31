@@ -500,6 +500,72 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
+  it("INDENT threads marginInlineStart → component style → BFC insets the paragraph box and narrows it", () => {
+    // End-to-end indent proof: dispatch INDENT over a paragraph selection, then
+    // confirm the paragraph's LAYOUT box moved inline by one INDENT_STEP (48px)
+    // AND its content box narrowed by the same amount. This proves the attr
+    // reaches layout through the full pipeline (state → render component
+    // synthesizes marginInlineStart onto the ElementBox style → BFC in-flow
+    // margin handling). If the margin didn't reach layout the box would sit at
+    // the same x with the same width and BOTH assertions below would FAIL.
+    const config: EditorConfig = {
+      measurer: shaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 0), createPosition(pId, 9)),
+      },
+      config,
+    );
+
+    function findBlockBox(box: LayoutBox, key: string): LayoutBox | null {
+      if (box.key === key) return box;
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = findBlockBox(child, key);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+
+    function paragraphBox(state: typeof editor.state): LayoutBox {
+      const layout = resolvePositionedTree(
+        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
+      );
+      const p = findBlockBox(layout, pId);
+      if (p === null) throw new Error("no paragraph box");
+      return p;
+    }
+
+    // Baseline: no marginInlineStart attr → paragraph sits at the container edge.
+    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBeUndefined();
+    const before = paragraphBox(editor.state);
+
+    editor = reduceEditor(editor, { type: "INDENT" }, config);
+
+    // State: the attr landed.
+    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBe(48);
+
+    // Layout: the box moved inline by exactly 48px and its content box narrowed
+    // by 48px (the BFC inset + width reduction for an in-flow inline margin).
+    const after = paragraphBox(editor.state);
+    expect(after.x).toBe(before.x + 48);
+    expect(after.inlineSize).toBe(before.inlineSize - 48);
+  });
+
   it("SET_FONT_FAMILY threads fontFamily → fontFamilyInterpreter → ComputedStyle.fontFamily", () => {
     const config: EditorConfig = {
       measurer: shaper,

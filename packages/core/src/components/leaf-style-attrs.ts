@@ -49,3 +49,26 @@ export function textAlignFromAttrs(value: unknown): TextAlign | undefined {
 export function lineHeightFromAttrs(value: unknown): number | undefined {
   return typeof value === "number" && value > 0 ? value : undefined;
 }
+
+/**
+ * Read a block-level `marginInlineStart` (indent) attr override for an
+ * inline-bearing-leaf component (paragraph / heading / list-item). The value
+ * is the indent in px — Google Docs' increase/decrease-indent control steps it
+ * by `INDENT_STEP` (see `editor/actions/indent.ts`).
+ *
+ * Per the same component-set convention as `textAlignFromAttrs` /
+ * `lineHeightFromAttrs` above: the indent must reach the layout cascade (the
+ * BFC insets the in-flow block by its `marginInlineStart` and narrows its
+ * content width), but the render-time attrs-derived `view.computedStyle` is not
+ * threaded onto the ElementBox style, so the component synthesizes
+ * `marginInlineStart` onto `node.style`.
+ *
+ * Only a finite `number > 0` is accepted (a bare number is a valid px Length).
+ * Non-number / non-finite / `<= 0` garbage → `undefined`, leaving the property
+ * unset so the block sits at its container's content edge (no indent). Mirrors
+ * `lineHeightFromAttrs` exactly. The editor's `INDENT`/`OUTDENT` actions clear
+ * the attr on outdent-to-0, so an un-indented block never carries it.
+ */
+export function marginInlineStartFromAttrs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}

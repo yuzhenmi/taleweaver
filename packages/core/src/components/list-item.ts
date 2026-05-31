@@ -1,7 +1,7 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { textAlignFromAttrs, lineHeightFromAttrs } from "./leaf-style-attrs";
+import { textAlignFromAttrs, lineHeightFromAttrs, marginInlineStartFromAttrs } from "./leaf-style-attrs";
 
 /**
  * List-item: an inline-bearing leaf block. Data-model shape matches
@@ -23,10 +23,12 @@ export const listItemComponent: LeafComponentDefinition = {
   render: (view, _ctx, inlineRenderNodes) => {
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
+    const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
     const style: Style = {
       display: "list-item",
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },
