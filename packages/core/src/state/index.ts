@@ -153,6 +153,11 @@ export { findMatches } from "./find-matches";
 export type { WordCount, WordCountOptions } from "./word-count";
 export { getWordCount } from "./word-count";
 
+// Document outline: read-only flat list of heading blocks over main-tree leaf
+// blocks (Google Docs View ▸ Show outline — blockId / level / text per heading).
+export type { OutlineEntry, OutlineOptions } from "./outline";
+export { getOutline } from "./outline";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //
