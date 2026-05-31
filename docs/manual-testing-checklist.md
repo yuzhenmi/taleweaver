@@ -157,7 +157,13 @@ page). Round 2:
   toolbar (native color picker) → text repaints in that color. The **reset button**
   (Ban/⦸ icon next to it) clears back to default. Whole chain is real (attr →
   cascade → glyph paint); pick a few colors and confirm they apply to exactly the
-  selection. (Highlight/background color is the next feature — not in yet.)
+  selection.
+- 🔁 **Highlight color (NEW):** select text → the Highlighter-icon control →
+  text gets a background-color block behind it (the glyphs stay their own color).
+  Reset button clears it. Known limitation: selecting *highlighted* text won't
+  show the blue selection tint over the highlight (the highlight is opaque — same
+  as block backgrounds; a selection-compositing follow-up is tracked). The caret
+  stays visible.
 - (text-indent (P5.1) also shipped but has no toolbar control yet, so it's not
   directly testable without seeding `text-indent` in a doc — UI exposure is a
   follow-up.)
