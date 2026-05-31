@@ -356,6 +356,66 @@ function renderBlock(
   visited: Set<BlockId>,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderNode {
+  return renderBlockBody(
+    block,
+    parentComputed,
+    parentSpecified,
+    state,
+    componentRegistry,
+    attrRegistry,
+    context,
+    visited,
+    fnNumbers,
+    (child, computed, specified) =>
+      renderBlock(
+        child,
+        computed,
+        specified,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        visited,
+        fnNumbers,
+      ),
+  );
+}
+
+/**
+ * The shared per-block render body for both `renderBlock` (full) and
+ * `renderBlockIncremental` (cache-aware). The two callers differ ONLY in
+ * (a) the incremental variant's cache-lookup preamble (handled by its
+ * wrapper before delegating here) and (b) how children recurse — passed
+ * in as `recurse` so the full path re-enters `renderBlock` while the
+ * incremental path re-enters `renderBlockIncremental` (threading its
+ * invalidation set + prev-index). Everything else — the active-path
+ * `visited` cycle guard + try/finally drain, the style composition, the
+ * component lookup, and the container/leaf dispatch — is identical and
+ * lives here so the two paths cannot drift.
+ *
+ * `recurse(child, parentComputed, parentSpecified)` renders one child,
+ * receiving THIS block's computed + specified style as the child's
+ * parent context.
+ *
+ * See `renderBlock`'s doc comment for the `visited` / `parentSpecified` /
+ * leaf-dispatch (A5) semantics.
+ */
+function renderBlockBody(
+  block: Block,
+  parentComputed: ComputedStyle | null,
+  parentSpecified: Partial<Style> | undefined,
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+  context: RenderContext,
+  visited: Set<BlockId>,
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  recurse: (
+    child: Block,
+    parentComputed: ComputedStyle | null,
+    parentSpecified: Partial<Style> | undefined,
+  ) => RenderNode,
+): RenderNode {
   if (visited.has(block.id)) {
     throw new Error(`render: cycle detected at block "${block.id}"`);
   }
@@ -392,19 +452,7 @@ function renderBlock(
         if (child === null) {
           throw new Error(`render: child "${childId}" of "${block.id}" not found in any tree`);
         }
-        childRenderNodes.push(
-          renderBlock(
-            child,
-            computed,
-            specified,
-            state,
-            componentRegistry,
-            attrRegistry,
-            context,
-            visited,
-            fnNumbers,
-          ),
-        );
+        childRenderNodes.push(recurse(child, computed, specified));
         childId = child.nextSiblingId;
       }
       return def.render(view, context, childRenderNodes);
@@ -938,80 +986,31 @@ function renderBlockIncremental(
   // bug surfaces as stale rendered content — caught by integration
   // tests, not by a runtime structural compare here.
 
-  if (visited.has(block.id)) {
-    throw new Error(`render: cycle detected at block "${block.id}"`);
-  }
-  visited.add(block.id);
-  try {
-    const { specified, computed } = composeBlockStyle(
-      block.attrs,
-      parentComputed,
-      parentSpecified,
-      attrRegistry,
-    );
-    const def = componentRegistry.get(block.type);
-    if (def === undefined) {
-      throw new Error(`render: no component registered for block type "${block.type}"`);
-    }
-
-    if (def.kind === "container") {
-      const view: ContainerBlockView = Object.freeze({
-        id: block.id,
-        type: block.type,
-        attrs: block.attrs,
-        computedStyle: computed,
-        kind: "container" as const,
-      });
-      const childRenderNodes: RenderNode[] = [];
-      let childId = block.firstChildId;
-      while (childId !== null) {
-        // Walk via resolveBlock (main → embed → template) so a re-rendered
-        // container body nested in embedContents/templateContents resolves
-        // its children, which live in the same content Y.Map. For main-tree
-        // blocks resolveBlock's first arm is getBlock → identical.
-        const child = resolveBlock(state, childId)?.block ?? null;
-        if (child === null) {
-          throw new Error(`render: child "${childId}" of "${block.id}" not found in any tree`);
-        }
-        childRenderNodes.push(
-          renderBlockIncremental(
-            child,
-            computed,
-            specified,
-            state,
-            componentRegistry,
-            attrRegistry,
-            context,
-            visited,
-            invalidated,
-            prevByKey,
-            fnNumbers,
-          ),
-        );
-        childId = child.nextSiblingId;
-      }
-      return def.render(view, context, childRenderNodes);
-    }
-
-    // Exhaustiveness backstop (see renderBlock): `def` is the leaf variant here.
-    def.kind satisfies "leaf";
-
-    const inline: InlineContent = block.inlineContent ?? { items: [] };
-    const view: LeafBlockView = Object.freeze({
-      id: block.id,
-      type: block.type,
-      attrs: block.attrs,
-      computedStyle: computed,
-      kind: "leaf" as const,
-      inlineContent: inline,
-    });
-    const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
-      ? []
-      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers);
-    return def.render(view, context, inlineRenderNodes);
-  } finally {
-    visited.delete(block.id);
-  }
+  return renderBlockBody(
+    block,
+    parentComputed,
+    parentSpecified,
+    state,
+    componentRegistry,
+    attrRegistry,
+    context,
+    visited,
+    fnNumbers,
+    (child, computed, specified) =>
+      renderBlockIncremental(
+        child,
+        computed,
+        specified,
+        state,
+        componentRegistry,
+        attrRegistry,
+        context,
+        visited,
+        invalidated,
+        prevByKey,
+        fnNumbers,
+      ),
+  );
 }
 
 /**
