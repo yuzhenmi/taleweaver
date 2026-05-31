@@ -76,6 +76,10 @@ recur.
 - 🔁 Bug B: insert footnote, put caret right after its marker, insert another →
   no crash; both markers number 1,2.
 - 🔁 Bug C: each footnote body in the slot shows its number (e.g. "1", "2").
+- 🔁 **Body-number renumber (render-audit fix, 9c414bd):** with ≥2 footnotes,
+  insert a NEW footnote *before* an existing one → the existing footnote's
+  **body slot number** must update too (not just its superscript call marker).
+  Before the fix the call marker renumbered but the body slot kept the old number.
 - 🔁 Bug D: type a multi-paragraph / many-line footnote → the whole body renders
   in the slot (slot grows); type enough to overflow the page → it splits and
   continues on the next page.
