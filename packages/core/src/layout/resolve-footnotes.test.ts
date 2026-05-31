@@ -16,17 +16,21 @@ import { flattenContents } from "./group-children";
 import { cascadePass, cascadePassIncremental } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { makeRootContext } from "./layout-context";
+import { layoutBlock } from "./bfc";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { PageConfig } from "./page-config";
 import {
   buildBlockToTopLevelIndex,
   buildFootnotePageAssignment,
   resolveFootnotes,
+  computeSlotLayout,
   FOOTNOTE_SEPARATOR_HEIGHT,
   MIN_BODY_BLOCK_SIZE,
   __getBodyLayoutCallCountForTest,
   __resetBodyLayoutCallCountForTest,
 } from "./resolve-footnotes";
+import type { FootnoteContinuation } from "./measure-pass";
+import type { BreakToken } from "./fragmentation";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 
 const EMPTY_STYLE: Style = {};
@@ -838,5 +842,270 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     expect(resolvedIncremental.entries[0].blockOffset).toBe(
       resolvedFresh.entries[0].blockOffset,
     );
+  });
+});
+
+// ===========================================================================
+// FN-5.3: computeSlotLayout — greedy fill + split + carry-all-overflow.
+//
+// Geometry contract of the test fixtures below (mock shaper 8px/char, 16px
+// line-height): each footnote body is ONE paragraph of `lines` single-glyph
+// lines under `whiteSpace: "pre"` (hard `\n` breaks), so it lays out to exactly
+// `lines * 16`px and splits at single-line granularity. `orphans: 1, widows: 1`
+// on the body root (the footnote-body component default, FN-5.2 E2) lets the IFC
+// place a single line + carry the rest — without it a 2-line body would refuse
+// to split (box: null). Consts: FOOTNOTE_SEPARATOR_HEIGHT = 13,
+// MIN_BODY_BLOCK_SIZE = 16, so `maxSlot = pageContentBlockSize − 16 − 13`.
+// ===========================================================================
+
+const SLOT_INLINE = 600;
+const SLOT_LINE = 16;
+
+/**
+ * A splittable footnote body: ONE paragraph of `lines` lines (hard `\n` breaks
+ * under `whiteSpace: "pre"`), with `orphans: 1, widows: 1` on the body root so
+ * the IFC splits it at single-line boundaries (the FN-5.2 footnote-body
+ * default). Cascaded, ready for `computeSlotLayout`'s `embedBodies` map.
+ */
+function splitBody(key: string, lines: number): ElementBox {
+  const parts: string[] = [];
+  for (let i = 0; i < lines; i++) parts.push("x");
+  const text = parts.join("\n");
+  const textNode = createTextBox(`${key}-t`, { whiteSpace: "pre" }, text);
+  const para = createElementBox(
+    `${key}-p`,
+    { display: "block", whiteSpace: "pre" } as Style,
+    [textNode],
+  );
+  const root = createElementBox(
+    key,
+    { display: "block", whiteSpace: "break-spaces", orphans: 1, widows: 1 } as Style,
+    [para],
+  );
+  return fnCascade(root);
+}
+
+/** A `computeSlotLayout` ctx mirroring `resolveFootnotes`'s root ctx. */
+function slotCtx(): ReturnType<typeof makeRootContext> {
+  return makeRootContext(INITIAL_COMPUTED_STYLE, SLOT_INLINE);
+}
+
+/**
+ * Lay out a freshly-built body bounded by `available` (matching how
+ * `computeSlotLayout` lays bodies) and return its non-null break token — used to
+ * synthesize a realistic inbound `resumeToken` for the continuation-input cases.
+ */
+function partialToken(body: ElementBox, available: number): BreakToken {
+  const ctx: ReturnType<typeof makeRootContext> = {
+    ...slotCtx(),
+    containingInlineSize: SLOT_INLINE,
+  };
+  const { breakToken } = layoutBlock(body, 0, 0, ctx, FN_SHAPER, {
+    availableBlockSize: available,
+    pageIndex: 0,
+    resumeFrom: null,
+  });
+  if (breakToken === null) {
+    throw new Error("partialToken: expected a non-null break token");
+  }
+  return breakToken;
+}
+
+describe("computeSlotLayout (FN-5.3)", () => {
+  it("(a) two fresh bodies: first fits, second splits; both START, remainder carries", () => {
+    const A = splitBody("A", 1); // 16px
+    const B = splitBody("B", 3); // 48px
+    const bodies = new Map<BlockId, ElementBox>([
+      ["A" as BlockId, A],
+      ["B" as BlockId, B],
+    ]);
+    // pageContentBlockSize = 77 → maxSlot = 77 − 16 − 13 = 48.
+    // A places (16) → remaining 32 → B places 2 of 3 lines (32), 1 carries.
+    const r = computeSlotLayout(
+      [],
+      ["A" as BlockId, "B" as BlockId],
+      bodies,
+      77,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 2 * SLOT_LINE); // 13+16+32 = 61
+    expect(r.slotContentBlockIds).toEqual(["A", "B"]); // both STARTED here
+    expect(r.outboundContinuations).toHaveLength(1);
+    expect(r.outboundContinuations[0].contentBlockId).toBe("B");
+    expect(r.outboundContinuations[0].resumeToken).not.toBeNull();
+  });
+
+  it("(b) THREE fresh A,B,C: slot fits A + partial B; C is FULLY DEFERRED, not lost (Blocker-1)", () => {
+    const A = splitBody("A", 1); // 16
+    const B = splitBody("B", 3); // 48
+    const C = splitBody("C", 1); // 16
+    const bodies = new Map<BlockId, ElementBox>([
+      ["A" as BlockId, A],
+      ["B" as BlockId, B],
+      ["C" as BlockId, C],
+    ]);
+    // maxSlot = 48: A(16) + Bpartial(32) consumes it; B overflows, C never tried.
+    const r = computeSlotLayout(
+      [],
+      ["A" as BlockId, "B" as BlockId, "C" as BlockId],
+      bodies,
+      77,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 2 * SLOT_LINE); // 61
+    expect(r.slotContentBlockIds).toEqual(["A", "B"]); // C did NOT start here
+    // The Blocker-1 assertion: C is carried forward (deferred), NOT dropped.
+    expect(r.outboundContinuations).toHaveLength(2);
+    expect(r.outboundContinuations[0].contentBlockId).toBe("B");
+    expect(r.outboundContinuations[0].resumeToken).not.toBeNull();
+    expect(r.outboundContinuations[1].contentBlockId).toBe("C");
+    expect(r.outboundContinuations[1].resumeToken).toBeNull(); // fully deferred
+  });
+
+  it("(c) inbound list [{B,tokenB},{C,null}] renders first; only FRESH started bodies in slotContentBlockIds", () => {
+    // B is a 3-line body already showing 2 lines on the prior page → 1 line left.
+    const B = splitBody("B", 3);
+    const tokenB = partialToken(B, 2 * SLOT_LINE); // resume after 2 lines (1 left)
+    const C = splitBody("C", 1); // 16, never started → resumeToken null
+    const D = splitBody("D", 1); // 16, this page's fresh body
+    const bodies = new Map<BlockId, ElementBox>([
+      ["B" as BlockId, B],
+      ["C" as BlockId, C],
+      ["D" as BlockId, D],
+    ]);
+    const inbound: FootnoteContinuation[] = [
+      { contentBlockId: "B" as BlockId, resumeToken: tokenB },
+      { contentBlockId: "C" as BlockId, resumeToken: null },
+    ];
+    // pageContentBlockSize = 200 → maxSlot = 171: B(16) + C(16) + D(16) all fit.
+    const r = computeSlotLayout(
+      inbound,
+      ["D" as BlockId],
+      bodies,
+      200,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    // sep + B-remainder(16) + C(16) + D(16) = 13 + 48 = 61.
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 3 * SLOT_LINE);
+    // Inbound B and C are NOT in slotContentBlockIds (they render via the inbound
+    // list); only the fresh D, which STARTED here.
+    expect(r.slotContentBlockIds).toEqual(["D"]);
+    expect(r.outboundContinuations).toHaveLength(0);
+  });
+
+  it("(d) inbound that ALSO overflows → re-split; everything after defers", () => {
+    // B is a 4-line body showing 1 line on the prior page → 3 lines (48) left.
+    const B = splitBody("B", 4);
+    const tokenB = partialToken(B, 1 * SLOT_LINE); // resume after 1 line (3 left)
+    const C = splitBody("C", 1);
+    const bodies = new Map<BlockId, ElementBox>([
+      ["B" as BlockId, B],
+      ["C" as BlockId, C],
+    ]);
+    const inbound: FootnoteContinuation[] = [
+      { contentBlockId: "B" as BlockId, resumeToken: tokenB },
+      { contentBlockId: "C" as BlockId, resumeToken: null },
+    ];
+    // pageContentBlockSize = 61 → maxSlot = 32: B re-splits (places 2 of its 3
+    // remaining lines), C fully defers.
+    const r = computeSlotLayout(
+      inbound,
+      [],
+      bodies,
+      61,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 2 * SLOT_LINE); // 13+32 = 45
+    expect(r.slotContentBlockIds).toEqual([]); // no FRESH body started
+    expect(r.outboundContinuations).toHaveLength(2);
+    expect(r.outboundContinuations[0].contentBlockId).toBe("B");
+    expect(r.outboundContinuations[0].resumeToken).not.toBeNull(); // re-split token
+    // The re-split token differs from the inbound token (advanced past more lines).
+    expect(r.outboundContinuations[0].resumeToken).not.toBe(tokenB);
+    expect(r.outboundContinuations[1].contentBlockId).toBe("C");
+    expect(r.outboundContinuations[1].resumeToken).toBeNull();
+  });
+
+  it("(e) E3: area below one line → nothing placed, slotHeight 0, NO separator, all carry", () => {
+    const A = splitBody("A", 2);
+    const B = splitBody("B", 1);
+    const bodies = new Map<BlockId, ElementBox>([
+      ["A" as BlockId, A],
+      ["B" as BlockId, B],
+    ]);
+    // pageContentBlockSize = 37 → maxSlot = 37 − 16 − 13 = 8 < one line (16).
+    const r = computeSlotLayout(
+      [],
+      ["A" as BlockId, "B" as BlockId],
+      bodies,
+      37,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(0); // NO separator when nothing placed
+    expect(r.slotContentBlockIds).toEqual([]);
+    expect(r.outboundContinuations).toHaveLength(2);
+    expect(r.outboundContinuations[0]).toEqual({
+      contentBlockId: "A",
+      resumeToken: null,
+    });
+    expect(r.outboundContinuations[1]).toEqual({
+      contentBlockId: "B",
+      resumeToken: null,
+    });
+  });
+
+  it("(f) a body taller than a whole empty area → outbound carries its remainder (chain seed)", () => {
+    const A = splitBody("A", 5); // 80px
+    const bodies = new Map<BlockId, ElementBox>([["A" as BlockId, A]]);
+    // pageContentBlockSize = 61 → maxSlot = 32: A places 2 of 5 lines, 3 carry.
+    const r = computeSlotLayout(
+      [],
+      ["A" as BlockId],
+      bodies,
+      61,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 2 * SLOT_LINE); // 45
+    expect(r.slotContentBlockIds).toEqual(["A"]); // STARTED here
+    expect(r.outboundContinuations).toHaveLength(1);
+    expect(r.outboundContinuations[0].contentBlockId).toBe("A");
+    expect(r.outboundContinuations[0].resumeToken).not.toBeNull(); // remainder seeds the chain
+  });
+
+  it("(g) Blocker-2: one very tall fresh body — slot capped so the page body retains ≥ MIN_BODY_BLOCK_SIZE", () => {
+    const A = splitBody("A", 100); // 1600px — far taller than the page
+    const bodies = new Map<BlockId, ElementBox>([["A" as BlockId, A]]);
+    const pageContentBlockSize = 200;
+    // maxSlot = 200 − 16 − 13 = 171 → 10 lines (160) fit; slotHeight = 173.
+    const r = computeSlotLayout(
+      [],
+      ["A" as BlockId],
+      bodies,
+      pageContentBlockSize,
+      SLOT_INLINE,
+      slotCtx(),
+      FN_SHAPER,
+    );
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 10 * SLOT_LINE); // 173
+    // Blocker-2: the page body keeps at least MIN_BODY_BLOCK_SIZE below the slot.
+    expect(pageContentBlockSize - r.slotHeight).toBeGreaterThanOrEqual(
+      MIN_BODY_BLOCK_SIZE,
+    );
+    expect(r.slotContentBlockIds).toEqual(["A"]);
+    expect(r.outboundContinuations).toHaveLength(1);
+    expect(r.outboundContinuations[0].contentBlockId).toBe("A");
+    expect(r.outboundContinuations[0].resumeToken).not.toBeNull();
   });
 });

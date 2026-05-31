@@ -24,10 +24,12 @@ import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
+import type { BlockBox } from "./layout-box-v2";
 import {
   buildPagePlan,
   EMPTY_FOOTNOTE_CONTINUATIONS,
   recordBlockMaps,
+  type FootnoteContinuation,
   type PagePlan,
   type PagePlanEntry,
   type SlotInsets,
@@ -171,6 +173,160 @@ export function buildFootnotePageAssignment(
     }
   }
   return result;
+}
+
+/**
+ * FN-5.3 — greedy fill + split + carry-all-overflow for ONE page's footnote
+ * slot. Replaces FN-4's D5 height CLAMP with real splitting: lays the inbound
+ * continuations (cross-page carries from the prior page) then the page's fresh
+ * footnote bodies into the bounded slot area, in order; when a body doesn't
+ * fully fit it splits at a line boundary (the IFC's `orphans/widows = 1`
+ * footnote-body default makes a single line splittable, FN-5.2/E2) and carries
+ * its remainder forward; once the slot is exhausted EVERY remaining item is
+ * carried forward UNCHANGED (no body assigned to this page is ever lost —
+ * Blocker-1).
+ *
+ * The slot is bounded to `pageContentBlockSize − MIN_BODY_BLOCK_SIZE −
+ * FOOTNOTE_SEPARATOR_HEIGHT` (Blocker-2): the page body retains at least one
+ * line beneath the slot, so a tall footnote can never starve the page content.
+ *
+ * Inputs:
+ * @param inboundContinuations the prior page's outbound carries, IN ORDER, each
+ *   `{ contentBlockId, resumeToken }` (a `null` `resumeToken` = a fully-deferred
+ *   body that never started). These render at the TOP of this page's slot and
+ *   are NEVER added to `slotContentBlockIds` (they render via the inbound list).
+ * @param freshContentBlockIds the bodies whose anchors were freshly assigned to
+ *   THIS page (document order). A fresh body that STARTS here (places ≥1 line)
+ *   goes into `slotContentBlockIds`; a fresh body fully deferred (the slot
+ *   overflowed before it) does NOT — it is carried in `outboundContinuations`
+ *   with a `null` resume token and renders on the next page.
+ * @param embedBodies the cascaded footnote-body boxes, keyed by body root id
+ *   (`resolveFootnotes`'s `cascadedEmbedContents`).
+ * @param pageContentBlockSize the page's body content block-size (before the
+ *   slot reservation), used to bound the slot.
+ * @param contentInlineSize the footnote-body content inline-size (the page
+ *   content inline-size), threaded into the body-layout ctx exactly as
+ *   `resolveFootnotes`'s per-body layout does.
+ * @param ctx the root layout context; narrowed to `contentInlineSize` per body.
+ * @param shaper the text shaper used to lay out the bodies.
+ *
+ * Returns `{ slotHeight, slotContentBlockIds, outboundContinuations }`:
+ *   - `slotHeight` = sum of placed body heights + ONE `FOOTNOTE_SEPARATOR_HEIGHT`
+ *     when ≥1 body placed, else `0` (no separator when nothing renders — E3/E4).
+ *   - `slotContentBlockIds` = the FRESH bodies that STARTED on this page.
+ *   - `outboundContinuations` = the ordered carries forward (partial bodies'
+ *     remainders + every fully-deferred item), each a `FootnoteContinuation`.
+ */
+export function computeSlotLayout(
+  inboundContinuations: readonly FootnoteContinuation[],
+  freshContentBlockIds: readonly BlockId[],
+  embedBodies: ReadonlyMap<BlockId, ElementBox>,
+  pageContentBlockSize: number,
+  contentInlineSize: number,
+  ctx: LayoutContext,
+  shaper: TextShaper,
+): { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } {
+  // ONE ordered work-list: inbound carries (in order) then fresh bodies. Tag
+  // each entry `isFresh` so only fresh-and-started ids land in
+  // `slotContentBlockIds`; inbound items render via the inbound list and are
+  // never re-added. The tag is dropped when an item becomes a `FootnoteContinuation`.
+  interface WorkItem {
+    readonly contentBlockId: BlockId;
+    readonly resumeToken: BreakToken | null;
+    readonly isFresh: boolean;
+  }
+  const workList: WorkItem[] = [];
+  for (const c of inboundContinuations) {
+    workList.push({ contentBlockId: c.contentBlockId, resumeToken: c.resumeToken, isFresh: false });
+  }
+  for (const id of freshContentBlockIds) {
+    workList.push({ contentBlockId: id, resumeToken: null, isFresh: true });
+  }
+
+  // Blocker-2: reserve the body-content minimum AND the separator, so a tall
+  // footnote can never consume the whole page.
+  const maxSlot = Math.max(0, pageContentBlockSize - MIN_BODY_BLOCK_SIZE - FOOTNOTE_SEPARATOR_HEIGHT);
+  let remaining = maxSlot;
+
+  const placed: BlockBox[] = [];
+  const placedIds: BlockId[] = [];
+  const outbound: FootnoteContinuation[] = [];
+  let overflowed = false;
+
+  const bodyLayoutCtx: LayoutContext = { ...ctx, containingInlineSize: contentInlineSize };
+
+  for (const item of workList) {
+    if (overflowed) {
+      // Past the split point: defer this item UNCHANGED (its resumeToken stays
+      // whatever it was — a mid-body token for a not-re-placed partial inbound
+      // item, or null for a never-started body). Do NOT lay it out.
+      outbound.push({ contentBlockId: item.contentBlockId, resumeToken: item.resumeToken });
+      continue;
+    }
+
+    const body = embedBodies.get(item.contentBlockId);
+    if (body === undefined) {
+      // A footnote whose body is missing from the cascaded map would be a no-MVP
+      // defect (the body silently vanishing). Dev-only throw; in prod skip it
+      // (contributes nothing, carries nothing) so layout never crashes — matching
+      // `slotHeightFor`'s defensive convention.
+      if (isDevMode()) {
+        throw new Error(
+          `computeSlotLayout: footnote body ${item.contentBlockId} is absent from ` +
+            `embedBodies — the body must be cascaded before layout.`,
+        );
+      }
+      continue;
+    }
+
+    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, {
+      availableBlockSize: remaining,
+      pageIndex: 0,
+      resumeFrom: item.resumeToken,
+    });
+
+    // E3, nothing fit: the split point is BEFORE this item. `box === null` is the
+    // direct "nothing placed" signal, but the CSS Fragmentation §3.5 C.6 overflow
+    // rule force-places a body's first line onto an EMPTY fragment even when
+    // `remaining` is below one line-height (each body is laid into its own fresh
+    // `layoutBlock` fragment here, so it's always "empty" from C.6's view). We
+    // detect that force-placed overflow by `box.blockSize > remaining` and treat
+    // it as E3 too: per the plan, a footnote area below one line-height defers ALL
+    // footnotes (the page body already retains MIN_BODY_BLOCK_SIZE via `maxSlot`),
+    // overriding C.6's force-place. Either way the item carries forward UNCHANGED
+    // and every subsequent item defers via the overflow branch above.
+    if (box === null || box.blockSize > remaining) {
+      outbound.push({ contentBlockId: item.contentBlockId, resumeToken: item.resumeToken });
+      overflowed = true;
+      continue;
+    }
+
+    // The body placed ≥1 line.
+    placed.push(box);
+    if (item.isFresh) placedIds.push(item.contentBlockId);
+    remaining -= box.blockSize;
+
+    if (breakToken !== null) {
+      // Partial fit: the remainder carries forward; nothing else fits this page.
+      outbound.push({ contentBlockId: item.contentBlockId, resumeToken: breakToken });
+      overflowed = true;
+    }
+  }
+
+  if (placed.length === 0) {
+    // E3/E4: nothing rendered ⇒ no slot, no separator. The whole work-list is in
+    // `outbound` (it flows to the next page); `slotHeight = 0` is the authoritative
+    // gate `materializePage` keys on.
+    return { slotHeight: 0, slotContentBlockIds: placedIds, outboundContinuations: outbound };
+  }
+
+  let bodiesSum = 0;
+  for (const b of placed) bodiesSum += b.blockSize;
+  return {
+    slotHeight: bodiesSum + FOOTNOTE_SEPARATOR_HEIGHT,
+    slotContentBlockIds: placedIds,
+    outboundContinuations: outbound,
+  };
 }
 
 /**
