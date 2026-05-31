@@ -479,6 +479,13 @@ function paintBox(
     if (cs.textDecoration === "underline") {
       const ulY = absY + halfLeading + fontSize + 1;
       ctx.fillRect(absX, ulY, box.width, 1);
+    } else if (cs.textDecoration === "line-through") {
+      // Strikethrough (Google Docs / CSS line-through): a rule through the middle
+      // of the text. ~em-box center is a good approximation; uses the current
+      // fillStyle (= cs.color, i.e. currentColor per CSS text-decoration-color).
+      // Exact y is a pixel detail tunable in-browser.
+      const stY = absY + halfLeading + fontSize * 0.5;
+      ctx.fillRect(absX, stY, box.width, 1);
     }
     return;
   }
