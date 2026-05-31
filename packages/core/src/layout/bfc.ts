@@ -426,6 +426,39 @@ export function layoutBlock(
     const childCs = child.computedStyle;
     const childUsedStyle = computeUsedStyle(childCs, contentInlineSize, "indefinite");
 
+    // In-flow inline-axis margins (CSS box model). An in-flow block child is
+    // positioned at logical inline offset `paddingInlineStart +
+    // marginInlineStart` and its content box is narrowed by both inline
+    // margins. `marginInlineStart`/`marginInlineEnd` default to 0, so for the
+    // common (no-inline-margin) document `childInlineStart === paddingInlineStart`
+    // and `childContentInlineSize === contentInlineSize` — the values below and
+    // every site that consumes them are byte-identical to the pre-margin code.
+    //
+    // NOTE: this is the IN-FLOW path only. The FLOAT branch below has its own
+    // inline-margin handling (the float environment reserves the margin space
+    // during placement) — do NOT route floats through these values.
+    const childMarginInlineStart = childUsedStyle.marginInlineStart;
+    const childMarginInlineEnd   = childUsedStyle.marginInlineEnd;
+    const childInlineStart = paddingInlineStart + childMarginInlineStart;
+    const childContentInlineSize = contentInlineSize - childMarginInlineStart - childMarginInlineEnd;
+    const hasInlineMargin = childMarginInlineStart !== 0 || childMarginInlineEnd !== 0;
+
+    // Reposition a child box laid out at `paddingInlineStart` (relative to its
+    // OWN content box of size `childContentInlineSize`) so its outer inline
+    // offset is `childInlineStart` measured against the PARENT content box
+    // (`contentInlineSize`). This mirrors the FLOAT branch's `withOffsets(...,
+    // contentInlineSize)` re-mirror: the child's descendants stay parent-
+    // relative to the child's own content box, while the child box itself is
+    // positioned (and RTL-mirrored) against the parent's content box.
+    //
+    // When there is no inline margin this is a pure no-op (same offset, same
+    // containing inline size, same width) — so we skip the clone entirely to
+    // keep the common path allocation-free.
+    function positionChildInline(box: LayoutBox): LayoutBox {
+      if (!hasInlineMargin) return box;
+      return withOffsets(box, childInlineStart, box.blockOffset, contentInlineSize);
+    }
+
     // FLOAT BRANCH: floated children are out of normal flow.
     // Fragmentation is NOT applied to floats in C.1 (deferred to a later task).
     if (childCs.float === "inline-start" || childCs.float === "inline-end") {
@@ -562,9 +595,14 @@ export function layoutBlock(
       const markerInlineSize = measurer.measureWidth(markerText, childCs);
       const markerBlockSize = measurer.measureHeight(childCs);
       const markerGap = 4;
+      // Compose the marker against the list-item's indented content edge
+      // (`childInlineStart = paddingInlineStart + marginInlineStart`) so the
+      // marker stays glued to its content when the item carries an inline
+      // margin. With no inline margin, `childInlineStart === paddingInlineStart`,
+      // so this is byte-identical to the pre-margin marker position.
       const markerInlineOffset = childCs.listStylePosition === "inside"
-        ? paddingInlineStart
-        : paddingInlineStart - markerInlineSize - markerGap;
+        ? childInlineStart
+        : childInlineStart - markerInlineSize - markerGap;
       const markerBox = createMarkerBox(
         `${child.key}-marker`,
         markerInlineOffset, childBlockOffset,
@@ -579,7 +617,10 @@ export function layoutBlock(
 
     // Pass childCs (child's own computed style) so makeChildContext can detect
     // whether the child establishes a new BFC and create a fresh float env.
-    const childCtx = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
+    // The child's containing inline size is its OWN content box, narrowed by
+    // its inline margins (`childContentInlineSize`); the parent re-mirrors the
+    // resulting box against the parent content box via `positionChildInline`.
+    const childCtx = makeChildContext(ctx, childCs, childContentInlineSize, "indefinite");
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
     // C.7: thread firstChildResumeToken into the FIRST iteration (the resumed child);
@@ -614,7 +655,9 @@ export function layoutBlock(
       if (fullResult.box === null) {
         throw new Error("layout without fragmentation returned null box; unreachable");
       }
-      return fullResult.box;
+      // Re-mirror against the parent content box and apply the inline-start
+      // margin offset (no-op when the child has no inline margin).
+      return positionChildInline(fullResult.box);
     }
 
     let childLayout: LayoutBox;
@@ -638,7 +681,7 @@ export function layoutBlock(
           resumeChildToken: tableResult.breakToken,
         });
       }
-      childLayout = tableResult.box;
+      childLayout = positionChildInline(tableResult.box);
       childResultBreakToken = tableResult.breakToken;
     } else {
       const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
@@ -659,14 +702,14 @@ export function layoutBlock(
           resumeChildToken: childResult.breakToken,
         });
       }
-      childLayout = childResult.box;
+      childLayout = positionChildInline(childResult.box);
       childResultBreakToken = childResult.breakToken;
     }
 
     const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
     const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
     const placedChild = explicitBlockSize > 0
-      ? createBlockBox(child.key, paddingInlineStart, childBlockOffset, contentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
+      ? createBlockBox(child.key, childInlineStart, childBlockOffset, childContentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
         )
@@ -748,7 +791,7 @@ export function layoutBlock(
       // content width, defeating the same intentional-zero authoring
       // that the resolveBoxInlineSize fix protects.
       layoutChildren.push(
-        createBlockBox(child.key, paddingInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
+        createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
         ),

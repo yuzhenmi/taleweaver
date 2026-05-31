@@ -866,3 +866,180 @@ describe("BFC — float rises to nearest BFC", () => {
     }
   });
 });
+
+describe("BFC — in-flow block inline margins (box model)", () => {
+  // Per the CSS box model, an in-flow block child X inside parent P is
+  // positioned at logical inline offset `P.paddingInlineStart +
+  // X.marginInlineStart` with available content width
+  // `P.contentInlineSize − X.marginInlineStart − X.marginInlineEnd`. Today
+  // these inline margins default to 0 and nothing sets them, so for existing
+  // documents this is a no-op; these tests pin the box-model semantics so
+  // indent (and any other inline-margin authoring) lands correctly.
+
+  it("marginInlineStart insets the child and reduces its width (block child)", () => {
+    // Reference: same block with no inline margin.
+    const refChild = createElementBox("c", { display: "block", blockSize: 40 }, []);
+    const refTree = createElementBox("root", { display: "block" }, [refChild]);
+    const ref = layoutOf(refTree);
+    if (ref.children[0].type !== "block") throw new Error("?");
+    expect(ref.children[0].inlineOffset).toBe(0);
+    expect(ref.children[0].inlineSize).toBe(600);
+
+    const child = createElementBox("c", { display: "block", blockSize: 40, marginInlineStart: 48 }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    // Inset by 48 on the logical inline axis (LTR → x === inlineOffset).
+    expect(out.children[0].inlineOffset).toBe(48);
+    expect(out.children[0].x).toBe(48);
+    // Width reduced by the inline-start margin (no inline-end margin here).
+    expect(out.children[0].inlineSize).toBe(600 - 48);
+    expect(out.children[0].width).toBe(600 - 48);
+  });
+
+  it("marginInlineStart + marginInlineEnd reduce width by their sum", () => {
+    const child = createElementBox("c", {
+      display: "block", blockSize: 40, marginInlineStart: 48, marginInlineEnd: 24,
+    }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    expect(out.children[0].inlineOffset).toBe(48);
+    expect(out.children[0].inlineSize).toBe(600 - 48 - 24);
+    expect(out.children[0].x).toBe(48);
+    expect(out.children[0].width).toBe(600 - 48 - 24);
+  });
+
+  it("inline margin composes with parent paddingInlineStart", () => {
+    const child = createElementBox("c", { display: "block", blockSize: 40, marginInlineStart: 30 }, []);
+    const tree = createElementBox("root", {
+      display: "block", paddingInlineStart: 10, paddingInlineEnd: 10,
+    }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    // paddingInlineStart (10) + marginInlineStart (30) = 40.
+    expect(out.children[0].inlineOffset).toBe(40);
+    expect(out.children[0].x).toBe(40);
+    // contentInlineSize = 600 - 10 - 10 = 580; minus marginInlineStart 30 = 550.
+    expect(out.children[0].inlineSize).toBe(580 - 30);
+    expect(out.children[0].width).toBe(580 - 30);
+  });
+
+  it("explicit-block-size child honors inline margin", () => {
+    // An explicit blockSize takes the createBlockBox path (bfc.ts:668),
+    // a separate positioning site that must also apply the inline margin.
+    const child = createElementBox("c", {
+      display: "block", blockSize: 40, inlineSize: 100, marginInlineStart: 48,
+    }, []);
+    const tree = createElementBox("root", { display: "block", paddingBlockStart: 5 }, [child]);
+    const out = layoutOf(tree);
+    if (out.children[0].type !== "block") throw new Error("?");
+    expect(out.children[0].inlineOffset).toBe(48);
+    expect(out.children[0].x).toBe(48);
+  });
+
+  it("RTL parent: inline margin insets from the logical start (physical right)", () => {
+    // contentInlineSize = 600 (no padding). Child fills, reduced by margin.
+    // LTR x === inlineOffset; RTL mirrors: x = contentInlineSize - inlineOffset - inlineSize.
+    const child = createElementBox("c", {
+      display: "block", blockSize: 40, marginInlineStart: 48, direction: "rtl",
+    }, []);
+    const tree = createElementBox("root", { display: "block", direction: "rtl" }, [child]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
+    const r = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "block") throw new Error("?");
+    const c = out.children[0];
+    expect(c.inlineOffset).toBe(48);
+    expect(c.inlineSize).toBe(600 - 48);
+    // Physical x mirrors: 600 - 48 - (600 - 48) = 0. The inline-start margin
+    // is on the physical RIGHT in RTL, so the box hugs the physical-left edge.
+    expect(c.x).toBe(600 - 48 - (600 - 48));
+    expect(c.x).toBe(0);
+  });
+
+  it("RTL parent: inline-end margin pushes the box off the physical-left edge", () => {
+    const child = createElementBox("c", {
+      display: "block", blockSize: 40, marginInlineEnd: 30, direction: "rtl",
+    }, []);
+    const tree = createElementBox("root", { display: "block", direction: "rtl" }, [child]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
+    const r = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    if (out.children[0].type !== "block") throw new Error("?");
+    const c = out.children[0];
+    expect(c.inlineOffset).toBe(0);
+    expect(c.inlineSize).toBe(600 - 30);
+    // x = 600 - 0 - (600 - 30) = 30 (inline-end margin sits on the physical left).
+    expect(c.x).toBe(30);
+  });
+
+  it("list-item marker stays glued to indented content under inline margin", () => {
+    // Reference: marker offset with no inline margin.
+    const refLi = createElementBox("li", { display: "list-item" }, [createTextBox("t", {}, "x")]);
+    const refOl = createElementBox("ol", {
+      display: "block", paddingInlineStart: 30, listStyleType: "decimal",
+    }, [refLi]);
+    const refCascaded = cascadePass(refOl);
+    if (refCascaded.type !== "element") throw new Error("?");
+    const refOut = layoutBlock(refCascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper).box;
+    if (refOut === null || refOut.type !== "block") throw new Error("?");
+    const refMarker = refOut.children.find((c) => c.type === "marker");
+    if (refMarker === undefined) throw new Error("no ref marker");
+
+    // With marginInlineStart on the list-item, BOTH the marker and the
+    // content indent by the margin (the whole item shifts).
+    const li = createElementBox("li", { display: "list-item", marginInlineStart: 40 }, [createTextBox("t", {}, "x")]);
+    const ol = createElementBox("ol", {
+      display: "block", paddingInlineStart: 30, listStyleType: "decimal",
+    }, [li]);
+    const cascaded = cascadePass(ol);
+    if (cascaded.type !== "element") throw new Error("?");
+    const out = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper).box;
+    if (out === null || out.type !== "block") throw new Error("?");
+    const marker = out.children.find((c) => c.type === "marker");
+    if (marker === undefined) throw new Error("no marker");
+    // Marker shifts by exactly the inline margin relative to the reference.
+    expect(marker.inlineOffset).toBe(refMarker.inlineOffset + 40);
+    // The list-item content block also shifts by the margin.
+    const liBox = out.children.find((c) => c.type === "block" && c.key === "li");
+    if (liBox === undefined || liBox.type !== "block") throw new Error("no li box");
+    expect(liBox.inlineOffset).toBe(30 + 40);
+  });
+
+  it("regression: marginInline 0 (unset) is byte-identical to no-margin layout", () => {
+    // Guard the no-op claim: an explicitly-zero inline margin must produce
+    // geometry identical to the unset case at every field.
+    const a = createElementBox("c", { display: "block", blockSize: 40 }, []);
+    const at = createElementBox("root", {
+      display: "block", paddingInlineStart: 7, paddingInlineEnd: 11,
+    }, [a]);
+    const outA = layoutOf(at);
+
+    const b = createElementBox("c", {
+      display: "block", blockSize: 40, marginInlineStart: 0, marginInlineEnd: 0,
+    }, []);
+    const bt = createElementBox("root", {
+      display: "block", paddingInlineStart: 7, paddingInlineEnd: 11,
+    }, [b]);
+    const outB = layoutOf(bt);
+
+    if (outA.children[0].type !== "block" || outB.children[0].type !== "block") throw new Error("?");
+    expect(outB.children[0].inlineOffset).toBe(outA.children[0].inlineOffset);
+    expect(outB.children[0].blockOffset).toBe(outA.children[0].blockOffset);
+    expect(outB.children[0].inlineSize).toBe(outA.children[0].inlineSize);
+    expect(outB.children[0].blockSize).toBe(outA.children[0].blockSize);
+    expect(outB.children[0].x).toBe(outA.children[0].x);
+    expect(outB.children[0].y).toBe(outA.children[0].y);
+    expect(outB.children[0].width).toBe(outA.children[0].width);
+    expect(outB.children[0].height).toBe(outA.children[0].height);
+  });
+});
