@@ -528,6 +528,22 @@ function paintBox(
     return;
   }
 
+  if (box.type === "inline-block") {
+    // An inline-block is a block-formatting box positioned inline (e.g. a
+    // footnote call-marker's superscript glyph). It paints like a block —
+    // full-box background + borders (NOT edge-split like an inline fragment) —
+    // then recurses into its inner BFC's line boxes.
+    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+      ctx.fillStyle = cs.backgroundColor;
+      ctx.fillRect(absX, absY, box.width, box.height);
+    }
+    paintBorders(ctx, us, absX, absY, box.width, box.height);
+    for (const child of box.children) {
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+    }
+    return;
+  }
+
   if (box.type === "line") {
     // Lines don't paint themselves; just recurse into children.
     for (const child of box.children) {
