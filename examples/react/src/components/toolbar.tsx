@@ -19,6 +19,7 @@ import {
   AlignRight,
   AlignJustify,
   Baseline,
+  Highlighter,
   Ban,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
@@ -263,6 +264,41 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Reset text color"
         icon={Ban}
         onAction={() => dispatch({ type: "SET_TEXT_COLOR", color: null })}
+      />
+
+      {/* Highlight color (text background color). The sibling of the text-color
+          control above: its onChange dispatches SET_HIGHLIGHT with the chosen
+          hex, which sets the per-run `backgroundColor` attr (cascade →
+          ComputedStyle.backgroundColor → a rect painted behind the glyphs). The
+          adjacent reset button clears the attr (color: null) so the text falls
+          back to a transparent background. onMouseDown/preventDefault on the
+          wrappers keeps the editor's selection while interacting. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <label
+            className="relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm text-[#444746] hover:bg-[#d3e3fd]"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <Highlighter className="h-4 w-4" />
+            <input
+              type="color"
+              aria-label="Highlight color"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              onMouseDown={(e) => e.preventDefault()}
+              onChange={(e) =>
+                dispatch({ type: "SET_HIGHLIGHT", color: e.target.value })
+              }
+            />
+          </label>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Highlight color
+        </TooltipContent>
+      </Tooltip>
+      <ToolbarButton
+        label="Reset highlight color"
+        icon={Ban}
+        onAction={() => dispatch({ type: "SET_HIGHLIGHT", color: null })}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />

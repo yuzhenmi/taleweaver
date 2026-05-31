@@ -37,6 +37,7 @@ import {
   handleToggleStyle,
   handleSetLink,
   handleSetTextColor,
+  handleSetHighlight,
   handleUndo,
   handleRedo,
   handlePaste,
@@ -276,6 +277,9 @@ export function reduceEditor(
       break;
     case "SET_TEXT_COLOR":
       result = handleSetTextColor(editor, action.color, config);
+      break;
+    case "SET_HIGHLIGHT":
+      result = handleSetHighlight(editor, action.color, config);
       break;
     case "PASTE":
       result = handlePaste(editor, action.text, config);

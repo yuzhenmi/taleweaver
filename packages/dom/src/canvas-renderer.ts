@@ -452,6 +452,13 @@ function paintBox(
       ctx.font = fontStr;
       state.lastFont = fontStr;
     }
+    // Highlight (text background color) — paint the full run rect BEHIND the
+    // glyphs, then reset fillStyle to cs.color for the glyphs below. Mirrors
+    // the block-branch backgroundColor guard.
+    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+      ctx.fillStyle = cs.backgroundColor;
+      ctx.fillRect(absX, absY, box.width, box.height);
+    }
     ctx.fillStyle = cs.color;
     const fontSize = cs.fontSize;
     // box.height is the line's pixel height (tokBlockSize from the IFC).

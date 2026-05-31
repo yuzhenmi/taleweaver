@@ -271,5 +271,16 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     const textNode = findFirstText(cascaded);
     expect(textNode).not.toBeNull();
     expect(textNode?.computedStyle?.color).toBe("#ff0000");
+
+    // Highlight (text background color): dispatch SET_HIGHLIGHT over the same
+    // selection and confirm backgroundColorInterpreter threads it to
+    // ComputedStyle.backgroundColor (the canvas renderer's text-run branch
+    // paints exactly this behind the glyphs).
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    const cascadedHl = cascadePass(
+      render(editor.state, componentRegistry, attrRegistry).root,
+    );
+    const hlNode = findFirstText(cascadedHl);
+    expect(hlNode?.computedStyle?.backgroundColor).toBe("#ffff00");
   });
 });
