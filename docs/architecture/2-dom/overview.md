@@ -110,4 +110,12 @@ created on construction and discarded on destroy.
 
 **Helpers** — `mapKeyEvent` (DOM keyboard event → `EditorAction`). `ImageCache`. `FONT_CONFIG`, `buildCssFontString`, `getEffectiveStyles` (font defaults).
 
-**Re-exports from core** — `EditorAction`, `PixelPosition`, `SelectionRect`, `AbsoluteTextBox`, `EditorState`, `EditorConfig`, `EditorHistory`, `EditorHistoryEntry`. `resolvePixelPosition`, `resolvePositionFromPixel`, `computeSelectionRects`, `moveToLine`, `moveToLineBoundary`, `collectAllTextBoxes`. `createInitialEditorState`, `reduceEditor`. `findFirstTextDescendant`, `findLastTextDescendant`.
+**Re-exports from core** (current, per `index.ts` — the post-#172 LineBox model)
+— `EditorAction`, `PixelPosition`, `SelectionRect`, `AbsoluteLineBox`, `LineLeaf`,
+`EditorState`, `EditorConfig`, `History`, `SelectionEntry`, `UndoRedoResult`.
+`resolvePixelPosition`, `resolvePositionFromPixel`, `computeSelectionRects`,
+`moveToLine`, `moveToLineBoundary`, `collectLineBoxes`, `collectLineLeaves`,
+`findLineForPosition`. `createInitialEditorState`, `reduceEditor`. `CounterFormat`,
+`FootnoteNumberingPolicy`, `documentFootnotePolicy`. (The old `AbsoluteTextBox` /
+`EditorHistory` / `collectAllTextBoxes` / `findFirst|LastTextDescendant` names
+predate the #172 LineBox-canonical refactor and no longer exist.)
