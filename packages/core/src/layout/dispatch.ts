@@ -15,14 +15,12 @@ import { paginateRoot } from "./paginate";
 import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
-import type { FootnoteAnchorRef } from "../footnotes";
+import { EMPTY_FOOTNOTE_ANCHORS, type FootnoteAnchorRef } from "../footnotes";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 /** Empty cascaded-footnote-body map default (no footnote bodies). */
 const EMPTY_EMBED_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
-/** Empty footnote-anchor list default (no footnotes). */
-const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = [];
 
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
