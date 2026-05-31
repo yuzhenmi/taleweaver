@@ -50,6 +50,7 @@ import {
   handleInsertHeaderFooter,
   handleInsertFootnote,
   handleSetTextAlign,
+  handleSetLineSpacing,
   handleSetFootnotePolicy,
 } from "./actions";
 
@@ -348,6 +349,9 @@ export function reduceEditor(
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);
+      break;
+    case "SET_LINE_SPACING":
+      result = handleSetLineSpacing(editor, action.spacing, config);
       break;
     case "SET_FOOTNOTE_POLICY":
       result = handleSetFootnotePolicy(

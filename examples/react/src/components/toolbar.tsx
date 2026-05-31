@@ -412,6 +412,39 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         onAction={() => dispatch({ type: "SET_TEXT_ALIGN", align: "justify" })}
       />
 
+      {/* Line spacing (Google Docs' 1.0 / 1.15 / 1.5 / 2.0 control). Dispatches
+          SET_LINE_SPACING with the chosen unitless multiplier, which sets the
+          per-block `lineHeight` attr (paragraphs only — section/list containers
+          are never spaced). The cascade resolves the ratio to a px line-height
+          (ratio × fontSize) and the IFC honors it for each line box's height,
+          so the paragraph reflows taller/shorter. The leading placeholder option
+          just labels the control. onMouseDown/preventDefault keeps the
+          selection. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Line spacing"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value=""
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              if (e.target.value !== "") {
+                dispatch({ type: "SET_LINE_SPACING", spacing: Number(e.target.value) });
+              }
+            }}
+          >
+            <option value="">Spacing</option>
+            <option value="1">1.0</option>
+            <option value="1.15">1.15</option>
+            <option value="1.5">1.5</option>
+            <option value="2">2.0</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Line spacing
+        </TooltipContent>
+      </Tooltip>
+
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
 
       {/* List buttons */}

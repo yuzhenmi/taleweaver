@@ -392,6 +392,114 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
+  it("SET_LINE_SPACING threads lineHeight → cascade AND grows the line's layout height (real reflow)", () => {
+    // End-to-end reflow proof for line spacing (Google Docs' 1.0/1.15/1.5/2.0
+    // control). Dispatch SET_LINE_SPACING over a paragraph selection, then
+    // confirm BOTH that the cascaded ComputedStyle.lineHeight is the dispatched
+    // unitless ratio AND that the paragraph box grew taller.
+    //
+    // The IFC sets each line box's block size to the MAX of its runs'
+    // measured heights (`measurer.measureHeight` → `shaper.measureFontMetrics`,
+    // which returns ascent + descent + lineGap). The lineGap is where the CSS
+    // half-leading lives: a unitless `line-height: R` produces a total line box
+    // of `R × fontSize`, so lineGap = R×fontSize − ascent − descent. A larger R
+    // MUST therefore increase the line box. The DEFAULT mock shaper takes a
+    // FIXED lineHeight constructor arg and IGNORES `style.lineHeight` — so this
+    // test uses a lineHeight-HONORING shaper (the exact pattern the SET_FONT_SIZE
+    // test uses for fontSize) that computes lineGap from `style.lineHeight`,
+    // mirroring the production canvas-shaper. If lineHeight weren't threaded
+    // state → cascade → shaper.measureFontMetrics(), the run metrics wouldn't
+    // change and the height assertion below would FAIL.
+    const spacingShaper: TextShaper = {
+      shape(text, style, baseDirection) {
+        const base = shaper.shape(text, style, baseDirection);
+        const ratio = typeof style.lineHeight === "number" ? style.lineHeight : 1;
+        const target = ratio * style.fontSize;
+        const lineGap = Math.max(0, target - base.ascent - base.descent);
+        return { ...base, lineGap };
+      },
+      measureFontMetrics(style) {
+        const base = shaper.measureFontMetrics(style);
+        const ratio = typeof style.lineHeight === "number" ? style.lineHeight : 1;
+        const target = ratio * style.fontSize;
+        const lineGap = Math.max(0, target - base.ascent - base.descent);
+        return { ...base, lineGap };
+      },
+    };
+    const config: EditorConfig = {
+      measurer: spacingShaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 0), createPosition(pId, 8)),
+      },
+      config,
+    );
+
+    function findFirstText(node: RenderNode): RenderNode | null {
+      if (node.type === "text") return node;
+      for (const child of node.children) {
+        const found = findFirstText(child);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    function findBlock(box: LayoutBox, key: string): LayoutBox | null {
+      if (box.key === key) return box;
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = findBlock(child, key);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+
+    function paragraphHeight(state: typeof editor.state): number {
+      const layout = resolvePositionedTree(
+        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, spacingShaper),
+      );
+      const p = findBlock(layout, pId);
+      if (p === null) throw new Error("no paragraph box");
+      return p.blockSize;
+    }
+
+    // Baseline: default line spacing (no lineHeight attr → INITIAL ratio 1.2).
+    expect(getBlock(editor.state, pId)?.attrs.lineHeight).toBeUndefined();
+    const heightBefore = paragraphHeight(editor.state);
+
+    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+
+    // Cascade: the affected text node's ComputedStyle carries the dispatched
+    // unitless ratio (inherits down to the run from the block attr).
+    const cascaded = cascadePass(
+      render(editor.state, componentRegistry, attrRegistry).root,
+    );
+    const textNode = findFirstText(cascaded);
+    expect(textNode).not.toBeNull();
+    expect(textNode?.computedStyle?.lineHeight).toBe(2);
+    // The resolved used px line-height is ratio × fontSize = 2 × 16 = 32.
+    expect(2 * (textNode?.computedStyle?.fontSize ?? 0)).toBe(32);
+
+    // Layout reflow: the line/paragraph grew taller because the IFC measured
+    // the run with the larger half-leading derived from lineHeight.
+    const heightAfter = paragraphHeight(editor.state);
+    expect(heightAfter).toBeGreaterThan(heightBefore);
+  });
+
   it("SET_FONT_FAMILY threads fontFamily → fontFamilyInterpreter → ComputedStyle.fontFamily", () => {
     const config: EditorConfig = {
       measurer: shaper,

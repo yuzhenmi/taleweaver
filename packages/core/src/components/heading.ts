@@ -1,7 +1,7 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { textAlignFromAttrs } from "./leaf-style-attrs";
+import { textAlignFromAttrs, lineHeightFromAttrs } from "./leaf-style-attrs";
 
 /**
  * Heading font sizes by level (h1 — h6), in px. Matches legacy
@@ -35,6 +35,7 @@ export const headingComponent: LeafComponentDefinition = {
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
+    const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const style: Style = {
       display: "block",
       fontWeight: "bold",
@@ -42,6 +43,7 @@ export const headingComponent: LeafComponentDefinition = {
       marginBlockStart: { unit: "em", value: 0.67 },
       marginBlockEnd: { unit: "em", value: 0.67 },
       ...(textAlign !== undefined ? { textAlign } : {}),
+      ...(lineHeight !== undefined ? { lineHeight } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },

@@ -36,4 +36,5 @@ export { handleToggleSectionLandscape } from "./toggle-section-landscape";
 export { handleInsertHeaderFooter } from "./insert-header-footer";
 export { handleInsertFootnote } from "./insert-footnote-action";
 export { handleSetTextAlign } from "./set-text-align";
+export { handleSetLineSpacing } from "./set-line-spacing";
 export { handleSetFootnotePolicy } from "./set-footnote-policy-action";

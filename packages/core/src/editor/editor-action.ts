@@ -41,6 +41,7 @@ export type EditorAction =
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }
+  | { type: "SET_LINE_SPACING"; spacing: number }
   | {
       type: "SET_FOOTNOTE_POLICY";
       reset?: FootnoteNumberingPolicy["reset"];

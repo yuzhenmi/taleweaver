@@ -24,3 +24,28 @@ import { isTextAlign } from "../cascade/builtin-attrs";
 export function textAlignFromAttrs(value: unknown): TextAlign | undefined {
   return isTextAlign(value) ? value : undefined;
 }
+
+/**
+ * Read a block-level `lineHeight` (line-spacing) attr override for an
+ * inline-bearing-leaf component (paragraph / heading / list-item). The value
+ * is the Google-Docs line-spacing MULTIPLIER — a unitless ratio of the
+ * element's own font size (1.0 / 1.15 / 1.5 / 2.0).
+ *
+ * Per the same component-set convention as `textAlignFromAttrs` above:
+ * line-spacing must reach the layout cascade (the IFC derives each line box's
+ * block size from the used line-height), but the render-time attrs-derived
+ * `view.computedStyle` is not threaded onto the ElementBox style, so the
+ * component synthesizes `lineHeight` onto `node.style`. The layout cascade's
+ * `used-style` then resolves the unitless ratio to px (`ratio × fontSize`),
+ * inheriting as a ratio so nested runs scale with their own font size.
+ *
+ * Only the unitless `number` form is accepted here (the line-spacing control's
+ * vocabulary). Structured-Length forms (`em`/`percent`) still flow through the
+ * generic `lineHeightInterpreter` for non-component authoring paths; this
+ * component path covers the editor's `SET_LINE_SPACING` action. Returns the
+ * ratio, or `undefined` to leave the property unset so it inherits / falls back
+ * to the initial ratio.
+ */
+export function lineHeightFromAttrs(value: unknown): number | undefined {
+  return typeof value === "number" && value > 0 ? value : undefined;
+}
