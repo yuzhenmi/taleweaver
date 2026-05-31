@@ -9,6 +9,7 @@ import type { ComponentRegistry } from "../components/component-registry";
 import {
   collectFootnoteAnchors,
   footnoteNumbers,
+  footnoteRenumberedBlocks,
   documentFootnotePolicy,
   EMPTY_FOOTNOTE_ANCHORS,
   type FootnoteAnchorRef,
@@ -153,6 +154,21 @@ export interface RenderOptions {
   readonly prev?: RenderOutput;
   readonly prevState?: State;
   readonly dirtyIds?: ReadonlySet<BlockId>;
+  /**
+   * FN-6.4 (slice 2): an AUTHORITATIVE footnote numbering map injected by the
+   * layout-driven `restart-per-page` second pass (`rebuildTrees`). When present,
+   * BOTH render paths use it as `fnNumbers` INSTEAD of the policy-derived
+   * computation (`effectiveRenderPolicy(state)` / the FN-8 reused cache) — the
+   * override is the source of truth for this cycle. It flows to BOTH the inline
+   * call markers (`expandInlineItems`) and the body leading markers
+   * (`makeRenderContext` → `footnoteNumber`), so the two always agree.
+   *
+   * This is the clean injection point for layout-derived numbers: render is the
+   * level where a footnote number lives (a `TextBox.text` / a body `markerText`),
+   * and `restart-per-page` numbers are only known after pagination — a contained
+   * `target-counter`. When absent, behavior is exactly as before FN-6.4.
+   */
+  readonly footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>;
 }
 
 /**
@@ -202,6 +218,7 @@ export function render(
       options.prev,
       options.prevState,
       options.dirtyIds,
+      options.footnoteNumbersOverride,
     );
   }
 
@@ -216,9 +233,13 @@ export function render(
   const fnAnchors = docHasFootnotes(state)
     ? collectFootnoteAnchors(state)
     : EMPTY_FOOTNOTE_ANCHORS;
-  const fnNumbers = fnAnchors.length > 0
-    ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
-    : EMPTY_FOOTNOTE_NUMBERS;
+  // FN-6.4: an explicit override (layout-derived per-page numbers) is
+  // authoritative — use it directly and skip the policy-derived computation.
+  const fnNumbers = options?.footnoteNumbersOverride !== undefined
+    ? options.footnoteNumbersOverride
+    : fnAnchors.length > 0
+      ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
+      : EMPTY_FOOTNOTE_NUMBERS;
   // P7 stubs RenderContext.getView / getEmbedContent. P10+ will wire them
   // through a per-block view cache. Throwing rather than returning
   // undefined surfaces accidental P7 callers immediately.
@@ -578,11 +599,19 @@ function renderIncremental(
   prev: RenderOutput,
   prevState: State,
   dirtyIds: ReadonlySet<BlockId>,
+  footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderOutput {
   // Empty-dirty short-circuit: nothing changed → return prev as-is.
   // This preserves reference equality on the top-level RenderOutput so
   // downstream consumers (cascade, layout, paint) can skip work too.
-  if (dirtyIds.size === 0) return prev;
+  //
+  // FN-6.4: an override is the source of truth for the NUMBERS this cycle, so
+  // we must NOT take the empty-dirty short-circuit when one is supplied — the
+  // caller relies on the override flowing into the markers. The caller pairs an
+  // override with a non-empty `dirtyIds` (the changed marker blocks), so in
+  // practice this guard never even reaches `size === 0` with an override; the
+  // explicit check makes the precedence unambiguous.
+  if (dirtyIds.size === 0 && footnoteNumbersOverride === undefined) return prev;
 
   // FN-2: the footnote numbering map for THIS cycle, and the prior cycle's.
   // A footnote inserted/deleted/reordered renumbers DOWNSTREAM anchors whose
@@ -630,11 +659,17 @@ function renderIncremental(
     : docHasFootnotes(state)
       ? collectFootnoteAnchors(state)
       : EMPTY_FOOTNOTE_ANCHORS;
-  const fnNumbers = reuseAnchors
-    ? prev.footnoteNumbers
-    : fnAnchors.length > 0
-      ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
-      : EMPTY_FOOTNOTE_NUMBERS;
+  // FN-6.4: when an override is supplied it is authoritative for the NUMBERS
+  // this cycle — it replaces BOTH the policy-derived computation AND the FN-8
+  // reused cache (`prev.footnoteNumbers`). The anchor LIST is still reused or
+  // recomputed as usual (the override only governs numbers, not membership).
+  const fnNumbers = footnoteNumbersOverride !== undefined
+    ? footnoteNumbersOverride
+    : reuseAnchors
+      ? prev.footnoteNumbers
+      : fnAnchors.length > 0
+        ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
+        : EMPTY_FOOTNOTE_NUMBERS;
 
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
   // The renumber diff only matters when the NEW state has footnotes AND we did
@@ -1014,33 +1049,6 @@ function addAncestorsToInvalidated(
   }
 }
 
-/**
- * FN-2: blocks whose footnote-anchor marker number changed between the prior
- * render cycle and this one — i.e. blocks carrying an anchor whose
- * `formatted` differs (or is newly present / absent) across the two numbering
- * maps. These blocks render a stale number if their cached RenderNode is
- * reused, so they must be re-rendered even when their own content is unchanged.
- *
- * Takes the NEW state's already-collected anchors (the markers we're about to
- * render — collected once by the caller, NOT re-walked here) and compares each
- * anchor's number to the prior map. A deleted anchor's block is already covered
- * by `dirtyIds` (the delete dirties that block), so absent-now anchors need no
- * special handling here. The caller only invokes this when `anchors` is
- * non-empty (footnote-free documents skip it entirely).
- */
-function footnoteRenumberedBlocks(
-  anchors: readonly FootnoteAnchorRef[],
-  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
-  prevFnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
-): Set<BlockId> {
-  const out = new Set<BlockId>();
-  for (const anchor of anchors) {
-    const now = fnNumbers.get(anchor.contentBlockId)?.formatted;
-    const before = prevFnNumbers.get(anchor.contentBlockId)?.formatted;
-    if (now !== before) out.add(anchor.blockId);
-  }
-  return out;
-}
 
 function addDescendantsToInvalidated(
   state: State,

@@ -112,3 +112,28 @@ export function footnoteNumbers(
 function makeNumber(value: number, policy: FootnoteNumberingPolicy): FootnoteNumber {
   return { value, formatted: formatCounter(value, policy.format) };
 }
+
+/**
+ * FN-2/FN-6.4: the HOST blocks (the leaf carrying the anchor's `EmbedItem`)
+ * whose footnote-anchor marker number changed between two numbering maps — i.e.
+ * anchors whose `formatted` differs (or is newly present / absent) across
+ * `fnNumbers` vs `prevFnNumbers`. Reusing those blocks' cached RenderNode would
+ * paint a stale number, so the caller re-renders exactly these blocks.
+ *
+ * Takes the anchors directly (already collected by the caller — NOT re-walked
+ * here). Used by `renderIncremental` (renumber-on-insert/delete diff) AND by
+ * `rebuildTrees`'s FN-6.4 second pass (continuous-fallback → per-page diff).
+ */
+export function footnoteRenumberedBlocks(
+  anchors: readonly FootnoteAnchorRef[],
+  fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  prevFnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+): Set<BlockId> {
+  const out = new Set<BlockId>();
+  for (const anchor of anchors) {
+    const now = fnNumbers.get(anchor.contentBlockId)?.formatted;
+    const before = prevFnNumbers.get(anchor.contentBlockId)?.formatted;
+    if (now !== before) out.add(anchor.blockId);
+  }
+  return out;
+}

@@ -5,6 +5,14 @@ import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import type { ElementBox, RenderNode } from "../../render/render-node";
+import type { LayoutBox } from "../../layout/layout-box-v2";
+import type { VirtualLayoutTree } from "../../layout/virtual-layout-tree";
+import {
+  documentFootnotePolicy,
+  footnoteNumbers,
+  footnoteRenumberedBlocks,
+  type FootnoteNumber,
+} from "../../footnotes";
 
 /**
  * Re-run the render + cascade + layout pipeline for the editor's
@@ -33,21 +41,103 @@ export function rebuildTrees(
   config: EditorConfig,
   dirtyIds?: ReadonlySet<BlockId>,
 ): EditorState {
-  const prevRenderOutput = oldEditor.renderOutput;
-  const prevState = oldEditor.state;
-  const prevCascaded = oldEditor.cascadedRoot;
-  const prevLayout = oldEditor.layoutTree;
+  // ── First pass: render → cascade → layout against `oldEditor` as prev. ──
+  const first = renderCascadeLayout(
+    newEditor.state,
+    newEditor.containerWidth,
+    config,
+    {
+      prevRenderOutput: oldEditor.renderOutput,
+      prevState: oldEditor.state,
+      prevCascaded: oldEditor.cascadedRoot,
+      prevCascadedTemplate: oldEditor.cascadedTemplateContents,
+      prevCascadedEmbed: oldEditor.cascadedEmbedContents,
+      prevLayout: oldEditor.layoutTree,
+      dirtyIds,
+    },
+  );
 
-  const rendered = dirtyIds !== undefined
-    ? render(newEditor.state, config.componentRegistry, config.attrRegistry, {
-        prev: prevRenderOutput,
-        prevState,
+  // ── FN-6.4 restart-per-page second pass. ──
+  // restart-per-page numbers depend on which PAGE each anchor lands on, known
+  // only after the layout pass. The first pass rendered the documented
+  // continuous fallback (`effectiveRenderPolicy`); now re-derive the correct
+  // per-page numbers from the layout's `footnoteAnchorPages` and re-render only
+  // the changed markers. Engaged ONLY when the policy is restart-per-page AND
+  // the doc has footnotes — every other case skips entirely (zero added cost).
+  const converged = applyRestartPerPageNumbering(
+    newEditor.state,
+    newEditor.containerWidth,
+    config,
+    first,
+  );
+
+  return {
+    ...newEditor,
+    renderTree: converged.rendered.root,
+    renderOutput: converged.rendered,
+    cascadedRoot: converged.cascadedRoot,
+    cascadedTemplateContents: converged.cascadedTemplateContents,
+    cascadedEmbedContents: converged.cascadedEmbedContents,
+    layoutTree: converged.layout,
+  };
+}
+
+/**
+ * The product of one render → cascade → layout cycle: every tree `rebuildTrees`
+ * threads onto the `EditorState`. The FN-6.4 second pass reuses this shape as
+ * BOTH its prev-inputs and its output so the feedback loop is a plain re-run.
+ */
+interface PipelineResult {
+  readonly rendered: RenderOutput;
+  readonly cascadedRoot: RenderNode;
+  readonly cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>;
+  readonly cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>;
+  readonly layout: LayoutBox | VirtualLayoutTree;
+}
+
+/** Prior-cycle inputs that opt one `renderCascadeLayout` call into incremental. */
+interface PipelinePrev {
+  readonly prevRenderOutput: RenderOutput;
+  readonly prevState: State;
+  readonly prevCascaded: RenderNode;
+  readonly prevCascadedTemplate: ReadonlyMap<BlockId, ElementBox>;
+  readonly prevCascadedEmbed: ReadonlyMap<BlockId, ElementBox>;
+  readonly prevLayout: LayoutBox | VirtualLayoutTree;
+  readonly dirtyIds?: ReadonlySet<BlockId>;
+  /**
+   * FN-6.4: a layout-derived numbering map that OVERRIDES the policy-derived
+   * computation for THIS render (the per-page numbers). Threaded into
+   * `render`'s `footnoteNumbersOverride`. Absent on the first pass.
+   */
+  readonly footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>;
+}
+
+/**
+ * Run one render → cascade → layout cycle. Incremental when `prev.dirtyIds` is
+ * supplied (each stage reuses unchanged subtrees by reference, gated on
+ * `dirtyIds`); full rebuild otherwise. Extracted from `rebuildTrees` so the
+ * FN-6.4 second pass can re-run the SAME pipeline with a numbering override.
+ */
+function renderCascadeLayout(
+  state: State,
+  containerWidth: number,
+  config: EditorConfig,
+  prev: PipelinePrev,
+): PipelineResult {
+  const { dirtyIds } = prev;
+  const incremental = dirtyIds !== undefined;
+
+  const rendered = incremental
+    ? render(state, config.componentRegistry, config.attrRegistry, {
+        prev: prev.prevRenderOutput,
+        prevState: prev.prevState,
         dirtyIds,
+        footnoteNumbersOverride: prev.footnoteNumbersOverride,
       })
-    : render(newEditor.state, config.componentRegistry, config.attrRegistry);
+    : render(state, config.componentRegistry, config.attrRegistry);
 
-  const cascadedRoot = dirtyIds !== undefined
-    ? cascadePassIncremental(rendered.root, prevRenderOutput.root, prevCascaded)
+  const cascadedRoot = incremental
+    ? cascadePassIncremental(rendered.root, prev.prevRenderOutput.root, prev.prevCascaded)
     : cascadePass(rendered.root);
 
   // C.2c: cascade EVERY header/footer template body, mirroring the main-root
@@ -57,8 +147,8 @@ export function rebuildTrees(
   // lay the bodies into each page's header/footer slot (T4 consumes it).
   const cascadedTemplateContents = cascadeTemplateContents(
     rendered,
-    dirtyIds !== undefined ? prevRenderOutput : null,
-    dirtyIds !== undefined ? oldEditor.cascadedTemplateContents : null,
+    incremental ? prev.prevRenderOutput : null,
+    incremental ? prev.prevCascadedTemplate : null,
     dirtyIds,
   );
 
@@ -67,8 +157,8 @@ export function rebuildTrees(
   // by reference; full → cascade each fresh.
   const cascadedEmbedContents = cascadeEmbedContents(
     rendered,
-    dirtyIds !== undefined ? prevRenderOutput : null,
-    dirtyIds !== undefined ? oldEditor.cascadedEmbedContents : null,
+    incremental ? prev.prevRenderOutput : null,
+    incremental ? prev.prevCascadedEmbed : null,
     dirtyIds,
   );
 
@@ -80,16 +170,16 @@ export function rebuildTrees(
   // the full path (collected once) and the incremental path (reused from the
   // prior cycle when no edit could have changed them; recomputed only when an
   // anchor was added / removed / moved or a section changed). This is the same
-  // ordered list a fresh `collectFootnoteAnchors(newEditor.state)` would yield,
-  // minus the per-keystroke O(N_blocks) walk for both the footnote-free and the
+  // ordered list a fresh `collectFootnoteAnchors(state)` would yield, minus the
+  // per-keystroke O(N_blocks) walk for both the footnote-free and the
   // footnote-bearing-but-unchanged cases.
   const footnoteAnchors = rendered.footnoteAnchors;
 
   const layout = layoutTreeIncremental(
     cascadedRoot,
-    dirtyIds !== undefined ? prevCascaded : null,
-    dirtyIds !== undefined ? prevLayout : null,
-    newEditor.containerWidth,
+    incremental ? prev.prevCascaded : null,
+    incremental ? prev.prevLayout : null,
+    containerWidth,
     config.measurer,
     config.pageConfig,
     cascadedTemplateContents,
@@ -97,15 +187,149 @@ export function rebuildTrees(
     footnoteAnchors,
   );
 
-  return {
-    ...newEditor,
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents,
-    layoutTree: layout,
-  };
+  return { rendered, cascadedRoot, cascadedTemplateContents, cascadedEmbedContents, layout };
+}
+
+/**
+ * Hard cap on the FN-6.4 per-page re-render convergence loop (mirrors
+ * `resolveFootnotes`'s `MAX_CONVERGENCE_ITERATIONS`). A marker glyph-width
+ * change ("9"→"10") could in principle shift a line / repaginate, moving an
+ * anchor to a different page → another renumber. In practice ONE extra pass
+ * suffices (the diff is then empty); the loop is correctness insurance. A
+ * dev-mode throw catches a genuine non-converging oscillation.
+ */
+const MAX_PER_PAGE_CONVERGENCE_PASSES = 4;
+
+/**
+ * FN-6.4: the restart-per-page numbering second pass. When the document policy
+ * is `restart-per-page` AND the doc has footnotes AND the layout is the
+ * virtualized tree (the only path that surfaces `footnoteAnchorPages`), recompute
+ * the per-page-correct numbers from the layout's anchor→page map and re-render
+ * the changed markers (call markers in the main tree ∪ body markers in
+ * embedContents) with a `footnoteNumbersOverride`. Loops until the page
+ * assignment is stable (a re-render could repaginate), capped to guarantee
+ * termination.
+ *
+ * Every OTHER case is a no-op returning `first` unchanged — the dominant path
+ * pays nothing:
+ *  - policy not restart-per-page (continuous / restart-per-section are
+ *    state-derivable and already correct after the first pass);
+ *  - no footnotes;
+ *  - a non-virtual `LayoutBox` layout (float/`clear` fallback): no
+ *    `footnoteAnchorPages` to read, so the documented continuous fallback stands
+ *    (restart-per-page is only supported in the virtualized path for now,
+ *    mirroring how floats/`clear` fall back — design §"Out of scope for v1").
+ */
+function applyRestartPerPageNumbering(
+  state: State,
+  containerWidth: number,
+  config: EditorConfig,
+  first: PipelineResult,
+): PipelineResult {
+  const policy = documentFootnotePolicy(state);
+  if (policy.reset !== "restart-per-page") return first;
+
+  const anchors = first.rendered.footnoteAnchors;
+  if (anchors.length === 0) return first;
+
+  let current = first;
+  // `pageAssignment` used to compute the CURRENT numbers; recomputed each pass.
+  let pageAssignment = anchorPagesOf(current.layout);
+  if (pageAssignment === null) {
+    // Non-virtual layout: no page map available → keep the continuous fallback.
+    return first;
+  }
+
+  for (let pass = 0; pass < MAX_PER_PAGE_CONVERGENCE_PASSES; pass++) {
+    const correctNumbers = footnoteNumbers(
+      anchors,
+      { reset: "restart-per-page", format: policy.format },
+      pageAssignment,
+    );
+
+    // Diff the per-page-correct numbers against what the markers CURRENTLY show
+    // (the first pass's continuous fallback, or a prior convergence pass).
+    const changedHosts = footnoteRenumberedBlocks(
+      anchors,
+      correctNumbers,
+      current.rendered.footnoteNumbers,
+    );
+    if (changedHosts.size === 0) {
+      // Numbers already correct everywhere — converged.
+      return current;
+    }
+
+    // Re-render the changed markers: each anchor's HOST block (call marker, main
+    // tree) ∪ its `contentBlockId` body root (body leading marker, embedContents).
+    const markerDirty = new Set<BlockId>();
+    for (const anchor of anchors) {
+      if (changedHosts.has(anchor.blockId)) {
+        markerDirty.add(anchor.blockId);
+        markerDirty.add(anchor.contentBlockId);
+      }
+    }
+
+    const next = renderCascadeLayout(state, containerWidth, config, {
+      prevRenderOutput: current.rendered,
+      prevState: state,
+      prevCascaded: current.cascadedRoot,
+      prevCascadedTemplate: current.cascadedTemplateContents,
+      prevCascadedEmbed: current.cascadedEmbedContents,
+      prevLayout: current.layout,
+      dirtyIds: markerDirty,
+      footnoteNumbersOverride: correctNumbers,
+    });
+    current = next;
+
+    // Convergence: the re-render could have repaginated (a wider marker glyph),
+    // moving an anchor to a different page → its per-page number changes again.
+    const nextAssignment = anchorPagesOf(current.layout);
+    if (nextAssignment === null) {
+      // Should not happen (we entered via the virtual path), but guard rather
+      // than assume — keep the result computed so far.
+      return current;
+    }
+    if (pageAssignmentsEqual(pageAssignment, nextAssignment)) {
+      // Page assignment stable: the next diff would be empty → done.
+      return current;
+    }
+    pageAssignment = nextAssignment;
+  }
+
+  // Cap hit. Unlike the `resolveFootnotes` slot-height cap (which guards a
+  // provable monotone invariant, so a multi-cycle is genuinely unreachable),
+  // this loop has NO monotonicity guarantee: marker glyph width couples to
+  // pagination (e.g. "9"→"10" shifts a line → moves an anchor across a page
+  // boundary → the per-page count flips → the width flips back), a legitimate
+  // PERIOD-2 limit cycle on real content. That is a normal document state, not
+  // a bug, so we must NOT throw (a throw would crash the dev server / the user's
+  // browser-during-development). Degrade gracefully and silently: keep the last
+  // computed pass — its numbers are at most one pass stale, the cap bounds the
+  // work, and editing continues unbroken.
+  return current;
+}
+
+/**
+ * The anchor→page map from a layout, or `null` for a non-virtual `LayoutBox`
+ * (which carries no `footnoteAnchorPages`). FN-6.4's second pass needs the
+ * virtualized tree's map; the legacy positioned path falls back to continuous.
+ */
+function anchorPagesOf(
+  layout: LayoutBox | VirtualLayoutTree,
+): ReadonlyMap<BlockId, number> | null {
+  return layout.type === "virtual-root" ? layout.footnoteAnchorPages : null;
+}
+
+/** True when two anchor→page maps assign every footnote the same page. */
+function pageAssignmentsEqual(
+  a: ReadonlyMap<BlockId, number>,
+  b: ReadonlyMap<BlockId, number>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, page] of a) {
+    if (b.get(id) !== page) return false;
+  }
+  return true;
 }
 
 /**
