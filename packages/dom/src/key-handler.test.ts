@@ -3,6 +3,7 @@ import { mapKeyEvent } from "./key-handler";
 
 function key(overrides: {
   key: string;
+  code?: string;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
@@ -10,6 +11,7 @@ function key(overrides: {
 }): KeyboardEvent {
   return new KeyboardEvent("keydown", {
     key: overrides.key,
+    code: overrides.code ?? "",
     ctrlKey: overrides.ctrlKey ?? false,
     metaKey: overrides.metaKey ?? false,
     altKey: overrides.altKey ?? false,
@@ -126,6 +128,37 @@ describe("mapKeyEvent", () => {
     expect(mapKeyEvent(key({ key: "l" }))).toBeNull();
     expect(mapKeyEvent(key({ key: "L", shiftKey: true }))).toBeNull();
     expect(mapKeyEvent(key({ key: "j", ctrlKey: true }))).toBeNull();
+  });
+
+  it("maps Ctrl/Cmd+Alt+0..6 (by event.code) to block-type shortcuts", () => {
+    // Uses event.code (not key) — a digit under AltGr is layout-dependent.
+    // The `key` here is deliberately a wrong/symbol value to prove code wins.
+    expect(
+      mapKeyEvent(key({ key: "0", code: "Digit0", ctrlKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "paragraph" });
+    expect(
+      mapKeyEvent(key({ key: "1", code: "Digit1", ctrlKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
+    expect(
+      mapKeyEvent(key({ key: "§", code: "Digit6", metaKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 6 } });
+  });
+
+  it("maps Ctrl/Cmd+Shift+7|8 (by event.code) to list shortcuts", () => {
+    expect(
+      mapKeyEvent(key({ key: "&", code: "Digit7", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_LIST", listType: "ordered" });
+    expect(
+      mapKeyEvent(key({ key: "*", code: "Digit8", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_LIST", listType: "unordered" });
+  });
+
+  it("does not fire block-type/list digit shortcuts without the right modifiers", () => {
+    // Digit alone (textarea input), or wrong modifier set, must NOT map.
+    expect(mapKeyEvent(key({ key: "1", code: "Digit1" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "1", code: "Digit1", ctrlKey: true }))).toBeNull(); // no alt
+    expect(mapKeyEvent(key({ key: "7", code: "Digit7", ctrlKey: true }))).toBeNull(); // no shift
+    expect(mapKeyEvent(key({ key: "9", code: "Digit9", ctrlKey: true, altKey: true }))).toBeNull(); // out of range
   });
 
   it("maps Ctrl+Y to REDO", () => {

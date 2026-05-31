@@ -100,5 +100,20 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   if (mod && shiftKey && key === "r") return { type: "SET_TEXT_ALIGN", align: "end" };
   if (mod && shiftKey && key === "j") return { type: "SET_TEXT_ALIGN", align: "justify" };
 
+  // Block-type shortcuts (Google Docs: Ctrl/Cmd+Alt+0 = normal text,
+  // Ctrl/Cmd+Alt+1..6 = Heading 1..6). These match `event.code` ("Digit3"),
+  // NOT `event.key`: a digit under Shift/AltGr is layout-dependent (Shift+7 is
+  // "&" on US; Ctrl+Alt is AltGr on Windows and emits symbols on many layouts),
+  // so the physical key code is the only reliable signal.
+  if (mod && altKey && event.code.startsWith("Digit")) {
+    const n = Number(event.code.slice(5));
+    if (n === 0) return { type: "SET_BLOCK_TYPE", blockType: "paragraph" };
+    if (n >= 1 && n <= 6)
+      return { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: n } };
+  }
+  // List shortcuts (Google Docs: Ctrl/Cmd+Shift+7 = numbered, +8 = bulleted).
+  if (mod && shiftKey && event.code === "Digit7") return { type: "TOGGLE_LIST", listType: "ordered" };
+  if (mod && shiftKey && event.code === "Digit8") return { type: "TOGGLE_LIST", listType: "unordered" };
+
   return null;
 }
