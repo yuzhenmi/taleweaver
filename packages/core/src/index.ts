@@ -101,6 +101,17 @@ export { mergeBlockAttrs } from "./state";
 export { applyAttrsToRange } from "./state";
 export { extractText, builtinEmbedSerializer } from "./state";
 export type { EmbedSerializer } from "./state";
+// Document queries (pure reads over the document) — consumed by host UI for
+// find/replace, word count, and the outline panel.
+export { findMatches, getWordCount, getOutline } from "./state";
+export type {
+  TextMatch,
+  FindMatchesOptions,
+  WordCount,
+  WordCountOptions,
+  OutlineEntry,
+  OutlineOptions,
+} from "./state";
 
 // History (Y.UndoManager-backed)
 export {
