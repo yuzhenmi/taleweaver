@@ -160,6 +160,12 @@ export { getWordCount, getSelectionWordCount, countText } from "./word-count";
 export type { OutlineEntry, OutlineOptions } from "./outline";
 export { getOutline } from "./outline";
 
+// Active formatting: read-side counterpart to the SET_*/TOGGLE_STYLE actions —
+// the inline + block formatting active at a selection (value / "mixed" / unset),
+// for driving a formatting toolbar's pressed-states + value controls.
+export type { ActiveFormatting } from "./active-formatting";
+export { getActiveFormatting } from "./active-formatting";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //

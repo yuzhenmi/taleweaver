@@ -112,6 +112,8 @@ export type {
   OutlineEntry,
   OutlineOptions,
 } from "./state";
+export { getActiveFormatting } from "./state";
+export type { ActiveFormatting } from "./state";
 
 // History (Y.UndoManager-backed)
 export {
