@@ -181,6 +181,25 @@ engine's mission ("match Google Docs quality") settles it: prefer the
 word-processor convention for editing/document-shape questions, prefer
 the browser convention for layout/text-flow questions.
 
+### 8. Every bug fix lands a regression test — lean, not bloated (ABSOLUTE)
+
+When a bug is found (especially a browser-found one that unit tests
+missed), the fix is NOT done until its behavior is covered by a test that
+would FAIL without the fix. This is how we stop regressions and grow the
+suite's real coverage where it has gaps.
+
+**Keep tests lean and effective.** Prefer FOLDING the regression assertion
+into an EXISTING, closely-related test (one more `expect` on a setup that
+already exists) over creating a new test/file. Add a new test only when no
+existing test exercises that path. The goal is maximum behavior coverage
+per line of test, not test count. A bug found in the browser usually means
+a missing assertion in an existing test, not a missing test file — find
+that test and add the assertion.
+
+Browser-found bugs are the highest-signal: they reveal exactly the
+integration the unit suite doesn't exercise. Every one becomes a durable
+test before the fix is called done.
+
 ## In-flight architectural decisions
 
 These are durable decisions that affect work across multiple phases.
@@ -268,7 +287,17 @@ Files cross-link rather than duplicate content. Each `overview.md` introduces th
 - **Branch:** all current development happens on `feature/dom-architecture-redesign` (checked out directly in `/Users/hansyu/code/taleweaver/`). Pre-flight check the branch on every task. (Earlier in the project a `.worktrees/dom-redesign/` worktree was used; it has been removed.)
 - **Subagent dispatch:** every implementer subagent dispatch must include explicit `cwd` guards (the project path) so it doesn't drift.
 - **Parallel implementer agents:** never dispatch multiple implementer (file-writing) subagents that share the main checkout. Observed failures: commit scope-leak (Agent B's untracked files get included in Agent A's `git add` / commit), commit-undone-by-reset race (Agent B does `git reset HEAD~1` for its own cleanup and accidentally undoes A's commit), and in-place file revert race (Agent B's file snapshot was taken before A's edit, B's write overwrites). **Default: serialize implementer dispatch.** Reviewer agents (read-only) can run in parallel freely.
-- **`isolation: "worktree"` caveat:** the framework's worktree harness can give an agent a checkout from a stale ancestor commit (observed: a dependabot vite-bump from before the feature branch's state-module work), not the current `feature/dom-architecture-redesign` HEAD. When the implementer reports the worktree's files don't match the current state (e.g., they see `change.ts` / `find-path.ts` instead of the Y.Doc-based files), they MUST commit on `feature/dom-architecture-redesign` directly via the main checkout — that's where current development lives per CLAUDE.md's branch policy. After a worktree agent commits to `feature/dom-architecture-redesign` directly, no merge is needed; from the main checkout, `cd /Users/hansyu/code/taleweaver/` and the commit is already there.
+- **NEVER use git worktrees (ABSOLUTE, user directive).** Do NOT pass
+  `isolation: "worktree"` to the Agent/Workflow tools, do NOT `git worktree add`,
+  and do NOT run agents in a worktree. Worktrees are difficult to work with here
+  and have caused work to be discarded by accident (stale-ancestor checkouts,
+  locked leftover sandboxes that confuse the tree, commit-scope races). ALL work —
+  including every subagent — happens in the single main checkout at
+  `/Users/hansyu/code/taleweaver/` on `feature/dom-architecture-redesign`. To
+  parallelize safely, serialize file-writing implementer dispatch (see the
+  parallel-agent rule above); never reach for a worktree to isolate them. If a
+  stray `.claude/worktrees/*` dir appears, it is harmless leftover (gitignored) —
+  ignore it; do not depend on it.
 - **Auto-commit:** commit on user's behalf on the feature branch per milestone. Never commit to `main` without explicit instruction.
 - **Stalled / killed implementer work still needs review.** Implementer agent dying mid-task does NOT exempt the resulting working-tree changes from the reviewer pass. Tests-pass + build-clean is NOT a substitute. Dispatch the reviewer on the working tree before commit.
 - **Implementer must escalate on Create-target collision.** If a plan task says "Create: `<path>`" and that file already exists, the implementer MUST STOP and report BLOCKED. Never silently refactor or consolidate the existing file — the controller needs to disambiguate "fresh-create" vs "merge into existing" before any work proceeds.
