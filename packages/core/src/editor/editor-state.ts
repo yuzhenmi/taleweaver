@@ -1,8 +1,8 @@
-import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan } from "../state";
+import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan, docHasFootnotes } from "../state";
 import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import { cascadePass } from "../cascade";
-import { collectFootnoteAnchors } from "../footnotes";
+import { collectFootnoteAnchors, EMPTY_FOOTNOTE_ANCHORS } from "../footnotes";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
@@ -178,8 +178,12 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   );
   // FN-4.0: ordered footnote anchors over the main document, threaded into the
   // initial full build for the footnote layout pass (FN-4.2 `resolveFootnotes`).
-  // Empty for the standard empty document (no footnotes).
-  const footnoteAnchors = collectFootnoteAnchors(state);
+  // FN-8 footnote-free no-op: skip the O(N_blocks) anchor walk when the doc has
+  // no footnotes (`docHasFootnotes` is O(1); an empty list is the identical walk
+  // result). The standard empty document hits this fast path.
+  const footnoteAnchors = docHasFootnotes(state)
+    ? collectFootnoteAnchors(state)
+    : EMPTY_FOOTNOTE_ANCHORS;
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,

@@ -28,6 +28,17 @@ import type { FootnoteAnchorRef } from "./types";
 const SECTION_BLOCK_TYPE = "section";
 
 /**
+ * The shared frozen empty anchor list. Returned by the per-keystroke
+ * footnote-free guards (`docHasFootnotes(state) === false`) in render and the
+ * editor rebuild path so a document with no footnotes never pays the
+ * `collectFootnoteAnchors` O(N_blocks) walk (FN-8). Frozen + shared so the
+ * guard allocates nothing.
+ */
+export const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = Object.freeze(
+  [],
+);
+
+/**
  * Collect every footnote anchor in the main document, in document order.
  *
  * For each leaf block (one with `inlineContent`), each `EmbedItem` that is a

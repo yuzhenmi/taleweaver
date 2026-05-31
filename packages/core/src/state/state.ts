@@ -200,6 +200,28 @@ export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
 }
 
 /**
+ * True iff the document currently holds at least one footnote, i.e. at least
+ * one embed-content body ROOT.
+ *
+ * Backed by the #317 doc-keyed root-id cache (`getEmbedContentRootIds`), this
+ * is O(1) per call: the cache recomputes its root set only after a key
+ * add/remove fires the embedContents map's `observe` handler (a footnote
+ * insert/delete — rare relative to keystrokes), NOT per keystroke. Reading
+ * `.size` avoids materializing or iterating the set.
+ *
+ * Coupling note: `embedContents` currently holds ONLY footnote bodies (FN-1;
+ * exactly one body root per footnote, enforced by the
+ * `assertNoOrphanedEmbedContent` invariant), so "no embed-content roots ⟺ no
+ * footnote anchors". If other embed-content types are added later, this helper
+ * becomes conservative (it may report `true` with no footnote anchors) but
+ * never wrong-in-the-skipping-direction: a true return never skips footnote
+ * work; revisit this accessor when non-footnote embed types land.
+ */
+export function docHasFootnotes(state: State): boolean {
+  return getEmbedContentRootIds(state[STATE_INTERNAL].doc).size > 0;
+}
+
+/**
  * Yield the ROOT BlockId of each registered template-content body
  * (header/footer template bodies) — blocks with `parentId === null` in the
  * templateContents Y.Map. Mirrors `getEmbedContentIds`: body CHILDREN are

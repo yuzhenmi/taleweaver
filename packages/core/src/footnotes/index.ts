@@ -17,5 +17,5 @@ export type {
   FootnoteNumberingPolicy,
 } from "./types";
 
-export { collectFootnoteAnchors } from "./collect-anchors";
+export { collectFootnoteAnchors, EMPTY_FOOTNOTE_ANCHORS } from "./collect-anchors";
 export { footnoteNumbers } from "./numbering";

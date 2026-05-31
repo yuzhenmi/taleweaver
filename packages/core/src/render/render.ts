@@ -1,4 +1,4 @@
-import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, resolveBlock, FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, resolveBlock, docHasFootnotes, FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
 import type { Block, BlockId, State, ReadonlyAttrs, InlineContent } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
@@ -9,6 +9,7 @@ import type { ComponentRegistry } from "../components/component-registry";
 import {
   collectFootnoteAnchors,
   footnoteNumbers,
+  EMPTY_FOOTNOTE_ANCHORS,
   type FootnoteAnchorRef,
   type FootnoteNumber,
   type FootnoteNumberingPolicy,
@@ -34,6 +35,17 @@ const DEFAULT_FOOTNOTE_NUMBERING_POLICY: FootnoteNumberingPolicy = {
   reset: "continuous",
   format: "decimal",
 };
+
+/**
+ * FN-8: shared frozen empty numbering map for the footnote-free path. A document
+ * with no footnotes (`docHasFootnotes(state) === false`) skips the O(N_blocks)
+ * `collectFootnoteAnchors` walk entirely and uses `EMPTY_FOOTNOTE_ANCHORS` (from
+ * the footnotes module) + this empty map instead — identical downstream behavior
+ * (the walk would have returned `[]` and built an empty numbering map), minus the
+ * walk.
+ */
+const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
+  Object.freeze(new Map<BlockId, FootnoteNumber>());
 
 /**
  * Compute the footnote numbering map for `state` once per render cycle — one
@@ -164,7 +176,12 @@ export function render(
   };
   // FN-2: compute the footnote numbering map once for this render cycle and
   // thread it down so the footnote-anchor marker renders its number by id.
-  const fnNumbers = computeFootnoteNumbers(state);
+  // FN-8: a footnote-free doc skips the O(N_blocks) `collectFootnoteAnchors`
+  // walk entirely (an empty map is the identical result). `docHasFootnotes` is
+  // O(1) (cached embed-content root-id set).
+  const fnNumbers = docHasFootnotes(state)
+    ? computeFootnoteNumbers(state)
+    : EMPTY_FOOTNOTE_NUMBERS;
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -531,8 +548,21 @@ function renderIncremental(
   // Collect the new state's footnote anchors ONCE (one O(N_blocks) walk) and
   // reuse the list for both the numbering map AND the renumber diff — avoid a
   // second walk per keystroke.
-  const fnAnchors = collectFootnoteAnchors(state);
-  const fnNumbers = footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY);
+  //
+  // FN-8: a footnote-FREE document (the dominant per-keystroke case) skips the
+  // walk entirely. `docHasFootnotes` is O(1) (cached embed-content root-id set,
+  // recomputed only on a footnote insert/delete, not per keystroke), whereas
+  // `collectFootnoteAnchors` is an O(N_blocks) full-document tree walk. The
+  // result is identical: a footnote-free doc has no anchors and an empty
+  // numbering map, so the downstream `fnAnchors.length > 0` block naturally
+  // skips too. This removes the last unguarded per-keystroke walk (the
+  // prevState diff at L543 was already guarded).
+  const fnAnchors = docHasFootnotes(state)
+    ? collectFootnoteAnchors(state)
+    : EMPTY_FOOTNOTE_ANCHORS;
+  const fnNumbers = fnAnchors.length > 0
+    ? footnoteNumbers(fnAnchors, DEFAULT_FOOTNOTE_NUMBERING_POLICY)
+    : EMPTY_FOOTNOTE_NUMBERS;
 
   const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
   // The renumber diff only matters when the NEW state has footnotes: an empty

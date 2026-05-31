@@ -1,9 +1,9 @@
-import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder } from "../../state";
+import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder, docHasFootnotes } from "../../state";
 import type { State, BlockId } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
-import { collectFootnoteAnchors } from "../../footnotes";
+import { collectFootnoteAnchors, EMPTY_FOOTNOTE_ANCHORS } from "../../footnotes";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 
@@ -75,9 +75,15 @@ export function rebuildTrees(
 
   // FN-4.0: ordered footnote anchors over the (new) main document, threaded
   // into the layout pass alongside `cascadedEmbedContents` for the footnote
-  // layout pass (FN-4.2 `resolveFootnotes`) to consume. Both are UNUSED for
-  // layout output in this plumbing task, so they cannot change pagination.
-  const footnoteAnchors = collectFootnoteAnchors(newEditor.state);
+  // layout pass (FN-4.2 `resolveFootnotes`) to consume.
+  // FN-8 footnote-free no-op: skip the O(N_blocks) anchor walk on every
+  // keystroke when the doc has no footnotes (the dominant case). `docHasFootnotes`
+  // is O(1) (cached embed-content root-id set); an empty anchor list is the
+  // identical result the walk would produce, and `resolveFootnotes` early-returns
+  // for empty anchors.
+  const footnoteAnchors = docHasFootnotes(newEditor.state)
+    ? collectFootnoteAnchors(newEditor.state)
+    : EMPTY_FOOTNOTE_ANCHORS;
 
   const layout = layoutTreeIncremental(
     cascadedRoot,

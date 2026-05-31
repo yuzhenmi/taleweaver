@@ -62,6 +62,7 @@ export {
   resolveBlock,
   getEmbedContentIds,
   getTemplateContentIds,
+  docHasFootnotes,
 } from "./state";
 
 // Block snapshot type and the insert-time partial-block shape.

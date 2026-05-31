@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "./render";
+import * as footnotesModule from "../footnotes";
+import { insertText } from "../state/ops/insert-text";
 import {
   buildFootnoteMarker,
   FOOTNOTE_MARKER_FONT_SCALE,
@@ -399,5 +401,72 @@ describe("render incremental — downstream markers renumber even when not dirty
     });
     // The marker is gone — no inline-block carrying a `/marker-text` child.
     expect(markerTextFor(nextRender, "p1")).toBeUndefined();
+  });
+});
+
+describe("FN-8: footnote-free incremental render skips the anchor walk", () => {
+  // The optimization is OUTPUT-INVISIBLE (a footnote-free doc already rendered
+  // an empty numbering map). We assert the DECISION: `collectFootnoteAnchors`
+  // (the O(N_blocks) walk) is NOT invoked when the doc has no footnote, and IS
+  // invoked when it does. render.ts imports `collectFootnoteAnchors` from
+  // "../footnotes"; spying on the module namespace export intercepts that
+  // live binding under vitest/ESM. (Verified at authoring time: the spy's
+  // call-count tracks render.ts's actual usage — when the guard is removed the
+  // footnote-free case's count goes to 1, confirming interception works.)
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const footnoteFreeFixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
+      ],
+    });
+
+  it("does NOT call collectFootnoteAnchors during a footnote-free incremental render", () => {
+    const reg = basicRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const state1 = footnoteFreeFixture();
+    const prev = render(state1, reg, attrReg);
+
+    // A trivial text edit: dirty the one paragraph. No footnotes anywhere.
+    const edited = insertText(state1, createPosition("p" as BlockId, 5), " world", {});
+    expect(edited.dirtyIds.has("p" as BlockId)).toBe(true); // precondition
+
+    const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
+    render(edited.state, reg, attrReg, {
+      prev,
+      prevState: state1,
+      dirtyIds: edited.dirtyIds,
+    });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("DOES call collectFootnoteAnchors during an incremental render when the doc has a footnote", () => {
+    const reg = basicRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const seeded = insertFootnote(
+      footnoteFreeFixture(),
+      createPosition("p" as BlockId, 5),
+      alloc,
+    );
+    const prevState = seeded.state;
+    const prev = render(prevState, reg, attrReg);
+
+    // A trivial text edit on the same paragraph (footnote still present).
+    const edited = insertText(prevState, createPosition("p" as BlockId, 0), "X", {});
+    expect(edited.dirtyIds.has("p" as BlockId)).toBe(true); // precondition
+
+    const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
+    render(edited.state, reg, attrReg, {
+      prev,
+      prevState,
+      dirtyIds: edited.dirtyIds,
+    });
+    expect(spy).toHaveBeenCalled();
   });
 });
