@@ -45,6 +45,7 @@ import {
   handleInsertHeaderFooter,
   handleInsertFootnote,
   handleSetTextAlign,
+  handleSetFootnotePolicy,
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
@@ -327,6 +328,13 @@ export function reduceEditor(
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);
+      break;
+    case "SET_FOOTNOTE_POLICY":
+      result = handleSetFootnotePolicy(
+        editor,
+        { reset: action.reset, format: action.format },
+        config,
+      );
       break;
     default: {
       action satisfies never;

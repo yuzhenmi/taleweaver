@@ -221,6 +221,11 @@ export {
 // Public input shape for the INSERT_NODE action payload.
 export type { BlockInit } from "./state";
 
+// Footnotes — document-wide numbering policy (read/written by the
+// SET_FOOTNOTE_POLICY editor action; the toolbar reads the current value).
+export type { CounterFormat, FootnoteNumberingPolicy } from "./footnotes";
+export { documentFootnotePolicy } from "./footnotes";
+
 // Performance tracing
 export type { PerfReport } from "./perf/perf-trace";
 export {

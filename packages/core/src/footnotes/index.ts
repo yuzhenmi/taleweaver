@@ -22,4 +22,6 @@ export { footnoteNumbers, footnoteRenumberedBlocks } from "./numbering";
 export {
   documentFootnotePolicy,
   DEFAULT_FOOTNOTE_NUMBERING_POLICY,
+  isValidFootnoteReset,
+  isValidFootnoteFormat,
 } from "./policy";

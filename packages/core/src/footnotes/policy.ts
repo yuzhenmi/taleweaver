@@ -44,14 +44,26 @@ const VALID_FORMATS: ReadonlySet<CounterFormat> = new Set<CounterFormat>([
   "symbol",
 ]);
 
-function isValidReset(value: unknown): value is FootnoteNumberingPolicy["reset"] {
+/**
+ * Validate a `reset` value against the closed set of literals. Exported so the
+ * `SET_FOOTNOTE_POLICY` editor action validates the same way render does — an
+ * invalid value is ignored rather than written as an unrecognized attr.
+ */
+export function isValidFootnoteReset(
+  value: unknown,
+): value is FootnoteNumberingPolicy["reset"] {
   return (
     typeof value === "string" &&
     VALID_RESETS.has(value as FootnoteNumberingPolicy["reset"])
   );
 }
 
-function isValidFormat(value: unknown): value is CounterFormat {
+/**
+ * Validate a `format` value against the closed set of `CounterFormat` literals.
+ * Exported for the `SET_FOOTNOTE_POLICY` editor action (see
+ * `isValidFootnoteReset`).
+ */
+export function isValidFootnoteFormat(value: unknown): value is CounterFormat {
   return typeof value === "string" && VALID_FORMATS.has(value as CounterFormat);
 }
 
@@ -69,10 +81,10 @@ export function documentFootnotePolicy(state: State): FootnoteNumberingPolicy {
   const resetRaw = attrs["footnoteNumberingReset"];
   const formatRaw = attrs["footnoteNumberingFormat"];
   return {
-    reset: isValidReset(resetRaw)
+    reset: isValidFootnoteReset(resetRaw)
       ? resetRaw
       : DEFAULT_FOOTNOTE_NUMBERING_POLICY.reset,
-    format: isValidFormat(formatRaw)
+    format: isValidFootnoteFormat(formatRaw)
       ? formatRaw
       : DEFAULT_FOOTNOTE_NUMBERING_POLICY.format,
   };

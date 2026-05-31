@@ -32,7 +32,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { EditorAction, EditorState } from "@taleweaver/dom";
+import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/dom";
+import { documentFootnotePolicy } from "@taleweaver/dom";
 import { getFormatState } from "./toolbar-utils";
 
 interface ToolbarProps {
@@ -124,6 +125,12 @@ function ToolbarToggle({
 export function Toolbar({ dispatch, editorState }: ToolbarProps) {
   const fmt = useMemo(() => getFormatState(editorState), [editorState]);
   const blockLabel = getBlockTypeLabel(fmt.blockType, fmt.headingLevel);
+  // Current document-wide footnote numbering reset policy (drives the select's
+  // controlled value below). Read straight from the root block's attrs.
+  const footnoteReset = useMemo(
+    () => documentFootnotePolicy(editorState.state).reset,
+    [editorState],
+  );
 
   return (
     <div className="flex items-center gap-0.5 px-3 py-1 bg-[#edf2fa] mx-3 mt-1 mb-0 rounded-full border border-[#dadce0]">
@@ -302,6 +309,35 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         icon={Superscript}
         onAction={() => dispatch({ type: "INSERT_FOOTNOTE" })}
       />
+
+      {/* Footnote numbering reset policy (document-wide). Dispatches
+          SET_FOOTNOTE_POLICY, which writes the reset attr onto the document
+          root; render restarts numbering accordingly (restart-per-page runs
+          the layout-dependent second pass). Controlled by the root's current
+          policy. onMouseDown/preventDefault keeps the editor's selection. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Footnote numbering"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value={footnoteReset}
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) =>
+              dispatch({
+                type: "SET_FOOTNOTE_POLICY",
+                reset: e.target.value as FootnoteNumberingPolicy["reset"],
+              })
+            }
+          >
+            <option value="continuous">FN: continuous</option>
+            <option value="restart-per-section">FN: per section</option>
+            <option value="restart-per-page">FN: per page</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Footnote numbering
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }

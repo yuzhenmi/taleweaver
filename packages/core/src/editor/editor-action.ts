@@ -1,5 +1,6 @@
 import type { Selection, Position, BlockInit } from "../state";
 import type { TextAlign } from "../styles/style";
+import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -34,4 +35,9 @@ export type EditorAction =
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
-  | { type: "SET_TEXT_ALIGN"; align: TextAlign };
+  | { type: "SET_TEXT_ALIGN"; align: TextAlign }
+  | {
+      type: "SET_FOOTNOTE_POLICY";
+      reset?: FootnoteNumberingPolicy["reset"];
+      format?: CounterFormat;
+    };

@@ -22,3 +22,5 @@ export { resolvePixelPosition, resolvePositionFromPixel, computeSelectionRects }
 export { moveToLine, moveToLineBoundary } from "@taleweaver/core";
 export { collectLineBoxes, collectLineLeaves, findLineForPosition } from "@taleweaver/core";
 export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
+export type { CounterFormat, FootnoteNumberingPolicy } from "@taleweaver/core";
+export { documentFootnotePolicy } from "@taleweaver/core";
