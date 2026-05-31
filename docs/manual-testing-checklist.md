@@ -164,6 +164,15 @@ page). Round 2:
   show the blue selection tint over the highlight (the highlight is opaque — same
   as block backgrounds; a selection-compositing follow-up is tracked). The caret
   stays visible.
+- ⭐🔁 **Indent / outdent (NEW — HIGH-PRIORITY browser check):** put the cursor in
+  a paragraph → the **Increase-indent** toolbar button → the whole paragraph
+  shifts RIGHT by ~48px (half inch). Press it again → shifts further. **Decrease
+  indent** steps it back, stopping at the left margin (never past it). This is the
+  FIRST feature that exercises the new BFC inline-margin code path (all prior
+  content had zero margins), so please confirm the geometry looks right — text
+  reflows into the narrower width, cursor/clicks land correctly in the indented
+  paragraph, and multi-paragraph selections each indent. (Tab-to-indent isn't
+  wired yet — use the toolbar buttons.)
 - 🔁 **Line spacing (NEW):** put the cursor in (or select) a paragraph → the
   line-spacing `<select>` (1.0/1.15/1.5/2.0) near the alignment buttons → the
   paragraph's lines space out / tighten (the page reflows). Works on headings and
