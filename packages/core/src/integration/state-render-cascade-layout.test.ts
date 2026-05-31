@@ -42,6 +42,8 @@ import {
 } from "../index";
 import type { LayoutBox } from "../layout/layout-node";
 import type { RenderNode } from "../render/render-node";
+import type { TextShaper } from "../layout/text-shaper";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
 
 const shaper = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
@@ -282,5 +284,156 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
     const hlNode = findFirstText(cascadedHl);
     expect(hlNode?.computedStyle?.backgroundColor).toBe("#ffff00");
+  });
+
+  it("SET_FONT_SIZE threads fontSize → cascade AND grows the line's layout height (real reflow)", () => {
+    // End-to-end reflow proof: dispatch SET_FONT_SIZE over a selection,
+    // confirm BOTH that the cascaded ComputedStyle.fontSize is the
+    // dispatched value AND that the containing paragraph box grew taller.
+    // The IFC measures each run via shaper.shape() at its own cs.fontSize
+    // and sets the line height to the MAX of its runs' block sizes — so a
+    // larger fontSize MUST increase the line's layout height. This test
+    // uses a fontSize-SCALING shaper (ascent/descent proportional to
+    // style.fontSize) so the height assertion is a genuine
+    // layout-measurement proof: if fontSize weren't threaded from state →
+    // cascade → shaper.shape(), the run metrics wouldn't change and the
+    // height assertion would fail. (The default mock shaper returns fixed
+    // metrics, which would mask the threading — hence the scaling shaper.)
+    const scalingShaper: TextShaper = {
+      shape(text, style, baseDirection) {
+        const base = shaper.shape(text, style, baseDirection);
+        const scale = style.fontSize / INITIAL_COMPUTED_STYLE.fontSize;
+        return {
+          ...base,
+          ascent: base.ascent * scale,
+          descent: base.descent * scale,
+          lineGap: base.lineGap * scale,
+        };
+      },
+      measureFontMetrics(style) {
+        const base = shaper.measureFontMetrics(style);
+        const scale = style.fontSize / INITIAL_COMPUTED_STYLE.fontSize;
+        return {
+          ascent: base.ascent * scale,
+          descent: base.descent * scale,
+          lineGap: base.lineGap * scale,
+          capHeight: base.capHeight * scale,
+          xHeight: base.xHeight * scale,
+        };
+      },
+    };
+    const config: EditorConfig = {
+      measurer: scalingShaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 0), createPosition(pId, 7)),
+      },
+      config,
+    );
+
+    function findFirstText(node: RenderNode): RenderNode | null {
+      if (node.type === "text") return node;
+      for (const child of node.children) {
+        const found = findFirstText(child);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    // Find the paragraph's LayoutBox (carries blockSize = its content height).
+    function findBlock(box: LayoutBox, key: string): LayoutBox | null {
+      if (box.key === key) return box;
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = findBlock(child, key);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+
+    function paragraphHeight(state: typeof editor.state): number {
+      const layout = resolvePositionedTree(
+        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scalingShaper),
+      );
+      const p = findBlock(layout, pId);
+      if (p === null) throw new Error("no paragraph box");
+      return p.blockSize;
+    }
+
+    const heightBefore = paragraphHeight(editor.state);
+
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+
+    // Cascade: the affected text node carries the dispatched fontSize.
+    const cascaded = cascadePass(
+      render(editor.state, componentRegistry, attrRegistry).root,
+    );
+    const textNode = findFirstText(cascaded);
+    expect(textNode).not.toBeNull();
+    expect(textNode?.computedStyle?.fontSize).toBe(32);
+
+    // Layout reflow: the line/paragraph grew taller because the IFC
+    // measured the run at the larger fontSize.
+    const heightAfter = paragraphHeight(editor.state);
+    expect(heightAfter).toBeGreaterThan(heightBefore);
+  });
+
+  it("SET_FONT_FAMILY threads fontFamily → fontFamilyInterpreter → ComputedStyle.fontFamily", () => {
+    const config: EditorConfig = {
+      measurer: shaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 0), createPosition(pId, 7)),
+      },
+      config,
+    );
+    editor = reduceEditor(
+      editor,
+      { type: "SET_FONT_FAMILY", family: "Courier New" },
+      config,
+    );
+
+    const cascaded = cascadePass(
+      render(editor.state, componentRegistry, attrRegistry).root,
+    );
+
+    function findFirstText(node: RenderNode): RenderNode | null {
+      if (node.type === "text") return node;
+      for (const child of node.children) {
+        const found = findFirstText(child);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+    const textNode = findFirstText(cascaded);
+    expect(textNode).not.toBeNull();
+    expect(textNode?.computedStyle?.fontFamily).toBe("Courier New");
   });
 });

@@ -303,6 +303,75 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
 
+      {/* Font family. Dispatches SET_FONT_FAMILY with the chosen family, which
+          sets the per-run `fontFamily` attr (cascade → ComputedStyle.fontFamily
+          → the shaper measures + the canvas renderer paints with it). The
+          leading placeholder option is non-actionable (it just labels the
+          control); selecting a real family applies it to the selection.
+          onMouseDown/preventDefault keeps the editor's selection. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Font family"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value=""
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              if (e.target.value !== "") {
+                dispatch({ type: "SET_FONT_FAMILY", family: e.target.value });
+              }
+            }}
+          >
+            <option value="">Font</option>
+            <option value="Arial">Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Verdana">Verdana</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Font family
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Font size (px). Dispatches SET_FONT_SIZE with the chosen size, which
+          sets the per-run `fontSize` attr (cascade → ComputedStyle.fontSize →
+          the IFC measures each run at that size, growing the line height to the
+          MAX of its runs' block sizes). The leading placeholder option just
+          labels the control. onMouseDown/preventDefault keeps the selection. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Font size"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value=""
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              if (e.target.value !== "") {
+                dispatch({ type: "SET_FONT_SIZE", size: Number(e.target.value) });
+              }
+            }}
+          >
+            <option value="">Size</option>
+            <option value="10">10</option>
+            <option value="12">12</option>
+            <option value="14">14</option>
+            <option value="16">16</option>
+            <option value="18">18</option>
+            <option value="24">24</option>
+            <option value="32">32</option>
+            <option value="48">48</option>
+            <option value="64">64</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Font size
+        </TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
+
       {/* Text alignment. The active button reflects the focus block's current
           alignment ("start" when unset). Each dispatches SET_TEXT_ALIGN, which
           sets the per-block textAlign attr (paragraphs only — section/list
