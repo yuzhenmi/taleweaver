@@ -1,1 +1,1 @@
-export * from "./layout-box-v2";
+export * from "./layout-box";

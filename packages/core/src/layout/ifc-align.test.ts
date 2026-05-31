@@ -7,9 +7,9 @@ import type { Style } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 import { makeRootContext } from "./layout-context";
-import type { LineBox } from "./layout-box-v2";
+import type { LineBox } from "./layout-box";
 import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
-import type { TextRunBox } from "./layout-box-v2";
+import type { TextRunBox } from "./layout-box";
 
 const CHAR_W = 8;
 const LINE_H = 16;

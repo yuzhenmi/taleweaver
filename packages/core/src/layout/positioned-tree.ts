@@ -14,7 +14,7 @@
 // Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase3.md
 
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox } from "./layout-box";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 
 /**

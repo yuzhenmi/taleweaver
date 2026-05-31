@@ -12,13 +12,13 @@ import {
   renderNodesLayoutEquivalent,
   type ReuseInputs,
 } from "./layout-reuse";
-import { createBlockBox } from "./layout-box-v2";
-import type { BlockBox } from "./layout-box-v2";
+import { createBlockBox } from "./layout-box";
+import type { BlockBox } from "./layout-box";
 import type { LayoutContext } from "./layout-context";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
 import { resolvePositionedTree } from "./positioned-tree";
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox } from "./layout-box";
 
 const shaper = createMockShaper(8, 16);
 

@@ -1,5 +1,5 @@
 import type { Token } from "./ifc";
-import type { LineBox } from "./layout-box-v2";
+import type { LineBox } from "./layout-box";
 import type { IFCState } from "./ifc-state";
 
 /**

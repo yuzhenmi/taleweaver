@@ -1,9 +1,9 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle, WhiteSpace } from "../styles";
-import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box-v2";
+import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "../state";
-import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box-v2";
+import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";

@@ -9,7 +9,7 @@ import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
-import type { LayoutBox } from "../layout-box-v2";
+import type { LayoutBox } from "../layout-box";
 
 /**
  * Narrow a `layoutBlock` result's `box` to non-null WITHOUT widening its
@@ -204,9 +204,9 @@ describe("BFC fragmentation — break-before", () => {
   // once the block is placed on a page.
 
   /** Collect all MarkerBox descendants of a LayoutBox (markers are direct siblings). */
-  function collectMarkerKeys(box: import("../layout-box-v2").LayoutBox): string[] {
+  function collectMarkerKeys(box: import("../layout-box").LayoutBox): string[] {
     const out: string[] = [];
-    function walk(b: import("../layout-box-v2").LayoutBox) {
+    function walk(b: import("../layout-box").LayoutBox) {
       if (b.type === "marker") out.push(b.key);
       if ("children" in b && b.children) {
         for (const c of b.children) walk(c);

@@ -1,5 +1,5 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";

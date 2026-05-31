@@ -39,7 +39,7 @@ import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
-import type { BlockBox } from "./layout-box-v2";
+import type { BlockBox } from "./layout-box";
 import {
   buildPagePlan,
   EMPTY_FOOTNOTE_CONTINUATIONS,

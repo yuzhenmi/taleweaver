@@ -1,4 +1,4 @@
-import type { LineBox } from "./layout-box-v2";
+import type { LineBox } from "./layout-box";
 import type { Token } from "./ifc";
 import type { TextAlign } from "../styles";
 import type { Direction } from "../styles/writing-mode";

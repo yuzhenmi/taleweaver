@@ -13,7 +13,7 @@
 // Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
 
 import type { ElementBox } from "../render/render-node";
-import type { LayoutBox, LineBox } from "./layout-box-v2";
+import type { LayoutBox, LineBox } from "./layout-box";
 import type { BlockFitMeta } from "./fit-core";
 import type { TextShaper } from "./text-shaper";
 import { groupChildren, anonymousBlockKey } from "./group-children";

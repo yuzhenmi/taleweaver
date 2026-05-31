@@ -246,9 +246,9 @@ describe("IFC whiteSpace handling", () => {
 describe("IFC — leading/orphan spaces under preserving white-space (#308)", () => {
   // Helper: collect a line's text-run leaves (recursing into inline boxes) in
   // visual order, returning { x, text, offsetLength } for geometry assertions.
-  function textRunLeaves(line: import("./layout-box-v2").LineBox) {
+  function textRunLeaves(line: import("./layout-box").LineBox) {
     const out: { x: number; text: string; offsetLength: number }[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run") out.push({ x: b.x, text: b.text, offsetLength: b.offsetLength });
         else if (b.type === "inline") walk(b.children);
@@ -415,7 +415,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
     const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
     if (r.box === null) throw new Error("?");
     if (r.box.type !== "block") throw new Error("?");
-    const lines = r.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = r.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     expect(lines).toHaveLength(1);
     const line = lines[0];
     expect(line.inlineOffsetStart).toBe(0);
@@ -463,7 +463,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
     // not the raw token sum.
     // (Re-fetch leaves with width info from the layout boxes.)
     const widths: number[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run" && /^\s+$/.test(b.text)) widths.push(b.width);
         else if (b.type === "inline") walk(b.children);
@@ -481,9 +481,9 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
   // direct line children (no inline elements in these fixtures), so `x` is
   // line-relative and the line itself is at inlineOffset 0 — so the
   // page-edge check is `x + width <= lineInlineSize`.
-  function leavesOf(line: import("./layout-box-v2").LineBox) {
+  function leavesOf(line: import("./layout-box").LineBox) {
     const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
         else if (b.type === "inline") walk(b.children);
@@ -505,7 +505,7 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
-    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     return { lines, lineInlineSize: width };
   }
 
@@ -602,9 +602,9 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
 
 describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its own wrap)", () => {
   // Local copies of the #314 harness (break-spaces, 8px/char mock shaper).
-  function leavesOf(line: import("./layout-box-v2").LineBox) {
+  function leavesOf(line: import("./layout-box").LineBox) {
     const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
         else if (b.type === "inline") walk(b.children);
@@ -626,7 +626,7 @@ describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its 
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
-    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     return { lines, lineInlineSize: width };
   }
 
@@ -701,9 +701,9 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
   // inlineOffset is clamped to ≤ lineInlineSize and its width clamped so
   // inlineOffset + width ≤ lineInlineSize (a fully-past-edge space → width 0 at
   // the edge). Word/inline-block boxes are NEVER clamped.
-  function leavesOf(line: import("./layout-box-v2").LineBox) {
+  function leavesOf(line: import("./layout-box").LineBox) {
     const out: { x: number; width: number; text: string; offsetLength: number }[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run") out.push({ x: b.x, width: b.width, text: b.text, offsetLength: b.offsetLength });
         else if (b.type === "inline") walk(b.children);
@@ -725,7 +725,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
-    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     return { lines, lineInlineSize: width };
   }
 
@@ -825,7 +825,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
-    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     expect(lines).toHaveLength(1);
     const leaves = leavesOf(lines[0]);
     // Under #333 the alignment offset rides on the children's inlineOffset
@@ -857,9 +857,9 @@ describe("IFC — hung-space CLAMP inside an INLINE element (#340: clamp the PHY
   // InlineBox, so the physical line-relative position is the sum of the ancestor
   // InlineBox `x`s plus the leaf `x`. (The flat-line `leavesOf` above reads
   // `b.x` directly, which is only correct when there are no inline ancestors.)
-  function physicalLeavesOf(line: import("./layout-box-v2").LineBox) {
+  function physicalLeavesOf(line: import("./layout-box").LineBox) {
     const out: { x: number; width: number; text: string; isSpace: boolean }[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[], originX: number) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[], originX: number) => {
       for (const b of boxes) {
         if (b.type === "text-run") {
           out.push({ x: originX + b.x, width: b.width, text: b.text, isSpace: /^\s+$/.test(b.text) });
@@ -888,7 +888,7 @@ describe("IFC — hung-space CLAMP inside an INLINE element (#340: clamp the PHY
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
-    const lines = out.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines = out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     return { lines, lineInlineSize: width };
   }
 
@@ -968,7 +968,7 @@ describe("IFC — normal-mode wrap UNAFFECTED by the space-unit hang (#338 P1 no
     if (lines[0].type !== "line") throw new Error("?");
     if (lines[1].type !== "line") throw new Error("?");
     const text0: string[] = [];
-    const walk = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "text-run") text0.push(b.text);
         else if (b.type === "inline") walk(b.children);
@@ -996,8 +996,8 @@ describe("IFC — default pipeline now break-spaces (#314)", () => {
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
     // Find the line within the nested paragraph block.
-    const lines: import("./layout-box-v2").LineBox[] = [];
-    const collect = (boxes: readonly import("./layout-box-v2").LayoutBox[]) => {
+    const lines: import("./layout-box").LineBox[] = [];
+    const collect = (boxes: readonly import("./layout-box").LayoutBox[]) => {
       for (const b of boxes) {
         if (b.type === "line") lines.push(b);
         else if (b.type === "block") collect(b.children);
@@ -1714,14 +1714,14 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     );
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = result.box.children.filter(
-      (l): l is import("./layout-box-v2").LineBox => l.type === "line",
+      (l): l is import("./layout-box").LineBox => l.type === "line",
     );
     expect(lines.length).toBeGreaterThanOrEqual(2);
 
     // The word was hyphen-split: line 1 ends with "abcde" + a "-" glyph.
     const line1 = lines[0];
     const prefixRuns = line1.children.filter(
-      (c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run",
+      (c): c is import("./layout-box").TextRunBox => c.type === "text-run",
     );
     expect(prefixRuns.map(r => r.text)).toContain("abcde");
     expect(prefixRuns.map(r => r.text)).toContain("-");
@@ -1760,7 +1760,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
       .reduce((s, r) => s + r.offsetLength, 0);
     const line2 = lines[1];
     const line2RunOffsetLen = line2.children
-      .filter((c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run")
+      .filter((c): c is import("./layout-box").TextRunBox => c.type === "text-run")
       .reduce((s, r) => s + r.offsetLength, 0);
     // prefix(5) + line-2 runs(5 + 2) = 12 = full state length, all finite.
     expect(prefixOffsetLen + line2RunOffsetLen).toBe("abcdefgh  ij".length);
@@ -2014,7 +2014,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     });
     if (r1.box === null) throw new Error("expected partial fragment");
     if (r1.breakToken === null) throw new Error("expected break token");
-    const lines1 = r1.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines1 = r1.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     expect(lines1.length).toBeGreaterThan(0);
 
     // Resume from the break token. Big availableBlockSize so it
@@ -2025,7 +2025,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
       pageIndex: 1,
     });
     if (r2.box === null) throw new Error("expected resumed fragment box");
-    const lines2 = r2.box.children.filter((c): c is import("./layout-box-v2").LineBox => c.type === "line");
+    const lines2 = r2.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
     expect(lines2.length).toBeGreaterThan(0);
 
     // ownerBlockId propagates to every line, including resumed.
@@ -2236,7 +2236,7 @@ describe("layoutInlineContent — offsetLength (state-correct line offsets acros
     // The line spans the full state range including the collapsed space.
     expect(line.inlineOffsetEnd).toBe(4);
     // Sum the text-run children's offsetLength → must equal state length.
-    const runs = line.children.filter((c): c is import("./layout-box-v2").TextRunBox => c.type === "text-run");
+    const runs = line.children.filter((c): c is import("./layout-box").TextRunBox => c.type === "text-run");
     const total = runs.reduce((s, r) => s + r.offsetLength, 0);
     expect(total).toBe(4);
   });
@@ -2252,7 +2252,7 @@ describe("layoutInlineContent — offsetLength (state-correct line offsets acros
     // Force a wrap mid-paragraph; a collapsed double space sits at the wrap.
     // mock shaper 8px/char. "dsajidosja idoajs  dsajiodj saoidj".
     const text = "dsajidosja idoajs  dsajiodj saoidj";
-    const lines = ifcOf(text, 150).filter((l): l is import("./layout-box-v2").LineBox => l.type === "line");
+    const lines = ifcOf(text, 150).filter((l): l is import("./layout-box").LineBox => l.type === "line");
     expect(lines.length).toBeGreaterThan(1);
     for (let i = 0; i + 1 < lines.length; i++) {
       expect(lines[i + 1].inlineOffsetStart).toBe(lines[i].inlineOffsetEnd);

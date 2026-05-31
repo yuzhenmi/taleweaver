@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createPageBox } from "./page-box";
-import { createBlockBox } from "./layout-box-v2";
+import { createBlockBox } from "./layout-box";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { computeUsedStyle } from "./used-style";
 

@@ -1,6 +1,6 @@
 import type { ElementBox } from "../render/render-node";
-import type { LayoutBox, BlockBox } from "./layout-box-v2";
-import { createBlockBox, createMarkerBox, withOffsets, assertLayoutBoxConsistent } from "./layout-box-v2";
+import type { LayoutBox, BlockBox } from "./layout-box";
+import { createBlockBox, createMarkerBox, withOffsets, assertLayoutBoxConsistent } from "./layout-box";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";

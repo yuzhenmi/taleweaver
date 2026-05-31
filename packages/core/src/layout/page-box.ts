@@ -1,7 +1,7 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
-import type { LayoutBox, BlockBox } from "./layout-box-v2";
+import type { LayoutBox, BlockBox } from "./layout-box";
 
 /**
  * A page in a paginated layout. Holds the children that fit on one page.
@@ -80,7 +80,7 @@ export interface PageBox {
 
 /**
  * NOTE: This inlines the base geometry + style-freezing logic that
- * `createBoxBase` provides for the factories in `layout-box-v2.ts`.
+ * `createBoxBase` provides for the factories in `layout-box.ts`.
  * Reusing `createBoxBase` would require exporting it from that file,
  * which Task 3 is the right place to handle. When `createBoxBase`
  * becomes shared, refactor this factory to consume it (one-line change).

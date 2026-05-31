@@ -21,7 +21,7 @@ import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import type { FootnoteAnchorRef } from "../../footnotes";
-import type { LayoutBox } from "../layout-box-v2";
+import type { LayoutBox } from "../layout-box";
 import { buildVirtualPaginatedTree } from "../virtual-producer";
 import { FOOTNOTE_SEPARATOR_HEIGHT } from "../resolve-footnotes";
 

@@ -329,9 +329,9 @@ describe("BFC — list-item markers (outside)", () => {
 });
 
 describe("BFC — explicit markerText (generated marker, offset-excluded)", () => {
-  function collectMarkers(root: import("./layout-box-v2").LayoutBox): import("./layout-box-v2").MarkerBox[] {
-    const out: import("./layout-box-v2").MarkerBox[] = [];
-    function walk(b: import("./layout-box-v2").LayoutBox) {
+  function collectMarkers(root: import("./layout-box").LayoutBox): import("./layout-box").MarkerBox[] {
+    const out: import("./layout-box").MarkerBox[] = [];
+    function walk(b: import("./layout-box").LayoutBox) {
       if (b.type === "marker") out.push(b);
       if ("children" in b && b.children) {
         for (const c of b.children) walk(c);
@@ -432,7 +432,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
     // sibling of the content block, never nested inside a LineBox.
     const para = out.children.find(c => c.key === "para");
     if (!para || !("children" in para)) throw new Error("para block not found");
-    function lineBoxesContainMarker(box: import("./layout-box-v2").LayoutBox): boolean {
+    function lineBoxesContainMarker(box: import("./layout-box").LayoutBox): boolean {
       if (box.type === "line") {
         if (!("children" in box)) return false;
         return box.children.some(c => c.type === "marker");
@@ -458,7 +458,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
     const out2 = r2.box;
     if (out2.type !== "block") throw new Error("?");
 
-    function firstTextRunX(box: import("./layout-box-v2").LayoutBox): number | null {
+    function firstTextRunX(box: import("./layout-box").LayoutBox): number | null {
       if (box.type === "text-run") return box.x;
       if ("children" in box && box.children) {
         for (const c of box.children) {
@@ -476,7 +476,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
 });
 
 // Recursively find the first LayoutBox whose key contains `keyFragment`.
-function findBoxByKey(root: import("./layout-box-v2").LayoutBox, keyFragment: string): import("./layout-box-v2").LayoutBox | undefined {
+function findBoxByKey(root: import("./layout-box").LayoutBox, keyFragment: string): import("./layout-box").LayoutBox | undefined {
   if (root.key === keyFragment || root.key.includes(keyFragment)) return root;
   if ("children" in root && root.children) {
     for (const c of root.children) {

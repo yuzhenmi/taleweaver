@@ -1,7 +1,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
-import type { TableBox, TableRowBox, TableCellBox } from "./layout-box-v2";
-import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box-v2";
+import type { TableBox, TableRowBox, TableCellBox } from "./layout-box";
+import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
 import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";

@@ -8,7 +8,7 @@ import {
   createTableBox, createTableRowBox, createTableCellBox,
   withInlineOffset, withBlockOffset, withOffsets,
   assertLayoutBoxConsistent,
-} from "./layout-box-v2";
+} from "./layout-box";
 
 const cs = INITIAL_COMPUTED_STYLE;
 const us = computeUsedStyle(cs, 100, "indefinite");

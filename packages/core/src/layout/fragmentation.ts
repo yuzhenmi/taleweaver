@@ -1,6 +1,6 @@
 // packages/core/src/layout/fragmentation.ts
 
-import type { LayoutBox } from "./layout-box-v2";
+import type { LayoutBox } from "./layout-box";
 
 /**
  * Break-token continuation model. When a fragmentation-aware layout call
