@@ -566,6 +566,101 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     expect(after.inlineSize).toBe(before.inlineSize - 48);
   });
 
+  it("SET_PARAGRAPH_SPACING (space after) threads marginBlockEnd → BFC → grows the gap to the next paragraph (real reflow, accounting for margin collapse)", () => {
+    // End-to-end paragraph-spacing proof: a doc with TWO stacked paragraphs.
+    // Dispatch SET_PARAGRAPH_SPACING (edge "after", value 60) on the FIRST
+    // paragraph, then confirm the SECOND paragraph's layout y-offset increased
+    // and the gap between para1's bottom and para2's top reflects the larger
+    // margin. If the margin didn't reach layout, para2 would sit at the same y
+    // and BOTH assertions would FAIL.
+    //
+    // CSS margins COLLAPSE (CSS 2.1 §8.3.1, applied by the BFC in bfc.ts): the
+    // realized gap between adjacent siblings is max(prevMarginBlockEnd,
+    // nextMarginBlockStart), NOT their sum. The paragraph component's default
+    // `marginBlockEnd` is 0.5em → 8px at the 16px mock font. We pick 60 (well
+    // above 8) so the collapsed result (max(60, 0) for para1.after vs
+    // para2.before=0) visibly grows from the 8px default and the assertion is
+    // unambiguous.
+    const config: EditorConfig = {
+      measurer: shaper,
+      componentRegistry,
+      attrRegistry,
+      containerWidth: 800,
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "first" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" }, config);
+
+    const [p1Id, p2Id] = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      const first = root.firstChildId;
+      const firstBlock = getBlock(editor.state, first);
+      if (firstBlock === null || firstBlock.nextSiblingId === null) {
+        throw new Error("no second para");
+      }
+      return [first, firstBlock.nextSiblingId];
+    })();
+
+    function findBlockBox(box: LayoutBox, key: string): LayoutBox | null {
+      if (box.key === key) return box;
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = findBlockBox(child, key);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+
+    function paraBox(state: typeof editor.state, key: string): LayoutBox {
+      const layout = resolvePositionedTree(
+        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
+      );
+      const box = findBlockBox(layout, key);
+      if (box === null) throw new Error(`no box for ${key}`);
+      return box;
+    }
+
+    // Baseline: no marginBlockEnd attr → the default 0.5em (8px) collapsed gap.
+    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBeUndefined();
+    const p1Before = paraBox(editor.state, p1Id);
+    const p2Before = paraBox(editor.state, p2Id);
+    const gapBefore = p2Before.y - (p1Before.y + p1Before.blockSize);
+
+    // Put the caret in the FIRST paragraph (typing "second" left it collapsed in
+    // p2). The handler spaces the focus block, so select p1.
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(p1Id, 0), createPosition(p1Id, 0)),
+      },
+      config,
+    );
+
+    // Set space-after on the FIRST paragraph to 60px.
+    editor = reduceEditor(
+      editor,
+      { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 60 },
+      config,
+    );
+
+    // State: the attr landed.
+    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBe(60);
+
+    // Layout: the second paragraph moved DOWN, and the gap grew to exactly the
+    // 60px margin (collapse: max(60, para2.before=0) = 60), not the 8px default.
+    const p1After = paraBox(editor.state, p1Id);
+    const p2After = paraBox(editor.state, p2Id);
+    const gapAfter = p2After.y - (p1After.y + p1After.blockSize);
+
+    expect(p2After.y).toBeGreaterThan(p2Before.y);
+    expect(gapBefore).toBeCloseTo(8, 5);
+    expect(gapAfter).toBeCloseTo(60, 5);
+  });
+
   it("SET_FONT_FAMILY threads fontFamily → fontFamilyInterpreter → ComputedStyle.fontFamily", () => {
     const config: EditorConfig = {
       measurer: shaper,

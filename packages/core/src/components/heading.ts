@@ -1,7 +1,13 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { textAlignFromAttrs, lineHeightFromAttrs, marginInlineStartFromAttrs } from "./leaf-style-attrs";
+import {
+  textAlignFromAttrs,
+  lineHeightFromAttrs,
+  marginInlineStartFromAttrs,
+  marginBlockStartFromAttrs,
+  marginBlockEndFromAttrs,
+} from "./leaf-style-attrs";
 
 /**
  * Heading font sizes by level (h1 — h6), in px. Matches legacy
@@ -37,6 +43,8 @@ export const headingComponent: LeafComponentDefinition = {
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
+    const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
+    const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
     const style: Style = {
       display: "block",
       fontWeight: "bold",
@@ -46,6 +54,10 @@ export const headingComponent: LeafComponentDefinition = {
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
+      // Paragraph-spacing attrs WIN over the heading's default 0.67em block
+      // margins above (spread last). Absent attr → default unchanged.
+      ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
+      ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },

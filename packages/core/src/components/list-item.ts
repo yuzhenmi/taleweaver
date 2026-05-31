@@ -1,7 +1,13 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { textAlignFromAttrs, lineHeightFromAttrs, marginInlineStartFromAttrs } from "./leaf-style-attrs";
+import {
+  textAlignFromAttrs,
+  lineHeightFromAttrs,
+  marginInlineStartFromAttrs,
+  marginBlockStartFromAttrs,
+  marginBlockEndFromAttrs,
+} from "./leaf-style-attrs";
 
 /**
  * List-item: an inline-bearing leaf block. Data-model shape matches
@@ -24,11 +30,17 @@ export const listItemComponent: LeafComponentDefinition = {
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
+    const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
+    const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
     const style: Style = {
       display: "list-item",
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
+      // Paragraph-spacing attrs (list-item has no default block margins of its
+      // own, but supports the same space-before/after control). Absent → unset.
+      ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
+      ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };
     return createElementBox(view.id, style, inlineRenderNodes);
   },

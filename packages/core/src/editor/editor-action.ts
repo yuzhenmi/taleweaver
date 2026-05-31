@@ -44,6 +44,7 @@ export type EditorAction =
   | { type: "SET_LINE_SPACING"; spacing: number }
   | { type: "INDENT" }
   | { type: "OUTDENT" }
+  | { type: "SET_PARAGRAPH_SPACING"; edge: "before" | "after"; value: number | null }
   | {
       type: "SET_FOOTNOTE_POLICY";
       reset?: FootnoteNumberingPolicy["reset"];

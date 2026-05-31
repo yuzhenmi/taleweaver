@@ -53,6 +53,7 @@ import {
   handleSetLineSpacing,
   handleIndent,
   INDENT_STEP,
+  handleSetParagraphSpacing,
   handleSetFootnotePolicy,
 } from "./actions";
 
@@ -360,6 +361,9 @@ export function reduceEditor(
       break;
     case "OUTDENT":
       result = handleIndent(editor, -INDENT_STEP, config);
+      break;
+    case "SET_PARAGRAPH_SPACING":
+      result = handleSetParagraphSpacing(editor, action.edge, action.value, config);
       break;
     case "SET_FOOTNOTE_POLICY":
       result = handleSetFootnotePolicy(

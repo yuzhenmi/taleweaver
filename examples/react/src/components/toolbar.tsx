@@ -463,6 +463,76 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         </TooltipContent>
       </Tooltip>
 
+      {/* Paragraph spacing (Google Docs' "Add space before / after paragraph").
+          Each dispatches SET_PARAGRAPH_SPACING with the chosen px value, setting
+          the per-block `marginBlockStart` (before) / `marginBlockEnd` (after)
+          attr (paragraphs only — section/list containers are never spaced). The
+          BFC applies the in-flow block margins WITH CSS collapsing, so the page
+          reflows. "Default" (empty value) clears the attr → component default em
+          margin. The leading placeholder option labels the control.
+          onMouseDown/preventDefault keeps the selection. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Space before paragraph"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value=""
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              if (e.target.value !== "") {
+                dispatch({
+                  type: "SET_PARAGRAPH_SPACING",
+                  edge: "before",
+                  value: e.target.value === "default" ? null : Number(e.target.value),
+                });
+              }
+            }}
+          >
+            <option value="">Before</option>
+            <option value="default">Default</option>
+            <option value="0">0</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+            <option value="24">24</option>
+            <option value="40">40</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Space before paragraph
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <select
+            aria-label="Space after paragraph"
+            className="h-7 rounded-sm bg-transparent px-1 text-xs text-[#444746] hover:bg-[#d3e3fd]"
+            value=""
+            onMouseDown={(e) => e.preventDefault()}
+            onChange={(e) => {
+              if (e.target.value !== "") {
+                dispatch({
+                  type: "SET_PARAGRAPH_SPACING",
+                  edge: "after",
+                  value: e.target.value === "default" ? null : Number(e.target.value),
+                });
+              }
+            }}
+          >
+            <option value="">After</option>
+            <option value="default">Default</option>
+            <option value="0">0</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+            <option value="24">24</option>
+            <option value="40">40</option>
+          </select>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Space after paragraph
+        </TooltipContent>
+      </Tooltip>
+
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
 
       {/* List buttons */}

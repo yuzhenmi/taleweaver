@@ -72,3 +72,42 @@ export function lineHeightFromAttrs(value: unknown): number | undefined {
 export function marginInlineStartFromAttrs(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
+
+/**
+ * Read a block-level `marginBlockStart` (Google Docs "space before paragraph")
+ * attr override for an inline-bearing-leaf component (paragraph / heading /
+ * list-item). The value is the space in px — the editor's
+ * `SET_PARAGRAPH_SPACING` action (edge `"before"`) sets it.
+ *
+ * Per the same component-set convention as `marginInlineStartFromAttrs` above:
+ * the spacing must reach the layout cascade (the BFC applies in-flow blocks'
+ * `marginBlockStart`/`End` with CSS margin collapsing), but the render-time
+ * attrs-derived `view.computedStyle` is not threaded onto the ElementBox style,
+ * so the component synthesizes `marginBlockStart` onto `node.style`.
+ *
+ * Accepts a finite `number >= 0` — UNLIKE the indent path (`> 0`), `0` is a
+ * VALID value here: a user may explicitly set "0 space before" to OVERRIDE a
+ * component's default em margin (e.g. heading's 0.67em). When the attr is
+ * absent (`undefined`), this returns `undefined` and the component keeps its
+ * default em margin unchanged — existing docs render byte-identically.
+ * Non-number / non-finite / negative garbage → `undefined`, leaving the
+ * default in place. Mirrors `marginBlockEndFromAttrs`.
+ */
+export function marginBlockStartFromAttrs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * Read a block-level `marginBlockEnd` (Google Docs "space after paragraph")
+ * attr override for an inline-bearing-leaf component (paragraph / heading /
+ * list-item). The value is the space in px — the editor's
+ * `SET_PARAGRAPH_SPACING` action (edge `"after"`) sets it.
+ *
+ * Identical contract to `marginBlockStartFromAttrs` (the other edge): accepts a
+ * finite `number >= 0` so `0` can explicitly override a component default (e.g.
+ * paragraph's 0.5em `marginBlockEnd`); `undefined`/garbage → `undefined`,
+ * leaving the component's default em margin in place (byte-identical render).
+ */
+export function marginBlockEndFromAttrs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
