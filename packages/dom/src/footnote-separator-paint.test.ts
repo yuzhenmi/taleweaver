@@ -1,12 +1,8 @@
 /**
- * DOM audit bug: the footnote separator rule never painted.
- *
- * `virtual-layout-tree` emits the slot's separator as a `block` LayoutBox
- * carrying `metadata.footnoteSeparator: true` (FOOTNOTE_SEPARATOR_HEIGHT tall,
- * full content width). The canvas-renderer's block branch handled `image` and
- * `horizontalLine` metadata but had NO `footnoteSeparator` case, so the rule
- * Google Docs draws above footnotes was invisible. These tests pin that paintBox
- * draws a short rule for such a box (LTR at the inline-start, RTL at the right).
+ * Footnote separator rule: REMOVED (user directive — deliberate deviation from
+ * Google Docs). The layout no longer emits a `footnoteSeparator` box, and the
+ * canvas-renderer no longer paints a rule even if one is present. These tests
+ * pin that NO short rule is drawn for a `footnoteSeparator`-tagged block box.
  *
  * JSDOM has no CanvasRenderingContext2D — we use a spy-stub recording fillRect.
  */
@@ -99,23 +95,16 @@ function makePage(child: LayoutBox): LayoutBox {
 // among any page-background / border fillRects (none here: transparent bg, 0 borders).
 const isRule = (r: FillRectCall) => r.h === 1 && r.w === 144;
 
-describe("footnote separator paints a short rule (DOM audit bug)", () => {
-  it("LTR: draws the rule at the inline-start (left), at the box's vertical center", () => {
+describe("footnote separator rule is NOT painted (removed by user directive)", () => {
+  it("LTR: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
     paintPage(ctx, makePage(makeSeparator("ltr")), [], null, "hidden");
-    const rule = ctx._fillRects.find(isRule);
-    expect(rule).toBeDefined();
-    if (rule === undefined) throw new Error("footnote separator rule not painted");
-    expect(rule.x).toBe(0);
-    expect(rule.y).toBeCloseTo(SEP_Y + SEP_HEIGHT / 2 - 0.5);
+    expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 
-  it("RTL: anchors the rule at the inline-start (right edge)", () => {
+  it("RTL: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
     paintPage(ctx, makePage(makeSeparator("rtl")), [], null, "hidden");
-    const rule = ctx._fillRects.find(isRule);
-    expect(rule).toBeDefined();
-    if (rule === undefined) throw new Error("footnote separator rule not painted");
-    expect(rule.x).toBe(SEP_WIDTH - 144);
+    expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 });

@@ -37,7 +37,7 @@ import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pa
 import type { BreakToken } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
 import { isDevMode } from "./dev-mode";
-import { FOOTNOTE_SEPARATOR_HEIGHT } from "./resolve-footnotes";
+import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -618,26 +618,13 @@ export function makeVirtualLayoutTree(
             const slotBlockStart =
               effCfg.pageBlockSize - effBottomInset - footnoteSlotHeight;
             const slotChildren: LayoutBox[] = [];
-            // The separator rule: a thin BlockBox at the slot's top edge (E5 step
-            // 1). It carries the body root's style (the page root) for a neutral
-            // box; paint draws the rule. Height = FOOTNOTE_SEPARATOR_HEIGHT (D1).
-            slotChildren.push(
-              createBlockBox(
-                `footnote-sep-${pageIndex}`,
-                effMargins.inlineStart,
-                0,
-                effContentInlineSize,
-                FOOTNOTE_SEPARATOR_HEIGHT,
-                ctx.writingMode,
-                ctx.direction,
-                rootComputed,
-                effRootUsedStyle,
-                [],
-                effContentInlineSize,
-                { footnoteSeparator: true },
-              ),
-            );
-            // The slot-local cursor starts below the separator; `remaining` bounds
+            // NO separator rule (user directive, deliberate deviation from Google
+            // Docs): the thin horizontal line that used to sit at the slot's top
+            // edge is removed. `FOOTNOTE_SEPARATOR_HEIGHT` is RETAINED as a plain
+            // gap above the bodies (the cursor starts below it) so the slot-height
+            // arithmetic in `resolveFootnotes`/`computeSlotLayout` is unchanged —
+            // we simply emit no box (and paint nothing) for that band.
+            // The slot-local cursor starts below the separator gap; `remaining` bounds
             // each body's layout by what is left of the resolved slot (E5). The
             // footnote area available to the bodies is `footnoteSlotHeight −
             // FOOTNOTE_SEPARATOR_HEIGHT`; the cursor + remaining track the SAME
@@ -666,7 +653,12 @@ export function makeVirtualLayoutTree(
                 if (!("children" in cur) || cur.children.length === 0) break;
                 cur = cur.children[0];
               }
-              return box.blockOffset;
+              // No line descendant (e.g. an empty body): return the ACCUMULATED
+              // offset at the break point, NOT the body box's own `blockOffset` —
+              // the accumulation has already added `box.blockOffset` (the first
+              // iteration) plus any intermediate wrapper offsets, so this is the
+              // correct slot-local anchor for the leading-number marker.
+              return offset;
             };
             const layBody = (
               id: BlockId,
@@ -686,11 +678,63 @@ export function makeVirtualLayoutTree(
                 }
                 return;
               }
+              // Bug #415 + #416: the leading footnote-number marker, and the
+              // body's marker GUTTER. The body root carries the number via
+              // `markerText` (FN-6.2b, set by footnoteBodyComponent from
+              // ctx.footnoteNumber). ONLY a FRESH body (the page where the footnote
+              // STARTS) shows the number; a continuation tail does NOT repeat it.
+              //
+              // We must reserve room for the number BEFORE the body text so the
+              // marker PRECEDES the text instead of painting on top of it (#415,
+              // which happened because both were placed at the same inline-start).
+              // So we measure the marker first, derive a gutter (markerInlineSize +
+              // gap), inset the body by that gutter (LTR) / shrink its inline-size
+              // (both directions), and place the marker in the reserved gutter
+              // before the text — a hanging-indent "outside" list-marker layout.
+              //
+              // The marker is presentation-only: it never participates in the
+              // body's editable cursor-offset model (that lives in embedContents)
+              // and does NOT change the body's split decision (it only narrows the
+              // body's wrap width, exactly as a real list-item content box would).
+              const bodyMarkerText = body.computedStyle?.markerText;
+              const rootCs = body.computedStyle;
+              const showsMarker =
+                isFresh &&
+                bodyMarkerText !== undefined &&
+                bodyMarkerText !== "" &&
+                rootCs !== undefined;
+              const measurer = adaptShaperToMeasurer(shaper);
+              // CRITICAL: the gutter is the SINGLE marker-width source of truth —
+              // the SAME `footnoteMarkerGutter` helper the measure/partition pass
+              // (`computeSlotLayout`) lays this body out with (#415). Both narrow
+              // the body to `effContentInlineSize − gutter`, so the wrap / line
+              // count / split partition can never disagree and the planned slot
+              // height always fits the rendered body. The marker's own width is
+              // DERIVED back out of the gutter (`gutter − FOOTNOTE_MARKER_GAP` for a
+              // fresh marker, 0 else) rather than re-measured here, so there is
+              // exactly ONE `measureWidth` call for the marker across both passes —
+              // they can never drift even if the gutter formula changes.
+              const gutter = footnoteMarkerGutter(body, isFresh, shaper);
+              const markerInlineSize = gutter > 0 ? gutter - FOOTNOTE_MARKER_GAP : 0;
+              // The body's content box is narrowed by the gutter; in LTR it is also
+              // shifted right by the gutter so the gutter sits at the inline-start.
+              const bodyInlineSize = Math.max(0, effContentInlineSize - gutter);
+              const isRtl = ctx.direction === "rtl";
+              // Slot-LOCAL inline-offset (#416): the slot wrapper is positioned at
+              // the page content inline-start, so its CHILDREN are 0-based — NOT
+              // `effMargins.inlineStart` (that double-padded the bodies). LTR insets
+              // the body past the gutter; RTL keeps the body at 0 (gutter is on the
+              // right).
+              const bodyInlineOffset = isRtl ? 0 : gutter;
+              const bodyCtx: LayoutContext =
+                gutter === 0
+                  ? effContentCtx
+                  : { ...effContentCtx, containingInlineSize: bodyInlineSize };
               const { box: bodyBox } = layoutBlock(
                 body,
-                effMargins.inlineStart,
+                bodyInlineOffset,
                 cursor,
-                effContentCtx,
+                bodyCtx,
                 shaper,
                 { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
               );
@@ -705,58 +749,35 @@ export function makeVirtualLayoutTree(
               // signal, so throw — in prod skip gracefully.
               if (bodyBox !== null && bodyBox.blockSize <= remaining) {
                 slotChildren.push(bodyBox);
-                // Bug C: the leading footnote-number marker. The body root carries
-                // the number via `markerText` (FN-6.2b, set by footnoteBodyComponent
-                // from ctx.footnoteNumber). The slot lays the body out with the body
-                // root as the TOP-LEVEL node, and the BFC only emits a generated
-                // marker for a block's CHILDREN — never the root's own markerText —
-                // so the number never showed. We emit it here, presentation-only:
-                // a MarkerBox SIBLING of the body box in the slot subtree, anchored
-                // at the body's first line (Google-Docs style), placed at the
-                // content inline-start (listStylePosition:"inside"-like) so it reads
-                // before the body text and stays visible within the slot. ONLY a
-                // FRESH body (the page where the footnote STARTS) gets the number;
-                // a continuation tail does NOT repeat it. The marker is generated /
-                // offset-excluded — it never participates in the body's editable
-                // cursor-offset model (that lives in embedContents) and does NOT
-                // change the body's layout/split (this is purely additive: the body
-                // box, cursor, and `remaining` are untouched by it).
-                const bodyMarkerText = body.computedStyle?.markerText;
-                if (
-                  isFresh &&
-                  bodyMarkerText !== undefined &&
-                  bodyMarkerText !== ""
-                ) {
-                  const measurer = adaptShaperToMeasurer(shaper);
-                  const rootCs = body.computedStyle;
-                  if (rootCs !== undefined) {
-                    const rootUs = computeUsedStyle(
+                if (showsMarker && rootCs !== undefined) {
+                  const rootUs = computeUsedStyle(
+                    rootCs,
+                    effContentInlineSize,
+                    "indefinite",
+                  );
+                  const markerBlockSize = measurer.measureHeight(rootCs);
+                  // Marker inline-offset (slot-local): LTR at the inline-start (0),
+                  // RTL anchored just after the body's right content edge so the
+                  // number sits in the right-hand gutter — both cases place the
+                  // number BEFORE the text in reading order.
+                  const markerInlineOffset = isRtl
+                    ? effContentInlineSize - markerInlineSize
+                    : 0;
+                  slotChildren.push(
+                    createMarkerBox(
+                      `${body.key}-marker`,
+                      markerInlineOffset,
+                      firstLineBlockOffset(bodyBox),
+                      markerInlineSize,
+                      markerBlockSize,
+                      ctx.writingMode,
+                      ctx.direction,
                       rootCs,
+                      rootUs,
+                      bodyMarkerText ?? "",
                       effContentInlineSize,
-                      "indefinite",
-                    );
-                    const markerInlineSize = measurer.measureWidth(
-                      bodyMarkerText,
-                      rootCs,
-                    );
-                    const markerBlockSize = measurer.measureHeight(rootCs);
-                    slotChildren.push(
-                      createMarkerBox(
-                        `${body.key}-marker`,
-                        // Content inline-start (slot-local) — "inside"-like.
-                        effMargins.inlineStart,
-                        firstLineBlockOffset(bodyBox),
-                        markerInlineSize,
-                        markerBlockSize,
-                        ctx.writingMode,
-                        ctx.direction,
-                        rootCs,
-                        rootUs,
-                        bodyMarkerText,
-                        effContentInlineSize,
-                      ),
-                    );
-                  }
+                    ),
+                  );
                 }
                 cursor += bodyBox.blockSize;
                 remaining -= bodyBox.blockSize;
@@ -769,6 +790,37 @@ export function makeVirtualLayoutTree(
                 );
               }
             };
+            // PLAN INVARIANT (the materialize↔plan seam): `isFresh` is decided
+            // HERE by which list a body id came from — the inbound continuation
+            // list is laid `isFresh: false` (no marker, resumed mid-body), the
+            // fresh list `isFresh: true` (marker shown, started fresh). That is
+            // ONLY correct if the two lists are DISJOINT: a body id that both
+            // resumes a prior split AND "starts fresh" on this page would be laid
+            // out TWICE and render its leading-number marker twice (the exact
+            // double-marker regression a future plan change could introduce — e.g.
+            // `resolveFootnotes` stamping a deferred/continued body into
+            // `footnoteContentBlockIds`). `computeSlotLayout` guarantees
+            // disjointness today (a fresh body that fully defers is carried in
+            // `outboundContinuations`, never placed in `slotContentBlockIds`), but
+            // assert it loudly in dev so a regression surfaces at the seam instead
+            // of as a silently double-rendered marker. Prod pays nothing.
+            if (isDevMode()) {
+              const continuationIds = new Set<BlockId>(
+                entry.footnoteContinuation.map((c) => c.contentBlockId),
+              );
+              for (const id of entry.footnoteContentBlockIds) {
+                if (continuationIds.has(id)) {
+                  throw new Error(
+                    `materializePage: footnote body ${id} on page ${pageIndex} is in ` +
+                      `BOTH footnoteContinuation (inbound, isFresh=false) and ` +
+                      `footnoteContentBlockIds (fresh, isFresh=true) — the two lists ` +
+                      `must be DISJOINT or the body (and its leading-number marker) ` +
+                      `renders twice. A fresh body that fully defers must be carried ` +
+                      `in outboundContinuations, never stamped as a fresh-started id.`,
+                  );
+                }
+              }
+            }
             // (E5 step 2) the INBOUND continuation list, in order, each resumed
             // from its carried `resumeToken` (the prior page's split point).
             for (const cont of entry.footnoteContinuation) {

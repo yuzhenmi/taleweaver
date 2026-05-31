@@ -51,6 +51,38 @@ function fnBody(key: string, lines: number, markerText?: string): ElementBox {
   );
 }
 
+/**
+ * The footnote-body fragment boxes in a slot: the `block`-type slot children
+ * (the separator box has been removed; the only other slot children are `marker`
+ * boxes, which this skips). Document order = body order.
+ */
+function bodyFragments(slot: LayoutBox): LayoutBox[] {
+  if (!("children" in slot)) return [];
+  return slot.children.filter((c) => c.type === "block");
+}
+
+/**
+ * POSITIVE separator-absence assertion (follow-up B): the slot's ONLY child
+ * kinds are body block fragments (`type: "block"`) and leading-number markers
+ * (`type: "marker"`). NO child carries a truthy `footnoteSeparator`, AND there are
+ * exactly `expectedBodyCount` real body fragments (no extra separator block).
+ * Strictly stronger than `!children.some(footnoteSeparator === true)` — that weak
+ * detector passes even if a separator box with falsy/empty metadata were emitted.
+ */
+function assertNoSeparatorOnlyBodies(slot: LayoutBox, expectedBodyCount: number): void {
+  if (!("children" in slot)) throw new Error("slot has no children");
+  const blockChildren = slot.children.filter((c) => c.type === "block");
+  for (const c of blockChildren) {
+    const md = "metadata" in c ? c.metadata : undefined;
+    expect(md === undefined || !("footnoteSeparator" in md)).toBe(true);
+  }
+  expect(blockChildren.length).toBe(expectedBodyCount);
+  for (const c of slot.children) {
+    if (c.type === "block" || c.type === "marker") continue;
+    throw new Error(`unexpected slot child of type ${c.type}`);
+  }
+}
+
 /** Collect every MarkerBox (deepest) under a layout box. */
 function collectMarkers(box: LayoutBox): { text: string; blockOffset: number }[] {
   if (box.type === "marker") return [{ text: box.text, blockOffset: box.blockOffset }];
@@ -141,10 +173,13 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     // Slot positioned at pageBlockSize − slotHeight (0 bottom inset).
     expect(slot0.blockOffset).toBe(PAGE.pageBlockSize - e0.footnoteSlotHeight);
     expect(slot0.blockOffset + slot0.blockSize).toBe(PAGE.pageBlockSize);
-    // separator at slot-local 0, then the partial body (2 lines = 32px) below it.
-    expect(slot0.children[0].blockOffset).toBe(0);
-    expect(slot0.children[0].blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
-    const body0 = slot0.children[1];
+    // NO separator box (removed). The separator BAND is still reserved as a gap,
+    // so the partial body (2 lines = 32px) starts at FOOTNOTE_SEPARATOR_HEIGHT.
+    // Positive check (follow-up B): the only slot children are the ONE fresh body
+    // fragment + its leading-number marker — no separator box of any metadata.
+    assertNoSeparatorOnlyBodies(slot0, 1);
+    const body0 = bodyFragments(slot0)[0];
+    expect(body0).toBeDefined();
     expect(body0.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
     const linesOnPage0 = countLines(body0);
     expect(linesOnPage0).toBe(2); // exactly the planned partial fit
@@ -164,10 +199,12 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     const slotCont = pageCont.footnoteSlot;
     expect(slotCont).not.toBeNull();
     if (slotCont === null) throw new Error("unreachable");
-    // separator at slot-local 0, continuation body at FOOTNOTE_SEPARATOR_HEIGHT.
-    expect(slotCont.children[0].blockOffset).toBe(0);
-    expect(slotCont.children[0].blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
-    const bodyCont = slotCont.children[1];
+    // No separator box; the continuation body still starts below the reserved gap.
+    // Positive check (follow-up B): ONE continuation body fragment, no marker
+    // (continuation tail repeats no number), no separator box.
+    assertNoSeparatorOnlyBodies(slotCont, 1);
+    const bodyCont = bodyFragments(slotCont)[0];
+    expect(bodyCont).toBeDefined();
     expect(bodyCont.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
     const linesOnCont = countLines(bodyCont);
     // EXACT continuation partition. Geometry: page 64, separator 13,
@@ -188,10 +225,10 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     for (let i = 0; i < tree.plan.entries.length; i++) {
       const slot = tree.getPage(i).footnoteSlot;
       if (slot === null) continue;
-      // Each slot child after the separator is a fnSplit body fragment on this
-      // chain (this doc has exactly one footnote), so count all body lines.
-      for (let ci = 1; ci < slot.children.length; ci++) {
-        totalFnLines += countLines(slot.children[ci]);
+      // Each block-type slot child is a fnSplit body fragment on this chain
+      // (this doc has exactly one footnote), so count all body lines.
+      for (const frag of bodyFragments(slot)) {
+        totalFnLines += countLines(frag);
       }
     }
     expect(totalFnLines).toBe(5); // every line rendered exactly once across pages
@@ -230,16 +267,22 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     const slotLast = pageLast.footnoteSlot;
     expect(slotLast).not.toBeNull();
     if (slotLast === null) throw new Error("unreachable");
-    expect(slotLast.children[0].blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT); // separator present
-    expect(slotLast.children.length).toBe(2); // separator + ONE continued body, no fresh
+    // No separator box. The continued body starts below the reserved gap.
+    // Positive check (follow-up B): ONE continued body fragment, no separator box.
+    assertNoSeparatorOnlyBodies(slotLast, 1);
+    const lastFrags = bodyFragments(slotLast);
+    expect(lastFrags.length).toBe(1); // ONE continued body, no fresh
+    expect(lastFrags[0].blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
+    // A continuation tail is NOT fresh ⇒ no leading-number marker.
+    expect(slotLast.children.some((c) => c.type === "marker")).toBe(false);
 
     // No-loss across the whole chain: all 6 lines rendered exactly once.
     let totalFnLines = 0;
     for (let i = 0; i < tree.plan.entries.length; i++) {
       const slot = tree.getPage(i).footnoteSlot;
       if (slot === null) continue;
-      for (let ci = 1; ci < slot.children.length; ci++) {
-        totalFnLines += countLines(slot.children[ci]);
+      for (const frag of bodyFragments(slot)) {
+        totalFnLines += countLines(frag);
       }
     }
     expect(totalFnLines).toBe(6);
@@ -308,9 +351,9 @@ describe("FN-5.5 — FN-4 parity: a fully-fitting footnote renders unchanged", (
     if (slot === null) throw new Error("unreachable");
     expect(slot.blockOffset).toBe(PAGE.pageBlockSize - (16 + FOOTNOTE_SEPARATOR_HEIGHT)); // 35
     expect(slot.blockSize).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT); // 29
-    // separator + full 1-line body + the leading number MarkerBox (Bug C).
-    expect(slot.children[0].blockOffset).toBe(0);
-    expect(slot.children[0].blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
+    // NO separator box (removed); full 1-line body + the leading number MarkerBox.
+    // Positive check (follow-up B): ONE body fragment + marker, no separator box.
+    assertNoSeparatorOnlyBodies(slot, 1);
     const fitBody = slot.children.find(
       (c) => c.type === "block" && !("footnoteSeparator" in (c.metadata ?? {})),
     );

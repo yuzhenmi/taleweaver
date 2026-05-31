@@ -37,6 +37,7 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import type { BlockBox } from "./layout-box";
@@ -102,6 +103,57 @@ export const MIN_BODY_BLOCK_SIZE = 16;
 
 /** Hard cap on the convergence re-collect loop (D8); most pages converge in 1. */
 const MAX_CONVERGENCE_ITERATIONS = 5;
+
+/**
+ * Gap (px) between the footnote body's leading-number marker and the body text
+ * (#415). Matches the BFC's list-marker `markerGap`. Shared by BOTH the
+ * measure/partition pass (`computeSlotLayout`, this module) and the materialize
+ * pass (`materializePage` in `virtual-layout-tree.ts`) via `footnoteMarkerGutter`
+ * so the body is laid out at the IDENTICAL width in both — see that helper.
+ */
+export const FOOTNOTE_MARKER_GAP = 4;
+
+/**
+ * The inline GUTTER (#415) a footnote body reserves at its inline-start for the
+ * leading-number marker, in px. The body content is NARROWED by this amount (and
+ * inset past it in LTR) so the number PRECEDES the text in a hanging-indent
+ * list-marker layout instead of painting on top of it.
+ *
+ * CRITICAL: this is the SINGLE source of truth shared by the measure/partition
+ * pass (`computeSlotLayout`) and the materialize pass (`materializePage`). Both
+ * lay the body out at `contentInlineSize − footnoteMarkerGutter(...)`, so the
+ * line count / body height / split partition they compute can never disagree.
+ * Drifting the two (e.g. measuring at full width in one and narrowed in the
+ * other) silently drops a wrapping numbered body when its narrowed (taller) box
+ * fails the measure pass's under-computed slot height — the bug this helper fixes.
+ *
+ * The gutter is non-zero ONLY for a FRESH body (the page where the footnote
+ * STARTS) that carries a non-empty `markerText` on its root computed style
+ * (FN-6.2b, stamped by `footnoteBodyComponent` from `ctx.footnoteNumber`). A
+ * continuation tail (`isFresh === false`) repeats no number, so it uses the full
+ * width (gutter 0) — matching materialize's `showsMarker` gating exactly.
+ *
+ * @param body the cascaded footnote body root (its `computedStyle.markerText` is
+ *   the leading number, and `computedStyle` is the style the marker is measured
+ *   against).
+ * @param isFresh true on the page where the footnote STARTS (shows the number);
+ *   false on a continuation tail (no number).
+ * @param shaper the text shaper used to measure the marker width — the SAME
+ *   shaper both passes lay the body out with, so the gutter is exact.
+ */
+export function footnoteMarkerGutter(
+  body: ElementBox,
+  isFresh: boolean,
+  shaper: TextShaper,
+): number {
+  const rootCs = body.computedStyle;
+  const markerText = rootCs?.markerText;
+  const showsMarker =
+    isFresh && markerText !== undefined && markerText !== "" && rootCs !== undefined;
+  if (!showsMarker || rootCs === undefined) return 0;
+  const markerInlineSize = adaptShaperToMeasurer(shaper).measureWidth(markerText ?? "", rootCs);
+  return markerInlineSize + FOOTNOTE_MARKER_GAP;
+}
 
 /**
  * Map each top-level child's `key` (its `BlockId`) → its index in
@@ -313,7 +365,11 @@ export function computeSlotLayout(
   const outbound: FootnoteContinuation[] = [];
   let overflowed = false;
 
-  const bodyLayoutCtx: LayoutContext = { ...ctx, containingInlineSize: contentInlineSize };
+  // The body content context at the FULL slot width (no marker gutter). Reused
+  // by reference for continuation tails (gutter 0) so the partition is byte-
+  // identical to the pre-gutter behaviour; a fresh body with a marker gets a
+  // freshly-narrowed context below.
+  const fullWidthCtx: LayoutContext = { ...ctx, containingInlineSize: contentInlineSize };
 
   for (const item of workList) {
     if (overflowed) {
@@ -338,6 +394,20 @@ export function computeSlotLayout(
       }
       continue;
     }
+
+    // CRITICAL (#415 measure/materialize agreement): a FRESH numbered body shows
+    // a leading-number marker whose gutter NARROWS the body's wrap width. The
+    // materialize pass (`materializePage`) lays the SAME body at
+    // `contentInlineSize − gutter` via the SAME `footnoteMarkerGutter` helper, so
+    // BOTH passes wrap identically — the measure pass here computes the slot
+    // height (and the cross-page split partition) against the SAME (narrowed,
+    // possibly taller) body the materialize pass will render. A continuation tail
+    // (`isFresh === false`) repeats no number ⇒ gutter 0 ⇒ full width.
+    const gutter = footnoteMarkerGutter(body, item.isFresh, shaper);
+    const bodyLayoutCtx: LayoutContext =
+      gutter === 0
+        ? fullWidthCtx
+        : { ...ctx, containingInlineSize: Math.max(0, contentInlineSize - gutter) };
 
     _bodyLayoutCallCount++;
     const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, {
@@ -621,7 +691,6 @@ export function resolveFootnotes(
     docWidePageConfig.pageInlineSize -
     docWidePageConfig.pageMargins.inlineStart -
     docWidePageConfig.pageMargins.inlineEnd;
-  const heightCtx: LayoutContext = { ...ctx, containingInlineSize: boundInlineSize };
   const bodyHeightCache = new Map<BlockId, number>();
   const seenBodyRefs = new Set<BlockId>();
   let totalFootnoteContentHeight = 0;
@@ -632,6 +701,18 @@ export function resolveFootnotes(
     if (body === undefined) continue; // missing body: contributes 0 (dev-throws at slot layout)
     let h = bodyHeightCache.get(a.contentBlockId);
     if (h === undefined) {
+      // Measure at the SAME gutter-narrowed width a FRESH numbered body uses
+      // (#415): narrowing only ever makes the body TALLER (more wrapped lines), so
+      // measuring at the full width would UNDER-count the chain's content height —
+      // making this page-count ceiling too small and FALSELY tripping the
+      // `maxPages` throw on a valid wrapping numbered footnote. The fresh width is
+      // the worst case (a continuation tail repeats no marker ⇒ wider ⇒ no taller),
+      // so this stays a sound loose upper bound.
+      const gutter = footnoteMarkerGutter(body, /* isFresh */ true, shaper);
+      const heightCtx: LayoutContext = {
+        ...ctx,
+        containingInlineSize: Math.max(0, boundInlineSize - gutter),
+      };
       const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, {
         availableBlockSize: Number.MAX_SAFE_INTEGER,
         pageIndex: 0,

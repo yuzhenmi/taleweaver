@@ -18,6 +18,7 @@ import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
+import type { LayoutBox } from "../layout-box";
 import type { FootnoteAnchorRef } from "../../footnotes";
 import { buildVirtualPaginatedTree } from "../virtual-producer";
 import { buildBlockFitMetas } from "../build-fit-metas";
@@ -35,11 +36,33 @@ function fnPara(key: string, text = "x"): ElementBox {
   ]);
 }
 
-/** A footnote body: a container block holding `lines` single-line paragraphs. */
-function fnBody(key: string, lines: number): ElementBox {
+/**
+ * A footnote body: a container block holding `lines` single-line paragraphs.
+ * `markerText` (the leading number, e.g. "1.") is set on the body ROOT style —
+ * exactly as `footnoteBodyComponent` does from `ctx.footnoteNumber` — so the slot
+ * emits the leading-number MarkerBox (#415).
+ */
+function fnBody(key: string, lines: number, markerText?: string): ElementBox {
   const children: RenderNode[] = [];
   for (let i = 0; i < lines; i++) children.push(fnPara(`${key}-p${i}`));
-  return createElementBox(key, { display: "block" } as Style, children);
+  const style: Style = markerText !== undefined
+    ? ({ display: "block", markerText } as Style)
+    : ({ display: "block" } as Style);
+  return createElementBox(key, style, children);
+}
+
+/**
+ * A footnote body whose single paragraph holds ONE long text run (not separate
+ * one-word paragraphs). `markerText` is set on the body ROOT so the slot emits
+ * the leading-number gutter. Used to straddle the gutter wrap boundary: a run
+ * that fits one line at the FULL content width but wraps once the gutter is
+ * subtracted.
+ */
+function fnBodyRun(key: string, text: string, markerText: string): ElementBox {
+  const para = createElementBox(`${key}-p0`, { display: "block" } as Style, [
+    createTextBox(`${key}-p0-t`, {}, text),
+  ]);
+  return createElementBox(key, { display: "block", markerText } as Style, [para]);
 }
 
 function cascadeRoot(children: readonly ElementBox[]): ElementBox {
@@ -53,6 +76,33 @@ function cascadeBody(body: ElementBox): ElementBox {
   const c = cascadePass(body);
   if (c.type !== "element") throw new Error("cascadePass returned non-element");
   return c;
+}
+
+/**
+ * POSITIVE separator-absence assertion (follow-up B): the slot's ONLY child
+ * kinds are body block fragments (`type: "block"`) and leading-number markers
+ * (`type: "marker"`). NO child carries a truthy `footnoteSeparator`, AND there is
+ * no extra block child beyond `expectedBodyCount` real body fragments. This is
+ * strictly stronger than `!children.some(footnoteSeparator === true)` — that weak
+ * detector passes even if a separator box with falsy/empty metadata were emitted.
+ */
+function assertNoSeparatorOnlyBodies(slot: LayoutBox, expectedBodyCount: number): void {
+  if (!("children" in slot)) throw new Error("slot has no children");
+  const blockChildren = slot.children.filter((c) => c.type === "block");
+  // Every block-type child is a real body fragment (no separator metadata at all,
+  // truthy OR falsy).
+  for (const c of blockChildren) {
+    const md = "metadata" in c ? c.metadata : undefined;
+    expect(md === undefined || !("footnoteSeparator" in md)).toBe(true);
+  }
+  // Exactly the expected number of body fragments — no extra separator block.
+  expect(blockChildren.length).toBe(expectedBodyCount);
+  // And the only non-block children are markers (no stray box of another type
+  // carrying a separator flag).
+  for (const c of slot.children) {
+    if (c.type === "block" || c.type === "marker") continue;
+    throw new Error(`unexpected slot child of type ${c.type}`);
+  }
 }
 
 function anchor(blockId: string, contentBlockId: string): FootnoteAnchorRef {
@@ -76,8 +126,14 @@ function build(
   embedContents: ReadonlyMap<BlockId, ElementBox>,
   footnoteAnchors: readonly FootnoteAnchorRef[],
   pageConfig: PageConfig = PAGE,
+  direction: "ltr" | "rtl" = "ltr",
 ) {
-  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+  // The materialize pass reads `ctx.direction` (the closure ctx) to place the
+  // marker gutter on the inline-start (LTR) or inline-end (RTL). Drive it here.
+  const ctx = makeRootContext(
+    { ...INITIAL_COMPUTED_STYLE, direction },
+    pageConfig.pageInlineSize,
+  );
   return buildVirtualPaginatedTree(
     root,
     ctx,
@@ -97,7 +153,7 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // paras fit on page 0, evicting b2,b3 to a new page.
     const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const fnRootId = "fn0" as BlockId;
-    const embed = new Map<BlockId, ElementBox>([[fnRootId, cascadeBody(fnBody("fn0", 1))]]);
+    const embed = new Map<BlockId, ElementBox>([[fnRootId, cascadeBody(fnBody("fn0", 1, "1."))]]);
     const anchors = [anchor("b0", "fn0")];
 
     const tree = build(root, embed, anchors);
@@ -122,14 +178,27 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     expect(slot.blockOffset).toBeGreaterThanOrEqual(2 * 16); // body ends at 32
     expect(slot.blockOffset + slot.blockSize).toBe(PAGE.pageBlockSize);
 
-    // Slot children: a separator rule (height 13) then the 1-line body (16).
-    expect(slot.children.length).toBe(2);
-    const sep = slot.children[0];
-    expect(sep.blockOffset).toBe(0);
-    expect(sep.blockSize).toBe(FOOTNOTE_SEPARATOR_HEIGHT);
-    const body = slot.children[1];
-    expect(body.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT); // stacked below separator
+    // Slot children: NO separator box (removed — user directive), just the
+    // 1-line body (16). The separator BAND is still reserved as a plain gap, so
+    // the body still starts below it. There is also a leading-number MARKER box
+    // (Bug #415) — a sibling of the body, NOT counted toward the body line.
+    const body = slot.children.find((c) => c.type === "block");
+    expect(body).toBeDefined();
+    if (body === undefined) throw new Error("footnote body box missing");
+    expect(body.blockOffset).toBe(FOOTNOTE_SEPARATOR_HEIGHT); // stacked below the gap
     expect(body.blockSize).toBe(16); // one line
+    // No separator box is emitted any more (positive check — follow-up B): the
+    // ONLY slot children are the single body fragment + its leading-number marker.
+    assertNoSeparatorOnlyBodies(slot, 1);
+    // The body's content is INSET past the leading-number gutter (#415): a marker
+    // sibling sits at the slot inline-start (0), the body text begins after it.
+    const marker = slot.children.find((c) => c.type === "marker");
+    expect(marker).toBeDefined();
+    if (marker === undefined) throw new Error("footnote leading-number marker missing");
+    expect(marker.inlineOffset).toBe(0); // slot-local inline-start, before the text
+    expect(body.inlineOffset).toBeGreaterThan(0); // body text inset past the marker
+    // The slot wrapper sits at the page content inline-start (0 here, no margins).
+    expect(slot.inlineOffset).toBe(PAGE.pageMargins.inlineStart);
 
     // The slot is ALSO appended to page children (paint/line-collection see it).
     expect(page0.children).toContain(slot);
@@ -137,6 +206,138 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // Page 1 (eviction target) carries NO footnote slot.
     const page1 = tree.getPage(1);
     expect(page1.footnoteSlot).toBeNull();
+  });
+
+  it("(a2) a wrapping numbered body is laid out at the SAME gutter-narrowed width in BOTH the measure pass and the materialize pass — the slot height fits the wrapped body, no silent drop", () => {
+    // The CRITICAL bug: `computeSlotLayout` (measure/partition) lays the body at
+    // the FULL content width while `materializePage` (#415) narrows it by the
+    // marker gutter. For a body that fits ONE line at full width but WRAPS once
+    // the gutter is subtracted, the two passes disagree: measure under-computes
+    // `footnoteSlotHeight` (1 line) while materialize produces 2 lines, which the
+    // `bodyBox.blockSize <= remaining` guard then DROPS (prod) / THROWS (dev).
+    //
+    // Geometry: content inline-size 600px, mock shaper 8px/char ⇒ 75 chars/line at
+    // full width. Marker "1." = 2 chars = 16px; MARKER_GAP = 4 ⇒ gutter = 20px ⇒
+    // narrowed width 580px ⇒ 72 chars/line. A 74-char run (with a soft break so it
+    // CAN wrap) is 592px: ≤ 600 (one line full width) but > 580 (two lines narrow).
+    const SEG_A = "a".repeat(40);
+    const SEG_B = "b".repeat(33);
+    const runText = `${SEG_A} ${SEG_B}`; // 40 + space + 33 = 74 chars = 592px
+    expect(runText.length).toBe(74);
+
+    // A single-block doc (b0) anchoring the footnote — keep the body page simple.
+    const root = cascadeRoot([fnPara("b0")]);
+    const fnId = "fnWrap" as BlockId;
+    const embed = new Map<BlockId, ElementBox>([
+      [fnId, cascadeBody(fnBodyRun("fnWrap", runText, "1."))],
+    ]);
+    const anchors = [anchor("b0", "fnWrap")];
+
+    // Pre-fix: building the tree + materializing page 0 THROWS in dev (the
+    // narrowed 2-line body overruns the measure pass's 1-line slot). Post-fix:
+    // both passes agree at the narrowed width, so the slot reserves 2 lines.
+    const tree = build(root, embed, anchors);
+
+    // The starting page reserves the gutter-narrowed (2-line) body: 2×16 + 13 = 45.
+    const startPage = tree.plan.entries.find((e) =>
+      e.footnoteContentBlockIds.includes(fnId),
+    );
+    expect(startPage).toBeDefined();
+    if (startPage === undefined) throw new Error("unreachable");
+    expect(startPage.footnoteSlotHeight).toBe(2 * 16 + FOOTNOTE_SEPARATOR_HEIGHT); // 45
+
+    const startPageIndex = tree.plan.entries.indexOf(startPage);
+    const page = tree.getPage(startPageIndex);
+    const slot = page.footnoteSlot;
+    expect(slot).not.toBeNull();
+    if (slot === null) throw new Error("unreachable");
+
+    // The body is FULLY rendered in the slot (not dropped): a block-type child
+    // with TWO lines, and the slot height the plan reserved fits it.
+    const body = slot.children.find((c) => c.type === "block");
+    expect(body).toBeDefined();
+    if (body === undefined) throw new Error("footnote body box missing");
+    let bodyLines = 0;
+    const countLines = (b: LayoutBox): void => {
+      if (b.type === "line") {
+        bodyLines += 1;
+        return;
+      }
+      if ("children" in b) for (const c of b.children) countLines(c);
+    };
+    countLines(body);
+    expect(bodyLines).toBe(2); // wrapped at the narrowed width
+    expect(body.blockSize).toBe(2 * 16); // both lines rendered
+    // Measure + materialize AGREE: the body box fits within the reserved slot
+    // (its bottom edge ≤ slot height), so nothing is silently dropped.
+    expect(body.blockOffset + body.blockSize).toBeLessThanOrEqual(slot.blockSize);
+    expect(slot.blockSize).toBe(startPage.footnoteSlotHeight);
+
+    // The leading-number marker is present (fresh body) and the body text is
+    // inset past the gutter.
+    const marker = slot.children.find((c) => c.type === "marker");
+    expect(marker).toBeDefined();
+    expect(body.inlineOffset).toBeGreaterThan(0);
+    // Positive separator-absence (follow-up B): exactly ONE body fragment + marker.
+    assertNoSeparatorOnlyBodies(slot, 1);
+  });
+
+  it("(a3) RTL — the body sits at slot-local inlineOffset 0 and the leading-number marker sits in the RIGHT-hand gutter (effContentInlineSize − markerWidth), preceding the text in reading order", () => {
+    // Mirror of (a) but RTL: same 1-line numbered fresh body, same slot geometry
+    // (the gutter narrowing is direction-independent), but the gutter is on the
+    // INLINE-END (right) edge. The body content box stays at slot-local
+    // inlineOffset 0 (RTL does not inset it past the gutter — the gutter is on the
+    // right), and the marker is anchored at `effContentInlineSize − markerWidth`
+    // so the number sits in the right-hand gutter, BEFORE the body text in RTL
+    // reading order. Marker "1." = 2 chars × 8px = 16px ⇒ markerWidth 16; content
+    // inline-size 600 (no margins) ⇒ marker inlineOffset 600 − 16 = 584.
+    const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const fnRootId = "fn0" as BlockId;
+    const embed = new Map<BlockId, ElementBox>([[fnRootId, cascadeBody(fnBody("fn0", 1, "1."))]]);
+    const anchors = [anchor("b0", "fn0")];
+
+    const tree = build(root, embed, anchors, PAGE, "rtl");
+
+    // Same slot geometry as the LTR case — the footnote evicted blocks.
+    expect(tree.plan.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT); // 29
+
+    const page0 = tree.getPage(0);
+    const slot = page0.footnoteSlot;
+    expect(slot).not.toBeNull();
+    if (slot === null) throw new Error("unreachable");
+
+    const body = slot.children.find((c) => c.type === "block");
+    expect(body).toBeDefined();
+    if (body === undefined) throw new Error("footnote body box missing");
+    const marker = slot.children.find((c) => c.type === "marker");
+    expect(marker).toBeDefined();
+    if (marker === undefined) throw new Error("footnote leading-number marker missing");
+
+    // RTL: the body content box sits at slot-local inlineOffset 0 (NOT inset past
+    // the gutter — the gutter is on the right). This is the load-bearing RTL
+    // assertion: in LTR the body is inset (> 0); here it must be 0.
+    expect(body.inlineOffset).toBe(0);
+
+    // The marker sits in the RIGHT-hand gutter at `effContentInlineSize −
+    // markerWidth`. With content 600 and markerWidth 16, that is 584. (Would FAIL
+    // if the RTL marker offset regressed to 0/LTR placement, or used the gutter
+    // including the gap instead of the bare marker width.)
+    const markerWidth = marker.inlineSize;
+    expect(markerWidth).toBe(16);
+    const expectedMarkerOffset = slot.inlineSize - markerWidth; // 600 − 16 = 584
+    expect(marker.inlineOffset).toBe(expectedMarkerOffset);
+    expect(marker.inlineOffset).toBe(584);
+
+    // Marker PRECEDES the body text in RTL reading order: the marker's right edge
+    // is at the content right edge (inlineOffset + width === effContentInlineSize),
+    // and the body's right edge (its inline-end content edge) is at or left of the
+    // marker's left edge — i.e. the marker is outboard (further inline-end) of the
+    // text, exactly as the leading number should be.
+    expect(marker.inlineOffset + markerWidth).toBe(slot.inlineSize); // marker hugs the right edge
+    expect(body.inlineOffset + body.inlineSize).toBeLessThanOrEqual(marker.inlineOffset);
+
+    // Still exactly one body fragment + its marker, no separator box.
+    assertNoSeparatorOnlyBodies(slot, 1);
   });
 
   it("(b) a doc with no footnotes has footnoteSlot === null on every page", () => {
