@@ -516,37 +516,19 @@ export function layoutBlock(
       childBlockOffset += noTopBoundary ? 0 : childMarginBlockStart;
     }
 
-    // List-item marker generation
-    if (childCs.display === "list-item") {
-      listCounter++;
-      const markerText = resolveMarkerText(childCs, listCounter);
-      if (markerText !== null) {
-        // Use a measurer adapter for the simple width/height calls needed for marker boxes.
-        const measurer = adaptShaperToMeasurer(shaper);
-        const markerInlineSize = measurer.measureWidth(markerText, childCs);
-        const markerBlockSize = measurer.measureHeight(childCs);
-        const markerGap = 4;
-        const markerInlineOffset = childCs.listStylePosition === "inside"
-          ? paddingInlineStart
-          : paddingInlineStart - markerInlineSize - markerGap;
-        const markerBox = createMarkerBox(
-          `${child.key}-marker`,
-          markerInlineOffset, childBlockOffset,
-          markerInlineSize, markerBlockSize,
-          cs.writingMode, cs.direction,
-          childCs, childUsedStyle,
-          markerText,
-          /* containingInlineSize */ contentInlineSize,
-        );
-        layoutChildren.push(markerBox);
-      }
-    }
-
     // Break-before consumer (CSS Fragmentation Level 4 §3.4).
     // Only when paginated AND the fragment already has placed content.
     // If the fragment is empty (no preceding placed children), suppress the
     // forced break — a forced break cannot occur before the first piece of
     // content in a fragmentation flow.
+    //
+    // MUST run BEFORE marker generation below. If the marker were pushed first,
+    // (a) `fragmentHasContent` would be spuriously true for the FIRST child (its
+    // own marker counts as "preceding content"), and (b) on a real forced break
+    // the marker would be orphaned into the partial result AND regenerated when
+    // the block resumes on the next page — a double marker, and a double
+    // list-counter increment. Deciding the break first means the marker (and the
+    // `listCounter++`) only happen once the block is actually placed on this page.
     if (fragmentation !== undefined) {
       const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
       const fragmentHasContent = layoutChildren.length > 0;
@@ -557,6 +539,42 @@ export function layoutBlock(
           resumeChildToken: null,
         });
       }
+    }
+
+    // Marker generation. Two sources, mutually exclusive:
+    //   1. Explicit `markerText` (a `::marker`-content-like presentation string)
+    //      — takes precedence, works on ANY display, and does NOT advance the
+    //      list-item auto-counter.
+    //   2. `display: list-item` auto-counter (resolveMarkerText from
+    //      `list-style-type`) — only when no explicit markerText is set.
+    // Either way the marker is a GENERATED sibling box, never an offset-bearing
+    // inline item, so it adds zero cursor stops.
+    let markerText: string | null = null;
+    if (childCs.markerText !== undefined && childCs.markerText !== "") {
+      markerText = childCs.markerText;
+    } else if (childCs.display === "list-item") {
+      listCounter++;
+      markerText = resolveMarkerText(childCs, listCounter);
+    }
+    if (markerText !== null) {
+      // Use a measurer adapter for the simple width/height calls needed for marker boxes.
+      const measurer = adaptShaperToMeasurer(shaper);
+      const markerInlineSize = measurer.measureWidth(markerText, childCs);
+      const markerBlockSize = measurer.measureHeight(childCs);
+      const markerGap = 4;
+      const markerInlineOffset = childCs.listStylePosition === "inside"
+        ? paddingInlineStart
+        : paddingInlineStart - markerInlineSize - markerGap;
+      const markerBox = createMarkerBox(
+        `${child.key}-marker`,
+        markerInlineOffset, childBlockOffset,
+        markerInlineSize, markerBlockSize,
+        cs.writingMode, cs.direction,
+        childCs, childUsedStyle,
+        markerText,
+        /* containingInlineSize */ contentInlineSize,
+      );
+      layoutChildren.push(markerBox);
     }
 
     // Pass childCs (child's own computed style) so makeChildContext can detect

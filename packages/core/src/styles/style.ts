@@ -132,4 +132,11 @@ export interface Style {
   // List
   readonly listStyleType?:     ListStyleType;
   readonly listStylePosition?: ListStylePosition;
+
+  // Generated marker content (CSS `::marker` `content`-like): an explicit
+  // presentation string rendered as a marker before the box, independent of
+  // the `list-style-type` auto-counter. Absent (undefined) means "no explicit
+  // marker". Non-inheriting. The marker is a generated layout sibling, NOT an
+  // editable/offset-bearing inline item.
+  readonly markerText?: string;
 }

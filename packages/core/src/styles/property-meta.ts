@@ -79,6 +79,8 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
 
   listStyleType:     { inherits: true },
   listStylePosition: { inherits: true },
+
+  markerText:        { inherits: false },
 };
 
 export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
@@ -153,4 +155,6 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
 
   listStyleType:     "disc",
   listStylePosition: "outside",
+
+  markerText: undefined,
 };

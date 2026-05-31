@@ -328,6 +328,153 @@ describe("BFC — list-item markers (outside)", () => {
   });
 });
 
+describe("BFC — explicit markerText (generated marker, offset-excluded)", () => {
+  function collectMarkers(root: import("./layout-box-v2").LayoutBox): import("./layout-box-v2").MarkerBox[] {
+    const out: import("./layout-box-v2").MarkerBox[] = [];
+    function walk(b: import("./layout-box-v2").LayoutBox) {
+      if (b.type === "marker") out.push(b);
+      if ("children" in b && b.children) {
+        for (const c of b.children) walk(c);
+      }
+    }
+    walk(root);
+    return out;
+  }
+
+  it("emits a MarkerBox with the explicit text before a plain display:block paragraph", () => {
+    const tree = cascadePass(
+      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
+        createElementBox(
+          "para",
+          { display: "block", markerText: "1" },
+          [createTextBox("t", {}, "body")],
+        ),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+
+    const markers = collectMarkers(out);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].text).toBe("1");
+    // `outside` (default) — marker hangs to the inline-start of the content edge.
+    // contentInlineStart = paddingInlineStart (30). The marker's inline offset
+    // must be strictly less than 30 (it sits at/before the content edge).
+    expect(markers[0].x).toBeLessThan(30);
+    // Marker key follows the `${child.key}-marker` scheme.
+    expect(markers[0].key).toBe("para-marker");
+  });
+
+  it("emits NO MarkerBox for a plain block without markerText (no regression)", () => {
+    const tree = cascadePass(
+      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
+        createElementBox("para", { display: "block" }, [createTextBox("t", {}, "body")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    expect(collectMarkers(out)).toHaveLength(0);
+  });
+
+  it("display:list-item still emits its auto-counter marker (no regression)", () => {
+    const tree = cascadePass(
+      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
+        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a")]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "b")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    expect(collectMarkers(out).map(m => m.text)).toEqual(["1.", "2."]);
+  });
+
+  it("explicit markerText takes precedence and does NOT advance the list counter when on a list-item", () => {
+    // A list-item that ALSO carries an explicit markerText renders the explicit
+    // text, and the list counter is NOT incremented for it — the next plain
+    // list-item sibling stays at 1.
+    const tree = cascadePass(
+      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
+        createElementBox("li1", { display: "list-item", markerText: "*" }, [createTextBox("t1", {}, "a")]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "b")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    // li1 → explicit "*" (counter NOT advanced); li2 → "1." (still first).
+    expect(collectMarkers(out).map(m => m.text)).toEqual(["*", "1."]);
+  });
+
+  it("offset-exclusion: the marker is a direct sibling of the block, NOT inside its LineBox", () => {
+    const tree = cascadePass(
+      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
+        createElementBox("para", { display: "block", markerText: "1" }, [createTextBox("t", {}, "body")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+
+    // The block's children are [markerBox, paraBlockBox]; the marker is a
+    // sibling of the content block, never nested inside a LineBox.
+    const para = out.children.find(c => c.key === "para");
+    if (!para || !("children" in para)) throw new Error("para block not found");
+    function lineBoxesContainMarker(box: import("./layout-box-v2").LayoutBox): boolean {
+      if (box.type === "line") {
+        if (!("children" in box)) return false;
+        return box.children.some(c => c.type === "marker");
+      }
+      if ("children" in box && box.children) {
+        return box.children.some(lineBoxesContainMarker);
+      }
+      return false;
+    }
+    expect(lineBoxesContainMarker(para)).toBe(false);
+
+    // The text run inside the LineBox starts at the same content inline-start
+    // (x relative to the para's content box) it would have WITHOUT the marker —
+    // proving the marker did not shift the inline flow.
+    const treeNoMarker = cascadePass(
+      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
+        createElementBox("para", { display: "block" }, [createTextBox("t", {}, "body")]),
+      ]),
+    );
+    if (treeNoMarker.type !== "element") throw new Error("?");
+    const r2 = layoutBlock(treeNoMarker, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r2.box === null) throw new Error("layoutBlock returned null box");
+    const out2 = r2.box;
+    if (out2.type !== "block") throw new Error("?");
+
+    function firstTextRunX(box: import("./layout-box-v2").LayoutBox): number | null {
+      if (box.type === "text-run") return box.x;
+      if ("children" in box && box.children) {
+        for (const c of box.children) {
+          const x = firstTextRunX(c);
+          if (x !== null) return x;
+        }
+      }
+      return null;
+    }
+    const xWithMarker = firstTextRunX(para);
+    const xNoMarker = firstTextRunX(out2);
+    expect(xWithMarker).not.toBeNull();
+    expect(xWithMarker).toBe(xNoMarker);
+  });
+});
+
 // Recursively find the first LayoutBox whose key contains `keyFragment`.
 function findBoxByKey(root: import("./layout-box-v2").LayoutBox, keyFragment: string): import("./layout-box-v2").LayoutBox | undefined {
   if (root.key === keyFragment || root.key.includes(keyFragment)) return root;

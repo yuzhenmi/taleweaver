@@ -40,6 +40,7 @@ describe("ComputedStyle", () => {
       orphans: 2,
       listStyleType: "disc",
       listStylePosition: "outside",
+      markerText: undefined,
       writingMode: "horizontal-tb",
       direction: "ltr",
     };

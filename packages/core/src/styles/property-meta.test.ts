@@ -33,4 +33,14 @@ describe("INITIAL_COMPUTED_STYLE", () => {
     expect(INITIAL_COMPUTED_STYLE.writingMode).toBe("horizontal-tb");
     expect(INITIAL_COMPUTED_STYLE.direction).toBe("ltr");
   });
+
+  it("has no marker text by default (markerText absent)", () => {
+    expect(INITIAL_COMPUTED_STYLE.markerText).toBeUndefined();
+  });
+});
+
+describe("PROPERTY_META — markerText (generated marker content)", () => {
+  it("markerText does NOT inherit", () => {
+    expect(PROPERTY_META.markerText.inherits).toBe(false);
+  });
 });

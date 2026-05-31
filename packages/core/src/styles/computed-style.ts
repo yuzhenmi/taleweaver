@@ -87,4 +87,8 @@ export interface ComputedStyle {
 
   listStyleType:     ListStyleType;
   listStylePosition: ListStylePosition;
+
+  // Generated marker content (see Style.markerText). `undefined` = no explicit
+  // marker. Non-inheriting; flows through composeComputed generically.
+  markerText: string | undefined;
 }

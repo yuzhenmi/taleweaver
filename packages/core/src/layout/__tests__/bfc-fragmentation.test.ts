@@ -9,6 +9,17 @@ import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
+import type { LayoutBox } from "../layout-box-v2";
+
+/**
+ * Narrow a `layoutBlock` result's `box` to non-null WITHOUT widening its
+ * specific box type (so `.children` etc. stay accessible) — avoids `!` per the
+ * project no-non-null-assertion rule.
+ */
+function placed<T extends LayoutBox>(box: T | null): T {
+  if (box === null) throw new Error("expected a placed box, got null");
+  return box;
+}
 
 /** Build a root ElementBox with N block children, each of fixed block-size. */
 function buildBlockChildren(count: number, childBlockSize: number): ElementBox {
@@ -181,6 +192,122 @@ describe("BFC fragmentation — break-before", () => {
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(3);
     expect(breakToken).toBeNull();
+  });
+
+  // FN-6.2(a) regression: the break-before consumer MUST run BEFORE marker
+  // generation. If the marker were generated first, a child that carries BOTH
+  // `markerText`/`list-item` AND `breakBefore: page` (with the fragment already
+  // non-empty) would (a) orphan its marker box into the pre-break partial result
+  // AND regenerate it when the block resumes on the next page — a double marker —
+  // and (b) advance the list counter on a page where the item never actually
+  // lands. These tests pin the fix: the marker (and `listCounter++`) only happen
+  // once the block is placed on a page.
+
+  /** Collect all MarkerBox descendants of a LayoutBox (markers are direct siblings). */
+  function collectMarkerKeys(box: import("../layout-box-v2").LayoutBox): string[] {
+    const out: string[] = [];
+    function walk(b: import("../layout-box-v2").LayoutBox) {
+      if (b.type === "marker") out.push(b.key);
+      if ("children" in b && b.children) {
+        for (const c of b.children) walk(c);
+      }
+    }
+    walk(box);
+    return out;
+  }
+
+  it("does NOT orphan an explicit-markerText child's marker onto the pre-break page (FN-6.2a)", () => {
+    // child-0: normal block places content on the fragment.
+    // child-1: carries markerText "1" AND breakBefore: page → forces a break.
+    // The fragment already holds child-0, so the break fires before child-1.
+    // BEFORE the fix (marker generated first): "child-1-marker" would be present
+    // in the pre-break partial AND regenerated on resume → double marker.
+    const root = buildBlockChildrenWithStyles(
+      3,
+      100,
+      new Map([[1, { markerText: "1", breakBefore: "page" }]]),
+    );
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const fragmentation: FragmentationContext = {
+      availableBlockSize: 1000,
+      pageIndex: 0,
+      resumeFrom: null,
+    };
+
+    // Page 1 (pre-break): child-0 placed, break fired before child-1.
+    const r1 = layoutBlock(root, 0, 0, ctx, shaper, fragmentation);
+    expect(r1.box).not.toBeNull();
+    expect(placed(r1.box).children).toHaveLength(1); // only child-0, no orphaned marker
+    expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
+    // child-1's marker must NOT be orphaned onto the pre-break page.
+    expect(collectMarkerKeys(placed(r1.box))).not.toContain("child-1-marker");
+
+    // Page 2 (resume): child-1 (with its marker) + child-2 land here.
+    const r2 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 1000,
+      pageIndex: 1,
+      resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(r2.breakToken).toBeNull();
+    // The marker appears exactly ONCE, on the resumed page — never duplicated.
+    const page2Markers = collectMarkerKeys(placed(r2.box)).filter((k) => k === "child-1-marker");
+    expect(page2Markers).toEqual(["child-1-marker"]);
+  });
+
+  it("does NOT advance the list-counter on the pre-break page for a list-item that breaks (FN-6.2a)", () => {
+    // ol with 3 list-items. child-0 lands on page 1 (gets marker "1.").
+    // child-1 carries breakBefore: page → break fires before it (fragment non-empty).
+    // Because listCounter++ now runs AFTER the break check, child-1 does NOT
+    // consume a counter on page 1; on page 2 it correctly becomes "2.".
+    const children = [
+      createElementBox("li-0", { display: "list-item" } as Style, [createTextBox("t0", {}, "a")]),
+      createElementBox("li-1", { display: "list-item", breakBefore: "page" } as Style, [createTextBox("t1", {}, "b")]),
+      createElementBox("li-2", { display: "list-item" } as Style, [createTextBox("t2", {}, "c")]),
+    ];
+    const olNode = createElementBox(
+      "ol",
+      { display: "block", paddingInlineStart: 30, listStyleType: "decimal" } as Style,
+      children,
+    );
+    const cascaded = cascadePass(olNode);
+    if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // Page 1: only li-0 placed; its marker is "1.". li-1 broke before placement,
+    // so it did NOT advance the counter (no "2." orphaned here).
+    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper, {
+      availableBlockSize: 1000,
+      pageIndex: 0,
+      resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    expect(collectMarkerKeys(placed(r1.box))).not.toContain("li-1-marker");
+    expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
+
+    // Page 2: li-1 resumes and lands; its marker is "2." (counter correctly
+    // seeded from the preceding li-0, advanced exactly once for li-1).
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper, {
+      availableBlockSize: 1000,
+      pageIndex: 1,
+      resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    function markerTextFor(box: LayoutBox, key: string): string | null {
+      let found: string | null = null;
+      function walk(b: LayoutBox) {
+        if (b.type === "marker" && b.key === key) found = b.text;
+        if ("children" in b && b.children) {
+          for (const c of b.children) walk(c);
+        }
+      }
+      walk(box);
+      return found;
+    }
+    expect(markerTextFor(placed(r2.box), "li-1-marker")).toBe("2.");
   });
 });
 

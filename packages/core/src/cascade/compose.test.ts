@@ -43,4 +43,19 @@ describe("composeComputed", () => {
     const result = composeComputed({}, parent);
     expect(result.textDecoration).toBe("none");  // initial, NOT "underline"
   });
+
+  it("flows specified markerText through generically", () => {
+    const result = composeComputed({ markerText: "1" }, INITIAL_COMPUTED_STYLE);
+    expect(result.markerText).toBe("1");
+  });
+
+  it("does NOT inherit markerText from parent (generated marker content)", () => {
+    // markerText is a per-element generated-content presentation property,
+    // like a `::marker` content string. A child of a markerText-bearing
+    // parent must NOT pick it up — otherwise every descendant would render
+    // the same marker.
+    const parent = { ...INITIAL_COMPUTED_STYLE, markerText: "1" };
+    const result = composeComputed({}, parent);
+    expect(result.markerText).toBeUndefined();  // initial (absent), NOT "1"
+  });
 });
