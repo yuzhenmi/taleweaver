@@ -164,6 +164,16 @@ page). Round 2:
   show the blue selection tint over the highlight (the highlight is opaque — same
   as block backgrounds; a selection-compositing follow-up is tracked). The caret
   stays visible.
+- 🔁 **Font size + font family (NEW):** select text → the two `<select>`
+  dropdowns in the toolbar (size: 10–64px; family: Arial/Times/Courier/…). Size
+  should **reflow** (bigger text → taller line, wrapping shifts); family should
+  change the glyph shapes. Confirm both apply to exactly the selection and that a
+  larger size in the middle of a line grows that whole line (baseline-aligned).
 - (text-indent (P5.1) also shipped but has no toolbar control yet, so it's not
   directly testable without seeding `text-indent` in a doc — UI exposure is a
   follow-up.)
+
+**Inline-format toolbar is now ~feature-complete vs Google Docs:** Bold, Italic,
+Underline, Strikethrough, Text color, Highlight, Font family, Font size, Link.
+Remaining: Superscript/Subscript (awaiting your fontScale decision above) and
+Clear-formatting (next).
