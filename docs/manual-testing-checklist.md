@@ -39,19 +39,25 @@ findings and I'll act on them.
 - **Bug A (caret):** ✅ **FIXED** (commit 60742b9). Hit-test hardcoded the
   inline-block caret to the leading edge; now splits at the box midpoint so the
   caret can land *after* the marker. → 🔁 re-test in Round 2.
-- **Bug B (CRASH, critical):** ⏳ NOT reproducible in 345 core/dom unit tests at
-  any marker adjacency — the crash is in the browser-only canvas/controller layer.
-  The Bug A offset fix may clear it (a wrong offset was plausible kindling). →
-  🔁 **please re-test first** (insert footnote, click just right of its marker so
-  the caret is AFTER it, insert a 2nd). If it still crashes, I'll instrument the
-  DOM controller path directly (I can't run the browser).
+- **Bug B (CRASH, critical):** ⏳ **DOM-audit (2026-05-31) could not reproduce it
+  through ANY controller path** — state op, caret-resolve, materialize, paint,
+  click hit-test, selection all clean. **Leading conclusion: already fixed by the
+  Bug-A commit (60742b9)** — the crash was reported BEFORE that fix, back when an
+  inline-block click hardcoded offset 0 (so "click right of the marker" resolved
+  to a wrong offset). → 🔁 **re-test** (insert footnote, click just right of its
+  marker, insert a 2nd). If it STILL crashes, the one thing I need is the **live
+  console error + stack trace** — every code path I can drive is clean, so a real
+  stack is required to localize it (likely a React-render or IME/textarea path
+  none of my probes touch).
 - **Bug C (render):** ✅ **FIXED** (commit 6ec2251). The slot now emits the body root's number-marker (materialize-side only; FN-5 split path untouched; number only on the page where the footnote starts, not on continuation tails). → 🔁 re-test in Round 2 (confirm a "1/2/…" shows before each footnote body in the slot).
-- **Bug D (render):** ⏳ **provably correct in the engine — most likely stale HMR.**
-  I drove the REAL incremental edit path (`reduceEditor`: insert footnote → type a
-  long body char-by-char, paginated config) and the slot grows correctly: 1→2→3
-  lines as you type; a 120-word body → 21 lines; all lines materialize AND paint
-  (the canvas walks every slot child). Both layout reuse-gates correctly invalidate
-  the footnote page when the body content changes. So the engine is right.
+- **Bug D (render):** ⏳ **engine AND DOM paint both proven correct — most likely
+  stale HMR or an unbroken word.** Beyond the earlier engine proof, the DOM audit
+  (2026-05-31) drove the REAL `paintPage` + paint-cache with a 5-line slot: all 5
+  lines paint at distinct y's and the dirty rects cover the grown slot. So the
+  whole chain (layout → getPage → paint) is correct end to end. Two real-world
+  suspects remain: (1) **stale Vite HMR** (you tested across 12+ commits on a
+  long-running server) — the hard restart is the fix; (2) **a long *unbroken* word
+  legitimately not wrapping** (the shaper breaks only on whitespace, no UAX-14).
   → **Re-test after the hard dev-server restart above.** If it STILL shows one line
   after a clean restart, tell me:
   (a) is it ONE long line running off the edge (a long *unbroken* word with no
@@ -104,3 +110,7 @@ page). Round 2:
   start of the body; Google Docs shows it as a small superscript. Once you confirm
   the number *appears* (Round 2), I'll refine the superscript styling + exact
   spacing — that's a pixel-tuning pass best done against your browser.
+- 🔁 **Footnote separator rule (NEW — commit 6af5a9b):** a thin short rule should
+  now appear ABOVE the footnotes at the page bottom (Google Docs draws this; it
+  was previously missing entirely). Confirm it appears; colour (`#000`) and length
+  (~1.5in) are first-pass defaults I'll tune to match Docs once you see it.
