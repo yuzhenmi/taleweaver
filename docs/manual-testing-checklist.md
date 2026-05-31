@@ -114,3 +114,18 @@ page). Round 2:
   now appear ABOVE the footnotes at the page bottom (Google Docs draws this; it
   was previously missing entirely). Confirm it appears; colour (`#000`) and length
   (~1.5in) are first-pass defaults I'll tune to match Docs once you see it.
+
+## P5 Typography (NEW this session — testable)
+
+- 🔁 **Strikethrough (P5.3):** select text → **Ctrl+Shift+X** OR the new
+  Strikethrough toolbar button → a line through the text. Re-apply to remove. The
+  toolbar button should HIGHLIGHT when the selection is struck. (Strike y-position
+  is browser-tunable.) Note: underline + strikethrough can't currently combine
+  (single-value limitation, tracked) — that's expected for now.
+- 🔁 **Bonus bug fixes found while building strikethrough:** (a) **Ctrl+Shift+Z
+  REDO** now works (it was silently dead in-browser — a key-casing bug); confirm
+  redo via Ctrl+Shift+Z. (b) The **Bold/Italic/Underline toolbar buttons now
+  HIGHLIGHT** when the selection has that style (their pressed-state was dead).
+- (text-indent (P5.1) also shipped but has no toolbar control yet, so it's not
+  directly testable without seeding `text-indent` in a doc — UI exposure is a
+  follow-up.)
