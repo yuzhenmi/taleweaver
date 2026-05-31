@@ -44,6 +44,7 @@ import {
   handleSectionBreak,
   handleToggleSectionLandscape,
   handleInsertHeaderFooter,
+  handleInsertFootnote,
   handleSetTextAlign,
 } from "./actions";
 
@@ -317,6 +318,9 @@ export function reduceEditor(
       break;
     case "INSERT_FOOTER":
       result = handleInsertHeaderFooter(editor, "footer", config);
+      break;
+    case "INSERT_FOOTNOTE":
+      result = handleInsertFootnote(editor, config);
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);

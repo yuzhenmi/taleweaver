@@ -33,4 +33,5 @@ export type EditorAction =
   | { type: "TOGGLE_SECTION_LANDSCAPE" }
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
+  | { type: "INSERT_FOOTNOTE" }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign };

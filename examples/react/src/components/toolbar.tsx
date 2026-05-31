@@ -12,6 +12,7 @@ import {
   RectangleHorizontal,
   PanelTop,
   PanelBottom,
+  Superscript,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -290,6 +291,16 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Insert footer"
         icon={PanelBottom}
         onAction={() => dispatch({ type: "INSERT_FOOTER" })}
+      />
+
+      {/* Insert a footnote at the cursor: splices a superscript call marker at
+          the caret and creates an empty footnote body at the bottom of the
+          page, moving the caret into the body so you can type immediately.
+          Each click inserts a new footnote; markers renumber automatically. */}
+      <ToolbarButton
+        label="Insert footnote"
+        icon={Superscript}
+        onAction={() => dispatch({ type: "INSERT_FOOTNOTE" })}
       />
     </div>
   );
