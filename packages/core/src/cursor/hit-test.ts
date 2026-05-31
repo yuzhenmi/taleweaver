@@ -228,8 +228,18 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  * through to the body.
  *
  * Classification uses `selectionContextOf`: a MAIN-body line's owner resolves to
- * `state.rootId`; a header/footer slot line's owner resolves to that slot body's
- * own ROOT id. Runs per click/drag (not per keystroke), so the partition is fine.
+ * `state.rootId`; a header/footer/footnote slot line's owner resolves to that
+ * slot body's own ROOT id. The header and footnote slots BOTH live in non-root
+ * contexts, so they are disambiguated by Y-BAND, not by context kind:
+ *   - header band: above `contentTop` (the top margin);
+ *   - footer band: at/below `contentBottom` (the bottom margin);
+ *   - footnote band (FN-7.2): `[footnoteSlotTop, contentBottom)` — the bottom of
+ *     the body content area. The footnote slot SHRINKS the available body space
+ *     but does NOT change `effectiveBottomInset`, so its lines sit INSIDE the
+ *     content band (below the body content, above the footer). Its top is read
+ *     off `PageBox.footnoteSlot.blockOffset`; absent that named slot the page
+ *     carries no footnotes and the two-bucket logic runs unchanged.
+ * Runs per click/drag (not per keystroke), so the partition is fine.
  */
 function pickRegionByBand(
   state: State,
@@ -249,9 +259,9 @@ function pickRegionByBand(
     }
   }
 
-  // 2. NO-REGRESSION fast path: no header/footer slot lines on this page (the
-  // overwhelmingly common case). Return `visible` unchanged — byte-identical to
-  // the pre-#331 hot path for every header/footer-free doc.
+  // 2. NO-REGRESSION fast path: no header/footer/footnote slot lines on this
+  // page (the overwhelmingly common case). Return `visible` unchanged —
+  // byte-identical to the pre-#331 hot path for every slot-free doc.
   if (slotLines.length === 0) return visible;
 
   // 3. Locate the PageBox to read its content-area edges. If it's missing (a
@@ -263,28 +273,43 @@ function pickRegionByBand(
 
   // 4. The body content area (page-local). The full margins outside it are the
   // header (above `contentTop`) / footer (at-or-below `contentBottom`) zones.
-  // Classify slot lines by which margin they sit in. A slot line that lands
-  // INSIDE the content area shouldn't occur (the growing slot shrinks the body
-  // to fit); leave any such line in neither set so it can't capture the click.
+  // FN-7.2: the footnote slot, when present, occupies `[footnoteSlotTop,
+  // contentBottom)` INSIDE the content area — its top comes from the named
+  // `footnoteSlot` box (page-local `blockOffset`; same coordinate frame as the
+  // lines' `absoluteY`). Classify slot lines by band: footer (>= contentBottom),
+  // footnote (>= footnoteSlotTop && < contentBottom), header (< contentTop). A
+  // slot line in `[contentTop, footnoteSlotTop)` (none should occur) lands in no
+  // bucket so it can't capture the click.
   const contentTop = page.effectiveTopInset;
   const contentBottom = page.blockSize - page.effectiveBottomInset;
+  // `+Infinity` ⇒ no footnote band on this page (no footnote-slot line can match
+  // `l.absoluteY >= footnoteSlotTop`), so the classification collapses to the
+  // unchanged header/footer two-bucket split.
+  const footnoteSlotTop =
+    page.footnoteSlot !== null ? page.footnoteSlot.blockOffset : Number.POSITIVE_INFINITY;
   const headerLines: AbsoluteLineBox[] = [];
+  const footnoteLines: AbsoluteLineBox[] = [];
   const footerLines: AbsoluteLineBox[] = [];
   for (const l of slotLines) {
-    if (l.absoluteY < contentTop) {
-      headerLines.push(l);
-    } else if (l.absoluteY >= contentBottom) {
+    if (l.absoluteY >= contentBottom) {
       footerLines.push(l);
+    } else if (l.absoluteY >= footnoteSlotTop) {
+      footnoteLines.push(l);
+    } else if (l.absoluteY < contentTop) {
+      headerLines.push(l);
     }
   }
 
-  // 5. Choose the region by the click `y` against the content-area edges. Footer
-  // zone wins when the click is at/below `contentBottom`; else the header zone
-  // when above `contentTop`; else the body (which captures the empty body tail
-  // inside the content area — the #331 fix). Each branch's region is non-empty
-  // (slot branches are gated on having such lines; the fallthrough is
-  // `bodyLines`, non-empty here).
+  // 5. Choose the region by the click `y` against the band edges. Footer wins
+  // when the click is at/below `contentBottom`; then the footnote slot when the
+  // click is in `[footnoteSlotTop, contentBottom)`; then the header zone above
+  // `contentTop`; else the body (which captures the empty body tail above the
+  // footnote slot — the #331 clamp). Each branch is gated on having such lines;
+  // the fallthrough is `bodyLines`, non-empty here.
   if (footerLines.length > 0 && y >= contentBottom) return footerLines;
+  if (footnoteLines.length > 0 && y >= footnoteSlotTop && y < contentBottom) {
+    return footnoteLines;
+  }
   if (headerLines.length > 0 && y < contentTop) return headerLines;
   return bodyLines;
 }
